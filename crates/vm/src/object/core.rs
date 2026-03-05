@@ -576,11 +576,12 @@ impl WeakRefList {
                 ptrs.as_mut().set_next(None);
             }
 
-            // Collect callback if present and weakref is still alive
-            if wr.0.ref_count.get() > 0 {
+            // Collect callback only if we can still acquire a strong ref.
+            if wr.0.ref_count.safe_inc() {
+                let wr_ref = unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) };
                 let cb = unsafe { wr.0.payload.callback.get().replace(None) };
                 if let Some(cb) = cb {
-                    callbacks.push((wr.to_owned(), cb));
+                    callbacks.push((wr_ref, cb));
                 }
             }
 
@@ -626,11 +627,12 @@ impl WeakRefList {
                 ptrs.as_mut().set_next(None);
             }
 
-            // Collect callback without invoking
-            if wr.0.ref_count.get() > 0 {
+            // Collect callback without invoking only if we can keep weakref alive.
+            if wr.0.ref_count.safe_inc() {
+                let wr_ref = unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) };
                 let cb = unsafe { wr.0.payload.callback.get().replace(None) };
                 if let Some(cb) = cb {
-                    callbacks.push((wr.to_owned(), cb));
+                    callbacks.push((wr_ref, cb));
                 }
             }
 
@@ -660,8 +662,8 @@ impl WeakRefList {
         let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
         while let Some(node) = current {
             let wr = unsafe { node.as_ref() };
-            if wr.0.ref_count.get() > 0 {
-                v.push(wr.to_owned());
+            if wr.0.ref_count.safe_inc() {
+                v.push(unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) });
             }
             current = unsafe { WeakLink::pointers(node).as_ref().get_next() };
         }
@@ -956,6 +958,46 @@ impl ToOwned for PyObject {
         self.0.ref_count.inc();
         PyObjectRef {
             ptr: NonNull::from(self),
+        }
+    }
+}
+
+impl PyObject {
+    /// Atomically try to create a strong reference.
+    /// Returns `None` if the strong count is already 0 (object being destroyed).
+    /// Uses CAS to prevent the TOCTOU race between checking strong_count and
+    /// incrementing it.
+    #[inline]
+    pub fn try_to_owned(&self) -> Option<PyObjectRef> {
+        if self.0.ref_count.safe_inc() {
+            Some(PyObjectRef {
+                ptr: NonNull::from(self),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Like [`try_to_owned`](Self::try_to_owned), but from a raw pointer.
+    ///
+    /// Uses `addr_of!` to access `ref_count` without forming `&PyObject`,
+    /// minimizing the borrow scope when the pointer may be stale
+    /// (e.g. cache-hit paths protected by version guards).
+    ///
+    /// # Safety
+    /// `ptr` must point to a live (not yet deallocated) `PyObject`, or to
+    /// memory whose `ref_count` field is still atomically readable
+    /// (same guarantee as `_Py_TryIncRefShared`).
+    #[inline]
+    pub unsafe fn try_to_owned_from_ptr(ptr: *mut Self) -> Option<PyObjectRef> {
+        let inner = ptr.cast::<PyInner<Erased>>();
+        let ref_count = unsafe { &*core::ptr::addr_of!((*inner).ref_count) };
+        if ref_count.safe_inc() {
+            Some(PyObjectRef {
+                ptr: unsafe { NonNull::new_unchecked(ptr) },
+            })
+        } else {
+            None
         }
     }
 }

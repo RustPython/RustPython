@@ -3257,10 +3257,10 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
-                    // Cache hit: load the cached method descriptor
-                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
-                    let func = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                if type_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
+                {
                     let owner = self.pop_value();
                     self.push_value(func);
                     self.push_value(owner);
@@ -3287,9 +3287,8 @@ impl ExecutingFrame<'_> {
                 if type_version != 0
                     && owner.class().tp_version_tag.load(Acquire) == type_version
                     && owner.dict().is_none()
+                    && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
-                    let func = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
                     let owner = self.pop_value();
                     self.push_value(func);
                     self.push_value(owner);
@@ -3345,10 +3344,10 @@ impl ExecutingFrame<'_> {
                         false
                     };
 
-                    if !shadowed {
-                        // Cache hit: load the cached method descriptor
-                        let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
-                        let func = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                    if !shadowed
+                        && let Some(func) =
+                            self.try_read_cached_descriptor(cache_base, type_version)
+                    {
                         let owner = self.pop_value();
                         self.push_value(func);
                         self.push_value(owner);
@@ -3475,10 +3474,10 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
-                    // Load cached class attribute directly (no dict, no data descriptor)
-                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
-                    let attr = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                if type_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
+                {
                     self.pop_value();
                     if oparg.is_method() {
                         self.push_value(attr);
@@ -3528,8 +3527,17 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                     // Not in instance dict — use cached class attr
-                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
-                    let attr = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
+                    let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
+                    else {
+                        self.deoptimize_at(
+                            Instruction::LoadAttr {
+                                namei: Arg::marker(),
+                            },
+                            instr_idx,
+                            cache_base,
+                        );
+                        return self.load_attr_slow(vm, oparg);
+                    };
                     self.pop_value();
                     if oparg.is_method() {
                         self.push_value(attr);
@@ -3566,9 +3574,8 @@ impl ExecutingFrame<'_> {
                 if type_version != 0
                     && let Some(owner_type) = owner.downcast_ref::<PyType>()
                     && owner_type.tp_version_tag.load(Acquire) == type_version
+                    && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
-                    let attr = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
                     self.pop_value();
                     if oparg.is_method() {
                         self.push_value(attr);
@@ -3608,9 +3615,8 @@ impl ExecutingFrame<'_> {
                     && let Some(owner_type) = owner.downcast_ref::<PyType>()
                     && owner_type.tp_version_tag.load(Acquire) == type_version
                     && owner.class().tp_version_tag.load(Acquire) == metaclass_version
+                    && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
-                    let attr = unsafe { &*(descr_ptr as *const PyObject) }.to_owned();
                     self.pop_value();
                     if oparg.is_method() {
                         self.push_value(attr);
@@ -3683,19 +3689,16 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
-                    let descr_ptr = self.code.instructions.read_cache_u64(cache_base + 5);
-                    if descr_ptr != 0 {
-                        let descr = unsafe { &*(descr_ptr as *const PyObject) };
-                        if let Some(prop) = descr.downcast_ref::<PyProperty>() {
-                            let owner = self.pop_value();
-                            if let Some(getter) = prop.get_fget() {
-                                let result = getter.call((owner,), vm)?;
-                                self.push_value(result);
-                                return Ok(None);
-                            }
-                        }
-                    }
+                if type_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && let Some(descr) = self.try_read_cached_descriptor(cache_base, type_version)
+                    && let Some(prop) = descr.downcast_ref::<PyProperty>()
+                    && let Some(getter) = prop.get_fget()
+                {
+                    let owner = self.pop_value();
+                    let result = getter.call((owner,), vm)?;
+                    self.push_value(result);
+                    return Ok(None);
                 }
                 unsafe {
                     self.code.instructions.replace_op(
@@ -6883,6 +6886,70 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
+    #[inline]
+    fn try_read_cached_descriptor(
+        &self,
+        cache_base: usize,
+        expected_type_version: u32,
+    ) -> Option<PyObjectRef> {
+        let descr_ptr = self.code.instructions.read_cache_ptr(cache_base + 5);
+        if descr_ptr == 0 {
+            return None;
+        }
+        let cloned = unsafe { PyObject::try_to_owned_from_ptr(descr_ptr as *mut PyObject) }?;
+        if self.code.instructions.read_cache_u32(cache_base + 1) == expected_type_version
+            && self.code.instructions.read_cache_ptr(cache_base + 5) == descr_ptr
+        {
+            Some(cloned)
+        } else {
+            drop(cloned);
+            None
+        }
+    }
+
+    #[inline]
+    unsafe fn write_cached_descriptor(
+        &self,
+        cache_base: usize,
+        type_version: u32,
+        descr_ptr: usize,
+    ) {
+        // Publish descriptor cache atomically as a tuple:
+        // invalidate version first, then write payload, then publish version.
+        unsafe {
+            self.code.instructions.write_cache_u32(cache_base + 1, 0);
+            self.code
+                .instructions
+                .write_cache_ptr(cache_base + 5, descr_ptr);
+            self.code
+                .instructions
+                .write_cache_u32(cache_base + 1, type_version);
+        }
+    }
+
+    #[inline]
+    unsafe fn write_cached_descriptor_with_metaclass(
+        &self,
+        cache_base: usize,
+        type_version: u32,
+        metaclass_version: u32,
+        descr_ptr: usize,
+    ) {
+        // Same publish protocol as write_cached_descriptor(), plus metaclass guard.
+        unsafe {
+            self.code.instructions.write_cache_u32(cache_base + 1, 0);
+            self.code
+                .instructions
+                .write_cache_u32(cache_base + 3, metaclass_version);
+            self.code
+                .instructions
+                .write_cache_ptr(cache_base + 5, descr_ptr);
+            self.code
+                .instructions
+                .write_cache_u32(cache_base + 1, type_version);
+        }
+    }
+
     fn load_attr(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
         self.adaptive(|s, ii, cb| s.specialize_load_attr(vm, oparg, ii, cb));
         self.load_attr_slow(vm, oparg)
@@ -6973,14 +7040,9 @@ impl ExecutingFrame<'_> {
                     .flags
                     .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
             {
-                let descr_ptr = &**descr as *const PyObject as u64;
+                let descr_ptr = &**descr as *const PyObject as usize;
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_cache_u32(cache_base + 1, type_version);
-                    self.code
-                        .instructions
-                        .write_cache_u64(cache_base + 5, descr_ptr);
+                    self.write_cached_descriptor(cache_base, type_version, descr_ptr);
                 }
 
                 let new_op = if !class_has_dict {
@@ -7032,14 +7094,9 @@ impl ExecutingFrame<'_> {
                     && descr.downcast_ref::<PyProperty>().is_some()
                 {
                     // Property descriptor — cache the property object pointer
-                    let descr_ptr = &**descr as *const PyObject as u64;
+                    let descr_ptr = &**descr as *const PyObject as usize;
                     unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u32(cache_base + 1, type_version);
-                        self.code
-                            .instructions
-                            .write_cache_u64(cache_base + 5, descr_ptr);
+                        self.write_cached_descriptor(cache_base, type_version, descr_ptr);
                     }
                     self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrProperty);
                 } else {
@@ -7065,14 +7122,9 @@ impl ExecutingFrame<'_> {
             } else if class_has_dict {
                 if let Some(ref descr) = cls_attr {
                     // Plain class attr + class supports dict — check dict first, fallback
-                    let descr_ptr = &**descr as *const PyObject as u64;
+                    let descr_ptr = &**descr as *const PyObject as usize;
                     unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u32(cache_base + 1, type_version);
-                        self.code
-                            .instructions
-                            .write_cache_u64(cache_base + 5, descr_ptr);
+                        self.write_cached_descriptor(cache_base, type_version, descr_ptr);
                     }
                     self.specialize_at(
                         instr_idx,
@@ -7119,14 +7171,9 @@ impl ExecutingFrame<'_> {
                 }
             } else if let Some(ref descr) = cls_attr {
                 // No dict support, plain class attr — cache directly
-                let descr_ptr = &**descr as *const PyObject as u64;
+                let descr_ptr = &**descr as *const PyObject as usize;
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_cache_u32(cache_base + 1, type_version);
-                    self.code
-                        .instructions
-                        .write_cache_u64(cache_base + 5, descr_ptr);
+                    self.write_cached_descriptor(cache_base, type_version, descr_ptr);
                 }
                 self.specialize_at(
                     instr_idx,
@@ -7220,22 +7267,23 @@ impl ExecutingFrame<'_> {
             let has_descr_get = descr_class.slots.descr_get.load().is_some();
             if !has_descr_get {
                 // METHOD or NON_DESCRIPTOR — can cache directly
-                let descr_ptr = &**descr as *const PyObject as u64;
+                let descr_ptr = &**descr as *const PyObject as usize;
                 let new_op = if metaclass_version == 0 {
                     Instruction::LoadAttrClass
                 } else {
                     Instruction::LoadAttrClassWithMetaclassCheck
                 };
                 unsafe {
-                    self.code
-                        .instructions
-                        .write_cache_u32(cache_base + 1, type_version);
-                    self.code
-                        .instructions
-                        .write_cache_u32(cache_base + 3, metaclass_version);
-                    self.code
-                        .instructions
-                        .write_cache_u64(cache_base + 5, descr_ptr);
+                    if metaclass_version == 0 {
+                        self.write_cached_descriptor(cache_base, type_version, descr_ptr);
+                    } else {
+                        self.write_cached_descriptor_with_metaclass(
+                            cache_base,
+                            type_version,
+                            metaclass_version,
+                            descr_ptr,
+                        );
+                    }
                 }
                 self.specialize_at(instr_idx, cache_base, new_op);
                 return;

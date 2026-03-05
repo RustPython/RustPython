@@ -221,26 +221,32 @@ pub(crate) mod _thread {
         #[pymethod(name = "acquire_lock")]
         #[pymethod(name = "__enter__")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            let result = acquire_lock_impl!(&self.mu, args, vm)?;
-            if result {
+            if self.mu.is_owned_by_current_thread() {
+                // Re-entrant acquisition: just increment our count.
+                // parking_lot stays at 1 level; we track recursion ourselves.
                 self.count
                     .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                return Ok(true);
+            }
+            let result = acquire_lock_impl!(&self.mu, args, vm)?;
+            if result {
+                self.count.store(1, core::sync::atomic::Ordering::Relaxed);
             }
             Ok(result)
         }
         #[pymethod]
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-            if !self.mu.is_locked() {
-                return Err(vm.new_runtime_error("release unlocked lock"));
+            if !self.mu.is_owned_by_current_thread() {
+                return Err(vm.new_runtime_error("cannot release un-acquired lock"));
             }
-            debug_assert!(
-                self.count.load(core::sync::atomic::Ordering::Relaxed) > 0,
-                "RLock count underflow"
-            );
-            self.count
+            let prev = self
+                .count
                 .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
-            unsafe { self.mu.unlock() };
+            debug_assert!(prev > 0, "RLock count underflow");
+            if prev == 1 {
+                unsafe { self.mu.unlock() };
+            }
             Ok(())
         }
 
@@ -276,6 +282,35 @@ pub(crate) mod _thread {
             } else {
                 0
             }
+        }
+
+        #[pymethod]
+        fn _release_save(&self, vm: &VirtualMachine) -> PyResult<(usize, u64)> {
+            if !self.mu.is_owned_by_current_thread() {
+                return Err(vm.new_runtime_error("cannot release un-acquired lock"));
+            }
+            let count = self.count.swap(0, core::sync::atomic::Ordering::Relaxed);
+            debug_assert!(count > 0, "RLock count underflow");
+            unsafe { self.mu.unlock() };
+            Ok((count, current_thread_id()))
+        }
+
+        #[pymethod]
+        fn _acquire_restore(&self, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+            let [count_obj, owner_obj] = state.as_slice() else {
+                return Err(
+                    vm.new_type_error("_acquire_restore() argument 1 must be a 2-item tuple")
+                );
+            };
+            let count: usize = count_obj.clone().try_into_value(vm)?;
+            let _owner: u64 = owner_obj.clone().try_into_value(vm)?;
+            if count == 0 {
+                return Ok(());
+            }
+            self.mu.lock();
+            self.count
+                .store(count, core::sync::atomic::Ordering::Relaxed);
+            Ok(())
         }
 
         #[pymethod]

@@ -64,10 +64,9 @@ static NEXT_TYPE_VERSION: AtomicU32 = AtomicU32::new(1);
 // Method cache (type_cache / MCACHE): direct-mapped cache keyed by
 // (tp_version_tag, interned_name_ptr).
 //
-// Uses a lock-free SeqLock pattern:
-//  - version acts as both cache key AND sequence counter
-//  - Read: load version (Acquire), read value ptr, re-check version
-//  - Write: set version=0 (invalidate), store value, store version (Release)
+// Uses a lock-free SeqLock pattern for the read/write protocol:
+//  - Readers validate sequence/version/name before and after the value read.
+//  - Writers bracket updates with sequence odd/even transitions.
 // No mutex needed on the hot path (cache hit).
 
 const TYPE_CACHE_SIZE_EXP: u32 = 12;
@@ -75,6 +74,8 @@ const TYPE_CACHE_SIZE: usize = 1 << TYPE_CACHE_SIZE_EXP;
 const TYPE_CACHE_MASK: usize = TYPE_CACHE_SIZE - 1;
 
 struct TypeCacheEntry {
+    /// Sequence lock (odd = write in progress, even = quiescent).
+    sequence: AtomicU32,
     /// tp_version_tag at cache time. 0 = empty/invalid.
     version: AtomicU32,
     /// Interned attribute name pointer (pointer equality check).
@@ -94,10 +95,58 @@ unsafe impl Sync for TypeCacheEntry {}
 impl TypeCacheEntry {
     fn new() -> Self {
         Self {
+            sequence: AtomicU32::new(0),
             version: AtomicU32::new(0),
             name: AtomicPtr::new(core::ptr::null_mut()),
             value: AtomicPtr::new(core::ptr::null_mut()),
         }
+    }
+
+    #[inline]
+    fn begin_write(&self) {
+        let mut seq = self.sequence.load(Ordering::Acquire);
+        loop {
+            while (seq & 1) != 0 {
+                core::hint::spin_loop();
+                seq = self.sequence.load(Ordering::Acquire);
+            }
+            match self.sequence.compare_exchange_weak(
+                seq,
+                seq.wrapping_add(1),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    core::sync::atomic::fence(Ordering::Release);
+                    break;
+                }
+                Err(observed) => {
+                    core::hint::spin_loop();
+                    seq = observed;
+                }
+            }
+        }
+    }
+
+    #[inline]
+    fn end_write(&self) {
+        self.sequence.fetch_add(1, Ordering::Release);
+    }
+
+    #[inline]
+    fn begin_read(&self) -> u32 {
+        let mut sequence = self.sequence.load(Ordering::Acquire);
+        while (sequence & 1) != 0 {
+            core::hint::spin_loop();
+            sequence = self.sequence.load(Ordering::Acquire);
+        }
+        sequence
+    }
+
+    #[inline]
+    fn end_read(&self, previous: u32) -> bool {
+        core::sync::atomic::fence(Ordering::Acquire);
+        self.sequence.load(Ordering::Relaxed) == previous
     }
 
     /// Take the value out of this entry, returning the owned PyObjectRef.
@@ -137,10 +186,14 @@ fn type_cache_clear_version(version: u32) {
     let mut to_drop = Vec::new();
     for entry in TYPE_CACHE.iter() {
         if entry.version.load(Ordering::Relaxed) == version {
-            entry.version.store(0, Ordering::Release);
-            if let Some(v) = entry.take_value() {
-                to_drop.push(v);
+            entry.begin_write();
+            if entry.version.load(Ordering::Relaxed) == version {
+                entry.version.store(0, Ordering::Release);
+                if let Some(v) = entry.take_value() {
+                    to_drop.push(v);
+                }
             }
+            entry.end_write();
         }
     }
     drop(to_drop);
@@ -158,10 +211,12 @@ pub fn type_cache_clear() {
     // Invalidate all entries and collect values.
     let mut to_drop = Vec::new();
     for entry in TYPE_CACHE.iter() {
+        entry.begin_write();
         entry.version.store(0, Ordering::Release);
         if let Some(v) = entry.take_value() {
             to_drop.push(v);
         }
+        entry.end_write();
     }
     drop(to_drop);
     TYPE_CACHE_CLEARING.store(false, Ordering::Release);
@@ -701,8 +756,11 @@ impl PyType {
     }
 
     pub fn set_attr(&self, attr_name: &'static PyStrInterned, value: PyObjectRef) {
-        self.attributes.write().insert(attr_name, value);
+        // Invalidate caches BEFORE modifying attributes so that cached
+        // descriptor pointers are still alive when type_cache_clear_version
+        // drops the cache's strong references.
         self.modified();
+        self.attributes.write().insert(attr_name, value);
     }
 
     /// Internal get_attr implementation for fast lookup on a class.
@@ -718,41 +776,43 @@ impl PyType {
     /// find_name_in_mro with method cache (MCACHE).
     /// Looks in tp_dict of types in MRO, bypasses descriptors.
     ///
-    /// Uses a lock-free SeqLock pattern keyed by version:
-    ///   Read:  load version → check name → load value → clone → re-check version
-    ///   Write: version=0 → swap value → set name → version=assigned
+    /// Uses a lock-free SeqLock-style pattern:
+    ///   Read:  load sequence/version/name → load value + try_to_owned →
+    ///          validate value pointer + sequence
+    ///   Write: sequence(begin) → version=0 → swap value/name → version=assigned → sequence(end)
     fn find_name_in_mro(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
         let version = self.tp_version_tag.load(Ordering::Acquire);
         if version != 0 {
             let idx = type_cache_hash(version, name);
             let entry = &TYPE_CACHE[idx];
-            let v1 = entry.version.load(Ordering::Acquire);
-            if v1 == version
-                && core::ptr::eq(
-                    entry.name.load(Ordering::Relaxed),
-                    name as *const _ as *mut _,
-                )
-            {
+            let name_ptr = name as *const _ as *mut _;
+            loop {
+                let seq1 = entry.begin_read();
+                let v1 = entry.version.load(Ordering::Acquire);
+                let type_version = self.tp_version_tag.load(Ordering::Acquire);
+                if v1 != type_version
+                    || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
+                {
+                    break;
+                }
                 let ptr = entry.value.load(Ordering::Acquire);
-                if !ptr.is_null() {
-                    // SAFETY: The value pointer was stored via PyObjectRef::into_raw
-                    // and is valid as long as the version hasn't changed. We create
-                    // a temporary reference (ManuallyDrop prevents decrement), clone
-                    // it to get our own strong reference, then re-check the version
-                    // to confirm the entry wasn't invalidated during our read.
-                    let cloned = unsafe {
-                        let tmp = core::mem::ManuallyDrop::new(PyObjectRef::from_raw(
-                            NonNull::new_unchecked(ptr),
-                        ));
-                        (*tmp).clone()
-                    };
-                    // SeqLock validation: if version changed, discard our clone
-                    let v2 = entry.version.load(Ordering::Acquire);
-                    if v2 == v1 {
+                if ptr.is_null() {
+                    if entry.end_read(seq1) {
+                        break;
+                    }
+                    continue;
+                }
+                // _Py_TryIncrefCompare-style validation:
+                // safe_inc via raw pointer, then ensure source is unchanged.
+                if let Some(cloned) = unsafe { PyObject::try_to_owned_from_ptr(ptr) } {
+                    let same_ptr = core::ptr::eq(entry.value.load(Ordering::Relaxed), ptr);
+                    if same_ptr && entry.end_read(seq1) {
                         return Some(cloned);
                     }
                     drop(cloned);
+                    continue;
                 }
+                break;
             }
         }
 
@@ -777,16 +837,17 @@ impl PyType {
         {
             let idx = type_cache_hash(assigned, name);
             let entry = &TYPE_CACHE[idx];
+            let name_ptr = name as *const _ as *mut _;
+            entry.begin_write();
             // Invalidate first to prevent readers from seeing partial state
             entry.version.store(0, Ordering::Release);
             // Swap in new value (refcount held by cache)
             let new_ptr = found.clone().into_raw().as_ptr();
             let old_ptr = entry.value.swap(new_ptr, Ordering::Relaxed);
-            entry
-                .name
-                .store(name as *const _ as *mut _, Ordering::Relaxed);
+            entry.name.store(name_ptr, Ordering::Relaxed);
             // Activate entry — Release ensures value/name writes are visible
             entry.version.store(assigned, Ordering::Release);
+            entry.end_write();
             // Drop previous occupant (its version was already invalidated)
             if !old_ptr.is_null() {
                 unsafe {
@@ -832,20 +893,24 @@ impl PyType {
         if version != 0 {
             let idx = type_cache_hash(version, name);
             let entry = &TYPE_CACHE[idx];
-            let v1 = entry.version.load(Ordering::Acquire);
-            if v1 == version
-                && core::ptr::eq(
-                    entry.name.load(Ordering::Relaxed),
-                    name as *const _ as *mut _,
-                )
-            {
+            let name_ptr = name as *const _ as *mut _;
+            loop {
+                let seq1 = entry.begin_read();
+                let v1 = entry.version.load(Ordering::Acquire);
+                let type_version = self.tp_version_tag.load(Ordering::Acquire);
+                if v1 != type_version
+                    || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
+                {
+                    break;
+                }
                 let ptr = entry.value.load(Ordering::Acquire);
-                if !ptr.is_null() {
-                    let v2 = entry.version.load(Ordering::Acquire);
-                    if v2 == v1 {
+                if entry.end_read(seq1) {
+                    if !ptr.is_null() {
                         return true;
                     }
+                    break;
                 }
+                continue;
             }
         }
 
@@ -1498,8 +1563,8 @@ impl PyType {
             PySetterValue::Assign(ref val) => {
                 let key = identifier!(vm, __type_params__);
                 self.check_set_special_type_attr(key, vm)?;
-                self.attributes.write().insert(key, val.clone().into());
                 self.modified();
+                self.attributes.write().insert(key, val.clone().into());
             }
             PySetterValue::Delete => {
                 // For delete, we still need to check if the type is immutable
@@ -1510,8 +1575,8 @@ impl PyType {
                     )));
                 }
                 let key = identifier!(vm, __type_params__);
-                self.attributes.write().shift_remove(&key);
                 self.modified();
+                self.attributes.write().shift_remove(&key);
             }
         }
         Ok(())
