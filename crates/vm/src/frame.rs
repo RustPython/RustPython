@@ -4043,6 +4043,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                     let args = self.collect_positional_args(nargs);
                     self.execute_call(args, vm)
                 }
@@ -4079,12 +4082,12 @@ impl ExecutingFrame<'_> {
                         self.push_value(result);
                         return Ok(None);
                     }
-                    let args = self.collect_positional_args(nargs);
-                    self.execute_call(args, vm)
-                } else {
-                    let args = self.collect_positional_args(nargs);
-                    self.execute_call(args, vm)
                 }
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
             }
             Instruction::CallLen => {
                 let instr_idx = self.lasti() as usize - 1;
@@ -4364,15 +4367,12 @@ impl ExecutingFrame<'_> {
                         self.push_value(result);
                         return Ok(None);
                     }
-                    let args = self.collect_positional_args(nargs);
-                    self.execute_call(args, vm)
-                } else {
-                    self.deoptimize(Instruction::Call {
-                        argc: Arg::marker(),
-                    });
-                    let args = self.collect_positional_args(nargs);
-                    self.execute_call(args, vm)
                 }
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
+                let args = self.collect_positional_args(nargs);
+                self.execute_call(args, vm)
             }
             Instruction::CallListAppend => {
                 let nargs: u32 = arg.into();
@@ -4562,6 +4562,9 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
+                self.deoptimize(Instruction::Call {
+                    argc: Arg::marker(),
+                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallAllocAndEnterInit => {
@@ -4714,6 +4717,9 @@ impl ExecutingFrame<'_> {
                 if callable.downcast_ref::<PyFunction>().is_some()
                     || callable.downcast_ref::<PyBoundMethod>().is_some()
                 {
+                    self.deoptimize(Instruction::Call {
+                        argc: Arg::marker(),
+                    });
                     let args = self.collect_positional_args(nargs);
                     return self.execute_call(args, vm);
                 }
@@ -4845,6 +4851,9 @@ impl ExecutingFrame<'_> {
                 if callable.downcast_ref::<PyFunction>().is_some()
                     || callable.downcast_ref::<PyBoundMethod>().is_some()
                 {
+                    self.deoptimize(Instruction::CallKw {
+                        argc: Arg::marker(),
+                    });
                     let args = self.collect_keyword_args(nargs);
                     return self.execute_call(args, vm);
                 }
