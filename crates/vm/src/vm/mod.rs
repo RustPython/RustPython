@@ -1522,6 +1522,11 @@ impl VirtualMachine {
         false
     }
 
+    #[inline(always)]
+    pub(crate) fn reached_c_stack_limit(&self) -> bool {
+        self.check_c_stack_overflow()
+    }
+
     /// Used to run the body of a (possibly) recursive function. It will raise a
     /// RecursionError if recursive functions are nested far too many times,
     /// preventing a stack overflow.

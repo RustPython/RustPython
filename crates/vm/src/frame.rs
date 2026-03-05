@@ -4246,6 +4246,9 @@ impl ExecutingFrame<'_> {
                             args_vec.push(self_val);
                         }
                         args_vec.extend(pos_args);
+                        if vm.reached_c_stack_limit() {
+                            return Err(vm.new_recursion_error(String::new()));
+                        }
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -4448,6 +4451,9 @@ impl ExecutingFrame<'_> {
                             args: all_args,
                             kwargs: Default::default(),
                         };
+                        if vm.reached_c_stack_limit() {
+                            return Err(vm.new_recursion_error(String::new()));
+                        }
                         let result = func(vm, args)?;
                         self.push_value(result);
                         return Ok(None);
@@ -4496,6 +4502,9 @@ impl ExecutingFrame<'_> {
                             args: all_args,
                             kwargs: Default::default(),
                         };
+                        if vm.reached_c_stack_limit() {
+                            return Err(vm.new_recursion_error(String::new()));
+                        }
                         let result = func(vm, args)?;
                         self.push_value(result);
                         return Ok(None);
