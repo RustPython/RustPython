@@ -1,7 +1,6 @@
 //! Garbage Collection State and Algorithm
 //!
-//! This module implements CPython-compatible generational garbage collection
-//! for RustPython, using an intrusive doubly-linked list approach.
+//! Generational garbage collection using an intrusive doubly-linked list.
 
 use crate::common::linked_list::LinkedList;
 use crate::common::lock::{PyMutex, PyRwLock};
@@ -28,12 +27,23 @@ bitflags::bitflags! {
     }
 }
 
+/// Result from a single collection run
+#[derive(Debug, Default)]
+pub struct CollectResult {
+    pub collected: usize,
+    pub uncollectable: usize,
+    pub candidates: usize,
+    pub duration: f64,
+}
+
 /// Statistics for a single generation (gc_generation_stats)
 #[derive(Debug, Default)]
 pub struct GcStats {
     pub collections: usize,
     pub collected: usize,
     pub uncollectable: usize,
+    pub candidates: usize,
+    pub duration: f64,
 }
 
 /// A single GC generation with intrusive linked list
@@ -55,6 +65,8 @@ impl GcGeneration {
                 collections: 0,
                 collected: 0,
                 uncollectable: 0,
+                candidates: 0,
+                duration: 0.0,
             }),
         }
     }
@@ -77,14 +89,24 @@ impl GcGeneration {
             collections: guard.collections,
             collected: guard.collected,
             uncollectable: guard.uncollectable,
+            candidates: guard.candidates,
+            duration: guard.duration,
         }
     }
 
-    pub fn update_stats(&self, collected: usize, uncollectable: usize) {
+    pub fn update_stats(
+        &self,
+        collected: usize,
+        uncollectable: usize,
+        candidates: usize,
+        duration: f64,
+    ) {
         let mut guard = self.stats.lock();
         guard.collections += 1;
         guard.collected += collected;
         guard.uncollectable += uncollectable;
+        guard.candidates += candidates;
+        guard.duration += duration;
     }
 
     /// Reset the stats mutex to unlocked state after fork().
@@ -340,24 +362,26 @@ impl GcState {
     }
 
     /// Perform garbage collection on the given generation
-    pub fn collect(&self, generation: usize) -> (usize, usize) {
+    pub fn collect(&self, generation: usize) -> CollectResult {
         self.collect_inner(generation, false)
     }
 
     /// Force collection even if GC is disabled (for manual gc.collect() calls)
-    pub fn collect_force(&self, generation: usize) -> (usize, usize) {
+    pub fn collect_force(&self, generation: usize) -> CollectResult {
         self.collect_inner(generation, true)
     }
 
-    fn collect_inner(&self, generation: usize, force: bool) -> (usize, usize) {
+    fn collect_inner(&self, generation: usize, force: bool) -> CollectResult {
         if !force && !self.is_enabled() {
-            return (0, 0);
+            return CollectResult::default();
         }
 
         // Try to acquire the collecting lock
         let Some(_guard) = self.collecting.try_lock() else {
-            return (0, 0);
+            return CollectResult::default();
         };
+
+        let start_time = std::time::Instant::now();
 
         // Memory barrier to ensure visibility of all reference count updates
         // from other threads before we start analyzing the object graph.
@@ -386,10 +410,23 @@ impl GcState {
         }
 
         if collecting.is_empty() {
-            self.generations[0].count.store(0, Ordering::SeqCst);
-            self.generations[generation].update_stats(0, 0);
-            return (0, 0);
+            // Reset counts for generations whose objects were promoted away.
+            // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
+            let reset_end = if generation >= 2 { 2 } else { generation + 1 };
+            for i in 0..reset_end {
+                self.generations[i].count.store(0, Ordering::SeqCst);
+            }
+            let duration = start_time.elapsed().as_secs_f64();
+            self.generations[generation].update_stats(0, 0, 0, duration);
+            return CollectResult {
+                collected: 0,
+                uncollectable: 0,
+                candidates: 0,
+                duration,
+            };
         }
+
+        let candidates = collecting.len();
 
         if debug.contains(GcDebugFlags::STATS) {
             eprintln!(
@@ -486,9 +523,17 @@ impl GcState {
         if unreachable.is_empty() {
             drop(gen_locks);
             self.promote_survivors(generation, &survivor_refs);
-            self.generations[0].count.store(0, Ordering::SeqCst);
-            self.generations[generation].update_stats(0, 0);
-            return (0, 0);
+            for i in 0..generation {
+                self.generations[i].count.store(0, Ordering::SeqCst);
+            }
+            let duration = start_time.elapsed().as_secs_f64();
+            self.generations[generation].update_stats(0, 0, candidates, duration);
+            return CollectResult {
+                collected: 0,
+                uncollectable: 0,
+                candidates,
+                duration,
+            };
         }
 
         // Release read locks before finalization phase.
@@ -498,9 +543,17 @@ impl GcState {
 
         if unreachable_refs.is_empty() {
             self.promote_survivors(generation, &survivor_refs);
-            self.generations[0].count.store(0, Ordering::SeqCst);
-            self.generations[generation].update_stats(0, 0);
-            return (0, 0);
+            for i in 0..generation {
+                self.generations[i].count.store(0, Ordering::SeqCst);
+            }
+            let duration = start_time.elapsed().as_secs_f64();
+            self.generations[generation].update_stats(0, 0, candidates, duration);
+            return CollectResult {
+                collected: 0,
+                uncollectable: 0,
+                candidates,
+                duration,
+            };
         }
 
         // 6b: Record initial strong counts (for resurrection detection)
@@ -594,14 +647,24 @@ impl GcState {
         };
 
         // Promote survivors to next generation BEFORE tp_clear.
-        // This matches CPython's order (move_legacy_finalizer_reachable → delete_garbage)
-        // and ensures survivor_refs are dropped before tp_clear, so reachable objects
-        // (e.g. LateFin) aren't kept alive beyond the deferred-drop phase.
+        // move_legacy_finalizer_reachable → delete_garbage order ensures
+        // survivor_refs are dropped before tp_clear, so reachable objects
+        // aren't kept alive beyond the deferred-drop phase.
         self.promote_survivors(generation, &survivor_refs);
         drop(survivor_refs);
 
         // Resurrected objects stay tracked — just drop our references
         drop(resurrected);
+
+        if debug.contains(GcDebugFlags::COLLECTABLE) {
+            for obj in &truly_dead {
+                eprintln!(
+                    "gc: collectable <{} {:p}>",
+                    obj.class().name(),
+                    obj.as_ref()
+                );
+            }
+        }
 
         if debug.contains(GcDebugFlags::SAVEALL) {
             let mut garbage_guard = self.garbage.lock();
@@ -624,12 +687,22 @@ impl GcState {
             });
         }
 
-        // Reset gen0 count
-        self.generations[0].count.store(0, Ordering::SeqCst);
+        // Reset counts for generations whose objects were promoted away.
+        // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
+        let reset_end = if generation >= 2 { 2 } else { generation + 1 };
+        for i in 0..reset_end {
+            self.generations[i].count.store(0, Ordering::SeqCst);
+        }
 
-        self.generations[generation].update_stats(collected, 0);
+        let duration = start_time.elapsed().as_secs_f64();
+        self.generations[generation].update_stats(collected, 0, candidates, duration);
 
-        (collected, 0)
+        CollectResult {
+            collected,
+            uncollectable: 0,
+            candidates,
+            duration,
+        }
     }
 
     /// Promote surviving objects to the next generation.
