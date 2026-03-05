@@ -4577,6 +4577,9 @@ impl ExecutingFrame<'_> {
                     && cls.tp_version_tag.load(Acquire) == cached_version
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
                 {
+                    if vm.reached_c_stack_limit() {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     // Allocate object directly (tp_new == object.__new__)
                     let dict = if cls
                         .slots
