@@ -4159,7 +4159,7 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
+                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
                 let callable = self.nth_value(nargs + 1);
@@ -4195,7 +4195,7 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
+                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
                 let stack_len = self.localsplus.stack_len();
@@ -4636,7 +4636,7 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_kw_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
+                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_kw_vectorcall(nargs, vm);
                 }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
@@ -4682,6 +4682,9 @@ impl ExecutingFrame<'_> {
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_kw_vectorcall(nargs, vm);
+                }
+                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
                     return self.execute_call_kw_vectorcall(nargs, vm);
                 }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
