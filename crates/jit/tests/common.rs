@@ -1,6 +1,6 @@
 use core::ops::ControlFlow;
 use rustpython_compiler_core::bytecode::{
-    CodeObject, ConstantData, Instruction, OpArg, OpArgState,
+    CodeObject, ConstantData, Constants, Instruction, OpArg, OpArgState,
 };
 use rustpython_jit::{CompiledCode, JitType};
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
@@ -77,7 +77,7 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
 
         match instruction {
             Instruction::LoadConst { consti } => {
-                stack.push((true, consti.get(arg) as usize));
+                stack.push((true, consti.get(arg).as_usize()));
             }
             Instruction::LoadName { namei } => {
                 stack.push((false, namei.get(arg) as usize));
@@ -99,7 +99,8 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
 
                         // Key should be a const string (parameter name)
                         if key_is_const
-                            && let ConstantData::Str { value } = &code.constants[key_idx]
+                            && let ConstantData::Str { value } =
+                                &code.constants[(key_idx as u32).into()]
                         {
                             let param_name = value;
                             // Value can be a name (type ref) or a const string (forward ref)
@@ -185,7 +186,7 @@ impl StackMachine {
         &mut self,
         instruction: Instruction,
         arg: OpArg,
-        constants: &[ConstantData],
+        constants: &Constants,
         names: &[String],
     ) -> ControlFlow<()> {
         match instruction {
@@ -193,8 +194,7 @@ impl StackMachine {
                 // No-op for JIT tests
             }
             Instruction::LoadConst { consti } => {
-                let idx = consti.get(arg);
-                self.stack.push(constants[idx as usize].clone().into())
+                self.stack.push(constants[consti.get(arg)].clone().into())
             }
             Instruction::LoadName { namei } => self
                 .stack
