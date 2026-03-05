@@ -3798,7 +3798,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(list), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyList>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Ok(i) = idx.try_to_primitive::<usize>(vm)
+                ) && let Some(i) = Self::specialization_nonnegative_compact_index(idx, vm)
                 {
                     let vec = list.borrow_vec();
                     if i < vec.len() {
@@ -3818,7 +3818,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(tuple), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyTuple>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Ok(i) = idx.try_to_primitive::<usize>(vm)
+                ) && let Some(i) = Self::specialization_nonnegative_compact_index(idx, vm)
                 {
                     let elements = tuple.as_slice();
                     if i < elements.len() {
@@ -3860,7 +3860,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(a_str), Some(b_int)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Ok(i) = b_int.try_to_primitive::<usize>(vm)
+                ) && let Some(i) = Self::specialization_nonnegative_compact_index(b_int, vm)
                     && let Ok(ch) = a_str.getitem_by_index(vm, i as isize)
                     && ch.is_ascii()
                 {
@@ -7401,9 +7401,9 @@ impl ExecutingFrame<'_> {
                 }
             }
             bytecode::BinaryOperator::Subscr => {
-                let b_is_nonnegative_int = b
-                    .downcast_ref_if_exact::<PyInt>(vm)
-                    .is_some_and(|i| i.try_to_primitive::<usize>(vm).is_ok());
+                let b_is_nonnegative_int = b.downcast_ref_if_exact::<PyInt>(vm).is_some_and(|i| {
+                    Self::specialization_nonnegative_compact_index(i, vm).is_some()
+                });
                 if a.downcast_ref_if_exact::<PyList>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrListInt)
                 } else if a.downcast_ref_if_exact::<PyTuple>(vm).is_some() && b_is_nonnegative_int {
@@ -8261,6 +8261,18 @@ impl ExecutingFrame<'_> {
                 .checked_add(extra_bytes)
                 .is_some_and(|size| vm.datastack_has_space(size)),
             None => true,
+        }
+    }
+
+    #[inline]
+    fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
+        // CPython's _PyLong_IsNonNegativeCompact() uses a single base-2^30 digit.
+        const CPYTHON_COMPACT_LONG_MAX: u64 = (1u64 << 30) - 1;
+        let v = i.try_to_primitive::<u64>(vm).ok()?;
+        if v <= CPYTHON_COMPACT_LONG_MAX {
+            Some(v as usize)
+        } else {
+            None
         }
     }
 
