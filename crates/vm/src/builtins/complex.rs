@@ -321,8 +321,15 @@ impl PyComplex {
         if spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_complex(&zelf.value))
+        let format_spec =
+            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let result = if format_spec.has_locale_format() {
+            let locale = crate::format::get_locale_info();
+            format_spec.format_complex_locale(&zelf.value, &locale)
+        } else {
+            format_spec.format_complex(&zelf.value)
+        };
+        result
             .map(Wtf8Buf::from_string)
             .map_err(|err| err.into_pyexception(vm))
     }

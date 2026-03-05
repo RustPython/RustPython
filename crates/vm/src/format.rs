@@ -9,6 +9,64 @@ use crate::{
 use crate::common::format::*;
 use crate::common::wtf8::{Wtf8, Wtf8Buf};
 
+/// Get locale information from C `localeconv()` for the 'n' format specifier.
+#[cfg(unix)]
+pub(crate) fn get_locale_info() -> LocaleInfo {
+    use core::ffi::CStr;
+    unsafe {
+        let lc = libc::localeconv();
+        if lc.is_null() {
+            return LocaleInfo {
+                thousands_sep: String::new(),
+                decimal_point: ".".to_string(),
+                grouping: vec![],
+            };
+        }
+        let thousands_sep = CStr::from_ptr((*lc).thousands_sep)
+            .to_string_lossy()
+            .into_owned();
+        let decimal_point = CStr::from_ptr((*lc).decimal_point)
+            .to_string_lossy()
+            .into_owned();
+        let grouping = parse_grouping((*lc).grouping);
+        LocaleInfo {
+            thousands_sep,
+            decimal_point,
+            grouping,
+        }
+    }
+}
+
+#[cfg(not(unix))]
+pub(crate) fn get_locale_info() -> LocaleInfo {
+    LocaleInfo {
+        thousands_sep: String::new(),
+        decimal_point: ".".to_string(),
+        grouping: vec![],
+    }
+}
+
+/// Parse C `lconv.grouping` into a `Vec<u8>`.
+/// Reads bytes until 0 or CHAR_MAX, then appends 0 (meaning "repeat last group").
+#[cfg(unix)]
+unsafe fn parse_grouping(grouping: *const libc::c_char) -> Vec<u8> {
+    let mut result = Vec::new();
+    if grouping.is_null() {
+        return result;
+    }
+    unsafe {
+        let mut ptr = grouping;
+        while ![0, libc::c_char::MAX].contains(&*ptr) {
+            result.push(*ptr as u8);
+            ptr = ptr.add(1);
+        }
+    }
+    if !result.is_empty() {
+        result.push(0);
+    }
+    result
+}
+
 impl IntoPyException for FormatSpecError {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
