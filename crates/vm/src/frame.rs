@@ -3707,9 +3707,37 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadAttrGetattributeOverridden => {
                 let oparg = LoadAttr::new(u32::from(arg));
-                self.deoptimize(Instruction::LoadAttr {
-                    namei: Arg::marker(),
-                });
+                let instr_idx = self.lasti() as usize - 1;
+                let cache_base = instr_idx + 1;
+                let owner = self.top_value();
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let func_version = self.code.instructions.read_cache_u32(cache_base + 3);
+
+                if !oparg.is_method()
+                    && !self.specialization_eval_frame_active(vm)
+                    && !vm.reached_c_stack_limit()
+                    && type_version != 0
+                    && func_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && let Some(func_obj) =
+                        self.try_read_cached_descriptor(cache_base, type_version)
+                    && let Some(func) = func_obj.downcast_ref_if_exact::<PyFunction>(vm)
+                    && func.func_version() == func_version
+                    && func.can_specialize_call(2)
+                {
+                    let owner = self.pop_value();
+                    let attr_name = self.code.names[oparg.name_idx() as usize].to_owned().into();
+                    let result = func.invoke_exact_args(vec![owner, attr_name], vm)?;
+                    self.push_value(result);
+                    return Ok(None);
+                }
+                self.deoptimize_at(
+                    Instruction::LoadAttr {
+                        namei: Arg::marker(),
+                    },
+                    instr_idx,
+                    cache_base,
+                );
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrSlot => {
@@ -3760,13 +3788,16 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
+                    && !self.specialization_eval_frame_active(vm)
+                    && !vm.reached_c_stack_limit()
                     && owner.class().tp_version_tag.load(Acquire) == type_version
-                    && let Some(descr) = self.try_read_cached_descriptor(cache_base, type_version)
-                    && let Some(prop) = descr.downcast_ref::<PyProperty>()
-                    && let Some(getter) = prop.get_fget()
+                    && let Some(fget_obj) =
+                        self.try_read_cached_descriptor(cache_base, type_version)
+                    && let Some(func) = fget_obj.downcast_ref_if_exact::<PyFunction>(vm)
+                    && func.can_specialize_call(1)
                 {
                     let owner = self.pop_value();
-                    let result = getter.call((owner,), vm)?;
+                    let result = func.invoke_exact_args(vec![owner], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -7157,6 +7188,34 @@ impl ExecutingFrame<'_> {
             .load()
             .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
         if !is_default_getattro {
+            let mut type_version = cls.tp_version_tag.load(Acquire);
+            if type_version == 0 {
+                type_version = cls.assign_version_tag();
+            }
+            if type_version != 0
+                && !oparg.is_method()
+                && !self.specialization_eval_frame_active(_vm)
+                && let Some(getattribute) = cls.get_attr(identifier!(_vm, __getattribute__))
+                && let Some(func) = getattribute.downcast_ref_if_exact::<PyFunction>(_vm)
+                && func.can_specialize_call(2)
+            {
+                let func_version = func.get_version_for_current_state();
+                if func_version != 0 {
+                    let func_ptr = &*getattribute as *const PyObject as usize;
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 3, func_version);
+                        self.write_cached_descriptor(cache_base, type_version, func_ptr);
+                    }
+                    self.specialize_at(
+                        instr_idx,
+                        cache_base,
+                        Instruction::LoadAttrGetattributeOverridden,
+                    );
+                    return;
+                }
+            }
             unsafe {
                 self.code.instructions.write_adaptive_counter(
                     cache_base,
@@ -7263,12 +7322,16 @@ impl ExecutingFrame<'_> {
                     }
                     self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrSlot);
                 } else if let Some(ref descr) = cls_attr
-                    && descr.downcast_ref::<PyProperty>().is_some()
+                    && let Some(prop) = descr.downcast_ref::<PyProperty>()
+                    && let Some(fget) = prop.get_fget()
+                    && let Some(func) = fget.downcast_ref_if_exact::<PyFunction>(_vm)
+                    && func.can_specialize_call(1)
+                    && !self.specialization_eval_frame_active(_vm)
                 {
-                    // Property descriptor — cache the property object pointer
-                    let descr_ptr = &**descr as *const PyObject as usize;
+                    // Property specialization caches fget directly, matching CPython.
+                    let fget_ptr = &*fget as *const PyObject as usize;
                     unsafe {
-                        self.write_cached_descriptor(cache_base, type_version, descr_ptr);
+                        self.write_cached_descriptor(cache_base, type_version, fget_ptr);
                     }
                     self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrProperty);
                 } else {
