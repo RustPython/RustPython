@@ -23,7 +23,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, Either, FuncArgs},
+    function::{ArgMapping, Either, FuncArgs, PyMethodFlags},
     object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
@@ -4390,7 +4390,8 @@ impl ExecutingFrame<'_> {
                         callable
                             .downcast_ref::<PyMethodDescriptor>()
                             .is_some_and(|descr| {
-                                descr.method.name == "append"
+                                descr.method.flags.contains(PyMethodFlags::METHOD)
+                                    && descr.method.name == "append"
                                     && descr.objclass.is(vm.ctx.types.list_type)
                             });
                     if is_list_append && self_or_null_is_some && self_is_list {
@@ -4432,6 +4433,7 @@ impl ExecutingFrame<'_> {
                         None
                     };
                     if let Some(descr) = descr
+                        && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && self
                             .localsplus
                             .stack_index(stack_len - 1)
@@ -4468,6 +4470,7 @@ impl ExecutingFrame<'_> {
                         None
                     };
                     if let Some(descr) = descr
+                        && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && self
                             .localsplus
                             .stack_index(stack_len - 2)
@@ -4506,6 +4509,7 @@ impl ExecutingFrame<'_> {
                     None
                 };
                 if let Some(descr) = descr
+                    && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && self
                         .localsplus
                         .stack_index(stack_len - nargs as usize - 1)
@@ -4638,6 +4642,7 @@ impl ExecutingFrame<'_> {
                     None
                 };
                 if let Some(descr) = descr
+                    && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && self
                         .localsplus
                         .stack_index(stack_len - nargs as usize - 1)
@@ -7775,7 +7780,10 @@ impl ExecutingFrame<'_> {
         }
 
         // Try to specialize method descriptor calls
-        if self_or_null_is_some && let Some(descr) = callable.downcast_ref::<PyMethodDescriptor>() {
+        if self_or_null_is_some
+            && let Some(descr) = callable.downcast_ref::<PyMethodDescriptor>()
+            && descr.method.flags.contains(PyMethodFlags::METHOD)
+        {
             let call_cache_entries = Instruction::CallListAppend.cache_entries();
             let next_idx = cache_base + call_cache_entries;
             let next_is_pop_top = if next_idx < self.code.instructions.len() {
