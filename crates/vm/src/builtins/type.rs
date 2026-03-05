@@ -847,9 +847,7 @@ impl PyType {
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return None;
         }
-        guard
-            .as_ref()
-            .map(|init| init.to_owned())
+        guard.as_ref().map(|init| init.to_owned())
     }
 
     /// Cache __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.

@@ -4492,7 +4492,15 @@ impl ExecutingFrame<'_> {
                         (cls.slots.alloc.load(), object_alloc)
                     && cls_alloc as usize == object_alloc_fn as usize
                 {
-                    if !self.specialization_has_datastack_space_for_func(vm, &init_func) {
+                    // CPython guards with code->co_framesize + _Py_InitCleanup.co_framesize.
+                    // RustPython does not materialize frame-specials on datastack, so use
+                    // only the cleanup shim's eval-stack payload (2 stack slots).
+                    const INIT_CLEANUP_STACK_BYTES: usize = 2 * core::mem::size_of::<usize>();
+                    if !self.specialization_has_datastack_space_for_func_with_extra(
+                        vm,
+                        &init_func,
+                        INIT_CLEANUP_STACK_BYTES,
+                    ) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     // Allocate object directly (tp_new == object.__new__, tp_alloc == generic).
@@ -8265,8 +8273,20 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
         func: &Py<PyFunction>,
     ) -> bool {
+        self.specialization_has_datastack_space_for_func_with_extra(vm, func, 0)
+    }
+
+    #[inline]
+    fn specialization_has_datastack_space_for_func_with_extra(
+        &self,
+        vm: &VirtualMachine,
+        func: &Py<PyFunction>,
+        extra_bytes: usize,
+    ) -> bool {
         match func.datastack_frame_size_bytes() {
-            Some(frame_size) => vm.datastack_has_space(frame_size),
+            Some(frame_size) => frame_size
+                .checked_add(extra_bytes)
+                .is_some_and(|size| vm.datastack_has_space(size)),
             None => true,
         }
     }
