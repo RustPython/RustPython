@@ -103,6 +103,7 @@ pub struct VirtualMachine {
     pub asyncio_running_loop: RefCell<Option<PyObjectRef>>,
     /// Current running asyncio task for this thread
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
+    pub(crate) callable_cache: CallableCache,
 }
 
 /// Non-owning frame pointer for the frames stack.
@@ -570,6 +571,13 @@ pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CallableCache {
+    pub len: Option<PyObjectRef>,
+    pub isinstance: Option<PyObjectRef>,
+    pub list_append: Option<PyObjectRef>,
+}
+
 pub struct PyGlobalState {
     pub config: PyConfig,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
@@ -623,6 +631,19 @@ pub fn process_hash_secret_seed() -> u32 {
 }
 
 impl VirtualMachine {
+    fn init_callable_cache(&mut self) -> PyResult<()> {
+        self.callable_cache.len = Some(self.builtins.get_attr("len", self)?);
+        self.callable_cache.isinstance = Some(self.builtins.get_attr("isinstance", self)?);
+        let list_append = self
+            .ctx
+            .types
+            .list_type
+            .get_attr(self.ctx.intern_str("append"))
+            .ok_or_else(|| self.new_runtime_error("failed to cache list.append".to_owned()))?;
+        self.callable_cache.list_append = Some(list_append);
+        Ok(())
+    }
+
     /// Bump-allocate `size` bytes from the thread data stack.
     ///
     /// # Safety
@@ -715,6 +736,7 @@ impl VirtualMachine {
             async_gen_finalizer: RefCell::new(None),
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
+            callable_cache: CallableCache::default(),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -849,6 +871,8 @@ impl VirtualMachine {
         stdlib::thread::init_main_thread_ident(self);
 
         stdlib::builtins::init_module(self, &self.builtins);
+        let callable_cache_init = self.init_callable_cache();
+        self.expect_pyresult(callable_cache_init, "failed to initialize callable cache");
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
         self.expect_pyresult(
             stdlib::sys::set_bootstrap_stderr(self),

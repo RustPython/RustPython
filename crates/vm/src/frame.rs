@@ -4092,17 +4092,19 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallLen => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_ptr = self.code.instructions.read_cache_ptr(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     // Stack: [callable, null, arg]
                     let obj = self.pop_value(); // arg
                     let null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    let callable_ptr = &*callable as *const PyObject as usize;
-                    if null.is_none() && cached_ptr == callable_ptr {
+                    if null.is_none()
+                        && vm
+                            .callable_cache
+                            .len
+                            .as_ref()
+                            .is_some_and(|len_callable| callable.is(len_callable))
+                    {
                         let len = obj.length(vm)?;
                         self.push_value(vm.ctx.new_int(len).into());
                         return Ok(None);
@@ -4119,9 +4121,6 @@ impl ExecutingFrame<'_> {
                 self.execute_call(args, vm)
             }
             Instruction::CallIsinstance => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_ptr = self.code.instructions.read_cache_ptr(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
@@ -4131,8 +4130,12 @@ impl ExecutingFrame<'_> {
                 let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 if effective_nargs == 2 {
                     let callable = self.nth_value(nargs + 1);
-                    let callable_ptr = callable as *const PyObject as usize;
-                    if cached_ptr == callable_ptr {
+                    if vm
+                        .callable_cache
+                        .isinstance
+                        .as_ref()
+                        .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
+                    {
                         let nargs_usize = nargs as usize;
                         let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         let self_or_null = self.pop_value_opt();
@@ -4369,22 +4372,25 @@ impl ExecutingFrame<'_> {
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallListAppend => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_ptr = self.code.instructions.read_cache_ptr(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     // Stack: [callable, self_or_null, item]
                     let stack_len = self.localsplus.stack_len();
                     let self_or_null_is_some = self.localsplus.stack_index(stack_len - 2).is_some();
                     let callable = self.nth_value(2);
-                    let callable_ptr = callable as *const PyObject as usize;
                     let self_is_list = self
                         .localsplus
                         .stack_index(stack_len - 2)
                         .as_ref()
                         .is_some_and(|obj| obj.downcast_ref::<PyList>().is_some());
-                    if cached_ptr == callable_ptr && self_or_null_is_some && self_is_list {
+                    if vm
+                        .callable_cache
+                        .list_append
+                        .as_ref()
+                        .is_some_and(|list_append| callable.is(list_append))
+                        && self_or_null_is_some
+                        && self_is_list
+                    {
                         let item = self.pop_value();
                         let self_or_null = self.pop_value_opt();
                         let callable = self.pop_value();
@@ -7866,16 +7872,13 @@ impl ExecutingFrame<'_> {
                     }
                     return;
                 }
-                if descr.method.name == "append"
-                    && descr.objclass.is(vm.ctx.types.list_type)
-                    && next_is_pop_top
+                if next_is_pop_top
+                    && vm
+                        .callable_cache
+                        .list_append
+                        .as_ref()
+                        .is_some_and(|list_append| callable.is(list_append))
                 {
-                    let callable_ptr = callable as *const PyObject as usize;
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_ptr(cache_base + 1, callable_ptr);
-                    }
                     Instruction::CallListAppend
                 } else {
                     Instruction::CallMethodDescriptorO
@@ -7894,7 +7897,6 @@ impl ExecutingFrame<'_> {
         // Try to specialize builtin calls
         if let Some(native) = callable.downcast_ref_if_exact::<PyNativeFunction>(vm) {
             let effective_nargs = nargs + u32::from(self_or_null_is_some);
-            let callable_ptr = callable as *const PyObject as usize;
             let call_conv = native.value.flags
                 & (PyMethodFlags::VARARGS
                     | PyMethodFlags::FASTCALL
@@ -7914,9 +7916,12 @@ impl ExecutingFrame<'_> {
                     return;
                 }
                 if native.zelf.is_none()
-                    && native.value.name == "len"
-                    && native.module.is_some_and(|m| m.as_str() == "builtins")
                     && nargs == 1
+                    && vm
+                        .callable_cache
+                        .len
+                        .as_ref()
+                        .is_some_and(|len_callable| callable.is(len_callable))
                 {
                     Instruction::CallLen
                 } else {
@@ -7924,9 +7929,12 @@ impl ExecutingFrame<'_> {
                 }
             } else if call_conv == PyMethodFlags::FASTCALL {
                 if native.zelf.is_none()
-                    && native.value.name == "isinstance"
-                    && native.module.is_some_and(|m| m.as_str() == "builtins")
                     && effective_nargs == 2
+                    && vm
+                        .callable_cache
+                        .isinstance
+                        .as_ref()
+                        .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
                 {
                     Instruction::CallIsinstance
                 } else {
@@ -7937,13 +7945,6 @@ impl ExecutingFrame<'_> {
             } else {
                 Instruction::CallNonPyGeneral
             };
-            if matches!(new_op, Instruction::CallLen | Instruction::CallIsinstance) {
-                unsafe {
-                    self.code
-                        .instructions
-                        .write_cache_ptr(cache_base + 1, callable_ptr);
-                }
-            }
             self.specialize_at(instr_idx, cache_base, new_op);
             return;
         }
