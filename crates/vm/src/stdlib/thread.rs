@@ -292,16 +292,23 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn _acquire_restore(&self, state: (usize, u64), _vm: &VirtualMachine) {
-            let (count, _owner) = state;
+        fn _acquire_restore(&self, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+            let [count_obj, owner_obj] = state.as_slice() else {
+                return Err(
+                    vm.new_type_error("_acquire_restore() argument 1 must be a 2-item tuple")
+                );
+            };
+            let count: usize = count_obj.clone().try_into_value(vm)?;
+            let _owner: u64 = owner_obj.clone().try_into_value(vm)?;
             if count == 0 {
-                return;
+                return Ok(());
             }
             for _ in 0..count {
                 self.mu.lock();
             }
             self.count
                 .store(count, core::sync::atomic::Ordering::Relaxed);
+            Ok(())
         }
 
         #[pymethod]
