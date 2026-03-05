@@ -55,14 +55,27 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// Maximum number of objects to keep in the freelist.
     const MAX_FREELIST: usize = 0;
 
+    /// Capture a hint value from the payload before tp_clear runs.
+    /// Used by size-based freelists (e.g. PyTuple) to remember the element
+    /// count before clear empties the payload.
+    ///
+    /// # Safety
+    /// `obj` must be a valid pointer to a `PyInner<Self>` with the payload still intact.
+    #[inline]
+    unsafe fn freelist_hint(_obj: *mut PyObject) -> usize {
+        0
+    }
+
     /// Try to push a dead object onto this type's freelist for reuse.
     /// Returns true if the object was stored (caller must NOT free the memory).
+    /// `hint` is the value returned by `freelist_hint` before tp_clear.
+    /// `typ` is the runtime type of the object, for exact-type filtering.
     ///
     /// # Safety
     /// `obj` must be a valid pointer to a `PyInner<Self>` with refcount 0,
     /// after `drop_slow_inner` and `tp_clear` have already run.
     #[inline]
-    unsafe fn freelist_push(_obj: *mut PyObject) -> bool {
+    unsafe fn freelist_push(_obj: *mut PyObject, _hint: usize, _typ: &Py<PyType>) -> bool {
         false
     }
 
@@ -75,7 +88,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// whose payload is still initialized from a previous allocation. The caller
     /// will drop and overwrite `payload` before reuse.
     #[inline]
-    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         None
     }
 
