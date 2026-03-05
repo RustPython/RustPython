@@ -5041,9 +5041,12 @@ impl ExecutingFrame<'_> {
                 if let (Some(a_int), Some(b_int)) = (
                     a.downcast_ref_if_exact::<PyInt>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
+                ) && let (Some(a_val), Some(b_val)) = (
+                    Self::specialization_compact_int_value(a_int, vm),
+                    Self::specialization_compact_int_value(b_int, vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
-                    let result = op.eval_ord(a_int.as_bigint().cmp(b_int.as_bigint()));
+                    let result = op.eval_ord(a_val.cmp(&b_val));
                     self.pop_value();
                     self.pop_value();
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -5086,6 +5089,11 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyStr>(vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
+                    if op != PyComparisonOp::Eq && op != PyComparisonOp::Ne {
+                        let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
+                            .unwrap_or(bytecode::ComparisonOperator::Equal);
+                        return self.execute_compare(vm, op);
+                    }
                     let result = op.eval_ord(a_str.as_wtf8().cmp(b_str.as_wtf8()));
                     self.pop_value();
                     self.pop_value();
@@ -8432,7 +8440,7 @@ impl ExecutingFrame<'_> {
     fn specialize_compare_op(
         &mut self,
         vm: &VirtualMachine,
-        _op: bytecode::ComparisonOperator,
+        op: bytecode::ComparisonOperator,
         instr_idx: usize,
         cache_base: usize,
     ) {
@@ -8445,16 +8453,25 @@ impl ExecutingFrame<'_> {
         let b = self.top_value();
         let a = self.nth_value(1);
 
-        let new_op = if a.downcast_ref_if_exact::<PyInt>(vm).is_some()
-            && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
-        {
-            Some(Instruction::CompareOpInt)
+        let new_op = if let (Some(a_int), Some(b_int)) = (
+            a.downcast_ref_if_exact::<PyInt>(vm),
+            b.downcast_ref_if_exact::<PyInt>(vm),
+        ) {
+            if Self::specialization_compact_int_value(a_int, vm).is_some()
+                && Self::specialization_compact_int_value(b_int, vm).is_some()
+            {
+                Some(Instruction::CompareOpInt)
+            } else {
+                None
+            }
         } else if a.downcast_ref_if_exact::<PyFloat>(vm).is_some()
             && b.downcast_ref_if_exact::<PyFloat>(vm).is_some()
         {
             Some(Instruction::CompareOpFloat)
         } else if a.downcast_ref_if_exact::<PyStr>(vm).is_some()
             && b.downcast_ref_if_exact::<PyStr>(vm).is_some()
+            && (op == bytecode::ComparisonOperator::Equal
+                || op == bytecode::ComparisonOperator::NotEqual)
         {
             Some(Instruction::CompareOpStr)
         } else {
