@@ -851,7 +851,7 @@ mod mmap {
 
     #[pyclass(
         with(Constructor, AsMapping, AsSequence, AsBuffer, Representable),
-        flags(BASETYPE)
+        flags(BASETYPE, HAS_WEAKREF)
     )]
     impl PyMmap {
         fn as_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {

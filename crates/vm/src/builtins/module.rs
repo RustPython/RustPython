@@ -286,7 +286,10 @@ impl Py<PyModule> {
     }
 }
 
-#[pyclass(with(GetAttr, Initializer, Representable), flags(BASETYPE, HAS_DICT))]
+#[pyclass(
+    with(GetAttr, Initializer, Representable),
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+)]
 impl PyModule {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {

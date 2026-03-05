@@ -123,6 +123,7 @@ impl PyMethodDef {
             zelf: None,
             value: self,
             module: None,
+            _method_def_owner: None,
         }
     }
 
@@ -144,6 +145,7 @@ impl PyMethodDef {
                 zelf: Some(obj),
                 value: self,
                 module: None,
+                _method_def_owner: None,
             },
             class,
         }
@@ -162,6 +164,7 @@ impl PyMethodDef {
             zelf: Some(obj),
             value: self,
             module: None,
+            _method_def_owner: None,
         };
         PyRef::new_ref(
             function,
@@ -217,6 +220,7 @@ impl PyMethodDef {
             zelf: Some(class.to_owned().into()),
             value: self,
             module: None,
+            _method_def_owner: None,
         };
         PyNativeMethod { func, class }.into_ref(ctx)
     }
@@ -293,14 +297,12 @@ impl Py<HeapMethodDef> {
     }
 
     pub fn build_function(&self, vm: &VirtualMachine) -> PyRef<PyNativeFunction> {
-        let function = unsafe { self.method() }.to_function();
-        let dict = vm.ctx.new_dict();
-        dict.set_item("__method_def__", self.to_owned().into(), vm)
-            .unwrap();
+        let mut function = unsafe { self.method() }.to_function();
+        function._method_def_owner = Some(self.to_owned().into());
         PyRef::new_ref(
             function,
             vm.ctx.types.builtin_function_or_method_type.to_owned(),
-            Some(dict),
+            None,
         )
     }
 
@@ -309,14 +311,12 @@ impl Py<HeapMethodDef> {
         class: &'static Py<PyType>,
         vm: &VirtualMachine,
     ) -> PyRef<PyMethodDescriptor> {
-        let function = unsafe { self.method() }.to_method(class, &vm.ctx);
-        let dict = vm.ctx.new_dict();
-        dict.set_item("__method_def__", self.to_owned().into(), vm)
-            .unwrap();
+        let mut function = unsafe { self.method() }.to_method(class, &vm.ctx);
+        function._method_def_owner = Some(self.to_owned().into());
         PyRef::new_ref(
             function,
             vm.ctx.types.method_descriptor_type.to_owned(),
-            Some(dict),
+            None,
         )
     }
 }

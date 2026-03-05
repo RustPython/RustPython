@@ -65,9 +65,12 @@ unsafe impl Traverse for PyInner<Erased> {
             let typ_obj: &PyObject = unsafe { &*(typ as *const _ as *const PyObject) };
             tracer_fn(typ_obj);
         }
-        self.dict.traverse(tracer_fn);
-        // weak_list is inline atomic pointers, no heap allocation, no trace
-        self.slots.traverse(tracer_fn);
+        // Traverse ObjExt prefix fields (dict and slots) if present
+        if let Some(ext) = self.ext_ref() {
+            ext.dict.traverse(tracer_fn);
+            // weak_list is atomic pointers, no trace needed
+            ext.slots.traverse(tracer_fn);
+        }
 
         if let Some(f) = self.vtable.trace {
             unsafe {
@@ -87,9 +90,11 @@ unsafe impl<T: MaybeTraverse> Traverse for PyInner<T> {
             let typ_obj: &PyObject = unsafe { &*(typ as *const _ as *const PyObject) };
             tracer_fn(typ_obj);
         }
-        self.dict.traverse(tracer_fn);
-        // weak_list is inline atomic pointers, no heap allocation, no trace
-        self.slots.traverse(tracer_fn);
+        // Traverse ObjExt prefix fields (dict and slots) if present
+        if let Some(ext) = self.ext_ref() {
+            ext.dict.traverse(tracer_fn);
+            ext.slots.traverse(tracer_fn);
+        }
         T::try_traverse(&self.payload, tracer_fn);
     }
 }

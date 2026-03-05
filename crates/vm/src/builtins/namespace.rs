@@ -28,7 +28,7 @@ impl PyPayload for PyNamespace {
 impl DefaultConstructor for PyNamespace {}
 
 #[pyclass(
-    flags(BASETYPE, HAS_DICT),
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
     with(Constructor, Initializer, Comparable, Representable)
 )]
 impl PyNamespace {

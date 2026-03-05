@@ -140,7 +140,7 @@ mod _functools {
 
     #[pyclass(
         with(Constructor, Callable, GetDescriptor, Representable),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl PyPartial {
         #[pygetset]

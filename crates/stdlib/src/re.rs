@@ -317,7 +317,7 @@ mod re {
     #[pyfunction]
     fn purge(_vm: &VirtualMachine) {}
 
-    #[pyclass]
+    #[pyclass(flags(HAS_WEAKREF))]
     impl PyPattern {
         #[pymethod(name = "match")]
         fn match_(&self, text: PyStrRef) -> Option<PyMatch> {

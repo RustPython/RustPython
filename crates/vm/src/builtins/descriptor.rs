@@ -37,6 +37,8 @@ pub struct PyMethodDescriptor {
     pub method: &'static PyMethodDef,
     // vectorcall: vector_call_func,
     pub objclass: &'static Py<PyType>, // TODO: move to tp_members
+    /// Prevent HeapMethodDef from being freed while this descriptor references it
+    pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
 
 impl PyMethodDescriptor {
@@ -49,6 +51,7 @@ impl PyMethodDescriptor {
             },
             method,
             objclass: typ,
+            _method_def_owner: None,
         }
     }
 }
@@ -88,13 +91,12 @@ impl GetDescriptor for PyMethodDescriptor {
                 } else if descr.method.flags.contains(PyMethodFlags::CLASS) {
                     obj.class().to_owned().into()
                 } else {
-                    unimplemented!()
+                    obj
                 }
             }
             None if descr.method.flags.contains(PyMethodFlags::CLASS) => cls.unwrap(),
             None => return Ok(zelf),
         };
-        // Ok(descr.method.build_bound_method(&vm.ctx, bound, class).into())
         Ok(descr.bind(bound, &vm.ctx).into())
     }
 }

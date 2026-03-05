@@ -84,7 +84,7 @@ impl Constructor for PyGenericAlias {
         Iterable,
         Representable
     ),
-    flags(BASETYPE)
+    flags(BASETYPE, HAS_WEAKREF)
 )]
 impl PyGenericAlias {
     pub fn new(

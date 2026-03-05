@@ -1862,7 +1862,6 @@ class MappingTestCase(TestBase):
         self.assertEqual(len(d), 1)
         self.assertEqual(list(d.items()), [('something else', o2)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_weak_keyed_bad_delitem(self):
         d = weakref.WeakKeyDictionary()
         o = Object('1')

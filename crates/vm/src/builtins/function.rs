@@ -717,7 +717,7 @@ impl PyPayload for PyFunction {
 
 #[pyclass(
     with(GetDescriptor, Callable, Representable, Constructor),
-    flags(HAS_DICT, METHOD_DESCRIPTOR)
+    flags(HAS_DICT, HAS_WEAKREF, METHOD_DESCRIPTOR)
 )]
 impl PyFunction {
     #[pygetset]
@@ -1170,7 +1170,7 @@ impl PyBoundMethod {
 
 #[pyclass(
     with(Callable, Comparable, GetAttr, Constructor, Representable),
-    flags(IMMUTABLETYPE)
+    flags(IMMUTABLETYPE, HAS_WEAKREF)
 )]
 impl PyBoundMethod {
     #[pymethod]

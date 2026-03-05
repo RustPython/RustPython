@@ -94,7 +94,10 @@ pub(crate) mod typevar {
         contravariant: bool,
         infer_variance: bool,
     }
-    #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor, Representable))]
+    #[pyclass(
+        flags(HAS_DICT, HAS_WEAKREF),
+        with(AsNumber, Constructor, Representable)
+    )]
     impl TypeVar {
         #[pymethod]
         fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -461,7 +464,10 @@ pub(crate) mod typevar {
         infer_variance: bool,
     }
 
-    #[pyclass(flags(HAS_DICT), with(AsNumber, Constructor, Representable))]
+    #[pyclass(
+        flags(HAS_DICT, HAS_WEAKREF),
+        with(AsNumber, Constructor, Representable)
+    )]
     impl ParamSpec {
         #[pymethod]
         fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -713,7 +719,10 @@ pub(crate) mod typevar {
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
     }
-    #[pyclass(flags(HAS_DICT), with(Constructor, Representable, Iterable))]
+    #[pyclass(
+        flags(HAS_DICT, HAS_WEAKREF),
+        with(Constructor, Representable, Iterable)
+    )]
     impl TypeVarTuple {
         #[pygetset]
         fn __name__(&self) -> PyObjectRef {
@@ -883,7 +892,7 @@ pub(crate) mod typevar {
     pub struct ParamSpecArgs {
         __origin__: PyObjectRef,
     }
-    #[pyclass(with(Constructor, Representable, Comparable))]
+    #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecArgs {
         #[pymethod]
         fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -946,7 +955,7 @@ pub(crate) mod typevar {
     pub struct ParamSpecKwargs {
         __origin__: PyObjectRef,
     }
-    #[pyclass(with(Constructor, Representable, Comparable))]
+    #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecKwargs {
         #[pymethod]
         fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {

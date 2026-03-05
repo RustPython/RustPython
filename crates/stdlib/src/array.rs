@@ -698,7 +698,7 @@ mod array {
     }
 
     #[pyclass(
-        flags(BASETYPE),
+        flags(BASETYPE, HAS_WEAKREF),
         with(
             Comparable,
             AsBuffer,

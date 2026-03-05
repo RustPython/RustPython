@@ -1321,7 +1321,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaisesRegex(AttributeError, "'X' object has no attribute 'a'"):
             X().a
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slots_special(self):
         # Testing __dict__ and __weakref__ in __slots__...
         class D(object):
@@ -2294,7 +2293,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             self.assertIn(i, p10)
         self.assertNotIn(10, p10)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_weakrefs(self):
         # Testing weak references...
         import weakref
@@ -3976,7 +3974,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             o = trash(o)
         del o
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slots_multiple_inheritance(self):
         # SF bug 575229, multiple inheritance w/ slots dumps core
         class A(object):

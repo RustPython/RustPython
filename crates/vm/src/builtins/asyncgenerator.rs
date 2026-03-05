@@ -40,7 +40,10 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(PyRef, Representable, Destructor))]
+#[pyclass(
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
+    with(PyRef, Representable, Destructor)
+)]
 impl PyAsyncGen {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner

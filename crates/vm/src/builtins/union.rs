@@ -98,7 +98,7 @@ impl PyUnion {
 }
 
 #[pyclass(
-    flags(DISALLOW_INSTANTIATION),
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
     with(Hashable, Comparable, AsMapping, AsNumber, Representable)
 )]
 impl PyUnion {

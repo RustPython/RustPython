@@ -132,7 +132,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Constructor, Representable))]
+    #[pyclass(with(Constructor, Representable), flags(HAS_WEAKREF))]
     impl Lock {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
@@ -205,7 +205,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Representable), flags(BASETYPE))]
+    #[pyclass(with(Representable), flags(BASETYPE, HAS_WEAKREF))]
     impl RLock {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {

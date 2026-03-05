@@ -32,7 +32,7 @@ impl PyPayload for PyCoroutine {
 }
 
 #[pyclass(
-    flags(DISALLOW_INSTANTIATION),
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
     with(Py, IterNext, Representable, Destructor)
 )]
 impl PyCoroutine {
