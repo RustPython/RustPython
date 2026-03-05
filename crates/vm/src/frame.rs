@@ -97,7 +97,7 @@ impl FrameOwner {
 /// a given frame (enforced by the owner field and generator running flag).
 /// External readers (e.g. `f_locals`) are on the same thread as execution
 /// (trace callback) or the frame is not executing.
-struct FrameUnsafeCell<T>(UnsafeCell<T>);
+pub(crate) struct FrameUnsafeCell<T>(UnsafeCell<T>);
 
 impl<T> FrameUnsafeCell<T> {
     fn new(value: T) -> Self {
@@ -565,13 +565,18 @@ unsafe impl Traverse for FrameLocals {
     }
 }
 
-#[pyclass(module = false, name = "frame", traverse = "manual")]
-pub struct Frame {
+/// Lightweight execution frame. Not a PyObject.
+/// Analogous to CPython's `_PyInterpreterFrame`.
+///
+/// Currently always embedded inside a `Frame` PyObject via `FrameUnsafeCell`.
+/// In future PRs this will be usable independently for normal function calls
+/// (allocated on the Rust stack + DataStack), eliminating PyObject overhead.
+pub struct InterpreterFrame {
     pub code: PyRef<PyCode>,
     pub func_obj: Option<PyObjectRef>,
 
     /// Unified storage for local variables and evaluation stack.
-    localsplus: FrameUnsafeCell<LocalsPlus>,
+    pub(crate) localsplus: LocalsPlus,
     pub locals: FrameLocals,
     pub globals: PyDictRef,
     pub builtins: PyObjectRef,
@@ -582,7 +587,7 @@ pub struct Frame {
     pub trace: PyMutex<PyObjectRef>,
 
     /// Previous line number for LINE event suppression.
-    prev_line: FrameUnsafeCell<u32>,
+    pub(crate) prev_line: u32,
 
     // member
     pub trace_lines: PyMutex<bool>,
@@ -611,6 +616,28 @@ pub struct Frame {
     pub(crate) pending_unwind_from_stack: PyAtomic<i64>,
 }
 
+/// Python-visible frame object. Currently always wraps an `InterpreterFrame`.
+/// Analogous to CPython's `PyFrameObject`.
+#[pyclass(module = false, name = "frame", traverse = "manual")]
+pub struct Frame {
+    pub(crate) iframe: FrameUnsafeCell<InterpreterFrame>,
+}
+
+impl core::ops::Deref for Frame {
+    type Target = InterpreterFrame;
+    /// Transparent access to InterpreterFrame fields.
+    ///
+    /// # Safety argument
+    /// Immutable fields (code, globals, builtins, func_obj, locals) are safe
+    /// to access at any time. Atomic/mutex fields (lasti, trace, owner, etc.)
+    /// provide their own synchronization. Mutable fields (localsplus, prev_line)
+    /// are only mutated during single-threaded execution via `with_exec`.
+    #[inline(always)]
+    fn deref(&self) -> &InterpreterFrame {
+        unsafe { &*self.iframe.get() }
+    }
+}
+
 impl PyPayload for Frame {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
@@ -620,17 +647,16 @@ impl PyPayload for Frame {
 
 unsafe impl Traverse for Frame {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.code.traverse(tracer_fn);
-        self.func_obj.traverse(tracer_fn);
         // SAFETY: GC traversal does not run concurrently with frame execution.
-        unsafe {
-            (*self.localsplus.get()).traverse(tracer_fn);
-        }
-        self.locals.traverse(tracer_fn);
-        self.globals.traverse(tracer_fn);
-        self.builtins.traverse(tracer_fn);
-        self.trace.traverse(tracer_fn);
-        self.temporary_refs.traverse(tracer_fn);
+        let iframe = unsafe { &*self.iframe.get() };
+        iframe.code.traverse(tracer_fn);
+        iframe.func_obj.traverse(tracer_fn);
+        iframe.localsplus.traverse(tracer_fn);
+        iframe.locals.traverse(tracer_fn);
+        iframe.globals.traverse(tracer_fn);
+        iframe.builtins.traverse(tracer_fn);
+        iframe.trace.traverse(tracer_fn);
+        iframe.temporary_refs.traverse(tracer_fn);
     }
 }
 
@@ -677,8 +703,8 @@ impl Frame {
             fastlocals[nlocals + num_cells + i] = Some(cell.clone().into());
         }
 
-        Self {
-            localsplus: FrameUnsafeCell::new(localsplus),
+        let iframe = InterpreterFrame {
+            localsplus,
             locals: match scope.locals {
                 Some(locals) => FrameLocals::with_locals(locals),
                 None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => FrameLocals::lazy(),
@@ -691,7 +717,7 @@ impl Frame {
             code,
             func_obj,
             lasti: Radium::new(0),
-            prev_line: FrameUnsafeCell::new(0),
+            prev_line: 0,
             trace: PyMutex::new(vm.ctx.none()),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
@@ -702,6 +728,9 @@ impl Frame {
             locals_dirty: atomic::AtomicBool::new(false),
             pending_stack_pops: Default::default(),
             pending_unwind_from_stack: Default::default(),
+        };
+        Self {
+            iframe: FrameUnsafeCell::new(iframe),
         }
     }
 
@@ -712,7 +741,7 @@ impl Frame {
     /// or called from the same thread during trace callback).
     #[inline(always)]
     pub unsafe fn fastlocals(&self) -> &[Option<PyObjectRef>] {
-        unsafe { (*self.localsplus.get()).fastlocals() }
+        unsafe { (*self.iframe.get()).localsplus.fastlocals() }
     }
 
     /// Access fastlocals mutably.
@@ -722,7 +751,7 @@ impl Frame {
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn fastlocals_mut(&self) -> &mut [Option<PyObjectRef>] {
-        unsafe { (*self.localsplus.get()).fastlocals_mut() }
+        unsafe { (*self.iframe.get()).localsplus.fastlocals_mut() }
     }
 
     /// Migrate data-stack-backed storage to the heap, preserving all values,
@@ -733,7 +762,7 @@ impl Frame {
     /// Caller must ensure the frame is not executing and the returned
     /// pointer is passed to `VirtualMachine::datastack_pop()`.
     pub(crate) unsafe fn materialize_localsplus(&self) -> Option<*mut u8> {
-        unsafe { (*self.localsplus.get()).materialize_to_heap() }
+        unsafe { (*self.iframe.get()).localsplus.materialize_to_heap() }
     }
 
     /// Clear evaluation stack and state-owned cell/free references.
@@ -742,7 +771,7 @@ impl Frame {
         // SAFETY: Called when frame is not executing (generator closed).
         // Cell refs in fastlocals[nlocals..] are cleared by clear_locals_and_stack().
         unsafe {
-            (*self.localsplus.get()).stack_clear();
+            (*self.iframe.get()).localsplus.stack_clear();
         }
     }
 
@@ -751,7 +780,7 @@ impl Frame {
     pub(crate) fn clear_locals_and_stack(&self) {
         self.clear_stack_and_cells();
         // SAFETY: Frame is not executing (generator closed).
-        let fastlocals = unsafe { (*self.localsplus.get()).fastlocals_mut() };
+        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals_mut() };
         for slot in fastlocals.iter_mut() {
             *slot = None;
         }
@@ -761,7 +790,7 @@ impl Frame {
     pub(crate) fn get_cell_contents(&self, cell_idx: usize) -> Option<PyObjectRef> {
         let nlocals = self.code.varnames.len();
         // SAFETY: Frame not executing; no concurrent mutation.
-        let fastlocals = unsafe { (*self.localsplus.get()).fastlocals() };
+        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
         fastlocals
             .get(nlocals + cell_idx)
             .and_then(|slot| slot.as_ref())
@@ -773,7 +802,7 @@ impl Frame {
     pub(crate) fn set_cell_contents(&self, cell_idx: usize, value: Option<PyObjectRef>) {
         let nlocals = self.code.varnames.len();
         // SAFETY: Called before frame execution starts.
-        let fastlocals = unsafe { (*self.localsplus.get()).fastlocals() };
+        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
         fastlocals[nlocals + cell_idx]
             .as_ref()
             .and_then(|obj| obj.downcast_ref::<PyCell>())
@@ -837,7 +866,7 @@ impl Frame {
         }
         let code = &**self.code;
         // SAFETY: Called before generator resume; no concurrent access.
-        let fastlocals = unsafe { (*self.localsplus.get()).fastlocals_mut() };
+        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals_mut() };
         let locals_map = self.locals.mapping(vm);
         for (i, &varname) in code.varnames.iter().enumerate() {
             if i >= fastlocals.len() {
@@ -862,7 +891,7 @@ impl Frame {
         let j = core::cmp::min(map.len(), code.varnames.len());
         let locals_map = locals.mapping(vm);
         if !code.varnames.is_empty() {
-            let fastlocals = unsafe { (*self.localsplus.get()).fastlocals() };
+            let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
             for (&k, v) in zip(&map[..j], fastlocals) {
                 match locals_map.ass_subscript(k, v.clone(), vm) {
                     Ok(()) => {}
@@ -901,23 +930,25 @@ impl Py<Frame> {
         // SAFETY: Frame execution is single-threaded. Only one thread at a time
         // executes a given frame (enforced by the owner field and generator
         // running flag). Same safety argument as FastLocals (UnsafeCell).
+        let iframe = unsafe { &mut *self.iframe.get() };
         let exec = ExecutingFrame {
-            code: &self.code,
-            localsplus: unsafe { &mut *self.localsplus.get() },
-            locals: &self.locals,
-            globals: &self.globals,
-            builtins: &self.builtins,
-            builtins_dict: if self.globals.class().is(vm.ctx.types.dict_type) {
-                self.builtins
+            code: &iframe.code,
+            localsplus: &mut iframe.localsplus,
+            locals: &iframe.locals,
+            globals: &iframe.globals,
+            builtins: &iframe.builtins,
+            builtins_dict: if iframe.globals.class().is(vm.ctx.types.dict_type) {
+                iframe
+                    .builtins
                     .downcast_ref_if_exact::<PyDict>(vm)
                     // SAFETY: downcast_ref_if_exact already verified exact type
                     .map(|d| unsafe { PyExact::ref_unchecked(d) })
             } else {
                 None
             },
-            lasti: &self.lasti,
+            lasti: &iframe.lasti,
             object: self,
-            prev_line: unsafe { &mut *self.prev_line.get() },
+            prev_line: &mut iframe.prev_line,
             monitoring_mask: 0,
         };
         f(exec)
@@ -959,16 +990,17 @@ impl Py<Frame> {
             return None;
         }
         // SAFETY: Frame is not executing, so UnsafeCell access is safe.
+        let iframe = unsafe { &mut *self.iframe.get() };
         let exec = ExecutingFrame {
-            code: &self.code,
-            localsplus: unsafe { &mut *self.localsplus.get() },
-            locals: &self.locals,
-            globals: &self.globals,
-            builtins: &self.builtins,
+            code: &iframe.code,
+            localsplus: &mut iframe.localsplus,
+            locals: &iframe.locals,
+            globals: &iframe.globals,
+            builtins: &iframe.builtins,
             builtins_dict: None,
-            lasti: &self.lasti,
+            lasti: &iframe.lasti,
             object: self,
-            prev_line: unsafe { &mut *self.prev_line.get() },
+            prev_line: &mut iframe.prev_line,
             monitoring_mask: 0,
         };
         exec.yield_from_target().map(PyObject::to_owned)
@@ -8653,8 +8685,8 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // SAFETY: Debug is best-effort; concurrent mutation is unlikely
         // and would only affect debug output.
-        let localsplus = unsafe { &*self.localsplus.get() };
-        let stack_str = localsplus
+        let iframe = unsafe { &*self.iframe.get() };
+        let stack_str = iframe.localsplus
             .stack_as_slice()
             .iter()
             .fold(String::new(), |mut s, slot| {
