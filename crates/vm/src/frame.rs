@@ -3893,9 +3893,6 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_vectorcall(nargs, vm);
-                }
                 // Stack: [callable, self_or_null, arg1, ..., argN]
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
@@ -3912,6 +3909,9 @@ impl ExecutingFrame<'_> {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     if !self.specialization_has_datastack_space_for_func(vm, func) {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
+                    if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
@@ -3941,9 +3941,6 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_vectorcall(nargs, vm);
-                }
                 // Stack: [callable, self_or_null(NULL), arg1, ..., argN]
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
@@ -3964,6 +3961,9 @@ impl ExecutingFrame<'_> {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         if !self.specialization_has_datastack_space_for_func(vm, func) {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
+                        if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         let pos_args: Vec<PyObjectRef> =
