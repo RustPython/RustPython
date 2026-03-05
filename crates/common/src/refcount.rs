@@ -123,7 +123,7 @@ impl RefCount {
     pub fn safe_inc(&self) -> bool {
         let mut old = State::from_raw(self.state.load(Ordering::Relaxed));
         loop {
-            if old.destructed() {
+            if old.destructed() || old.strong() == 0 {
                 return false;
             }
             if (old.strong() as usize) >= STRONG {

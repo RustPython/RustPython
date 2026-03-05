@@ -299,13 +299,7 @@ impl GcState {
         fn collect_from_list(
             list: &LinkedList<GcLink, PyObject>,
         ) -> impl Iterator<Item = PyObjectRef> + '_ {
-            list.iter().filter_map(|obj| {
-                if obj.strong_count() > 0 {
-                    Some(obj.to_owned())
-                } else {
-                    None
-                }
-            })
+            list.iter().filter_map(|obj| obj.try_to_owned())
         }
 
         match generation {
@@ -468,15 +462,16 @@ impl GcState {
         // After dropping gen_locks, other threads can untrack+free objects,
         // making the raw pointers in `reachable`/`unreachable` dangling.
         // Strong refs keep objects alive for later phases.
+        //
+        // Use try_to_owned() (CAS-based) instead of strong_count()+to_owned()
+        // to prevent a TOCTOU race: another thread can dec() the count to 0
+        // between the check and the increment, causing a use-after-free when
+        // the destroying thread eventually frees the memory.
         let survivor_refs: Vec<PyObjectRef> = reachable
             .iter()
             .filter_map(|ptr| {
                 let obj = unsafe { ptr.0.as_ref() };
-                if obj.strong_count() > 0 {
-                    Some(obj.to_owned())
-                } else {
-                    None
-                }
+                obj.try_to_owned()
             })
             .collect();
 
@@ -484,11 +479,7 @@ impl GcState {
             .iter()
             .filter_map(|ptr| {
                 let obj = unsafe { ptr.0.as_ref() };
-                if obj.strong_count() > 0 {
-                    Some(obj.to_owned())
-                } else {
-                    None
-                }
+                obj.try_to_owned()
             })
             .collect();
 

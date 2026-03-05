@@ -231,8 +231,8 @@ pub(crate) mod _thread {
         #[pymethod]
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-            if !self.mu.is_locked() {
-                return Err(vm.new_runtime_error("release unlocked lock"));
+            if !self.mu.is_owned_by_current_thread() {
+                return Err(vm.new_runtime_error("cannot release un-acquired lock"));
             }
             debug_assert!(
                 self.count.load(core::sync::atomic::Ordering::Relaxed) > 0,
@@ -276,6 +276,32 @@ pub(crate) mod _thread {
             } else {
                 0
             }
+        }
+
+        #[pymethod]
+        fn _release_save(&self, vm: &VirtualMachine) -> PyResult<(usize, u64)> {
+            if !self.mu.is_owned_by_current_thread() {
+                return Err(vm.new_runtime_error("cannot release un-acquired lock"));
+            }
+            let count = self.count.swap(0, core::sync::atomic::Ordering::Relaxed);
+            debug_assert!(count > 0, "RLock count underflow");
+            for _ in 0..count {
+                unsafe { self.mu.unlock() };
+            }
+            Ok((count, current_thread_id()))
+        }
+
+        #[pymethod]
+        fn _acquire_restore(&self, state: (usize, u64), _vm: &VirtualMachine) {
+            let (count, _owner) = state;
+            if count == 0 {
+                return;
+            }
+            for _ in 0..count {
+                self.mu.lock();
+            }
+            self.count
+                .store(count, core::sync::atomic::Ordering::Relaxed);
         }
 
         #[pymethod]

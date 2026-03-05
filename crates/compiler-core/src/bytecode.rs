@@ -12,7 +12,7 @@ use core::{
     cell::UnsafeCell,
     hash, mem,
     ops::Deref,
-    sync::atomic::{AtomicU8, AtomicU16, Ordering},
+    sync::atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering},
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -411,6 +411,10 @@ impl TryFrom<&[u8]> for CodeUnit {
 pub struct CodeUnits {
     units: UnsafeCell<Box<[CodeUnit]>>,
     adaptive_counters: Box<[AtomicU16]>,
+    /// Pointer-sized cache entries for descriptor pointers.
+    /// Single atomic load/store prevents torn reads when multiple threads
+    /// specialize the same instruction concurrently.
+    pointer_cache: Box<[AtomicUsize]>,
 }
 
 // SAFETY: All cache operations use atomic read/write instructions.
@@ -432,9 +436,15 @@ impl Clone for CodeUnits {
             .iter()
             .map(|c| AtomicU16::new(c.load(Ordering::Relaxed)))
             .collect();
+        let pointer_cache = self
+            .pointer_cache
+            .iter()
+            .map(|c| AtomicUsize::new(c.load(Ordering::Relaxed)))
+            .collect();
         Self {
             units: UnsafeCell::new(units),
             adaptive_counters,
+            pointer_cache,
         }
     }
 }
@@ -472,13 +482,19 @@ impl<const N: usize> From<[CodeUnit; N]> for CodeUnits {
 impl From<Vec<CodeUnit>> for CodeUnits {
     fn from(value: Vec<CodeUnit>) -> Self {
         let units = value.into_boxed_slice();
-        let adaptive_counters = (0..units.len())
+        let len = units.len();
+        let adaptive_counters = (0..len)
             .map(|_| AtomicU16::new(0))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let pointer_cache = (0..len)
+            .map(|_| AtomicUsize::new(0))
             .collect::<Vec<_>>()
             .into_boxed_slice();
         Self {
             units: UnsafeCell::new(units),
             adaptive_counters,
+            pointer_cache,
         }
     }
 }
@@ -600,25 +616,25 @@ impl CodeUnits {
         lo | (hi << 16)
     }
 
-    /// Write a u64 value across four consecutive CACHE code units starting at `index`.
+    /// Store a pointer-sized value atomically in the pointer cache at `index`.
+    ///
+    /// Uses a single `AtomicUsize` store to prevent torn writes when
+    /// multiple threads specialize the same instruction concurrently.
     ///
     /// # Safety
-    /// Same requirements as `write_cache_u16`.
-    pub unsafe fn write_cache_u64(&self, index: usize, value: u64) {
-        unsafe {
-            self.write_cache_u32(index, value as u32);
-            self.write_cache_u32(index + 2, (value >> 32) as u32);
-        }
+    /// - `index` must be in bounds.
+    pub unsafe fn write_cache_ptr(&self, index: usize, value: usize) {
+        self.pointer_cache[index].store(value, Ordering::Relaxed);
     }
 
-    /// Read a u64 value from four consecutive CACHE code units starting at `index`.
+    /// Load a pointer-sized value atomically from the pointer cache at `index`.
+    ///
+    /// Uses a single `AtomicUsize` load to prevent torn reads.
     ///
     /// # Panics
-    /// Panics if `index + 3` is out of bounds.
-    pub fn read_cache_u64(&self, index: usize) -> u64 {
-        let lo = self.read_cache_u32(index) as u64;
-        let hi = self.read_cache_u32(index + 2) as u64;
-        lo | (hi << 32)
+    /// Panics if `index` is out of bounds.
+    pub fn read_cache_ptr(&self, index: usize) -> usize {
+        self.pointer_cache[index].load(Ordering::Relaxed)
     }
 
     /// Read adaptive counter bits for instruction at `index`.
