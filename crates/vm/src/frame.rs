@@ -1692,7 +1692,7 @@ impl ExecutingFrame<'_> {
                     );
                     Ok(None)
                 } else {
-                    self.execute_bin_op(vm, bytecode::BinaryOperator::InplaceAdd)
+                    self.execute_bin_op(vm, self.binary_op_from_arg(arg))
                 }
             }
             Instruction::BinarySlice => {
@@ -3795,8 +3795,7 @@ impl ExecutingFrame<'_> {
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
             Instruction::BinaryOpExtend => {
-                let op = bytecode::BinaryOperator::try_from(u32::from(arg))
-                    .unwrap_or(bytecode::BinaryOperator::Subscr);
+                let op = self.binary_op_from_arg(arg);
                 let b = self.top_value();
                 let a = self.nth_value(1);
 
@@ -8490,6 +8489,12 @@ impl ExecutingFrame<'_> {
             .into()
     }
 
+    /// Recover the BinaryOperator from the instruction arg byte.
+    /// `replace_op` preserves the arg byte, so the original op remains accessible.
+    fn binary_op_from_arg(&self, arg: bytecode::OpArg) -> bytecode::BinaryOperator {
+        bytecode::BinaryOperator::try_from(u32::from(arg)).unwrap_or(bytecode::BinaryOperator::Add)
+    }
+
     fn specialize_to_bool(&mut self, vm: &VirtualMachine, instr_idx: usize, cache_base: usize) {
         if !matches!(
             self.code.instructions.read_op(instr_idx),
@@ -8510,7 +8515,8 @@ impl ExecutingFrame<'_> {
             Some(Instruction::ToBoolList)
         } else if cls.is(PyStr::class(&vm.ctx)) {
             Some(Instruction::ToBoolStr)
-        } else if cls.slots.as_number.boolean.load().is_none()
+        } else if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+            && cls.slots.as_number.boolean.load().is_none()
             && cls.slots.as_mapping.length.load().is_none()
             && cls.slots.as_sequence.length.load().is_none()
         {
@@ -8609,7 +8615,15 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
-        i.try_to_primitive::<isize>(vm).ok()
+        // CPython's _PyLong_IsCompact() means a one-digit PyLong (base 2^30),
+        // i.e. abs(value) <= 2^30 - 1.
+        const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
+        let v = i.try_to_primitive::<i64>(vm).ok()?;
+        if (-CPYTHON_COMPACT_LONG_ABS_MAX..=CPYTHON_COMPACT_LONG_ABS_MAX).contains(&v) {
+            Some(v as isize)
+        } else {
+            None
+        }
     }
 
     #[inline]
