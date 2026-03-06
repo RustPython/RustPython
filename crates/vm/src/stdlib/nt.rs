@@ -364,9 +364,9 @@ pub(crate) mod module {
         // If path is a file descriptor, use fchmod
         if let OsPathOrFd::Fd(fd) = path {
             if follow_symlinks.into_option().is_some() {
-                return Err(vm.new_value_error(
-                    "chmod: follow_symlinks is not supported with fd argument".to_owned(),
-                ));
+                return Err(
+                    vm.new_value_error("chmod: follow_symlinks is not supported with fd argument")
+                );
             }
             return fchmod_impl(fd.as_raw(), mode, vm);
         }
@@ -1377,7 +1377,7 @@ pub(crate) mod module {
         let wide = path.to_wide_cstring(vm)?;
         let buflen = core::cmp::max(wide.len(), Foundation::MAX_PATH as usize);
         if buflen > u32::MAX as usize {
-            return Err(vm.new_overflow_error("path too long".to_owned()));
+            return Err(vm.new_overflow_error("path too long"));
         }
         let mut buffer = vec![0u16; buflen];
         let ret = unsafe {
@@ -2251,7 +2251,7 @@ pub(crate) mod module {
                 // PathBuffer starts at offset 16
                 (sub_offset, sub_length, 16usize)
             } else {
-                return Err(vm.new_value_error("not a symbolic link".to_owned()));
+                return Err(vm.new_value_error("not a symbolic link"));
             };
 
         // Extract the substitute name

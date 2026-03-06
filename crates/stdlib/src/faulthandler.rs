@@ -463,7 +463,7 @@ mod decl {
 
         // Install signal handlers
         if !faulthandler_enable_internal() {
-            return Err(vm.new_runtime_error("Failed to enable faulthandler".to_owned()));
+            return Err(vm.new_runtime_error("Failed to enable faulthandler"));
         }
 
         Ok(())
@@ -802,9 +802,7 @@ mod decl {
                 // Check if it's an integer (file descriptor)
                 if let Ok(fd) = f.try_to_value::<i32>(vm) {
                     if fd < 0 {
-                        return Err(
-                            vm.new_value_error("file is not a valid file descriptor".to_owned())
-                        );
+                        return Err(vm.new_value_error("file is not a valid file descriptor"));
                     }
                     return Ok(fd);
                 }
@@ -812,9 +810,7 @@ mod decl {
                 let fileno = vm.call_method(&f, "fileno", ())?;
                 let fd: i32 = fileno.try_to_value(vm)?;
                 if fd < 0 {
-                    return Err(
-                        vm.new_value_error("file is not a valid file descriptor".to_owned())
-                    );
+                    return Err(vm.new_value_error("file is not a valid file descriptor"));
                 }
                 // Try to flush the file
                 let _ = vm.call_method(&f, "flush", ());
@@ -824,7 +820,7 @@ mod decl {
                 // file=None or file not passed: fall back to sys.stderr
                 let stderr = vm.sys_module.get_attr("stderr", vm)?;
                 if vm.is_none(&stderr) {
-                    return Err(vm.new_runtime_error("sys.stderr is None".to_owned()));
+                    return Err(vm.new_runtime_error("sys.stderr is None"));
                 }
                 let fileno = vm.call_method(&stderr, "fileno", ())?;
                 let fd: i32 = fileno.try_to_value(vm)?;
@@ -912,7 +908,7 @@ mod decl {
         let timeout: f64 = args.timeout.into_float();
 
         if timeout <= 0.0 {
-            return Err(vm.new_value_error("timeout must be greater than 0".to_owned()));
+            return Err(vm.new_value_error("timeout must be greater than 0"));
         }
 
         let fd = get_fd_from_file_opt(args.file, vm)?;
@@ -920,7 +916,7 @@ mod decl {
         // Convert timeout to microseconds
         let timeout_us = (timeout * 1_000_000.0) as u64;
         if timeout_us == 0 {
-            return Err(vm.new_value_error("timeout must be greater than 0".to_owned()));
+            return Err(vm.new_value_error("timeout must be greater than 0"));
         }
 
         let header = format_timeout(timeout_us);
@@ -1098,7 +1094,7 @@ mod decl {
 
         // Check if signal is in valid range
         if !(1..64).contains(&signum) {
-            return Err(vm.new_value_error("signal number out of range".to_owned()));
+            return Err(vm.new_value_error("signal number out of range"));
         }
 
         Ok(())

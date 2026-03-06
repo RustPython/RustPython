@@ -518,7 +518,7 @@ impl PyFunction {
         } else if attr == bytecode::MakeFunctionFlags::ANNOTATE {
             // PEP 649: Store the __annotate__ function closure
             if !attr_value.is_callable() {
-                return Err(vm.new_type_error("__annotate__ must be callable".to_owned()));
+                return Err(vm.new_type_error("__annotate__ must be callable"));
             }
             *self.annotate.lock() = Some(attr_value);
         } else {
