@@ -4006,9 +4006,10 @@ impl ExecutingFrame<'_> {
                     && let Ok(ch) = a_str.getitem_by_index(vm, i as isize)
                     && ch.is_ascii()
                 {
+                    let ascii_idx = ch.to_u32() as usize;
                     self.pop_value();
                     self.pop_value();
-                    self.push_value(PyStr::from(ch).into_pyobject(vm));
+                    self.push_value(vm.ctx.ascii_char_cache[ascii_idx].clone().into());
                     return Ok(None);
                 }
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)

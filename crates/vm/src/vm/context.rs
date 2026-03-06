@@ -47,6 +47,7 @@ pub struct Context {
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
     pub int_cache_pool: Vec<PyIntRef>,
+    pub(crate) ascii_char_cache: Vec<PyRef<PyStr>>,
     // there should only be exact objects of str in here, no non-str objects and no subclasses
     pub(crate) string_pool: StringPool,
     pub(crate) slot_new_wrapper: PyMethodDef,
@@ -324,6 +325,9 @@ impl Context {
                 )
             })
             .collect();
+        let ascii_char_cache = (0u8..=127)
+            .map(|b| create_object(PyStr::from(char::from(b)), types.str_type))
+            .collect();
 
         let true_value = create_object(PyBool(PyInt::from(1)), types.bool_type);
         let false_value = create_object(PyBool(PyInt::from(0)), types.bool_type);
@@ -371,6 +375,7 @@ impl Context {
             types,
             exceptions,
             int_cache_pool,
+            ascii_char_cache,
             string_pool,
             slot_new_wrapper,
             names,
