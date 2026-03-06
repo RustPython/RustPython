@@ -394,11 +394,11 @@ mod _ssl {
         let nid = obj.nid();
         let short_name = nid
             .short_name()
-            .map_err(|_| vm.new_value_error("NID has no short name".to_owned()))?
+            .map_err(|_| vm.new_value_error("NID has no short name"))?
             .to_owned();
         let long_name = nid
             .long_name()
-            .map_err(|_| vm.new_value_error("NID has no long name".to_owned()))?
+            .map_err(|_| vm.new_value_error("NID has no long name"))?
             .to_owned();
         Ok((
             nid.as_raw(),
@@ -1135,7 +1135,7 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_options(&self, new_opts: i64, vm: &VirtualMachine) -> PyResult<()> {
             if new_opts < 0 {
-                return Err(vm.new_value_error("invalid options value".to_owned()));
+                return Err(vm.new_value_error("invalid options value"));
             }
             let new_opts = new_opts as libc::c_ulong;
             let mut ctx = self.builder();
@@ -1321,14 +1321,12 @@ mod _ssl {
         fn set_num_tickets(&self, value: isize, vm: &VirtualMachine) -> PyResult<()> {
             // Check for negative values
             if value < 0 {
-                return Err(
-                    vm.new_value_error("num_tickets must be a non-negative integer".to_owned())
-                );
+                return Err(vm.new_value_error("num_tickets must be a non-negative integer"));
             }
 
             // Check that this is a server context
             if self.protocol != SslVersion::TlsServer {
-                return Err(vm.new_value_error("SSLContext is not a server context.".to_owned()));
+                return Err(vm.new_value_error("SSLContext is not a server context."));
             }
 
             #[cfg(ossl110)]
@@ -1421,7 +1419,7 @@ mod _ssl {
                 }
             } else {
                 if !callback.is_callable() {
-                    return Err(vm.new_type_error("callback must be callable".to_owned()));
+                    return Err(vm.new_type_error("callback must be callable"));
                 }
                 *self.psk_client_callback.lock() = Some(callback);
                 // Note: The actual callback will be invoked via SSL app_data mechanism
@@ -1457,7 +1455,7 @@ mod _ssl {
                 }
             } else {
                 if !callback.is_callable() {
-                    return Err(vm.new_type_error("callback must be callable".to_owned()));
+                    return Err(vm.new_type_error("callback must be callable"));
                 }
                 *self.psk_server_callback.lock() = Some(callback);
                 if let OptionalArg::Present(hint) = identity_hint {
@@ -1588,12 +1586,12 @@ mod _ssl {
             let store_ptr = unsafe { sys::SSL_CTX_get_cert_store(ctx.as_ptr()) };
 
             if store_ptr.is_null() {
-                return Err(vm.new_memory_error("failed to get cert store".to_owned()));
+                return Err(vm.new_memory_error("failed to get cert store"));
             }
 
             let objs_ptr = unsafe { sys::X509_STORE_get0_objects(store_ptr) };
             if objs_ptr.is_null() {
-                return Err(vm.new_memory_error("failed to query cert store".to_owned()));
+                return Err(vm.new_memory_error("failed to query cert store"));
             }
 
             let mut x509_count = 0;
@@ -1727,9 +1725,7 @@ mod _ssl {
         ) -> PyResult<()> {
             // Check if this is a server context
             if self.protocol == SslVersion::TlsClient {
-                return Err(vm.new_value_error(
-                    "sni_callback cannot be set on TLS_CLIENT context".to_owned(),
-                ));
+                return Err(vm.new_value_error("sni_callback cannot be set on TLS_CLIENT context"));
             }
 
             let mut callback_guard = self.sni_callback.lock();
@@ -1738,7 +1734,7 @@ mod _ssl {
                 if !vm.is_none(&callback_obj) {
                     // Check if callable
                     if !callback_obj.is_callable() {
-                        return Err(vm.new_type_error("not a callable object".to_owned()));
+                        return Err(vm.new_type_error("not a callable object"));
                     }
 
                     // Set the callback
@@ -1805,7 +1801,7 @@ mod _ssl {
                 if !vm.is_none(&callback_obj) {
                     // Check if callable
                     if !callback_obj.is_callable() {
-                        return Err(vm.new_type_error("not a callable object".to_owned()));
+                        return Err(vm.new_type_error("not a callable object"));
                     }
 
                     // Set the callback
@@ -2521,7 +2517,7 @@ mod _ssl {
             unsafe {
                 let result = SSL_set_SSL_CTX(ssl_ptr, value.ctx().as_ptr());
                 if result.is_null() {
-                    return Err(vm.new_runtime_error("Failed to set SSL context".to_owned()));
+                    return Err(vm.new_runtime_error("Failed to set SSL context"));
                 }
             }
 
@@ -2806,7 +2802,7 @@ mod _ssl {
             #[cfg(not(ossl111))]
             {
                 Err(vm.new_not_implemented_error(
-                    "Post-handshake auth is not supported by your OpenSSL version.".to_owned(),
+                    "Post-handshake auth is not supported by your OpenSSL version.",
                 ))
             }
         }
@@ -3116,32 +3112,26 @@ mod _ssl {
             // Check if value is SSLSession type
             let session = value
                 .downcast_ref::<PySslSession>()
-                .ok_or_else(|| vm.new_type_error("Value is not a SSLSession.".to_owned()))?;
+                .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
 
             // Check if session refers to the same SSLContext
             if !std::ptr::eq(
                 self.ctx.read().ctx.read().as_ptr(),
                 session.ctx.ctx.read().as_ptr(),
             ) {
-                return Err(
-                    vm.new_value_error("Session refers to a different SSLContext.".to_owned())
-                );
+                return Err(vm.new_value_error("Session refers to a different SSLContext."));
             }
 
             // Check if this is a client socket
             if self.socket_type != SslServerOrClient::Client {
-                return Err(
-                    vm.new_value_error("Cannot set session for server-side SSLSocket.".to_owned())
-                );
+                return Err(vm.new_value_error("Cannot set session for server-side SSLSocket."));
             }
 
             // Check if handshake is not finished
             let stream = self.connection.read();
             unsafe {
                 if sys::SSL_is_init_finished(stream.ssl().as_ptr()) != 0 {
-                    return Err(
-                        vm.new_value_error("Cannot set session after handshake.".to_owned())
-                    );
+                    return Err(vm.new_value_error("Cannot set session after handshake."));
                 }
 
                 let ret = sys::SSL_set_session(stream.ssl().as_ptr(), session.session);
@@ -3182,7 +3172,7 @@ mod _ssl {
                 }
                 OptionalArg::Missing => {
                     if n < 0 {
-                        return Err(vm.new_value_error("size should not be negative".to_owned()));
+                        return Err(vm.new_value_error("size should not be negative"));
                     }
                     n as usize
                 }
@@ -3602,7 +3592,7 @@ mod _ssl {
             unsafe {
                 let bio = sys::BIO_new(sys::BIO_s_mem());
                 if bio.is_null() {
-                    return Err(vm.new_memory_error("failed to allocate BIO".to_owned()));
+                    return Err(vm.new_memory_error("failed to allocate BIO"));
                 }
 
                 sys::BIO_set_retry_read(bio);

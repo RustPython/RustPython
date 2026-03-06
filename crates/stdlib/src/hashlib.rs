@@ -210,8 +210,7 @@ pub mod _hashlib {
             (Some(_), Some(_)) => Err(vm.new_type_error(
                 "'data' and 'string' are mutually exclusive \
                  and support for 'string' keyword parameter \
-                 is slated for removal in a future version."
-                    .to_owned(),
+                 is slated for removal in a future version.",
             )),
         }
     }
@@ -306,7 +305,7 @@ pub mod _hashlib {
     impl PyHmac {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create '_hashlib.HMAC' instances".to_owned()))
+            Err(vm.new_type_error("cannot create '_hashlib.HMAC' instances"))
         }
 
         #[pygetset]
@@ -758,9 +757,10 @@ pub mod _hashlib {
 
     #[pyfunction]
     fn hmac_new(args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyHmac> {
-        let digestmod = args.digestmod.into_option().ok_or_else(|| {
-            vm.new_type_error("Missing required parameter 'digestmod'.".to_owned())
-        })?;
+        let digestmod = args
+            .digestmod
+            .into_option()
+            .ok_or_else(|| vm.new_type_error("Missing required parameter 'digestmod'."))?;
         let name = resolve_digestmod(&digestmod, vm)?;
 
         let key_buf = args.key.borrow_buf();
@@ -833,10 +833,10 @@ pub mod _hashlib {
         let name = args.hash_name.as_str().to_lowercase();
 
         if args.iterations < 1 {
-            return Err(vm.new_value_error("iteration value must be greater than 0.".to_owned()));
+            return Err(vm.new_value_error("iteration value must be greater than 0."));
         }
         let rounds = u32::try_from(args.iterations)
-            .map_err(|_| vm.new_overflow_error("iteration value is too great.".to_owned()))?;
+            .map_err(|_| vm.new_overflow_error("iteration value is too great."))?;
 
         let dklen: usize = match args.dklen.into_option() {
             Some(obj) if vm.is_none(&obj) => {
@@ -845,10 +845,10 @@ pub mod _hashlib {
             Some(obj) => {
                 let len: i64 = obj.try_into_value(vm)?;
                 if len < 1 {
-                    return Err(vm.new_value_error("key length must be greater than 0.".to_owned()));
+                    return Err(vm.new_value_error("key length must be greater than 0."));
                 }
                 usize::try_from(len)
-                    .map_err(|_| vm.new_overflow_error("key length is too great.".to_owned()))?
+                    .map_err(|_| vm.new_overflow_error("key length is too great."))?
             }
             None => hash_digest_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?,
         };

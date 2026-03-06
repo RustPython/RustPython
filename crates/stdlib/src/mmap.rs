@@ -557,13 +557,11 @@ mod mmap {
             // Parse tagname: None or a string
             let tag_str: Option<String> = match tagname {
                 Some(ref obj) if !vm.is_none(obj) => {
-                    let s = obj.try_to_value::<String>(vm).map_err(|_| {
-                        vm.new_type_error("tagname must be a string or None".to_owned())
-                    })?;
+                    let s = obj
+                        .try_to_value::<String>(vm)
+                        .map_err(|_| vm.new_type_error("tagname must be a string or None"))?;
                     if s.contains('\0') {
-                        return Err(vm.new_value_error(
-                            "tagname must not contain null characters".to_owned(),
-                        ));
+                        return Err(vm.new_value_error("tagname must not contain null characters"));
                     }
                     Some(s)
                 }

@@ -324,9 +324,7 @@ impl PyCSimpleType {
                 {
                     return create_simple_with_value("c", &value);
                 }
-                return Err(vm.new_type_error(
-                    "one character bytes, bytearray or integer expected".to_string(),
-                ));
+                return Err(vm.new_type_error("one character bytes, bytearray or integer expected"));
             }
             // c_wchar: 1 unicode character
             Some("u") => {
@@ -559,8 +557,7 @@ impl Initializer for PyCSimpleType {
         // Validate _type_ is a single character
         if type_str.len() != 1 {
             return Err(vm.new_value_error(
-                "class must define a '_type_' attribute which must be a string of length 1"
-                    .to_owned(),
+                "class must define a '_type_' attribute which must be a string of length 1",
             ));
         }
 
