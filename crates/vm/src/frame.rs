@@ -1677,16 +1677,29 @@ impl ExecutingFrame<'_> {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
                 let target_local = self.binary_op_inplace_unicode_target_local(cache_base, a);
-                if let (Some(a_str), Some(b_str), Some(target_local)) = (
+                if let (Some(_a_str), Some(_b_str), Some(target_local)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyStr>(vm),
                     target_local,
                 ) {
-                    let mut result = a_str.to_owned();
-                    result.concat_in_place(b_str.as_wtf8(), vm);
-                    self.pop_value();
-                    self.pop_value();
-                    self.localsplus.fastlocals_mut()[target_local] = Some(result.into());
+                    let right = self.pop_value();
+                    let left = self.pop_value();
+
+                    let local_obj = self.localsplus.fastlocals_mut()[target_local]
+                        .take()
+                        .expect("BINARY_OP_INPLACE_ADD_UNICODE target local missing");
+                    debug_assert!(local_obj.is(&left));
+                    let mut local_str = local_obj
+                        .downcast_exact::<PyStr>(vm)
+                        .expect("BINARY_OP_INPLACE_ADD_UNICODE target local not exact str")
+                        .into_pyref();
+                    drop(left);
+                    let right_str = right
+                        .downcast_ref_if_exact::<PyStr>(vm)
+                        .expect("BINARY_OP_INPLACE_ADD_UNICODE right operand not exact str");
+                    local_str.concat_in_place(right_str.as_wtf8(), vm);
+
+                    self.localsplus.fastlocals_mut()[target_local] = Some(local_str.into());
                     self.jump_relative_forward(
                         1,
                         Instruction::BinaryOpInplaceAddUnicode.cache_entries() as u32,
