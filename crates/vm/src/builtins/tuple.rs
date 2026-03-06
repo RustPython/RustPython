@@ -55,19 +55,19 @@ unsafe impl Traverse for PyTuple {
     }
 }
 
-// spell-checker:ignore MAXFREELIST MAXSAVESIZE
+// spell-checker:ignore MAXSAVESIZE
 /// Per-size freelist storage for tuples, matching tuples[PyTuple_MAXSAVESIZE].
 /// Each bucket caches tuples of a specific element count (index = len - 1).
 struct TupleFreeList {
-    buckets: [Vec<NonNull<PyObject>>; Self::MAXSAVESIZE],
+    buckets: [Vec<NonNull<PyObject>>; Self::MAX_SAVE_SIZE],
 }
 
 impl TupleFreeList {
     /// Largest tuple size to cache on the freelist (sizes 1..=20).
-    const MAXSAVESIZE: usize = 20;
+    const MAX_SAVE_SIZE: usize = 20;
     const fn new() -> Self {
         Self {
-            buckets: [const { Vec::new() }; Self::MAXSAVESIZE],
+            buckets: [const { Vec::new() }; Self::MAX_SAVE_SIZE],
         }
     }
 }
@@ -119,7 +119,7 @@ impl PyPayload for PyTuple {
             return false;
         }
         let len = hint;
-        if len == 0 || len > TupleFreeList::MAXSAVESIZE {
+        if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
             return false;
         }
         TUPLE_FREELIST
@@ -141,7 +141,7 @@ impl PyPayload for PyTuple {
     #[inline]
     unsafe fn freelist_pop(payload: &Self) -> Option<NonNull<PyObject>> {
         let len = payload.elements.len();
-        if len == 0 || len > TupleFreeList::MAXSAVESIZE {
+        if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
             return None;
         }
         TUPLE_FREELIST

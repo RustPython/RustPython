@@ -2191,7 +2191,7 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
 
-        // Try to reuse from freelist (exact type only, no dict, no heaptype)
+        // Try to reuse from freelist (no dict, no heaptype)
         let cached = if !has_dict && !is_heaptype {
             unsafe { T::freelist_pop(&payload) }
         } else {
@@ -2200,25 +2200,22 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
 
         let ptr = if let Some(cached) = cached {
             let inner = cached.as_ptr() as *mut PyInner<T>;
-            // Push-side exact type check filters subtypes, but subtypes
-            // sharing the same Rust payload (e.g. structseq) may still
-            // call freelist_pop. Verify typ matches; if not, deallocate.
-            let cached_typ = unsafe { (*inner).typ.load_raw() };
-            if !core::ptr::eq(cached_typ, &*typ as *const Py<PyType>) {
-                unsafe { PyInner::dealloc(inner) };
-                let inner = PyInner::new(payload, typ, dict);
-                unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
-            } else {
-                unsafe {
-                    core::ptr::write(&mut (*inner).ref_count, RefCount::new());
-                    (*inner).gc_bits.store(0, Ordering::Relaxed);
-                    core::ptr::drop_in_place(&mut (*inner).payload);
-                    core::ptr::write(&mut (*inner).payload, payload);
+            unsafe {
+                core::ptr::write(&mut (*inner).ref_count, RefCount::new());
+                (*inner).gc_bits.store(0, Ordering::Relaxed);
+                core::ptr::drop_in_place(&mut (*inner).payload);
+                core::ptr::write(&mut (*inner).payload, payload);
+                // Freelist only stores exact base types (push-side filter),
+                // but subtypes sharing the same Rust payload (e.g. structseq)
+                // may pop entries. Update typ if it differs.
+                let cached_typ: *const Py<PyType> = &*(*inner).typ;
+                if core::ptr::eq(cached_typ, &*typ) {
+                    drop(typ);
+                } else {
+                    let _old = (*inner).typ.swap(typ);
                 }
-                // Drop the caller's typ since the cached object already holds one
-                drop(typ);
-                unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
             }
+            unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
         } else {
             let inner = PyInner::new(payload, typ, dict);
             unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
