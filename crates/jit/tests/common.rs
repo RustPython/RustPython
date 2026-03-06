@@ -186,7 +186,7 @@ impl StackMachine {
         &mut self,
         instruction: Instruction,
         arg: OpArg,
-        constants: &Constants,
+        constants: &Constants<ConstantData>,
         names: &[String],
     ) -> ControlFlow<()> {
         match instruction {
