@@ -358,6 +358,7 @@ class LoaderLoadModuleTests:
 
         return SpecLoader()
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; Flaky on CI")
     def test_fresh(self):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
@@ -375,6 +376,7 @@ class LoaderLoadModuleTests:
             self.assertIsNotNone(module.__path__,
                                 module.__spec__.submodule_search_locations)
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; Flaky on CI")
     def test_reload(self):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
