@@ -58,7 +58,7 @@ mod _tokenize {
                     vm.state
                         .codec_registry
                         .decode_text(bytes.into(), encoding, None, vm)
-                        .map(|s| s.to_str().unwrap_or_else(|| "").into())?
+                        .map(|s| s.to_str().unwrap_or("").into())?
                 }
                 None => raw_line
                     .downcast::<PyStr>()
