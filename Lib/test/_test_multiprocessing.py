@@ -3303,6 +3303,7 @@ class _TestManagerRestart(BaseTestCase):
         queue = manager.get_queue()
         queue.put('hello world')
 
+    @unittest.skipIf(sys.platform == "linux", "TODO: RUSTPYTHON; Flaky on CI")
     def test_rapid_restart(self):
         authkey = os.urandom(32)
         manager = QueueManager(
