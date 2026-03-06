@@ -211,6 +211,8 @@ jobs:
     name: Ensure compilation on various targets
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
