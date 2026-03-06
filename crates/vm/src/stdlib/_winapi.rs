@@ -538,7 +538,7 @@ mod _winapi {
         let ms = if ms < 0 {
             windows_sys::Win32::System::Threading::INFINITE
         } else if ms > u32::MAX as i64 {
-            return Err(vm.new_overflow_error("timeout value is too large".to_owned()));
+            return Err(vm.new_overflow_error("timeout value is too large"));
         } else {
             ms as u32
         };
@@ -567,13 +567,11 @@ mod _winapi {
             .collect();
 
         if handles.is_empty() {
-            return Err(vm.new_value_error("handle_seq must not be empty".to_owned()));
+            return Err(vm.new_value_error("handle_seq must not be empty"));
         }
 
         if handles.len() > 64 {
-            return Err(
-                vm.new_value_error("WaitForMultipleObjects supports at most 64 handles".to_owned())
-            );
+            return Err(vm.new_value_error("WaitForMultipleObjects supports at most 64 handles"));
         }
 
         let ret = unsafe {
@@ -693,7 +691,7 @@ mod _winapi {
         let src_wide = src.as_wtf8().to_wide();
 
         if src_wide.len() > i32::MAX as usize {
-            return Err(vm.new_overflow_error("input string is too long".to_string()));
+            return Err(vm.new_overflow_error("input string is too long"));
         }
 
         // First call to get required buffer size
@@ -901,8 +899,7 @@ mod _winapi {
             let inner = self.inner.lock();
             if !inner.completed {
                 return Err(vm.new_value_error(
-                    "can't get read buffer before GetOverlappedResult() signals the operation completed"
-                        .to_owned(),
+                    "can't get read buffer before GetOverlappedResult() signals the operation completed",
                 ));
             }
             Ok(inner
@@ -1100,7 +1097,7 @@ mod _winapi {
         let size = size.unwrap_or(0);
 
         if size < 0 {
-            return Err(vm.new_value_error("negative size".to_string()));
+            return Err(vm.new_value_error("negative size"));
         }
 
         let mut navail: u32 = 0;
@@ -1808,9 +1805,9 @@ mod _winapi {
         if let Some(ref n) = name
             && n.as_bytes().contains(&0)
         {
-            return Err(vm.new_value_error(
-                "CreateFileMapping: name must not contain null characters".to_owned(),
-            ));
+            return Err(
+                vm.new_value_error("CreateFileMapping: name must not contain null characters")
+            );
         }
         let name_wide = name.as_ref().map(|n| n.as_wtf8().to_wide_with_nul());
         let name_ptr = name_wide.as_ref().map_or(null(), |n| n.as_ptr());
@@ -1843,9 +1840,9 @@ mod _winapi {
         use windows_sys::Win32::System::Memory::OpenFileMappingW;
 
         if name.as_bytes().contains(&0) {
-            return Err(vm.new_value_error(
-                "OpenFileMapping: name must not contain null characters".to_owned(),
-            ));
+            return Err(
+                vm.new_value_error("OpenFileMapping: name must not contain null characters")
+            );
         }
         let name_wide = name.as_wtf8().to_wide_with_nul();
         let handle = unsafe {
