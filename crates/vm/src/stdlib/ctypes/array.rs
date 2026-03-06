@@ -798,9 +798,10 @@ impl PyCArray {
                 } else if let Ok(int_val) = value.try_index(vm) {
                     (int_val.as_bigint().to_usize().unwrap_or(0), None)
                 } else {
-                    return Err(
-                        vm.new_type_error("bytes or integer address expected instead of {}")
-                    );
+                    return Err(vm.new_type_error(format!(
+                        "bytes or integer address expected instead of {} instance",
+                        value.class().name()
+                    )));
                 };
                 if offset + element_size <= buffer.len() {
                     buffer[offset..offset + element_size].copy_from_slice(&ptr_val.to_ne_bytes());
