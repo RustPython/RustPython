@@ -195,11 +195,30 @@ mod gc {
             .map(|obj| obj.as_ref() as *const crate::PyObject as usize)
             .collect();
 
+        // Collect pointers of frames currently on the execution stack.
+        // In CPython, executing frames (_PyInterpreterFrame) are not GC-tracked
+        // PyObjects, so they never appear in get_referrers results. Since
+        // RustPython materializes every frame as a PyObject, we must exclude
+        // them manually to match the expected behavior.
+        let stack_frames: HashSet<usize> = vm
+            .frames
+            .borrow()
+            .iter()
+            .map(|fp| {
+                let frame: &crate::PyObject = unsafe { fp.as_ref() }.as_ref();
+                frame as *const crate::PyObject as usize
+            })
+            .collect();
+
         let mut result = Vec::new();
 
         // Scan all tracked objects across all generations
         let all_objects = gc_state::gc_state().get_objects(None);
         for obj in all_objects {
+            let obj_ptr = obj.as_ref() as *const crate::PyObject as usize;
+            if stack_frames.contains(&obj_ptr) {
+                continue;
+            }
             let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
             for child_ptr in referent_ptrs {
                 if targets.contains(&(child_ptr.as_ptr() as usize)) {
