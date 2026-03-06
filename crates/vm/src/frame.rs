@@ -1669,8 +1669,8 @@ impl ExecutingFrame<'_> {
                 self.adaptive(|s, ii, cb| s.specialize_binary_op(vm, op_val, ii, cb));
                 self.execute_bin_op(vm, op_val)
             }
-            // TODO: In CPython, this does in-place unicode concatenation when
-            // refcount is 1. Falls back to regular iadd for now.
+            // Super-instruction for BINARY_OP_ADD_UNICODE + STORE_FAST targeting
+            // the left local, mirroring CPython's BINARY_OP_INPLACE_ADD_UNICODE shape.
             Instruction::BinaryOpInplaceAddUnicode => {
                 let b = self.top_value();
                 let a = self.nth_value(1);
@@ -1682,10 +1682,11 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyStr>(vm),
                     target_local,
                 ) {
-                    let result = a_str.as_wtf8().py_add(b_str.as_wtf8());
+                    let mut result = a_str.to_owned();
+                    result.concat_in_place(b_str.as_wtf8(), vm);
                     self.pop_value();
                     self.pop_value();
-                    self.localsplus.fastlocals_mut()[target_local] = Some(result.to_pyobject(vm));
+                    self.localsplus.fastlocals_mut()[target_local] = Some(result.into());
                     self.jump_relative_forward(
                         1,
                         Instruction::BinaryOpInplaceAddUnicode.cache_entries() as u32,
