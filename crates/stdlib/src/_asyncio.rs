@@ -499,7 +499,8 @@ pub(crate) mod _asyncio {
         }
 
         fn make_cancelled_error_impl(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-            if let Some(exc) = self.fut_cancelled_exc.read().clone()
+            // If a saved CancelledError exists, take it (clearing the stored reference)
+            if let Some(exc) = self.fut_cancelled_exc.write().take()
                 && let Ok(exc) = exc.downcast::<PyBaseException>()
             {
                 return exc;
@@ -508,12 +509,10 @@ pub(crate) mod _asyncio {
             let msg = self.fut_cancel_msg.read().clone();
             let args = if let Some(m) = msg { vec![m] } else { vec![] };
 
-            let exc = match get_cancelled_error_type(vm) {
+            match get_cancelled_error_type(vm) {
                 Ok(cancelled_error) => vm.new_exception(cancelled_error, args),
                 Err(_) => vm.new_runtime_error("cancelled"),
-            };
-            *self.fut_cancelled_exc.write() = Some(exc.clone().into());
-            exc
+            }
         }
 
         fn schedule_callbacks(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
@@ -1309,7 +1308,8 @@ pub(crate) mod _asyncio {
         }
 
         fn make_cancelled_error_impl(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-            if let Some(exc) = self.base.fut_cancelled_exc.read().clone()
+            // If a saved CancelledError exists, take it (clearing the stored reference)
+            if let Some(exc) = self.base.fut_cancelled_exc.write().take()
                 && let Ok(exc) = exc.downcast::<PyBaseException>()
             {
                 return exc;
@@ -1318,12 +1318,10 @@ pub(crate) mod _asyncio {
             let msg = self.base.fut_cancel_msg.read().clone();
             let args = if let Some(m) = msg { vec![m] } else { vec![] };
 
-            let exc = match get_cancelled_error_type(vm) {
+            match get_cancelled_error_type(vm) {
                 Ok(cancelled_error) => vm.new_exception(cancelled_error, args),
                 Err(_) => vm.new_runtime_error("cancelled"),
-            };
-            *self.base.fut_cancelled_exc.write() = Some(exc.clone().into());
-            exc
+            }
         }
 
         #[pymethod]
