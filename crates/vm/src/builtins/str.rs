@@ -1689,13 +1689,23 @@ impl ToPyObject for Wtf8Buf {
 
 impl ToPyObject for char {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(self).into()
+        let cp = self as u32;
+        if cp <= u8::MAX as u32 {
+            vm.ctx.latin1_char_cache[cp as usize].clone().into()
+        } else {
+            vm.ctx.new_str(self).into()
+        }
     }
 }
 
 impl ToPyObject for CodePoint {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(self).into()
+        let cp = self.to_u32();
+        if cp <= u8::MAX as u32 {
+            vm.ctx.latin1_char_cache[cp as usize].clone().into()
+        } else {
+            vm.ctx.new_str(self).into()
+        }
     }
 }
 
