@@ -41,6 +41,7 @@ mod json;
 mod locale;
 
 mod _opcode;
+mod _tokenize;
 mod math;
 #[cfg(all(feature = "host_env", any(unix, windows)))]
 mod mmap;
@@ -144,6 +145,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
     vec![
         _asyncio::module_def(ctx),
         _opcode::module_def(ctx),
+        _tokenize::module_def(ctx),
         _remote_debugging::module_def(ctx),
         array::module_def(ctx),
         binascii::module_def(ctx),
