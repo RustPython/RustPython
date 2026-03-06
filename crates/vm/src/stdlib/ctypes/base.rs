@@ -1433,8 +1433,7 @@ impl Constructor for PyCField {
 
         if !internal_use {
             return Err(vm.new_type_error(
-                "CField is not intended to be used directly; use it via Structure or Union fields"
-                    .to_string(),
+                "CField is not intended to be used directly; use it via Structure or Union fields",
             ));
         }
 
@@ -1493,11 +1492,11 @@ impl Constructor for PyCField {
 
         if let Some(bs) = bit_size_val {
             if bs < 0 {
-                return Err(vm.new_value_error("number of bits invalid for bit field".to_string()));
+                return Err(vm.new_value_error("number of bits invalid for bit field"));
             }
             let bo = bit_offset_val.unwrap_or(0);
             if bo < 0 {
-                return Err(vm.new_value_error("bit_offset must be >= 0".to_string()));
+                return Err(vm.new_value_error("bit_offset must be >= 0"));
             }
             let type_bits = byte_size * 8;
             if bo + bs > type_bits {

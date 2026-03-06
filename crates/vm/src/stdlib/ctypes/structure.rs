@@ -310,9 +310,9 @@ impl PyCStructType {
                 .ok_or_else(|| vm.new_type_error("_fields_ must contain tuples"))?;
 
             if field_tuple.len() < 2 {
-                return Err(vm.new_type_error(
-                    "_fields_ tuple must have at least 2 elements (name, type)".to_string(),
-                ));
+                return Err(
+                    vm.new_type_error("_fields_ tuple must have at least 2 elements (name, type)")
+                );
             }
 
             let name = field_tuple
@@ -428,9 +428,7 @@ impl PyCStructType {
                     .try_int(vm)?
                     .as_bigint()
                     .to_u16()
-                    .ok_or_else(|| {
-                        vm.new_value_error("number of bits invalid for bit field".to_string())
-                    })?;
+                    .ok_or_else(|| vm.new_value_error("number of bits invalid for bit field"))?;
                 has_bitfield = true;
 
                 let type_bits = (size * 8) as u16;
@@ -534,9 +532,7 @@ impl PyCStructType {
         if let Some(stg_info) = cls.get_type_data::<StgInfo>()
             && stg_info.is_final()
         {
-            return Err(
-                vm.new_attribute_error("Structure or union cannot contain itself".to_string())
-            );
+            return Err(vm.new_attribute_error("Structure or union cannot contain itself"));
         }
 
         // Store StgInfo with aligned size and total alignment

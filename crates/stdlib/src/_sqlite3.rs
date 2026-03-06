@@ -1512,9 +1512,9 @@ mod _sqlite3 {
                     let _ = unsafe { self.isolation_level.swap(value) };
                     Ok(())
                 }
-                PySetterValue::Delete => Err(vm.new_attribute_error(
-                    "'isolation_level' attribute cannot be deleted".to_owned(),
-                )),
+                PySetterValue::Delete => {
+                    Err(vm.new_attribute_error("'isolation_level' attribute cannot be deleted"))
+                }
             }
         }
 

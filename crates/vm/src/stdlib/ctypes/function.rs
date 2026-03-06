@@ -232,7 +232,7 @@ fn convert_to_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<FfiArgV
             return Ok(FfiArgValue::Pointer(unsigned_val));
         }
         // Value out of range - raise OverflowError
-        return Err(vm.new_overflow_error("int too large to convert to pointer".to_string()));
+        return Err(vm.new_overflow_error("int too large to convert to pointer"));
     }
 
     // 8. Check _as_parameter_ attribute ( recursive ConvParam)
@@ -1308,9 +1308,7 @@ fn resolve_com_method(
 
     // First arg must be the COM object pointer
     if args.args.is_empty() {
-        return Err(
-            vm.new_type_error("COM method requires at least one argument (self)".to_string())
-        );
+        return Err(vm.new_type_error("COM method requires at least one argument (self)"));
     }
 
     // Extract COM pointer value from first argument
@@ -1325,9 +1323,7 @@ fn resolve_com_method(
     } else if let Ok(int_val) = self_arg.try_int(vm) {
         int_val.as_bigint().to_usize().unwrap_or(0)
     } else {
-        return Err(
-            vm.new_type_error("COM method first argument must be a COM pointer".to_string())
-        );
+        return Err(vm.new_type_error("COM method first argument must be a COM pointer"));
     };
 
     if com_ptr == 0 {
@@ -1467,9 +1463,8 @@ fn build_callargs_with_paramflags(
         if is_out && !is_in {
             // Pure OUT parameter: create buffer, don't consume caller arg
             let buffer = create_out_buffer(arg_type, vm)?;
-            let addr = get_buffer_addr(&buffer).ok_or_else(|| {
-                vm.new_type_error("Cannot create OUT buffer for this type".to_string())
-            })?;
+            let addr = get_buffer_addr(&buffer)
+                .ok_or_else(|| vm.new_type_error("Cannot create OUT buffer for this type"))?;
             arguments.push(Argument {
                 ffi_type,
                 keep: None,

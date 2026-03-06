@@ -463,9 +463,7 @@ impl Node for ast::ExprDict {
             get_node_field(vm, &object, "values", "Dict")?,
         )?;
         if keys.len() != values.len() {
-            return Err(vm.new_value_error(
-                "Dict doesn't have the same number of keys as values".to_owned(),
-            ));
+            return Err(vm.new_value_error("Dict doesn't have the same number of keys as values"));
         }
         let items = keys
             .into_iter()

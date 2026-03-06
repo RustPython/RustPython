@@ -418,7 +418,7 @@ impl AsNumber for PyComplex {
                 let result = value.norm();
                 // Check for overflow: hypot returns inf for finite inputs that overflow
                 if result.is_infinite() && value.re.is_finite() && value.im.is_finite() {
-                    return Err(vm.new_overflow_error("absolute value too large".to_owned()));
+                    return Err(vm.new_overflow_error("absolute value too large"));
                 }
                 result.to_pyresult(vm)
             }),

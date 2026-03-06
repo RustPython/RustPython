@@ -1112,11 +1112,10 @@ impl Node for ast::StmtImportFrom {
                     let int: PyRef<PyInt> = obj.try_into_value(vm)?;
                     let value: i64 = int.try_to_primitive(vm)?;
                     if value < 0 {
-                        return Err(vm.new_value_error("Negative ImportFrom level".to_owned()));
+                        return Err(vm.new_value_error("Negative ImportFrom level"));
                     }
-                    u32::try_from(value).map_err(|_| {
-                        vm.new_overflow_error("ImportFrom level out of range".to_owned())
-                    })
+                    u32::try_from(value)
+                        .map_err(|_| vm.new_overflow_error("ImportFrom level out of range"))
                 })
                 .transpose()?
                 .unwrap_or(0),

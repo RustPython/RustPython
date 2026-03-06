@@ -488,13 +488,13 @@ impl Frame {
             PySetterValue::Assign(val) => {
                 let line_ref: PyIntRef = val
                     .downcast()
-                    .map_err(|_| vm.new_value_error("lineno must be an integer".to_owned()))?;
+                    .map_err(|_| vm.new_value_error("lineno must be an integer"))?;
                 line_ref
                     .try_to_primitive::<i32>(vm)
-                    .map_err(|_| vm.new_value_error("lineno must be an integer".to_owned()))?
+                    .map_err(|_| vm.new_value_error("lineno must be an integer"))?
             }
             PySetterValue::Delete => {
-                return Err(vm.new_type_error("can't delete f_lineno attribute".to_owned()));
+                return Err(vm.new_type_error("can't delete f_lineno attribute"));
             }
         };
 
@@ -677,12 +677,12 @@ impl Py<Frame> {
                 // FRAME_SUSPENDED). lasti == 0 means FRAME_CREATED and
                 // can be cleared.
                 if self.lasti() != 0 {
-                    return Err(vm.new_runtime_error("cannot clear a suspended frame".to_owned()));
+                    return Err(vm.new_runtime_error("cannot clear a suspended frame"));
                 }
             }
             FrameOwner::Thread => {
                 // Thread-owned frame: always executing, cannot clear.
-                return Err(vm.new_runtime_error("cannot clear an executing frame".to_owned()));
+                return Err(vm.new_runtime_error("cannot clear an executing frame"));
             }
             FrameOwner::FrameObject => {
                 // Detached frame: safe to clear.

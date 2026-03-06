@@ -43,8 +43,7 @@ impl Constructor for PyBaseObject {
                     // Type has its own __new__, so object.__new__ is being called
                     // with excess args. This is the first error case in CPython
                     return Err(vm.new_type_error(
-                        "object.__new__() takes exactly one argument (the type to instantiate)"
-                            .to_owned(),
+                        "object.__new__() takes exactly one argument (the type to instantiate)",
                     ));
                 }
 
@@ -136,8 +135,7 @@ impl Initializer for PyBaseObject {
         // if (type->tp_init != object_init) → first error
         if typ_init != object_init {
             return Err(vm.new_type_error(
-                "object.__init__() takes exactly one argument (the instance to initialize)"
-                    .to_owned(),
+                "object.__init__() takes exactly one argument (the instance to initialize)",
             ));
         }
 
@@ -250,9 +248,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
                 let borrowed_names = slot_names.borrow_vec();
                 // Check if slotnames changed during iteration
                 if borrowed_names.len() != slot_names_len {
-                    return Err(vm.new_runtime_error(
-                        "__slotnames__ changed size during iteration".to_owned(),
-                    ));
+                    return Err(vm.new_runtime_error("__slotnames__ changed size during iteration"));
                 }
                 let name = borrowed_names[i].downcast_ref::<PyStr>().unwrap();
                 let Ok(value) = obj.get_attr(name, vm) else {
@@ -718,7 +714,7 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     } else {
         // args == NULL with non-empty kwargs is BadInternalCall
         let Some(args) = args else {
-            return Err(vm.new_system_error("bad internal call".to_owned()));
+            return Err(vm.new_system_error("bad internal call"));
         };
         // Use copyreg.__newobj_ex__
         let newobj = copyreg.get_attr("__newobj_ex__", vm)?;

@@ -87,24 +87,22 @@ mod winsound {
         if vm.is_none(&sound) {
             let ok = unsafe { super::win32::PlaySoundW(core::ptr::null(), 0, flags) };
             if ok == 0 {
-                return Err(vm.new_runtime_error("Failed to play sound".to_owned()));
+                return Err(vm.new_runtime_error("Failed to play sound"));
             }
             return Ok(());
         }
 
         if flags & SND_MEMORY != 0 {
             if flags & SND_ASYNC != 0 {
-                return Err(
-                    vm.new_runtime_error("Cannot play asynchronously from memory".to_owned())
-                );
+                return Err(vm.new_runtime_error("Cannot play asynchronously from memory"));
             }
             let buffer = PyBuffer::try_from_borrowed_object(vm, &sound)?;
-            let buf = buffer.as_contiguous().ok_or_else(|| {
-                vm.new_type_error("a bytes-like object is required, not 'str'".to_owned())
-            })?;
+            let buf = buffer
+                .as_contiguous()
+                .ok_or_else(|| vm.new_type_error("a bytes-like object is required, not 'str'"))?;
             let ok = unsafe { super::win32::PlaySoundW(buf.as_ptr() as *const u16, 0, flags) };
             if ok == 0 {
-                return Err(vm.new_runtime_error("Failed to play sound".to_owned()));
+                return Err(vm.new_runtime_error("Failed to play sound"));
             }
             return Ok(());
         }
@@ -138,9 +136,7 @@ mod winsound {
                 let result = fspath.call((), vm)?;
 
                 if result.downcastable::<PyBytes>() {
-                    return Err(
-                        vm.new_type_error("'sound' must resolve to str, not bytes".to_owned())
-                    );
+                    return Err(vm.new_type_error("'sound' must resolve to str, not bytes"));
                 }
 
                 let s: &PyStr = result.downcast_ref().ok_or_else(|| {
@@ -157,13 +153,13 @@ mod winsound {
 
         // Check for embedded null characters
         if path.as_bytes().contains(&0) {
-            return Err(vm.new_value_error("embedded null character".to_owned()));
+            return Err(vm.new_value_error("embedded null character"));
         }
 
         let wide = path.to_wide_with_nul();
         let ok = unsafe { super::win32::PlaySoundW(wide.as_ptr(), 0, flags) };
         if ok == 0 {
-            return Err(vm.new_runtime_error("Failed to play sound".to_owned()));
+            return Err(vm.new_runtime_error("Failed to play sound"));
         }
         Ok(())
     }
@@ -179,12 +175,12 @@ mod winsound {
     #[pyfunction]
     fn Beep(args: BeepArgs, vm: &VirtualMachine) -> PyResult<()> {
         if !(37..=32767).contains(&args.frequency) {
-            return Err(vm.new_value_error("frequency must be in 37 thru 32767".to_owned()));
+            return Err(vm.new_value_error("frequency must be in 37 thru 32767"));
         }
 
         let ok = unsafe { super::win32::Beep(args.frequency as u32, args.duration as u32) };
         if ok == 0 {
-            return Err(vm.new_runtime_error("Failed to beep".to_owned()));
+            return Err(vm.new_runtime_error("Failed to beep"));
         }
         Ok(())
     }

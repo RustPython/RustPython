@@ -2061,9 +2061,7 @@ pub mod module {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
                     let s = obj.downcast::<PyUtf8Str>().map_err(|_| {
-                        vm.new_type_error(
-                            "configuration names must be strings or integers".to_owned(),
-                        )
+                        vm.new_type_error("configuration names must be strings or integers")
                     })?;
                     s.as_str()
                         .parse::<PathconfVar>()
@@ -2456,9 +2454,7 @@ pub mod module {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
                     let s = obj.downcast::<PyUtf8Str>().map_err(|_| {
-                        vm.new_type_error(
-                            "configuration names must be strings or integers".to_owned(),
-                        )
+                        vm.new_type_error("configuration names must be strings or integers")
                     })?;
                     {
                         let name = s.as_str();
@@ -2704,7 +2700,7 @@ mod posix_sched {
             class::StaticType,
         };
         if !obj.fast_isinstance(PySchedParam::static_type()) {
-            return Err(vm.new_type_error("must have a sched_param object".to_owned()));
+            return Err(vm.new_type_error("must have a sched_param object"));
         }
         let tuple = obj.downcast_ref::<PyTuple>().unwrap();
         let priority = tuple[0].clone();

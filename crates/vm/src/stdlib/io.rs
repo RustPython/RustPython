@@ -2032,7 +2032,7 @@ mod _io {
                     // Yield to other threads
                     std::thread::yield_now();
                 }
-                return Err(vm.new_value_error("write to closed file".to_owned()));
+                return Err(vm.new_value_error("write to closed file"));
             }
             let mut data = self.writer().lock(vm)?;
             let raw = data.check_init(vm)?;
@@ -4019,7 +4019,7 @@ mod _io {
                 return Ok(vm.ctx.new_str(Wtf8Buf::from(format!("<{type_name}>"))));
             };
             let Some(data) = data.as_ref() else {
-                return Err(vm.new_value_error("I/O operation on uninitialized object".to_owned()));
+                return Err(vm.new_value_error("I/O operation on uninitialized object"));
             };
 
             let mut result = Wtf8Buf::from(format!("<{type_name}"));
@@ -4572,9 +4572,9 @@ mod _io {
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.exports.load() > 0 {
-                return Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be re-sized".to_owned(),
-                ));
+                return Err(
+                    vm.new_buffer_error("Existing exports of data: object cannot be re-sized")
+                );
             }
 
             let raw_bytes = args
@@ -4712,9 +4712,9 @@ mod _io {
         #[pymethod]
         fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.exports.load() > 0 {
-                return Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be closed".to_owned(),
-                ));
+                return Err(
+                    vm.new_buffer_error("Existing exports of data: object cannot be closed")
+                );
             }
             self.closed.store(true);
             Ok(())
@@ -4794,7 +4794,7 @@ mod _io {
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
             if self.closed.load() {
-                return Err(vm.new_value_error("I/O operation on closed file.".to_owned()));
+                return Err(vm.new_value_error("I/O operation on closed file."));
             }
             let len = self.buffer.read().cursor.get_ref().len();
             let buffer = PyBuffer::new(
@@ -6976,7 +6976,7 @@ mod winconsoleio {
 
         #[pymethod(name = "__reduce__")]
         fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle '_WindowsConsoleIO' instances".to_owned()))
+            Err(vm.new_type_error("cannot pickle '_WindowsConsoleIO' instances"))
         }
     }
 

@@ -1430,7 +1430,7 @@ mod sys {
 
         // Check if type is immutable
         if type_obj.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            return Err(vm.new_type_error("argument is immutable".to_owned()));
+            return Err(vm.new_type_error("argument is immutable"));
         }
 
         let mut attributes = type_obj.attributes.write();

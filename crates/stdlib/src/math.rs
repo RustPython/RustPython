@@ -102,13 +102,13 @@ mod math {
                 )));
             }
             if b == 1.0 {
-                return Err(vm.new_value_error("math domain error".to_owned()));
+                return Err(vm.new_value_error("math domain error"));
             }
         }
         // Handle BigInt specially for large values (only for actual int type, not float)
         if let Some(i) = x.downcast_ref::<PyInt>() {
             return pymath::math::log_bigint(i.as_bigint(), base).map_err(|err| match err {
-                pymath::Error::EDOM => vm.new_value_error("expected a positive input".to_owned()),
+                pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
                 _ => pymath_exception(err, vm),
             });
         }
@@ -132,7 +132,7 @@ mod math {
         // Handle BigInt specially for large values (only for actual int type, not float)
         if let Some(i) = x.downcast_ref::<PyInt>() {
             return pymath::math::log2_bigint(i.as_bigint()).map_err(|err| match err {
-                pymath::Error::EDOM => vm.new_value_error("expected a positive input".to_owned()),
+                pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
                 _ => pymath_exception(err, vm),
             });
         }
@@ -151,7 +151,7 @@ mod math {
         // Handle BigInt specially for large values (only for actual int type, not float)
         if let Some(i) = x.downcast_ref::<PyInt>() {
             return pymath::math::log10_bigint(i.as_bigint()).map_err(|err| match err {
-                pymath::Error::EDOM => vm.new_value_error("expected a positive input".to_owned()),
+                pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
                 _ => pymath_exception(err, vm),
             });
         }

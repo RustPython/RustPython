@@ -461,7 +461,7 @@ impl PyBytesInner {
 
         match invalid_char {
             None => Err(vm.new_value_error(
-                "fromhex() arg must contain an even number of hexadecimal digits".to_owned(),
+                "fromhex() arg must contain an even number of hexadecimal digits",
             )),
             Some(i) => Err(vm.new_value_error(format!(
                 "non-hexadecimal number found in fromhex() arg at position {i}"
@@ -474,9 +474,9 @@ impl PyBytesInner {
         if let Some(s) = string.downcast_ref::<PyStr>() {
             Self::fromhex(s.as_bytes(), vm)
         } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &string) {
-            let borrowed = buffer.as_contiguous().ok_or_else(|| {
-                vm.new_buffer_error("fromhex() requires a contiguous buffer".to_owned())
-            })?;
+            let borrowed = buffer
+                .as_contiguous()
+                .ok_or_else(|| vm.new_buffer_error("fromhex() requires a contiguous buffer"))?;
             Self::fromhex(&borrowed, vm)
         } else {
             Err(vm.new_type_error(format!(

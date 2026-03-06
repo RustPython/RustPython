@@ -733,9 +733,7 @@ impl PyCPointer {
                     } else if let Ok(int_val) = value.try_index(vm) {
                         int_val.as_bigint().to_usize().unwrap_or(0)
                     } else {
-                        return Err(vm.new_type_error(
-                            "bytes/string or integer address expected".to_owned(),
-                        ));
+                        return Err(vm.new_type_error("bytes/string or integer address expected"));
                     };
                     core::ptr::write_unaligned(ptr as *mut usize, ptr_val);
                     return Ok(());

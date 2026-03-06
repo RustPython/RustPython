@@ -25,7 +25,7 @@ fn validate_name(vm: &VirtualMachine, name: &ast::name::Name) -> PyResult<()> {
 
 fn validate_comprehension(vm: &VirtualMachine, gens: &[ast::Comprehension]) -> PyResult<()> {
     if gens.is_empty() {
-        return Err(vm.new_value_error("comprehension with no generators".to_owned()));
+        return Err(vm.new_value_error("comprehension with no generators"));
     }
     for comp in gens {
         validate_expr(vm, &comp.target, ast::ExprContext::Store)?;
@@ -133,31 +133,25 @@ fn validate_pattern_match_value(vm: &VirtualMachine, expr: &ast::Expr) -> PyResu
         ast::Expr::Attribute(_) => Ok(()),
         ast::Expr::UnaryOp(op) => match &*op.operand {
             ast::Expr::NumberLiteral(_) => Ok(()),
-            _ => Err(vm.new_value_error(
-                "patterns may only match literals and attribute lookups".to_owned(),
-            )),
+            _ => Err(vm.new_value_error("patterns may only match literals and attribute lookups")),
         },
         ast::Expr::BinOp(bin) => match (&*bin.left, &*bin.right) {
             (ast::Expr::NumberLiteral(_), ast::Expr::NumberLiteral(_)) => Ok(()),
-            _ => Err(vm.new_value_error(
-                "patterns may only match literals and attribute lookups".to_owned(),
-            )),
+            _ => Err(vm.new_value_error("patterns may only match literals and attribute lookups")),
         },
         ast::Expr::FString(_) | ast::Expr::TString(_) => Ok(()),
         ast::Expr::BooleanLiteral(_)
         | ast::Expr::NoneLiteral(_)
         | ast::Expr::EllipsisLiteral(_) => {
-            Err(vm.new_value_error("unexpected constant inside of a literal pattern".to_owned()))
+            Err(vm.new_value_error("unexpected constant inside of a literal pattern"))
         }
-        _ => Err(
-            vm.new_value_error("patterns may only match literals and attribute lookups".to_owned())
-        ),
+        _ => Err(vm.new_value_error("patterns may only match literals and attribute lookups")),
     }
 }
 
 fn validate_capture(vm: &VirtualMachine, name: &ast::Identifier) -> PyResult<()> {
     if name.as_str() == "_" {
-        return Err(vm.new_value_error("can't capture name '_' in patterns".to_owned()));
+        return Err(vm.new_value_error("can't capture name '_' in patterns"));
     }
     validate_name(vm, name.id())
 }
@@ -172,7 +166,7 @@ fn validate_pattern(vm: &VirtualMachine, pattern: &ast::Pattern, star_ok: bool) 
         ast::Pattern::MatchMapping(mapping) => {
             if mapping.keys.len() != mapping.patterns.len() {
                 return Err(vm.new_value_error(
-                    "MatchMapping doesn't have the same number of keys as patterns".to_owned(),
+                    "MatchMapping doesn't have the same number of keys as patterns",
                 ));
             }
             if let Some(rest) = &mapping.rest {
@@ -197,8 +191,7 @@ fn validate_pattern(vm: &VirtualMachine, pattern: &ast::Pattern, star_ok: bool) 
                     }
                     _ => {
                         return Err(vm.new_value_error(
-                            "MatchClass cls field can only contain Name or Attribute nodes."
-                                .to_owned(),
+                            "MatchClass cls field can only contain Name or Attribute nodes.",
                         ));
                     }
                 }
@@ -214,7 +207,7 @@ fn validate_pattern(vm: &VirtualMachine, pattern: &ast::Pattern, star_ok: bool) 
         }
         ast::Pattern::MatchStar(star) => {
             if !star_ok {
-                return Err(vm.new_value_error("can't use MatchStar here".to_owned()));
+                return Err(vm.new_value_error("can't use MatchStar here"));
             }
             if let Some(name) = &star.name {
                 validate_capture(vm, name)?;
@@ -230,7 +223,7 @@ fn validate_pattern(vm: &VirtualMachine, pattern: &ast::Pattern, star_ok: bool) 
                 Some(pattern) => {
                     if match_as.name.is_none() {
                         return Err(vm.new_value_error(
-                            "MatchAs must specify a target name if a pattern is given".to_owned(),
+                            "MatchAs must specify a target name if a pattern is given",
                         ));
                     }
                     validate_pattern(vm, pattern, false)
@@ -239,7 +232,7 @@ fn validate_pattern(vm: &VirtualMachine, pattern: &ast::Pattern, star_ok: bool) 
         }
         ast::Pattern::MatchOr(match_or) => {
             if match_or.patterns.len() < 2 {
-                return Err(vm.new_value_error("MatchOr requires at least 2 patterns".to_owned()));
+                return Err(vm.new_value_error("MatchOr requires at least 2 patterns"));
             }
             validate_patterns(vm, &match_or.patterns, false)
         }
@@ -342,13 +335,13 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
     match expr {
         ast::Expr::BoolOp(op) => {
             if op.values.len() < 2 {
-                return Err(vm.new_value_error("BoolOp with less than 2 values".to_owned()));
+                return Err(vm.new_value_error("BoolOp with less than 2 values"));
             }
             validate_exprs(vm, &op.values, ast::ExprContext::Load, false)
         }
         ast::Expr::Named(named) => {
             if !matches!(&*named.target, ast::Expr::Name(_)) {
-                return Err(vm.new_type_error("NamedExpr target must be a Name".to_owned()));
+                return Err(vm.new_type_error("NamedExpr target must be a Name"));
             }
             validate_expr(vm, &named.value, ast::ExprContext::Load)
         }
@@ -409,11 +402,11 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
         }
         ast::Expr::Compare(compare) => {
             if compare.comparators.is_empty() {
-                return Err(vm.new_value_error("Compare with no comparators".to_owned()));
+                return Err(vm.new_value_error("Compare with no comparators"));
             }
             if compare.comparators.len() != compare.ops.len() {
                 return Err(vm.new_value_error(
-                    "Compare has a different number of comparators and operands".to_owned(),
+                    "Compare has a different number of comparators and operands",
                 ));
             }
             validate_exprs(vm, &compare.comparators, ast::ExprContext::Load, false)?;
@@ -519,7 +512,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
         }
         ast::Stmt::AnnAssign(assign) => {
             if assign.simple && !matches!(&*assign.target, ast::Expr::Name(_)) {
-                return Err(vm.new_type_error("AnnAssign with simple non-Name target".to_owned()));
+                return Err(vm.new_type_error("AnnAssign with simple non-Name target"));
             }
             validate_expr(vm, &assign.target, ast::ExprContext::Store)?;
             if let Some(value) = &assign.value {
@@ -529,7 +522,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
         }
         ast::Stmt::TypeAlias(alias) => {
             if !matches!(&*alias.name, ast::Expr::Name(_)) {
-                return Err(vm.new_type_error("TypeAlias with non-Name name".to_owned()));
+                return Err(vm.new_type_error("TypeAlias with non-Name name"));
             }
             validate_expr(vm, &alias.name, ast::ExprContext::Store)?;
             validate_type_params(vm, &alias.type_params)?;
@@ -592,7 +585,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                     validate_expr(vm, cause, ast::ExprContext::Load)?;
                 }
             } else if raise.cause.is_some() {
-                return Err(vm.new_value_error("Raise with cause but no exception".to_owned()));
+                return Err(vm.new_value_error("Raise with cause but no exception"));
             }
             Ok(())
         }

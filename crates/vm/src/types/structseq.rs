@@ -251,7 +251,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     #[pymethod]
     fn __replace__(zelf: PyRef<PyTuple>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() {
-            return Err(vm.new_type_error("__replace__() takes no positional arguments".to_owned()));
+            return Err(vm.new_type_error("__replace__() takes no positional arguments"));
         }
 
         if Self::Data::UNNAMED_FIELDS_LEN > 0 {

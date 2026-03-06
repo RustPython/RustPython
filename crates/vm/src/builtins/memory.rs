@@ -700,7 +700,7 @@ impl PyMemoryView {
         self.try_not_released(vm)?;
         if self.desc.ndim() == 0 {
             // 0-dimensional memoryview has no length
-            Err(vm.new_type_error("0-dim memory has no length".to_owned()))
+            Err(vm.new_type_error("0-dim memory has no length"))
         } else {
             // shape for dim[0]
             Ok(self.desc.dim_desc[0].0)

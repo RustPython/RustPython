@@ -99,7 +99,7 @@ pub(crate) mod decl {
         type Args = FuncArgs;
 
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create '_typing._ConstEvaluator' instances".to_owned()))
+            Err(vm.new_type_error("cannot create '_typing._ConstEvaluator' instances"))
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
@@ -276,9 +276,7 @@ pub(crate) mod decl {
 
         fn __getitem__(zelf: PyRef<Self>, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             if zelf.type_params.is_empty() {
-                return Err(
-                    vm.new_type_error("Only generic type aliases are subscriptable".to_owned())
-                );
+                return Err(vm.new_type_error("Only generic type aliases are subscriptable"));
             }
             let args_tuple = if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
                 tuple.to_owned()
@@ -373,16 +371,13 @@ pub(crate) mod decl {
             let name = if !args.args.is_empty() {
                 if args.kwargs.contains_key("name") {
                     return Err(vm.new_type_error(
-                        "argument for typealias() given by name ('name') and position (1)"
-                            .to_owned(),
+                        "argument for typealias() given by name ('name') and position (1)",
                     ));
                 }
                 args.args[0].clone()
             } else {
                 args.kwargs.get("name").cloned().ok_or_else(|| {
-                    vm.new_type_error(
-                        "typealias() missing required argument 'name' (pos 1)".to_owned(),
-                    )
+                    vm.new_type_error("typealias() missing required argument 'name' (pos 1)")
                 })?
             };
 
@@ -390,16 +385,13 @@ pub(crate) mod decl {
             let value = if args.args.len() >= 2 {
                 if args.kwargs.contains_key("value") {
                     return Err(vm.new_type_error(
-                        "argument for typealias() given by name ('value') and position (2)"
-                            .to_owned(),
+                        "argument for typealias() given by name ('value') and position (2)",
                     ));
                 }
                 args.args[1].clone()
             } else {
                 args.kwargs.get("value").cloned().ok_or_else(|| {
-                    vm.new_type_error(
-                        "typealias() missing required argument 'value' (pos 2)".to_owned(),
-                    )
+                    vm.new_type_error("typealias() missing required argument 'value' (pos 2)")
                 })?
             };
 
@@ -414,7 +406,7 @@ pub(crate) mod decl {
                 let tp = tp
                     .clone()
                     .downcast::<crate::builtins::PyTuple>()
-                    .map_err(|_| vm.new_type_error("type_params must be a tuple".to_owned()))?;
+                    .map_err(|_| vm.new_type_error("type_params must be a tuple"))?;
                 Self::check_type_params(&tp, vm)?;
                 tp
             } else {

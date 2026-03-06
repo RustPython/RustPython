@@ -118,7 +118,7 @@ pub(crate) mod _ast {
 
     pub(crate) fn ast_replace(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() {
-            return Err(vm.new_type_error("__replace__() takes no positional arguments".to_owned()));
+            return Err(vm.new_type_error("__replace__() takes no positional arguments"));
         }
 
         let cls = zelf.class();
@@ -225,7 +225,7 @@ pub(crate) mod _ast {
             .map(|(key, value)| {
                 let key = key
                     .downcast::<PyUtf8Str>()
-                    .map_err(|_| vm.new_type_error("keywords must be strings".to_owned()))?;
+                    .map_err(|_| vm.new_type_error("keywords must be strings"))?;
                 Ok((key.as_str().to_owned(), value))
             })
             .collect::<PyResult<IndexMap<String, PyObjectRef>>>()?;
@@ -450,7 +450,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
         let ast_type = module
             .get_attr("AST", vm)?
             .downcast::<PyType>()
-            .map_err(|_| vm.new_type_error("AST is not a type".to_owned()))?;
+            .map_err(|_| vm.new_type_error("AST is not a type"))?;
         let ctx = &vm.ctx;
         let empty_tuple = ctx.empty_tuple.clone();
         ast_type.set_str_attr("_fields", empty_tuple.clone(), ctx);

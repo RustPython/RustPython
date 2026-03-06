@@ -930,7 +930,7 @@ pub(crate) mod _ctypes {
             let buffer = cdata.buffer.read();
             if matches!(&*buffer, Cow::Borrowed(_)) {
                 return Err(vm.new_value_error(
-                    "Memory cannot be resized because this object doesn't own it".to_owned(),
+                    "Memory cannot be resized because this object doesn't own it",
                 ));
             }
         }

@@ -127,15 +127,13 @@ impl TryFromObject for core::time::Duration {
         if let Some(float) = obj.downcast_ref::<PyFloat>() {
             let f = float.to_f64();
             if f.is_nan() {
-                return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
+                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
             }
             if f < 0.0 {
-                return Err(vm.new_value_error("negative duration".to_owned()));
+                return Err(vm.new_value_error("negative duration"));
             }
             if !f.is_finite() || f > u64::MAX as f64 {
-                return Err(vm.new_overflow_error(
-                    "timestamp too large to convert to C PyTime_t".to_owned(),
-                ));
+                return Err(vm.new_overflow_error("timestamp too large to convert to C PyTime_t"));
             }
             // Convert float to Duration using floor rounding (_PyTime_ROUND_FLOOR)
             let secs = f.trunc() as u64;

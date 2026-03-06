@@ -98,7 +98,7 @@ mod _remote_debugging {
         type Args = FuncArgs;
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            Err(vm.new_not_implemented_error("_remote_debugging is not available".to_owned()))
+            Err(vm.new_not_implemented_error("_remote_debugging is not available"))
         }
     }
 

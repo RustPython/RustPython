@@ -71,7 +71,7 @@ mod _warnings {
     #[pyfunction]
     fn _release_lock(vm: &VirtualMachine) -> PyResult<()> {
         if !vm.state.warnings.release_lock() {
-            return Err(vm.new_runtime_error("cannot release un-acquired lock".to_owned()));
+            return Err(vm.new_runtime_error("cannot release un-acquired lock"));
         }
         Ok(())
     }
@@ -140,9 +140,7 @@ mod _warnings {
         if let Some(ref prefixes) = skip_prefixes {
             for item in prefixes.iter() {
                 if !item.class().is(vm.ctx.types.str_type) {
-                    return Err(
-                        vm.new_type_error("skip_file_prefixes must be a tuple of strs".to_owned())
-                    );
+                    return Err(vm.new_type_error("skip_file_prefixes must be a tuple of strs"));
                 }
             }
         }
@@ -188,17 +186,17 @@ mod _warnings {
             && !vm.is_none(mg)
             && !mg.class().is(vm.ctx.types.dict_type)
         {
-            return Err(vm.new_type_error("module_globals must be a dict".to_owned()));
+            return Err(vm.new_type_error("module_globals must be a dict"));
         }
 
-        let category =
-            if vm.is_none(&args.category) {
-                None
-            } else {
-                Some(PyTypeRef::try_from_object(vm, args.category).map_err(|_| {
-                    vm.new_type_error("category must be a Warning subclass".to_owned())
-                })?)
-            };
+        let category = if vm.is_none(&args.category) {
+            None
+        } else {
+            Some(
+                PyTypeRef::try_from_object(vm, args.category)
+                    .map_err(|_| vm.new_type_error("category must be a Warning subclass"))?,
+            )
+        };
 
         crate::warn::warn_explicit(
             category,

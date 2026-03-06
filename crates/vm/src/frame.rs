@@ -2135,9 +2135,7 @@ impl ExecutingFrame<'_> {
                 if let Some(coro) = iter.downcast_ref::<PyCoroutine>()
                     && coro.as_coro().frame().yield_from_target().is_some()
                 {
-                    return Err(
-                        vm.new_runtime_error("coroutine is being awaited already".to_owned())
-                    );
+                    return Err(vm.new_runtime_error("coroutine is being awaited already"));
                 }
 
                 self.push_value(iter);
@@ -2161,8 +2159,7 @@ impl ExecutingFrame<'_> {
                         bytecode::CodeFlags::COROUTINE | bytecode::CodeFlags::ITERABLE_COROUTINE,
                     ) {
                         return Err(vm.new_type_error(
-                            "cannot 'yield from' a coroutine object in a non-coroutine generator"
-                                .to_owned(),
+                            "cannot 'yield from' a coroutine object in a non-coroutine generator",
                         ));
                     }
                     iterable
@@ -2276,7 +2273,7 @@ impl ExecutingFrame<'_> {
                         .get_item_opt(identifier!(vm, __build_class__), vm)?
                         .ok_or_else(|| {
                             vm.new_name_error(
-                                "__build_class__ not found".to_owned(),
+                                "__build_class__ not found",
                                 identifier!(vm, __build_class__).to_owned(),
                             )
                         })?
@@ -2286,7 +2283,7 @@ impl ExecutingFrame<'_> {
                         .map_err(|e| {
                             if e.fast_isinstance(vm.ctx.exceptions.key_error) {
                                 vm.new_name_error(
-                                    "__build_class__ not found".to_owned(),
+                                    "__build_class__ not found",
                                     identifier!(vm, __build_class__).to_owned(),
                                 )
                             } else {
@@ -2647,7 +2644,7 @@ impl ExecutingFrame<'_> {
                                     Some(s) => s,
                                     None => {
                                         return Err(vm.new_type_error(
-                                            "__match_args__ elements must be strings".to_string(),
+                                            "__match_args__ elements must be strings",
                                         ));
                                     }
                                 };
@@ -2678,16 +2675,14 @@ impl ExecutingFrame<'_> {
                                 } else if nargs_val > 1 {
                                     // Too many positional arguments for MATCH_SELF
                                     return Err(vm.new_type_error(
-                                        "class pattern accepts at most 1 positional sub-pattern for MATCH_SELF types"
-                                            .to_string(),
+                                        "class pattern accepts at most 1 positional sub-pattern for MATCH_SELF types",
                                     ));
                                 }
                             } else {
                                 // No __match_args__ and not a MATCH_SELF type
                                 if nargs_val > 0 {
                                     return Err(vm.new_type_error(
-                                        "class pattern defines no positional sub-patterns (__match_args__ missing)"
-                                            .to_string(),
+                                        "class pattern defines no positional sub-patterns (__match_args__ missing)",
                                     ));
                                 }
                             }
@@ -3300,7 +3295,7 @@ impl ExecutingFrame<'_> {
 
                 let exc = exc
                     .downcast::<PyBaseException>()
-                    .map_err(|_| vm.new_type_error("exception expected".to_owned()))?;
+                    .map_err(|_| vm.new_type_error("exception expected"))?;
                 Err(exc)
             }
             Instruction::UnaryInvert => {
@@ -4621,9 +4616,7 @@ impl ExecutingFrame<'_> {
 
                         // EXIT_INIT_CHECK: __init__ must return None
                         if !vm.is_none(&init_result) {
-                            return Err(
-                                vm.new_type_error("__init__() should return None".to_owned())
-                            );
+                            return Err(vm.new_type_error("__init__() should return None"));
                         }
 
                         self.push_value(new_obj);
@@ -6498,9 +6491,8 @@ impl ExecutingFrame<'_> {
             bytecode::RaiseKind::BareRaise => {
                 // RAISE_VARARGS 0: bare `raise` gets exception from VM state
                 // This is the current exception set by PUSH_EXC_INFO
-                vm.topmost_exception().ok_or_else(|| {
-                    vm.new_runtime_error("No active exception to reraise".to_owned())
-                })?
+                vm.topmost_exception()
+                    .ok_or_else(|| vm.new_runtime_error("No active exception to reraise"))?
             }
             bytecode::RaiseKind::ReraiseFromStack => {
                 // RERAISE: gets exception from stack top
@@ -8823,9 +8815,9 @@ impl ExecutingFrame<'_> {
                         .map_err(|_| vm.new_type_error("Type params must be a tuple."))?
                 };
 
-                let name = name.downcast::<crate::builtins::PyStr>().map_err(|_| {
-                    vm.new_type_error("TypeAliasType name must be a string".to_owned())
-                })?;
+                let name = name
+                    .downcast::<crate::builtins::PyStr>()
+                    .map_err(|_| vm.new_type_error("TypeAliasType name must be a string"))?;
                 let type_alias = typing::TypeAliasType::new(name, type_params, compute_value);
                 Ok(type_alias.into_ref(&vm.ctx).into())
             }

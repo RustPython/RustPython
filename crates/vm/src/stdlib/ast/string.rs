@@ -754,9 +754,7 @@ fn template_part_to_element(
     match part {
         TemplateStrPart::Constant(constant) => {
             let ConstantLiteral::Str { value, .. } = constant.value else {
-                return Err(
-                    vm.new_type_error("TemplateStr constant values must be strings".to_owned())
-                );
+                return Err(vm.new_type_error("TemplateStr constant values must be strings"));
             };
             Ok(ast::InterpolatedStringElement::Literal(
                 ast::InterpolatedStringLiteralElement {

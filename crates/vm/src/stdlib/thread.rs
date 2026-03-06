@@ -699,9 +699,7 @@ pub(crate) mod _thread {
     fn _excepthook(args: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Type check: args must be _ExceptHookArgs
         let args = args.downcast::<ExceptHookArgs>().map_err(|_| {
-            vm.new_type_error(
-                "_thread._excepthook argument type must be _ExceptHookArgs".to_owned(),
-            )
+            vm.new_type_error("_thread._excepthook argument type must be _ExceptHookArgs")
         })?;
 
         let exc_type = args.exc_type.clone();
@@ -1126,7 +1124,7 @@ pub(crate) mod _thread {
                 let inner = self.inner.lock();
                 let current_ident = get_ident();
                 if inner.ident == current_ident && inner.state == ThreadHandleState::Running {
-                    return Err(vm.new_runtime_error("cannot join current thread".to_owned()));
+                    return Err(vm.new_runtime_error("cannot join current thread"));
                 }
             }
 

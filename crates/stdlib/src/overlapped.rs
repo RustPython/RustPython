@@ -379,7 +379,7 @@ mod _overlapped {
                 };
                 Ok((bytes.to_vec(), addr_len))
             }
-            _ => Err(vm.new_value_error("illegal address_as_bytes argument".to_owned())),
+            _ => Err(vm.new_value_error("illegal address_as_bytes argument")),
         }
     }
 
@@ -407,7 +407,7 @@ mod _overlapped {
                 let scope_id = addr.Anonymous.sin6_scope_id;
                 Ok((ip_str, port, flowinfo, scope_id).to_pyobject(vm))
             } else {
-                Err(vm.new_value_error("recvfrom returned unsupported address family".to_owned()))
+                Err(vm.new_value_error("recvfrom returned unsupported address family"))
             }
         }
     }
@@ -473,10 +473,10 @@ mod _overlapped {
 
             // Check operation state
             if matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation not yet attempted".to_owned()));
+                return Err(vm.new_value_error("operation not yet attempted"));
             }
             if matches!(inner.data, OverlappedData::NotStarted) {
-                return Err(vm.new_value_error("operation failed to start".to_owned()));
+                return Err(vm.new_value_error("operation failed to start"));
             }
 
             // Get the result
@@ -573,7 +573,7 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             #[cfg(target_pointer_width = "32")]
@@ -630,19 +630,19 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             inner.handle = handle as HANDLE;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
-                return Err(vm.new_value_error("buffer too large".to_owned()));
+                return Err(vm.new_value_error("buffer too large"));
             }
 
             // For async read, buffer must be contiguous - we can't use a temporary copy
             // because Windows writes data directly to the buffer after this call returns
             let Some(contiguous) = buf.as_contiguous_mut() else {
-                return Err(vm.new_buffer_error("buffer is not contiguous".to_owned()));
+                return Err(vm.new_buffer_error("buffer is not contiguous"));
             };
 
             inner.data = OverlappedData::ReadInto(buf.clone());
@@ -694,7 +694,7 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             let mut flags = flags.unwrap_or(0);
@@ -761,18 +761,18 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             let mut flags = flags;
             inner.handle = handle as HANDLE;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
-                return Err(vm.new_value_error("buffer too large".to_owned()));
+                return Err(vm.new_value_error("buffer too large"));
             }
 
             let Some(contiguous) = buf.as_contiguous_mut() else {
-                return Err(vm.new_buffer_error("buffer is not contiguous".to_owned()));
+                return Err(vm.new_buffer_error("buffer is not contiguous"));
             };
 
             inner.data = OverlappedData::ReadInto(buf.clone());
@@ -828,19 +828,19 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             inner.handle = handle as HANDLE;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
-                return Err(vm.new_value_error("buffer too large".to_owned()));
+                return Err(vm.new_value_error("buffer too large"));
             }
 
             // For async write, buffer must be contiguous - we can't use a temporary copy
             // because Windows reads from the buffer after this call returns
             let Some(contiguous) = buf.as_contiguous() else {
-                return Err(vm.new_buffer_error("buffer is not contiguous".to_owned()));
+                return Err(vm.new_buffer_error("buffer is not contiguous"));
             };
 
             inner.data = OverlappedData::Write(buf.clone());
@@ -886,17 +886,17 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             inner.handle = handle as HANDLE;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
-                return Err(vm.new_value_error("buffer too large".to_owned()));
+                return Err(vm.new_value_error("buffer too large"));
             }
 
             let Some(contiguous) = buf.as_contiguous() else {
-                return Err(vm.new_buffer_error("buffer is not contiguous".to_owned()));
+                return Err(vm.new_buffer_error("buffer is not contiguous"));
             };
 
             inner.data = OverlappedData::Write(buf.clone());
@@ -948,7 +948,7 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             // Buffer size: local address + remote address
@@ -1016,7 +1016,7 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             let (addr_bytes, addr_len) = parse_address(&address, vm)?;
@@ -1085,7 +1085,7 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             inner.handle = socket as HANDLE;
@@ -1141,7 +1141,7 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             inner.handle = socket as HANDLE;
@@ -1200,7 +1200,7 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             inner.handle = pipe as HANDLE;
@@ -1243,7 +1243,7 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             let (addr_bytes, addr_len) = parse_address(&address, vm)?;
@@ -1251,11 +1251,11 @@ mod _overlapped {
             inner.handle = handle as HANDLE;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
-                return Err(vm.new_value_error("buffer too large".to_owned()));
+                return Err(vm.new_value_error("buffer too large"));
             }
 
             let Some(contiguous) = buf.as_contiguous() else {
-                return Err(vm.new_buffer_error("buffer is not contiguous".to_owned()));
+                return Err(vm.new_buffer_error("buffer is not contiguous"));
             };
 
             // Store both buffer and address in OverlappedData to keep them alive
@@ -1322,7 +1322,7 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             let mut flags = flags.unwrap_or(0);
@@ -1410,19 +1410,19 @@ mod _overlapped {
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
-                return Err(vm.new_value_error("operation already attempted".to_owned()));
+                return Err(vm.new_value_error("operation already attempted"));
             }
 
             let mut flags = flags.unwrap_or(0);
             inner.handle = handle as HANDLE;
 
             let Some(contiguous) = buf.as_contiguous_mut() else {
-                return Err(vm.new_buffer_error("buffer is not contiguous".to_owned()));
+                return Err(vm.new_buffer_error("buffer is not contiguous"));
             };
 
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
-                return Err(vm.new_value_error("buffer too large".to_owned()));
+                return Err(vm.new_value_error("buffer too large"));
             }
 
             let address: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
@@ -1856,7 +1856,7 @@ mod _overlapped {
                 )
             }
         } else {
-            return Err(vm.new_value_error("expected tuple of length 2 or 4".to_owned()));
+            return Err(vm.new_value_error("expected tuple of length 2 or 4"));
         };
 
         if ret == SOCKET_ERROR {
@@ -1944,7 +1944,7 @@ mod _overlapped {
         vm: &VirtualMachine,
     ) -> PyResult<isize> {
         if !vm.is_none(&event_attributes) {
-            return Err(vm.new_value_error("EventAttributes must be None".to_owned()));
+            return Err(vm.new_value_error("EventAttributes must be None"));
         }
 
         let name_wide: Option<Vec<u16>> =

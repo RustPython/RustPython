@@ -958,15 +958,15 @@ mod winreg {
                 }
                 let val = value
                     .downcast_ref::<PyInt>()
-                    .ok_or_else(|| vm.new_type_error("value must be an integer".to_string()))?;
+                    .ok_or_else(|| vm.new_type_error("value must be an integer"))?;
                 let bigint = val.as_bigint();
                 // Check for negative value - raise OverflowError
                 if bigint.sign() == Sign::Minus {
-                    return Err(vm.new_overflow_error("int too big to convert".to_string()));
+                    return Err(vm.new_overflow_error("int too big to convert"));
                 }
                 let val = bigint
                     .to_u32()
-                    .ok_or_else(|| vm.new_overflow_error("int too big to convert".to_string()))?;
+                    .ok_or_else(|| vm.new_overflow_error("int too big to convert"))?;
                 Ok(Some(val.to_le_bytes().to_vec()))
             }
             REG_QWORD => {
@@ -975,15 +975,15 @@ mod winreg {
                 }
                 let val = value
                     .downcast_ref::<PyInt>()
-                    .ok_or_else(|| vm.new_type_error("value must be an integer".to_string()))?;
+                    .ok_or_else(|| vm.new_type_error("value must be an integer"))?;
                 let bigint = val.as_bigint();
                 // Check for negative value - raise OverflowError
                 if bigint.sign() == Sign::Minus {
-                    return Err(vm.new_overflow_error("int too big to convert".to_string()));
+                    return Err(vm.new_overflow_error("int too big to convert"));
                 }
                 let val = bigint
                     .to_u64()
-                    .ok_or_else(|| vm.new_overflow_error("int too big to convert".to_string()))?;
+                    .ok_or_else(|| vm.new_overflow_error("int too big to convert"))?;
                 Ok(Some(val.to_le_bytes().to_vec()))
             }
             REG_SZ | REG_EXPAND_SZ => {
@@ -993,7 +993,7 @@ mod winreg {
                 }
                 let s = value
                     .downcast::<PyStr>()
-                    .map_err(|_| vm.new_type_error("value must be a string".to_string()))?;
+                    .map_err(|_| vm.new_type_error("value must be a string"))?;
                 let wide = s.as_wtf8().to_wide_with_nul();
                 // Convert Vec<u16> to Vec<u8>
                 let bytes: Vec<u8> = wide.iter().flat_map(|&c| c.to_le_bytes()).collect();
@@ -1004,15 +1004,15 @@ mod winreg {
                     // Empty list = double null terminator
                     return Ok(Some(vec![0u8, 0u8, 0u8, 0u8]));
                 }
-                let list = value.downcast::<crate::builtins::PyList>().map_err(|_| {
-                    vm.new_type_error("value must be a list of strings".to_string())
-                })?;
+                let list = value
+                    .downcast::<crate::builtins::PyList>()
+                    .map_err(|_| vm.new_type_error("value must be a list of strings"))?;
 
                 let mut bytes: Vec<u8> = Vec::new();
                 for item in list.borrow_vec().iter() {
-                    let s = item.downcast_ref::<PyStr>().ok_or_else(|| {
-                        vm.new_type_error("list items must be strings".to_string())
-                    })?;
+                    let s = item
+                        .downcast_ref::<PyStr>()
+                        .ok_or_else(|| vm.new_type_error("list items must be strings"))?;
                     let wide = s.as_wtf8().to_wide_with_nul();
                     bytes.extend(wide.iter().flat_map(|&c| c.to_le_bytes()));
                 }

@@ -408,7 +408,7 @@ impl PyModule {
             }
             PySetterValue::Delete => {
                 if dict.del_item(identifier!(vm, __annotations__), vm).is_err() {
-                    return Err(vm.new_attribute_error("__annotations__".to_owned()));
+                    return Err(vm.new_attribute_error("__annotations__"));
                 }
                 // Also clear __annotate__
                 dict.del_item(identifier!(vm, __annotate__), vm).ok();

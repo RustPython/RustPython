@@ -567,7 +567,7 @@ mod _wmi {
             .get(..7)
             .is_some_and(|s| s.eq_ignore_ascii_case("select "))
         {
-            return Err(vm.new_value_error("only SELECT queries are supported".to_owned()));
+            return Err(vm.new_value_error("only SELECT queries are supported"));
         }
 
         let query_wide = wide_str(query_str);

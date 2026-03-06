@@ -864,7 +864,7 @@ pub(super) mod _os {
 
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle 'DirEntry' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle 'DirEntry' object"))
         }
     }
 
@@ -927,7 +927,7 @@ pub(super) mod _os {
 
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object"))
         }
     }
     impl Destructor for ScandirIterator {
@@ -1089,7 +1089,7 @@ pub(super) mod _os {
 
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object".to_owned()))
+            Err(vm.new_type_error("cannot pickle 'ScandirIterator' object"))
         }
     }
 

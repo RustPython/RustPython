@@ -398,7 +398,7 @@ pub(crate) fn parse(
 #[cfg(feature = "parser")]
 pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: PyObjectRef) -> PyResult {
     if !module_obj.class().is(pyast::NodeModModule::static_type()) {
-        return Err(vm.new_type_error("expected Module node".to_owned()));
+        return Err(vm.new_type_error("expected Module node"));
     }
     let body = get_node_field(vm, &module_obj, "body", "Module")?;
     let node = NodeAst

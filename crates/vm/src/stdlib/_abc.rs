@@ -77,7 +77,7 @@ mod _abc {
         let impl_obj = cls.get_attr("_abc_impl", vm)?;
         impl_obj
             .downcast::<AbcData>()
-            .map_err(|_| vm.new_type_error("_abc_impl is set to a wrong type".to_owned()))
+            .map_err(|_| vm.new_type_error("_abc_impl is set to a wrong type"))
     }
 
     /// Check if obj is in the weak set
@@ -152,12 +152,10 @@ mod _abc {
         while let PyIterReturn::Return(item) = iter.next(vm)? {
             let tuple: PyTupleRef = item
                 .downcast()
-                .map_err(|_| vm.new_type_error("items() returned non-tuple".to_owned()))?;
+                .map_err(|_| vm.new_type_error("items() returned non-tuple"))?;
             let elements = tuple.as_slice();
             if elements.len() != 2 {
-                return Err(
-                    vm.new_type_error("items() returned item which size is not 2".to_owned())
-                );
+                return Err(vm.new_type_error("items() returned item which size is not 2"));
             }
             let key = &elements[0];
             let value = &elements[1];
@@ -174,7 +172,7 @@ mod _abc {
         let bases: PyTupleRef = cls
             .get_attr("__bases__", vm)?
             .downcast()
-            .map_err(|_| vm.new_type_error("__bases__ is not a tuple".to_owned()))?;
+            .map_err(|_| vm.new_type_error("__bases__ is not a tuple"))?;
 
         for base in bases.iter() {
             if let Ok(base_abstracts) = base.get_attr("__abstractmethods__", vm) {
@@ -220,7 +218,7 @@ mod _abc {
     ) -> PyResult<PyObjectRef> {
         // Type check
         if !subclass.class().fast_issubclass(vm.ctx.types.type_type) {
-            return Err(vm.new_type_error("Can only register classes".to_owned()));
+            return Err(vm.new_type_error("Can only register classes"));
         }
 
         // Check if already a subclass
@@ -230,7 +228,7 @@ mod _abc {
 
         // Check for cycles
         if cls.is_subclass(&subclass, vm)? {
-            return Err(vm.new_runtime_error("Refusing to create an inheritance cycle".to_owned()));
+            return Err(vm.new_runtime_error("Refusing to create an inheritance cycle"));
         }
 
         // Add to registry
@@ -328,7 +326,7 @@ mod _abc {
     ) -> PyResult<bool> {
         // Type check
         if !subclass.class().fast_issubclass(vm.ctx.types.type_type) {
-            return Err(vm.new_type_error("issubclass() arg 1 must be a class".to_owned()));
+            return Err(vm.new_type_error("issubclass() arg 1 must be a class"));
         }
 
         let impl_data = get_impl(&cls, vm)?;
@@ -373,11 +371,11 @@ mod _abc {
         let subclass_type: PyTypeRef = subclass
             .clone()
             .downcast()
-            .map_err(|_| vm.new_type_error("expected a type object".to_owned()))?;
+            .map_err(|_| vm.new_type_error("expected a type object"))?;
         let cls_type: PyTypeRef = cls
             .clone()
             .downcast()
-            .map_err(|_| vm.new_type_error("expected a type object".to_owned()))?;
+            .map_err(|_| vm.new_type_error("expected a type object"))?;
         if subclass_type.fast_issubclass(&cls_type) {
             add_to_weak_set(&impl_data.cache, &subclass, vm)?;
             return Ok(true);
@@ -392,7 +390,7 @@ mod _abc {
         let subclasses: PyRef<PyList> = vm
             .call_method(&cls, "__subclasses__", ())?
             .downcast()
-            .map_err(|_| vm.new_type_error("__subclasses__() must return a list".to_owned()))?;
+            .map_err(|_| vm.new_type_error("__subclasses__() must return a list"))?;
 
         for scls in subclasses.borrow_vec().iter() {
             if subclass.is_subclass(scls, vm)? {

@@ -1275,7 +1275,7 @@ impl PyType {
     fn set___annotate__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         let value = match value {
             PySetterValue::Delete => {
-                return Err(vm.new_type_error("cannot delete __annotate__ attribute".to_owned()));
+                return Err(vm.new_type_error("cannot delete __annotate__ attribute"));
             }
             PySetterValue::Assign(v) => v,
         };
@@ -1288,7 +1288,7 @@ impl PyType {
         }
 
         if !vm.is_none(&value) && !value.is_callable() {
-            return Err(vm.new_type_error("__annotate__ must be callable or None".to_owned()));
+            return Err(vm.new_type_error("__annotate__ must be callable or None"));
         }
 
         let mut attrs = self.attributes.write();
@@ -1405,7 +1405,7 @@ impl PyType {
                         .is_some()
                 };
                 if !removed {
-                    return Err(vm.new_attribute_error("__annotations__".to_owned()));
+                    return Err(vm.new_attribute_error("__annotations__"));
                 }
                 if has_annotations {
                     attrs.swap_remove(identifier!(vm, __annotations_cache__));
@@ -1902,9 +1902,9 @@ impl Constructor for PyType {
             let class_name = typ.name().to_string();
             for member in slots.as_slice() {
                 // Apply name mangling for private attributes (__x -> _ClassName__x)
-                let member_str = member.to_str().ok_or_else(|| {
-                    vm.new_type_error("__slots__ must be valid UTF-8 strings".to_owned())
-                })?;
+                let member_str = member
+                    .to_str()
+                    .ok_or_else(|| vm.new_type_error("__slots__ must be valid UTF-8 strings"))?;
                 let mangled_name = mangle_name(&class_name, member_str);
                 let member_def = PyMemberDef {
                     name: mangled_name.clone(),
@@ -2082,10 +2082,10 @@ impl Initializer for PyType {
     fn slot_init(_zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         // type.__init__() takes 1 or 3 arguments
         if args.args.len() == 1 && !args.kwargs.is_empty() {
-            return Err(vm.new_type_error("type.__init__() takes no keyword arguments".to_owned()));
+            return Err(vm.new_type_error("type.__init__() takes no keyword arguments"));
         }
         if args.args.len() != 1 && args.args.len() != 3 {
-            return Err(vm.new_type_error("type.__init__() takes 1 or 3 arguments".to_owned()));
+            return Err(vm.new_type_error("type.__init__() takes 1 or 3 arguments"));
         }
         Ok(())
     }
@@ -2299,7 +2299,7 @@ impl Callable for PyType {
                 return Ok(args.args[0].obj_type());
             }
             if num_args != 3 {
-                return Err(vm.new_type_error("type() takes 1 or 3 arguments".to_owned()));
+                return Err(vm.new_type_error("type() takes 1 or 3 arguments"));
             }
         }
 
