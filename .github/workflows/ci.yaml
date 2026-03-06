@@ -23,16 +23,6 @@ env:
   # - rustpython-compiler-source: deprecated
   # - rustpython-venvlauncher: Windows-only
   WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
-  # Skip additional tests on Windows. They are checked on Linux and MacOS.
-  # test_glob: many failing tests
-  # test_pathlib: panic by surrogate chars
-  # test_posixpath: OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
-  # test_venv: couple of failing tests
-  WINDOWS_SKIPS: >-
-    test_rlcompleter
-    test_pathlib
-    test_posixpath
-    test_venv
   # PLATFORM_INDEPENDENT_TESTS are tests that do not depend on the underlying OS. They are currently
   # only run on Linux to speed up the CI.
   PLATFORM_INDEPENDENT_TESTS: >-
@@ -107,10 +97,9 @@ env:
     test_unpack_ex
     test_weakref
     test_yield_from
+
   ENV_POLLUTING_TESTS_COMMON: >-
-  ENV_POLLUTING_TESTS_LINUX: >-
-  ENV_POLLUTING_TESTS_MACOS: >-
-  ENV_POLLUTING_TESTS_WINDOWS: >-
+
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.14.3"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
@@ -290,67 +279,74 @@ jobs:
     env:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.job.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-2025]
+        job: 
+          - os: macos-latest
+            env_polluting_tests: ""
+            skip: ""
+          - os: ubuntu-latest
+            cargo_args: "--features=jit"
+            env_polluting_tests: ""
+            skip: ""
+          - os: windows-2025
+            cargo_args: "--features=jit"
+            env_polluting_tests: ""
+          # Skip additional tests on Windows. They are checked on Linux and MacOS.
+          # test_pathlib: panic by surrogate chars
+          # test_posixpath: OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
+          # test_venv: couple of failing tests
+            skip: >-
+              test_rlcompleter
+              test_pathlib
+              test_posixpath
+              test_venv
       fail-fast: false
     steps:
       - uses: actions/checkout@v6.0.2
+
       - uses: dtolnay/rust-toolchain@stable
+
       - uses: Swatinem/rust-cache@v2
+
       - uses: actions/setup-python@v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
-      - name: build rustpython
-        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
-        if: runner.os == 'macOS'
-      - name: build rustpython
-        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }},jit
-        if: runner.os != 'macOS'
-      - uses: actions/setup-python@v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build RustPython
+        run: |
+          cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }} ${{ env.EXTRA_CARGO_ARGS }}
+        env:
+          EXTRA_CARGO_ARGS: ${{ matrix.job.cargo_args || '' }}
+
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
         working-directory: ./extra_tests
 
-      - if: runner.os == 'Linux'
-        name: run cpython platform-independent tests
+      - name: Run CPython platform-independent tests
+        run: |
+          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 45
+        if: runner.os == 'Linux'
 
-      - if: runner.os == 'Linux'
-        name: run cpython platform-dependent tests (Linux)
+      - name: Run CPython platform-dependent tests
+        run: |
+          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ matrix.job.skip }}
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 60
 
-      - if: runner.os == 'macOS'
-        name: run cpython platform-dependent tests (MacOS)
-        env:
-          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 50
-
-      - if: runner.os == 'Windows'
-        name: run cpython platform-dependent tests (windows partial - fixme)
-        env:
-          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
-        timeout-minutes: 50
-
-      - if: runner.os == 'Linux'
-        name: run cpython tests to check if env polluters have stopped polluting (Common/Linux)
+      - name: Run cpython tests to check if env polluters have stopped polluting
         shell: bash
         run: |
-          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_LINUX }}; do
+          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ matrix.job.env_polluting_tests }}; do
             for i in $(seq 1 10); do
               set +e
               target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
@@ -363,63 +359,7 @@ jobs:
             done
             if [ ${exit_code} -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
-              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_LINUX in '.github/workflows/ci.yaml'."
-              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
-              if [ ${exit_code} -ne 0 ]; then
-                echo "Test ${thing} failed with exit code ${exit_code}."
-                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
-              fi
-              exit 1
-            fi
-          done
-        timeout-minutes: 15
-
-      - if: runner.os == 'macOS'
-        name: run cpython tests to check if env polluters have stopped polluting (Common/macOS)
-        shell: bash
-        run: |
-          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_MACOS }}; do
-            for i in $(seq 1 10); do
-              set +e
-              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
-              exit_code=$?
-              set -e
-              if [ ${exit_code} -eq 3 ]; then
-                echo "Test ${thing} polluted the environment on attempt ${i}."
-                break
-              fi
-            done
-            if [ ${exit_code} -ne 3 ]; then
-              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
-              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_MACOS in '.github/workflows/ci.yaml'."
-              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
-              if [ ${exit_code} -ne 0 ]; then
-                echo "Test ${thing} failed with exit code ${exit_code}."
-                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
-              fi
-              exit 1
-            fi
-          done
-        timeout-minutes: 15
-
-      - if: runner.os == 'Windows'
-        name: run cpython tests to check if env polluters have stopped polluting (Common/windows)
-        shell: bash
-        run: |
-          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_WINDOWS }}; do
-            for i in $(seq 1 10); do
-              set +e
-              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
-              exit_code=$?
-              set -e
-              if [ ${exit_code} -eq 3 ]; then
-                echo "Test ${thing} polluted the environment on attempt ${i}."
-                break
-              fi
-            done
-            if [ ${exit_code} -ne 3 ]; then
-              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
-              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_WINDOWS in '.github/workflows/ci.yaml'."
+              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or matrix.job.env_polluting_tests in '.github/workflows/ci.yaml'."
               echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
               if [ ${exit_code} -ne 0 ]; then
                 echo "Test ${thing} failed with exit code ${exit_code}."
@@ -436,19 +376,23 @@ jobs:
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
           target/release/rustpython -m pip install six
+
       - name: Check that ensurepip succeeds.
         run: |
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
+
       - if: runner.os != 'Windows'
         name: Check if pip inside venv is functional
         run: |
           target/release/rustpython -m venv testvenv
           testvenv/bin/rustpython -m pip install wheel
+
       - if: runner.os != 'macOS'
         name: Check whats_left is not broken
         shell: bash
         run: python -I scripts/whats_left.py --no-default-features --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading,jit"
+
       - if: runner.os == 'macOS' # TODO fix jit on macOS
         name: Check whats_left is not broken (macOS)
         shell: bash
