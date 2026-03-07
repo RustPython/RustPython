@@ -217,7 +217,7 @@ jobs:
           target: i686-unknown-linux-gnu
 
       - name: Install gcc-multilib and musl-tools
-        uses: ./.github/actions/install-linux/deps
+        uses: ./.github/actions/install-linux-deps
         with:
           gcc-multilib: true
           musl-tools: true
@@ -248,7 +248,7 @@ jobs:
           target: aarch64-unknown-linux-gnu
 
       - name: Install gcc-aarch64-linux-gnu
-        uses: ./.github/actions/install-linux/deps
+        uses: ./.github/actions/install-linux-deps
         with:
           gcc-aarch64-linux-gnu: true
 
@@ -606,7 +606,7 @@ jobs:
         uses: wasmerio/setup-wasmer@v3
 
       - name: Install clang
-        uses: ./.github/actions/install-linux/deps
+        uses: ./.github/actions/install-linux-deps
         with:
           clang: true
 
