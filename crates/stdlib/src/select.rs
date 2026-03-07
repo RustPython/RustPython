@@ -223,7 +223,7 @@ mod decl {
         #[cfg(unix)]
         {
             use crate::vm::class::PyClassImpl;
-            poll::PyPoll::make_class(&vm.ctx);
+            poll::PyPoll::make_static_type();
         }
 
         __module_exec(vm, module);
@@ -527,9 +527,9 @@ mod decl {
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
     #[pyattr(name = "epoll", once)]
-    fn epoll(vm: &VirtualMachine) -> PyTypeRef {
+    fn epoll(_vm: &VirtualMachine) -> PyTypeRef {
         use crate::vm::class::PyClassImpl;
-        epoll::PyEpoll::make_class(&vm.ctx)
+        epoll::PyEpoll::make_static_type()
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]

@@ -79,7 +79,7 @@ mod _functools {
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             if !args.args.is_empty() || !args.kwargs.is_empty() {
-                return Err(vm.new_type_error("_PlaceholderType takes no arguments".to_owned()));
+                return Err(vm.new_type_error("_PlaceholderType takes no arguments"));
             }
             // Return the singleton stored on the type class
             if let Some(instance) = cls.get_attr(vm.ctx.intern_str("_instance")) {
@@ -104,7 +104,7 @@ mod _functools {
 
         #[pymethod]
         fn __init_subclass__(_cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
-            Err(vm.new_type_error("cannot subclass '_PlaceholderType'".to_owned()))
+            Err(vm.new_type_error("cannot subclass '_PlaceholderType'"))
         }
     }
 
@@ -140,7 +140,7 @@ mod _functools {
 
     #[pyclass(
         with(Constructor, Callable, GetDescriptor, Representable),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl PyPartial {
         #[pygetset]
@@ -245,7 +245,7 @@ mod _functools {
             // Validate no trailing placeholders
             let args_slice = args_tuple.as_slice();
             if !args_slice.is_empty() && is_placeholder(args_slice.last().unwrap()) {
-                return Err(vm.new_type_error("trailing Placeholders are not allowed".to_owned()));
+                return Err(vm.new_type_error("trailing Placeholders are not allowed"));
             }
             let phcount = count_placeholders(args_slice);
 
@@ -354,7 +354,7 @@ mod _functools {
 
             // Trailing placeholders are not allowed
             if !final_args.is_empty() && is_placeholder(final_args.last().unwrap()) {
-                return Err(vm.new_type_error("trailing Placeholders are not allowed".to_owned()));
+                return Err(vm.new_type_error("trailing Placeholders are not allowed"));
             }
 
             let phcount = count_placeholders(&final_args);

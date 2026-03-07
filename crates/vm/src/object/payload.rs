@@ -5,6 +5,7 @@ use crate::{
     types::PyTypeFlags,
     vm::{Context, VirtualMachine},
 };
+use core::ptr::NonNull;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
@@ -45,6 +46,38 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     }
 
     fn class(ctx: &Context) -> &'static Py<PyType>;
+
+    /// Whether this type has a freelist. Types with freelists require
+    /// immediate (non-deferred) GC untracking during dealloc to prevent
+    /// race conditions when the object is reused.
+    const HAS_FREELIST: bool = false;
+
+    /// Maximum number of objects to keep in the freelist.
+    const MAX_FREELIST: usize = 0;
+
+    /// Try to push a dead object onto this type's freelist for reuse.
+    /// Returns true if the object was stored (caller must NOT free the memory).
+    ///
+    /// # Safety
+    /// `obj` must be a valid pointer to a `PyInner<Self>` with refcount 0,
+    /// after `drop_slow_inner` and `tp_clear` have already run.
+    #[inline]
+    unsafe fn freelist_push(_obj: *mut PyObject) -> bool {
+        false
+    }
+
+    /// Try to pop a pre-allocated object from this type's freelist.
+    /// The returned pointer still has the old payload; the caller must
+    /// reinitialize `ref_count`, `gc_bits`, and `payload`.
+    ///
+    /// # Safety
+    /// The returned pointer (if Some) must point to a valid `PyInner<Self>`
+    /// whose payload is still initialized from a previous allocation. The caller
+    /// will drop and overwrite `payload` before reuse.
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        None
+    }
 
     #[inline]
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef

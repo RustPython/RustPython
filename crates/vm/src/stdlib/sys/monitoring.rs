@@ -270,13 +270,29 @@ pub fn instrument_code(code: &PyCode, events: u32) {
         }
     }
 
-    // Phase 3: Remove regular INSTRUMENTED_* → restore base opcodes
-    for i in 0..len {
-        let op = code.code.instructions[i].op;
-        if let Some(base) = op.to_base() {
-            unsafe {
-                code.code.instructions.replace_op(i, base);
+    // Phase 3: Remove regular INSTRUMENTED_* and specialized opcodes → restore base opcodes.
+    // Also clear all CACHE entries so specialization starts fresh.
+    {
+        let mut i = 0;
+        while i < len {
+            let op = code.code.instructions[i].op;
+            let base_op = op.deoptimize();
+            if u8::from(base_op) != u8::from(op) {
+                unsafe {
+                    code.code.instructions.replace_op(i, base_op);
+                }
             }
+            let caches = base_op.cache_entries();
+            // Zero all CACHE entries (the op+arg bytes may have been overwritten
+            // by specialization with arbitrary data like pointers).
+            for c in 1..=caches {
+                if i + c < len {
+                    unsafe {
+                        code.code.instructions.write_cache_u16(i + c, 0);
+                    }
+                }
+            }
+            i += 1 + caches;
         }
     }
 
@@ -306,7 +322,7 @@ pub fn instrument_code(code: &PyCode, events: u32) {
         .code
         .instructions
         .iter()
-        .position(|u| matches!(u.op, Instruction::Resume { .. }))
+        .position(|u| matches!(u.op, Instruction::Resume { .. } | Instruction::ResumeCheck))
         .unwrap_or(0);
 
     // Phase 4: Place regular INSTRUMENTED_* opcodes

@@ -10,7 +10,9 @@ use crate::{
     stdlib::warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use core::cell::Cell;
 use core::num::Wrapping;
+use core::ptr::NonNull;
 use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::hash;
@@ -24,10 +26,48 @@ pub struct PyComplex {
     value: Complex64,
 }
 
+// spell-checker:ignore MAXFREELIST
+thread_local! {
+    static COMPLEX_FREELIST: Cell<crate::object::FreeList<PyComplex>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyComplex {
+    const MAX_FREELIST: usize = 100;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.complex_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        COMPLEX_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        COMPLEX_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
@@ -89,7 +129,7 @@ impl PyObjectRef {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyComplex::extend_class(context, context.types.complex_type);
 }
 
@@ -281,8 +321,15 @@ impl PyComplex {
         if spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_complex(&zelf.value))
+        let format_spec =
+            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let result = if format_spec.has_locale_format() {
+            let locale = crate::format::get_locale_info();
+            format_spec.format_complex_locale(&zelf.value, &locale)
+        } else {
+            format_spec.format_complex(&zelf.value)
+        };
+        result
             .map(Wtf8Buf::from_string)
             .map_err(|err| err.into_pyexception(vm))
     }
@@ -371,7 +418,7 @@ impl AsNumber for PyComplex {
                 let result = value.norm();
                 // Check for overflow: hypot returns inf for finite inputs that overflow
                 if result.is_infinite() && value.re.is_finite() && value.im.is_finite() {
-                    return Err(vm.new_overflow_error("absolute value too large".to_owned()));
+                    return Err(vm.new_overflow_error("absolute value too large"));
                 }
                 result.to_pyresult(vm)
             }),

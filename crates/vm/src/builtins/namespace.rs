@@ -28,7 +28,7 @@ impl PyPayload for PyNamespace {
 impl DefaultConstructor for PyNamespace {}
 
 #[pyclass(
-    flags(BASETYPE, HAS_DICT),
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
     with(Constructor, Initializer, Comparable, Representable)
 )]
 impl PyNamespace {
@@ -175,6 +175,6 @@ impl Representable for PyNamespace {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyNamespace::extend_class(context, context.types.namespace_type);
 }

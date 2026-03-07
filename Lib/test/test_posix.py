@@ -668,6 +668,19 @@ class PosixTester(unittest.TestCase):
         finally:
             fp.close()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.skipUnless(hasattr(posix, 'stat'),
+                         'test needs posix.stat()')
+    @unittest.skipUnless(os.stat in os.supports_follow_symlinks,
+                         'test needs follow_symlinks support in os.stat()')
+    def test_stat_fd_zero_follow_symlinks(self):
+        with self.assertRaisesRegex(ValueError,
+                'cannot use fd and follow_symlinks together'):
+            posix.stat(0, follow_symlinks=False)
+        with self.assertRaisesRegex(ValueError,
+                'cannot use fd and follow_symlinks together'):
+            posix.stat(1, follow_symlinks=False)
+
     def test_stat(self):
         self.assertTrue(posix.stat(os_helper.TESTFN))
         self.assertTrue(posix.stat(os.fsencode(os_helper.TESTFN)))
@@ -1017,7 +1030,6 @@ class PosixTester(unittest.TestCase):
         target = self.tempdir()
         self.check_chmod(posix.chmod, target)
 
-    @unittest.skipIf(sys.platform in ("darwin", "linux"), "TODO: RUSTPYTHON; crash")
     @os_helper.skip_unless_working_chmod
     def test_fchmod_file(self):
         with open(os_helper.TESTFN, 'wb+') as f:

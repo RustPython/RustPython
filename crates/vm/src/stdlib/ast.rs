@@ -301,15 +301,15 @@ fn node_add_location(
 }
 
 /// Return the expected AST mod type class for a compile() mode string.
-pub(crate) fn mode_type_and_name(
-    ctx: &Context,
-    mode: &str,
-) -> Option<(PyRef<PyType>, &'static str)> {
+pub(crate) fn mode_type_and_name(mode: &str) -> Option<(PyRef<PyType>, &'static str)> {
     match mode {
-        "exec" => Some((pyast::NodeModModule::make_class(ctx), "Module")),
-        "eval" => Some((pyast::NodeModExpression::make_class(ctx), "Expression")),
-        "single" => Some((pyast::NodeModInteractive::make_class(ctx), "Interactive")),
-        "func_type" => Some((pyast::NodeModFunctionType::make_class(ctx), "FunctionType")),
+        "exec" => Some((pyast::NodeModModule::make_static_type(), "Module")),
+        "eval" => Some((pyast::NodeModExpression::make_static_type(), "Expression")),
+        "single" => Some((pyast::NodeModInteractive::make_static_type(), "Interactive")),
+        "func_type" => Some((
+            pyast::NodeModFunctionType::make_static_type(),
+            "FunctionType",
+        )),
         _ => None,
     }
 }
@@ -398,7 +398,7 @@ pub(crate) fn parse(
 #[cfg(feature = "parser")]
 pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: PyObjectRef) -> PyResult {
     if !module_obj.class().is(pyast::NodeModModule::static_type()) {
-        return Err(vm.new_type_error("expected Module node".to_owned()));
+        return Err(vm.new_type_error("expected Module node"));
     }
     let body = get_node_field(vm, &module_obj, "body", "Module")?;
     let node = NodeAst

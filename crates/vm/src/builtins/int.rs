@@ -20,7 +20,9 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
+use core::cell::Cell;
 use core::ops::{Neg, Not};
+use core::ptr::NonNull;
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
@@ -48,7 +50,15 @@ where
     }
 }
 
+// spell-checker:ignore MAXFREELIST
+thread_local! {
+    static INT_FREELIST: Cell<crate::object::FreeList<PyInt>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyInt {
+    const MAX_FREELIST: usize = 100;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.int_type
@@ -56,6 +66,36 @@ impl PyPayload for PyInt {
 
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_int(self.value).into()
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        INT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        INT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
@@ -267,6 +307,15 @@ impl PyInt {
         &self.value
     }
 
+    /// Fast decimal string conversion, using i64 path when possible.
+    #[inline]
+    pub fn to_str_radix_10(&self) -> String {
+        match self.value.to_i64() {
+            Some(i) => i.to_string(),
+            None => self.value.to_string(),
+        }
+    }
+
     // _PyLong_AsUnsignedLongMask
     pub fn as_u32_mask(&self) -> u32 {
         let v = self.as_bigint();
@@ -450,8 +499,15 @@ impl PyInt {
         if spec.is_empty() && !zelf.class().is(vm.ctx.types.int_type) {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_int(&zelf.value))
+        let format_spec =
+            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let result = if format_spec.has_locale_format() {
+            let locale = crate::format::get_locale_info();
+            format_spec.format_int_locale(&zelf.value, &locale)
+        } else {
+            format_spec.format_int(&zelf.value)
+        };
+        result
             .map(Wtf8Buf::from_string)
             .map_err(|err| err.into_pyexception(vm))
     }
@@ -603,7 +659,7 @@ impl Comparable for PyInt {
 impl Representable for PyInt {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(zelf.value.to_string())
+        Ok(zelf.to_str_radix_10())
     }
 }
 
@@ -735,6 +791,6 @@ pub fn try_to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
         .ok_or_else(|| vm.new_overflow_error("int too large to convert to float"))
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyInt::extend_class(context, context.types.int_type);
 }

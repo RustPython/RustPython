@@ -110,9 +110,7 @@ impl AsNumber for PyNotImplemented {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             boolean: Some(|_number, vm| {
-                Err(vm.new_type_error(
-                    "NotImplemented should not be used in a boolean context".to_owned(),
-                ))
+                Err(vm.new_type_error("NotImplemented should not be used in a boolean context"))
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -132,7 +130,7 @@ impl Representable for PyNotImplemented {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyNone::extend_class(context, context.types.none_type);
     PyNotImplemented::extend_class(context, context.types.not_implemented_type);
 }

@@ -2,6 +2,8 @@
  * I/O core tools.
  */
 pub(crate) use _io::module_def;
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) use _io::reinit_std_streams_after_fork;
 
 cfg_if::cfg_if! {
     if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
@@ -411,7 +413,10 @@ mod _io {
     #[derive(Debug, Default, PyPayload)]
     pub struct _IOBase;
 
-    #[pyclass(with(IterNext, Iterable, Destructor), flags(BASETYPE, HAS_DICT))]
+    #[pyclass(
+        with(IterNext, Iterable, Destructor),
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+    )]
     impl _IOBase {
         #[pymethod]
         fn seek(
@@ -632,7 +637,7 @@ mod _io {
     #[repr(transparent)]
     pub(super) struct _RawIOBase(_IOBase);
 
-    #[pyclass(flags(BASETYPE, HAS_DICT))]
+    #[pyclass(flags(BASETYPE, HAS_DICT, HAS_WEAKREF))]
     impl _RawIOBase {
         #[pymethod]
         fn read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
@@ -718,7 +723,7 @@ mod _io {
     #[repr(transparent)]
     struct _BufferedIOBase(_IOBase);
 
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE, HAS_WEAKREF))]
     impl _BufferedIOBase {
         #[pymethod]
         fn read(zelf: PyObjectRef, _size: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -783,7 +788,7 @@ mod _io {
     #[repr(transparent)]
     struct _TextIOBase(_IOBase);
 
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE, HAS_WEAKREF))]
     impl _TextIOBase {
         #[pygetset]
         fn encoding(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
@@ -1979,7 +1984,7 @@ mod _io {
 
     #[pyclass(
         with(Constructor, BufferedMixin, BufferedReadable, Destructor),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedReader {}
 
@@ -2027,7 +2032,7 @@ mod _io {
                     // Yield to other threads
                     std::thread::yield_now();
                 }
-                return Err(vm.new_value_error("write to closed file".to_owned()));
+                return Err(vm.new_value_error("write to closed file"));
             }
             let mut data = self.writer().lock(vm)?;
             let raw = data.check_init(vm)?;
@@ -2083,7 +2088,7 @@ mod _io {
 
     #[pyclass(
         with(Constructor, BufferedMixin, BufferedWritable, Destructor),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedWriter {}
 
@@ -2157,7 +2162,7 @@ mod _io {
             BufferedWritable,
             Destructor
         ),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedRandom {}
 
@@ -2227,7 +2232,7 @@ mod _io {
             BufferedWritable,
             Destructor
         ),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedRWPair {
         #[pymethod]
@@ -3013,7 +3018,7 @@ mod _io {
             IterNext,
             Representable
         ),
-        flags(BASETYPE)
+        flags(BASETYPE, HAS_WEAKREF)
     )]
     impl TextIOWrapper {
         #[pymethod]
@@ -3029,7 +3034,6 @@ mod _io {
             let mut newline_changed = false;
             let mut line_buffering = None;
             let mut write_through = None;
-            let mut flush_on_reconfigure = false;
 
             if let Some(enc) = args.encoding {
                 if enc.as_str().contains('\0') && enc.as_str().starts_with("locale") {
@@ -3056,11 +3060,9 @@ mod _io {
             }
 
             if let OptionalArg::Present(Some(value)) = args.line_buffering {
-                flush_on_reconfigure = true;
                 line_buffering = Some(Self::bool_from_index(value, vm)?);
             }
             if let OptionalArg::Present(Some(value)) = args.write_through {
-                flush_on_reconfigure = true;
                 write_through = Some(Self::bool_from_index(value, vm)?);
             }
 
@@ -3077,12 +3079,10 @@ mod _io {
                 ));
             }
 
-            if flush_on_reconfigure {
-                if data.pending.num_bytes > 0 {
-                    data.write_pending(vm)?;
-                }
-                vm.call_method(&data.buffer, "flush", ())?;
+            if data.pending.num_bytes > 0 {
+                data.write_pending(vm)?;
             }
+            vm.call_method(&data.buffer, "flush", ())?;
 
             if encoding_changed || errors_changed || newline_changed {
                 if data.pending.num_bytes > 0 {
@@ -4019,7 +4019,7 @@ mod _io {
                 return Ok(vm.ctx.new_str(Wtf8Buf::from(format!("<{type_name}>"))));
             };
             let Some(data) = data.as_ref() else {
-                return Err(vm.new_value_error("I/O operation on uninitialized object".to_owned()));
+                return Err(vm.new_value_error("I/O operation on uninitialized object"));
             };
 
             let mut result = Wtf8Buf::from(format!("<{type_name}"));
@@ -4379,7 +4379,7 @@ mod _io {
         }
     }
 
-    #[pyclass(flags(BASETYPE, HAS_DICT), with(Constructor, Initializer))]
+    #[pyclass(flags(BASETYPE, HAS_DICT, HAS_WEAKREF), with(Constructor, Initializer))]
     impl StringIO {
         #[pymethod]
         const fn readable(&self) -> bool {
@@ -4572,9 +4572,9 @@ mod _io {
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.exports.load() > 0 {
-                return Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be re-sized".to_owned(),
-                ));
+                return Err(
+                    vm.new_buffer_error("Existing exports of data: object cannot be re-sized")
+                );
             }
 
             let raw_bytes = args
@@ -4596,7 +4596,10 @@ mod _io {
         }
     }
 
-    #[pyclass(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor, Initializer))]
+    #[pyclass(
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF),
+        with(PyRef, Constructor, Initializer)
+    )]
     impl BytesIO {
         #[pymethod]
         const fn readable(&self) -> bool {
@@ -4709,9 +4712,9 @@ mod _io {
         #[pymethod]
         fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.exports.load() > 0 {
-                return Err(vm.new_buffer_error(
-                    "Existing exports of data: object cannot be closed".to_owned(),
-                ));
+                return Err(
+                    vm.new_buffer_error("Existing exports of data: object cannot be closed")
+                );
             }
             self.closed.store(true);
             Ok(())
@@ -4791,7 +4794,7 @@ mod _io {
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
             if self.closed.load() {
-                return Err(vm.new_value_error("I/O operation on closed file.".to_owned()));
+                return Err(vm.new_value_error("I/O operation on closed file."));
             }
             let len = self.buffer.read().cursor.get_ref().len();
             let buffer = PyBuffer::new(
@@ -4987,6 +4990,61 @@ mod _io {
                 closefd: true,
                 opener: None,
             }
+        }
+    }
+
+    /// Reinit per-object IO buffer locks on std streams after `fork()`.
+    ///
+    /// # Safety
+    ///
+    /// Must only be called from the single-threaded child process immediately
+    /// after `fork()`, before any other thread is created.
+    #[cfg(all(unix, feature = "threading"))]
+    pub unsafe fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
+        for name in ["stdin", "stdout", "stderr"] {
+            let Ok(stream) = vm.sys_module.get_attr(name, vm) else {
+                continue;
+            };
+            reinit_io_locks(&stream);
+        }
+    }
+
+    #[cfg(all(unix, feature = "threading"))]
+    fn reinit_io_locks(obj: &PyObject) {
+        use crate::common::lock::reinit_thread_mutex_after_fork;
+
+        if let Some(tio) = obj.downcast_ref::<TextIOWrapper>() {
+            unsafe { reinit_thread_mutex_after_fork(&tio.data) };
+            if let Some(guard) = tio.data.lock() {
+                if let Some(ref data) = *guard {
+                    if let Some(ref decoder) = data.decoder {
+                        reinit_io_locks(decoder);
+                    }
+                    reinit_io_locks(&data.buffer);
+                }
+            }
+            return;
+        }
+        if let Some(nl) = obj.downcast_ref::<IncrementalNewlineDecoder>() {
+            unsafe { reinit_thread_mutex_after_fork(&nl.data) };
+            return;
+        }
+        if let Some(br) = obj.downcast_ref::<BufferedReader>() {
+            unsafe { reinit_thread_mutex_after_fork(&br.data) };
+            return;
+        }
+        if let Some(bw) = obj.downcast_ref::<BufferedWriter>() {
+            unsafe { reinit_thread_mutex_after_fork(&bw.data) };
+            return;
+        }
+        if let Some(brw) = obj.downcast_ref::<BufferedRandom>() {
+            unsafe { reinit_thread_mutex_after_fork(&brw.data) };
+            return;
+        }
+        if let Some(brw) = obj.downcast_ref::<BufferedRWPair>() {
+            unsafe { reinit_thread_mutex_after_fork(&brw.read.data) };
+            unsafe { reinit_thread_mutex_after_fork(&brw.write.data) };
+            return;
         }
     }
 
@@ -5582,7 +5640,7 @@ mod fileio {
 
     #[pyclass(
         with(Constructor, Initializer, Representable, Destructor),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl FileIO {
         fn io_error(
@@ -6338,7 +6396,7 @@ mod winconsoleio {
 
     #[pyclass(
         with(Constructor, Initializer, Representable, Destructor),
-        flags(BASETYPE, HAS_DICT)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl WindowsConsoleIO {
         #[allow(dead_code)]
@@ -6918,7 +6976,7 @@ mod winconsoleio {
 
         #[pymethod(name = "__reduce__")]
         fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot pickle '_WindowsConsoleIO' instances".to_owned()))
+            Err(vm.new_type_error("cannot pickle '_WindowsConsoleIO' instances"))
         }
     }
 

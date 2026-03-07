@@ -15,6 +15,8 @@ use crate::{
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use core::cell::Cell;
+use core::ptr::NonNull;
 use malachite_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_traits::{Signed, ToPrimitive, Zero};
@@ -32,10 +34,47 @@ impl PyFloat {
     }
 }
 
+thread_local! {
+    static FLOAT_FREELIST: Cell<crate::object::FreeList<PyFloat>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyFloat {
+    const MAX_FREELIST: usize = 100;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.float_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        FLOAT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        FLOAT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
@@ -220,8 +259,15 @@ impl PyFloat {
         if spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_float(zelf.value))
+        let format_spec =
+            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let result = if format_spec.has_locale_format() {
+            let locale = crate::format::get_locale_info();
+            format_spec.format_float_locale(zelf.value, &locale)
+        } else {
+            format_spec.format_float(zelf.value)
+        };
+        result
             .map(Wtf8Buf::from_string)
             .map_err(|err| err.into_pyexception(vm))
     }
@@ -480,6 +526,6 @@ pub(crate) fn get_value(obj: &PyObject) -> f64 {
 }
 
 #[rustfmt::skip] // to avoid line splitting
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyFloat::extend_class(context, context.types.float_type);
 }

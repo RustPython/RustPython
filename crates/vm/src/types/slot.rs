@@ -141,6 +141,7 @@ pub struct PyTypeSlots {
     // More standard operations (here for binary compatibility)
     pub hash: AtomicCell<Option<HashFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
+    pub vectorcall: AtomicCell<Option<VectorCallFunc>>,
     pub str: AtomicCell<Option<StringifyFunc>>,
     pub repr: AtomicCell<Option<StringifyFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
@@ -227,6 +228,7 @@ bitflags! {
         // This is not a stable API
         const _MATCH_SELF = 1 << 22;
         const HAS_DICT = 1 << 40;
+        const HAS_WEAKREF = 1 << 41;
 
         #[cfg(debug_assertions)]
         const _CREATED_WITH_FLAGS = 1 << 63;
@@ -266,6 +268,17 @@ impl Default for PyTypeFlags {
 }
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
+/// Vectorcall function pointer (PEP 590).
+/// args: owned positional args followed by kwarg values.
+/// nargs: number of positional args (self prepended by caller if needed).
+/// kwnames: keyword argument names (last kwnames.len() entries in args are kwarg values).
+pub(crate) type VectorCallFunc = fn(
+    &PyObject,              // callable
+    Vec<PyObjectRef>,       // owned args (positional + kwarg values)
+    usize,                  // nargs (positional count)
+    Option<&[PyObjectRef]>, // kwnames (keyword argument names)
+    &VirtualMachine,
+) -> PyResult;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyRef<PyStr>>;
@@ -616,6 +629,18 @@ fn del_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
+/// Result of looking up a slot function in MRO.
+enum SlotLookupResult<T> {
+    /// Found a native slot function from a wrapper_descriptor.
+    NativeSlot(T),
+    /// Found a Python-level method (not a native slot).
+    /// The caller should use the wrapper function.
+    PythonMethod,
+    /// No method with this name found in MRO at all.
+    /// The caller should inherit the slot from MRO.
+    NotFound,
+}
+
 impl PyType {
     /// Update slots based on dunder method changes
     ///
@@ -676,16 +701,22 @@ impl PyType {
         macro_rules! update_main_slot {
             ($slot:ident, $wrapper:expr, $variant:ident) => {{
                 if ADD {
-                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
+                    match self.lookup_slot_in_mro(name, ctx, |sf| {
                         if let SlotFunc::$variant(f) = sf {
                             Some(*f)
                         } else {
                             None
                         }
                     }) {
-                        self.slots.$slot.store(Some(func));
-                    } else {
-                        self.slots.$slot.store(Some($wrapper));
+                        SlotLookupResult::NativeSlot(func) => {
+                            self.slots.$slot.store(Some(func));
+                        }
+                        SlotLookupResult::PythonMethod => {
+                            self.slots.$slot.store(Some($wrapper));
+                        }
+                        SlotLookupResult::NotFound => {
+                            accessor.inherit_from_mro(self);
+                        }
                     }
                 } else {
                     accessor.inherit_from_mro(self);
@@ -719,16 +750,24 @@ impl PyType {
                     };
                     if has_own {
                         self.slots.$group.$slot.store(Some($wrapper));
-                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
-                        if let SlotFunc::$variant(f) = sf {
-                            Some(*f)
-                        } else {
-                            None
-                        }
-                    }) {
-                        self.slots.$group.$slot.store(Some(func));
                     } else {
-                        self.slots.$group.$slot.store(Some($wrapper));
+                        match self.lookup_slot_in_mro(name, ctx, |sf| {
+                            if let SlotFunc::$variant(f) = sf {
+                                Some(*f)
+                            } else {
+                                None
+                            }
+                        }) {
+                            SlotLookupResult::NativeSlot(func) => {
+                                self.slots.$group.$slot.store(Some(func));
+                            }
+                            SlotLookupResult::PythonMethod => {
+                                self.slots.$group.$slot.store(Some($wrapper));
+                            }
+                            SlotLookupResult::NotFound => {
+                                accessor.inherit_from_mro(self);
+                            }
+                        }
                     }
                 } else {
                     accessor.inherit_from_mro(self);
@@ -752,22 +791,37 @@ impl PyType {
 
                     if method.as_ref().is_some_and(|m| m.is(&ctx.none)) {
                         self.slots.hash.store(Some(hash_not_implemented));
-                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
-                        if let SlotFunc::Hash(f) = sf {
-                            Some(*f)
-                        } else {
-                            None
-                        }
-                    }) {
-                        self.slots.hash.store(Some(func));
                     } else {
-                        self.slots.hash.store(Some(hash_wrapper));
+                        match self.lookup_slot_in_mro(name, ctx, |sf| {
+                            if let SlotFunc::Hash(f) = sf {
+                                Some(*f)
+                            } else {
+                                None
+                            }
+                        }) {
+                            SlotLookupResult::NativeSlot(func) => {
+                                self.slots.hash.store(Some(func));
+                            }
+                            SlotLookupResult::PythonMethod => {
+                                self.slots.hash.store(Some(hash_wrapper));
+                            }
+                            SlotLookupResult::NotFound => {
+                                accessor.inherit_from_mro(self);
+                            }
+                        }
                     }
                 } else {
                     accessor.inherit_from_mro(self);
                 }
             }
-            SlotAccessor::TpCall => update_main_slot!(call, call_wrapper, Call),
+            SlotAccessor::TpCall => {
+                update_main_slot!(call, call_wrapper, Call);
+                // When __call__ is overridden in Python, clear vectorcall
+                // so the slow path through call_wrapper is used.
+                if ADD {
+                    self.slots.vectorcall.store(None);
+                }
+            }
             SlotAccessor::TpIter => update_main_slot!(iter, iter_wrapper, Iter),
             SlotAccessor::TpIternext => update_main_slot!(iternext, iternext_wrapper, IterNext),
             SlotAccessor::TpInit => update_main_slot!(init, init_wrapper, Init),
@@ -803,18 +857,22 @@ impl PyType {
                     // Must use wrapper to handle __getattr__
                     self.slots.getattro.store(Some(getattro_wrapper));
                 } else if ADD {
-                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
+                    match self.lookup_slot_in_mro(name, ctx, |sf| {
                         if let SlotFunc::GetAttro(f) = sf {
                             Some(*f)
                         } else {
                             None
                         }
                     }) {
-                        self.slots.getattro.store(Some(func));
-                    } else {
-                        // __getattribute__ is a Python method somewhere in MRO;
-                        // use the wrapper to dispatch through it.
-                        self.slots.getattro.store(Some(getattro_wrapper));
+                        SlotLookupResult::NativeSlot(func) => {
+                            self.slots.getattro.store(Some(func));
+                        }
+                        SlotLookupResult::PythonMethod => {
+                            self.slots.getattro.store(Some(getattro_wrapper));
+                        }
+                        SlotLookupResult::NotFound => {
+                            accessor.inherit_from_mro(self);
+                        }
                     }
                 } else {
                     accessor.inherit_from_mro(self);
@@ -823,13 +881,19 @@ impl PyType {
             SlotAccessor::TpSetattro => {
                 // __setattr__ and __delattr__ share the same slot
                 if ADD {
-                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                    match self.lookup_slot_in_mro(name, ctx, |sf| match sf {
                         SlotFunc::SetAttro(f) | SlotFunc::DelAttro(f) => Some(*f),
                         _ => None,
                     }) {
-                        self.slots.setattro.store(Some(func));
-                    } else {
-                        self.slots.setattro.store(Some(setattro_wrapper));
+                        SlotLookupResult::NativeSlot(func) => {
+                            self.slots.setattro.store(Some(func));
+                        }
+                        SlotLookupResult::PythonMethod => {
+                            self.slots.setattro.store(Some(setattro_wrapper));
+                        }
+                        SlotLookupResult::NotFound => {
+                            accessor.inherit_from_mro(self);
+                        }
                     }
                 } else {
                     accessor.inherit_from_mro(self);
@@ -839,13 +903,19 @@ impl PyType {
             SlotAccessor::TpDescrSet => {
                 // __set__ and __delete__ share the same slot
                 if ADD {
-                    if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                    match self.lookup_slot_in_mro(name, ctx, |sf| match sf {
                         SlotFunc::DescrSet(f) | SlotFunc::DescrDel(f) => Some(*f),
                         _ => None,
                     }) {
-                        self.slots.descr_set.store(Some(func));
-                    } else {
-                        self.slots.descr_set.store(Some(descr_set_wrapper));
+                        SlotLookupResult::NativeSlot(func) => {
+                            self.slots.descr_set.store(Some(func));
+                        }
+                        SlotLookupResult::PythonMethod => {
+                            self.slots.descr_set.store(Some(descr_set_wrapper));
+                        }
+                        SlotLookupResult::NotFound => {
+                            accessor.inherit_from_mro(self);
+                        }
                     }
                 } else {
                     accessor.inherit_from_mro(self);
@@ -879,8 +949,9 @@ impl PyType {
                                 let attrs = cls.attributes.read();
                                 cmp_names.iter().any(|n| {
                                     if let Some(attr) = attrs.get(*n) {
-                                        // Check if it's a Python function (not wrapper_descriptor)
+                                        // Check if it's a Python function (not a native descriptor)
                                         !attr.class().is(ctx.types.wrapper_descriptor_type)
+                                            && !attr.class().is(ctx.types.method_descriptor_type)
                                     } else {
                                         false
                                     }
@@ -891,16 +962,24 @@ impl PyType {
                     if has_python_cmp {
                         // Use wrapper to call the Python method
                         self.slots.richcompare.store(Some(richcompare_wrapper));
-                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| {
-                        if let SlotFunc::RichCompare(f, _) = sf {
-                            Some(*f)
-                        } else {
-                            None
-                        }
-                    }) {
-                        self.slots.richcompare.store(Some(func));
                     } else {
-                        self.slots.richcompare.store(Some(richcompare_wrapper));
+                        match self.lookup_slot_in_mro(name, ctx, |sf| {
+                            if let SlotFunc::RichCompare(f, _) = sf {
+                                Some(*f)
+                            } else {
+                                None
+                            }
+                        }) {
+                            SlotLookupResult::NativeSlot(func) => {
+                                self.slots.richcompare.store(Some(func));
+                            }
+                            SlotLookupResult::PythonMethod => {
+                                self.slots.richcompare.store(Some(richcompare_wrapper));
+                            }
+                            SlotLookupResult::NotFound => {
+                                accessor.inherit_from_mro(self);
+                            }
+                        }
                     }
                 } else {
                     accessor.inherit_from_mro(self);
@@ -1343,16 +1422,24 @@ impl PyType {
                             .as_sequence
                             .ass_item
                             .store(Some(sequence_setitem_wrapper));
-                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
-                        SlotFunc::SeqSetItem(f) | SlotFunc::SeqDelItem(f) => Some(*f),
-                        _ => None,
-                    }) {
-                        self.slots.as_sequence.ass_item.store(Some(func));
                     } else {
-                        self.slots
-                            .as_sequence
-                            .ass_item
-                            .store(Some(sequence_setitem_wrapper));
+                        match self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                            SlotFunc::SeqSetItem(f) | SlotFunc::SeqDelItem(f) => Some(*f),
+                            _ => None,
+                        }) {
+                            SlotLookupResult::NativeSlot(func) => {
+                                self.slots.as_sequence.ass_item.store(Some(func));
+                            }
+                            SlotLookupResult::PythonMethod => {
+                                self.slots
+                                    .as_sequence
+                                    .ass_item
+                                    .store(Some(sequence_setitem_wrapper));
+                            }
+                            SlotLookupResult::NotFound => {
+                                accessor.inherit_from_mro(self);
+                            }
+                        }
                     }
                 } else {
                     accessor.inherit_from_mro(self);
@@ -1388,16 +1475,24 @@ impl PyType {
                             .as_mapping
                             .ass_subscript
                             .store(Some(mapping_setitem_wrapper));
-                    } else if let Some(func) = self.lookup_slot_in_mro(name, ctx, |sf| match sf {
-                        SlotFunc::MapSetSubscript(f) | SlotFunc::MapDelSubscript(f) => Some(*f),
-                        _ => None,
-                    }) {
-                        self.slots.as_mapping.ass_subscript.store(Some(func));
                     } else {
-                        self.slots
-                            .as_mapping
-                            .ass_subscript
-                            .store(Some(mapping_setitem_wrapper));
+                        match self.lookup_slot_in_mro(name, ctx, |sf| match sf {
+                            SlotFunc::MapSetSubscript(f) | SlotFunc::MapDelSubscript(f) => Some(*f),
+                            _ => None,
+                        }) {
+                            SlotLookupResult::NativeSlot(func) => {
+                                self.slots.as_mapping.ass_subscript.store(Some(func));
+                            }
+                            SlotLookupResult::PythonMethod => {
+                                self.slots
+                                    .as_mapping
+                                    .ass_subscript
+                                    .store(Some(mapping_setitem_wrapper));
+                            }
+                            SlotLookupResult::NotFound => {
+                                accessor.inherit_from_mro(self);
+                            }
+                        }
                     }
                 } else {
                     accessor.inherit_from_mro(self);
@@ -1410,14 +1505,12 @@ impl PyType {
     }
 
     /// Look up a method in MRO and extract the slot function if it's a slot wrapper.
-    /// Returns Some(slot_func) if a matching slot wrapper is found, None if a real method
-    /// is found or no method exists.
     fn lookup_slot_in_mro<T: Copy>(
         &self,
         name: &'static PyStrInterned,
         ctx: &Context,
         extract: impl Fn(&crate::builtins::descriptor::SlotFunc) -> Option<T>,
-    ) -> Option<T> {
+    ) -> SlotLookupResult<T> {
         use crate::builtins::descriptor::PyWrapper;
 
         // Helper to check if a class is a subclass of another by checking MRO
@@ -1448,9 +1541,9 @@ impl PyType {
         // Look up in self's dict first
         if let Some(attr) = self.attributes.read().get(name).cloned() {
             if let Some(func) = try_extract(&attr, &mro) {
-                return Some(func);
+                return SlotLookupResult::NativeSlot(func);
             }
-            return None;
+            return SlotLookupResult::PythonMethod;
         }
 
         // Look up in MRO (mro[0] is self, so skip it)
@@ -1458,13 +1551,13 @@ impl PyType {
             if let Some(attr) = cls.attributes.read().get(name).cloned() {
                 // Use the slice starting from this class in MRO
                 if let Some(func) = try_extract(&attr, &mro[i + 1..]) {
-                    return Some(func);
+                    return SlotLookupResult::NativeSlot(func);
                 }
-                return None;
+                return SlotLookupResult::PythonMethod;
             }
         }
         // No method found in MRO
-        None
+        SlotLookupResult::NotFound
     }
 }
 

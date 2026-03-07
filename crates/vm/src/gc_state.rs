@@ -3,7 +3,9 @@
 //! This module implements CPython-compatible generational garbage collection
 //! for RustPython, using an intrusive doubly-linked list approach.
 
+use crate::common::linked_list::LinkedList;
 use crate::common::lock::{PyMutex, PyRwLock};
+use crate::object::{GC_PERMANENT, GC_UNTRACKED, GcLink};
 use crate::{AsObject, PyObject, PyObjectRef};
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
@@ -85,26 +87,21 @@ impl GcGeneration {
         guard.uncollectable += uncollectable;
     }
 
-    /// Force-unlock the stats mutex after fork() in the child process.
+    /// Reset the stats mutex to unlocked state after fork().
     ///
     /// # Safety
     /// Must only be called after fork() in the child process when no other
     /// threads exist.
-    #[cfg(unix)]
-    unsafe fn force_unlock_stats_after_fork(&self) {
-        if self.stats.try_lock().is_none() {
-            unsafe { self.stats.force_unlock() };
-        }
+    #[cfg(all(unix, feature = "threading"))]
+    unsafe fn reinit_stats_after_fork(&self) {
+        unsafe { crate::common::lock::reinit_mutex_after_fork(&self.stats) };
     }
 }
 
-/// Wrapper for raw pointer to make it Send + Sync
+/// Wrapper for NonNull<PyObject> to impl Hash/Eq for use in temporary collection sets.
+/// Only used within collect_inner, never shared across threads.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct GcObjectPtr(NonNull<PyObject>);
-
-// SAFETY: We only use this for tracking objects, and proper synchronization is used
-unsafe impl Send for GcObjectPtr {}
-unsafe impl Sync for GcObjectPtr {}
+struct GcPtr(NonNull<PyObject>);
 
 /// Global GC state
 pub struct GcState {
@@ -114,11 +111,11 @@ pub struct GcState {
     pub permanent: GcGeneration,
     /// GC enabled flag
     pub enabled: AtomicBool,
-    /// Per-generation object tracking (for correct gc_refs algorithm)
-    /// Objects start in gen0, survivors move to gen1, then gen2
-    generation_objects: [PyRwLock<HashSet<GcObjectPtr>>; 3],
+    /// Per-generation intrusive linked lists for object tracking.
+    /// Objects start in gen0, survivors are promoted to gen1, then gen2.
+    generation_lists: [PyRwLock<LinkedList<GcLink, PyObject>>; 3],
     /// Frozen/permanent objects (excluded from normal GC)
-    permanent_objects: PyRwLock<HashSet<GcObjectPtr>>,
+    permanent_list: PyRwLock<LinkedList<GcLink, PyObject>>,
     /// Debug flags
     pub debug: AtomicU32,
     /// gc.garbage list (uncollectable objects with __del__)
@@ -129,17 +126,13 @@ pub struct GcState {
     collecting: PyMutex<()>,
     /// Allocation counter for gen0
     alloc_count: AtomicUsize,
-    /// Registry of all tracked objects (for cycle detection)
-    tracked_objects: PyRwLock<HashSet<GcObjectPtr>>,
-    /// Objects that have been finalized (__del__ already called)
-    /// Prevents calling __del__ multiple times on resurrected objects
-    finalized_objects: PyRwLock<HashSet<GcObjectPtr>>,
 }
 
 // SAFETY: All fields are either inherently Send/Sync (atomics, RwLock, Mutex) or protected by PyMutex.
-// PyMutex<Vec<PyObjectRef>> is safe to share/send across threads because access is synchronized.
-// PyObjectRef itself is Send, and interior mutability is guarded by the mutex.
+// LinkedList<GcLink, PyObject> is Send+Sync because GcLink's Target (PyObject) is Send+Sync.
+#[cfg(feature = "threading")]
 unsafe impl Send for GcState {}
+#[cfg(feature = "threading")]
 unsafe impl Sync for GcState {}
 
 impl Default for GcState {
@@ -158,19 +151,17 @@ impl GcState {
             ],
             permanent: GcGeneration::new(0),
             enabled: AtomicBool::new(true),
-            generation_objects: [
-                PyRwLock::new(HashSet::new()),
-                PyRwLock::new(HashSet::new()),
-                PyRwLock::new(HashSet::new()),
+            generation_lists: [
+                PyRwLock::new(LinkedList::new()),
+                PyRwLock::new(LinkedList::new()),
+                PyRwLock::new(LinkedList::new()),
             ],
-            permanent_objects: PyRwLock::new(HashSet::new()),
+            permanent_list: PyRwLock::new(LinkedList::new()),
             debug: AtomicU32::new(0),
             garbage: PyMutex::new(Vec::new()),
             callbacks: PyMutex::new(Vec::new()),
             collecting: PyMutex::new(()),
             alloc_count: AtomicUsize::new(0),
-            tracked_objects: PyRwLock::new(HashSet::new()),
-            finalized_objects: PyRwLock::new(HashSet::new()),
         }
     }
 
@@ -237,120 +228,93 @@ impl GcState {
         ]
     }
 
-    /// Track a new object (add to gen0)
-    /// Called when IS_TRACE objects are created
+    /// Track a new object (add to gen0).
+    /// O(1) — intrusive linked list push_front, no hashing.
     ///
     /// # Safety
     /// obj must be a valid pointer to a PyObject
     pub unsafe fn track_object(&self, obj: NonNull<PyObject>) {
-        let gc_ptr = GcObjectPtr(obj);
-
-        // _PyObject_GC_TRACK
         let obj_ref = unsafe { obj.as_ref() };
         obj_ref.set_gc_tracked();
+        obj_ref.set_gc_generation(0);
 
-        // Add to generation 0 tracking first (for correct gc_refs algorithm)
-        // Only increment count if we successfully add to the set
-        {
-            let mut gen0 = self.generation_objects[0].write();
-            if gen0.insert(gc_ptr) {
-                self.generations[0].count.fetch_add(1, Ordering::SeqCst);
-                self.alloc_count.fetch_add(1, Ordering::SeqCst);
-            }
-        }
-
-        // Also add to global tracking (for get_objects, etc.)
-        self.tracked_objects.write().insert(gc_ptr);
+        self.generation_lists[0].write().push_front(obj);
+        self.generations[0].count.fetch_add(1, Ordering::SeqCst);
+        self.alloc_count.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// Untrack an object (remove from GC lists)
-    /// Called when objects are deallocated
+    /// Untrack an object (remove from GC lists).
+    /// O(1) — intrusive linked list remove by node pointer.
     ///
     /// # Safety
-    /// obj must be a valid pointer to a PyObject
+    /// obj must be a valid pointer to a PyObject that is currently tracked.
+    /// The object's memory must still be valid (pointers are read).
     pub unsafe fn untrack_object(&self, obj: NonNull<PyObject>) {
-        let gc_ptr = GcObjectPtr(obj);
+        let obj_ref = unsafe { obj.as_ref() };
 
-        // Remove from generation tracking lists and decrement the correct generation's count
-        for (gen_idx, generation) in self.generation_objects.iter().enumerate() {
-            let mut gen_set = generation.write();
-            if gen_set.remove(&gc_ptr) {
-                // Decrement count for the generation we removed from
-                let count = self.generations[gen_idx].count.load(Ordering::SeqCst);
-                if count > 0 {
-                    self.generations[gen_idx]
-                        .count
-                        .fetch_sub(1, Ordering::SeqCst);
-                }
-                break; // Object can only be in one generation
+        loop {
+            let obj_gen = obj_ref.gc_generation();
+
+            let (list_lock, count) = if obj_gen <= 2 {
+                (
+                    &self.generation_lists[obj_gen as usize]
+                        as &PyRwLock<LinkedList<GcLink, PyObject>>,
+                    &self.generations[obj_gen as usize].count,
+                )
+            } else if obj_gen == GC_PERMANENT {
+                (&self.permanent_list, &self.permanent.count)
+            } else {
+                return; // GC_UNTRACKED or unknown — already untracked
+            };
+
+            let mut list = list_lock.write();
+            // Re-check generation under lock (may have changed due to promotion)
+            if obj_ref.gc_generation() != obj_gen {
+                drop(list);
+                continue; // Retry with the updated generation
             }
-        }
-
-        // Remove from global tracking
-        self.tracked_objects.write().remove(&gc_ptr);
-
-        // Remove from permanent tracking
-        {
-            let mut permanent = self.permanent_objects.write();
-            if permanent.remove(&gc_ptr) {
-                let count = self.permanent.count.load(Ordering::SeqCst);
-                if count > 0 {
-                    self.permanent.count.fetch_sub(1, Ordering::SeqCst);
-                }
+            if unsafe { list.remove(obj) }.is_some() {
+                count.fetch_sub(1, Ordering::SeqCst);
+                obj_ref.clear_gc_tracked();
+                obj_ref.set_gc_generation(GC_UNTRACKED);
+            } else {
+                // Object claims to be in this generation but wasn't found in the list.
+                // This indicates a bug: the object was already removed from the list
+                // without updating gc_generation, or was never inserted.
+                eprintln!(
+                    "GC WARNING: untrack_object failed to remove obj={obj:p} from gen={obj_gen}, \
+                     tracked={}, gc_gen={}",
+                    obj_ref.is_gc_tracked(),
+                    obj_ref.gc_generation()
+                );
             }
+            return;
         }
-
-        // Remove from finalized set
-        self.finalized_objects.write().remove(&gc_ptr);
-    }
-
-    /// Check if an object has been finalized
-    pub fn is_finalized(&self, obj: NonNull<PyObject>) -> bool {
-        let gc_ptr = GcObjectPtr(obj);
-        self.finalized_objects.read().contains(&gc_ptr)
-    }
-
-    /// Mark an object as finalized
-    pub fn mark_finalized(&self, obj: NonNull<PyObject>) {
-        let gc_ptr = GcObjectPtr(obj);
-        self.finalized_objects.write().insert(gc_ptr);
     }
 
     /// Get tracked objects (for gc.get_objects)
     /// If generation is None, returns all tracked objects.
     /// If generation is Some(n), returns objects in generation n only.
     pub fn get_objects(&self, generation: Option<i32>) -> Vec<PyObjectRef> {
+        fn collect_from_list(
+            list: &LinkedList<GcLink, PyObject>,
+        ) -> impl Iterator<Item = PyObjectRef> + '_ {
+            list.iter().filter_map(|obj| obj.try_to_owned())
+        }
+
         match generation {
             None => {
-                // Return all tracked objects
-                self.tracked_objects
-                    .read()
-                    .iter()
-                    .filter_map(|ptr| {
-                        let obj = unsafe { ptr.0.as_ref() };
-                        if obj.strong_count() > 0 {
-                            Some(obj.to_owned())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
+                // Return all tracked objects from all generations + permanent
+                let mut result = Vec::new();
+                for gen_list in &self.generation_lists {
+                    result.extend(collect_from_list(&gen_list.read()));
+                }
+                result.extend(collect_from_list(&self.permanent_list.read()));
+                result
             }
             Some(g) if (0..=2).contains(&g) => {
-                // Return objects in specific generation
-                let gen_idx = g as usize;
-                self.generation_objects[gen_idx]
-                    .read()
-                    .iter()
-                    .filter_map(|ptr| {
-                        let obj = unsafe { ptr.0.as_ref() };
-                        if obj.strong_count() > 0 {
-                            Some(obj.to_owned())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
+                let guard = self.generation_lists[g as usize].read();
+                collect_from_list(&guard).collect()
             }
             _ => Vec::new(),
         }
@@ -364,8 +328,6 @@ impl GcState {
             return false;
         }
 
-        // _PyObject_GC_Alloc checks thresholds
-
         // Check gen0 threshold
         let count0 = self.generations[0].count.load(Ordering::SeqCst) as u32;
         let threshold0 = self.generations[0].threshold();
@@ -378,14 +340,6 @@ impl GcState {
     }
 
     /// Perform garbage collection on the given generation
-    /// Returns (collected_count, uncollectable_count)
-    ///
-    /// Implements CPython-compatible generational GC algorithm:
-    /// - Only collects objects from generations 0 to `generation`
-    /// - Uses gc_refs algorithm: gc_refs = strong_count - internal_refs
-    /// - Only subtracts references between objects IN THE SAME COLLECTION
-    ///
-    /// If `force` is true, collection runs even if GC is disabled (for manual gc.collect() calls)
     pub fn collect(&self, generation: usize) -> (usize, usize) {
         self.collect_inner(generation, false)
     }
@@ -412,25 +366,26 @@ impl GcState {
         let generation = generation.min(2);
         let debug = self.get_debug();
 
+        // Clear the method cache to release strong references that
+        // might prevent cycle collection (_PyType_ClearCache).
+        crate::builtins::type_::type_cache_clear();
+
         // Step 1: Gather objects from generations 0..=generation
-        // Hold read locks for the entire collection to prevent other threads
-        // from untracking objects while we're iterating.
+        // Hold read locks for the entire scan to prevent concurrent modifications.
         let gen_locks: Vec<_> = (0..=generation)
-            .map(|i| self.generation_objects[i].read())
+            .map(|i| self.generation_lists[i].read())
             .collect();
 
-        let mut collecting: HashSet<GcObjectPtr> = HashSet::new();
-        for gen_set in &gen_locks {
-            for &ptr in gen_set.iter() {
-                let obj = unsafe { ptr.0.as_ref() };
+        let mut collecting: HashSet<GcPtr> = HashSet::new();
+        for gen_list in &gen_locks {
+            for obj in gen_list.iter() {
                 if obj.strong_count() > 0 {
-                    collecting.insert(ptr);
+                    collecting.insert(GcPtr(NonNull::from(obj)));
                 }
             }
         }
 
         if collecting.is_empty() {
-            // Reset gen0 count even if nothing to collect
             self.generations[0].count.store(0, Ordering::SeqCst);
             self.generations[generation].update_stats(0, 0);
             return (0, 0);
@@ -445,25 +400,21 @@ impl GcState {
         }
 
         // Step 2: Build gc_refs map (copy reference counts)
-        let mut gc_refs: std::collections::HashMap<GcObjectPtr, usize> =
-            std::collections::HashMap::new();
+        let mut gc_refs: std::collections::HashMap<GcPtr, usize> = std::collections::HashMap::new();
         for &ptr in &collecting {
             let obj = unsafe { ptr.0.as_ref() };
             gc_refs.insert(ptr, obj.strong_count());
         }
 
         // Step 3: Subtract internal references
-        // CRITICAL: Only subtract refs to objects IN THE COLLECTING SET
         for &ptr in &collecting {
             let obj = unsafe { ptr.0.as_ref() };
-            // Double-check object is still alive
             if obj.strong_count() == 0 {
                 continue;
             }
             let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
             for child_ptr in referent_ptrs {
-                let gc_ptr = GcObjectPtr(child_ptr);
-                // Only decrement if child is also in the collecting set!
+                let gc_ptr = GcPtr(child_ptr);
                 if collecting.contains(&gc_ptr)
                     && let Some(refs) = gc_refs.get_mut(&gc_ptr)
                 {
@@ -473,12 +424,9 @@ impl GcState {
         }
 
         // Step 4: Find reachable objects (gc_refs > 0) and traverse from them
-        // Objects with gc_refs > 0 are definitely reachable from outside.
-        // We need to mark all objects reachable from them as also reachable.
-        let mut reachable: HashSet<GcObjectPtr> = HashSet::new();
-        let mut worklist: Vec<GcObjectPtr> = Vec::new();
+        let mut reachable: HashSet<GcPtr> = HashSet::new();
+        let mut worklist: Vec<GcPtr> = Vec::new();
 
-        // Start with objects that have gc_refs > 0
         for (&ptr, &refs) in &gc_refs {
             if refs > 0 {
                 reachable.insert(ptr);
@@ -486,14 +434,12 @@ impl GcState {
             }
         }
 
-        // Traverse reachable objects to find more reachable ones
         while let Some(ptr) = worklist.pop() {
             let obj = unsafe { ptr.0.as_ref() };
             if obj.is_gc_tracked() {
                 let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
                 for child_ptr in referent_ptrs {
-                    let gc_ptr = GcObjectPtr(child_ptr);
-                    // If child is in collecting set and not yet marked reachable
+                    let gc_ptr = GcPtr(child_ptr);
                     if collecting.contains(&gc_ptr) && reachable.insert(gc_ptr) {
                         worklist.push(gc_ptr);
                     }
@@ -501,8 +447,8 @@ impl GcState {
             }
         }
 
-        // Step 5: Find unreachable objects (in collecting but not in reachable)
-        let unreachable: Vec<GcObjectPtr> = collecting.difference(&reachable).copied().collect();
+        // Step 5: Find unreachable objects
+        let unreachable: Vec<GcPtr> = collecting.difference(&reachable).copied().collect();
 
         if debug.contains(GcDebugFlags::STATS) {
             eprintln!(
@@ -512,143 +458,123 @@ impl GcState {
             );
         }
 
+        // Create strong references while read locks are still held.
+        // After dropping gen_locks, other threads can untrack+free objects,
+        // making the raw pointers in `reachable`/`unreachable` dangling.
+        // Strong refs keep objects alive for later phases.
+        //
+        // Use try_to_owned() (CAS-based) instead of strong_count()+to_owned()
+        // to prevent a TOCTOU race: another thread can dec() the count to 0
+        // between the check and the increment, causing a use-after-free when
+        // the destroying thread eventually frees the memory.
+        let survivor_refs: Vec<PyObjectRef> = reachable
+            .iter()
+            .filter_map(|ptr| {
+                let obj = unsafe { ptr.0.as_ref() };
+                obj.try_to_owned()
+            })
+            .collect();
+
+        let unreachable_refs: Vec<crate::PyObjectRef> = unreachable
+            .iter()
+            .filter_map(|ptr| {
+                let obj = unsafe { ptr.0.as_ref() };
+                obj.try_to_owned()
+            })
+            .collect();
+
         if unreachable.is_empty() {
-            // No cycles found - promote survivors to next generation
-            drop(gen_locks); // Release read locks before promoting
-            self.promote_survivors(generation, &collecting);
-            // Reset gen0 count
+            drop(gen_locks);
+            self.promote_survivors(generation, &survivor_refs);
             self.generations[0].count.store(0, Ordering::SeqCst);
             self.generations[generation].update_stats(0, 0);
             return (0, 0);
         }
 
         // Release read locks before finalization phase.
-        // This allows other threads to untrack objects while we finalize.
         drop(gen_locks);
 
         // Step 6: Finalize unreachable objects and handle resurrection
 
-        // 6a: Get references to all unreachable objects
-        let unreachable_refs: Vec<crate::PyObjectRef> = unreachable
-            .iter()
-            .filter_map(|ptr| {
-                let obj = unsafe { ptr.0.as_ref() };
-                if obj.strong_count() > 0 {
-                    Some(obj.to_owned())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
         if unreachable_refs.is_empty() {
-            self.promote_survivors(generation, &reachable);
-            // Reset gen0 count
+            self.promote_survivors(generation, &survivor_refs);
             self.generations[0].count.store(0, Ordering::SeqCst);
             self.generations[generation].update_stats(0, 0);
             return (0, 0);
         }
 
         // 6b: Record initial strong counts (for resurrection detection)
-        // Each object has +1 from unreachable_refs, so initial count includes that
-        let initial_counts: std::collections::HashMap<GcObjectPtr, usize> = unreachable_refs
+        let initial_counts: std::collections::HashMap<GcPtr, usize> = unreachable_refs
             .iter()
             .map(|obj| {
-                let ptr = GcObjectPtr(core::ptr::NonNull::from(obj.as_ref()));
+                let ptr = GcPtr(core::ptr::NonNull::from(obj.as_ref()));
                 (ptr, obj.strong_count())
             })
             .collect();
 
         // 6c: Clear existing weakrefs BEFORE calling __del__
-        // This invalidates existing weakrefs, but new weakrefs created during __del__
-        // will still work (WeakRefList::add restores inner.obj if cleared)
-        //
-        // CRITICAL: We use a two-phase approach to match CPython behavior:
-        // Phase 1: Clear ALL weakrefs (set inner.obj = None) and collect callbacks
-        // Phase 2: Invoke ALL callbacks
-        // This ensures that when a callback runs, ALL weakrefs to unreachable objects
-        // are already dead (return None when called).
         let mut all_callbacks: Vec<(crate::PyRef<crate::object::PyWeak>, crate::PyObjectRef)> =
             Vec::new();
         for obj_ref in &unreachable_refs {
             let callbacks = obj_ref.gc_clear_weakrefs_collect_callbacks();
             all_callbacks.extend(callbacks);
         }
-        // Phase 2: Now call all callbacks - at this point ALL weakrefs are cleared
         for (wr, cb) in all_callbacks {
             if let Some(Err(e)) = crate::vm::thread::with_vm(&cb, |vm| cb.call((wr.clone(),), vm)) {
-                // Report the exception via run_unraisable
                 crate::vm::thread::with_vm(&cb, |vm| {
                     vm.run_unraisable(e.clone(), Some("weakref callback".to_owned()), cb.clone());
                 });
             }
-            // If with_vm returns None, we silently skip - no VM available to handle errors
         }
 
-        // 6d: Call __del__ on all unreachable objects
-        // This allows resurrection to work correctly
-        // Skip objects that have already been finalized (prevents multiple __del__ calls)
+        // 6d: Call __del__ on unreachable objects (skip already-finalized).
+        // try_call_finalizer() internally checks gc_finalized() and sets it,
+        // so we must NOT set it beforehand.
         for obj_ref in &unreachable_refs {
-            let ptr = GcObjectPtr(core::ptr::NonNull::from(obj_ref.as_ref()));
-            let already_finalized = self.finalized_objects.read().contains(&ptr);
-
-            if !already_finalized {
-                // Mark as finalized BEFORE calling __del__
-                // This ensures is_finalized() returns True inside __del__
-                self.finalized_objects.write().insert(ptr);
-                obj_ref.try_call_finalizer();
-            }
+            obj_ref.try_call_finalizer();
         }
 
-        // 6d: Detect resurrection - strong_count increased means object was resurrected
-        // Step 1: Find directly resurrected objects (strong_count increased)
-        let mut resurrected_set: HashSet<GcObjectPtr> = HashSet::new();
-        let unreachable_set: HashSet<GcObjectPtr> = unreachable.iter().copied().collect();
+        // Detect resurrection
+        let mut resurrected_set: HashSet<GcPtr> = HashSet::new();
+        let unreachable_set: HashSet<GcPtr> = unreachable.iter().copied().collect();
 
         for obj in &unreachable_refs {
-            let ptr = GcObjectPtr(core::ptr::NonNull::from(obj.as_ref()));
+            let ptr = GcPtr(core::ptr::NonNull::from(obj.as_ref()));
             let initial = initial_counts.get(&ptr).copied().unwrap_or(1);
             if obj.strong_count() > initial {
                 resurrected_set.insert(ptr);
             }
         }
 
-        // Step 2: Transitive resurrection - objects reachable from resurrected are also resurrected
-        // This is critical for cases like: Lazarus resurrects itself, its cargo should also survive
-        let mut worklist: Vec<GcObjectPtr> = resurrected_set.iter().copied().collect();
+        // Transitive resurrection
+        let mut worklist: Vec<GcPtr> = resurrected_set.iter().copied().collect();
         while let Some(ptr) = worklist.pop() {
             let obj = unsafe { ptr.0.as_ref() };
             let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
             for child_ptr in referent_ptrs {
-                let child_gc_ptr = GcObjectPtr(child_ptr);
-                // If child is in unreachable set and not yet marked as resurrected
+                let child_gc_ptr = GcPtr(child_ptr);
                 if unreachable_set.contains(&child_gc_ptr) && resurrected_set.insert(child_gc_ptr) {
                     worklist.push(child_gc_ptr);
                 }
             }
         }
 
-        // Step 3: Partition into resurrected and truly dead
+        // Partition into resurrected and truly dead
         let (resurrected, truly_dead): (Vec<_>, Vec<_>) =
             unreachable_refs.into_iter().partition(|obj| {
-                let ptr = GcObjectPtr(core::ptr::NonNull::from(obj.as_ref()));
+                let ptr = GcPtr(core::ptr::NonNull::from(obj.as_ref()));
                 resurrected_set.contains(&ptr)
             });
-
-        let resurrected_count = resurrected.len();
 
         if debug.contains(GcDebugFlags::STATS) {
             eprintln!(
                 "gc: {} resurrected, {} truly dead",
-                resurrected_count,
+                resurrected.len(),
                 truly_dead.len()
             );
         }
 
-        // 6e: Break cycles ONLY for truly dead objects (not resurrected)
-        // Compute collected count: exclude instance dicts that are also in truly_dead.
-        // In CPython 3.12+, instance dicts are managed inline and not separately tracked,
-        // so they don't count toward the collected total.
+        // Compute collected count (exclude instance dicts in truly_dead)
         let collected = {
             let dead_ptrs: HashSet<usize> = truly_dead
                 .iter()
@@ -667,7 +593,16 @@ impl GcState {
             truly_dead.len() - instance_dict_count
         };
 
-        // 6e-1: If DEBUG_SAVEALL is set, save truly dead objects to garbage
+        // Promote survivors to next generation BEFORE tp_clear.
+        // This matches CPython's order (move_legacy_finalizer_reachable → delete_garbage)
+        // and ensures survivor_refs are dropped before tp_clear, so reachable objects
+        // (e.g. LateFin) aren't kept alive beyond the deferred-drop phase.
+        self.promote_survivors(generation, &survivor_refs);
+        drop(survivor_refs);
+
+        // Resurrected objects stay tracked — just drop our references
+        drop(resurrected);
+
         if debug.contains(GcDebugFlags::SAVEALL) {
             let mut garbage_guard = self.garbage.lock();
             for obj_ref in truly_dead.iter() {
@@ -676,12 +611,8 @@ impl GcState {
         }
 
         if !truly_dead.is_empty() {
-            // 6g: Break cycles by clearing references (tp_clear)
-            // Weakrefs were already cleared in step 6c, but new weakrefs created
-            // during __del__ (step 6d) can still be upgraded.
-            //
-            // Clear and destroy objects within a deferred drop context.
-            // This prevents deadlocks from untrack calls during destruction.
+            // Break cycles by clearing references (tp_clear)
+            // Use deferred drop context to prevent stack overflow.
             rustpython_common::refcount::with_deferred_drops(|| {
                 for obj_ref in truly_dead.iter() {
                     if obj_ref.gc_has_clear() {
@@ -689,19 +620,11 @@ impl GcState {
                         drop(edges);
                     }
                 }
-                // Drop truly_dead references, triggering actual deallocation
                 drop(truly_dead);
             });
         }
 
-        // 6f: Resurrected objects stay in tracked_objects (they're still alive)
-        // Just drop our references to them
-        drop(resurrected);
-
-        // Promote survivors (reachable objects) to next generation
-        self.promote_survivors(generation, &reachable);
-
-        // Reset gen0 count after collection (enables automatic GC to trigger again)
+        // Reset gen0 count
         self.generations[0].count.store(0, Ordering::SeqCst);
 
         self.generations[generation].update_stats(collected, 0);
@@ -709,39 +632,49 @@ impl GcState {
         (collected, 0)
     }
 
-    /// Promote surviving objects to the next generation
-    fn promote_survivors(&self, from_gen: usize, survivors: &HashSet<GcObjectPtr>) {
+    /// Promote surviving objects to the next generation.
+    ///
+    /// `survivors` must be strong references (`PyObjectRef`) to keep objects alive,
+    /// since the generation read locks are released before this is called.
+    ///
+    /// Holds both source and destination list locks simultaneously to prevent
+    /// a race where concurrent `untrack_object` reads a stale `gc_generation`
+    /// and operates on the wrong list.
+    fn promote_survivors(&self, from_gen: usize, survivors: &[PyObjectRef]) {
         if from_gen >= 2 {
             return; // Already in oldest generation
         }
 
         let next_gen = from_gen + 1;
 
-        for &ptr in survivors {
-            // Remove from current generation
-            for gen_idx in 0..=from_gen {
-                let mut gen_set = self.generation_objects[gen_idx].write();
-                if gen_set.remove(&ptr) {
-                    // Decrement count for source generation
-                    let count = self.generations[gen_idx].count.load(Ordering::SeqCst);
-                    if count > 0 {
-                        self.generations[gen_idx]
-                            .count
-                            .fetch_sub(1, Ordering::SeqCst);
-                    }
+        for obj_ref in survivors {
+            let obj = obj_ref.as_ref();
+            let ptr = NonNull::from(obj);
+            let obj_gen = obj.gc_generation();
+            if obj_gen as usize <= from_gen && obj_gen <= 2 {
+                let src_gen = obj_gen as usize;
 
-                    // Release before acquiring next lock
-                    drop(gen_set);
+                // Lock both source and destination lists simultaneously.
+                // Always ascending order (src_gen < next_gen) → no deadlock.
+                let mut src = self.generation_lists[src_gen].write();
+                let mut dst = self.generation_lists[next_gen].write();
 
-                    // Add to next generation
-                    let mut next_set = self.generation_objects[next_gen].write();
-                    if next_set.insert(ptr) {
-                        // Increment count for target generation
-                        self.generations[next_gen]
-                            .count
-                            .fetch_add(1, Ordering::SeqCst);
-                    }
-                    break;
+                // Re-check under locks: object might have been untracked concurrently
+                if obj.gc_generation() != obj_gen || !obj.is_gc_tracked() {
+                    continue;
+                }
+
+                if unsafe { src.remove(ptr) }.is_some() {
+                    self.generations[src_gen]
+                        .count
+                        .fetch_sub(1, Ordering::SeqCst);
+
+                    dst.push_front(ptr);
+                    self.generations[next_gen]
+                        .count
+                        .fetch_add(1, Ordering::SeqCst);
+
+                    obj.set_gc_generation(next_gen as u8);
                 }
             }
         }
@@ -752,117 +685,83 @@ impl GcState {
         self.permanent.count()
     }
 
-    /// Freeze all tracked objects (move to permanent generation)
+    /// Freeze all tracked objects (move to permanent generation).
+    /// Lock order: generation_lists[i] → permanent_list (consistent with unfreeze).
     pub fn freeze(&self) {
-        // Move all objects from gen0-2 to permanent
-        let mut objects_to_freeze: Vec<GcObjectPtr> = Vec::new();
+        let mut count = 0usize;
 
-        for (gen_idx, generation) in self.generation_objects.iter().enumerate() {
-            let mut gen_set = generation.write();
-            objects_to_freeze.extend(gen_set.drain());
+        for (gen_idx, gen_list) in self.generation_lists.iter().enumerate() {
+            let mut list = gen_list.write();
+            let mut perm = self.permanent_list.write();
+            while let Some(ptr) = list.pop_front() {
+                perm.push_front(ptr);
+                unsafe { ptr.as_ref().set_gc_generation(GC_PERMANENT) };
+                count += 1;
+            }
             self.generations[gen_idx].count.store(0, Ordering::SeqCst);
         }
 
-        // Add to permanent set
-        let mut permanent = self.permanent_objects.write();
-        let count = objects_to_freeze.len();
-        for ptr in objects_to_freeze {
-            permanent.insert(ptr);
-        }
         self.permanent.count.fetch_add(count, Ordering::SeqCst);
     }
 
-    /// Unfreeze all objects (move from permanent to gen2)
+    /// Unfreeze all objects (move from permanent to gen2).
+    /// Lock order: generation_lists[2] → permanent_list (consistent with freeze).
     pub fn unfreeze(&self) {
-        let mut objects_to_unfreeze: Vec<GcObjectPtr> = Vec::new();
+        let mut count = 0usize;
 
         {
-            let mut permanent = self.permanent_objects.write();
-            objects_to_unfreeze.extend(permanent.drain());
+            let mut gen2 = self.generation_lists[2].write();
+            let mut perm_list = self.permanent_list.write();
+            while let Some(ptr) = perm_list.pop_front() {
+                gen2.push_front(ptr);
+                unsafe { ptr.as_ref().set_gc_generation(2) };
+                count += 1;
+            }
             self.permanent.count.store(0, Ordering::SeqCst);
         }
 
-        // Add to generation 2
-        let mut gen2 = self.generation_objects[2].write();
-        let count = objects_to_unfreeze.len();
-        for ptr in objects_to_unfreeze {
-            gen2.insert(ptr);
-        }
         self.generations[2].count.fetch_add(count, Ordering::SeqCst);
     }
 
-    /// Force-unlock all locks after fork() in the child process.
+    /// Reset all locks to unlocked state after fork().
     ///
     /// After fork(), only the forking thread survives. Any lock held by another
-    /// thread is permanently stuck. This method releases all such stuck locks.
+    /// thread is permanently stuck. This resets them by zeroing the raw bytes.
     ///
     /// # Safety
     /// Must only be called after fork() in the child process when no other
     /// threads exist. The calling thread must NOT hold any of these locks.
-    #[cfg(unix)]
-    pub unsafe fn force_unlock_after_fork(&self) {
-        // Force-unlock the collecting mutex
-        if self.collecting.try_lock().is_none() {
-            unsafe { self.collecting.force_unlock() };
-        }
+    #[cfg(all(unix, feature = "threading"))]
+    pub unsafe fn reinit_after_fork(&self) {
+        use crate::common::lock::{reinit_mutex_after_fork, reinit_rwlock_after_fork};
 
-        // Force-unlock garbage and callbacks mutexes
-        if self.garbage.try_lock().is_none() {
-            unsafe { self.garbage.force_unlock() };
-        }
-        if self.callbacks.try_lock().is_none() {
-            unsafe { self.callbacks.force_unlock() };
-        }
+        unsafe {
+            reinit_mutex_after_fork(&self.collecting);
+            reinit_mutex_after_fork(&self.garbage);
+            reinit_mutex_after_fork(&self.callbacks);
 
-        // Force-unlock generation stats mutexes
-        for generation in &self.generations {
-            unsafe { generation.force_unlock_stats_after_fork() };
-        }
-        unsafe { self.permanent.force_unlock_stats_after_fork() };
-
-        // Force-unlock RwLocks
-        for rw in &self.generation_objects {
-            unsafe { force_unlock_rwlock_after_fork(rw) };
-        }
-        unsafe { force_unlock_rwlock_after_fork(&self.permanent_objects) };
-        unsafe { force_unlock_rwlock_after_fork(&self.tracked_objects) };
-        unsafe { force_unlock_rwlock_after_fork(&self.finalized_objects) };
-    }
-}
-
-/// Force-unlock a PyRwLock after fork() in the child process.
-///
-/// # Safety
-/// Must only be called after fork() in the child process when no other
-/// threads exist. The calling thread must NOT hold this lock.
-#[cfg(unix)]
-unsafe fn force_unlock_rwlock_after_fork<T>(lock: &PyRwLock<T>) {
-    if lock.try_write().is_some() {
-        return;
-    }
-    let is_shared = lock.try_read().is_some();
-    if is_shared {
-        loop {
-            // SAFETY: Lock is shared-locked by dead thread(s).
-            unsafe { lock.force_unlock_read() };
-            if lock.try_write().is_some() {
-                return;
+            for generation in &self.generations {
+                generation.reinit_stats_after_fork();
             }
+            self.permanent.reinit_stats_after_fork();
+
+            for rw in &self.generation_lists {
+                reinit_rwlock_after_fork(rw);
+            }
+            reinit_rwlock_after_fork(&self.permanent_list);
         }
-    } else {
-        // SAFETY: Lock is exclusively locked by a dead thread.
-        unsafe { lock.force_unlock_write() };
     }
 }
 
-use std::sync::OnceLock;
-
-/// Global GC state instance
-/// Using a static because GC needs to be accessible from object allocation/deallocation
-static GC_STATE: OnceLock<GcState> = OnceLock::new();
-
-/// Get a reference to the global GC state
+/// Get a reference to the GC state.
+///
+/// In threading mode this is a true global (OnceLock).
+/// In non-threading mode this is thread-local, because PyRwLock/PyMutex
+/// use Cell-based locks that are not Sync.
 pub fn gc_state() -> &'static GcState {
+    rustpython_common::static_cell! {
+        static GC_STATE: GcState;
+    }
     GC_STATE.get_or_init(GcState::new)
 }
 

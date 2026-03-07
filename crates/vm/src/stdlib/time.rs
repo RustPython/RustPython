@@ -630,7 +630,7 @@ mod decl {
         {
             let year = tm.tm_year + 1900;
             if !(1..=9999).contains(&year) {
-                return Err(vm.new_value_error("strftime() requires year in [1; 9999]".to_owned()));
+                return Err(vm.new_value_error("strftime() requires year in [1; 9999]"));
             }
         }
 

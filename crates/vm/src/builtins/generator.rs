@@ -34,7 +34,7 @@ impl PyPayload for PyGenerator {
 }
 
 #[pyclass(
-    flags(DISALLOW_INSTANTIATION),
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
     with(Py, IterNext, Iterable, Representable, Destructor)
 )]
 impl PyGenerator {
@@ -173,6 +173,6 @@ impl Drop for PyGenerator {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PyGenerator::extend_class(ctx, ctx.types.generator_type);
 }

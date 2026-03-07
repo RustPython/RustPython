@@ -286,7 +286,10 @@ impl Py<PyModule> {
     }
 }
 
-#[pyclass(with(GetAttr, Initializer, Representable), flags(BASETYPE, HAS_DICT))]
+#[pyclass(
+    with(GetAttr, Initializer, Representable),
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+)]
 impl PyModule {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -405,7 +408,7 @@ impl PyModule {
             }
             PySetterValue::Delete => {
                 if dict.del_item(identifier!(vm, __annotations__), vm).is_err() {
-                    return Err(vm.new_attribute_error("__annotations__".to_owned()));
+                    return Err(vm.new_attribute_error("__annotations__"));
                 }
                 // Also clear __annotate__
                 dict.del_item(identifier!(vm, __annotate__), vm).ok();
@@ -452,7 +455,7 @@ impl Representable for PyModule {
     }
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyModule::extend_class(context, context.types.module_type);
 }
 

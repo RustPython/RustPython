@@ -65,7 +65,10 @@ impl GetDescriptor for PyProperty {
     }
 }
 
-#[pyclass(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
+#[pyclass(
+    with(Constructor, Initializer, GetDescriptor),
+    flags(BASETYPE, HAS_WEAKREF)
+)]
 impl PyProperty {
     // Helper method to get property name
     // Returns the name if available, None if not found, or propagates errors
@@ -133,6 +136,10 @@ impl PyProperty {
         self.getter.read().clone()
     }
 
+    pub(crate) fn get_fget(&self) -> Option<PyObjectRef> {
+        self.getter.read().clone()
+    }
+
     #[pygetset]
     fn fset(&self) -> Option<PyObjectRef> {
         self.setter.read().clone()
@@ -147,9 +154,7 @@ impl PyProperty {
     fn name_getter(&self, vm: &VirtualMachine) -> PyResult {
         match self.get_property_name(vm)? {
             Some(name) => Ok(name),
-            None => Err(
-                vm.new_attribute_error("'property' object has no attribute '__name__'".to_owned())
-            ),
+            None => Err(vm.new_attribute_error("'property' object has no attribute '__name__'")),
         }
     }
 
@@ -395,7 +400,7 @@ impl Initializer for PyProperty {
     }
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyProperty::extend_class(context, context.types.property_type);
 
     // This is a bit unfortunate, but this instance attribute overlaps with the

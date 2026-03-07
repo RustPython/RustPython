@@ -1,8 +1,8 @@
 use super::Diagnostic;
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
-    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, pyclass_ident_and_attrs,
-    pyexception_ident_and_attrs, text_signature,
+    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, infer_native_call_flags,
+    pyclass_ident_and_attrs, pyexception_ident_and_attrs, text_signature,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
@@ -181,7 +181,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
                 parse_quote! {
                     fn __extend_py_class(
-                        ctx: &::rustpython_vm::Context,
+                        ctx: &'static ::rustpython_vm::Context,
                         class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
@@ -222,7 +222,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
 
                         fn impl_extend_class(
-                            ctx: &::rustpython_vm::Context,
+                            ctx: &'static ::rustpython_vm::Context,
                             class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                         ) {
                             #impl_ty::__extend_py_class(ctx, class);
@@ -284,7 +284,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
                 parse_quote! {
                     fn __extend_py_class(
-                        ctx: &::rustpython_vm::Context,
+                        ctx: &'static ::rustpython_vm::Context,
                         class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
@@ -1015,6 +1015,16 @@ where
 
         let raw = item_meta.raw()?;
         let sig_doc = text_signature(func.sig(), &py_name);
+        let has_receiver = func
+            .sig()
+            .inputs
+            .iter()
+            .any(|arg| matches!(arg, syn::FnArg::Receiver(_)));
+        let drop_first_typed = match self.inner.attr_name {
+            AttrName::Method | AttrName::ClassMethod if !has_receiver => 1,
+            _ => 0,
+        };
+        let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);
 
         // Add #[allow(non_snake_case)] for setter methods like set___name__
         let method_name = ident.to_string();
@@ -1031,6 +1041,7 @@ where
             doc,
             raw,
             attr_name: self.inner.attr_name,
+            call_flags,
         });
         Ok(())
     }
@@ -1248,6 +1259,7 @@ struct MethodNurseryItem {
     raw: bool,
     doc: Option<String>,
     attr_name: AttrName,
+    call_flags: TokenStream,
 }
 
 impl MethodNursery {
@@ -1278,7 +1290,7 @@ impl ToTokens for MethodNursery {
             } else {
                 quote! { None }
             };
-            let flags = match &item.attr_name {
+            let binding_flags = match &item.attr_name {
                 AttrName::Method => {
                     quote! { rustpython_vm::function::PyMethodFlags::METHOD }
                 }
@@ -1289,6 +1301,12 @@ impl ToTokens for MethodNursery {
                     quote! { rustpython_vm::function::PyMethodFlags::STATIC }
                 }
                 _ => unreachable!(),
+            };
+            let call_flags = &item.call_flags;
+            let flags = quote! {
+                rustpython_vm::function::PyMethodFlags::from_bits_retain(
+                    (#binding_flags).bits() | (#call_flags).bits()
+                )
             };
             // TODO: intern
             // let py_name = if py_name.starts_with("__") && py_name.ends_with("__") {

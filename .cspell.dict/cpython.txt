@@ -38,12 +38,15 @@ CODEUNIT
 CONIN
 CONOUT
 constevaluator
+consti
 CONVFUNC
 convparam
 copyslot
 cpucount
+datastack
 defaultdict
 denom
+deopt
 dictbytype
 DICTFLAG
 dictoffset
@@ -54,6 +57,8 @@ eofs
 evalloop
 excepthandler
 exceptiontable
+fastlocal
+fastlocals
 fblock
 fblocks
 fdescr
@@ -66,6 +71,7 @@ finalizers
 firsttraceable
 flowgraph
 formatfloat
+freelist
 freevar
 freevars
 fromlist
@@ -113,6 +119,7 @@ mult
 multibytecodec
 nameobj
 nameop
+ncells
 nconsts
 newargs
 newfree
@@ -120,6 +127,7 @@ NEWLOCALS
 newsemlockobject
 nfrees
 nkwargs
+nlocalsplus
 nkwelts
 Nondescriptor
 noninteger
@@ -171,6 +179,7 @@ SMALLBUF
 SOABI
 SSLEOF
 stackdepth
+stackref
 staticbase
 stginfo
 storefast
@@ -186,6 +195,7 @@ testconsole
 ticketer
 tmptype
 tok_oldval
+tstate
 tvars
 typeobject
 typeparam

@@ -22,7 +22,7 @@ use crate::{
         self, PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
         PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned, PyWeak,
         code::PyCode,
-        dict::{PyDictItems, PyDictKeys, PyDictValues},
+        dict::{PyDictItems, PyDictValues},
         pystr::AsPyStr,
         tuple::PyTuple,
     },
@@ -74,6 +74,9 @@ pub struct VirtualMachine {
     pub sys_module: PyRef<PyModule>,
     pub ctx: PyRc<Context>,
     pub frames: RefCell<Vec<FramePtr>>,
+    /// Thread-local data stack for bump-allocating frame-local data
+    /// (localsplus arrays for non-generator frames).
+    datastack: core::cell::UnsafeCell<crate::datastack::DataStack>,
     pub wasm_id: Option<String>,
     exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
@@ -172,6 +175,25 @@ pub fn process_hash_secret_seed() -> u32 {
 }
 
 impl VirtualMachine {
+    /// Bump-allocate `size` bytes from the thread data stack.
+    ///
+    /// # Safety
+    /// The returned pointer must be freed by calling `datastack_pop` in LIFO order.
+    #[inline(always)]
+    pub(crate) fn datastack_push(&self, size: usize) -> *mut u8 {
+        unsafe { (*self.datastack.get()).push(size) }
+    }
+
+    /// Pop a previous data stack allocation.
+    ///
+    /// # Safety
+    /// `base` must be a pointer returned by `datastack_push` on this VM,
+    /// and all allocations made after it must already have been popped.
+    #[inline(always)]
+    pub(crate) unsafe fn datastack_pop(&self, base: *mut u8) {
+        unsafe { (*self.datastack.get()).pop(base) }
+    }
+
     /// Check whether the current thread is the main thread.
     /// Mirrors `_Py_ThreadCanHandleSignals`.
     #[allow(dead_code)]
@@ -215,6 +237,7 @@ impl VirtualMachine {
             sys_module,
             ctx,
             frames: RefCell::new(vec![]),
+            datastack: core::cell::UnsafeCell::new(crate::datastack::DataStack::new()),
             wasm_id: None,
             exceptions: RefCell::default(),
             import_func,
@@ -591,7 +614,7 @@ impl VirtualMachine {
         };
 
         let frame =
-            Frame::new(code, scope, builtins, &[], Some(func_obj), self).into_ref(&self.ctx);
+            Frame::new(code, scope, builtins, &[], Some(func_obj), false, self).into_ref(&self.ctx);
         self.run_frame(frame)
     }
 
@@ -1271,7 +1294,10 @@ impl VirtualMachine {
             .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
 
         let (locals, globals) = if let Some(frame) = self.current_frame() {
-            (Some(frame.locals.clone()), Some(frame.globals.clone()))
+            (
+                Some(frame.locals.clone_mapping(self)),
+                Some(frame.globals.clone()),
+            )
         } else {
             (None, None)
         };
@@ -1293,10 +1319,6 @@ impl VirtualMachine {
         } else if cls.is(self.ctx.types.list_type) {
             list_borrow = value.downcast_ref::<PyList>().unwrap().borrow_vec();
             &list_borrow
-        } else if cls.is(self.ctx.types.dict_keys_type) {
-            // Atomic snapshot of dict keys - prevents race condition during iteration
-            let keys = value.downcast_ref::<PyDictKeys>().unwrap().dict.keys_vec();
-            return keys.into_iter().map(func).collect();
         } else if cls.is(self.ctx.types.dict_values_type) {
             // Atomic snapshot of dict values - prevents race condition during iteration
             let values = value
@@ -1453,6 +1475,13 @@ impl VirtualMachine {
     /// Checks for triggered signals and calls the appropriate handlers. A no-op on
     /// platforms where signals are not supported.
     pub fn check_signals(&self) -> PyResult<()> {
+        #[cfg(feature = "threading")]
+        if self.state.finalizing.load(Ordering::Acquire) && !self.is_main_thread() {
+            // once finalization starts,
+            // non-main Python threads should stop running bytecode.
+            return Err(self.new_exception(self.ctx.exceptions.system_exit.to_owned(), vec![]));
+        }
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             crate::signal::check_signals(self)

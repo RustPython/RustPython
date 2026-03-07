@@ -5,7 +5,7 @@ use super::{
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+    AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, atomic_func,
     builtins::{
         PyTuple,
@@ -26,6 +26,8 @@ use crate::{
     vm::VirtualMachine,
 };
 use alloc::fmt;
+use core::cell::Cell;
+use core::ptr::NonNull;
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
 
@@ -60,10 +62,47 @@ impl fmt::Debug for PyDict {
     }
 }
 
+thread_local! {
+    static DICT_FREELIST: Cell<crate::object::FreeList<PyDict>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyDict {
+    const MAX_FREELIST: usize = 80;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.dict_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        DICT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        DICT_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
@@ -77,6 +116,11 @@ impl PyDict {
     /// PyDict instead of using this
     pub(crate) const fn _as_dict_inner(&self) -> &DictContentType {
         &self.entries
+    }
+
+    /// Monotonically increasing version for mutation tracking.
+    pub(crate) fn version(&self) -> u64 {
+        self.entries.version()
     }
 
     /// Returns all keys as a Vec, atomically under a single read lock.
@@ -629,6 +673,33 @@ impl Py<PyDict> {
         }
     }
 
+    /// Return a cached-entry hint for exact dict fast paths.
+    pub(crate) fn hint_for_key<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<u16>> {
+        if self.exact_dict(vm) {
+            self.entries.hint_for_key(vm, key)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Fast lookup using a cached entry index hint.
+    pub(crate) fn get_item_opt_hint<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        hint: u16,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if self.exact_dict(vm) {
+            self.entries.get_hint(vm, key, usize::from(hint))
+        } else {
+            self.get_item_opt(key, vm)
+        }
+    }
+
     pub fn get_item<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> PyResult {
         if self.exact_dict(vm) {
             self.inner_getitem(key, vm)
@@ -681,12 +752,30 @@ impl Py<PyDict> {
         let self_exact = self.exact_dict(vm);
         let other_exact = other.exact_dict(vm);
         if self_exact && other_exact {
-            self.entries.get_chain(&other.entries, vm, key)
+            // SAFETY: exact_dict checks passed
+            let self_exact = unsafe { PyExact::ref_unchecked(self) };
+            let other_exact = unsafe { PyExact::ref_unchecked(other) };
+            self_exact.get_chain_exact(other_exact, key, vm)
         } else if let Some(value) = self.get_item_opt(key, vm)? {
             Ok(Some(value))
         } else {
             other.get_item_opt(key, vm)
         }
+    }
+}
+
+impl PyExact<PyDict> {
+    /// Look up `key` in `self`, falling back to `other`.
+    /// Both dicts must be exact `dict` types (enforced by `PyExact`).
+    pub(crate) fn get_chain_exact<K: DictKey + ?Sized>(
+        &self,
+        other: &Self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        debug_assert!(self.class().is(vm.ctx.types.dict_type));
+        debug_assert!(other.class().is(vm.ctx.types.dict_type));
+        self.entries.get_chain(&other.entries, vm, key)
     }
 }
 
@@ -1344,7 +1433,7 @@ fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyRes
     set_inner_number_op(a, b, |a, b| a.union(b, vm), vm)
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyDict::extend_class(context, context.types.dict_type);
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);

@@ -451,7 +451,10 @@ impl SlotAccessor {
             Self::TpHash => inherit_main!(hash),
             Self::TpRepr => inherit_main!(repr),
             Self::TpStr => inherit_main!(str),
-            Self::TpCall => inherit_main!(call),
+            Self::TpCall => {
+                inherit_main!(call);
+                inherit_main!(vectorcall);
+            }
             Self::TpIter => inherit_main!(iter),
             Self::TpIternext => inherit_main!(iternext),
             Self::TpInit => inherit_main!(init),
@@ -568,7 +571,10 @@ impl SlotAccessor {
             Self::TpHash => copy_main!(hash),
             Self::TpRepr => copy_main!(repr),
             Self::TpStr => copy_main!(str),
-            Self::TpCall => copy_main!(call),
+            Self::TpCall => {
+                copy_main!(call);
+                copy_main!(vectorcall);
+            }
             Self::TpIter => copy_main!(iter),
             Self::TpIternext => copy_main!(iternext),
             Self::TpInit => {

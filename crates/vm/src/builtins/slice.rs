@@ -1,5 +1,7 @@
 // sliceobject.{h,c} in CPython
 // spell-checker:ignore sliceobject
+use core::cell::Cell;
+use core::ptr::NonNull;
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
 use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
@@ -15,7 +17,7 @@ use crate::{
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass(module = false, name = "slice", unhashable = true, traverse)]
+#[pyclass(module = false, name = "slice", unhashable = true, traverse = "manual")]
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
@@ -23,10 +25,67 @@ pub struct PySlice {
     pub step: Option<PyObjectRef>,
 }
 
+// SAFETY: Traverse properly visits all owned PyObjectRefs
+unsafe impl crate::object::Traverse for PySlice {
+    fn traverse(&self, traverse_fn: &mut crate::object::TraverseFn<'_>) {
+        self.start.traverse(traverse_fn);
+        self.stop.traverse(traverse_fn);
+        self.step.traverse(traverse_fn);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        if let Some(start) = self.start.take() {
+            out.push(start);
+        }
+        // stop is not Option, so it will be freed when payload is dropped
+        // (via drop_in_place on freelist pop, or Box::from_raw on dealloc)
+        if let Some(step) = self.step.take() {
+            out.push(step);
+        }
+    }
+}
+
+thread_local! {
+    static SLICE_FREELIST: Cell<crate::object::FreeList<PySlice>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PySlice {
+    const MAX_FREELIST: usize = 1;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.slice_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        SLICE_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        SLICE_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
@@ -354,7 +413,7 @@ impl Representable for PyEllipsis {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PySlice::extend_class(ctx, ctx.types.slice_type);
     PyEllipsis::extend_class(ctx, ctx.types.ellipsis_type);
 }

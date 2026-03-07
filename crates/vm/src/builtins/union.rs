@@ -98,7 +98,7 @@ impl PyUnion {
 }
 
 #[pyclass(
-    flags(DISALLOW_INSTANTIATION),
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
     with(Hashable, Comparable, AsMapping, AsNumber, Representable)
 )]
 impl PyUnion {
@@ -540,7 +540,7 @@ impl Representable for PyUnion {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     let union_type = &context.types.union_type;
     PyUnion::extend_class(context, union_type);
 }

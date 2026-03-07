@@ -9,6 +9,16 @@ updates:
       criterion:
         patterns:
           - "criterion*"
+      crypto:
+        patterns:
+          - "digest"
+          - "md-5"
+          - "sha-1"
+          - "sha2"
+          - "sha3"
+          - "blake2"
+          - "hmac"
+          - "pbkdf2"
       futures:
         patterns:
           - "futures*"
@@ -130,6 +140,10 @@ updates:
       # with git dependencies. i.e. not updating the version in Cargo.toml
       - dependency-name: "ruff_*"
   - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly

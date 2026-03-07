@@ -2063,7 +2063,7 @@ if not hasattr(sys, 'gettrace') or not sys.gettrace():
           ...    'continue', # stop debugging
           ...    ''])
 
-          >>> try: runner.run(test)  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+          >>> try: runner.run(test)
           ... finally: sys.stdin = real_stdin
           > <doctest foo-bar@baz[2]>(1)<module>()
           -> import pdb; pdb.set_trace()
@@ -2091,7 +2091,7 @@ if not hasattr(sys, 'gettrace') or not sys.gettrace():
           ...    'continue', # stop debugging
           ...    ''])
 
-          >>> try:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+          >>> try:
           ...     runner.run(test)
           ... finally:
           ...     sys.stdin = real_stdin
@@ -2209,7 +2209,7 @@ if not hasattr(sys, 'gettrace') or not sys.gettrace():
         ...    'continue', # stop debugging
         ...    ''])
 
-        >>> try:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+        >>> try:
         ...     runner.run(test)
         ... finally:
         ...     sys.stdin = real_stdin

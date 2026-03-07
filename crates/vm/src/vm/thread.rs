@@ -169,6 +169,9 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 /// Reinitialize thread slot after fork. Called in child process.
 /// Creates a fresh slot and registers it for the current thread,
 /// preserving the current thread's frames from `vm.frames`.
+///
+/// Precondition: `reinit_locks_after_fork()` has already reset all
+/// VmState locks to unlocked.
 #[cfg(feature = "threading")]
 pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     let current_ident = crate::stdlib::thread::get_ident();
@@ -178,17 +181,8 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
     });
 
-    // After fork, only the current thread exists. If the lock was held by
-    // another thread during fork, force unlock it.
-    let mut registry = match vm.state.thread_frames.try_lock() {
-        Some(guard) => guard,
-        None => {
-            // SAFETY: After fork in child process, only the current thread
-            // exists. The lock holder no longer exists.
-            unsafe { vm.state.thread_frames.force_unlock() };
-            vm.state.thread_frames.lock()
-        }
-    };
+    // Lock is safe: reinit_locks_after_fork() already reset it to unlocked.
+    let mut registry = vm.state.thread_frames.lock();
     registry.clear();
     registry.insert(current_ident, new_slot.clone());
     drop(registry);
@@ -315,6 +309,7 @@ impl VirtualMachine {
             sys_module: self.sys_module.clone(),
             ctx: self.ctx.clone(),
             frames: RefCell::new(vec![]),
+            datastack: core::cell::UnsafeCell::new(crate::datastack::DataStack::new()),
             wasm_id: self.wasm_id.clone(),
             exceptions: RefCell::default(),
             import_func: self.import_func.clone(),

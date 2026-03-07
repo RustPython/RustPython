@@ -81,14 +81,14 @@ impl PyTraceback {
         let value = match value {
             PySetterValue::Assign(v) => v,
             PySetterValue::Delete => {
-                return Err(vm.new_type_error("can't delete tb_next attribute".to_owned()));
+                return Err(vm.new_type_error("can't delete tb_next attribute"));
             }
         };
         if let Some(ref new_next) = value {
             let mut cursor = new_next.clone();
             loop {
                 if cursor.is(zelf) {
-                    return Err(vm.new_value_error("traceback loop detected".to_owned()));
+                    return Err(vm.new_value_error("traceback loop detected"));
                 }
                 let next = cursor.next.lock().clone();
                 match next {
@@ -107,8 +107,8 @@ impl Constructor for PyTraceback {
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let (next, frame, lasti, lineno) = args;
-        let lineno = OneIndexed::new(lineno)
-            .ok_or_else(|| vm.new_value_error("lineno must be positive".to_owned()))?;
+        let lineno =
+            OneIndexed::new(lineno).ok_or_else(|| vm.new_value_error("lineno must be positive"))?;
         Ok(Self::new(next, frame, lasti, lineno))
     }
 }
@@ -119,7 +119,7 @@ impl PyTracebackRef {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyTraceback::extend_class(context, context.types.traceback_type);
 }
 

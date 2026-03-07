@@ -930,7 +930,7 @@ pub(crate) mod _ctypes {
             let buffer = cdata.buffer.read();
             if matches!(&*buffer, Cow::Borrowed(_)) {
                 return Err(vm.new_value_error(
-                    "Memory cannot be resized because this object doesn't own it".to_owned(),
+                    "Memory cannot be resized because this object doesn't own it",
                 ));
             }
         }
@@ -1300,26 +1300,26 @@ pub(crate) mod _ctypes {
         __module_exec(vm, module);
 
         let ctx = &vm.ctx;
-        PyCSimpleType::make_class(ctx);
-        array::PyCArrayType::make_class(ctx);
-        pointer::PyCPointerType::make_class(ctx);
-        structure::PyCStructType::make_class(ctx);
-        union::PyCUnionType::make_class(ctx);
-        function::PyCFuncPtrType::make_class(ctx);
-        function::RawMemoryBuffer::make_class(ctx);
+        PyCSimpleType::make_static_type();
+        array::PyCArrayType::make_static_type();
+        pointer::PyCPointerType::make_static_type();
+        structure::PyCStructType::make_static_type();
+        union::PyCUnionType::make_static_type();
+        function::PyCFuncPtrType::make_static_type();
+        function::RawMemoryBuffer::make_static_type();
 
         extend_module!(vm, module, {
-            "_CData" => PyCData::make_class(ctx),
-            "_SimpleCData" => PyCSimple::make_class(ctx),
-            "Array" => PyCArray::make_class(ctx),
-            "CField" => PyCField::make_class(ctx),
-            "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
-            "_Pointer" => PyCPointer::make_class(ctx),
+            "_CData" => PyCData::make_static_type(),
+            "_SimpleCData" => PyCSimple::make_static_type(),
+            "Array" => PyCArray::make_static_type(),
+            "CField" => PyCField::make_static_type(),
+            "CFuncPtr" => function::PyCFuncPtr::make_static_type(),
+            "_Pointer" => PyCPointer::make_static_type(),
             "_pointer_type_cache" => ctx.new_dict(),
             "_array_type_cache" => ctx.new_dict(),
-            "Structure" => PyCStructure::make_class(ctx),
-            "CThunkObject" => function::PyCThunk::make_class(ctx),
-            "Union" => PyCUnion::make_class(ctx),
+            "Structure" => PyCStructure::make_static_type(),
+            "CThunkObject" => function::PyCThunk::make_static_type(),
+            "Union" => PyCUnion::make_static_type(),
         });
 
         Ok(())

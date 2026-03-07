@@ -662,9 +662,8 @@ pub fn serialize_value<W: Write, D: Dumpable>(
 
 pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) {
     write_len(buf, code.instructions.len());
-    // SAFETY: it's ok to transmute CodeUnit to [u8; 2]
-    let (_, instructions_bytes, _) = unsafe { code.instructions.align_to() };
-    buf.write_slice(instructions_bytes);
+    let original = code.instructions.original_bytes();
+    buf.write_slice(&original);
 
     write_len(buf, code.locations.len());
     for (start, end) in &*code.locations {

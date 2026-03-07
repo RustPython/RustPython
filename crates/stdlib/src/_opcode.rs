@@ -82,16 +82,16 @@ mod _opcode {
                 Self::try_from(opcode).map(|op| op.inner()),
                 Ok(AnyInstruction::Real(
                     Instruction::DeleteAttr { .. }
-                        | Instruction::DeleteGlobal(_)
-                        | Instruction::DeleteName(_)
+                        | Instruction::DeleteGlobal { .. }
+                        | Instruction::DeleteName { .. }
                         | Instruction::ImportFrom { .. }
                         | Instruction::ImportName { .. }
                         | Instruction::LoadAttr { .. }
-                        | Instruction::LoadGlobal(_)
-                        | Instruction::LoadName(_)
+                        | Instruction::LoadGlobal { .. }
+                        | Instruction::LoadName { .. }
                         | Instruction::StoreAttr { .. }
-                        | Instruction::StoreGlobal(_)
-                        | Instruction::StoreName(_)
+                        | Instruction::StoreGlobal { .. }
+                        | Instruction::StoreName { .. }
                 ))
             )
         }
@@ -116,10 +116,10 @@ mod _opcode {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
                 Ok(AnyInstruction::Real(
-                    Instruction::DeleteDeref(_)
-                        | Instruction::LoadFromDictOrDeref(_)
-                        | Instruction::LoadDeref(_)
-                        | Instruction::StoreDeref(_)
+                    Instruction::DeleteDeref { .. }
+                        | Instruction::LoadFromDictOrDeref { .. }
+                        | Instruction::LoadDeref { .. }
+                        | Instruction::StoreDeref { .. }
                 ))
             )
         }
@@ -130,10 +130,10 @@ mod _opcode {
             matches!(
                 Self::try_from(opcode).map(|op| op.inner()),
                 Ok(AnyInstruction::Real(
-                    Instruction::DeleteFast(_)
-                        | Instruction::LoadFast(_)
-                        | Instruction::LoadFastAndClear(_)
-                        | Instruction::StoreFast(_)
+                    Instruction::DeleteFast { .. }
+                        | Instruction::LoadFast { .. }
+                        | Instruction::LoadFastAndClear { .. }
+                        | Instruction::StoreFast { .. }
                         | Instruction::StoreFastLoadFast { .. }
                 ))
             )

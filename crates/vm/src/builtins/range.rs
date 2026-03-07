@@ -15,7 +15,9 @@ use crate::{
         Representable, SelfIter,
     },
 };
+use core::cell::Cell;
 use core::cmp::max;
+use core::ptr::NonNull;
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
@@ -67,10 +69,48 @@ pub struct PyRange {
     pub step: PyIntRef,
 }
 
+// spell-checker:ignore MAXFREELIST
+thread_local! {
+    static RANGE_FREELIST: Cell<crate::object::FreeList<PyRange>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyRange {
+    const MAX_FREELIST: usize = 6;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.range_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        RANGE_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        RANGE_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
@@ -167,7 +207,7 @@ impl PyRange {
 //     obj.downcast_ref::<PyRange>().unwrap().clone()
 // }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyRange::extend_class(context, context.types.range_type);
     PyLongRangeIterator::extend_class(context, context.types.long_range_iterator_type);
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
@@ -647,18 +687,25 @@ impl PyRangeIterator {
     }
 }
 
+impl PyRangeIterator {
+    /// Fast path for FOR_ITER specialization. Returns the next isize value
+    /// without allocating PyInt or PyIterReturn.
+    pub(crate) fn fast_next(&self) -> Option<isize> {
+        let index = self.index.fetch_add(1);
+        if index < self.length {
+            Some(self.start + (index as isize) * self.step)
+        } else {
+            None
+        }
+    }
+}
+
 impl SelfIter for PyRangeIterator {}
 impl IterNext for PyRangeIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        // TODO: In pathological case (index == usize::MAX) this can wrap around
-        // (since fetch_add wraps). This would result in the iterator spinning again
-        // from the beginning.
-        let index = zelf.index.fetch_add(1);
-        let r = if index < zelf.length {
-            let value = zelf.start + (index as isize) * zelf.step;
-            PyIterReturn::Return(vm.ctx.new_int(value).into())
-        } else {
-            PyIterReturn::StopIteration(None)
+        let r = match zelf.fast_next() {
+            Some(value) => PyIterReturn::Return(vm.ctx.new_int(value).into()),
+            None => PyIterReturn::StopIteration(None),
         };
         Ok(r)
     }

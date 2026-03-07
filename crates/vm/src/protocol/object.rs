@@ -277,9 +277,20 @@ impl PyObject {
 
     // Perform a comparison, raising TypeError when the requested comparison
     // operator is not supported.
-    // see: CPython PyObject_RichCompare
+    // see: PyObject_RichCompare / do_richcompare
     #[inline] // called by ExecutingFrame::execute_compare with const op
     fn _cmp(
+        &self,
+        other: &Self,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, bool>> {
+        // Single recursion guard for the entire comparison
+        // (do_richcompare in Objects/object.c).
+        vm.with_recursion("in comparison", || self._cmp_inner(other, op, vm))
+    }
+
+    fn _cmp_inner(
         &self,
         other: &Self,
         op: PyComparisonOp,
@@ -302,19 +313,17 @@ impl PyObject {
             !self_class.is(other_class) && other_class.fast_issubclass(self_class)
         };
         if is_strict_subclass {
-            let res = vm.with_recursion("in comparison", || call_cmp(other, self, swapped))?;
+            let res = call_cmp(other, self, swapped)?;
             checked_reverse_op = true;
             if let PyArithmeticValue::Implemented(x) = res {
                 return Ok(x);
             }
         }
-        if let PyArithmeticValue::Implemented(x) =
-            vm.with_recursion("in comparison", || call_cmp(self, other, op))?
-        {
+        if let PyArithmeticValue::Implemented(x) = call_cmp(self, other, op)? {
             return Ok(x);
         }
         if !checked_reverse_op {
-            let res = vm.with_recursion("in comparison", || call_cmp(other, self, swapped))?;
+            let res = call_cmp(other, self, swapped)?;
             if let PyArithmeticValue::Implemented(x) = res {
                 return Ok(x);
             }
@@ -373,6 +382,13 @@ impl PyObject {
     pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let obj = match self.to_owned().downcast_exact::<PyStr>(vm) {
             Ok(s) => return Ok(s.into_pyref()),
+            Err(obj) => obj,
+        };
+        // Fast path for exact int: skip __str__ method resolution
+        let obj = match obj.downcast_exact::<PyInt>(vm) {
+            Ok(int) => {
+                return Ok(vm.ctx.new_str(int.to_str_radix_10()));
+            }
             Err(obj) => obj,
         };
         // TODO: replace to obj.class().slots.str
@@ -564,15 +580,13 @@ impl PyObject {
         if let Ok(cls) = cls.try_to_ref::<PyType>(vm) {
             // PyType_Check(cls) - cls is a type object
             let mut retval = self.class().is_subtype(cls);
-            if !retval {
-                // Check __class__ attribute, only masking AttributeError
-                if let Some(i_cls) =
+            if !retval
+                && let Some(i_cls) =
                     vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
-                    && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
-                    && !i_cls_type.is(self.class())
-                {
-                    retval = i_cls_type.is_subtype(cls);
-                }
+                && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
+                && !i_cls_type.is(self.class())
+            {
+                retval = i_cls_type.is_subtype(cls);
             }
             Ok(retval)
         } else {
@@ -584,7 +598,6 @@ impl PyObject {
                 )
             })?;
 
-            // Get __class__ attribute and check, only masking AttributeError
             if let Some(i_cls) =
                 vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
             {

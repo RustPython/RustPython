@@ -289,6 +289,7 @@ DEPENDENCIES = {
             "test_dictcomps.py",
             "test_dictviews.py",
             "test_userdict.py",
+            "mapping_tests.py",
         ],
     },
     "list": {
@@ -326,6 +327,10 @@ DEPENDENCIES = {
     },
     "re": {
         "hard_deps": ["sre_compile.py", "sre_constants.py", "sre_parse.py"],
+        "test": [
+            "test_re.py",
+            "re_tests.py",
+        ],
     },
     "weakref": {
         "hard_deps": ["_weakrefset.py"],
@@ -496,6 +501,8 @@ DEPENDENCIES = {
             "test_syslog.py",
             "test_sys_setprofile.py",
             "test_sys_settrace.py",
+            "test_audit.py",
+            "audit-tests.py",
         ],
     },
     "str": {
@@ -707,6 +714,12 @@ DEPENDENCIES = {
             "test_eintr.py",
             "_test_eintr.py",
         ]
+    },
+    "curses": {
+        "test": [
+            "test_curses.py",
+            "curses_tests.py",
+        ],
     },
 }
 
@@ -1109,6 +1122,83 @@ def _count_path_diff(path_a: pathlib.Path, path_b: pathlib.Path) -> int:
     return 0
 
 
+@functools.cache
+def _bulk_last_updated() -> dict[str, str]:
+    """Get last git commit dates for all paths under Lib/ in one git call.
+
+    Keys are Lib/-relative paths (e.g. "re/__init__.py", "test/test_os.py",
+    "os.py"), plus directory rollups (e.g. "re", "test/test_zoneinfo").
+
+    Returns:
+        Dict mapping Lib/-relative path to date string.
+    """
+    file_map: dict[str, str] = {}
+    try:
+        result = subprocess.run(
+            ["git", "log", "--format=%cd", "--date=short", "--name-only", "--", "Lib/"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return file_map
+    except Exception:
+        return file_map
+
+    current_date = None
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Date lines are YYYY-MM-DD format
+        if len(line) == 10 and line[4] == "-" and line[7] == "-":
+            current_date = line
+        elif current_date and line.startswith("Lib/"):
+            # Strip "Lib/" prefix to get Lib-relative key
+            rel = line[4:]
+            if rel and rel not in file_map:
+                file_map[rel] = current_date
+
+    # Pre-compute directory rollups
+    dir_map: dict[str, str] = {}
+    for filepath, date in file_map.items():
+        parts = filepath.split("/")
+        for i in range(1, len(parts)):
+            dirpath = "/".join(parts[:i])
+            if dirpath not in dir_map or date > dir_map[dirpath]:
+                dir_map[dirpath] = date
+
+    dir_map.update(file_map)
+    return dir_map
+
+
+@functools.cache
+def _lib_prefix_stripped(lib_prefix: str) -> str:
+    """Get the normalized prefix to strip from paths, with trailing /."""
+    # e.g. "Lib" -> "Lib/", "./Lib" -> "Lib/", "../Lib" -> "../Lib/"
+    return pathlib.Path(lib_prefix).as_posix().rstrip("/") + "/"
+
+
+def _lookup_last_updated(paths: list[str], lib_prefix: str) -> str | None:
+    """Look up the most recent date among paths from the bulk cache."""
+    cache = _bulk_last_updated()
+    prefix = _lib_prefix_stripped(lib_prefix)
+    latest = None
+    for p in paths:
+        p_norm = pathlib.Path(p).as_posix()
+        # Strip lib_prefix to get Lib-relative key
+        # e.g. "Lib/test/test_os.py" -> "test/test_os.py"
+        #      "../Lib/re" -> "re"
+        if p_norm.startswith(prefix):
+            key = p_norm[len(prefix) :]
+        else:
+            key = p_norm
+        date = cache.get(key)
+        if date and (latest is None or date > latest):
+            latest = date
+    return latest
+
+
 def get_module_last_updated(
     name: str, cpython_prefix: str, lib_prefix: str
 ) -> str | None:
@@ -1126,18 +1216,7 @@ def get_module_last_updated(
             continue
     if not local_paths:
         return None
-    try:
-        result = subprocess.run(
-            ["git", "log", "-1", "--format=%cd", "--date=short", "--"] + local_paths,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return None
+    return _lookup_last_updated(local_paths, lib_prefix)
 
 
 def get_module_diff_stat(name: str, cpython_prefix: str, lib_prefix: str) -> int:
@@ -1167,18 +1246,7 @@ def get_test_last_updated(
     local_path = _get_local_test_path(cpython_path, lib_prefix)
     if not local_path.exists():
         return None
-    try:
-        result = subprocess.run(
-            ["git", "log", "-1", "--format=%cd", "--date=short", "--", str(local_path)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return None
+    return _lookup_last_updated([str(local_path)], lib_prefix)
 
 
 def get_test_dependencies(

@@ -32,7 +32,7 @@ impl PyPayload for PyCoroutine {
 }
 
 #[pyclass(
-    flags(DISALLOW_INSTANTIATION),
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
     with(Py, IterNext, Representable, Destructor)
 )]
 impl PyCoroutine {
@@ -247,7 +247,7 @@ impl Drop for PyCoroutine {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PyCoroutine::extend_class(ctx, ctx.types.coroutine_type);
     PyCoroutineWrapper::extend_class(ctx, ctx.types.coroutine_wrapper_type);
 }

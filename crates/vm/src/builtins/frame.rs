@@ -182,8 +182,8 @@ pub(crate) mod stack_analysis {
                 }
                 oparg = (oparg << 8) | u32::from(u8::from(instructions[i].arg));
 
-                // De-instrument: get the underlying real instruction
-                let opcode = opcode.to_base().unwrap_or(opcode);
+                // De-instrument and de-specialize: get the underlying base instruction
+                let opcode = opcode.to_base().unwrap_or(opcode).deoptimize();
 
                 let caches = opcode.cache_entries();
                 let next_i = i + 1 + caches;
@@ -295,7 +295,7 @@ pub(crate) mod stack_analysis {
                             stacks[next_i] = next_stack;
                         }
                     }
-                    Instruction::LoadGlobal(_) => {
+                    Instruction::LoadGlobal { .. } => {
                         next_stack = push_value(next_stack, Kind::Object as i64);
                         if oparg & 1 != 0 {
                             next_stack = push_value(next_stack, Kind::Null as i64);
@@ -423,7 +423,7 @@ pub(crate) mod stack_analysis {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     Frame::extend_class(context, context.types.frame_type);
 }
 
@@ -488,13 +488,13 @@ impl Frame {
             PySetterValue::Assign(val) => {
                 let line_ref: PyIntRef = val
                     .downcast()
-                    .map_err(|_| vm.new_value_error("lineno must be an integer".to_owned()))?;
+                    .map_err(|_| vm.new_value_error("lineno must be an integer"))?;
                 line_ref
                     .try_to_primitive::<i32>(vm)
-                    .map_err(|_| vm.new_value_error("lineno must be an integer".to_owned()))?
+                    .map_err(|_| vm.new_value_error("lineno must be an integer"))?
             }
             PySetterValue::Delete => {
-                return Err(vm.new_type_error("can't delete f_lineno attribute".to_owned()));
+                return Err(vm.new_type_error("can't delete f_lineno attribute"));
             }
         };
 
@@ -677,12 +677,12 @@ impl Py<Frame> {
                 // FRAME_SUSPENDED). lasti == 0 means FRAME_CREATED and
                 // can be cleared.
                 if self.lasti() != 0 {
-                    return Err(vm.new_runtime_error("cannot clear a suspended frame".to_owned()));
+                    return Err(vm.new_runtime_error("cannot clear a suspended frame"));
                 }
             }
             FrameOwner::Thread => {
                 // Thread-owned frame: always executing, cannot clear.
-                return Err(vm.new_runtime_error("cannot clear an executing frame".to_owned()));
+                return Err(vm.new_runtime_error("cannot clear an executing frame"));
             }
             FrameOwner::FrameObject => {
                 // Detached frame: safe to clear.
@@ -690,8 +690,9 @@ impl Py<Frame> {
         }
 
         // Clear fastlocals
+        // SAFETY: Frame is not executing (detached or stopped).
         {
-            let mut fastlocals = self.fastlocals.lock();
+            let fastlocals = unsafe { self.fastlocals_mut() };
             for slot in fastlocals.iter_mut() {
                 *slot = None;
             }

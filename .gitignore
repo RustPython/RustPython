@@ -22,6 +22,7 @@ flamescope.json
 extra_tests/snippets/resources
 extra_tests/not_impl.py
 
+Lib/_sysconfig_vars*.json
 Lib/site-packages/*
 !Lib/site-packages/README.txt
 Lib/test/data/*

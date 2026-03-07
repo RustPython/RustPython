@@ -40,7 +40,10 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(PyRef, Representable, Destructor))]
+#[pyclass(
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
+    with(PyRef, Representable, Destructor)
+)]
 impl PyAsyncGen {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
@@ -810,7 +813,7 @@ impl Drop for PyAsyncGen {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PyAsyncGen::extend_class(ctx, ctx.types.async_generator);
     PyAsyncGenASend::extend_class(ctx, ctx.types.async_generator_asend);
     PyAsyncGenAThrow::extend_class(ctx, ctx.types.async_generator_athrow);

@@ -88,7 +88,7 @@ impl Initializer for PyStaticMethod {
 
 #[pyclass(
     with(Callable, GetDescriptor, Constructor, Initializer, Representable),
-    flags(BASETYPE, HAS_DICT)
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl PyStaticMethod {
     #[pygetset]
@@ -197,6 +197,6 @@ impl Representable for PyStaticMethod {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyStaticMethod::extend_class(context, context.types.staticmethod_type);
 }

@@ -111,6 +111,145 @@ mod builtins {
         _feature_version: OptionalArg<i32>,
     }
 
+    /// Detect PEP 263 encoding cookie from source bytes.
+    /// Checks first two lines for `# coding[:=] <encoding>` pattern.
+    /// Returns the encoding name if found, or None for default (UTF-8).
+    #[cfg(feature = "parser")]
+    fn detect_source_encoding(source: &[u8]) -> Option<String> {
+        fn find_encoding_in_line(line: &[u8]) -> Option<String> {
+            // PEP 263: '#' must be preceded only by whitespace/formfeed
+            let hash_pos = line.iter().position(|&b| b == b'#')?;
+            if !line[..hash_pos]
+                .iter()
+                .all(|&b| b == b' ' || b == b'\t' || b == b'\x0c' || b == b'\r')
+            {
+                return None;
+            }
+            let after_hash = &line[hash_pos..];
+
+            // Find "coding" after the #
+            let coding_pos = after_hash.windows(6).position(|w| w == b"coding")?;
+            let after_coding = &after_hash[coding_pos + 6..];
+
+            // Next char must be ':' or '='
+            let rest = if after_coding.first() == Some(&b':') || after_coding.first() == Some(&b'=')
+            {
+                &after_coding[1..]
+            } else {
+                return None;
+            };
+
+            // Skip whitespace
+            let rest = rest
+                .iter()
+                .copied()
+                .skip_while(|&b| b == b' ' || b == b'\t')
+                .collect::<Vec<_>>();
+
+            // Read encoding name: [-\w.]+
+            let name: String = rest
+                .iter()
+                .take_while(|&&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+                .map(|&b| b as char)
+                .collect();
+
+            if name.is_empty() { None } else { Some(name) }
+        }
+
+        // Split into lines (first two only)
+        let mut lines = source.splitn(3, |&b| b == b'\n');
+
+        if let Some(first) = lines.next() {
+            // Strip BOM if present
+            let first = first.strip_prefix(b"\xef\xbb\xbf").unwrap_or(first);
+            if let Some(enc) = find_encoding_in_line(first) {
+                return Some(enc);
+            }
+            // Only check second line if first line is blank or a comment
+            let trimmed = first
+                .iter()
+                .skip_while(|&&b| b == b' ' || b == b'\t' || b == b'\x0c' || b == b'\r')
+                .copied()
+                .collect::<Vec<_>>();
+            if !trimmed.is_empty() && trimmed[0] != b'#' {
+                return None;
+            }
+        }
+
+        lines.next().and_then(find_encoding_in_line)
+    }
+
+    /// Decode source bytes to a string, handling PEP 263 encoding declarations
+    /// and BOM. Raises SyntaxError for invalid UTF-8 without an encoding
+    /// declaration (matching CPython behavior).
+    /// Check if an encoding name is a UTF-8 variant after normalization.
+    /// Matches: utf-8, utf_8, utf8, UTF-8, etc.
+    #[cfg(feature = "parser")]
+    fn is_utf8_encoding(name: &str) -> bool {
+        let normalized: String = name.chars().filter(|&c| c != '-' && c != '_').collect();
+        normalized.eq_ignore_ascii_case("utf8")
+    }
+
+    #[cfg(feature = "parser")]
+    fn decode_source_bytes(source: &[u8], filename: &str, vm: &VirtualMachine) -> PyResult<String> {
+        let has_bom = source.starts_with(b"\xef\xbb\xbf");
+        let encoding = detect_source_encoding(source);
+
+        let is_utf8 = encoding.as_deref().is_none_or(is_utf8_encoding);
+
+        // Validate BOM + encoding combination
+        if has_bom && !is_utf8 {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.syntax_error.to_owned(),
+                format!("encoding problem for '{filename}': utf-8").into(),
+            ));
+        }
+
+        if is_utf8 {
+            let src = if has_bom { &source[3..] } else { source };
+            match core::str::from_utf8(src) {
+                Ok(s) => Ok(s.to_owned()),
+                Err(e) => {
+                    let bad_byte = src[e.valid_up_to()];
+                    let line = src[..e.valid_up_to()]
+                        .iter()
+                        .filter(|&&b| b == b'\n')
+                        .count()
+                        + 1;
+                    Err(vm.new_exception_msg(
+                        vm.ctx.exceptions.syntax_error.to_owned(),
+                        format!(
+                            "Non-UTF-8 code starting with '\\x{bad_byte:02x}' \
+                             on line {line}, but no encoding declared; \
+                             see https://peps.python.org/pep-0263/ for details \
+                             ({filename}, line {line})"
+                        )
+                        .into(),
+                    ))
+                }
+            }
+        } else {
+            // Use codec registry for non-UTF-8 encodings
+            let enc = encoding.as_deref().unwrap();
+            let bytes_obj = vm.ctx.new_bytes(source.to_vec());
+            let decoded = vm
+                .state
+                .codec_registry
+                .decode_text(bytes_obj.into(), enc, None, vm)
+                .map_err(|exc| {
+                    if exc.fast_isinstance(vm.ctx.exceptions.lookup_error) {
+                        vm.new_exception_msg(
+                            vm.ctx.exceptions.syntax_error.to_owned(),
+                            format!("unknown encoding for '{filename}': {enc}").into(),
+                        )
+                    } else {
+                        exc
+                    }
+                })?;
+            Ok(decoded.to_string_lossy().into_owned())
+        }
+    }
+
     #[cfg(any(feature = "parser", feature = "compiler"))]
     #[pyfunction]
     fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
@@ -138,7 +277,7 @@ mod builtins {
 
             if args
                 .source
-                .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
+                .fast_isinstance(&ast::NodeAst::make_static_type())
             {
                 let flags: i32 = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
                 let is_ast_only = !(flags & ast::PY_CF_ONLY_AST).is_zero();
@@ -146,17 +285,16 @@ mod builtins {
                 // func_type mode requires PyCF_ONLY_AST
                 if mode_str == "func_type" && !is_ast_only {
                     return Err(vm.new_value_error(
-                        "compile() mode 'func_type' requires flag PyCF_ONLY_AST".to_owned(),
+                        "compile() mode 'func_type' requires flag PyCF_ONLY_AST",
                     ));
                 }
 
                 // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
                 if is_ast_only {
-                    let (expected_type, expected_name) = ast::mode_type_and_name(&vm.ctx, mode_str)
+                    let (expected_type, expected_name) = ast::mode_type_and_name(mode_str)
                         .ok_or_else(|| {
                             vm.new_value_error(
-                                "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
-                                    .to_owned(),
+                                "compile() mode must be 'exec', 'eval', 'single' or 'func_type'",
                             )
                         })?;
                     if !args.source.fast_isinstance(&expected_type) {
@@ -203,9 +341,8 @@ mod builtins {
                 let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
                 let source = source.borrow_bytes();
 
-                // TODO: compiler::compile should probably get bytes
-                let source = core::str::from_utf8(&source)
-                    .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
+                let source = decode_source_bytes(&source, &args.filename.to_string_lossy(), vm)?;
+                let source = source.as_str();
 
                 let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
 
@@ -362,7 +499,7 @@ mod builtins {
                             "exec() globals must be a dict, not {}",
                             globals.class().name()
                         )),
-                        _ => vm.new_type_error("globals must be a dict".to_owned()),
+                        _ => vm.new_type_error("globals must be a dict"),
                     });
                 }
                 Ok(())
@@ -1206,7 +1343,7 @@ mod builtins {
 pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
 
-    crate::protocol::VecBuffer::make_class(&vm.ctx);
+    crate::protocol::VecBuffer::make_static_type();
 
     module.__init_methods(vm).unwrap();
     builtins::module_exec(vm, module).unwrap();

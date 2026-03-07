@@ -346,6 +346,8 @@ pub struct PyCode {
     pub instrumentation_version: AtomicU64,
     /// Side-table for INSTRUMENTED_LINE / INSTRUMENTED_INSTRUCTION.
     pub monitoring_data: PyMutex<Option<CoMonitoringData>>,
+    /// Whether adaptive counters have been initialized (lazy quickening).
+    pub quickened: core::sync::atomic::AtomicBool,
 }
 
 impl Deref for PyCode {
@@ -363,6 +365,7 @@ impl PyCode {
             source_path: AtomicPtr::new(sp),
             instrumentation_version: AtomicU64::new(0),
             monitoring_data: PyMutex::new(None),
+            quickened: core::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -476,9 +479,9 @@ impl Constructor for PyCode {
             .names
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("names must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("names must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -488,9 +491,9 @@ impl Constructor for PyCode {
             .varnames
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("varnames must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("varnames must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -500,9 +503,9 @@ impl Constructor for PyCode {
             .cellvars
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("cellvars must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("cellvars must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -512,9 +515,9 @@ impl Constructor for PyCode {
             .freevars
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("freevars must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("freevars must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -594,7 +597,7 @@ impl Constructor for PyCode {
     }
 }
 
-#[pyclass(with(Representable, Constructor))]
+#[pyclass(with(Representable, Constructor), flags(HAS_WEAKREF))]
 impl PyCode {
     #[pygetset]
     const fn co_posonlyargcount(&self) -> usize {
@@ -681,7 +684,12 @@ impl PyCode {
 
     #[pygetset]
     pub fn co_code(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
-        // SAFETY: CodeUnit is #[repr(C)] with size 2, so we can safely transmute to bytes
+        vm.ctx.new_bytes(self.code.instructions.original_bytes())
+    }
+
+    #[pygetset]
+    pub fn _co_code_adaptive(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
+        // Return current (possibly quickened/specialized) bytecode
         let bytes = unsafe {
             core::slice::from_raw_parts(
                 self.code.instructions.as_ptr() as *const u8,
@@ -689,12 +697,6 @@ impl PyCode {
             )
         };
         vm.ctx.new_bytes(bytes.to_vec())
-    }
-
-    #[pygetset]
-    pub fn _co_code_adaptive(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
-        // RustPython doesn't have adaptive/specialized bytecode, so return regular co_code
-        self.co_code(vm)
     }
 
     #[pygetset]
@@ -1273,6 +1275,6 @@ impl<'a> LineTableReader<'a> {
     }
 }
 
-pub fn init(ctx: &Context) {
+pub fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
 }

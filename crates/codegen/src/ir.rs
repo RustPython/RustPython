@@ -387,19 +387,19 @@ impl CodeInfo {
                         op = match op {
                             Instruction::JumpForward { .. } if target_offset <= current_offset => {
                                 Instruction::JumpBackward {
-                                    target: Arg::marker(),
+                                    delta: Arg::marker(),
                                 }
                             }
                             Instruction::JumpBackward { .. } if target_offset > current_offset => {
                                 Instruction::JumpForward {
-                                    target: Arg::marker(),
+                                    delta: Arg::marker(),
                                 }
                             }
                             Instruction::JumpBackwardNoInterrupt { .. }
                                 if target_offset > current_offset =>
                             {
                                 Instruction::JumpForward {
-                                    target: Arg::marker(),
+                                    delta: Arg::marker(),
                                 }
                             }
                             _ => op,
@@ -457,11 +457,13 @@ impl CodeInfo {
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))
                             .chain([CodeUnit { op, arg: lo_arg }]),
                     );
-                    // Emit CACHE code units after the instruction
-                    instructions.extend(core::iter::repeat_n(
-                        CodeUnit::new(Instruction::Cache, 0.into()),
-                        cache_count,
-                    ));
+                    // Emit CACHE code units after the instruction (all zeroed)
+                    if cache_count > 0 {
+                        instructions.extend(core::iter::repeat_n(
+                            CodeUnit::new(Instruction::Cache, 0.into()),
+                            cache_count,
+                        ));
+                    }
                     current_offset = offset_after;
                 }
                 next_block = block.next;
@@ -630,7 +632,10 @@ impl CodeInfo {
                 }
 
                 // Replace BUILD_TUPLE with LOAD_CONST
-                block.instructions[i].instr = Instruction::LoadConst { idx: Arg::marker() }.into();
+                block.instructions[i].instr = Instruction::LoadConst {
+                    consti: Arg::marker(),
+                }
+                .into();
                 block.instructions[i].arg = OpArg::new(const_idx as u32);
 
                 i += 1;
@@ -657,13 +662,15 @@ impl CodeInfo {
 
                     match (curr_instr, next_instr) {
                         // LoadFast + LoadFast -> LoadFastLoadFast (if both indices < 16)
-                        (Instruction::LoadFast(_), Instruction::LoadFast(_)) => {
+                        (Instruction::LoadFast { .. }, Instruction::LoadFast { .. }) => {
                             let idx1 = u32::from(curr.arg);
                             let idx2 = u32::from(next.arg);
                             if idx1 < 16 && idx2 < 16 {
                                 let packed = (idx1 << 4) | idx2;
                                 Some((
-                                    Instruction::LoadFastLoadFast { arg: Arg::marker() },
+                                    Instruction::LoadFastLoadFast {
+                                        var_nums: Arg::marker(),
+                                    },
                                     OpArg::new(packed),
                                 ))
                             } else {
@@ -671,17 +678,46 @@ impl CodeInfo {
                             }
                         }
                         // StoreFast + StoreFast -> StoreFastStoreFast (if both indices < 16)
-                        (Instruction::StoreFast(_), Instruction::StoreFast(_)) => {
+                        (Instruction::StoreFast { .. }, Instruction::StoreFast { .. }) => {
                             let idx1 = u32::from(curr.arg);
                             let idx2 = u32::from(next.arg);
                             if idx1 < 16 && idx2 < 16 {
                                 let packed = (idx1 << 4) | idx2;
                                 Some((
-                                    Instruction::StoreFastStoreFast { arg: Arg::marker() },
+                                    Instruction::StoreFastStoreFast {
+                                        var_nums: Arg::marker(),
+                                    },
                                     OpArg::new(packed),
                                 ))
                             } else {
                                 None
+                            }
+                        }
+                        (Instruction::LoadConst { consti }, Instruction::ToBool) => {
+                            let consti = consti.get(curr.arg);
+                            let constant = &self.metadata.consts[consti as usize];
+                            if let ConstantData::Boolean { .. } = constant {
+                                Some((curr_instr, OpArg::from(consti)))
+                            } else {
+                                None
+                            }
+                        }
+                        (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
+                            let constant = &self.metadata.consts[consti.get(curr.arg) as usize];
+                            match constant {
+                                ConstantData::Boolean { value } => {
+                                    let (const_idx, _) = self
+                                        .metadata
+                                        .consts
+                                        .insert_full(ConstantData::Boolean { value: !value });
+                                    Some((
+                                        (Instruction::LoadConst {
+                                            consti: Arg::marker(),
+                                        }),
+                                        OpArg::new(const_idx as u32),
+                                    ))
+                                }
+                                _ => None,
                             }
                         }
                         _ => None,
@@ -710,7 +746,7 @@ impl CodeInfo {
                 let curr = &block.instructions[i];
                 let next = &block.instructions[i + 1];
 
-                let (Some(Instruction::LoadGlobal(_)), Some(Instruction::PushNull)) =
+                let (Some(Instruction::LoadGlobal { .. }), Some(Instruction::PushNull)) =
                     (curr.instr.real(), next.instr.real())
                 else {
                     i += 1;
@@ -753,7 +789,7 @@ impl CodeInfo {
                 // Check if it's in small int range: -5 to 256 (_PY_IS_SMALL_INT)
                 if let Some(small) = value.to_i32().filter(|v| (-5..=256).contains(v)) {
                     // Convert LOAD_CONST to LOAD_SMALL_INT
-                    instr.instr = Instruction::LoadSmallInt { idx: Arg::marker() }.into();
+                    instr.instr = Instruction::LoadSmallInt { i: Arg::marker() }.into();
                     // The arg is the i32 value stored as u32 (two's complement)
                     instr.arg = OpArg::new(small as u32);
                 }
@@ -893,7 +929,7 @@ impl CodeInfo {
 
                 // Push values to stack with source instruction index
                 let source = match instr {
-                    Instruction::LoadFast(_) | Instruction::LoadFastLoadFast { .. } => i,
+                    Instruction::LoadFast { .. } | Instruction::LoadFastLoadFast { .. } => i,
                     _ => NOT_LOCAL,
                 };
                 for _ in 0..pushes {
@@ -921,12 +957,17 @@ impl CodeInfo {
                     continue;
                 };
                 match instr {
-                    Instruction::LoadFast(_) => {
-                        info.instr = Instruction::LoadFastBorrow(Arg::marker()).into();
+                    Instruction::LoadFast { .. } => {
+                        info.instr = Instruction::LoadFastBorrow {
+                            var_num: Arg::marker(),
+                        }
+                        .into();
                     }
                     Instruction::LoadFastLoadFast { .. } => {
-                        info.instr =
-                            Instruction::LoadFastBorrowLoadFastBorrow { arg: Arg::marker() }.into();
+                        info.instr = Instruction::LoadFastBorrowLoadFastBorrow {
+                            var_nums: Arg::marker(),
+                        }
+                        .into();
                     }
                     _ => {}
                 }
@@ -1413,7 +1454,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
         };
         jump_block.instructions.push(InstructionInfo {
             instr: PseudoInstruction::JumpNoInterrupt {
-                target: Arg::marker(),
+                delta: Arg::marker(),
             }
             .into(),
             arg: OpArg::new(0),
@@ -1564,12 +1605,12 @@ fn normalize_jumps(blocks: &mut [Block]) {
                 AnyInstruction::Pseudo(PseudoInstruction::Jump { .. }) => {
                     if target_pos > source_pos {
                         Instruction::JumpForward {
-                            target: Arg::marker(),
+                            delta: Arg::marker(),
                         }
                         .into()
                     } else {
                         Instruction::JumpBackward {
-                            target: Arg::marker(),
+                            delta: Arg::marker(),
                         }
                         .into()
                     }
@@ -1577,12 +1618,12 @@ fn normalize_jumps(blocks: &mut [Block]) {
                 AnyInstruction::Pseudo(PseudoInstruction::JumpNoInterrupt { .. }) => {
                     if target_pos > source_pos {
                         Instruction::JumpForward {
-                            target: Arg::marker(),
+                            delta: Arg::marker(),
                         }
                         .into()
                     } else {
                         Instruction::JumpBackwardNoInterrupt {
-                            target: Arg::marker(),
+                            delta: Arg::marker(),
                         }
                         .into()
                     }
@@ -1748,10 +1789,13 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], varnames_len: u32) {
                     info.instr = Instruction::Nop.into();
                 }
                 // LOAD_CLOSURE → LOAD_FAST (with varnames offset)
-                PseudoInstruction::LoadClosure(idx) => {
-                    let new_idx = varnames_len + idx.get(info.arg);
+                PseudoInstruction::LoadClosure { i } => {
+                    let new_idx = varnames_len + i.get(info.arg);
                     info.arg = OpArg::new(new_idx);
-                    info.instr = Instruction::LoadFast(Arg::marker()).into();
+                    info.instr = Instruction::LoadFast {
+                        var_num: Arg::marker(),
+                    }
+                    .into();
                 }
                 // Jump pseudo ops are resolved during block linearization
                 PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. } => {}
@@ -1759,7 +1803,7 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], varnames_len: u32) {
                 PseudoInstruction::AnnotationsPlaceholder
                 | PseudoInstruction::JumpIfFalse { .. }
                 | PseudoInstruction::JumpIfTrue { .. }
-                | PseudoInstruction::StoreFastMaybeNull(_) => {
+                | PseudoInstruction::StoreFastMaybeNull { .. } => {
                     unreachable!("Unexpected pseudo instruction in convert_pseudo_ops: {pseudo:?}")
                 }
             }

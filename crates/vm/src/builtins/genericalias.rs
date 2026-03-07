@@ -84,7 +84,7 @@ impl Constructor for PyGenericAlias {
         Iterable,
         Representable
     ),
-    flags(BASETYPE)
+    flags(BASETYPE, HAS_WEAKREF)
 )]
 impl PyGenericAlias {
     pub fn new(
@@ -155,10 +155,11 @@ impl PyGenericAlias {
                 let mut parts = Vec::with_capacity(len);
                 // Use indexed access so list mutation during repr causes IndexError
                 for i in 0..len {
-                    let item =
-                        list.borrow_vec().get(i).cloned().ok_or_else(|| {
-                            vm.new_index_error("list index out of range".to_owned())
-                        })?;
+                    let item = list
+                        .borrow_vec()
+                        .get(i)
+                        .cloned()
+                        .ok_or_else(|| vm.new_index_error("list index out of range"))?;
                     parts.push(repr_item(item, vm)?);
                 }
                 Ok(format!("[{}]", parts.join(", ")))
@@ -712,9 +713,9 @@ impl crate::types::IterNext for PyGenericAliasIterator {
             None => return Ok(PyIterReturn::StopIteration(None)),
         };
         // Create a starred GenericAlias from the original
-        let alias = obj.downcast_ref::<PyGenericAlias>().ok_or_else(|| {
-            vm.new_type_error("generic_alias_iterator expected GenericAlias".to_owned())
-        })?;
+        let alias = obj
+            .downcast_ref::<PyGenericAlias>()
+            .ok_or_else(|| vm.new_type_error("generic_alias_iterator expected GenericAlias"))?;
         let starred = PyGenericAlias::new(alias.origin.clone(), alias.args.clone(), true, vm);
         Ok(PyIterReturn::Return(starred.into_pyobject(vm)))
     }
@@ -739,7 +740,7 @@ pub fn subscript_generic(type_params: PyObjectRef, vm: &VirtualMachine) -> PyRes
     generic_alias_class.call((generic_type, args.to_pyobject(vm)), vm)
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyGenericAlias::extend_class(context, context.types.generic_alias_type);
     PyGenericAliasIterator::extend_class(context, context.types.generic_alias_iterator_type);
 }

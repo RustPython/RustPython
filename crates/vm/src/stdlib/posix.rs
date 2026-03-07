@@ -61,14 +61,6 @@ pub mod module {
     use strum::IntoEnumIterator;
     use strum_macros::{EnumIter, EnumString};
 
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    #[pyattr]
-    use libc::{SCHED_DEADLINE, SCHED_NORMAL};
-
-    #[cfg(target_os = "freebsd")]
-    #[pyattr]
-    use libc::{MFD_HUGE_MASK, SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
-
     #[cfg(target_os = "linux")]
     #[pyattr]
     use libc::PIDFD_NONBLOCK;
@@ -80,51 +72,51 @@ pub mod module {
         PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD,
     };
 
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    use libc::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
+
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
     use libc::{
         CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS,
         CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD,
-        CLONE_VM, EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, O_NOATIME, O_TMPFILE, P_PIDFD,
-        SCHED_BATCH, SCHED_IDLE, SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE,
+        CLONE_VM, MFD_HUGE_SHIFT, O_NOATIME, O_TMPFILE, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE,
+        SCHED_IDLE, SCHED_NORMAL, SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE,
         SPLICE_F_NONBLOCK,
-    };
-
-    #[cfg(any(target_os = "android", unix))]
-    #[pyattr]
-    use libc::{
-        F_OK, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK, PRIO_PGRP, PRIO_PROCESS, PRIO_USER,
-        R_OK, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NOW, W_OK, WCONTINUED, WNOHANG, WUNTRACED,
-        X_OK,
     };
 
     #[cfg(any(target_os = "macos", target_os = "redox"))]
     #[pyattr]
     use libc::O_SYMLINK;
 
-    #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "redox", unix))]
     #[pyattr]
-    use libc::{
-        MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGETLB, POSIX_FADV_DONTNEED, POSIX_FADV_NOREUSE,
-        POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL, POSIX_FADV_WILLNEED,
-    };
-
-    #[cfg(any(target_os = "android", target_os = "linux", target_os = "netbsd"))]
-    #[pyattr]
-    use libc::{TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME, TFD_TIMER_CANCEL_ON_SET};
+    use libc::{O_NOFOLLOW, PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
     #[pyattr]
     use libc::{XATTR_CREATE, XATTR_REPLACE};
 
-    #[cfg(any(
-        target_os = "android",
-        target_os = "dragonfly",
-        target_os = "linux",
-        target_os = "netbsd"
-    ))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "netbsd"))]
     #[pyattr]
-    use libc::{GRND_NONBLOCK, GRND_RANDOM};
+    use libc::O_RSYNC;
+
+    #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+    #[pyattr]
+    use libc::{
+        MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGE_MASK, MFD_HUGETLB, POSIX_FADV_DONTNEED,
+        POSIX_FADV_NOREUSE, POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL,
+        POSIX_FADV_WILLNEED,
+    };
+
+    #[cfg(any(target_os = "android", target_os = "linux", target_os = "redox", unix))]
+    #[pyattr]
+    use libc::{RTLD_LAZY, RTLD_NOW, WNOHANG};
+
+    #[cfg(any(target_os = "android", target_os = "macos", target_os = "redox", unix))]
+    #[pyattr]
+    use libc::RTLD_GLOBAL;
 
     #[cfg(any(
         target_os = "android",
@@ -137,12 +129,64 @@ pub mod module {
 
     #[cfg(any(
         target_os = "android",
+        target_os = "freebsd",
         target_os = "linux",
-        target_os = "netbsd",
-        target_os = "openbsd"
+        target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::O_RSYNC;
+    use libc::{
+        EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME,
+        TFD_TIMER_CANCEL_ON_SET,
+    };
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "linux",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use libc::{GRND_NONBLOCK, GRND_RANDOM};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "redox",
+        unix
+    ))]
+    #[pyattr]
+    use libc::{F_OK, R_OK, W_OK, X_OK};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "redox",
+        unix
+    ))]
+    #[pyattr]
+    use libc::O_NONBLOCK;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use libc::O_DSYNC;
+
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use libc::SCHED_OTHER;
 
     #[cfg(any(
         target_os = "android",
@@ -165,6 +209,38 @@ pub mod module {
     use libc::O_DIRECT;
 
     #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use libc::{O_EXLOCK, O_FSYNC, O_SHLOCK};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox",
+        unix
+    ))]
+    #[pyattr]
+    use libc::RTLD_LOCAL;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "redox",
+        unix
+    ))]
+    #[pyattr]
+    use libc::WUNTRACED;
+
+    #[cfg(any(
         target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
@@ -173,54 +249,35 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::RTLD_NOLOAD;
+    use libc::{
+        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, O_SYNC, P_ALL,
+        P_PGID, P_PID, RTLD_NOLOAD, SCHED_FIFO, SCHED_RR,
+    };
 
     #[cfg(any(
         target_os = "android",
+        target_os = "dragonfly",
         target_os = "freebsd",
-        target_os = "linux",
         target_os = "macos",
         target_os = "netbsd",
-        target_os = "openbsd"
+        target_os = "redox",
+        unix
     ))]
     #[pyattr]
-    use libc::O_DSYNC;
+    use libc::O_DIRECTORY;
 
     #[cfg(any(
+        target_os = "android",
         target_os = "dragonfly",
         target_os = "freebsd",
         target_os = "linux",
         target_os = "macos",
         target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
-    use libc::SCHED_OTHER;
-
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "macos",
-        target_os = "netbsd",
-        target_os = "openbsd",
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::{O_EXLOCK, O_FSYNC, O_SHLOCK};
-
-    #[cfg(any(
-        target_os = "android",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
     use libc::{
-        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, F_LOCK,
-        F_TEST, F_TLOCK, F_ULOCK, O_SYNC, P_ALL, P_PGID, P_PID, SCHED_FIFO, SCHED_RR,
+        F_LOCK, F_TEST, F_TLOCK, F_ULOCK, O_ASYNC, O_NDELAY, O_NOCTTY, WEXITED, WNOWAIT, WSTOPPED,
     };
 
     #[cfg(any(
@@ -230,11 +287,11 @@ pub mod module {
         target_os = "linux",
         target_os = "macos",
         target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "redox"
+        target_os = "redox",
+        unix
     ))]
     #[pyattr]
-    use libc::{O_ASYNC, O_NDELAY, O_NOCTTY, WEXITED, WNOWAIT, WSTOPPED};
+    use libc::{O_CLOEXEC, WCONTINUED};
 
     #[pyattr]
     const EX_OK: i8 = exitcode::OK as i8;
@@ -713,8 +770,21 @@ pub mod module {
     }
 
     fn py_os_after_fork_child(vm: &VirtualMachine) {
-        // Reset low-level state before any Python code runs in the child.
-        // Signal triggers from the parent must not fire in the child.
+        // Phase 1: Reset all internal locks FIRST.
+        // After fork(), locks held by dead parent threads would deadlock
+        // if we try to acquire them. This must happen before anything else.
+        #[cfg(feature = "threading")]
+        reinit_locks_after_fork(vm);
+
+        // Reinit per-object IO buffer locks on std streams.
+        // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
+        // held by dead parent threads, causing deadlocks on any IO in the child.
+        #[cfg(feature = "threading")]
+        unsafe {
+            crate::stdlib::io::reinit_std_streams_after_fork(vm)
+        };
+
+        // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
         crate::stdlib::signal::_signal::clear_wakeup_fd_after_fork();
 
@@ -722,24 +792,8 @@ pub mod module {
         #[cfg(feature = "threading")]
         crate::object::reset_weakref_locks_after_fork();
 
-        // Force-unlock all global VM locks that may have been held by
-        // threads that no longer exist in the child process after fork.
-        // SAFETY: After fork, only the forking thread survives. Any lock
-        // held by another thread is permanently stuck. The forking thread
-        // does not hold these locks during fork() (a high-level Python op).
-        unsafe {
-            vm.ctx.string_pool.force_unlock_after_fork();
-            vm.state.codec_registry.force_unlock_after_fork();
-            force_unlock_mutex_after_fork(&vm.state.atexit_funcs);
-            force_unlock_mutex_after_fork(&vm.state.before_forkers);
-            force_unlock_mutex_after_fork(&vm.state.after_forkers_child);
-            force_unlock_mutex_after_fork(&vm.state.after_forkers_parent);
-            force_unlock_mutex_after_fork(&vm.state.global_trace_func);
-            force_unlock_mutex_after_fork(&vm.state.global_profile_func);
-            crate::gc_state::gc_state().force_unlock_after_fork();
-        }
-
-        // Mark all other threads as done before running Python callbacks
+        // Phase 3: Clean up thread state. Locks are now reinit'd so we can
+        // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
         crate::stdlib::thread::after_fork_child(vm);
 
@@ -748,18 +802,46 @@ pub mod module {
         vm.signal_handlers
             .get_or_init(crate::signal::new_signal_handlers);
 
+        // Phase 4: Run Python-level at-fork callbacks.
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
         run_at_forkers(after_forkers_child, false, vm);
     }
 
-    /// Force-unlock a PyMutex if held by a dead thread after fork.
+    /// Reset all parking_lot-based locks in the interpreter state after fork().
     ///
-    /// # Safety
-    /// Must only be called after fork() in the child process.
-    unsafe fn force_unlock_mutex_after_fork<T>(mutex: &crate::common::lock::PyMutex<T>) {
-        if mutex.try_lock().is_none() {
-            // SAFETY: Lock is held by a dead thread after fork.
-            unsafe { mutex.force_unlock() };
+    /// After fork(), only the calling thread survives. Any locks held by other
+    /// (now-dead) threads would cause deadlocks. We unconditionally reset them
+    /// to unlocked by zeroing the raw lock bytes.
+    #[cfg(all(unix, feature = "threading"))]
+    fn reinit_locks_after_fork(vm: &VirtualMachine) {
+        use rustpython_common::lock::reinit_mutex_after_fork;
+
+        unsafe {
+            // PyGlobalState PyMutex locks
+            reinit_mutex_after_fork(&vm.state.before_forkers);
+            reinit_mutex_after_fork(&vm.state.after_forkers_child);
+            reinit_mutex_after_fork(&vm.state.after_forkers_parent);
+            reinit_mutex_after_fork(&vm.state.atexit_funcs);
+            reinit_mutex_after_fork(&vm.state.global_trace_func);
+            reinit_mutex_after_fork(&vm.state.global_profile_func);
+            reinit_mutex_after_fork(&vm.state.monitoring);
+
+            // PyGlobalState parking_lot::Mutex locks
+            reinit_mutex_after_fork(&vm.state.thread_frames);
+            reinit_mutex_after_fork(&vm.state.thread_handles);
+            reinit_mutex_after_fork(&vm.state.shutdown_handles);
+
+            // Context-level RwLock
+            vm.ctx.string_pool.reinit_after_fork();
+
+            // Codec registry RwLock
+            vm.state.codec_registry.reinit_after_fork();
+
+            // GC state (multiple Mutex + RwLock)
+            crate::gc_state::gc_state().reinit_after_fork();
+
+            // Import lock (RawReentrantMutex<RawMutex, RawThreadId>)
+            crate::stdlib::imp::reinit_imp_lock_after_fork();
         }
     }
 
@@ -1031,7 +1113,7 @@ pub mod module {
     fn _fchmod(fd: BorrowedFd<'_>, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         nix::sys::stat::fchmod(
             fd,
-            nix::sys::stat::Mode::from_bits(mode as libc::mode_t).unwrap(),
+            nix::sys::stat::Mode::from_bits_truncate(mode as libc::mode_t),
         )
         .map_err(|err| err.into_pyexception(vm))
     }
@@ -1400,12 +1482,7 @@ pub mod module {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn setresgid(rgid: Gid, egid: Gid, sgid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         unistd::setresgid(rgid, egid, sgid).map_err(|err| err.into_pyexception(vm))
@@ -1419,12 +1496,7 @@ pub mod module {
     }
 
     // cfg from nix
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
+    #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn initgroups(user_name: PyUtf8StrRef, gid: Gid, vm: &VirtualMachine) -> PyResult<()> {
         let user = user_name.to_cstring(vm)?;
@@ -1989,9 +2061,7 @@ pub mod module {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
                     let s = obj.downcast::<PyUtf8Str>().map_err(|_| {
-                        vm.new_type_error(
-                            "configuration names must be strings or integers".to_owned(),
-                        )
+                        vm.new_type_error("configuration names must be strings or integers")
                     })?;
                     s.as_str()
                         .parse::<PathconfVar>()
@@ -2384,9 +2454,7 @@ pub mod module {
                 Ok(int) => int.try_to_primitive(vm)?,
                 Err(obj) => {
                     let s = obj.downcast::<PyUtf8Str>().map_err(|_| {
-                        vm.new_type_error(
-                            "configuration names must be strings or integers".to_owned(),
-                        )
+                        vm.new_type_error("configuration names must be strings or integers")
                     })?;
                     {
                         let name = s.as_str();
@@ -2632,7 +2700,7 @@ mod posix_sched {
             class::StaticType,
         };
         if !obj.fast_isinstance(PySchedParam::static_type()) {
-            return Err(vm.new_type_error("must have a sched_param object".to_owned()));
+            return Err(vm.new_type_error("must have a sched_param object"));
         }
         let tuple = obj.downcast_ref::<PyTuple>().unwrap();
         let priority = tuple[0].clone();

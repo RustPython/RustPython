@@ -132,7 +132,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Constructor, Representable))]
+    #[pyclass(with(Constructor, Representable), flags(HAS_WEAKREF))]
     impl Lock {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
@@ -152,15 +152,9 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            if self.mu.is_locked() {
-                unsafe {
-                    self.mu.unlock();
-                };
-            }
-            // Casting to AtomicCell is as unsafe as CPython code.
-            // Using AtomicCell will prevent compiler optimizer move it to somewhere later unsafe place.
-            // It will be not under the cell anymore after init call.
-
+            // Reset the mutex to unlocked by directly writing the INIT value.
+            // Do NOT call unlock() here — after fork(), unlock_slow() would
+            // try to unpark stale waiters from dead parent threads.
             let new_mut = RawMutex::INIT;
             unsafe {
                 let old_mutex: &AtomicCell<RawMutex> = core::mem::transmute(&self.mu);
@@ -211,7 +205,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Representable), flags(BASETYPE))]
+    #[pyclass(with(Representable), flags(BASETYPE, HAS_WEAKREF))]
     impl RLock {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -227,36 +221,40 @@ pub(crate) mod _thread {
         #[pymethod(name = "acquire_lock")]
         #[pymethod(name = "__enter__")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            let result = acquire_lock_impl!(&self.mu, args, vm)?;
-            if result {
+            if self.mu.is_owned_by_current_thread() {
+                // Re-entrant acquisition: just increment our count.
+                // parking_lot stays at 1 level; we track recursion ourselves.
                 self.count
                     .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                return Ok(true);
+            }
+            let result = acquire_lock_impl!(&self.mu, args, vm)?;
+            if result {
+                self.count.store(1, core::sync::atomic::Ordering::Relaxed);
             }
             Ok(result)
         }
         #[pymethod]
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-            if !self.mu.is_locked() {
-                return Err(vm.new_runtime_error("release unlocked lock"));
+            if !self.mu.is_owned_by_current_thread() {
+                return Err(vm.new_runtime_error("cannot release un-acquired lock"));
             }
-            debug_assert!(
-                self.count.load(core::sync::atomic::Ordering::Relaxed) > 0,
-                "RLock count underflow"
-            );
-            self.count
+            let prev = self
+                .count
                 .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
-            unsafe { self.mu.unlock() };
+            debug_assert!(prev > 0, "RLock count underflow");
+            if prev == 1 {
+                unsafe { self.mu.unlock() };
+            }
             Ok(())
         }
 
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            if self.mu.is_locked() {
-                unsafe {
-                    self.mu.unlock();
-                };
-            }
+            // Reset the reentrant mutex to unlocked by directly writing INIT.
+            // Do NOT call unlock() — after fork(), the slow path would try
+            // to unpark stale waiters from dead parent threads.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
             let new_mut = RawRMutex::INIT;
             unsafe {
@@ -284,6 +282,35 @@ pub(crate) mod _thread {
             } else {
                 0
             }
+        }
+
+        #[pymethod]
+        fn _release_save(&self, vm: &VirtualMachine) -> PyResult<(usize, u64)> {
+            if !self.mu.is_owned_by_current_thread() {
+                return Err(vm.new_runtime_error("cannot release un-acquired lock"));
+            }
+            let count = self.count.swap(0, core::sync::atomic::Ordering::Relaxed);
+            debug_assert!(count > 0, "RLock count underflow");
+            unsafe { self.mu.unlock() };
+            Ok((count, current_thread_id()))
+        }
+
+        #[pymethod]
+        fn _acquire_restore(&self, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+            let [count_obj, owner_obj] = state.as_slice() else {
+                return Err(
+                    vm.new_type_error("_acquire_restore() argument 1 must be a 2-item tuple")
+                );
+            };
+            let count: usize = count_obj.clone().try_into_value(vm)?;
+            let _owner: u64 = owner_obj.clone().try_into_value(vm)?;
+            if count == 0 {
+                return Ok(());
+            }
+            self.mu.lock();
+            self.count
+                .store(count, core::sync::atomic::Ordering::Relaxed);
+            Ok(())
         }
 
         #[pymethod]
@@ -672,9 +699,7 @@ pub(crate) mod _thread {
     fn _excepthook(args: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Type check: args must be _ExceptHookArgs
         let args = args.downcast::<ExceptHookArgs>().map_err(|_| {
-            vm.new_type_error(
-                "_thread._excepthook argument type must be _ExceptHookArgs".to_owned(),
-            )
+            vm.new_type_error("_thread._excepthook argument type must be _ExceptHookArgs")
         })?;
 
         let exc_type = args.exc_type.clone();
@@ -905,6 +930,9 @@ pub(crate) mod _thread {
 
     /// Called after fork() in child process to mark all other threads as done.
     /// This prevents join() from hanging on threads that don't exist in the child.
+    ///
+    /// Precondition: `reinit_locks_after_fork()` has already been called, so all
+    /// parking_lot-based locks in VmState are in unlocked state.
     #[cfg(unix)]
     pub fn after_fork_child(vm: &VirtualMachine) {
         let current_ident = get_ident();
@@ -912,31 +940,27 @@ pub(crate) mod _thread {
         // Update main thread ident - after fork, the current thread becomes the main thread
         vm.state.main_thread_ident.store(current_ident);
 
-        // Reinitialize frame slot for current thread
+        // Reinitialize frame slot for current thread.
+        // Locks are already reinit'd, so lock() is safe.
         crate::vm::thread::reinit_frame_slot_after_fork(vm);
 
-        // Clean up thread handles. Force-unlock if held by a dead thread.
-        // SAFETY: After fork, only the current thread exists.
-        if vm.state.thread_handles.try_lock().is_none() {
-            unsafe { vm.state.thread_handles.force_unlock() };
-        }
+        // Clean up thread handles. All VmState locks were reinit'd to unlocked,
+        // so lock() won't deadlock. Per-thread Arc<Mutex<ThreadHandleInner>>
+        // locks are also reinit'd below before use.
         {
             let mut handles = vm.state.thread_handles.lock();
-            // Clean up dead weak refs and mark non-current threads as done
             handles.retain(|(inner_weak, done_event_weak): &HandleEntry| {
                 let Some(inner) = inner_weak.upgrade() else {
-                    return false; // Remove dead entries
+                    return false;
                 };
                 let Some(done_event) = done_event_weak.upgrade() else {
                     return false;
                 };
 
-                // Try to lock the inner state - skip if we can't
-                let Some(mut inner_guard) = inner.try_lock() else {
-                    return false;
-                };
+                // Reinit this per-handle lock in case a dead thread held it
+                reinit_parking_lot_mutex(&inner);
+                let mut inner_guard = inner.lock();
 
-                // Skip current thread and not-started threads
                 if inner_guard.ident == current_ident {
                     return true;
                 }
@@ -944,67 +968,60 @@ pub(crate) mod _thread {
                     return true;
                 }
 
-                // Mark as done and notify waiters
                 inner_guard.state = ThreadHandleState::Done;
-                inner_guard.join_handle = None; // Can't join OS thread from child
+                inner_guard.join_handle = None;
                 drop(inner_guard);
 
-                // Try to notify waiters - skip if we can't acquire the lock
+                // Reinit and set the done event
                 let (lock, cvar) = &*done_event;
-                if let Some(mut done) = lock.try_lock() {
-                    *done = true;
-                    cvar.notify_all();
-                }
+                reinit_parking_lot_mutex(lock);
+                *lock.lock() = true;
+                cvar.notify_all();
 
                 true
             });
         }
 
-        // Clean up shutdown_handles. Force-unlock if held by a dead thread.
-        // SAFETY: After fork, only the current thread exists.
-        if vm.state.shutdown_handles.try_lock().is_none() {
-            unsafe { vm.state.shutdown_handles.force_unlock() };
-        }
+        // Clean up shutdown_handles.
         {
             let mut handles = vm.state.shutdown_handles.lock();
-            // Mark all non-current threads as done in shutdown_handles
             handles.retain(|(inner_weak, done_event_weak): &ShutdownEntry| {
                 let Some(inner) = inner_weak.upgrade() else {
-                    return false; // Remove dead entries
+                    return false;
                 };
                 let Some(done_event) = done_event_weak.upgrade() else {
                     return false;
                 };
 
-                // Try to lock the inner state - skip if we can't
-                let Some(mut inner_guard) = inner.try_lock() else {
-                    return false;
-                };
+                reinit_parking_lot_mutex(&inner);
+                let mut inner_guard = inner.lock();
 
-                // Skip current thread
                 if inner_guard.ident == current_ident {
                     return true;
                 }
-
-                // Keep handles for threads that have not been started yet.
-                // They are safe to start in the child process.
                 if inner_guard.state == ThreadHandleState::NotStarted {
                     return true;
                 }
 
-                // Mark as done so _shutdown() won't wait on it
                 inner_guard.state = ThreadHandleState::Done;
                 drop(inner_guard);
 
-                // Notify waiters
                 let (lock, cvar) = &*done_event;
-                if let Some(mut done) = lock.try_lock() {
-                    *done = true;
-                    cvar.notify_all();
-                }
+                reinit_parking_lot_mutex(lock);
+                *lock.lock() = true;
+                cvar.notify_all();
 
-                false // Remove from shutdown_handles - these threads don't exist in child
+                false
             });
+        }
+    }
+
+    /// Reset a parking_lot::Mutex to unlocked state after fork.
+    #[cfg(unix)]
+    fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
+        unsafe {
+            let raw = mutex.raw() as *const parking_lot::RawMutex as *mut u8;
+            core::ptr::write_bytes(raw, 0, core::mem::size_of::<parking_lot::RawMutex>());
         }
     }
 
@@ -1107,7 +1124,7 @@ pub(crate) mod _thread {
                 let inner = self.inner.lock();
                 let current_ident = get_ident();
                 if inner.ident == current_ident && inner.state == ThreadHandleState::Running {
-                    return Err(vm.new_runtime_error("cannot join current thread".to_owned()));
+                    return Err(vm.new_runtime_error("cannot join current thread"));
                 }
             }
 

@@ -97,9 +97,9 @@ mod file_run {
                 let loader = module_dict.get_item("__loader__", self)?;
                 let get_code = loader.get_attr("get_code", self)?;
                 let code_obj = get_code.call((identifier!(self, __main__).to_owned(),), self)?;
-                let code = code_obj.downcast::<PyCode>().map_err(|_| {
-                    self.new_runtime_error("Bad code object in .pyc file".to_owned())
-                })?;
+                let code = code_obj
+                    .downcast::<PyCode>()
+                    .map_err(|_| self.new_runtime_error("Bad code object in .pyc file"))?;
                 self.run_code_obj(code, scope)?;
             } else {
                 if path != "<stdin>" {

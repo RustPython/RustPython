@@ -125,7 +125,7 @@ impl PyClassMethod {
 
 #[pyclass(
     with(GetDescriptor, Constructor, Initializer, Representable),
-    flags(BASETYPE, HAS_DICT)
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl PyClassMethod {
     #[pygetset]
@@ -227,6 +227,6 @@ impl Representable for PyClassMethod {
     }
 }
 
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyClassMethod::extend_class(context, context.types.classmethod_type);
 }

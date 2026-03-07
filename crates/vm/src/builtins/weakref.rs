@@ -45,9 +45,9 @@ impl Constructor for PyWeak {
         // PyArg_UnpackTuple: only process positional args, ignore kwargs.
         // Subclass __init__ will handle extra kwargs.
         let mut positional = args.args.into_iter();
-        let referent = positional.next().ok_or_else(|| {
-            vm.new_type_error("__new__ expected at least 1 argument, got 0".to_owned())
-        })?;
+        let referent = positional
+            .next()
+            .ok_or_else(|| vm.new_type_error("__new__ expected at least 1 argument, got 0"))?;
         let callback = positional.next();
         if let Some(_extra) = positional.next() {
             return Err(vm.new_type_error(format!(
@@ -153,6 +153,6 @@ impl Representable for PyWeak {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     PyWeak::extend_class(context, context.types.weakref_type);
 }

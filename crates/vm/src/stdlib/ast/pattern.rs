@@ -365,9 +365,7 @@ impl Node for ast::PatternMatchClass {
             get_node_field(vm, &object, "kwd_patterns", "MatchClass")?,
         )?;
         if kwd_attrs.0.len() != kwd_patterns.0.len() {
-            return Err(vm.new_value_error(
-                "MatchClass has mismatched kwd_attrs and kwd_patterns".to_owned(),
-            ));
+            return Err(vm.new_value_error("MatchClass has mismatched kwd_attrs and kwd_patterns"));
         }
         let (patterns, keywords) = merge_pattern_match_class(patterns, kwd_attrs, kwd_patterns);
 

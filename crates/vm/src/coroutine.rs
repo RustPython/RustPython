@@ -115,27 +115,12 @@ impl Coro {
         result
     }
 
-    pub fn send(
+    fn finalize_send_result(
         &self,
         jen: &PyObject,
-        value: PyObjectRef,
+        result: PyResult<ExecutionResult>,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
-        if self.closed.load() {
-            return Ok(PyIterReturn::StopIteration(None));
-        }
-        self.frame.locals_to_fast(vm)?;
-        let value = if self.frame.lasti() > 0 {
-            Some(value)
-        } else if !vm.is_none(&value) {
-            return Err(vm.new_type_error(format!(
-                "can't send non-None value to a just-started {}",
-                gen_name(jen, vm),
-            )));
-        } else {
-            None
-        };
-        let result = self.run_with_context(jen, vm, |f| f.resume(value, vm));
         self.maybe_close(&result);
         match result {
             Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
@@ -158,6 +143,44 @@ impl Coro {
         }
     }
 
+    pub(crate) fn send_none(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        if self.closed.load() {
+            return Ok(PyIterReturn::StopIteration(None));
+        }
+        self.frame.locals_to_fast(vm)?;
+        let value = if self.frame.lasti() > 0 {
+            Some(vm.ctx.none())
+        } else {
+            None
+        };
+        let result = self.run_with_context(jen, vm, |f| f.resume(value, vm));
+        self.finalize_send_result(jen, result, vm)
+    }
+
+    pub fn send(
+        &self,
+        jen: &PyObject,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyIterReturn> {
+        if self.closed.load() {
+            return Ok(PyIterReturn::StopIteration(None));
+        }
+        self.frame.locals_to_fast(vm)?;
+        let value = if self.frame.lasti() > 0 {
+            Some(value)
+        } else if !vm.is_none(&value) {
+            return Err(vm.new_type_error(format!(
+                "can't send non-None value to a just-started {}",
+                gen_name(jen, vm),
+            )));
+        } else {
+            None
+        };
+        let result = self.run_with_context(jen, vm, |f| f.resume(value, vm));
+        self.finalize_send_result(jen, result, vm)
+    }
+
     pub fn throw(
         &self,
         jen: &PyObject,
@@ -169,14 +192,10 @@ impl Coro {
         // Validate throw arguments (matching CPython _gen_throw)
         if exc_type.fast_isinstance(vm.ctx.exceptions.base_exception_type) && !vm.is_none(&exc_val)
         {
-            return Err(
-                vm.new_type_error("instance exception may not have a separate value".to_owned())
-            );
+            return Err(vm.new_type_error("instance exception may not have a separate value"));
         }
         if !vm.is_none(&exc_tb) && !exc_tb.fast_isinstance(vm.ctx.types.traceback_type) {
-            return Err(
-                vm.new_type_error("throw() third argument must be a traceback object".to_owned())
-            );
+            return Err(vm.new_type_error("throw() third argument must be a traceback object"));
         }
         if self.closed.load() {
             return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
@@ -299,7 +318,7 @@ pub fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })
         {
-            return Err(vm.new_type_error("__await__() returned a coroutine".to_owned()));
+            return Err(vm.new_type_error("__await__() returned a coroutine"));
         }
         if !PyIter::check(&result) {
             return Err(vm.new_type_error(format!(

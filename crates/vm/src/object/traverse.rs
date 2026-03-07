@@ -2,7 +2,9 @@ use core::ptr::NonNull;
 
 use rustpython_common::lock::{PyMutex, PyRwLock};
 
-use crate::{AsObject, PyObject, PyObjectRef, PyRef, function::Either, object::PyObjectPayload};
+use crate::{
+    AsObject, PyObject, PyObjectRef, PyRef, PyStackRef, function::Either, object::PyObjectPayload,
+};
 
 pub type TraverseFn<'a> = dyn FnMut(&PyObject) + 'a;
 
@@ -42,6 +44,12 @@ pub unsafe trait Traverse {
 unsafe impl Traverse for PyObjectRef {
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         traverse_fn(self)
+    }
+}
+
+unsafe impl Traverse for PyStackRef {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        traverse_fn(self.as_object())
     }
 }
 

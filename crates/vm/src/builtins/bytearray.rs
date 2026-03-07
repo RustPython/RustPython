@@ -67,7 +67,7 @@ impl PyPayload for PyByteArray {
 }
 
 /// Fill bytearray class methods dictionary.
-pub(crate) fn init(context: &Context) {
+pub(crate) fn init(context: &'static Context) {
     PyByteArray::extend_class(context, context.types.bytearray_type);
     PyByteArrayIterator::extend_class(context, context.types.bytearray_iterator_type);
 }
@@ -541,7 +541,7 @@ impl PyByteArray {
     #[pymethod]
     fn resize(&self, size: isize, vm: &VirtualMachine) -> PyResult<()> {
         if size < 0 {
-            return Err(vm.new_value_error("bytearray.resize(): new size must be >= 0".to_owned()));
+            return Err(vm.new_value_error("bytearray.resize(): new size must be >= 0"));
         }
         self.try_resizable(vm)?.elements.resize(size as usize, 0);
         Ok(())

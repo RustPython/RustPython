@@ -12,11 +12,11 @@ bitflags::bitflags! {
     // METH_XXX flags in CPython
     #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct PyMethodFlags: u32 {
-        // const VARARGS = 0x0001;
-        // const KEYWORDS = 0x0002;
+        const VARARGS = 0x0001;
+        const KEYWORDS = 0x0002;
         // METH_NOARGS and METH_O must not be combined with the flags above.
-        // const NOARGS = 0x0004;
-        // const O = 0x0008;
+        const NOARGS = 0x0004;
+        const O = 0x0008;
 
         // METH_CLASS and METH_STATIC are a little different; these control
         // the construction of methods for a class.  These cannot be used for
@@ -31,7 +31,7 @@ bitflags::bitflags! {
         // const COEXIST = 0x0040;
 
         // if not Py_LIMITED_API
-        // const FASTCALL = 0x0080;
+        const FASTCALL = 0x0080;
 
         // This bit is preserved for Stackless Python
         // const STACKLESS = 0x0100;
@@ -123,6 +123,7 @@ impl PyMethodDef {
             zelf: None,
             value: self,
             module: None,
+            _method_def_owner: None,
         }
     }
 
@@ -144,6 +145,7 @@ impl PyMethodDef {
                 zelf: Some(obj),
                 value: self,
                 module: None,
+                _method_def_owner: None,
             },
             class,
         }
@@ -162,6 +164,7 @@ impl PyMethodDef {
             zelf: Some(obj),
             value: self,
             module: None,
+            _method_def_owner: None,
         };
         PyRef::new_ref(
             function,
@@ -217,6 +220,7 @@ impl PyMethodDef {
             zelf: Some(class.to_owned().into()),
             value: self,
             module: None,
+            _method_def_owner: None,
         };
         PyNativeMethod { func, class }.into_ref(ctx)
     }
@@ -293,14 +297,12 @@ impl Py<HeapMethodDef> {
     }
 
     pub fn build_function(&self, vm: &VirtualMachine) -> PyRef<PyNativeFunction> {
-        let function = unsafe { self.method() }.to_function();
-        let dict = vm.ctx.new_dict();
-        dict.set_item("__method_def__", self.to_owned().into(), vm)
-            .unwrap();
+        let mut function = unsafe { self.method() }.to_function();
+        function._method_def_owner = Some(self.to_owned().into());
         PyRef::new_ref(
             function,
             vm.ctx.types.builtin_function_or_method_type.to_owned(),
-            Some(dict),
+            None,
         )
     }
 
@@ -309,14 +311,12 @@ impl Py<HeapMethodDef> {
         class: &'static Py<PyType>,
         vm: &VirtualMachine,
     ) -> PyRef<PyMethodDescriptor> {
-        let function = unsafe { self.method() }.to_method(class, &vm.ctx);
-        let dict = vm.ctx.new_dict();
-        dict.set_item("__method_def__", self.to_owned().into(), vm)
-            .unwrap();
+        let mut function = unsafe { self.method() }.to_method(class, &vm.ctx);
+        function._method_def_owner = Some(self.to_owned().into());
         PyRef::new_ref(
             function,
             vm.ctx.types.method_descriptor_type.to_owned(),
-            Some(dict),
+            None,
         )
     }
 }

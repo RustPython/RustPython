@@ -9,8 +9,10 @@ import json
 import textwrap
 from copy import copy
 
+from test import support
 from test.support import (
     captured_stdout,
+    is_android,
     is_apple_mobile,
     is_wasi,
     PythonSymlink,
@@ -19,14 +21,15 @@ from test.support import (
 from test.support.import_helper import import_module
 from test.support.os_helper import (TESTFN, unlink, skip_unless_symlink,
                                     change_cwd)
-from test.support.venv import VirtualEnvironment
+from test.support.venv import VirtualEnvironmentMixin
 
 import sysconfig
 from sysconfig import (get_paths, get_platform, get_config_vars,
                        get_path, get_path_names, _INSTALL_SCHEMES,
                        get_default_scheme, get_scheme_names, get_config_var,
-                       _expand_vars, _get_preferred_schemes)
-from sysconfig.__main__ import _main, _parse_makefile
+                       _expand_vars, _get_preferred_schemes,
+                       is_python_build, _PROJECT_BASE)
+from sysconfig.__main__ import _main, _parse_makefile, _get_pybuilddir, _get_json_data_name
 import _imp
 import _osx_support
 import _sysconfig
@@ -35,10 +38,11 @@ import _sysconfig
 HAS_USER_BASE = sysconfig._HAS_USER_BASE
 
 
-class TestSysConfig(unittest.TestCase):
+class TestSysConfig(unittest.TestCase, VirtualEnvironmentMixin):
 
     def setUp(self):
         super(TestSysConfig, self).setUp()
+        self.maxDiff = None
         self.sys_path = sys.path[:]
         # patching os.uname
         if hasattr(os, 'uname'):
@@ -50,6 +54,8 @@ class TestSysConfig(unittest.TestCase):
         os.uname = self._get_uname
         # saving the environment
         self.name = os.name
+        self.prefix = sys.prefix
+        self.exec_prefix = sys.exec_prefix
         self.platform = sys.platform
         self.version = sys.version
         self._framework = sys._framework
@@ -74,6 +80,8 @@ class TestSysConfig(unittest.TestCase):
         else:
             del os.uname
         os.name = self.name
+        sys.prefix = self.prefix
+        sys.exec_prefix = self.exec_prefix
         sys.platform = self.platform
         sys.version = self.version
         sys._framework = self._framework
@@ -103,12 +111,6 @@ class TestSysConfig(unittest.TestCase):
             os.remove(path)
         elif os.path.isdir(path):
             shutil.rmtree(path)
-
-    def venv(self, **venv_create_args):
-        return VirtualEnvironment.from_tmpdir(
-            prefix=f'{self.id()}-venv-',
-            **venv_create_args,
-        )
 
     def test_get_path_names(self):
         self.assertEqual(get_path_names(), sysconfig._SCHEME_KEYS)
@@ -160,14 +162,14 @@ class TestSysConfig(unittest.TestCase):
         self.assertIsInstance(schemes, dict)
         self.assertEqual(set(schemes), expected_schemes)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?          ++++
     def test_posix_venv_scheme(self):
         # The following directories were hardcoded in the venv module
         # before bpo-45413, here we assert the posix_venv scheme does not regress
         binpath = 'bin'
         incpath = 'include'
         libpath = os.path.join('lib',
-                               # XXX: RUSTPYTHON
-                               f'rustpython{sysconfig._get_python_version_abi()}',
+                               f'python{sysconfig._get_python_version_abi()}',
                                'site-packages')
 
         # Resolve the paths in an imaginary venv/ directory
@@ -185,7 +187,7 @@ class TestSysConfig(unittest.TestCase):
         # The include directory on POSIX isn't exactly the same as before,
         # but it is "within"
         sysconfig_includedir = sysconfig.get_path('include', scheme='posix_venv', vars=vars)
-        self.assertTrue(sysconfig_includedir.startswith(incpath + os.sep))
+        self.assertStartsWith(sysconfig_includedir, incpath + os.sep)
 
     def test_nt_venv_scheme(self):
         # The following directories were hardcoded in the venv module
@@ -386,7 +388,7 @@ class TestSysConfig(unittest.TestCase):
 
         # XXX more platforms to tests here
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : /Users/youknowone/Projects/RustPython2/include/python3.14t/pyconfig.h
     @unittest.skipIf(is_wasi, "Incompatible with WASI mapdir and OOT builds")
     @unittest.skipIf(is_apple_mobile,
                      f"{sys.platform} doesn't distribute header files in the runtime environment")
@@ -459,25 +461,25 @@ class TestSysConfig(unittest.TestCase):
         soabi = sysconfig.get_config_var('SOABI')
         self.assertIn(soabi, _imp.extension_suffixes()[0])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Expected str, not NoneType
     def test_library(self):
         library = sysconfig.get_config_var('LIBRARY')
         ldlibrary = sysconfig.get_config_var('LDLIBRARY')
         major, minor = sys.version_info[:2]
-        if sys.platform == 'win32':
-            self.assertTrue(library.startswith(f'python{major}{minor}'))
-            self.assertTrue(library.endswith('.dll'))
+        abiflags = sysconfig.get_config_var('ABIFLAGS')
+        if sys.platform.startswith('win'):
+            self.assertEqual(library, f'python{major}{minor}{abiflags}.dll')
             self.assertEqual(library, ldlibrary)
         elif is_apple_mobile:
             framework = sysconfig.get_config_var('PYTHONFRAMEWORK')
             self.assertEqual(ldlibrary, f"{framework}.framework/{framework}")
         else:
-            self.assertTrue(library.startswith(f'libpython{major}.{minor}'))
-            self.assertTrue(library.endswith('.a'))
+            self.assertStartsWith(library, f'libpython{major}.{minor}')
+            self.assertEndsWith(library, '.a')
             if sys.platform == 'darwin' and sys._framework:
                 self.skipTest('gh-110824: skip LDLIBRARY test for framework build')
             else:
-                self.assertTrue(ldlibrary.startswith(f'libpython{major}.{minor}'))
+                self.assertStartsWith(ldlibrary, f'libpython{major}.{minor}')
 
     @unittest.skipUnless(sys.platform == "darwin", "test only relevant on MacOSX")
     @requires_subprocess()
@@ -523,7 +525,7 @@ class TestSysConfig(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(my_platform, test_platform)
 
-    @unittest.expectedFailureIf(sys.platform != 'win32', 'TODO: RUSTPYTHON')
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
     @unittest.skipIf(is_wasi, "Incompatible with WASI mapdir and OOT builds")
     @unittest.skipIf(is_apple_mobile,
                      f"{sys.platform} doesn't include config folder at runtime")
@@ -540,13 +542,10 @@ class TestSysConfig(unittest.TestCase):
             Python_h = os.path.join(srcdir, 'Include', 'Python.h')
             self.assertTrue(os.path.exists(Python_h), Python_h)
             # <srcdir>/PC/pyconfig.h.in always exists even if unused
-            pyconfig_h = os.path.join(srcdir, 'PC', 'pyconfig.h.in')
-            self.assertTrue(os.path.exists(pyconfig_h), pyconfig_h)
             pyconfig_h_in = os.path.join(srcdir, 'pyconfig.h.in')
             self.assertTrue(os.path.exists(pyconfig_h_in), pyconfig_h_in)
             if os.name == 'nt':
-                # <executable dir>/pyconfig.h exists on Windows in a build tree
-                pyconfig_h = os.path.join(sys.executable, '..', 'pyconfig.h')
+                pyconfig_h = os.path.join(srcdir, 'PC', 'pyconfig.h')
                 self.assertTrue(os.path.exists(pyconfig_h), pyconfig_h)
         elif os.name == 'posix':
             makefile_dir = os.path.dirname(sysconfig.get_makefile_filename())
@@ -581,10 +580,8 @@ class TestSysConfig(unittest.TestCase):
                 expected_suffixes = 'i386-linux-gnu.so', 'x86_64-linux-gnux32.so', 'i386-linux-musl.so'
             else: # 8 byte pointer size
                 expected_suffixes = 'x86_64-linux-gnu.so', 'x86_64-linux-musl.so'
-            self.assertTrue(suffix.endswith(expected_suffixes),
-                            f'unexpected suffix {suffix!r}')
+            self.assertEndsWith(suffix, expected_suffixes)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.platform == 'android', 'Android-specific test')
     def test_android_ext_suffix(self):
         machine = platform.machine()
@@ -595,86 +592,169 @@ class TestSysConfig(unittest.TestCase):
             "aarch64": "aarch64-linux-android",
             "armv7l": "arm-linux-androideabi",
         }[machine]
-        self.assertTrue(suffix.endswith(f"-{expected_triplet}.so"),
-                        f"{machine=}, {suffix=}")
+        self.assertEndsWith(suffix, f"-{expected_triplet}.so")
 
     @unittest.skipUnless(sys.platform == 'darwin', 'OS X-specific test')
     def test_osx_ext_suffix(self):
         suffix = sysconfig.get_config_var('EXT_SUFFIX')
-        self.assertTrue(suffix.endswith('-darwin.so'), suffix)
+        self.assertEndsWith(suffix, '-darwin.so')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_always_set_py_debug(self):
+        self.assertIn('Py_DEBUG', sysconfig.get_config_vars())
+        Py_DEBUG = sysconfig.get_config_var('Py_DEBUG')
+        self.assertIn(Py_DEBUG, (0, 1))
+        self.assertEqual(Py_DEBUG, support.Py_DEBUG)
+
+    def test_always_set_py_gil_disabled(self):
+        self.assertIn('Py_GIL_DISABLED', sysconfig.get_config_vars())
+        Py_GIL_DISABLED = sysconfig.get_config_var('Py_GIL_DISABLED')
+        self.assertIn(Py_GIL_DISABLED, (0, 1))
+        self.assertEqual(Py_GIL_DISABLED, support.Py_GIL_DISABLED)
+
+    def test_abiflags(self):
+        # If this test fails on some platforms, maintainers should update the
+        # test to make it pass, rather than changing the definition of ABIFLAGS.
+        self.assertIn('abiflags', sysconfig.get_config_vars())
+        self.assertIn('ABIFLAGS', sysconfig.get_config_vars())
+        abiflags = sysconfig.get_config_var('abiflags')
+        ABIFLAGS = sysconfig.get_config_var('ABIFLAGS')
+        self.assertIsInstance(abiflags, str)
+        self.assertIsInstance(ABIFLAGS, str)
+        self.assertIn(abiflags, ABIFLAGS)
+        if os.name == 'nt':
+            self.assertEqual(abiflags, '')
+
+        if not sys.platform.startswith('win'):
+            valid_abiflags = ('', 't', 'd', 'td')
+        else:
+            # Windows uses '_d' rather than 'd'; see also test_abi_debug below
+            valid_abiflags = ('', 't', '_d', 't_d')
+
+        self.assertIn(ABIFLAGS, valid_abiflags)
+
+    def test_abi_debug(self):
+        ABIFLAGS = sysconfig.get_config_var('ABIFLAGS')
+        if support.Py_DEBUG:
+            self.assertIn('d', ABIFLAGS)
+        else:
+            self.assertNotIn('d', ABIFLAGS)
+
+        # The 'd' flag should always be the last one on Windows.
+        # On Windows, the debug flag is used differently with a underscore prefix.
+        # For example, `python{X}.{Y}td` on Unix and `python{X}.{Y}t_d.exe` on Windows.
+        if support.Py_DEBUG and sys.platform.startswith('win'):
+            self.assertEndsWith(ABIFLAGS, '_d')
+
+    def test_abi_thread(self):
+        abi_thread = sysconfig.get_config_var('abi_thread')
+        ABIFLAGS = sysconfig.get_config_var('ABIFLAGS')
+        self.assertIsInstance(abi_thread, str)
+        if support.Py_GIL_DISABLED:
+            self.assertEqual(abi_thread, 't')
+            self.assertIn('t', ABIFLAGS)
+        else:
+            self.assertEqual(abi_thread, '')
+            self.assertNotIn('t', ABIFLAGS)
+
     @requires_subprocess()
-    def test_config_vars_depend_on_site_initialization(self):
+    @unittest.skipIf(os.name == 'nt', 'TODO: RUSTPYTHON; venv creates python.exe but sys.executable is rustpython.exe')
+    def test_makefile_overwrites_config_vars(self):
         script = textwrap.dedent("""
-            import sysconfig
+            import sys, sysconfig
 
-            config_vars = sysconfig.get_config_vars()
+            data = {
+                'prefix': sys.prefix,
+                'exec_prefix': sys.exec_prefix,
+                'base_prefix': sys.base_prefix,
+                'base_exec_prefix': sys.base_exec_prefix,
+                'config_vars': sysconfig.get_config_vars(),
+            }
 
             import json
-            print(json.dumps(config_vars, indent=2))
+            print(json.dumps(data, indent=2))
         """)
 
+        # We need to run the test inside a virtual environment so that
+        # sys.prefix/sys.exec_prefix have a different value from the
+        # prefix/exec_prefix Makefile variables.
         with self.venv() as venv:
-            site_config_vars = json.loads(venv.run('-c', script).stdout)
-            no_site_config_vars = json.loads(venv.run('-S', '-c', script).stdout)
+            data = json.loads(venv.run('-c', script).stdout)
 
-        self.assertNotEqual(site_config_vars, no_site_config_vars)
-        # With the site initialization, the virtual environment should be enabled.
-        self.assertEqual(site_config_vars['base'], venv.prefix)
-        self.assertEqual(site_config_vars['platbase'], venv.prefix)
-        #self.assertEqual(site_config_vars['prefix'], venv.prefix)  # # FIXME: prefix gets overwriten by _init_posix
-        # Without the site initialization, the virtual environment should be disabled.
-        self.assertEqual(no_site_config_vars['base'], site_config_vars['installed_base'])
-        self.assertEqual(no_site_config_vars['platbase'], site_config_vars['installed_platbase'])
+        # We expect sysconfig.get_config_vars to correctly reflect sys.prefix/sys.exec_prefix
+        self.assertEqual(data['prefix'], data['config_vars']['prefix'])
+        self.assertEqual(data['exec_prefix'], data['config_vars']['exec_prefix'])
+        # As a sanity check, just make sure sys.prefix/sys.exec_prefix really
+        # are different from the Makefile values.
+        # sys.base_prefix/sys.base_exec_prefix should reflect the value of the
+        # prefix/exec_prefix Makefile variables, so we use them in the comparison.
+        self.assertNotEqual(data['prefix'], data['base_prefix'])
+        self.assertNotEqual(data['exec_prefix'], data['base_exec_prefix'])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    @requires_subprocess()
-    def test_config_vars_recalculation_after_site_initialization(self):
-        script = textwrap.dedent("""
-            import sysconfig
+    @unittest.skipIf(os.name != 'posix', '_sysconfig-vars JSON file is only available on POSIX')
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; JSON is generated at build time in CPython
+    @unittest.skipIf(is_wasi, "_sysconfig-vars JSON file currently isn't available on WASI")
+    @unittest.skipIf(is_android or is_apple_mobile, 'Android and iOS change the prefix')
+    def test_sysconfigdata_json(self):
+        if '_PYTHON_SYSCONFIGDATA_PATH' in os.environ:
+            data_dir = os.environ['_PYTHON_SYSCONFIGDATA_PATH']
+        elif is_python_build():
+            data_dir = os.path.join(_PROJECT_BASE, _get_pybuilddir())
+        else:
+            data_dir = sys._stdlib_dir
 
-            before = sysconfig.get_config_vars()
+        json_data_path = os.path.join(data_dir, _get_json_data_name())
 
-            import site
-            site.main()
+        with open(json_data_path) as f:
+            json_config_vars = json.load(f)
 
-            after = sysconfig.get_config_vars()
+        system_config_vars = get_config_vars()
 
-            import json
-            print(json.dumps({'before': before, 'after': after}, indent=2))
-        """)
+        # Keys dependent on uncontrollable external context
+        ignore_keys = {'userbase'}
+        # Keys dependent on Python being run outside the build directrory
+        if sysconfig.is_python_build():
+            ignore_keys |= {'srcdir'}
+        # Keys dependent on the executable location
+        if os.path.dirname(sys.executable) != system_config_vars['BINDIR']:
+            ignore_keys |= {'projectbase'}
+        # Keys dependent on the environment (different inside virtual environments)
+        if sys.prefix != sys.base_prefix:
+            ignore_keys |= {'prefix', 'exec_prefix', 'base', 'platbase'}
+        # Keys dependent on Python being run from the prefix targetted when building (different on relocatable installs)
+        if sysconfig._installation_is_relocated():
+            ignore_keys |= {'prefix', 'exec_prefix', 'base', 'platbase', 'installed_base', 'installed_platbase', 'srcdir'}
 
-        with self.venv() as venv:
-            config_vars = json.loads(venv.run('-S', '-c', script).stdout)
+        for key in ignore_keys:
+            json_config_vars.pop(key, None)
+            system_config_vars.pop(key, None)
 
-        self.assertNotEqual(config_vars['before'], config_vars['after'])
-        self.assertEqual(config_vars['after']['base'], venv.prefix)
-        #self.assertEqual(config_vars['after']['prefix'], venv.prefix)  # FIXME: prefix gets overwriten by _init_posix
-        #self.assertEqual(config_vars['after']['exec_prefix'], venv.prefix)  # FIXME: exec_prefix gets overwriten by _init_posix
+        self.assertEqual(system_config_vars, json_config_vars)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    @requires_subprocess()
-    def test_paths_depend_on_site_initialization(self):
-        script = textwrap.dedent("""
-            import sysconfig
+    def test_sysconfig_config_vars_no_prefix_cache(self):
+        sys.prefix = 'prefix-AAA'
+        sys.exec_prefix = 'exec-prefix-AAA'
 
-            paths = sysconfig.get_paths()
+        config_vars = sysconfig.get_config_vars()
 
-            import json
-            print(json.dumps(paths, indent=2))
-        """)
+        self.assertEqual(config_vars['prefix'], sys.prefix)
+        self.assertEqual(config_vars['base'], sys.prefix)
+        self.assertEqual(config_vars['exec_prefix'], sys.exec_prefix)
+        self.assertEqual(config_vars['platbase'], sys.exec_prefix)
 
-        with self.venv() as venv:
-            site_paths = json.loads(venv.run('-c', script).stdout)
-            no_site_paths = json.loads(venv.run('-S', '-c', script).stdout)
+        sys.prefix = 'prefix-BBB'
+        sys.exec_prefix = 'exec-prefix-BBB'
 
-        self.assertNotEqual(site_paths, no_site_paths)
+        config_vars = sysconfig.get_config_vars()
+
+        self.assertEqual(config_vars['prefix'], sys.prefix)
+        self.assertEqual(config_vars['base'], sys.prefix)
+        self.assertEqual(config_vars['exec_prefix'], sys.exec_prefix)
+        self.assertEqual(config_vars['platbase'], sys.exec_prefix)
 
 
 class MakefileTests(unittest.TestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : /Users/youknowone/Projects/RustPython2/lib/python3.14t/config-3.14t-aarch64-apple-darwin/Makefile
     @unittest.skipIf(sys.platform.startswith('win'),
                      'Test is not Windows compatible')
     @unittest.skipIf(is_wasi, "Incompatible with WASI mapdir and OOT builds")
@@ -711,6 +791,18 @@ class DeprecationTests(unittest.TestCase):
             return self.assertRaises(error, msg=error_msg)
         else:
             return self.assertWarns(DeprecationWarning, msg=deprecation_msg)
+
+    def test_expand_makefile_vars(self):
+        with self.deprecated(
+            removal_version=(3, 16),
+            deprecation_msg=(
+                'sysconfig.expand_makefile_vars is deprecated and will be removed in '
+                'Python 3.16. Use sysconfig.get_paths(vars=...) instead.',
+            ),
+            error=AttributeError,
+            error_msg="module 'sysconfig' has no attribute 'expand_makefile_vars'",
+        ):
+            sysconfig.expand_makefile_vars('', {})
 
     def test_is_python_build_check_home(self):
         with self.deprecated(

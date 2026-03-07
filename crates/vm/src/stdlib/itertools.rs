@@ -667,7 +667,7 @@ mod decl {
         groupby: PyRef<PyItertoolsGroupBy>,
     }
 
-    #[pyclass(with(IterNext, Iterable))]
+    #[pyclass(with(IterNext, Iterable), flags(HAS_WEAKREF))]
     impl PyItertoolsGrouper {}
 
     impl SelfIter for PyItertoolsGrouper {}

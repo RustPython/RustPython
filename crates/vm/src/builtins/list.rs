@@ -27,7 +27,9 @@ use crate::{
 use rustpython_common::wtf8::Wtf8Buf;
 
 use alloc::fmt;
+use core::cell::Cell;
 use core::ops::DerefMut;
+use core::ptr::NonNull;
 
 #[pyclass(module = false, name = "list", unhashable = true, traverse = "manual")]
 #[derive(Default)]
@@ -72,10 +74,47 @@ unsafe impl Traverse for PyList {
     }
 }
 
+thread_local! {
+    static LIST_FREELIST: Cell<crate::object::FreeList<PyList>> = const { Cell::new(crate::object::FreeList::new()) };
+}
+
 impl PyPayload for PyList {
+    const MAX_FREELIST: usize = 80;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.list_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        LIST_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+        LIST_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
@@ -637,6 +676,23 @@ impl PyListIterator {
     }
 }
 
+impl PyListIterator {
+    /// Fast path for FOR_ITER specialization.
+    pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
+        self.internal
+            .lock()
+            .next(|list, pos| {
+                let vec = list.borrow_vec();
+                Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
+            })
+            .ok()
+            .and_then(|r| match r {
+                PyIterReturn::Return(v) => Some(v),
+                PyIterReturn::StopIteration(_) => None,
+            })
+    }
+}
+
 impl SelfIter for PyListIterator {}
 impl IterNext for PyListIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
@@ -696,7 +752,7 @@ impl IterNext for PyListReverseIterator {
     }
 }
 
-pub fn init(context: &Context) {
+pub fn init(context: &'static Context) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 

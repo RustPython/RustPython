@@ -1053,6 +1053,11 @@ impl SymbolTableBuilder {
     /// Annotation and TypeParams scopes act as async barriers (always non-async).
     /// Comprehension scopes are transparent (inherit parent's async context).
     fn is_in_async_context(&self) -> bool {
+        // Annotations are evaluated in a non-async scope even when
+        // the enclosing function is async.
+        if self.in_annotation {
+            return false;
+        }
         for table in self.tables.iter().rev() {
             match table.typ {
                 CompilerScope::AsyncFunction => return true,
@@ -1462,7 +1467,22 @@ impl SymbolTableBuilder {
                         self.scan_expression(target, ExpressionContext::Store)?;
                     }
                 }
-                self.scan_annotation(annotation)?;
+                // Only scan annotation in annotation scope for simple name targets.
+                // Non-simple annotations (subscript, attribute, parenthesized) are
+                // never compiled into __annotate__, so scanning them would create
+                // sub_tables that cause mismatch in the annotation scope's sub_table index.
+                let is_simple_name = *simple && matches!(&**target, Expr::Name(_));
+                if is_simple_name {
+                    self.scan_annotation(annotation)?;
+                } else {
+                    // Still validate annotation for forbidden expressions
+                    // (yield, await, named) even for non-simple targets.
+                    let was_in_annotation = self.in_annotation;
+                    self.in_annotation = true;
+                    let result = self.scan_expression(annotation, ExpressionContext::Load);
+                    self.in_annotation = was_in_annotation;
+                    result?;
+                }
                 if let Some(value) = value {
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }
