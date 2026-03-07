@@ -68,8 +68,8 @@ def parse_args():
     parser.add_argument(
         "--features",
         action="append",
-        help="which features to enable when building RustPython (default: [ssl])",
-        default=["ssl"],
+        help="which features to enable when building RustPython (default: [])",
+        default=[],
     )
 
     args = parser.parse_args()
