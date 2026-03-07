@@ -293,7 +293,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-2025]
+        include:
+          - os: macos-latest
+            cargo_args: "" # TODO: Fix jit on macOS
+          - os: ubuntu-latest
+            cargo_args: "--features jit"
+          - os: windows-2025
+            cargo_args: "--features jit"
       fail-fast: false
     steps:
       - uses: actions/checkout@v6.0.2
@@ -302,18 +308,14 @@ jobs:
       - uses: actions/setup-python@v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
+
       - name: build rustpython
-        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
-        if: runner.os == 'macOS'
-      - name: build rustpython
-        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }},jit
-        if: runner.os != 'macOS'
-      - uses: actions/setup-python@v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }} ${{ matrix.cargo_args }}
+
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
         working-directory: ./extra_tests
@@ -445,14 +447,10 @@ jobs:
         run: |
           target/release/rustpython -m venv testvenv
           testvenv/bin/rustpython -m pip install wheel
-      - if: runner.os != 'macOS'
-        name: Check whats_left is not broken
+
+      - name: Check whats_left is not broken
         shell: bash
-        run: python -I scripts/whats_left.py --no-default-features --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading,jit"
-      - if: runner.os == 'macOS' # TODO fix jit on macOS
-        name: Check whats_left is not broken (macOS)
-        shell: bash
-        run: python -I scripts/whats_left.py --no-default-features --features "$(sed -e 's/--[^ ]*//g' <<< "${{ env.CARGO_ARGS }}" | tr -d '[:space:]'),threading" # no jit on macOS for now
+        run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} ${{ matrix.cargo_args }}
 
   lint:
     name: Lint Rust & Python code
