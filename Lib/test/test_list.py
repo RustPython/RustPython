@@ -228,7 +228,6 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaises(TypeError):
             (3,) + L([1,2])
 
-    @unittest.skip("TODO: RUSTPYTHON; hang")
     def test_equal_operator_modifying_operand(self):
         # test fix for seg fault reported in bpo-38588 part 2.
         class X:
@@ -254,7 +253,7 @@ class ListTest(list_tests.CommonTest):
         list4 = [1]
         self.assertFalse(list3 == list4)
 
-    @unittest.skip("TODO: RUSTPYTHON; hang")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_lt_operator_modifying_operand(self):
         # See gh-120298
         class evil:
