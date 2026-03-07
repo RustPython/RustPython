@@ -293,13 +293,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        include:
-          - os: macos-latest
-            cargo_args: "" # TODO: Fix jit on macOS
-          - os: ubuntu-latest
-            cargo_args: "--features jit"
-          - os: windows-2025
-            cargo_args: "--features jit"
+        os:
+        - macos-latest
+        - ubuntu-latest
+        - windows-2025
       fail-fast: false
     steps:
       - uses: actions/checkout@v6.0.2
@@ -314,7 +311,7 @@ jobs:
         if: runner.os == 'macOS'
 
       - name: build rustpython
-        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }} ${{ matrix.cargo_args }}
+        run: cargo build --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
 
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
@@ -450,7 +447,7 @@ jobs:
 
       - name: Check whats_left is not broken
         shell: bash
-        run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} ${{ matrix.cargo_args }}
+        run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} --features jit
 
   lint:
     name: Lint Rust & Python code
