@@ -14,8 +14,8 @@
 # This action will only install dependencies when the current operating system is Linux. It will do
 # nothing on any other OS (macOS, Windows).
 
-name: Install macOS dependencies
-description: Installs the dependencies necessary to build RustPython on macOS.
+name: Install Linux dependencies
+description: Installs the dependencies necessary to build RustPython on Linux.
 inputs:
   gcc-multilib:
     description: Install gcc-multilib (gcc-multilib)
