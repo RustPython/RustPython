@@ -4158,7 +4158,7 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyResult<PyThreadMutexGuard<'_, Option<IncrementalNewlineDecoderData>>> {
             self.data
-                .lock()
+                .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside nldecoder"))
         }
 
