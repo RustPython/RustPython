@@ -562,7 +562,7 @@ impl Comparable for PyList {
 
         // Search for the first index where items are different.
         let mut i = 0;
-        while i < zlen || i < olen {
+        while i < zlen && i < olen {
             if zelements.len() != zlen {
                 // Comparison mutated the list; refetch it.
                 zelements = zelf.borrow_vec().to_vec();
