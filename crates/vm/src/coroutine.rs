@@ -192,14 +192,10 @@ impl Coro {
         // Validate throw arguments (matching CPython _gen_throw)
         if exc_type.fast_isinstance(vm.ctx.exceptions.base_exception_type) && !vm.is_none(&exc_val)
         {
-            return Err(
-                vm.new_type_error("instance exception may not have a separate value".to_owned())
-            );
+            return Err(vm.new_type_error("instance exception may not have a separate value"));
         }
         if !vm.is_none(&exc_tb) && !exc_tb.fast_isinstance(vm.ctx.types.traceback_type) {
-            return Err(
-                vm.new_type_error("throw() third argument must be a traceback object".to_owned())
-            );
+            return Err(vm.new_type_error("throw() third argument must be a traceback object"));
         }
         if self.closed.load() {
             return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
@@ -322,7 +318,7 @@ pub fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })
         {
-            return Err(vm.new_type_error("__await__() returned a coroutine".to_owned()));
+            return Err(vm.new_type_error("__await__() returned a coroutine"));
         }
         if !PyIter::check(&result) {
             return Err(vm.new_type_error(format!(

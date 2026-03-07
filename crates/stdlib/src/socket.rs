@@ -1105,7 +1105,8 @@ mod _socket {
             loop {
                 if deadline.is_some() || matches!(select, SelectKind::Connect) {
                     let interval = deadline.as_ref().map(|d| d.time_until()).transpose()?;
-                    let res = sock_select(&*self.sock()?, select, interval);
+                    let sock = self.sock()?;
+                    let res = vm.allow_threads(|| sock_select(&sock, select, interval));
                     match res {
                         Ok(true) => return Err(IoOrPyException::Timeout),
                         Err(e) if e.kind() == io::ErrorKind::Interrupted => {
@@ -1118,8 +1119,9 @@ mod _socket {
                 }
 
                 let err = loop {
-                    // loop on interrupt
-                    match f() {
+                    // Detach thread state around the blocking syscall so
+                    // stop-the-world can park this thread (e.g. before fork).
+                    match vm.allow_threads(&mut f) {
                         Ok(x) => return Ok(x),
                         Err(e) if e.kind() == io::ErrorKind::Interrupted => vm.check_signals()?,
                         Err(e) => break e,
@@ -1300,10 +1302,10 @@ mod _socket {
 
                     // salg_type is 14 bytes, salg_name is 64 bytes
                     if type_str.len() >= 14 {
-                        return Err(vm.new_value_error("type too long".to_owned()).into());
+                        return Err(vm.new_value_error("type too long").into());
                     }
                     if name_str.len() >= 64 {
-                        return Err(vm.new_value_error("name too long".to_owned()).into());
+                        return Err(vm.new_value_error("name too long").into());
                     }
 
                     // Create sockaddr_alg
@@ -1342,7 +1344,8 @@ mod _socket {
         ) -> Result<(), IoOrPyException> {
             let sock_addr = self.extract_address(address, caller, vm)?;
 
-            let err = match self.sock()?.connect(&sock_addr) {
+            let sock = self.sock()?;
+            let err = match vm.allow_threads(|| sock.connect(&sock_addr)) {
                 Ok(()) => return Ok(()),
                 Err(e) => e,
             };
@@ -1627,9 +1630,9 @@ mod _socket {
 
             // Handle nbytes parameter
             let read_len = if let OptionalArg::Present(nbytes) = nbytes {
-                let nbytes = nbytes.to_usize().ok_or_else(|| {
-                    vm.new_value_error("negative buffersize in recv_into".to_owned())
-                })?;
+                let nbytes = nbytes
+                    .to_usize()
+                    .ok_or_else(|| vm.new_value_error("negative buffersize in recv_into"))?;
                 nbytes.min(buf.len())
             } else {
                 buf.len()
@@ -1836,7 +1839,7 @@ mod _socket {
             // Validate assoclen - must be non-negative if provided
             let assoclen: Option<u32> = match args.assoclen {
                 OptionalArg::Present(val) if val < 0 => {
-                    return Err(vm.new_type_error("assoclen must be non-negative".to_owned()));
+                    return Err(vm.new_type_error("assoclen must be non-negative"));
                 }
                 OptionalArg::Present(val) => Some(val as u32),
                 OptionalArg::Missing => None,
@@ -1955,15 +1958,13 @@ mod _socket {
             use core::mem::MaybeUninit;
 
             if bufsize < 0 {
-                return Err(vm.new_value_error("negative buffer size in recvmsg".to_owned()));
+                return Err(vm.new_value_error("negative buffer size in recvmsg"));
             }
             let bufsize = bufsize as usize;
 
             let ancbufsize = ancbufsize.unwrap_or(0);
             if ancbufsize < 0 {
-                return Err(
-                    vm.new_value_error("negative ancillary buffer size in recvmsg".to_owned())
-                );
+                return Err(vm.new_value_error("negative ancillary buffer size in recvmsg"));
             }
             let ancbufsize = ancbufsize as usize;
             let flags = flags.unwrap_or(0);
@@ -2214,12 +2215,10 @@ mod _socket {
                 Some(t) => {
                     let f = t.into_float();
                     if f.is_nan() {
-                        return Err(
-                            vm.new_value_error("Invalid value NaN (not a number)".to_owned())
-                        );
+                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
                     }
                     if f < 0.0 || !f.is_finite() {
-                        return Err(vm.new_value_error("Timeout value out of range".to_owned()));
+                        return Err(vm.new_value_error("Timeout value out of range"));
                     }
                     Some(f)
                 }
@@ -2846,14 +2845,13 @@ mod _socket {
                         .codec_registry
                         .encode_text(s.to_owned(), "idna", None, vm)?;
                 let host_str = core::str::from_utf8(encoded.as_bytes())
-                    .map_err(|_| vm.new_runtime_error("idna output is not utf8".to_owned()))?;
+                    .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
                 Some(host_str.to_owned())
             }
             Some(ArgStrOrBytesLike::Buf(b)) => {
                 let bytes = b.borrow_buf();
-                let host_str = core::str::from_utf8(&bytes).map_err(|_| {
-                    vm.new_unicode_decode_error("host bytes is not utf8".to_owned())
-                })?;
+                let host_str = core::str::from_utf8(&bytes)
+                    .map_err(|_| vm.new_unicode_decode_error("host bytes is not utf8"))?;
                 Some(host_str.to_owned())
             }
             None => None,
@@ -2874,9 +2872,7 @@ mod _socket {
                         // For bytes, check if it's valid UTF-8
                         let bytes = b.borrow_buf();
                         core::str::from_utf8(&bytes)
-                            .map_err(|_| {
-                                vm.new_unicode_decode_error("port is not utf8".to_owned())
-                            })?
+                            .map_err(|_| vm.new_unicode_decode_error("port is not utf8"))?
                             .to_owned()
                     }
                 };
@@ -3396,10 +3392,10 @@ mod _socket {
             Some(t) => {
                 let f = t.into_float();
                 if f.is_nan() {
-                    return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
+                    return Err(vm.new_value_error("Invalid value NaN (not a number)"));
                 }
                 if f < 0.0 || !f.is_finite() {
-                    return Err(vm.new_value_error("Timeout value out of range".to_owned()));
+                    return Err(vm.new_value_error("Timeout value out of range"));
                 }
                 f
             }

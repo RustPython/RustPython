@@ -154,9 +154,7 @@ impl PyProperty {
     fn name_getter(&self, vm: &VirtualMachine) -> PyResult {
         match self.get_property_name(vm)? {
             Some(name) => Ok(name),
-            None => Err(
-                vm.new_attribute_error("'property' object has no attribute '__name__'".to_owned())
-            ),
+            None => Err(vm.new_attribute_error("'property' object has no attribute '__name__'")),
         }
     }
 

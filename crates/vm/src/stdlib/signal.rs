@@ -401,8 +401,7 @@ pub(crate) mod _signal {
                 }
                 // Validate that fd is a valid file descriptor using fstat
                 // First check if SOCKET can be safely cast to i32 (file descriptor)
-                let fd_i32 =
-                    i32::try_from(fd).map_err(|_| vm.new_value_error("invalid fd".to_owned()))?;
+                let fd_i32 = i32::try_from(fd).map_err(|_| vm.new_value_error("invalid fd"))?;
                 // Verify the fd is valid by trying to fstat it
                 let borrowed_fd =
                     unsafe { crate::common::crt_fd::Borrowed::try_borrow_raw(fd_i32) }
@@ -458,7 +457,7 @@ pub(crate) mod _signal {
         if let OptionalArg::Present(obj) = siginfo
             && !vm.is_none(&obj)
         {
-            return Err(vm.new_type_error("siginfo must be None".to_owned()));
+            return Err(vm.new_type_error("siginfo must be None"));
         }
 
         let flags = flags.unwrap_or(0);

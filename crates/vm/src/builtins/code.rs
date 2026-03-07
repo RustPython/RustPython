@@ -479,9 +479,9 @@ impl Constructor for PyCode {
             .names
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("names must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("names must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -491,9 +491,9 @@ impl Constructor for PyCode {
             .varnames
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("varnames must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("varnames must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -503,9 +503,9 @@ impl Constructor for PyCode {
             .cellvars
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("cellvars must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("cellvars must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?
@@ -515,9 +515,9 @@ impl Constructor for PyCode {
             .freevars
             .iter()
             .map(|obj| {
-                let s = obj.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
-                    vm.new_type_error("freevars must be tuple of strings".to_owned())
-                })?;
+                let s = obj
+                    .downcast_ref::<super::pystr::PyStr>()
+                    .ok_or_else(|| vm.new_type_error("freevars must be tuple of strings"))?;
                 Ok(vm.ctx.intern_str(s.as_wtf8()))
             })
             .collect::<PyResult<Vec<_>>>()?

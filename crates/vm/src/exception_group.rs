@@ -276,9 +276,9 @@ pub(super) mod types {
 
             // Validate non-empty
             if exceptions.is_empty() {
-                return Err(vm.new_value_error(
-                    "second argument (exceptions) must be a non-empty sequence".to_owned(),
-                ));
+                return Err(
+                    vm.new_value_error("second argument (exceptions) must be a non-empty sequence")
+                );
             }
 
             // Validate all items are BaseException instances
