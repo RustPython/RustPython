@@ -7057,9 +7057,9 @@ impl ExecutingFrame<'_> {
         type_version: u32,
         descr_ptr: usize,
     ) {
-        // Publish descriptor cache atomically as a tuple:
+        // Publish descriptor cache with version-invalidation protocol:
         // invalidate version first, then write payload, then publish version.
-        self.code.instructions.begin_descriptor_write(cache_base);
+        // Reader double-checks version+ptr after incref, so no writer lock needed.
         unsafe {
             self.code.instructions.write_cache_u32(cache_base + 1, 0);
             self.code
@@ -7069,7 +7069,6 @@ impl ExecutingFrame<'_> {
                 .instructions
                 .write_cache_u32(cache_base + 1, type_version);
         }
-        self.code.instructions.end_descriptor_write(cache_base);
     }
 
     #[inline]
@@ -7080,8 +7079,6 @@ impl ExecutingFrame<'_> {
         metaclass_version: u32,
         descr_ptr: usize,
     ) {
-        // Same publish protocol as write_cached_descriptor(), plus metaclass guard.
-        self.code.instructions.begin_descriptor_write(cache_base);
         unsafe {
             self.code.instructions.write_cache_u32(cache_base + 1, 0);
             self.code
@@ -7094,7 +7091,6 @@ impl ExecutingFrame<'_> {
                 .instructions
                 .write_cache_u32(cache_base + 1, type_version);
         }
-        self.code.instructions.end_descriptor_write(cache_base);
     }
 
     fn load_attr(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
