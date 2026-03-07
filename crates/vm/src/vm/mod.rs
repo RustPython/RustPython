@@ -251,12 +251,12 @@ impl StopTheWorldState {
     }
 
     /// Try to CAS detached threads directly to SUSPENDED and check whether
-    /// all non-requester threads are now SUSPENDED (`park_detached_threads`).
+    /// stop countdown reached zero after parking detached threads
+    /// (`park_detached_threads`), matching CPython behavior class.
     fn park_detached_threads(&self, vm: &VirtualMachine) -> bool {
         use thread::{THREAD_ATTACHED, THREAD_DETACHED, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = vm.state.thread_frames.lock();
-        let mut all_suspended = true;
         let mut attached_seen = 0u64;
         let mut forced_parks = 0u64;
         for (&id, slot) in registry.iter() {
@@ -280,12 +280,10 @@ impl StopTheWorldState {
                         // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
                         slot.stop_requested.store(true, Ordering::Release);
                         // Raced with a thread re-attaching; it will self-suspend.
-                        all_suspended = false;
                         attached_seen = attached_seen.saturating_add(1);
                     }
                     Err(THREAD_DETACHED) => {
-                        // Extremely unlikely race; treat as not-yet-suspended.
-                        all_suspended = false;
+                        // Extremely unlikely race; next poll will handle it.
                     }
                     Err(THREAD_SUSPENDED) => {
                         slot.stop_requested.store(false, Ordering::Release);
@@ -296,14 +294,12 @@ impl StopTheWorldState {
                             false,
                             "unexpected thread state in park_detached_threads: {other}"
                         );
-                        all_suspended = false;
                     }
                 }
             } else if state == THREAD_ATTACHED {
                 // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
                 slot.stop_requested.store(true, Ordering::Release);
                 // Thread is in bytecode — it will see `requested` and self-suspend
-                all_suspended = false;
                 attached_seen = attached_seen.saturating_add(1);
             }
             // THREAD_SUSPENDED → already parked
@@ -317,7 +313,7 @@ impl StopTheWorldState {
             self.stats_forced_parks
                 .fetch_add(forced_parks, Ordering::Relaxed);
         }
-        all_suspended || self.thread_countdown.load(Ordering::Acquire) == 0
+        forced_parks != 0 && self.thread_countdown.load(Ordering::Acquire) == 0
     }
 
     /// Stop all non-requester threads (`stop_the_world`).

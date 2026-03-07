@@ -27,6 +27,7 @@ pub(crate) mod _thread {
         RawMutex, RawThreadId,
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
+    use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
     use std::thread;
 
     // PYTHREAD_NAME: show current thread name
@@ -296,7 +297,7 @@ pub(crate) mod _thread {
             if count == 0 {
                 return Ok(());
             }
-            self.mu.lock();
+            vm.allow_threads(|| self.mu.lock());
             self.count
                 .store(count, core::sync::atomic::Ordering::Relaxed);
             Ok(())
@@ -1349,39 +1350,47 @@ pub(crate) mod _thread {
         }
 
         fn parse_join_timeout(
-            timeout: OptionalArg<Option<Either<f64, i64>>>,
+            timeout_obj: Option<crate::PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Duration>> {
             const JOIN_TIMEOUT_MAX_SECONDS: i64 = TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000;
-            match timeout.flatten() {
-                Some(Either::A(t)) => {
-                    if t.is_nan() {
-                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                    }
-                    if !t.is_finite() || t > TIMEOUT_MAX || t < -TIMEOUT_MAX {
-                        return Err(
-                            vm.new_overflow_error("timestamp out of range for platform time_t")
-                        );
-                    }
-                    if t < 0.0 {
-                        return Ok(None);
-                    }
-                    Ok(Some(Duration::from_secs_f64(t)))
+            let Some(timeout_obj) = timeout_obj else {
+                return Ok(None);
+            };
+
+            if let Some(t) = timeout_obj.try_index_opt(vm) {
+                let t: i64 = t?.try_to_primitive(vm).map_err(|_| {
+                    vm.new_overflow_error("timestamp too large to convert to C PyTime_t")
+                })?;
+                if !(-JOIN_TIMEOUT_MAX_SECONDS..=JOIN_TIMEOUT_MAX_SECONDS).contains(&t) {
+                    return Err(
+                        vm.new_overflow_error("timestamp too large to convert to C PyTime_t")
+                    );
                 }
-                Some(Either::B(t)) => {
-                    if t > JOIN_TIMEOUT_MAX_SECONDS || t < -JOIN_TIMEOUT_MAX_SECONDS {
-                        return Err(
-                            vm.new_overflow_error("timestamp too large to convert to C PyTime_t")
-                        );
-                    }
-                    if t < 0 {
-                        Ok(None)
-                    } else {
-                        Ok(Some(Duration::from_secs(t as u64)))
-                    }
+                if t < 0 {
+                    return Ok(None);
                 }
-                None => Ok(None),
+                return Ok(Some(Duration::from_secs(t as u64)));
             }
+
+            if let Some(t) = timeout_obj.try_float_opt(vm) {
+                let t = t?.to_f64();
+                if t.is_nan() {
+                    return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                }
+                if !t.is_finite() || !(-TIMEOUT_MAX..=TIMEOUT_MAX).contains(&t) {
+                    return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
+                }
+                if t < 0.0 {
+                    return Ok(None);
+                }
+                return Ok(Some(Duration::from_secs_f64(t)));
+            }
+
+            Err(vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer or float",
+                timeout_obj.class().name()
+            )))
         }
 
         #[pygetset]
@@ -1390,7 +1399,17 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn is_done(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        fn is_done(&self, f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+            if !f_args.kwargs.is_empty() {
+                return Err(vm.new_type_error("_ThreadHandle.is_done() takes no keyword arguments"));
+            }
+            let given = f_args.args.len();
+            if given != 0 {
+                return Err(vm.new_type_error(format!(
+                    "_ThreadHandle.is_done() takes no arguments ({given} given)"
+                )));
+            }
+
             // If completion was observed, perform one-time join cleanup
             // before returning True.
             let done = {
@@ -1405,16 +1424,34 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn _set_done(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn _set_done(&self, f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            if !f_args.kwargs.is_empty() {
+                return Err(
+                    vm.new_type_error("_ThreadHandle._set_done() takes no keyword arguments")
+                );
+            }
+            let given = f_args.args.len();
+            if given != 0 {
+                return Err(vm.new_type_error(format!(
+                    "_ThreadHandle._set_done() takes no arguments ({given} given)"
+                )));
+            }
+
             Self::set_done_internal(&self.inner, &self.done_event, vm)
         }
 
         #[pymethod]
-        fn join(
-            &self,
-            timeout: OptionalArg<Option<Either<f64, i64>>>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn join(&self, mut f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            if !f_args.kwargs.is_empty() {
+                return Err(vm.new_type_error("_ThreadHandle.join() takes no keyword arguments"));
+            }
+            let given = f_args.args.len();
+            if given > 1 {
+                return Err(
+                    vm.new_type_error(format!("join() takes at most 1 argument ({given} given)"))
+                );
+            }
+            let timeout = f_args.take_positional().filter(|obj| !vm.is_none(obj));
             let timeout_duration = Self::parse_join_timeout(timeout, vm)?;
             Self::join_internal(&self.inner, &self.done_event, timeout_duration, vm)
         }
@@ -1446,15 +1483,6 @@ pub(crate) mod _thread {
         if given > 3 {
             return Err(vm.new_type_error(format!(
                 "start_joinable_thread() takes at most 3 arguments ({given} given)"
-            )));
-        }
-        if let Some(unexpected) = f_args
-            .kwargs
-            .keys()
-            .find(|k| !matches!(k.as_str(), "function" | "handle" | "daemon"))
-        {
-            return Err(vm.new_type_error(format!(
-                "start_joinable_thread() got an unexpected keyword argument '{unexpected}'"
             )));
         }
 
@@ -1490,6 +1518,33 @@ pub(crate) mod _thread {
         let daemon = daemon_pos
             .or(daemon_kw)
             .map_or(Ok(true), |obj| obj.try_to_bool(vm))?;
+
+        // Match CPython parser precedence:
+        // - required positional/keyword argument errors are raised before
+        //   unknown keyword errors when `function` is missing.
+        if let Some(unexpected) = f_args.kwargs.keys().next() {
+            let suggestion = ["function", "handle", "daemon"]
+                .iter()
+                .filter_map(|candidate| {
+                    let max_distance = (unexpected.len() + candidate.len() + 3) * MOVE_COST / 6;
+                    let distance = levenshtein_distance(
+                        unexpected.as_bytes(),
+                        candidate.as_bytes(),
+                        max_distance,
+                    );
+                    (distance <= max_distance).then_some((distance, *candidate))
+                })
+                .min_by_key(|(distance, _)| *distance)
+                .map(|(_, candidate)| candidate);
+            let msg = if let Some(suggestion) = suggestion {
+                format!(
+                    "start_joinable_thread() got an unexpected keyword argument '{unexpected}'. Did you mean '{suggestion}'?"
+                )
+            } else {
+                format!("start_joinable_thread() got an unexpected keyword argument '{unexpected}'")
+            };
+            return Err(vm.new_type_error(msg));
+        }
 
         if function_obj.to_callable().is_none() {
             return Err(vm.new_type_error("thread function must be callable"));
@@ -1570,6 +1625,11 @@ pub(crate) mod _thread {
         let handle_clone = handle.clone();
         let inner_clone = handle.inner.clone();
         let done_event_clone = handle.done_event.clone();
+        let started_event = Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+        let started_event_clone = Arc::clone(&started_event);
+        let handle_ready_event =
+            Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+        let handle_ready_event_clone = Arc::clone(&handle_ready_event);
 
         let mut thread_builder = thread::Builder::new();
         let stacksize = vm.state.stacksize.load();
@@ -1579,9 +1639,23 @@ pub(crate) mod _thread {
 
         let join_handle = thread_builder
             .spawn(vm.new_thread().make_spawn_func(move |vm| {
-                // Set ident and mark as running
+                // Publish ident for the parent starter thread.
                 {
                     inner_clone.lock().ident = get_ident();
+                }
+                {
+                    let (started_lock, started_cvar) = &*started_event_clone;
+                    *started_lock.lock() = true;
+                    started_cvar.notify_all();
+                }
+                // Match CPython handle_ready behavior class: don't execute the
+                // target function until parent marks the handle as running.
+                {
+                    let (ready_lock, ready_cvar) = &*handle_ready_event_clone;
+                    let mut ready = ready_lock.lock();
+                    while !*ready {
+                        vm.allow_threads(|| ready_cvar.wait(&mut ready));
+                    }
                 }
 
                 // Ensure cleanup happens even if the function panics
@@ -1655,12 +1729,28 @@ pub(crate) mod _thread {
                 vm.new_runtime_error("can't start new thread")
             })?;
 
+        // Wait until the new thread has reported its ident.
+        {
+            let (started_lock, started_cvar) = &*started_event;
+            let mut started = started_lock.lock();
+            while !*started {
+                vm.allow_threads(|| started_cvar.wait(&mut started));
+            }
+        }
+
         // Mark the handle running in the parent thread (like CPython's
         // ThreadHandle_start sets THREAD_HANDLE_RUNNING after spawn succeeds).
         {
             let mut inner = handle.inner.lock();
             inner.join_handle = Some(join_handle);
             inner.state = ThreadHandleState::Running;
+        }
+
+        // Unblock the started thread once handle state is fully published.
+        {
+            let (ready_lock, ready_cvar) = &*handle_ready_event;
+            *ready_lock.lock() = true;
+            ready_cvar.notify_all();
         }
 
         Ok(handle_clone)
