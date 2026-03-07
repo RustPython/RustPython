@@ -17,7 +17,7 @@ use super::{
 };
 use crate::object::traverse_object::PyObjVTable;
 use crate::{
-    builtins::{PyDict, PyDictRef, PyType, PyTypeRef},
+    builtins::{PyDictRef, PyType, PyTypeRef},
     common::{
         atomic::{Ordering, PyAtomic, Radium},
         linked_list::{Link, Pointers},
@@ -927,6 +927,12 @@ impl InstanceDict {
     pub fn replace(&self, d: PyDictRef) -> PyDictRef {
         core::mem::replace(&mut self.d.write(), d)
     }
+
+    /// Consume the InstanceDict and return the inner PyDictRef.
+    #[inline]
+    pub fn into_inner(self) -> PyDictRef {
+        self.d.into_inner()
+    }
 }
 
 impl<T: PyPayload> PyInner<T> {
@@ -1684,11 +1690,19 @@ impl PyObject {
         }
 
         // 2. Clear dict and member slots (subtype_clear)
-        if let Some(ext) = obj.0.ext_ref() {
-            if let Some(dict) = ext.dict.as_ref() {
-                let dict_ref = dict.get();
-                // Clear dict entries to break cycles, then collect the dict itself
-                PyDict::clear(&dict_ref);
+        // Use mutable access to actually detach the dict, matching CPython's
+        // Py_CLEAR(*_PyObject_GetDictPtr(self)) which NULLs the dict pointer
+        // without clearing dict contents. This is critical because the dict
+        // may still be referenced by other live objects (e.g. function.__globals__).
+        if obj.0.has_ext() {
+            let self_addr = (ptr as *const u8).addr();
+            let ext_ptr = core::ptr::with_exposed_provenance_mut::<ObjExt>(
+                self_addr.wrapping_sub(EXT_OFFSET),
+            );
+            let ext = unsafe { &mut *ext_ptr };
+            if let Some(old_dict) = ext.dict.take() {
+                // Get the dict ref before dropping InstanceDict
+                let dict_ref = old_dict.into_inner();
                 result.push(dict_ref.into());
             }
             for slot in ext.slots.iter() {

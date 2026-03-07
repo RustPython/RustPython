@@ -127,8 +127,8 @@ NEWLOCALS
 newsemlockobject
 nfrees
 nkwargs
-nlocalsplus
 nkwelts
+nlocalsplus
 Nondescriptor
 noninteger
 nops
@@ -161,6 +161,7 @@ pylifecycle
 pymain
 pyrepl
 PYTHONTRACEMALLOC
+PYTHONUTF8
 pythonw
 PYTHREAD_NAME
 releasebuffer
@@ -172,9 +173,11 @@ saveall
 scls
 setdict
 setfunc
+setprofileallthreads
 SETREF
 setresult
 setslice
+settraceallthreads
 SLOTDEFINED
 SMALLBUF
 SOABI
@@ -191,8 +194,10 @@ subparams
 subscr
 sval
 swappedbytes
+sysdict
 templatelib
 testconsole
+threadstate
 ticketer
 tmptype
 tok_oldval
