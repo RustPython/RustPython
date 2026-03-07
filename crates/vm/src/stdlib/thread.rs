@@ -377,8 +377,8 @@ pub(crate) mod _thread {
             vm,
         )?;
         d.set_item(
-            "detach_wait_yields",
-            vm.ctx.new_int(stats.detach_wait_yields).into(),
+            "world_stopped",
+            vm.ctx.new_bool(stats.world_stopped).into(),
             vm,
         )?;
         Ok(d)
@@ -435,7 +435,7 @@ pub(crate) mod _thread {
     /// This is important for fork compatibility - the ID must remain stable after fork
     #[cfg(unix)]
     fn current_thread_id() -> u64 {
-        // pthread_self() like CPython for fork compatibility
+        // pthread_self() for fork compatibility
         unsafe { libc::pthread_self() as u64 }
     }
 
@@ -487,12 +487,68 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn start_new_thread(
-        func: ArgCallable,
-        args: PyTupleRef,
-        kwargs: OptionalArg<PyDictRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<u64> {
+    fn start_new_thread(mut f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u64> {
+        if !f_args.kwargs.is_empty() {
+            return Err(vm.new_type_error("start_new_thread() takes no keyword arguments"));
+        }
+        let given = f_args.args.len();
+        if given < 2 {
+            return Err(vm.new_type_error(format!(
+                "start_new_thread expected at least 2 arguments, got {given}"
+            )));
+        }
+        if given > 3 {
+            return Err(vm.new_type_error(format!(
+                "start_new_thread expected at most 3 arguments, got {given}"
+            )));
+        }
+
+        let func_obj = f_args.take_positional().unwrap();
+        let args_obj = f_args.take_positional().unwrap();
+        let kwargs_obj = f_args.take_positional();
+
+        if func_obj.to_callable().is_none() {
+            return Err(vm.new_type_error("first arg must be callable"));
+        }
+        if !args_obj.fast_isinstance(vm.ctx.types.tuple_type) {
+            return Err(vm.new_type_error("2nd arg must be a tuple"));
+        }
+        if kwargs_obj
+            .as_ref()
+            .is_some_and(|obj| !obj.fast_isinstance(vm.ctx.types.dict_type))
+        {
+            return Err(vm.new_type_error("optional 3rd arg must be a dictionary"));
+        }
+
+        let func: ArgCallable = func_obj.clone().try_into_value(vm)?;
+        let args: PyTupleRef = args_obj.clone().try_into_value(vm)?;
+        let kwargs: Option<PyDictRef> = kwargs_obj.map(|obj| obj.try_into_value(vm)).transpose()?;
+
+        vm.sys_module.get_attr("audit", vm)?.call(
+            (
+                "_thread.start_new_thread",
+                func_obj,
+                args_obj,
+                kwargs
+                    .as_ref()
+                    .map_or_else(|| vm.ctx.none(), |k| k.clone().into()),
+            ),
+            vm,
+        )?;
+
+        if vm
+            .state
+            .finalizing
+            .load(core::sync::atomic::Ordering::Acquire)
+        {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.python_finalization_error.to_owned(),
+                "can't create new thread at interpreter shutdown"
+                    .to_owned()
+                    .into(),
+            ));
+        }
+
         let args = FuncArgs::new(
             args.to_vec(),
             kwargs
@@ -512,7 +568,7 @@ pub(crate) mod _thread {
                     .make_spawn_func(move |vm| run_thread(func, args, vm)),
             )
             .map(|handle| thread_to_id(&handle))
-            .map_err(|err| vm.new_runtime_error(format!("can't start new thread: {err}")))
+            .map_err(|_err| vm.new_runtime_error("can't start new thread"))
     }
 
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
@@ -630,14 +686,17 @@ pub(crate) mod _thread {
             };
 
             match handle_to_join {
-                Some((_, done_event)) => {
-                    // Wait for this thread to finish (infinite timeout)
-                    // Only check done flag to avoid lock ordering issues
-                    // (done_event lock vs inner lock)
-                    let (lock, cvar) = &*done_event;
-                    let mut done = lock.lock();
-                    while !*done {
-                        vm.allow_threads(|| cvar.wait(&mut done));
+                Some((inner, done_event)) => {
+                    if let Err(exc) = ThreadHandle::join_internal(&inner, &done_event, None, vm) {
+                        vm.run_unraisable(
+                            exc,
+                            Some(
+                                "Exception ignored while joining a thread in _thread._shutdown()"
+                                    .to_owned(),
+                            ),
+                            vm.ctx.none(),
+                        );
+                        return;
                     }
                 }
                 None => break, // No more threads to wait on
@@ -653,6 +712,24 @@ pub(crate) mod _thread {
     ) {
         let mut handles = vm.state.shutdown_handles.lock();
         handles.push((Arc::downgrade(inner), Arc::downgrade(done_event)));
+    }
+
+    fn remove_from_shutdown_handles(
+        vm: &VirtualMachine,
+        inner: &Arc<parking_lot::Mutex<ThreadHandleInner>>,
+        done_event: &Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+    ) {
+        let mut handles = vm.state.shutdown_handles.lock();
+        handles.retain(|(inner_weak, done_event_weak): &ShutdownEntry| {
+            let Some(registered_inner) = inner_weak.upgrade() else {
+                return false;
+            };
+            let Some(registered_done_event) = done_event_weak.upgrade() else {
+                return false;
+            };
+            !(Arc::ptr_eq(&registered_inner, inner)
+                && Arc::ptr_eq(&registered_done_event, done_event))
+        });
     }
 
     #[pyfunction]
@@ -1130,55 +1207,55 @@ pub(crate) mod _thread {
             Self { inner, done_event }
         }
 
-        #[pygetset]
-        fn ident(&self) -> u64 {
-            self.inner.lock().ident
-        }
-
-        #[pymethod]
-        fn is_done(&self) -> bool {
-            self.inner.lock().state == ThreadHandleState::Done
-        }
-
-        #[pymethod]
-        fn _set_done(&self) {
-            self.inner.lock().state = ThreadHandleState::Done;
-            // Signal waiting threads that this thread is done
-            let (lock, cvar) = &*self.done_event;
-            *lock.lock() = true;
-            cvar.notify_all();
-        }
-
-        #[pymethod]
-        fn join(
-            &self,
-            timeout: OptionalArg<Option<Either<f64, i64>>>,
+        fn join_internal(
+            inner: &Arc<parking_lot::Mutex<ThreadHandleInner>>,
+            done_event: &Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+            timeout_duration: Option<Duration>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            // Convert timeout to Duration (None or negative = infinite wait)
-            let timeout_duration = match timeout.flatten() {
-                Some(Either::A(t)) if t >= 0.0 => Some(Duration::from_secs_f64(t)),
-                Some(Either::B(t)) if t >= 0 => Some(Duration::from_secs(t as u64)),
-                _ => None,
-            };
+            Self::check_started(inner, vm)?;
 
-            // Check for self-join first
-            {
-                let inner = self.inner.lock();
-                let current_ident = get_ident();
-                if inner.ident == current_ident && inner.state == ThreadHandleState::Running {
-                    return Err(vm.new_runtime_error("cannot join current thread"));
-                }
-            }
+            let deadline =
+                timeout_duration.and_then(|timeout| std::time::Instant::now().checked_add(timeout));
 
             // Wait for thread completion using Condvar (supports timeout)
             // Loop to handle spurious wakeups
-            let (lock, cvar) = &*self.done_event;
+            let (lock, cvar) = &**done_event;
             let mut done = lock.lock();
+
+            // ThreadHandle_join semantics: self-join/finalizing checks
+            // apply only while target thread has not reported it is exiting yet.
+            if !*done {
+                let inner_guard = inner.lock();
+                let current_ident = get_ident();
+                if inner_guard.ident == current_ident
+                    && inner_guard.state == ThreadHandleState::Running
+                {
+                    return Err(vm.new_runtime_error("Cannot join current thread"));
+                }
+                if vm
+                    .state
+                    .finalizing
+                    .load(core::sync::atomic::Ordering::Acquire)
+                {
+                    return Err(vm.new_exception_msg(
+                        vm.ctx.exceptions.python_finalization_error.to_owned(),
+                        "cannot join thread at interpreter shutdown"
+                            .to_owned()
+                            .into(),
+                    ));
+                }
+            }
 
             while !*done {
                 if let Some(timeout) = timeout_duration {
-                    let result = vm.allow_threads(|| cvar.wait_for(&mut done, timeout));
+                    let remaining = deadline.map_or(timeout, |deadline| {
+                        deadline.saturating_duration_since(std::time::Instant::now())
+                    });
+                    if remaining.is_zero() {
+                        return Ok(());
+                    }
+                    let result = vm.allow_threads(|| cvar.wait_for(&mut done, remaining));
                     if result.timed_out() && !*done {
                         // Timeout occurred and done is still false
                         return Ok(());
@@ -1192,18 +1269,18 @@ pub(crate) mod _thread {
 
             // Thread is done, now perform cleanup
             let join_handle = {
-                let mut inner = self.inner.lock();
+                let mut inner_guard = inner.lock();
 
                 // If already joined, return immediately (idempotent)
-                if inner.joined {
+                if inner_guard.joined {
                     return Ok(());
                 }
 
                 // If another thread is already joining, wait for them to finish
-                if inner.joining {
-                    drop(inner);
+                if inner_guard.joining {
+                    drop(inner_guard);
                     // Wait on done_event
-                    let (lock, cvar) = &*self.done_event;
+                    let (lock, cvar) = &**done_event;
                     let mut done = lock.lock();
                     while !*done {
                         vm.allow_threads(|| cvar.wait(&mut done));
@@ -1212,10 +1289,10 @@ pub(crate) mod _thread {
                 }
 
                 // Mark that we're joining
-                inner.joining = true;
+                inner_guard.joining = true;
 
                 // Take the join handle if available
-                inner.join_handle.take()
+                inner_guard.join_handle.take()
             };
 
             // Perform the actual join outside the lock
@@ -1226,12 +1303,120 @@ pub(crate) mod _thread {
 
             // Mark as joined and clear joining flag
             {
-                let mut inner = self.inner.lock();
-                inner.joined = true;
-                inner.joining = false;
+                let mut inner_guard = inner.lock();
+                inner_guard.joined = true;
+                inner_guard.joining = false;
             }
 
             Ok(())
+        }
+
+        fn check_started(
+            inner: &Arc<parking_lot::Mutex<ThreadHandleInner>>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let state = inner.lock().state;
+            if matches!(
+                state,
+                ThreadHandleState::NotStarted | ThreadHandleState::Starting
+            ) {
+                return Err(vm.new_runtime_error("thread not started"));
+            }
+            Ok(())
+        }
+
+        fn set_done_internal(
+            inner: &Arc<parking_lot::Mutex<ThreadHandleInner>>,
+            done_event: &Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            Self::check_started(inner, vm)?;
+            {
+                let mut inner_guard = inner.lock();
+                inner_guard.state = ThreadHandleState::Done;
+                // _set_done() detach path. Dropping the JoinHandle
+                // detaches the underlying Rust thread.
+                inner_guard.join_handle = None;
+                inner_guard.joining = false;
+                inner_guard.joined = true;
+            }
+            remove_from_shutdown_handles(vm, inner, done_event);
+
+            let (lock, cvar) = &**done_event;
+            *lock.lock() = true;
+            cvar.notify_all();
+            Ok(())
+        }
+
+        fn parse_join_timeout(
+            timeout: OptionalArg<Option<Either<f64, i64>>>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<Duration>> {
+            const JOIN_TIMEOUT_MAX_SECONDS: i64 = TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000;
+            match timeout.flatten() {
+                Some(Either::A(t)) => {
+                    if t.is_nan() {
+                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                    }
+                    if !t.is_finite() || t > TIMEOUT_MAX || t < -TIMEOUT_MAX {
+                        return Err(
+                            vm.new_overflow_error("timestamp out of range for platform time_t")
+                        );
+                    }
+                    if t < 0.0 {
+                        return Ok(None);
+                    }
+                    Ok(Some(Duration::from_secs_f64(t)))
+                }
+                Some(Either::B(t)) => {
+                    if t > JOIN_TIMEOUT_MAX_SECONDS || t < -JOIN_TIMEOUT_MAX_SECONDS {
+                        return Err(
+                            vm.new_overflow_error("timestamp too large to convert to C PyTime_t")
+                        );
+                    }
+                    if t < 0 {
+                        Ok(None)
+                    } else {
+                        Ok(Some(Duration::from_secs(t as u64)))
+                    }
+                }
+                None => Ok(None),
+            }
+        }
+
+        #[pygetset]
+        fn ident(&self) -> u64 {
+            self.inner.lock().ident
+        }
+
+        #[pymethod]
+        fn is_done(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            // If completion was observed, perform one-time join cleanup
+            // before returning True.
+            let done = {
+                let (lock, _) = &*self.done_event;
+                *lock.lock()
+            };
+            if !done {
+                return Ok(false);
+            }
+            Self::join_internal(&self.inner, &self.done_event, Some(Duration::ZERO), vm)?;
+            Ok(true)
+        }
+
+        #[pymethod]
+        fn _set_done(&self, vm: &VirtualMachine) -> PyResult<()> {
+            Self::set_done_internal(&self.inner, &self.done_event, vm)
+        }
+
+        #[pymethod]
+        fn join(
+            &self,
+            timeout: OptionalArg<Option<Either<f64, i64>>>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let timeout_duration = Self::parse_join_timeout(timeout, vm)?;
+            Self::join_internal(&self.inner, &self.done_event, timeout_duration, vm)
         }
 
         #[pyslot]
@@ -1242,35 +1427,136 @@ pub(crate) mod _thread {
         }
     }
 
-    #[derive(FromArgs)]
-    struct StartJoinableThreadArgs {
-        #[pyarg(positional)]
-        function: ArgCallable,
-        #[pyarg(any, optional)]
-        handle: OptionalArg<PyRef<ThreadHandle>>,
-        #[pyarg(any, default = true)]
-        daemon: bool,
-    }
-
     #[pyfunction]
     fn start_joinable_thread(
-        args: StartJoinableThreadArgs,
+        mut f_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<ThreadHandle>> {
-        let handle = match args.handle {
-            OptionalArg::Present(h) => h,
-            OptionalArg::Missing => ThreadHandle::new(vm).into_ref(&vm.ctx),
+        let given = f_args.args.len() + f_args.kwargs.len();
+        if given > 3 {
+            return Err(vm.new_type_error(format!(
+                "start_joinable_thread() takes at most 3 arguments ({given} given)"
+            )));
+        }
+        if let Some(unexpected) = f_args
+            .kwargs
+            .keys()
+            .find(|k| !matches!(k.as_str(), "function" | "handle" | "daemon"))
+        {
+            return Err(vm.new_type_error(format!(
+                "start_joinable_thread() got an unexpected keyword argument '{unexpected}'"
+            )));
+        }
+
+        let function_pos = f_args.take_positional();
+        let function_kw = f_args.take_keyword("function");
+        if function_pos.is_some() && function_kw.is_some() {
+            return Err(vm.new_type_error(
+                "argument for start_joinable_thread() given by name ('function') and position (1)",
+            ));
+        }
+        let Some(function_obj) = function_pos.or(function_kw) else {
+            return Err(vm.new_type_error(
+                "start_joinable_thread() missing required argument 'function' (pos 1)",
+            ));
         };
 
-        // Mark as starting
-        handle.inner.lock().state = ThreadHandleState::Starting;
+        let handle_pos = f_args.take_positional();
+        let handle_kw = f_args.take_keyword("handle");
+        if handle_pos.is_some() && handle_kw.is_some() {
+            return Err(vm.new_type_error(
+                "argument for start_joinable_thread() given by name ('handle') and position (2)",
+            ));
+        }
+        let handle_obj = handle_pos.or(handle_kw);
+
+        let daemon_pos = f_args.take_positional();
+        let daemon_kw = f_args.take_keyword("daemon");
+        if daemon_pos.is_some() && daemon_kw.is_some() {
+            return Err(vm.new_type_error(
+                "argument for start_joinable_thread() given by name ('daemon') and position (3)",
+            ));
+        }
+        let daemon = daemon_pos
+            .or(daemon_kw)
+            .map_or(Ok(true), |obj| obj.try_to_bool(vm))?;
+
+        if function_obj.to_callable().is_none() {
+            return Err(vm.new_type_error("thread function must be callable"));
+        }
+        let function: ArgCallable = function_obj.clone().try_into_value(vm)?;
+
+        let thread_handle_type = ThreadHandle::class(&vm.ctx);
+        let handle = if let Some(handle_obj) = handle_obj {
+            if vm.is_none(&handle_obj) {
+                None
+            } else if !handle_obj.class().is(thread_handle_type) {
+                return Err(vm.new_type_error("'handle' must be a _ThreadHandle"));
+            } else {
+                Some(
+                    handle_obj
+                        .downcast::<ThreadHandle>()
+                        .map_err(|_| vm.new_type_error("'handle' must be a _ThreadHandle"))?,
+                )
+            }
+        } else {
+            None
+        };
+
+        vm.sys_module.get_attr("audit", vm)?.call(
+            (
+                "_thread.start_joinable_thread",
+                function_obj,
+                daemon,
+                handle
+                    .as_ref()
+                    .map_or_else(|| vm.ctx.none(), |h| h.clone().into()),
+            ),
+            vm,
+        )?;
+
+        if vm
+            .state
+            .finalizing
+            .load(core::sync::atomic::Ordering::Acquire)
+        {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.python_finalization_error.to_owned(),
+                "can't create new thread at interpreter shutdown"
+                    .to_owned()
+                    .into(),
+            ));
+        }
+
+        let handle = match handle {
+            Some(h) => h,
+            None => ThreadHandle::new(vm).into_ref(&vm.ctx),
+        };
+
+        // Must only start once (ThreadHandle_start).
+        {
+            let mut inner = handle.inner.lock();
+            if inner.state != ThreadHandleState::NotStarted {
+                return Err(vm.new_runtime_error("thread already started"));
+            }
+            inner.state = ThreadHandleState::Starting;
+            inner.ident = 0;
+            inner.join_handle = None;
+            inner.joining = false;
+            inner.joined = false;
+        }
+        // Starting a handle always resets the completion event.
+        {
+            let (done_lock, _) = &*handle.done_event;
+            *done_lock.lock() = false;
+        }
 
         // Add non-daemon threads to shutdown registry so _shutdown() will wait for them
-        if !args.daemon {
+        if !daemon {
             add_to_shutdown_handles(vm, &handle.inner, &handle.done_event);
         }
 
-        let func = args.function;
+        let func = function;
         let handle_clone = handle.clone();
         let inner_clone = handle.inner.clone();
         let done_event_clone = handle.done_event.clone();
@@ -1313,6 +1599,9 @@ pub(crate) mod _thread {
 
                     vm_state.thread_count.fetch_sub(1);
 
+                    // The runtime no longer needs to wait for this thread.
+                    remove_from_shutdown_handles(vm, &inner_for_cleanup, &done_event_for_cleanup);
+
                     // Signal waiting threads that this thread is done
                     // This must be LAST to ensure all cleanup is complete before join() returns
                     {
@@ -1338,7 +1627,25 @@ pub(crate) mod _thread {
                     }
                 }
             }))
-            .map_err(|err| vm.new_runtime_error(format!("can't start new thread: {err}")))?;
+            .map_err(|_err| {
+                // force_done + remove_from_shutdown_handles on start failure.
+                {
+                    let mut inner = handle.inner.lock();
+                    inner.state = ThreadHandleState::Done;
+                    inner.join_handle = None;
+                    inner.joining = false;
+                    inner.joined = true;
+                }
+                {
+                    let (done_lock, done_cvar) = &*handle.done_event;
+                    *done_lock.lock() = true;
+                    done_cvar.notify_all();
+                }
+                if !daemon {
+                    remove_from_shutdown_handles(vm, &handle.inner, &handle.done_event);
+                }
+                vm.new_runtime_error("can't start new thread")
+            })?;
 
         // Store the join handle
         handle.inner.lock().join_handle = Some(join_handle);
