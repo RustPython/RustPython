@@ -12,7 +12,7 @@ use core::{
     cell::UnsafeCell,
     hash, mem,
     ops::Deref,
-    sync::atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering},
+    sync::atomic::{AtomicU8, AtomicU16, AtomicU32, AtomicUsize, Ordering},
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -415,6 +415,9 @@ pub struct CodeUnits {
     /// Single atomic load/store prevents torn reads when multiple threads
     /// specialize the same instruction concurrently.
     pointer_cache: Box<[AtomicUsize]>,
+    /// SeqLock counter per instruction cache base for descriptor payload writes.
+    /// odd = write in progress, even = quiescent.
+    descriptor_sequences: Box<[AtomicU32]>,
 }
 
 // SAFETY: All cache operations use atomic read/write instructions.
@@ -441,10 +444,16 @@ impl Clone for CodeUnits {
             .iter()
             .map(|c| AtomicUsize::new(c.load(Ordering::Relaxed)))
             .collect();
+        let descriptor_sequences = self
+            .descriptor_sequences
+            .iter()
+            .map(|c| AtomicU32::new(c.load(Ordering::Relaxed)))
+            .collect();
         Self {
             units: UnsafeCell::new(units),
             adaptive_counters,
             pointer_cache,
+            descriptor_sequences,
         }
     }
 }
@@ -491,10 +500,15 @@ impl From<Vec<CodeUnit>> for CodeUnits {
             .map(|_| AtomicUsize::new(0))
             .collect::<Vec<_>>()
             .into_boxed_slice();
+        let descriptor_sequences = (0..len)
+            .map(|_| AtomicU32::new(0))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
         Self {
             units: UnsafeCell::new(units),
             adaptive_counters,
             pointer_cache,
+            descriptor_sequences,
         }
     }
 }
@@ -639,6 +653,38 @@ impl CodeUnits {
     /// Panics if `index` is out of bounds.
     pub fn read_cache_ptr(&self, index: usize) -> usize {
         self.pointer_cache[index].load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn begin_descriptor_write(&self, index: usize) {
+        let sequence = &self.descriptor_sequences[index];
+        let mut seq = sequence.load(Ordering::Acquire);
+        loop {
+            while (seq & 1) != 0 {
+                core::hint::spin_loop();
+                seq = sequence.load(Ordering::Acquire);
+            }
+            match sequence.compare_exchange_weak(
+                seq,
+                seq.wrapping_add(1),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    core::sync::atomic::fence(Ordering::Release);
+                    break;
+                }
+                Err(observed) => {
+                    core::hint::spin_loop();
+                    seq = observed;
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn end_descriptor_write(&self, index: usize) {
+        self.descriptor_sequences[index].fetch_add(1, Ordering::Release);
     }
 
     /// Read adaptive counter bits for instruction at `index`.

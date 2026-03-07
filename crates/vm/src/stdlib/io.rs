@@ -5015,13 +5015,13 @@ mod _io {
 
         if let Some(tio) = obj.downcast_ref::<TextIOWrapper>() {
             unsafe { reinit_thread_mutex_after_fork(&tio.data) };
-            if let Some(guard) = tio.data.lock() {
-                if let Some(ref data) = *guard {
-                    if let Some(ref decoder) = data.decoder {
-                        reinit_io_locks(decoder);
-                    }
-                    reinit_io_locks(&data.buffer);
+            if let Some(guard) = tio.data.lock()
+                && let Some(ref data) = *guard
+            {
+                if let Some(ref decoder) = data.decoder {
+                    reinit_io_locks(decoder);
                 }
+                reinit_io_locks(&data.buffer);
             }
             return;
         }
@@ -5044,7 +5044,6 @@ mod _io {
         if let Some(brw) = obj.downcast_ref::<BufferedRWPair>() {
             unsafe { reinit_thread_mutex_after_fork(&brw.read.data) };
             unsafe { reinit_thread_mutex_after_fork(&brw.write.data) };
-            return;
         }
     }
 

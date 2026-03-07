@@ -117,8 +117,13 @@ mod decl {
         {
             // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
             let ts = nix::sys::time::TimeSpec::from(dur);
-            let res = unsafe { libc::nanosleep(ts.as_ref(), core::ptr::null_mut()) };
-            let interrupted = res == -1 && nix::Error::last_raw() == libc::EINTR;
+            // Capture errno inside the closure: attach_thread (called by
+            // allow_threads on return) can clobber errno via syscalls.
+            let (res, err) = vm.allow_threads(|| {
+                let r = unsafe { libc::nanosleep(ts.as_ref(), core::ptr::null_mut()) };
+                (r, nix::Error::last_raw())
+            });
+            let interrupted = res == -1 && err == libc::EINTR;
 
             if interrupted {
                 vm.check_signals()?;
@@ -127,7 +132,7 @@ mod decl {
 
         #[cfg(not(unix))]
         {
-            std::thread::sleep(dur);
+            vm.allow_threads(|| std::thread::sleep(dur));
         }
 
         Ok(())
