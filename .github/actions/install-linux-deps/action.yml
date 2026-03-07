@@ -42,7 +42,7 @@ runs:
       run: >
         sudo apt-get update
 
-        sudo apt-get install --no-install-recommends
+        sudo apt-get install
         ${{ fromJSON(inputs.gcc-multilib) && 'gcc-multilib' || '' }}
         ${{ fromJSON(inputs.musl-tools) && 'musl-tools' || '' }}
         ${{ fromJSON(inputs.clang) && 'clang' || '' }}
