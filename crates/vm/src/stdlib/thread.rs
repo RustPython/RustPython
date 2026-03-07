@@ -1581,9 +1581,7 @@ pub(crate) mod _thread {
             .spawn(vm.new_thread().make_spawn_func(move |vm| {
                 // Set ident and mark as running
                 {
-                    let mut inner = inner_clone.lock();
-                    inner.ident = get_ident();
-                    inner.state = ThreadHandleState::Running;
+                    inner_clone.lock().ident = get_ident();
                 }
 
                 // Ensure cleanup happens even if the function panics
@@ -1657,8 +1655,13 @@ pub(crate) mod _thread {
                 vm.new_runtime_error("can't start new thread")
             })?;
 
-        // Store the join handle
-        handle.inner.lock().join_handle = Some(join_handle);
+        // Mark the handle running in the parent thread (like CPython's
+        // ThreadHandle_start sets THREAD_HANDLE_RUNNING after spawn succeeds).
+        {
+            let mut inner = handle.inner.lock();
+            inner.join_handle = Some(join_handle);
+            inner.state = ThreadHandleState::Running;
+        }
 
         Ok(handle_clone)
     }
