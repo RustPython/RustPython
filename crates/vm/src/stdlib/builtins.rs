@@ -285,7 +285,7 @@ mod builtins {
                 // func_type mode requires PyCF_ONLY_AST
                 if mode_str == "func_type" && !is_ast_only {
                     return Err(vm.new_value_error(
-                        "compile() mode 'func_type' requires flag PyCF_ONLY_AST".to_owned(),
+                        "compile() mode 'func_type' requires flag PyCF_ONLY_AST",
                     ));
                 }
 
@@ -294,8 +294,7 @@ mod builtins {
                     let (expected_type, expected_name) = ast::mode_type_and_name(mode_str)
                         .ok_or_else(|| {
                             vm.new_value_error(
-                                "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
-                                    .to_owned(),
+                                "compile() mode must be 'exec', 'eval', 'single' or 'func_type'",
                             )
                         })?;
                     if !args.source.fast_isinstance(&expected_type) {
@@ -500,7 +499,7 @@ mod builtins {
                             "exec() globals must be a dict, not {}",
                             globals.class().name()
                         )),
-                        _ => vm.new_type_error("globals must be a dict".to_owned()),
+                        _ => vm.new_type_error("globals must be a dict"),
                     });
                 }
                 Ok(())

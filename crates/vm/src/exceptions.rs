@@ -2171,7 +2171,7 @@ pub(super) mod types {
         fn characters_written(&self, vm: &VirtualMachine) -> PyResult<isize> {
             let written = self.written.load();
             if written == -1 {
-                Err(vm.new_attribute_error("characters_written".to_owned()))
+                Err(vm.new_attribute_error("characters_written"))
             } else {
                 Ok(written)
             }
@@ -2187,7 +2187,7 @@ pub(super) mod types {
                 None => {
                     // Deleting the attribute
                     if self.written.load() == -1 {
-                        Err(vm.new_attribute_error("characters_written".to_owned()))
+                        Err(vm.new_attribute_error("characters_written"))
                     } else {
                         self.written.store(-1);
                         Ok(())
@@ -2198,9 +2198,7 @@ pub(super) mod types {
                         .try_index(vm)?
                         .try_to_primitive::<isize>(vm)
                         .map_err(|_| {
-                            vm.new_value_error(
-                                "cannot convert characters_written value to isize".to_owned(),
-                            )
+                            vm.new_value_error("cannot convert characters_written value to isize")
                         })?;
                     self.written.store(n);
                     Ok(())
@@ -2714,14 +2712,13 @@ fn check_except_star_type_valid(match_type: &PyObjectRef, vm: &VirtualMachine) -
         // Must be a subclass of BaseException
         if !exc_type.is_subclass(&base_exc, vm)? {
             return Err(vm.new_type_error(
-                "catching classes that do not inherit from BaseException is not allowed".to_owned(),
+                "catching classes that do not inherit from BaseException is not allowed",
             ));
         }
         // Must not be a subclass of BaseExceptionGroup
         if exc_type.is_subclass(&base_eg, vm)? {
             return Err(vm.new_type_error(
-                "catching ExceptionGroup with except* is not allowed. Use except instead."
-                    .to_owned(),
+                "catching ExceptionGroup with except* is not allowed. Use except instead.",
             ));
         }
         Ok(())

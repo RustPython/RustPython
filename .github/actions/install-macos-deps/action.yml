@@ -1,0 +1,47 @@
+# This action installs a few dependencies necessary to build RustPython on macOS. By default it installs
+# autoconf, automake and libtool, but can be configured depending on which libraries are needed:
+#
+# ```
+# - uses: ./.github/actions/install-macos-deps
+#   with:
+#     openssl: true
+#     libtool: false
+# ```
+#
+# See the `inputs` section for all options and their defaults. Note that you must checkout the
+# repository before you can use this action.
+#
+# This action will only install dependencies when the current operating system is macOS. It will do
+# nothing on any other OS (Linux, Windows).
+
+name: Install macOS dependencies
+description: Installs the dependencies necessary to build RustPython on macOS.
+inputs:
+  autoconf:
+    description: Install autoconf (autoconf)
+    required: false
+    default: "true"
+  automake:
+    description: Install automake (automake)
+    required: false
+    default: "true"
+  libtool:
+    description: Install libtool (libtool)
+    required: false
+    default: "true"
+  openssl:
+    description: Install openssl (openssl@3)
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Install macOS dependencies
+      shell: bash
+      if: ${{ runner.os == 'macOS' }}
+      run: >
+        brew install
+        ${{ fromJSON(inputs.autoconf) && 'autoconf' || '' }}
+        ${{ fromJSON(inputs.automake) && 'automake' || '' }}
+        ${{ fromJSON(inputs.libtool) && 'libtool' || '' }}
+        ${{ fromJSON(inputs.openssl) && 'openssl@3' || '' }}
