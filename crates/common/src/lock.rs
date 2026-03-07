@@ -68,12 +68,26 @@ pub type PyMappedRwLockWriteGuard<'a, T> = MappedRwLockWriteGuard<'a, RawRwLock,
 
 // can add fn const_{mutex,rw_lock}() if necessary, but we probably won't need to
 
-/// Reset a `PyMutex` to its initial (unlocked) state after `fork()`.
+/// Reset a lock to its initial (unlocked) state by zeroing its bytes.
 ///
-/// After `fork()`, locks held by dead parent threads would deadlock in the
-/// child. This writes `RawMutex::INIT` via the `Mutex::raw()` accessor,
-/// bypassing the normal unlock path which may interact with parking_lot's
-/// internal waiter queues.
+/// After `fork()`, any lock held by a now-dead thread would remain
+/// permanently locked. We zero the raw bytes (the unlocked state for all
+/// `parking_lot` raw lock types) instead of using the normal unlock path,
+/// which would interact with stale waiter queues.
+///
+/// # Safety
+///
+/// Must only be called from the single-threaded child process immediately
+/// after `fork()`, before any other thread is created.
+/// The type `T` must represent the unlocked state as all-zero bytes
+/// (true for `parking_lot::RawMutex`, `RawRwLock`, `RawReentrantMutex`, etc.).
+pub unsafe fn zero_reinit_after_fork<T>(lock: *const T) {
+    unsafe {
+        core::ptr::write_bytes(lock as *mut u8, 0, core::mem::size_of::<T>());
+    }
+}
+
+/// Reset a `PyMutex` after `fork()`. See [`zero_reinit_after_fork`].
 ///
 /// # Safety
 ///
@@ -81,19 +95,10 @@ pub type PyMappedRwLockWriteGuard<'a, T> = MappedRwLockWriteGuard<'a, RawRwLock,
 /// after `fork()`, before any other thread is created.
 #[cfg(unix)]
 pub unsafe fn reinit_mutex_after_fork<T: ?Sized>(mutex: &PyMutex<T>) {
-    // Use Mutex::raw() to access the underlying lock without layout assumptions.
-    // parking_lot::RawMutex (AtomicU8) and RawCellMutex (Cell<bool>) both
-    // represent the unlocked state as all-zero bytes.
-    unsafe {
-        let raw = mutex.raw() as *const RawMutex as *mut u8;
-        core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawMutex>());
-    }
+    unsafe { zero_reinit_after_fork(mutex.raw()) }
 }
 
-/// Reset a `PyRwLock` to its initial (unlocked) state after `fork()`.
-///
-/// Same rationale as [`reinit_mutex_after_fork`] — dead threads' read or
-/// write locks would cause permanent deadlock in the child.
+/// Reset a `PyRwLock` after `fork()`. See [`zero_reinit_after_fork`].
 ///
 /// # Safety
 ///
@@ -101,10 +106,7 @@ pub unsafe fn reinit_mutex_after_fork<T: ?Sized>(mutex: &PyMutex<T>) {
 /// after `fork()`, before any other thread is created.
 #[cfg(unix)]
 pub unsafe fn reinit_rwlock_after_fork<T: ?Sized>(rwlock: &PyRwLock<T>) {
-    unsafe {
-        let raw = rwlock.raw() as *const RawRwLock as *mut u8;
-        core::ptr::write_bytes(raw, 0, core::mem::size_of::<RawRwLock>());
-    }
+    unsafe { zero_reinit_after_fork(rwlock.raw()) }
 }
 
 /// Reset a `PyThreadMutex` to its initial (unlocked, unowned) state after `fork()`.

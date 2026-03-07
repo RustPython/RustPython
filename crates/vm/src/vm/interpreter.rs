@@ -1,3 +1,5 @@
+#[cfg(all(unix, feature = "threading"))]
+use super::StopTheWorldState;
 use super::{Context, PyConfig, PyGlobalState, VirtualMachine, setting::Settings, thread};
 use crate::{
     PyResult, builtins, common::rc::PyRc, frozen::FrozenModule, getpath, py_freeze, stdlib::atexit,
@@ -124,6 +126,8 @@ where
         monitoring: PyMutex::default(),
         monitoring_events: AtomicCell::new(0),
         instrumentation_version: AtomicU64::new(0),
+        #[cfg(all(unix, feature = "threading"))]
+        stop_the_world: StopTheWorldState::new(),
     });
 
     // Create VM with the global state
@@ -470,8 +474,10 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
         crate_name = "rustpython_compiler_core"
     );
 
-    // Collect and add frozen module aliases for test modules
+    // Collect frozen module entries
     let mut entries: Vec<_> = iter.collect();
+
+    // Add test module aliases
     if let Some(hello_code) = entries
         .iter()
         .find(|(n, _)| *n == "__hello__")

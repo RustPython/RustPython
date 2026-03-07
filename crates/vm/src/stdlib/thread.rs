@@ -23,7 +23,6 @@ pub(crate) mod _thread {
         sync::{Arc, Weak},
     };
     use core::{cell::RefCell, time::Duration};
-    use crossbeam_utils::atomic::AtomicCell;
     use parking_lot::{
         RawMutex, RawThreadId,
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
@@ -78,7 +77,7 @@ pub(crate) mod _thread {
             };
             match args.blocking {
                 true if timeout == -1.0 => {
-                    mu.lock();
+                    vm.allow_threads(|| mu.lock());
                     Ok(true)
                 }
                 true if timeout < 0.0 => {
@@ -94,7 +93,7 @@ pub(crate) mod _thread {
                         ));
                     }
 
-                    Ok(mu.try_lock_for(Duration::from_secs_f64(timeout)))
+                    Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout))))
                 }
                 false if timeout != -1.0 => Err(vm
                     .new_value_error("can't specify a timeout for a non-blocking call".to_owned())),
@@ -150,17 +149,12 @@ pub(crate) mod _thread {
             Ok(())
         }
 
+        #[cfg(unix)]
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            // Reset the mutex to unlocked by directly writing the INIT value.
-            // Do NOT call unlock() here — after fork(), unlock_slow() would
-            // try to unpark stale waiters from dead parent threads.
-            let new_mut = RawMutex::INIT;
-            unsafe {
-                let old_mutex: &AtomicCell<RawMutex> = core::mem::transmute(&self.mu);
-                old_mutex.swap(new_mut);
-            }
-
+            // Overwrite lock state to unlocked. Do NOT call unlock() here —
+            // after fork(), unlock_slow() would try to unpark stale waiters.
+            unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
             Ok(())
         }
 
@@ -250,18 +244,13 @@ pub(crate) mod _thread {
             Ok(())
         }
 
+        #[cfg(unix)]
         #[pymethod]
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
-            // Reset the reentrant mutex to unlocked by directly writing INIT.
-            // Do NOT call unlock() — after fork(), the slow path would try
-            // to unpark stale waiters from dead parent threads.
+            // Overwrite lock state to unlocked. Do NOT call unlock() here —
+            // after fork(), unlock_slow() would try to unpark stale waiters.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
-            let new_mut = RawRMutex::INIT;
-            unsafe {
-                let old_mutex: &AtomicCell<RawRMutex> = core::mem::transmute(&self.mu);
-                old_mutex.swap(new_mut);
-            }
-
+            unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
             Ok(())
         }
 
@@ -342,6 +331,63 @@ pub(crate) mod _thread {
     #[pyfunction]
     pub fn get_ident() -> u64 {
         current_thread_id()
+    }
+
+    #[cfg(all(unix, feature = "threading"))]
+    #[pyfunction]
+    fn _stop_the_world_stats(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        let stats = vm.state.stop_the_world.stats_snapshot();
+        let d = vm.ctx.new_dict();
+        d.set_item("stop_calls", vm.ctx.new_int(stats.stop_calls).into(), vm)?;
+        d.set_item(
+            "last_wait_ns",
+            vm.ctx.new_int(stats.last_wait_ns).into(),
+            vm,
+        )?;
+        d.set_item(
+            "total_wait_ns",
+            vm.ctx.new_int(stats.total_wait_ns).into(),
+            vm,
+        )?;
+        d.set_item("max_wait_ns", vm.ctx.new_int(stats.max_wait_ns).into(), vm)?;
+        d.set_item("poll_loops", vm.ctx.new_int(stats.poll_loops).into(), vm)?;
+        d.set_item(
+            "attached_seen",
+            vm.ctx.new_int(stats.attached_seen).into(),
+            vm,
+        )?;
+        d.set_item(
+            "forced_parks",
+            vm.ctx.new_int(stats.forced_parks).into(),
+            vm,
+        )?;
+        d.set_item(
+            "suspend_notifications",
+            vm.ctx.new_int(stats.suspend_notifications).into(),
+            vm,
+        )?;
+        d.set_item(
+            "attach_wait_yields",
+            vm.ctx.new_int(stats.attach_wait_yields).into(),
+            vm,
+        )?;
+        d.set_item(
+            "suspend_wait_yields",
+            vm.ctx.new_int(stats.suspend_wait_yields).into(),
+            vm,
+        )?;
+        d.set_item(
+            "detach_wait_yields",
+            vm.ctx.new_int(stats.detach_wait_yields).into(),
+            vm,
+        )?;
+        Ok(d)
+    }
+
+    #[cfg(all(unix, feature = "threading"))]
+    #[pyfunction]
+    fn _stop_the_world_reset_stats(vm: &VirtualMachine) {
+        vm.state.stop_the_world.reset_stats();
     }
 
     /// Set the name of the current thread
@@ -591,7 +637,7 @@ pub(crate) mod _thread {
                     let (lock, cvar) = &*done_event;
                     let mut done = lock.lock();
                     while !*done {
-                        cvar.wait(&mut done);
+                        vm.allow_threads(|| cvar.wait(&mut done));
                     }
                 }
                 None => break, // No more threads to wait on
@@ -1019,10 +1065,7 @@ pub(crate) mod _thread {
     /// Reset a parking_lot::Mutex to unlocked state after fork.
     #[cfg(unix)]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
-        unsafe {
-            let raw = mutex.raw() as *const parking_lot::RawMutex as *mut u8;
-            core::ptr::write_bytes(raw, 0, core::mem::size_of::<parking_lot::RawMutex>());
-        }
+        unsafe { rustpython_common::lock::zero_reinit_after_fork(mutex.raw()) };
     }
 
     // Thread handle state enum
@@ -1135,14 +1178,14 @@ pub(crate) mod _thread {
 
             while !*done {
                 if let Some(timeout) = timeout_duration {
-                    let result = cvar.wait_for(&mut done, timeout);
+                    let result = vm.allow_threads(|| cvar.wait_for(&mut done, timeout));
                     if result.timed_out() && !*done {
                         // Timeout occurred and done is still false
                         return Ok(());
                     }
                 } else {
                     // Infinite wait
-                    cvar.wait(&mut done);
+                    vm.allow_threads(|| cvar.wait(&mut done));
                 }
             }
             drop(done);
@@ -1163,7 +1206,7 @@ pub(crate) mod _thread {
                     let (lock, cvar) = &*self.done_event;
                     let mut done = lock.lock();
                     while !*done {
-                        cvar.wait(&mut done);
+                        vm.allow_threads(|| cvar.wait(&mut done));
                     }
                     return Ok(());
                 }
@@ -1178,7 +1221,7 @@ pub(crate) mod _thread {
             // Perform the actual join outside the lock
             if let Some(handle) = join_handle {
                 // Ignore the result - panics in spawned threads are already handled
-                let _ = handle.join();
+                let _ = vm.allow_threads(|| handle.join());
             }
 
             // Mark as joined and clear joining flag

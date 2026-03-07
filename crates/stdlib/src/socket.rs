@@ -1105,7 +1105,8 @@ mod _socket {
             loop {
                 if deadline.is_some() || matches!(select, SelectKind::Connect) {
                     let interval = deadline.as_ref().map(|d| d.time_until()).transpose()?;
-                    let res = sock_select(&*self.sock()?, select, interval);
+                    let sock = self.sock()?;
+                    let res = vm.allow_threads(|| sock_select(&sock, select, interval));
                     match res {
                         Ok(true) => return Err(IoOrPyException::Timeout),
                         Err(e) if e.kind() == io::ErrorKind::Interrupted => {
@@ -1118,8 +1119,9 @@ mod _socket {
                 }
 
                 let err = loop {
-                    // loop on interrupt
-                    match f() {
+                    // Detach thread state around the blocking syscall so
+                    // stop-the-world can park this thread (e.g. before fork).
+                    match vm.allow_threads(&mut f) {
                         Ok(x) => return Ok(x),
                         Err(e) if e.kind() == io::ErrorKind::Interrupted => vm.check_signals()?,
                         Err(e) => break e,
@@ -1342,7 +1344,8 @@ mod _socket {
         ) -> Result<(), IoOrPyException> {
             let sock_addr = self.extract_address(address, caller, vm)?;
 
-            let err = match self.sock()?.connect(&sock_addr) {
+            let sock = self.sock()?;
+            let err = match vm.allow_threads(|| sock.connect(&sock_addr)) {
                 Ok(()) => return Ok(()),
                 Err(e) => e,
             };

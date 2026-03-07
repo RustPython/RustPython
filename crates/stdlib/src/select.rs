@@ -280,7 +280,9 @@ mod decl {
 
         loop {
             let mut tv = timeout.map(sec_to_timeval);
-            let res = super::select(nfds, &mut r, &mut w, &mut x, tv.as_mut());
+            let res = vm.allow_threads(|| {
+                super::select(nfds, &mut r, &mut w, &mut x, tv.as_mut())
+            });
 
             match res {
                 Ok(_) => break,

@@ -7016,6 +7016,14 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
+    /// Read a cached descriptor pointer and validate it against the expected
+    /// type version, using a lock-free double-check pattern:
+    ///   1. read pointer  →  incref (try_to_owned)
+    ///   2. re-read version + pointer and confirm they still match
+    ///
+    /// This matches the read-side pattern used in LOAD_ATTR_METHOD_WITH_VALUES
+    /// and friends: no read-side lock, relying on the write side to invalidate
+    /// the version tag before swapping the pointer.
     #[inline]
     fn try_read_cached_descriptor(
         &self,
@@ -7026,7 +7034,12 @@ impl ExecutingFrame<'_> {
         if descr_ptr == 0 {
             return None;
         }
+        // SAFETY: `descr_ptr` was a valid `*mut PyObject` when the writer
+        // stored it, and the writer keeps a strong reference alive in
+        // `InlineCacheEntry`.  `try_to_owned_from_ptr` performs a
+        // conditional incref that fails if the object is already freed.
         let cloned = unsafe { PyObject::try_to_owned_from_ptr(descr_ptr as *mut PyObject) }?;
+        // Double-check: version tag still matches AND pointer unchanged.
         if self.code.instructions.read_cache_u32(cache_base + 1) == expected_type_version
             && self.code.instructions.read_cache_ptr(cache_base + 5) == descr_ptr
         {
@@ -7044,8 +7057,9 @@ impl ExecutingFrame<'_> {
         type_version: u32,
         descr_ptr: usize,
     ) {
-        // Publish descriptor cache atomically as a tuple:
+        // Publish descriptor cache with version-invalidation protocol:
         // invalidate version first, then write payload, then publish version.
+        // Reader double-checks version+ptr after incref, so no writer lock needed.
         unsafe {
             self.code.instructions.write_cache_u32(cache_base + 1, 0);
             self.code
@@ -7065,7 +7079,6 @@ impl ExecutingFrame<'_> {
         metaclass_version: u32,
         descr_ptr: usize,
     ) {
-        // Same publish protocol as write_cached_descriptor(), plus metaclass guard.
         unsafe {
             self.code.instructions.write_cache_u32(cache_base + 1, 0);
             self.code

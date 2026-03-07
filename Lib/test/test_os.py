@@ -5574,7 +5574,6 @@ class ForkTests(unittest.TestCase):
         self.assertEqual(err.decode("utf-8"), "")
         self.assertEqual(out.decode("utf-8"), "")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b"can't fork at interpreter shutdown" not found in b"Exception ignored in: <function AtFinalization.__del__ at 0xc508b30c0>\nAttributeError: 'NoneType' object has no attribute 'fork'\n"
     def test_fork_at_finalization(self):
         code = """if 1:
             import atexit

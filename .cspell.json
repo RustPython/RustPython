@@ -152,11 +152,6 @@
     "IFEXEC",
     // "stat"
     "FIRMLINK",
-    // CPython internal names
-    "PYTHONUTF",
-    "sysdict",
-    "settraceallthreads",
-    "setprofileallthreads"
   ],
   // flagWords - list of words to be always considered incorrect
   "flagWords": [

@@ -16,7 +16,7 @@ mod lock {
 
     #[pyfunction]
     fn acquire_lock(_vm: &VirtualMachine) {
-        IMP_LOCK.lock()
+        acquire_lock_for_fork()
     }
 
     #[pyfunction]
@@ -34,6 +34,16 @@ mod lock {
         IMP_LOCK.is_locked()
     }
 
+    pub(super) fn acquire_lock_for_fork() {
+        IMP_LOCK.lock();
+    }
+
+    pub(super) fn release_lock_after_fork_parent() {
+        if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
+            unsafe { IMP_LOCK.unlock() };
+        }
+    }
+
     /// Reset import lock after fork() — only if held by a dead thread.
     ///
     /// `IMP_LOCK` is a reentrant mutex. If the *current* (surviving) thread
@@ -47,20 +57,42 @@ mod lock {
     pub(crate) unsafe fn reinit_after_fork() {
         if IMP_LOCK.is_locked() && !IMP_LOCK.is_owned_by_current_thread() {
             // Held by a dead thread — reset to unlocked.
-            // Same pattern as RLock::_at_fork_reinit in thread.rs.
-            unsafe {
-                let old: &crossbeam_utils::atomic::AtomicCell<RawRMutex> =
-                    core::mem::transmute(&IMP_LOCK);
-                old.swap(RawRMutex::INIT);
-            }
+            unsafe { rustpython_common::lock::zero_reinit_after_fork(&IMP_LOCK) };
+        }
+    }
+
+    /// Match CPython's `_PyImport_ReInitLock()` + `_PyImport_ReleaseLock()`
+    /// behavior in the post-fork child:
+    /// 1) if ownership metadata is stale (dead owner / changed tid), reset;
+    /// 2) if current thread owns the lock, release it.
+    #[cfg(unix)]
+    pub(super) unsafe fn after_fork_child_reinit_and_release() {
+        unsafe { reinit_after_fork() };
+        if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
+            unsafe { IMP_LOCK.unlock() };
         }
     }
 }
 
 /// Re-export for fork safety code in posix.rs
+#[cfg(feature = "threading")]
+pub(crate) fn acquire_imp_lock_for_fork() {
+    lock::acquire_lock_for_fork();
+}
+
+#[cfg(feature = "threading")]
+pub(crate) fn release_imp_lock_after_fork_parent() {
+    lock::release_lock_after_fork_parent();
+}
+
 #[cfg(all(unix, feature = "threading"))]
 pub(crate) unsafe fn reinit_imp_lock_after_fork() {
     unsafe { lock::reinit_after_fork() }
+}
+
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) unsafe fn after_fork_child_imp_lock_release() {
+    unsafe { lock::after_fork_child_reinit_and_release() }
 }
 
 #[cfg(not(feature = "threading"))]

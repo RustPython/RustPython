@@ -767,9 +767,18 @@ pub mod module {
         // only for before_forkers, refer: test_register_at_fork in test_posix
 
         run_at_forkers(before_forkers, true, vm);
+
+        #[cfg(feature = "threading")]
+        crate::stdlib::imp::acquire_imp_lock_for_fork();
+
+        #[cfg(feature = "threading")]
+        vm.state.stop_the_world.stop_the_world(vm);
     }
 
     fn py_os_after_fork_child(vm: &VirtualMachine) {
+        #[cfg(feature = "threading")]
+        vm.state.stop_the_world.reset_after_fork();
+
         // Phase 1: Reset all internal locks FIRST.
         // After fork(), locks held by dead parent threads would deadlock
         // if we try to acquire them. This must happen before anything else.
@@ -796,6 +805,13 @@ pub mod module {
         // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
         crate::stdlib::thread::after_fork_child(vm);
+
+        // CPython parity: reinit import lock ownership metadata in child
+        // and release the lock acquired by PyOS_BeforeFork().
+        #[cfg(feature = "threading")]
+        unsafe {
+            crate::stdlib::imp::after_fork_child_imp_lock_release()
+        };
 
         // Initialize signal handlers for the child's main thread.
         // When forked from a worker thread, the OnceCell is empty.
@@ -846,6 +862,12 @@ pub mod module {
     }
 
     fn py_os_after_fork_parent(vm: &VirtualMachine) {
+        #[cfg(feature = "threading")]
+        vm.state.stop_the_world.start_the_world(vm);
+
+        #[cfg(feature = "threading")]
+        crate::stdlib::imp::release_imp_lock_after_fork_parent();
+
         let after_forkers_parent: Vec<PyObjectRef> = vm.state.after_forkers_parent.lock().clone();
         run_at_forkers(after_forkers_parent, false, vm);
     }
@@ -905,20 +927,41 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn fork(vm: &VirtualMachine) -> i32 {
-        warn_if_multi_threaded("fork", vm);
-
-        let pid: i32;
-        py_os_before_fork(vm);
-        unsafe {
-            pid = libc::fork();
+    fn fork(vm: &VirtualMachine) -> PyResult<i32> {
+        if vm
+            .state
+            .finalizing
+            .load(core::sync::atomic::Ordering::Acquire)
+        {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.python_finalization_error.to_owned(),
+                "can't fork at interpreter shutdown".into(),
+            ));
         }
+
+        // RustPython does not yet have C-level audit hooks; call sys.audit()
+        // to preserve Python-visible behavior and failure semantics.
+        vm.sys_module
+            .get_attr("audit", vm)?
+            .call(("os.fork",), vm)?;
+
+        py_os_before_fork(vm);
+
+        let pid = unsafe { libc::fork() };
+        // Save errno immediately — AfterFork callbacks may clobber it.
+        let saved_errno = nix::Error::last_raw();
         if pid == 0 {
             py_os_after_fork_child(vm);
         } else {
             py_os_after_fork_parent(vm);
+            // Match CPython timing: warn only after parent callback path resumes world.
+            warn_if_multi_threaded("fork", vm);
         }
-        pid
+        if pid == -1 {
+            Err(nix::Error::from_raw(saved_errno).into_pyexception(vm))
+        } else {
+            Ok(pid)
+        }
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1835,13 +1878,18 @@ pub mod module {
     fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
         loop {
-            let res = unsafe { libc::waitpid(pid, &mut status, opt) };
+            // Capture errno inside the closure: attach_thread (called by
+            // allow_threads on return) can clobber errno via syscalls.
+            let (res, err) = vm.allow_threads(|| {
+                let r = unsafe { libc::waitpid(pid, &mut status, opt) };
+                (r, nix::Error::last_raw())
+            });
             if res == -1 {
-                if nix::Error::last_raw() == libc::EINTR {
+                if err == libc::EINTR {
                     vm.check_signals()?;
                     continue;
                 }
-                return Err(nix::Error::last().into_pyexception(vm));
+                return Err(nix::Error::from_raw(err).into_pyexception(vm));
             }
             return Ok((res, status));
         }
