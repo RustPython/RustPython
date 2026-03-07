@@ -959,7 +959,7 @@ mod _ssl {
         fn set_options(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             // Validate that the value is non-negative
             if value < 0 {
-                return Err(vm.new_value_error("options must be non-negative".to_owned()));
+                return Err(vm.new_value_error("options must be non-negative"));
             }
 
             // Deprecated SSL/TLS protocol version options
@@ -1094,14 +1094,12 @@ mod _ssl {
                     pwd_str.as_str().to_owned()
                 } else if let Ok(pwd_bytes_like) = ArgBytesLike::try_from_object(vm, pwd_result) {
                     String::from_utf8(pwd_bytes_like.borrow_buf().to_vec()).map_err(|_| {
-                        vm.new_type_error(
-                            "password callback returned invalid UTF-8 bytes".to_owned(),
-                        )
+                        vm.new_type_error("password callback returned invalid UTF-8 bytes")
                     })?
                 } else {
-                    return Err(vm.new_type_error(
-                        "password callback must return a string or bytes".to_owned(),
-                    ));
+                    return Err(
+                        vm.new_type_error("password callback must return a string or bytes")
+                    );
                 };
 
                 // Validate callable password length
@@ -1244,9 +1242,7 @@ mod _ssl {
             let has_cadata = matches!(&args.cadata, OptionalArg::Present(Some(_)));
 
             if !has_cafile && !has_capath && !has_cadata {
-                return Err(
-                    vm.new_type_error("cafile, capath and cadata cannot be all omitted".to_owned())
-                );
+                return Err(vm.new_type_error("cafile, capath and cadata cannot be all omitted"));
             }
 
             // Parse arguments BEFORE acquiring locks to reduce lock scope
@@ -1745,7 +1741,7 @@ mod _ssl {
         fn load_dh_params(&self, filepath: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // Validate filepath is not None
             if vm.is_none(&filepath) {
-                return Err(vm.new_type_error("DH params filepath cannot be None".to_owned()));
+                return Err(vm.new_type_error("DH params filepath cannot be None"));
             }
 
             // Validate filepath is str or bytes
@@ -1753,9 +1749,9 @@ mod _ssl {
                 s.as_str().to_owned()
             } else if let Ok(b) = ArgBytesLike::try_from_object(vm, filepath) {
                 String::from_utf8(b.borrow_buf().to_vec())
-                    .map_err(|_| vm.new_value_error("Invalid path encoding".to_owned()))?
+                    .map_err(|_| vm.new_value_error("Invalid path encoding"))?
             } else {
-                return Err(vm.new_type_error("DH params filepath must be str or bytes".to_owned()));
+                return Err(vm.new_type_error("DH params filepath must be str or bytes"));
             };
 
             // Check if file exists
@@ -1800,7 +1796,7 @@ mod _ssl {
         fn set_ecdh_curve(&self, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // Validate name is not None
             if vm.is_none(&name) {
-                return Err(vm.new_type_error("ECDH curve name cannot be None".to_owned()));
+                return Err(vm.new_type_error("ECDH curve name cannot be None"));
             }
 
             // Validate name is str or bytes
@@ -1808,9 +1804,9 @@ mod _ssl {
                 s.as_str().to_owned()
             } else if let Ok(b) = ArgBytesLike::try_from_object(vm, name) {
                 String::from_utf8(b.borrow_buf().to_vec())
-                    .map_err(|_| vm.new_value_error("Invalid curve name encoding".to_owned()))?
+                    .map_err(|_| vm.new_value_error("Invalid curve name encoding"))?
             } else {
-                return Err(vm.new_type_error("ECDH curve name must be str or bytes".to_owned()));
+                return Err(vm.new_type_error("ECDH curve name must be str or bytes"));
             };
 
             // Validate curve name (common curves for compatibility)
@@ -2005,7 +2001,7 @@ mod _ssl {
             match arg {
                 Either::A(s) => Ok(s.clone().try_into_utf8(vm)?.as_str().to_owned()),
                 Either::B(b) => String::from_utf8(b.borrow_buf().to_vec())
-                    .map_err(|_| vm.new_value_error("path contains invalid UTF-8".to_owned())),
+                    .map_err(|_| vm.new_value_error("path contains invalid UTF-8")),
             }
         }
 

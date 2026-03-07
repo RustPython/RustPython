@@ -96,7 +96,7 @@ mod _codecs {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if !handler.is_callable() {
-            return Err(vm.new_type_error("handler must be callable".to_owned()));
+            return Err(vm.new_type_error("handler must be callable"));
         }
         vm.state
             .codec_registry
@@ -398,7 +398,7 @@ mod _codecs_windows {
             None => {
                 // String contains surrogates - not encodable with mbcs
                 return Err(vm.new_unicode_encode_error(
-                    "'mbcs' codec can't encode character: surrogates not allowed".to_string(),
+                    "'mbcs' codec can't encode character: surrogates not allowed",
                 ));
             }
         };
@@ -584,7 +584,7 @@ mod _codecs_windows {
             None => {
                 // String contains surrogates - not encodable with oem
                 return Err(vm.new_unicode_encode_error(
-                    "'oem' codec can't encode character: surrogates not allowed".to_string(),
+                    "'oem' codec can't encode character: surrogates not allowed",
                 ));
             }
         };
@@ -1052,7 +1052,7 @@ mod _codecs_windows {
         use crate::common::windows::ToWideString;
 
         if args.code_page < 0 {
-            return Err(vm.new_value_error("invalid code page number".to_owned()));
+            return Err(vm.new_value_error("invalid code page number"));
         }
         let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
         let code_page = args.code_page as u32;
@@ -1365,7 +1365,7 @@ mod _codecs_windows {
         use crate::common::wtf8::Wtf8Buf;
 
         if args.code_page < 0 {
-            return Err(vm.new_value_error("invalid code page number".to_owned()));
+            return Err(vm.new_value_error("invalid code page number"));
         }
         let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
         let code_page = args.code_page as u32;

@@ -51,7 +51,7 @@ mod gc {
         let generation = args.generation;
         let generation_num = generation.unwrap_or(2);
         if !(0..=2).contains(&generation_num) {
-            return Err(vm.new_value_error("invalid generation".to_owned()));
+            return Err(vm.new_value_error("invalid generation"));
         }
 
         // Invoke callbacks with "start" phase

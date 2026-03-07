@@ -2135,9 +2135,7 @@ impl ExecutingFrame<'_> {
                 if let Some(coro) = iter.downcast_ref::<PyCoroutine>()
                     && coro.as_coro().frame().yield_from_target().is_some()
                 {
-                    return Err(
-                        vm.new_runtime_error("coroutine is being awaited already".to_owned())
-                    );
+                    return Err(vm.new_runtime_error("coroutine is being awaited already"));
                 }
 
                 self.push_value(iter);
@@ -2161,8 +2159,7 @@ impl ExecutingFrame<'_> {
                         bytecode::CodeFlags::COROUTINE | bytecode::CodeFlags::ITERABLE_COROUTINE,
                     ) {
                         return Err(vm.new_type_error(
-                            "cannot 'yield from' a coroutine object in a non-coroutine generator"
-                                .to_owned(),
+                            "cannot 'yield from' a coroutine object in a non-coroutine generator",
                         ));
                     }
                     iterable
@@ -2276,7 +2273,7 @@ impl ExecutingFrame<'_> {
                         .get_item_opt(identifier!(vm, __build_class__), vm)?
                         .ok_or_else(|| {
                             vm.new_name_error(
-                                "__build_class__ not found".to_owned(),
+                                "__build_class__ not found",
                                 identifier!(vm, __build_class__).to_owned(),
                             )
                         })?
@@ -2286,7 +2283,7 @@ impl ExecutingFrame<'_> {
                         .map_err(|e| {
                             if e.fast_isinstance(vm.ctx.exceptions.key_error) {
                                 vm.new_name_error(
-                                    "__build_class__ not found".to_owned(),
+                                    "__build_class__ not found",
                                     identifier!(vm, __build_class__).to_owned(),
                                 )
                             } else {
@@ -2647,7 +2644,7 @@ impl ExecutingFrame<'_> {
                                     Some(s) => s,
                                     None => {
                                         return Err(vm.new_type_error(
-                                            "__match_args__ elements must be strings".to_string(),
+                                            "__match_args__ elements must be strings",
                                         ));
                                     }
                                 };
@@ -2678,16 +2675,14 @@ impl ExecutingFrame<'_> {
                                 } else if nargs_val > 1 {
                                     // Too many positional arguments for MATCH_SELF
                                     return Err(vm.new_type_error(
-                                        "class pattern accepts at most 1 positional sub-pattern for MATCH_SELF types"
-                                            .to_string(),
+                                        "class pattern accepts at most 1 positional sub-pattern for MATCH_SELF types",
                                     ));
                                 }
                             } else {
                                 // No __match_args__ and not a MATCH_SELF type
                                 if nargs_val > 0 {
                                     return Err(vm.new_type_error(
-                                        "class pattern defines no positional sub-patterns (__match_args__ missing)"
-                                            .to_string(),
+                                        "class pattern defines no positional sub-patterns (__match_args__ missing)",
                                     ));
                                 }
                             }
@@ -3300,7 +3295,7 @@ impl ExecutingFrame<'_> {
 
                 let exc = exc
                     .downcast::<PyBaseException>()
-                    .map_err(|_| vm.new_type_error("exception expected".to_owned()))?;
+                    .map_err(|_| vm.new_type_error("exception expected"))?;
                 Err(exc)
             }
             Instruction::UnaryInvert => {
@@ -4621,9 +4616,7 @@ impl ExecutingFrame<'_> {
 
                         // EXIT_INIT_CHECK: __init__ must return None
                         if !vm.is_none(&init_result) {
-                            return Err(
-                                vm.new_type_error("__init__() should return None".to_owned())
-                            );
+                            return Err(vm.new_type_error("__init__() should return None"));
                         }
 
                         self.push_value(new_obj);
@@ -6498,9 +6491,8 @@ impl ExecutingFrame<'_> {
             bytecode::RaiseKind::BareRaise => {
                 // RAISE_VARARGS 0: bare `raise` gets exception from VM state
                 // This is the current exception set by PUSH_EXC_INFO
-                vm.topmost_exception().ok_or_else(|| {
-                    vm.new_runtime_error("No active exception to reraise".to_owned())
-                })?
+                vm.topmost_exception()
+                    .ok_or_else(|| vm.new_runtime_error("No active exception to reraise"))?
             }
             bytecode::RaiseKind::ReraiseFromStack => {
                 // RERAISE: gets exception from stack top
@@ -7024,6 +7016,14 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
+    /// Read a cached descriptor pointer and validate it against the expected
+    /// type version, using a lock-free double-check pattern:
+    ///   1. read pointer  →  incref (try_to_owned)
+    ///   2. re-read version + pointer and confirm they still match
+    ///
+    /// This matches the read-side pattern used in LOAD_ATTR_METHOD_WITH_VALUES
+    /// and friends: no read-side lock, relying on the write side to invalidate
+    /// the version tag before swapping the pointer.
     #[inline]
     fn try_read_cached_descriptor(
         &self,
@@ -7034,7 +7034,12 @@ impl ExecutingFrame<'_> {
         if descr_ptr == 0 {
             return None;
         }
+        // SAFETY: `descr_ptr` was a valid `*mut PyObject` when the writer
+        // stored it, and the writer keeps a strong reference alive in
+        // `InlineCacheEntry`.  `try_to_owned_from_ptr` performs a
+        // conditional incref that fails if the object is already freed.
         let cloned = unsafe { PyObject::try_to_owned_from_ptr(descr_ptr as *mut PyObject) }?;
+        // Double-check: version tag still matches AND pointer unchanged.
         if self.code.instructions.read_cache_u32(cache_base + 1) == expected_type_version
             && self.code.instructions.read_cache_ptr(cache_base + 5) == descr_ptr
         {
@@ -7052,8 +7057,9 @@ impl ExecutingFrame<'_> {
         type_version: u32,
         descr_ptr: usize,
     ) {
-        // Publish descriptor cache atomically as a tuple:
+        // Publish descriptor cache with version-invalidation protocol:
         // invalidate version first, then write payload, then publish version.
+        // Reader double-checks version+ptr after incref, so no writer lock needed.
         unsafe {
             self.code.instructions.write_cache_u32(cache_base + 1, 0);
             self.code
@@ -7073,7 +7079,6 @@ impl ExecutingFrame<'_> {
         metaclass_version: u32,
         descr_ptr: usize,
     ) {
-        // Same publish protocol as write_cached_descriptor(), plus metaclass guard.
         unsafe {
             self.code.instructions.write_cache_u32(cache_base + 1, 0);
             self.code
@@ -8823,9 +8828,9 @@ impl ExecutingFrame<'_> {
                         .map_err(|_| vm.new_type_error("Type params must be a tuple."))?
                 };
 
-                let name = name.downcast::<crate::builtins::PyStr>().map_err(|_| {
-                    vm.new_type_error("TypeAliasType name must be a string".to_owned())
-                })?;
+                let name = name
+                    .downcast::<crate::builtins::PyStr>()
+                    .map_err(|_| vm.new_type_error("TypeAliasType name must be a string"))?;
                 let type_alias = typing::TypeAliasType::new(name, type_params, compute_value);
                 Ok(type_alias.into_ref(&vm.ctx).into())
             }

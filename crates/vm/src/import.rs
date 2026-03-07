@@ -374,7 +374,7 @@ pub(crate) fn import_module_level(
     vm: &VirtualMachine,
 ) -> PyResult {
     if level < 0 {
-        return Err(vm.new_value_error("level must be >= 0".to_owned()));
+        return Err(vm.new_value_error("level must be >= 0"));
     }
 
     let name_str = match name.to_str() {
@@ -411,14 +411,14 @@ pub(crate) fn import_module_level(
         let package = calc_package(Some(globals_ref), vm)?;
         if package.is_empty() {
             return Err(vm.new_import_error(
-                "attempted relative import with no known parent package".to_owned(),
+                "attempted relative import with no known parent package",
                 vm.ctx.new_utf8_str(""),
             ));
         }
         resolve_name(name_str, &package, level as usize, vm)?
     } else {
         if name_str.is_empty() {
-            return Err(vm.new_value_error("Empty module name".to_owned()));
+            return Err(vm.new_value_error("Empty module name"));
         }
         name_str.to_owned()
     };
@@ -500,7 +500,7 @@ fn resolve_name(name: &str, package: &str, level: usize, vm: &VirtualMachine) ->
     let parts: Vec<&str> = package.rsplitn(level, '.').collect();
     if parts.len() < level {
         return Err(vm.new_import_error(
-            "attempted relative import beyond top-level package".to_owned(),
+            "attempted relative import beyond top-level package",
             vm.ctx.new_utf8_str(name),
         ));
     }
@@ -517,7 +517,7 @@ fn resolve_name(name: &str, package: &str, level: usize, vm: &VirtualMachine) ->
 fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<String> {
     let globals = globals.ok_or_else(|| {
         vm.new_import_error(
-            "attempted relative import with no known parent package".to_owned(),
+            "attempted relative import with no known parent package",
             vm.ctx.new_utf8_str(""),
         )
     })?;
@@ -531,7 +531,7 @@ fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<
         let pkg_str: PyUtf8StrRef = pkg
             .clone()
             .downcast()
-            .map_err(|_| vm.new_type_error("package must be a string".to_owned()))?;
+            .map_err(|_| vm.new_type_error("package must be a string"))?;
         // Warn if __package__ != __spec__.parent
         if let Some(ref spec) = spec
             && !vm.is_none(spec)
@@ -572,7 +572,7 @@ fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<
     {
         let parent_str: PyUtf8StrRef = parent
             .downcast()
-            .map_err(|_| vm.new_type_error("package set to non-string".to_owned()))?;
+            .map_err(|_| vm.new_type_error("package set to non-string"))?;
         return Ok(parent_str.as_str().to_owned());
     }
 
@@ -592,13 +592,13 @@ fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<
 
     let mod_name = globals.get_item("__name__", vm).map_err(|_| {
         vm.new_import_error(
-            "attempted relative import with no known parent package".to_owned(),
+            "attempted relative import with no known parent package",
             vm.ctx.new_utf8_str(""),
         )
     })?;
     let mod_name_str: PyUtf8StrRef = mod_name
         .downcast()
-        .map_err(|_| vm.new_type_error("__name__ must be a string".to_owned()))?;
+        .map_err(|_| vm.new_type_error("__name__ must be a string"))?;
     let mut package = mod_name_str.as_str().to_owned();
     // If not a package (no __path__), strip last component.
     // Uses rpartition('.')[0] semantics: returns empty string when no dot.

@@ -390,7 +390,7 @@ pub(crate) fn warn_explicit(
         vm,
     )?;
     let action_str = PyStrRef::try_from_object(vm, action)
-        .map_err(|_| vm.new_type_error("action must be a string".to_owned()))?;
+        .map_err(|_| vm.new_type_error("action must be a string"))?;
 
     if action_str.as_bytes() == b"error" {
         let exc = PyBaseExceptionRef::try_from_object(vm, message)?;
@@ -470,13 +470,11 @@ fn call_show_warning(
         return show_warning(filename, lineno, text, category, source_line, vm);
     };
     if !show_fn.is_callable() {
-        return Err(
-            vm.new_type_error("warnings._showwarnmsg() must be set to a callable".to_owned())
-        );
+        return Err(vm.new_type_error("warnings._showwarnmsg() must be set to a callable"));
     }
     let Some(warnmsg_cls) = get_warnings_attr(vm, identifier!(&vm.ctx, WarningMessage), false)?
     else {
-        return Err(vm.new_runtime_error("unable to get warnings.WarningMessage".to_owned()));
+        return Err(vm.new_runtime_error("unable to get warnings.WarningMessage"));
     };
 
     let msg = warnmsg_cls.call(
@@ -591,7 +589,7 @@ fn setup_context(
             .get_attr(identifier!(vm, __dict__), vm)
             .and_then(|d| {
                 d.downcast::<crate::builtins::PyDict>()
-                    .map_err(|_| vm.new_type_error("sys.__dict__ is not a dictionary".to_owned()))
+                    .map_err(|_| vm.new_type_error("sys.__dict__ is not a dictionary"))
             })?;
         (globals, vm.ctx.intern_str("<sys>"), 0)
     };
