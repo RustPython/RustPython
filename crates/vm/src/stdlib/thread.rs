@@ -1185,7 +1185,7 @@ pub(crate) mod _thread {
         done_event: Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     }
 
-    #[pyclass]
+    #[pyclass(with(Representable))]
     impl ThreadHandle {
         fn new(vm: &VirtualMachine) -> Self {
             let inner = Arc::new(parking_lot::Mutex::new(ThreadHandleInner {
@@ -1424,6 +1424,16 @@ pub(crate) mod _thread {
             ThreadHandle::new(vm)
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
+        }
+    }
+
+    impl Representable for ThreadHandle {
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            let ident = zelf.inner.lock().ident;
+            Ok(format!(
+                "<{} object: ident={ident}>",
+                zelf.class().slot_name()
+            ))
         }
     }
 
