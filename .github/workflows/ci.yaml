@@ -320,6 +320,7 @@ jobs:
 
       - name: Detect available cores
         id: cores
+        shell: bash
         run: |
           cores=$(python -c 'print(__import__("os").process_cpu_count())')
           echo "cores=${cores}" >> $GITHUB_OUTPUT
