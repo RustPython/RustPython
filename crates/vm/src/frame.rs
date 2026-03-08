@@ -4784,9 +4784,8 @@ impl ExecutingFrame<'_> {
                     ) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    // CPython creates `_Py_InitCleanup` + `__init__` frames here.
-                    // Keep the guard conservative and deopt when the effective
-                    // recursion budget for those two frames is not available.
+                    // Two frames are created: `_Py_InitCleanup` + `__init__`.
+                    // Guard recursion limit accordingly and fall back.
                     if self.specialization_call_recursion_guard_with_extra_frames(vm, 1) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
