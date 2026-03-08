@@ -4704,10 +4704,18 @@ impl ExecutingFrame<'_> {
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
                     && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
-                    // co_framesize + _Py_InitCleanup.co_framesize guard.
-                    // We do not materialize frame-specials on datastack, so use
-                    // only the cleanup shim's eval-stack payload (2 stack slots).
-                    const INIT_CLEANUP_STACK_BYTES: usize = 2 * core::mem::size_of::<usize>();
+                    // CPython guard is:
+                    //   code->co_framesize + _Py_InitCleanup.co_framesize
+                    // and _Py_InitCleanup.co_framesize is defined as:
+                    //   2 + FRAME_SPECIALS_SIZE
+                    // (see cpython/Python/specialize.c).
+                    //
+                    // RustPython datastack stores localsplus payload only, but we
+                    // keep the guard conservative and CPython-shaped by accounting
+                    // for the full cleanup frame size.
+                    const CPYTHON_INIT_CLEANUP_CO_FRAMESIZE_SLOTS: usize = 11;
+                    const INIT_CLEANUP_STACK_BYTES: usize =
+                        CPYTHON_INIT_CLEANUP_CO_FRAMESIZE_SLOTS * core::mem::size_of::<usize>();
                     if !self.specialization_has_datastack_space_for_func_with_extra(
                         vm,
                         &init_func,
