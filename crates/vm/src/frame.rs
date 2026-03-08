@@ -4023,12 +4023,27 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
+                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
                 // Stack: [callable, self_or_null, arg1, ..., argN]
+                let stack_len = self.localsplus.stack_len();
+                let self_or_null_is_some = self
+                    .localsplus
+                    .stack_index(stack_len - nargs as usize - 1)
+                    .is_some();
                 let callable = self.nth_value(nargs + 1);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    let effective_nargs = nargs + u32::from(self_or_null_is_some);
+                    if !func.can_specialize_call(effective_nargs) {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
@@ -4045,11 +4060,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::Call {
-                        argc: Arg::marker(),
-                    });
-                    let args = self.collect_positional_args(nargs);
-                    self.execute_call(args, vm)
+                    self.execute_call_vectorcall(nargs, vm)
                 }
             }
             Instruction::CallBoundMethodExactArgs => {
@@ -4057,6 +4068,12 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
+                if vm.reached_c_stack_limit() || self.specialization_call_recursion_guard(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
                 // Stack: [callable, self_or_null(NULL), arg1, ..., argN]
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
@@ -4073,6 +4090,9 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if !func.can_specialize_call(nargs + 1) {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let pos_args: Vec<PyObjectRef> =
                             self.pop_multiple(nargs as usize).collect();
                         self.pop_value_opt(); // null (self_or_null)
@@ -4085,24 +4105,22 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallLen => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_ptr = self.code.instructions.read_cache_ptr(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     // Stack: [callable, null, arg]
                     let obj = self.pop_value(); // arg
                     let null = self.pop_value_opt();
                     let callable = self.pop_value();
-                    let callable_ptr = &*callable as *const PyObject as usize;
-                    if null.is_none() && cached_ptr == callable_ptr {
+                    if null.is_none()
+                        && vm
+                            .callable_cache
+                            .len
+                            .as_ref()
+                            .is_some_and(|len_callable| callable.is(len_callable))
+                    {
                         let len = obj.length(vm)?;
                         self.push_value(vm.ctx.new_int(len).into());
                         return Ok(None);
@@ -4112,16 +4130,9 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallIsinstance => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_ptr = self.code.instructions.read_cache_ptr(cache_base + 1);
                 let nargs: u32 = arg.into();
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
@@ -4131,8 +4142,12 @@ impl ExecutingFrame<'_> {
                 let effective_nargs = nargs + u32::from(self_or_null_is_some);
                 if effective_nargs == 2 {
                     let callable = self.nth_value(nargs + 1);
-                    let callable_ptr = callable as *const PyObject as usize;
-                    if cached_ptr == callable_ptr {
+                    if vm
+                        .callable_cache
+                        .isinstance
+                        .as_ref()
+                        .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
+                    {
                         let nargs_usize = nargs as usize;
                         let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         let self_or_null = self.pop_value_opt();
@@ -4147,11 +4162,7 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallType1 => {
                 let nargs: u32 = arg.into();
@@ -4170,11 +4181,7 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallStr1 => {
                 let nargs: u32 = arg.into();
@@ -4191,11 +4198,7 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallTuple1 => {
                 let nargs: u32 = arg.into();
@@ -4217,11 +4220,7 @@ impl ExecutingFrame<'_> {
                     self.push_value_opt(null);
                     self.push_value(obj);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallBuiltinO => {
                 let nargs: u32 = arg.into();
@@ -4240,6 +4239,9 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == PyMethodFlags::O && effective_nargs == 1 {
+                        if vm.reached_c_stack_limit() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let nargs_usize = nargs as usize;
                         let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         let self_or_null = self.pop_value_opt();
@@ -4289,9 +4291,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallPyGeneral => {
@@ -4299,6 +4298,12 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
+                if self.specialization_call_recursion_guard(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
                 let callable = self.nth_value(nargs + 1);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == cached_version
@@ -4321,11 +4326,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     Ok(None)
                 } else {
-                    self.deoptimize(Instruction::Call {
-                        argc: Arg::marker(),
-                    });
-                    let args = self.collect_positional_args(nargs);
-                    self.execute_call(args, vm)
+                    self.execute_call_vectorcall(nargs, vm)
                 }
             }
             Instruction::CallBoundMethodGeneral => {
@@ -4333,6 +4334,12 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
+                if self.specialization_call_recursion_guard(vm) {
+                    return self.execute_call_vectorcall(nargs, vm);
+                }
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
                     .localsplus
@@ -4369,22 +4376,25 @@ impl ExecutingFrame<'_> {
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallListAppend => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
-                let cached_ptr = self.code.instructions.read_cache_ptr(cache_base + 1);
                 let nargs: u32 = arg.into();
                 if nargs == 1 {
                     // Stack: [callable, self_or_null, item]
                     let stack_len = self.localsplus.stack_len();
                     let self_or_null_is_some = self.localsplus.stack_index(stack_len - 2).is_some();
                     let callable = self.nth_value(2);
-                    let callable_ptr = callable as *const PyObject as usize;
                     let self_is_list = self
                         .localsplus
                         .stack_index(stack_len - 2)
                         .as_ref()
                         .is_some_and(|obj| obj.downcast_ref::<PyList>().is_some());
-                    if cached_ptr == callable_ptr && self_or_null_is_some && self_is_list {
+                    if vm
+                        .callable_cache
+                        .list_append
+                        .as_ref()
+                        .is_some_and(|list_append| callable.is(list_append))
+                        && self_or_null_is_some
+                        && self_is_list
+                    {
                         let item = self.pop_value();
                         let self_or_null = self.pop_value_opt();
                         let callable = self.pop_value();
@@ -4404,25 +4414,21 @@ impl ExecutingFrame<'_> {
                         self.push_value(item);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_positional_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorNoargs => {
                 let nargs: u32 = arg.into();
-                if nargs == 0 {
-                    // Stack: [callable, self_or_null] — peek to get func ptr
-                    let stack_len = self.localsplus.stack_len();
-                    let self_or_null_is_some = self.localsplus.stack_index(stack_len - 1).is_some();
-                    let callable = self.nth_value(1);
-                    let descr = if self_or_null_is_some {
-                        callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    } else {
-                        None
-                    };
-                    if let Some(descr) = descr
+                let stack_len = self.localsplus.stack_len();
+                let self_or_null_is_some = self
+                    .localsplus
+                    .stack_index(stack_len - nargs as usize - 1)
+                    .is_some();
+                let total_nargs = nargs + u32::from(self_or_null_is_some);
+                if total_nargs == 1 {
+                    let callable = self.nth_value(nargs + 1);
+                    let self_index =
+                        stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
+                    if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
                         && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && (descr.method.flags
                             & (PyMethodFlags::VARARGS
@@ -4433,15 +4439,25 @@ impl ExecutingFrame<'_> {
                             == PyMethodFlags::NOARGS
                         && self
                             .localsplus
-                            .stack_index(stack_len - 1)
+                            .stack_index(self_index)
                             .as_ref()
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
+                        if vm.reached_c_stack_limit() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let func = descr.method.func;
-                        let self_val = self.pop_value_opt().unwrap();
+                        let positional_args: Vec<PyObjectRef> =
+                            self.pop_multiple(nargs as usize).collect();
+                        let self_or_null = self.pop_value_opt();
                         self.pop_value(); // callable
+                        let mut all_args = Vec::with_capacity(total_nargs as usize);
+                        if let Some(self_val) = self_or_null {
+                            all_args.push(self_val);
+                        }
+                        all_args.extend(positional_args);
                         let args = FuncArgs {
-                            args: vec![self_val],
+                            args: all_args,
                             kwargs: Default::default(),
                         };
                         let result = func(vm, args)?;
@@ -4453,17 +4469,17 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallMethodDescriptorO => {
                 let nargs: u32 = arg.into();
-                if nargs == 1 {
-                    // Stack: [callable, self_or_null, arg1]
-                    let stack_len = self.localsplus.stack_len();
-                    let self_or_null_is_some = self.localsplus.stack_index(stack_len - 2).is_some();
-                    let callable = self.nth_value(2);
-                    let descr = if self_or_null_is_some {
-                        callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    } else {
-                        None
-                    };
-                    if let Some(descr) = descr
+                let stack_len = self.localsplus.stack_len();
+                let self_or_null_is_some = self
+                    .localsplus
+                    .stack_index(stack_len - nargs as usize - 1)
+                    .is_some();
+                let total_nargs = nargs + u32::from(self_or_null_is_some);
+                if total_nargs == 2 {
+                    let callable = self.nth_value(nargs + 1);
+                    let self_index =
+                        stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
+                    if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
                         && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && (descr.method.flags
                             & (PyMethodFlags::VARARGS
@@ -4474,16 +4490,25 @@ impl ExecutingFrame<'_> {
                             == PyMethodFlags::O
                         && self
                             .localsplus
-                            .stack_index(stack_len - 2)
+                            .stack_index(self_index)
                             .as_ref()
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
+                        if vm.reached_c_stack_limit() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let func = descr.method.func;
-                        let obj = self.pop_value();
-                        let self_val = self.pop_value_opt().unwrap();
+                        let positional_args: Vec<PyObjectRef> =
+                            self.pop_multiple(nargs as usize).collect();
+                        let self_or_null = self.pop_value_opt();
                         self.pop_value(); // callable
+                        let mut all_args = Vec::with_capacity(total_nargs as usize);
+                        if let Some(self_val) = self_or_null {
+                            all_args.push(self_val);
+                        }
+                        all_args.extend(positional_args);
                         let args = FuncArgs {
-                            args: vec![self_val, obj],
+                            args: all_args,
                             kwargs: Default::default(),
                         };
                         let result = func(vm, args)?;
@@ -4495,18 +4520,17 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallMethodDescriptorFast => {
                 let nargs: u32 = arg.into();
-                let callable = self.nth_value(nargs + 1);
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                let descr = if self_or_null_is_some {
-                    callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                } else {
-                    None
-                };
-                if let Some(descr) = descr
+                let total_nargs = nargs + u32::from(self_or_null_is_some);
+                let callable = self.nth_value(nargs + 1);
+                let self_index =
+                    stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
+                if total_nargs > 0
+                    && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
                     && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && (descr.method.flags
                         & (PyMethodFlags::VARARGS
@@ -4517,17 +4541,19 @@ impl ExecutingFrame<'_> {
                         == PyMethodFlags::FASTCALL
                     && self
                         .localsplus
-                        .stack_index(stack_len - nargs as usize - 1)
+                        .stack_index(self_index)
                         .as_ref()
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
                     let positional_args: Vec<PyObjectRef> =
                         self.pop_multiple(nargs as usize).collect();
-                    let self_val = self.pop_value_opt().unwrap();
+                    let self_or_null = self.pop_value_opt();
                     self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(nargs as usize + 1);
-                    all_args.push(self_val);
+                    let mut all_args = Vec::with_capacity(total_nargs as usize);
+                    if let Some(self_val) = self_or_null {
+                        all_args.push(self_val);
+                    }
                     all_args.extend(positional_args);
                     let args = FuncArgs {
                         args: all_args,
@@ -4564,9 +4590,6 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallAllocAndEnterInit => {
@@ -4580,71 +4603,75 @@ impl ExecutingFrame<'_> {
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                if !self_or_null_is_some
+                if !self.specialization_eval_frame_active(vm)
+                    && !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
                     && cls.tp_version_tag.load(Acquire) == cached_version
+                    && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
                 {
-                    // Look up __init__ (guarded by type_version)
-                    if let Some(init) = cls.get_attr(identifier!(vm, __init__))
-                        && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
-                        && init_func.can_specialize_call(nargs + 1)
-                    {
-                        // Allocate object directly (tp_new == object.__new__)
-                        let dict = if cls
-                            .slots
-                            .flags
-                            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
-                        {
-                            Some(vm.ctx.new_dict())
-                        } else {
-                            None
-                        };
-                        let cls_ref = cls.to_owned();
-                        let new_obj: PyObjectRef =
-                            PyRef::new_ref(PyBaseObject, cls_ref, dict).into();
-
-                        // Build args: [new_obj, arg1, ..., argN]
-                        let pos_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
-                        let _null = self.pop_value_opt(); // self_or_null (None)
-                        let _callable = self.pop_value(); // callable (type)
-
-                        let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-                        all_args.push(new_obj.clone());
-                        all_args.extend(pos_args);
-
-                        let init_result = init_func.invoke_exact_args(all_args, vm)?;
-
-                        // EXIT_INIT_CHECK: __init__ must return None
-                        if !vm.is_none(&init_result) {
-                            return Err(vm.new_type_error("__init__() should return None"));
-                        }
-
-                        self.push_value(new_obj);
-                        return Ok(None);
+                    if vm.reached_c_stack_limit() {
+                        return self.execute_call_vectorcall(nargs, vm);
                     }
+                    // Allocate object directly (tp_new == object.__new__)
+                    let dict = if cls
+                        .slots
+                        .flags
+                        .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+                    {
+                        Some(vm.ctx.new_dict())
+                    } else {
+                        None
+                    };
+                    let cls_ref = cls.to_owned();
+                    let new_obj: PyObjectRef = PyRef::new_ref(PyBaseObject, cls_ref, dict).into();
+
+                    // Build args: [new_obj, arg1, ..., argN]
+                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
+                    let _null = self.pop_value_opt(); // self_or_null (None)
+                    let _callable = self.pop_value(); // callable (type)
+
+                    let mut all_args = Vec::with_capacity(pos_args.len() + 1);
+                    all_args.push(new_obj.clone());
+                    all_args.extend(pos_args);
+
+                    let init_result = if init_func.can_specialize_call(all_args.len() as u32) {
+                        init_func.invoke_exact_args(all_args, vm)?
+                    } else {
+                        let args = FuncArgs {
+                            args: all_args,
+                            kwargs: Default::default(),
+                        };
+                        init_func.invoke(args, vm)?
+                    };
+
+                    // EXIT_INIT_CHECK: __init__ must return None
+                    if !vm.is_none(&init_result) {
+                        return Err(vm.new_type_error(format!(
+                            "__init__() should return None, not '{}'",
+                            init_result.class().name()
+                        )));
+                    }
+
+                    self.push_value(new_obj);
+                    return Ok(None);
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallMethodDescriptorFastWithKeywords => {
                 // Native function interface is uniform regardless of keyword support
                 let nargs: u32 = arg.into();
-                let callable = self.nth_value(nargs + 1);
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                let descr = if self_or_null_is_some {
-                    callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                } else {
-                    None
-                };
-                if let Some(descr) = descr
+                let total_nargs = nargs + u32::from(self_or_null_is_some);
+                let callable = self.nth_value(nargs + 1);
+                let self_index =
+                    stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
+                if total_nargs > 0
+                    && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
                     && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && (descr.method.flags
                         & (PyMethodFlags::VARARGS
@@ -4655,17 +4682,19 @@ impl ExecutingFrame<'_> {
                         == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS)
                     && self
                         .localsplus
-                        .stack_index(stack_len - nargs as usize - 1)
+                        .stack_index(self_index)
                         .as_ref()
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
                     let positional_args: Vec<PyObjectRef> =
                         self.pop_multiple(nargs as usize).collect();
-                    let self_val = self.pop_value_opt().unwrap();
+                    let self_or_null = self.pop_value_opt();
                     self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(nargs as usize + 1);
-                    all_args.push(self_val);
+                    let mut all_args = Vec::with_capacity(total_nargs as usize);
+                    if let Some(self_val) = self_or_null {
+                        all_args.push(self_val);
+                    }
                     all_args.extend(positional_args);
                     let args = FuncArgs {
                         args: all_args,
@@ -4710,9 +4739,6 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::Call {
-                    argc: Arg::marker(),
-                });
                 self.execute_call_vectorcall(nargs, vm)
             }
             Instruction::CallNonPyGeneral => {
@@ -4754,6 +4780,12 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_kw_vectorcall(nargs, vm);
+                }
+                if self.specialization_call_recursion_guard(vm) {
+                    return self.execute_call_kw_vectorcall(nargs, vm);
+                }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 let callable = self.nth_value(nargs + 2);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
@@ -4789,17 +4821,16 @@ impl ExecutingFrame<'_> {
                     self.push_value(result);
                     return Ok(None);
                 }
-                self.deoptimize(Instruction::CallKw {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_keyword_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_kw_vectorcall(nargs, vm)
             }
             Instruction::CallKwBoundMethod => {
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let nargs: u32 = arg.into();
+                if self.specialization_eval_frame_active(vm) {
+                    return self.execute_call_kw_vectorcall(nargs, vm);
+                }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
@@ -4841,11 +4872,7 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                self.deoptimize(Instruction::CallKw {
-                    argc: Arg::marker(),
-                });
-                let args = self.collect_keyword_args(nargs);
-                self.execute_call(args, vm)
+                self.execute_call_kw_vectorcall(nargs, vm)
             }
             Instruction::CallKwNonPy => {
                 let nargs: u32 = arg.into();
@@ -7729,6 +7756,17 @@ impl ExecutingFrame<'_> {
                 }
                 return;
             }
+            if !func.is_optimized_for_call_specialization() {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
             let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
@@ -7781,6 +7819,17 @@ impl ExecutingFrame<'_> {
                     }
                     return;
                 }
+                if !func.is_optimized_for_call_specialization() {
+                    unsafe {
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
+                    }
+                    return;
+                }
                 let version = func.get_version_for_current_state();
                 if version == 0 {
                     unsafe {
@@ -7821,8 +7870,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Try to specialize method descriptor calls
-        if self_or_null_is_some
-            && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
+        if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
             && descr.method.flags.contains(PyMethodFlags::METHOD)
         {
             let call_cache_entries = Instruction::CallListAppend.cache_entries();
@@ -7840,9 +7888,10 @@ impl ExecutingFrame<'_> {
                     | PyMethodFlags::NOARGS
                     | PyMethodFlags::O
                     | PyMethodFlags::KEYWORDS);
+            let total_nargs = nargs + u32::from(self_or_null_is_some);
 
             let new_op = if call_conv == PyMethodFlags::NOARGS {
-                if nargs != 0 {
+                if total_nargs != 1 {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -7855,7 +7904,7 @@ impl ExecutingFrame<'_> {
                 }
                 Instruction::CallMethodDescriptorNoargs
             } else if call_conv == PyMethodFlags::O {
-                if nargs != 1 {
+                if total_nargs != 2 {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -7866,16 +7915,15 @@ impl ExecutingFrame<'_> {
                     }
                     return;
                 }
-                if descr.method.name == "append"
-                    && descr.objclass.is(vm.ctx.types.list_type)
+                if self_or_null_is_some
+                    && nargs == 1
                     && next_is_pop_top
+                    && vm
+                        .callable_cache
+                        .list_append
+                        .as_ref()
+                        .is_some_and(|list_append| callable.is(list_append))
                 {
-                    let callable_ptr = callable as *const PyObject as usize;
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_ptr(cache_base + 1, callable_ptr);
-                    }
                     Instruction::CallListAppend
                 } else {
                     Instruction::CallMethodDescriptorO
@@ -7894,7 +7942,6 @@ impl ExecutingFrame<'_> {
         // Try to specialize builtin calls
         if let Some(native) = callable.downcast_ref_if_exact::<PyNativeFunction>(vm) {
             let effective_nargs = nargs + u32::from(self_or_null_is_some);
-            let callable_ptr = callable as *const PyObject as usize;
             let call_conv = native.value.flags
                 & (PyMethodFlags::VARARGS
                     | PyMethodFlags::FASTCALL
@@ -7914,9 +7961,12 @@ impl ExecutingFrame<'_> {
                     return;
                 }
                 if native.zelf.is_none()
-                    && native.value.name == "len"
-                    && native.module.is_some_and(|m| m.as_str() == "builtins")
                     && nargs == 1
+                    && vm
+                        .callable_cache
+                        .len
+                        .as_ref()
+                        .is_some_and(|len_callable| callable.is(len_callable))
                 {
                     Instruction::CallLen
                 } else {
@@ -7924,9 +7974,12 @@ impl ExecutingFrame<'_> {
                 }
             } else if call_conv == PyMethodFlags::FASTCALL {
                 if native.zelf.is_none()
-                    && native.value.name == "isinstance"
-                    && native.module.is_some_and(|m| m.as_str() == "builtins")
                     && effective_nargs == 2
+                    && vm
+                        .callable_cache
+                        .isinstance
+                        .as_ref()
+                        .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
                 {
                     Instruction::CallIsinstance
                 } else {
@@ -7937,13 +7990,6 @@ impl ExecutingFrame<'_> {
             } else {
                 Instruction::CallNonPyGeneral
             };
-            if matches!(new_op, Instruction::CallLen | Instruction::CallIsinstance) {
-                unsafe {
-                    self.code
-                        .instructions
-                        .write_cache_ptr(cache_base + 1, callable_ptr);
-                }
-            }
             self.specialize_at(instr_idx, cache_base, new_op);
             return;
         }
@@ -7989,10 +8035,12 @@ impl ExecutingFrame<'_> {
                     && cls_new_fn as usize == obj_new_fn as usize
                     && let Some(init) = cls.get_attr(identifier!(vm, __init__))
                     && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
-                    && init_func.can_specialize_call(nargs + 1)
+                    && init_func.is_simple_for_call_specialization()
                 {
                     let version = cls.tp_version_tag.load(Acquire);
-                    if version != 0 {
+                    if version != 0
+                        && cls.cache_init_for_specialization(init_func.to_owned(), version)
+                    {
                         unsafe {
                             self.code
                                 .instructions
@@ -8049,6 +8097,17 @@ impl ExecutingFrame<'_> {
                 }
                 return;
             }
+            if !func.is_optimized_for_call_specialization() {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
             let version = func.get_version_for_current_state();
             if version == 0 {
                 unsafe {
@@ -8079,6 +8138,17 @@ impl ExecutingFrame<'_> {
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
                 if self.specialization_eval_frame_active(vm) {
+                    unsafe {
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
+                    }
+                    return;
+                }
+                if !func.is_optimized_for_call_specialization() {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -8324,6 +8394,11 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn specialization_eval_frame_active(&self, vm: &VirtualMachine) -> bool {
         vm.use_tracing.get()
+    }
+
+    #[inline]
+    fn specialization_call_recursion_guard(&self, vm: &VirtualMachine) -> bool {
+        vm.current_recursion_depth().saturating_add(1) >= vm.recursion_limit.get()
     }
 
     #[inline]
