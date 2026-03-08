@@ -217,7 +217,11 @@ jobs:
           target: i686-unknown-linux-gnu
 
       - name: Install gcc-multilib and musl-tools
-        run: sudo apt-get update && sudo apt-get install gcc-multilib musl-tools
+        uses: ./.github/actions/install-linux-deps
+        with:
+          gcc-multilib: true
+          musl-tools: true
+
       - name: Check compilation for x86 32bit
         run: cargo check --target i686-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
 
@@ -244,7 +248,10 @@ jobs:
           target: aarch64-unknown-linux-gnu
 
       - name: Install gcc-aarch64-linux-gnu
-        run: sudo apt install gcc-aarch64-linux-gnu
+        uses: ./.github/actions/install-linux-deps
+        with:
+          gcc-aarch64-linux-gnu: true
+
       - name: Check compilation for aarch64 linux gnu
         run: cargo check --target aarch64-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
 
@@ -597,8 +604,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3
+
       - name: Install clang
-        run: sudo apt-get update && sudo apt-get install clang -y
+        uses: ./.github/actions/install-linux-deps
+        with:
+          clang: true
+
       - name: build rustpython
         run: cargo build --release --target wasm32-wasip1 --features freeze-stdlib,stdlib --verbose
       - name: run snippets
