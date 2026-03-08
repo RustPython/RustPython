@@ -3586,9 +3586,9 @@ impl ExecutingFrame<'_> {
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = func_obj.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == func_version
-                    && func.has_exact_argcount(2)
                     && self.specialization_has_datastack_space_for_func(vm, func)
                 {
+                    debug_assert!(func.has_exact_argcount(2));
                     let owner = self.pop_value();
                     let attr_name = self.code.names[oparg.name_idx() as usize].to_owned().into();
                     let result = func.invoke_exact_args(vec![owner, attr_name], vm)?;
@@ -3771,20 +3771,14 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::BinaryOpSubscrGetitem => {
-                let instr_idx = self.lasti() as usize - 1;
-                let cache_base = instr_idx + 1;
                 let owner = self.nth_value(1);
-                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 if !self.specialization_eval_frame_active(vm)
-                    && type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
-                    && let Some((func, func_version)) = owner
-                        .class()
-                        .get_cached_getitem_for_specialization(type_version)
+                    && let Some((func, func_version)) =
+                        owner.class().get_cached_getitem_for_specialization()
                     && func.func_version() == func_version
-                    && func.has_exact_argcount(2)
                     && self.specialization_has_datastack_space_for_func(vm, &func)
                 {
+                    debug_assert!(func.has_exact_argcount(2));
                     let sub = self.pop_value();
                     let owner = self.pop_value();
                     let result = func.invoke_exact_args(vec![owner, sub], vm)?;
@@ -3804,19 +3798,17 @@ impl ExecutingFrame<'_> {
                 if let (Some(list), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyList>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Ok(i) = idx.try_to_primitive::<isize>(vm)
+                ) && let Ok(i) = idx.try_to_primitive::<usize>(vm)
                 {
                     let vec = list.borrow_vec();
-                    if let Some(pos) = vec.wrap_index(i) {
-                        let value = vec.do_get(pos);
+                    if i < vec.len() {
+                        let value = vec.do_get(i);
                         drop(vec);
                         self.pop_value();
                         self.pop_value();
                         self.push_value(value);
                         return Ok(None);
                     }
-                    drop(vec);
-                    return Err(vm.new_index_error("list index out of range"));
                 }
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
@@ -3826,17 +3818,16 @@ impl ExecutingFrame<'_> {
                 if let (Some(tuple), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyTuple>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Ok(i) = idx.try_to_primitive::<isize>(vm)
+                ) && let Ok(i) = idx.try_to_primitive::<usize>(vm)
                 {
                     let elements = tuple.as_slice();
-                    if let Some(pos) = elements.wrap_index(i) {
-                        let value = elements[pos].clone();
+                    if i < elements.len() {
+                        let value = elements[i].clone();
                         self.pop_value();
                         self.pop_value();
                         self.push_value(value);
                         return Ok(None);
                     }
-                    return Err(vm.new_index_error("tuple index out of range"));
                 }
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
@@ -3869,19 +3860,14 @@ impl ExecutingFrame<'_> {
                 if let (Some(a_str), Some(b_int)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Ok(i) = b_int.try_to_primitive::<isize>(vm)
+                ) && let Ok(i) = b_int.try_to_primitive::<usize>(vm)
+                    && let Ok(ch) = a_str.getitem_by_index(vm, i as isize)
+                    && ch.is_ascii()
                 {
-                    match a_str.getitem_by_index(vm, i) {
-                        Ok(ch) => {
-                            self.pop_value();
-                            self.pop_value();
-                            self.push_value(PyStr::from(ch).into_pyobject(vm));
-                            return Ok(None);
-                        }
-                        Err(e) => {
-                            return Err(e);
-                        }
-                    }
+                    self.pop_value();
+                    self.pop_value();
+                    self.push_value(PyStr::from(ch).into_pyobject(vm));
+                    return Ok(None);
                 }
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
             }
@@ -3907,9 +3893,6 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_vectorcall(nargs, vm);
-                }
                 // Stack: [callable, self_or_null, arg1, ..., argN]
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
@@ -3926,6 +3909,9 @@ impl ExecutingFrame<'_> {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     if !self.specialization_has_datastack_space_for_func(vm, func) {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
+                    if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
@@ -3955,9 +3941,6 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_vectorcall(nargs, vm);
-                }
                 // Stack: [callable, self_or_null(NULL), arg1, ..., argN]
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
@@ -3978,6 +3961,9 @@ impl ExecutingFrame<'_> {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         if !self.specialization_has_datastack_space_for_func(vm, func) {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
+                        if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         let pos_args: Vec<PyObjectRef> =
@@ -4185,14 +4171,14 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_vectorcall(nargs, vm);
-                }
                 let callable = self.nth_value(nargs + 1);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if self.specialization_call_recursion_guard(vm) {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     let nargs_usize = nargs as usize;
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
@@ -4221,9 +4207,6 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_vectorcall(nargs, vm);
-                }
                 let stack_len = self.localsplus.stack_len();
                 let self_or_null_is_some = self
                     .localsplus
@@ -4239,6 +4222,9 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if self.specialization_call_recursion_guard(vm) {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         let nargs_usize = nargs as usize;
                         let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         self.pop_value_opt(); // null (self_or_null)
@@ -4481,18 +4467,23 @@ impl ExecutingFrame<'_> {
                     .localsplus
                     .stack_index(stack_len - nargs as usize - 1)
                     .is_some();
-                let object_alloc = vm.ctx.types.object_type.slots.alloc.load();
                 if !self.specialization_eval_frame_active(vm)
                     && !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
                     && cls.tp_version_tag.load(Acquire) == cached_version
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
-                    && let (Some(cls_alloc), Some(object_alloc_fn)) =
-                        (cls.slots.alloc.load(), object_alloc)
-                    && cls_alloc as usize == object_alloc_fn as usize
+                    && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
-                    if !self.specialization_has_datastack_space_for_func(vm, &init_func) {
+                    // CPython guards with code->co_framesize + _Py_InitCleanup.co_framesize.
+                    // RustPython does not materialize frame-specials on datastack, so use
+                    // only the cleanup shim's eval-stack payload (2 stack slots).
+                    const INIT_CLEANUP_STACK_BYTES: usize = 2 * core::mem::size_of::<usize>();
+                    if !self.specialization_has_datastack_space_for_func_with_extra(
+                        vm,
+                        &init_func,
+                        INIT_CLEANUP_STACK_BYTES,
+                    ) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     // Allocate object directly (tp_new == object.__new__, tp_alloc == generic).
@@ -4508,7 +4499,10 @@ impl ExecutingFrame<'_> {
                     all_args.push(new_obj.clone());
                     all_args.extend(pos_args);
 
-                    let init_result = init_func.invoke_exact_args(all_args, vm)?;
+                    let init_callable: PyObjectRef = init_func.into();
+                    let effective_nargs = all_args.len();
+                    let init_result =
+                        vectorcall_function(&init_callable, all_args, effective_nargs, None, vm)?;
 
                     // EXIT_INIT_CHECK: __init__ must return None
                     if !vm.is_none(&init_result) {
@@ -4648,15 +4642,15 @@ impl ExecutingFrame<'_> {
                 if self.specialization_eval_frame_active(vm) {
                     return self.execute_call_kw_vectorcall(nargs, vm);
                 }
-                if self.specialization_call_recursion_guard(vm) {
-                    return self.execute_call_kw_vectorcall(nargs, vm);
-                }
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 let callable = self.nth_value(nargs + 2);
                 if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm)
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if self.specialization_call_recursion_guard(vm) {
+                        return self.execute_call_kw_vectorcall(nargs, vm);
+                    }
                     let nargs_usize = nargs as usize;
                     let kwarg_names_obj = self.pop_value();
                     let kwarg_names_tuple = kwarg_names_obj
@@ -7407,19 +7401,16 @@ impl ExecutingFrame<'_> {
                 }
             }
             bytecode::BinaryOperator::Subscr => {
-                if a.downcast_ref_if_exact::<PyList>(vm).is_some()
-                    && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
-                {
+                let b_is_nonnegative_int = b
+                    .downcast_ref_if_exact::<PyInt>(vm)
+                    .is_some_and(|i| i.try_to_primitive::<usize>(vm).is_ok());
+                if a.downcast_ref_if_exact::<PyList>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrListInt)
-                } else if a.downcast_ref_if_exact::<PyTuple>(vm).is_some()
-                    && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
-                {
+                } else if a.downcast_ref_if_exact::<PyTuple>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrTupleInt)
                 } else if a.downcast_ref_if_exact::<PyDict>(vm).is_some() {
                     Some(Instruction::BinaryOpSubscrDict)
-                } else if a.downcast_ref_if_exact::<PyStr>(vm).is_some()
-                    && b.downcast_ref_if_exact::<PyInt>(vm).is_some()
-                {
+                } else if a.downcast_ref_if_exact::<PyStr>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrStrInt)
                 } else if a.downcast_ref_if_exact::<PyList>(vm).is_some()
                     && b.downcast_ref::<PySlice>().is_some()
@@ -7438,17 +7429,7 @@ impl ExecutingFrame<'_> {
                             type_version = cls.assign_version_tag();
                         }
                         if type_version != 0 {
-                            let func_version = func.get_version_for_current_state();
-                            if cls.cache_getitem_for_specialization(
-                                func.to_owned(),
-                                type_version,
-                                func_version,
-                            ) {
-                                unsafe {
-                                    self.code
-                                        .instructions
-                                        .write_cache_u32(cache_base + 1, type_version);
-                                }
+                            if cls.cache_getitem_for_specialization(func.to_owned(), type_version) {
                                 Some(Instruction::BinaryOpSubscrGetitem)
                             } else {
                                 None
@@ -8265,8 +8246,20 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
         func: &Py<PyFunction>,
     ) -> bool {
+        self.specialization_has_datastack_space_for_func_with_extra(vm, func, 0)
+    }
+
+    #[inline]
+    fn specialization_has_datastack_space_for_func_with_extra(
+        &self,
+        vm: &VirtualMachine,
+        func: &Py<PyFunction>,
+        extra_bytes: usize,
+    ) -> bool {
         match func.datastack_frame_size_bytes() {
-            Some(frame_size) => vm.datastack_has_space(frame_size),
+            Some(frame_size) => frame_size
+                .checked_add(extra_bytes)
+                .is_some_and(|size| vm.datastack_has_space(size)),
             None => true,
         }
     }

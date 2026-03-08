@@ -847,9 +847,7 @@ impl PyType {
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return None;
         }
-        guard
-            .as_ref()
-            .map(|init| init.to_owned())
+        guard.as_ref().map(|init| init.to_owned())
     }
 
     /// Cache __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
@@ -858,15 +856,15 @@ impl PyType {
         &self,
         getitem: PyRef<PyFunction>,
         tp_version: u32,
-        func_version: u32,
     ) -> bool {
         let Some(ext) = self.heaptype_ext.as_ref() else {
             return false;
         };
-        if tp_version == 0
-            || func_version == 0
-            || self.tp_version_tag.load(Ordering::Acquire) != tp_version
-        {
+        if tp_version == 0 || self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+            return false;
+        }
+        let func_version = getitem.get_version_for_current_state();
+        if func_version == 0 {
             return false;
         }
         *ext.specialization_getitem.write() = Some(getitem);
@@ -876,12 +874,9 @@ impl PyType {
     }
 
     /// Read cached __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
-    pub(crate) fn get_cached_getitem_for_specialization(
-        &self,
-        tp_version: u32,
-    ) -> Option<(PyRef<PyFunction>, u32)> {
+    pub(crate) fn get_cached_getitem_for_specialization(&self) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
-        if tp_version == 0 || self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+        if self.tp_version_tag.load(Ordering::Acquire) == 0 {
             return None;
         }
         let cached_version = ext.specialization_getitem_version.load(Ordering::Acquire);
