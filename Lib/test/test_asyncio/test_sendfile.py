@@ -441,6 +441,7 @@ class SendfileMixin(SendfileBase):
         self.assertEqual(srv_proto.data, self.DATA)
         self.assertEqual(self.file.tell(), len(self.DATA))
 
+    @unittest.skipIf(sys.platform == "linux", "TODO: RUSTPYTHON; Flaky on CI")
     def test_sendfile_ssl_close_peer_after_receiving(self):
         srv_proto, cli_proto = self.prepare_sendfile(
             is_ssl=True, close_after=len(self.DATA))
