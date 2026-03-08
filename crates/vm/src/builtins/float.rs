@@ -48,7 +48,7 @@ impl PyPayload for PyFloat {
     }
 
     #[inline]
-    unsafe fn freelist_push(obj: *mut PyObject, _hint: usize, _typ: &Py<PyType>) -> bool {
+    unsafe fn freelist_push(obj: *mut PyObject, _hint: usize) -> bool {
         FLOAT_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();

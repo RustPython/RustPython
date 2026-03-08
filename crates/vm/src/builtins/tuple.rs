@@ -113,11 +113,7 @@ impl PyPayload for PyTuple {
     }
 
     #[inline]
-    unsafe fn freelist_push(obj: *mut PyObject, hint: usize, typ: &Py<PyType>) -> bool {
-        // Py_IS_TYPE(op, &PyTuple_Type): reject structseq and other subtypes
-        if !core::ptr::eq(typ, Self::class(crate::vm::Context::genesis())) {
-            return false;
-        }
+    unsafe fn freelist_push(obj: *mut PyObject, hint: usize) -> bool {
         let len = hint;
         if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
             return false;

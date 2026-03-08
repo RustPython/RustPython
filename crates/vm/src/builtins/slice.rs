@@ -59,7 +59,7 @@ impl PyPayload for PySlice {
     }
 
     #[inline]
-    unsafe fn freelist_push(obj: *mut PyObject, _hint: usize, _typ: &Py<PyType>) -> bool {
+    unsafe fn freelist_push(obj: *mut PyObject, _hint: usize) -> bool {
         SLICE_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();

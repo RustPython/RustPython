@@ -204,12 +204,13 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     }
 
     // Try to store in freelist for reuse; otherwise deallocate.
-    // Only exact types (not heaptype subclasses) go into the freelist.
-    // The runtime type is passed to freelist_push for Py_IS_TYPE-style
-    // exact type checking (e.g. reject structseq subtypes of PyTuple).
+    // Only exact base types (not heaptype or structseq subtypes) go into the freelist.
     let typ = obj_ref.class();
-    let pushed = if T::HAS_FREELIST && typ.heaptype_ext.is_none() {
-        unsafe { T::freelist_push(obj, freelist_hint, typ) }
+    let pushed = if T::HAS_FREELIST
+        && typ.heaptype_ext.is_none()
+        && core::ptr::eq(typ, T::class(crate::vm::Context::genesis()))
+    {
+        unsafe { T::freelist_push(obj, freelist_hint) }
     } else {
         false
     };
