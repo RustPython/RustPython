@@ -216,6 +216,7 @@ bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
     #[non_exhaustive]
     pub struct PyTypeFlags: u64 {
+        const MANAGED_WEAKREF = 1 << 3;
         const MANAGED_DICT = 1 << 4;
         const SEQUENCE = 1 << 5;
         const MAPPING = 1 << 6;
