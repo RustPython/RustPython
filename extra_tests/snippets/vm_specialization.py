@@ -1,5 +1,6 @@
 ## BinaryOp inplace-add unicode: deopt falls back to __add__/__iadd__
 
+
 class S(str):
     def __add__(self, other):
         return "ADD"
@@ -36,6 +37,7 @@ assert iadd_path_fallback_uses_iadd().startswith("IADD")
 
 ## BINARY_SUBSCR_STR_INT: ASCII singleton identity
 
+
 def check_ascii_subscr_singleton_after_warmup():
     s = "abc"
     first = None
@@ -52,6 +54,7 @@ check_ascii_subscr_singleton_after_warmup()
 
 
 ## BINARY_SUBSCR_STR_INT: Latin-1 singleton identity
+
 
 def check_latin1_subscr_singleton_after_warmup():
     for s in ("abc", "éx"):
