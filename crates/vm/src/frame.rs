@@ -1669,23 +1669,37 @@ impl ExecutingFrame<'_> {
                 self.adaptive(|s, ii, cb| s.specialize_binary_op(vm, op_val, ii, cb));
                 self.execute_bin_op(vm, op_val)
             }
-            // TODO: In CPython, this does in-place unicode concatenation when
-            // refcount is 1. Falls back to regular iadd for now.
+            // Super-instruction for BINARY_OP_ADD_UNICODE + STORE_FAST targeting
+            // the left local, mirroring CPython's BINARY_OP_INPLACE_ADD_UNICODE shape.
             Instruction::BinaryOpInplaceAddUnicode => {
                 let b = self.top_value();
                 let a = self.nth_value(1);
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
                 let target_local = self.binary_op_inplace_unicode_target_local(cache_base, a);
-                if let (Some(a_str), Some(b_str), Some(target_local)) = (
+                if let (Some(_a_str), Some(_b_str), Some(target_local)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyStr>(vm),
                     target_local,
                 ) {
-                    let result = a_str.as_wtf8().py_add(b_str.as_wtf8());
-                    self.pop_value();
-                    self.pop_value();
-                    self.localsplus.fastlocals_mut()[target_local] = Some(result.to_pyobject(vm));
+                    let right = self.pop_value();
+                    let left = self.pop_value();
+
+                    let local_obj = self.localsplus.fastlocals_mut()[target_local]
+                        .take()
+                        .expect("BINARY_OP_INPLACE_ADD_UNICODE target local missing");
+                    debug_assert!(local_obj.is(&left));
+                    let mut local_str = local_obj
+                        .downcast_exact::<PyStr>(vm)
+                        .expect("BINARY_OP_INPLACE_ADD_UNICODE target local not exact str")
+                        .into_pyref();
+                    drop(left);
+                    let right_str = right
+                        .downcast_ref_if_exact::<PyStr>(vm)
+                        .expect("BINARY_OP_INPLACE_ADD_UNICODE right operand not exact str");
+                    local_str.concat_in_place(right_str.as_wtf8(), vm);
+
+                    self.localsplus.fastlocals_mut()[target_local] = Some(local_str.into());
                     self.jump_relative_forward(
                         1,
                         Instruction::BinaryOpInplaceAddUnicode.cache_entries() as u32,
@@ -4005,9 +4019,10 @@ impl ExecutingFrame<'_> {
                     && let Ok(ch) = a_str.getitem_by_index(vm, i as isize)
                     && ch.is_ascii()
                 {
+                    let ascii_idx = ch.to_u32() as usize;
                     self.pop_value();
                     self.pop_value();
-                    self.push_value(PyStr::from(ch).into_pyobject(vm));
+                    self.push_value(vm.ctx.ascii_char_cache[ascii_idx].clone().into());
                     return Ok(None);
                 }
                 self.execute_bin_op(vm, bytecode::BinaryOperator::Subscr)
