@@ -470,7 +470,7 @@ mod weakref_lock {
 
     /// Reset all weakref stripe locks after fork in child process.
     /// Locks held by parent threads would cause infinite spin in the child.
-    #[cfg(unix)]
+    #[cfg(feature = "fork")]
     pub(crate) fn reset_all_after_fork() {
         for lock in &LOCKS {
             lock.store(0, Ordering::Release);
@@ -493,7 +493,7 @@ mod weakref_lock {
 
 /// Reset weakref stripe locks after fork. Must be called before any
 /// Python code runs in the child process.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 pub(crate) fn reset_weakref_locks_after_fork() {
     weakref_lock::reset_all_after_fork();
 }

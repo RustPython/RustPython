@@ -48,7 +48,7 @@ pub(crate) mod _asyncio {
         });
 
         // Register fork handler to clear task state in child process
-        #[cfg(unix)]
+        #[cfg(feature = "fork")]
         {
             let on_fork = vm
                 .get_attribute_opt(module.to_owned().into(), vm.ctx.intern_str("_on_fork"))?

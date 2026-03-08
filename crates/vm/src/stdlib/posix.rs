@@ -31,7 +31,7 @@ pub mod module {
         builtins::{PyDictRef, PyInt, PyListRef, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{ArgMapping, Either, KwArgs, OptionalArg},
+        function::{ArgMapping, Either, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
             _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata,
@@ -681,6 +681,7 @@ pub mod module {
         )
     }
 
+    #[cfg(feature = "fork")]
     #[derive(FromArgs)]
     struct RegisterAtForkArgs {
         #[pyarg(named, optional)]
@@ -691,6 +692,7 @@ pub mod module {
         after_in_child: OptionalArg<PyObjectRef>,
     }
 
+    #[cfg(feature = "fork")]
     impl RegisterAtForkArgs {
         fn into_validated(
             self,
@@ -724,10 +726,11 @@ pub mod module {
         }
     }
 
+    #[cfg(feature = "fork")]
     #[pyfunction]
     fn register_at_fork(
         args: RegisterAtForkArgs,
-        _ignored: KwArgs,
+        _ignored: crate::function::KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let (before, after_in_parent, after_in_child) = args.into_validated(vm)?;
@@ -744,6 +747,7 @@ pub mod module {
         Ok(())
     }
 
+    #[cfg(feature = "fork")]
     fn run_at_forkers(mut funcs: Vec<PyObjectRef>, reversed: bool, vm: &VirtualMachine) {
         if !funcs.is_empty() {
             if reversed {
@@ -761,6 +765,7 @@ pub mod module {
         }
     }
 
+    #[cfg(feature = "fork")]
     fn py_os_before_fork(vm: &VirtualMachine) {
         let before_forkers: Vec<PyObjectRef> = vm.state.before_forkers.lock().clone();
         // functions must be executed in reversed order as they are registered
@@ -768,27 +773,23 @@ pub mod module {
 
         run_at_forkers(before_forkers, true, vm);
 
-        #[cfg(feature = "threading")]
         crate::stdlib::imp::acquire_imp_lock_for_fork();
 
-        #[cfg(feature = "threading")]
         vm.state.stop_the_world.stop_the_world(vm);
     }
 
+    #[cfg(feature = "fork")]
     fn py_os_after_fork_child(vm: &VirtualMachine) {
-        #[cfg(feature = "threading")]
         vm.state.stop_the_world.reset_after_fork();
 
         // Phase 1: Reset all internal locks FIRST.
         // After fork(), locks held by dead parent threads would deadlock
         // if we try to acquire them. This must happen before anything else.
-        #[cfg(feature = "threading")]
         reinit_locks_after_fork(vm);
 
         // Reinit per-object IO buffer locks on std streams.
         // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
         // held by dead parent threads, causing deadlocks on any IO in the child.
-        #[cfg(feature = "threading")]
         unsafe {
             crate::stdlib::io::reinit_std_streams_after_fork(vm)
         };
@@ -798,17 +799,14 @@ pub mod module {
         crate::stdlib::signal::_signal::clear_wakeup_fd_after_fork();
 
         // Reset weakref stripe locks that may have been held during fork.
-        #[cfg(feature = "threading")]
         crate::object::reset_weakref_locks_after_fork();
 
         // Phase 3: Clean up thread state. Locks are now reinit'd so we can
         // acquire them normally instead of using try_lock().
-        #[cfg(feature = "threading")]
         crate::stdlib::thread::after_fork_child(vm);
 
         // CPython parity: reinit import lock ownership metadata in child
         // and release the lock acquired by PyOS_BeforeFork().
-        #[cfg(feature = "threading")]
         unsafe {
             crate::stdlib::imp::after_fork_child_imp_lock_release()
         };
@@ -828,7 +826,7 @@ pub mod module {
     /// After fork(), only the calling thread survives. Any locks held by other
     /// (now-dead) threads would cause deadlocks. We unconditionally reset them
     /// to unlocked by zeroing the raw lock bytes.
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     fn reinit_locks_after_fork(vm: &VirtualMachine) {
         use rustpython_common::lock::reinit_mutex_after_fork;
 
@@ -861,11 +859,10 @@ pub mod module {
         }
     }
 
+    #[cfg(feature = "fork")]
     fn py_os_after_fork_parent(vm: &VirtualMachine) {
-        #[cfg(feature = "threading")]
         vm.state.stop_the_world.start_the_world(vm);
 
-        #[cfg(feature = "threading")]
         crate::stdlib::imp::release_imp_lock_after_fork_parent();
 
         let after_forkers_parent: Vec<PyObjectRef> = vm.state.after_forkers_parent.lock().clone();
@@ -874,6 +871,7 @@ pub mod module {
 
     /// Best-effort number of OS threads in this process.
     /// Returns <= 0 when unavailable.
+    #[cfg(feature = "fork")]
     fn get_number_of_os_threads() -> isize {
         #[cfg(target_os = "macos")]
         {
@@ -952,6 +950,7 @@ pub mod module {
 
     /// Warn if forking from a multi-threaded process.
     /// `num_os_threads` should be captured before parent after-fork hooks run.
+    #[cfg(feature = "fork")]
     fn warn_if_multi_threaded(name: &str, num_os_threads: isize, vm: &VirtualMachine) {
         let num_threads = if num_os_threads > 0 {
             num_os_threads as usize
@@ -998,6 +997,7 @@ pub mod module {
         }
     }
 
+    #[cfg(feature = "fork")]
     #[pyfunction]
     fn fork(vm: &VirtualMachine) -> PyResult<i32> {
         if vm
