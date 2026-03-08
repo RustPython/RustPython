@@ -3,8 +3,8 @@ use super::{
     PyUtf8StrRef, PyWeak, mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
+    AsObject, Context, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    TryFromObject, VirtualMachine,
     builtins::{
         PyBaseExceptionRef,
         descriptor::{
@@ -228,8 +228,7 @@ unsafe impl crate::object::Traverse for PyType {
             .map(|(_, v)| v.traverse(tracer_fn))
             .count();
         if let Some(ext) = self.heaptype_ext.as_ref() {
-            ext.specialization_init.read().traverse(tracer_fn);
-            ext.specialization_getitem.read().traverse(tracer_fn);
+            ext.specialization_cache.traverse(tracer_fn);
         }
     }
 
@@ -259,18 +258,7 @@ unsafe impl crate::object::Traverse for PyType {
             }
         }
         if let Some(ext) = self.heaptype_ext.as_ref() {
-            if let Some(mut guard) = ext.specialization_init.try_write()
-                && let Some(init) = guard.take()
-            {
-                out.push(init.into());
-            }
-            if let Some(mut guard) = ext.specialization_getitem.try_write()
-                && let Some(getitem) = guard.take()
-            {
-                out.push(getitem.into());
-                ext.specialization_getitem_version
-                    .store(0, Ordering::Release);
-            }
+            ext.specialization_cache.clear_into(out);
         }
     }
 }
@@ -281,9 +269,83 @@ pub struct HeapTypeExt {
     pub qualname: PyRwLock<PyStrRef>,
     pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
     pub type_data: PyRwLock<Option<TypeDataSlot>>,
-    pub specialization_init: PyRwLock<Option<PyRef<PyFunction>>>,
-    pub specialization_getitem: PyRwLock<Option<PyRef<PyFunction>>>,
-    pub specialization_getitem_version: AtomicU32,
+    pub specialization_cache: TypeSpecializationCache,
+}
+
+pub struct TypeSpecializationCache {
+    pub init: PyAtomicRef<Option<PyFunction>>,
+    pub getitem: PyAtomicRef<Option<PyFunction>>,
+    pub getitem_version: AtomicU32,
+    retired: PyRwLock<Vec<PyObjectRef>>,
+}
+
+impl TypeSpecializationCache {
+    fn new() -> Self {
+        Self {
+            init: PyAtomicRef::from(None::<PyRef<PyFunction>>),
+            getitem: PyAtomicRef::from(None::<PyRef<PyFunction>>),
+            getitem_version: AtomicU32::new(0),
+            retired: PyRwLock::new(Vec::new()),
+        }
+    }
+
+    #[inline]
+    fn retire_old_function(&self, old: Option<PyRef<PyFunction>>) {
+        if let Some(old) = old {
+            self.retired.write().push(old.into());
+        }
+    }
+
+    #[inline]
+    fn swap_init(&self, new_init: Option<PyRef<PyFunction>>) {
+        // SAFETY: old value is moved to `retired`, so it stays alive while
+        // concurrent readers may still hold borrowed references.
+        let old = unsafe { self.init.swap(new_init) };
+        self.retire_old_function(old);
+    }
+
+    #[inline]
+    fn swap_getitem(&self, new_getitem: Option<PyRef<PyFunction>>) {
+        // SAFETY: old value is moved to `retired`, so it stays alive while
+        // concurrent readers may still hold borrowed references.
+        let old = unsafe { self.getitem.swap(new_getitem) };
+        self.retire_old_function(old);
+    }
+
+    #[inline]
+    fn invalidate_for_type_modified(&self) {
+        // Match CPython _spec_cache contract: type modification invalidates
+        // getitem cache by NULLing the pointer. `getitem_version` becomes
+        // meaningless when getitem is NULL.
+        self.swap_getitem(None);
+    }
+
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        if let Some(init) = self.init.deref() {
+            tracer_fn(init.as_object());
+        }
+        if let Some(getitem) = self.getitem.deref() {
+            tracer_fn(getitem.as_object());
+        }
+        self.retired
+            .read()
+            .iter()
+            .map(|obj| obj.traverse(tracer_fn))
+            .count();
+    }
+
+    fn clear_into(&self, out: &mut Vec<PyObjectRef>) {
+        let old_init = unsafe { self.init.swap(None) };
+        if let Some(old_init) = old_init {
+            out.push(old_init.into());
+        }
+        let old_getitem = unsafe { self.getitem.swap(None) };
+        if let Some(old_getitem) = old_getitem {
+            out.push(old_getitem.into());
+        }
+        self.getitem_version.store(0, Ordering::Release);
+        out.extend(self.retired.write().drain(..));
+    }
 }
 
 pub struct PointerSlot<T>(NonNull<T>);
@@ -412,10 +474,7 @@ impl PyType {
     /// Invalidate this type's version tag and cascade to all subclasses.
     pub fn modified(&self) {
         if let Some(ext) = self.heaptype_ext.as_ref() {
-            *ext.specialization_init.write() = None;
-            *ext.specialization_getitem.write() = None;
-            ext.specialization_getitem_version
-                .store(0, Ordering::Release);
+            ext.specialization_cache.invalidate_for_type_modified();
         }
         // If already invalidated, all subclasses must also be invalidated
         // (guaranteed by the MRO invariant in assign_version_tag).
@@ -470,9 +529,7 @@ impl PyType {
             qualname: PyRwLock::new(name),
             slots: None,
             type_data: PyRwLock::new(None),
-            specialization_init: PyRwLock::new(None),
-            specialization_getitem: PyRwLock::new(None),
-            specialization_getitem_version: AtomicU32::new(0),
+            specialization_cache: TypeSpecializationCache::new(),
         };
         let base = bases[0].clone();
 
@@ -838,11 +895,10 @@ impl PyType {
         if tp_version == 0 {
             return false;
         }
-        let mut guard = ext.specialization_init.write();
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return false;
         }
-        *guard = Some(init);
+        ext.specialization_cache.swap_init(Some(init));
         true
     }
 
@@ -855,11 +911,10 @@ impl PyType {
         if tp_version == 0 {
             return None;
         }
-        let guard = ext.specialization_init.read();
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return None;
         }
-        guard.as_ref().map(|init| init.to_owned())
+        ext.specialization_cache.init.to_owned()
     }
 
     /// Cache __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
@@ -879,12 +934,12 @@ impl PyType {
         if func_version == 0 {
             return false;
         }
-        let mut guard = ext.specialization_getitem.write();
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return false;
         }
-        *guard = Some(getitem);
-        ext.specialization_getitem_version
+        ext.specialization_cache.swap_getitem(Some(getitem));
+        ext.specialization_cache
+            .getitem_version
             .store(func_version, Ordering::Release);
         true
     }
@@ -892,17 +947,20 @@ impl PyType {
     /// Read cached __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
     pub(crate) fn get_cached_getitem_for_specialization(&self) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
-        let cached_version = ext.specialization_getitem_version.load(Ordering::Acquire);
+        let cached_version = ext
+            .specialization_cache
+            .getitem_version
+            .load(Ordering::Acquire);
         if cached_version == 0 {
             return None;
         }
-        let guard = ext.specialization_getitem.read();
         if self.tp_version_tag.load(Ordering::Acquire) == 0 {
             return None;
         }
-        guard
-            .as_ref()
-            .map(|getitem| (getitem.to_owned(), cached_version))
+        ext.specialization_cache
+            .getitem
+            .to_owned()
+            .map(|getitem| (getitem, cached_version))
     }
 
     pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
@@ -2001,9 +2059,7 @@ impl Constructor for PyType {
                 qualname: PyRwLock::new(qualname),
                 slots: heaptype_slots.clone(),
                 type_data: PyRwLock::new(None),
-                specialization_init: PyRwLock::new(None),
-                specialization_getitem: PyRwLock::new(None),
-                specialization_getitem_version: AtomicU32::new(0),
+                specialization_cache: TypeSpecializationCache::new(),
             };
             (slots, heaptype_ext)
         };

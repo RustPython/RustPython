@@ -459,8 +459,27 @@ impl Context {
     }
 
     #[inline]
+    pub fn latin1_char(&self, ch: u8) -> PyRef<PyStr> {
+        self.latin1_char_cache[ch as usize].clone()
+    }
+
+    #[inline]
+    fn latin1_singleton_index(s: &PyStr) -> Option<u8> {
+        let mut cps = s.as_wtf8().code_points();
+        let cp = cps.next()?;
+        if cps.next().is_some() {
+            return None;
+        }
+        u8::try_from(cp.to_u32()).ok()
+    }
+
+    #[inline]
     pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
-        s.into().into_ref(self)
+        let s = s.into();
+        if let Some(ch) = Self::latin1_singleton_index(&s) {
+            return self.latin1_char(ch);
+        }
+        s.into_ref(self)
     }
 
     #[inline]

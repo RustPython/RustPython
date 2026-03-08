@@ -1691,7 +1691,7 @@ impl ToPyObject for char {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         let cp = self as u32;
         if cp <= u8::MAX as u32 {
-            vm.ctx.latin1_char_cache[cp as usize].clone().into()
+            vm.ctx.latin1_char(cp as u8).into()
         } else {
             vm.ctx.new_str(self).into()
         }
@@ -1702,7 +1702,7 @@ impl ToPyObject for CodePoint {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         let cp = self.to_u32();
         if cp <= u8::MAX as u32 {
-            vm.ctx.latin1_char_cache[cp as usize].clone().into()
+            vm.ctx.latin1_char(cp as u8).into()
         } else {
             vm.ctx.new_str(self).into()
         }
@@ -1747,7 +1747,7 @@ impl ToPyObject for AsciiString {
 
 impl ToPyObject for AsciiChar {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(self).into()
+        vm.ctx.latin1_char(u8::from(self)).into()
     }
 }
 
