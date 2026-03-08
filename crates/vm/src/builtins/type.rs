@@ -276,7 +276,6 @@ pub struct TypeSpecializationCache {
     pub init: PyAtomicRef<Option<PyFunction>>,
     pub getitem: PyAtomicRef<Option<PyFunction>>,
     pub getitem_version: AtomicU32,
-    // Serialize cache writes/invalidation similar to CPython's BEGIN_TYPE_LOCK.
     write_lock: PyMutex<()>,
     retired: PyRwLock<Vec<PyObjectRef>>,
 }
@@ -302,9 +301,6 @@ impl TypeSpecializationCache {
     #[inline]
     fn swap_init(&self, new_init: Option<PyRef<PyFunction>>, vm: Option<&VirtualMachine>) {
         if let Some(vm) = vm {
-            // Keep replaced refs alive for the currently executing frame, matching
-            // CPython-style "old pointer remains valid during ongoing execution"
-            // without accumulating global retired refs.
             self.init.swap_to_temporary_refs(new_init, vm);
             return;
         }
@@ -329,8 +325,6 @@ impl TypeSpecializationCache {
     #[inline]
     fn invalidate_for_type_modified(&self) {
         let _guard = self.write_lock.lock();
-        // _spec_cache contract: type modification invalidates all cached
-        // specialization functions.
         self.swap_init(None, None);
         self.swap_getitem(None, None);
     }
@@ -963,17 +957,16 @@ impl PyType {
             return false;
         }
         ext.specialization_cache
-            .swap_getitem(Some(getitem), Some(vm));
-        ext.specialization_cache
             .getitem_version
-            .store(func_version, Ordering::Relaxed);
+            .store(func_version, Ordering::Release);
+        ext.specialization_cache
+            .swap_getitem(Some(getitem), Some(vm));
         true
     }
 
     /// Read cached __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
     pub(crate) fn get_cached_getitem_for_specialization(&self) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
-        // Match CPython check order: pointer (Acquire) then function version.
         let getitem = ext
             .specialization_cache
             .getitem
@@ -981,7 +974,7 @@ impl PyType {
         let cached_version = ext
             .specialization_cache
             .getitem_version
-            .load(Ordering::Relaxed);
+            .load(Ordering::Acquire);
         if cached_version == 0 {
             return None;
         }
