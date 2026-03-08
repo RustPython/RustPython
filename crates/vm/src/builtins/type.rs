@@ -81,7 +81,12 @@ struct TypeCacheEntry {
     /// Interned attribute name pointer (pointer equality check).
     name: AtomicPtr<PyStrInterned>,
     /// Cached lookup result as raw pointer. null = empty.
-    /// The cache holds a strong reference (refcount incremented).
+    /// The cache holds a **borrowed** pointer (no refcount increment).
+    /// Safety: `type_cache_clear()` nullifies all entries during GC,
+    /// and `type_cache_clear_version()` nullifies entries when a type
+    /// is modified — both before the source dict entry is removed.
+    /// Types are always part of reference cycles (via `mro` self-reference)
+    /// so they are always collected by the cyclic GC (never refcount-freed).
     value: AtomicPtr<PyObject>,
 }
 
@@ -149,13 +154,11 @@ impl TypeCacheEntry {
         self.sequence.load(Ordering::Relaxed) == previous
     }
 
-    /// Take the value out of this entry, returning the owned PyObjectRef.
+    /// Null out the cached value pointer.
     /// Caller must ensure no concurrent reads can observe this entry
     /// (version should be set to 0 first).
-    fn take_value(&self) -> Option<PyObjectRef> {
-        let ptr = self.value.swap(core::ptr::null_mut(), Ordering::Relaxed);
-        // SAFETY: non-null ptr was stored via PyObjectRef::into_raw
-        NonNull::new(ptr).map(|nn| unsafe { PyObjectRef::from_raw(nn) })
+    fn clear_value(&self) {
+        self.value.store(core::ptr::null_mut(), Ordering::Relaxed);
     }
 }
 
@@ -180,45 +183,36 @@ fn type_cache_hash(version: u32, name: &'static PyStrInterned) -> usize {
     ((version ^ name_hash) as usize) & TYPE_CACHE_MASK
 }
 
-/// Invalidate cache entries for a specific version tag and release values.
+/// Invalidate cache entries for a specific version tag.
 /// Called from modified() when a type is changed.
 fn type_cache_clear_version(version: u32) {
-    let mut to_drop = Vec::new();
     for entry in TYPE_CACHE.iter() {
         if entry.version.load(Ordering::Relaxed) == version {
             entry.begin_write();
             if entry.version.load(Ordering::Relaxed) == version {
                 entry.version.store(0, Ordering::Release);
-                if let Some(v) = entry.take_value() {
-                    to_drop.push(v);
-                }
+                entry.clear_value();
             }
             entry.end_write();
         }
     }
-    drop(to_drop);
 }
 
 /// Clear all method cache entries (_PyType_ClearCache).
-/// Called during GC collection to release strong references that might
-/// prevent cycle collection.
+/// Called during GC collection to nullify borrowed pointers before
+/// the collector breaks cycles.
 ///
 /// Sets TYPE_CACHE_CLEARING to suppress cache re-population during the
 /// entire operation, preventing concurrent lookups from repopulating
 /// entries while we're clearing them.
 pub fn type_cache_clear() {
     TYPE_CACHE_CLEARING.store(true, Ordering::Release);
-    // Invalidate all entries and collect values.
-    let mut to_drop = Vec::new();
     for entry in TYPE_CACHE.iter() {
         entry.begin_write();
         entry.version.store(0, Ordering::Release);
-        if let Some(v) = entry.take_value() {
-            to_drop.push(v);
-        }
+        entry.clear_value();
         entry.end_write();
     }
-    drop(to_drop);
     TYPE_CACHE_CLEARING.store(false, Ordering::Release);
 }
 
@@ -430,9 +424,8 @@ impl PyType {
             return;
         }
         self.tp_version_tag.store(0, Ordering::SeqCst);
-        // Release strong references held by cache entries for this version.
-        // We hold owned refs that would prevent GC of class attributes after
-        // type deletion.
+        // Nullify borrowed pointers in cache entries for this version
+        // so they don't dangle after the dict is modified.
         type_cache_clear_version(old_version);
         let subclasses = self.subclasses.read();
         for weak_ref in subclasses.iter() {
@@ -809,9 +802,9 @@ impl PyType {
     }
 
     pub fn set_attr(&self, attr_name: &'static PyStrInterned, value: PyObjectRef) {
-        // Invalidate caches BEFORE modifying attributes so that cached
-        // descriptor pointers are still alive when type_cache_clear_version
-        // drops the cache's strong references.
+        // Invalidate caches BEFORE modifying attributes so that borrowed
+        // pointers in cache entries are nullified while the source objects
+        // are still alive.
         self.modified();
         self.attributes.write().insert(attr_name, value);
     }
@@ -974,19 +967,13 @@ impl PyType {
             entry.begin_write();
             // Invalidate first to prevent readers from seeing partial state
             entry.version.store(0, Ordering::Release);
-            // Swap in new value (refcount held by cache)
-            let new_ptr = found.clone().into_raw().as_ptr();
-            let old_ptr = entry.value.swap(new_ptr, Ordering::Relaxed);
+            // Store borrowed pointer (no refcount increment).
+            let new_ptr = &**found as *const PyObject as *mut PyObject;
+            entry.value.store(new_ptr, Ordering::Relaxed);
             entry.name.store(name_ptr, Ordering::Relaxed);
             // Activate entry — Release ensures value/name writes are visible
             entry.version.store(assigned, Ordering::Release);
             entry.end_write();
-            // Drop previous occupant (its version was already invalidated)
-            if !old_ptr.is_null() {
-                unsafe {
-                    drop(PyObjectRef::from_raw(NonNull::new_unchecked(old_ptr)));
-                }
-            }
         }
 
         result
