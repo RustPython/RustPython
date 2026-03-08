@@ -7357,18 +7357,37 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // Module attribute access: use LoadAttrModule
-        if obj.downcast_ref_if_exact::<PyModule>(_vm).is_some() {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_cache_u32(cache_base + 1, type_version);
+        let attr_name = self.code.names[oparg.name_idx() as usize];
+
+        // Match CPython: only specialize module attribute loads when the
+        // current module dict has no __getattr__ override and the attribute is
+        // already present.
+        if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
+            let module_dict = module.dict();
+            match (
+                module_dict.get_item_opt(identifier!(_vm, __getattr__), _vm),
+                module_dict.get_item_opt(attr_name, _vm),
+            ) {
+                (Ok(None), Ok(Some(_))) => {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, type_version);
+                    }
+                    self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
+                }
+                (Ok(_), Ok(_)) => self.cooldown_adaptive_at(cache_base),
+                _ => unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                },
             }
-            self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
             return;
         }
-
-        let attr_name = self.code.names[oparg.name_idx() as usize];
 
         // Look up attr in class via MRO
         let cls_attr = cls.get_attr(attr_name);
@@ -7479,8 +7498,11 @@ impl ExecutingFrame<'_> {
                         Instruction::LoadAttrNondescriptorWithValues,
                     );
                 } else {
-                    // No class attr, must be in instance dict
-                    let use_hint = if let Some(dict) = obj.dict() {
+                    // Match CPython ABSENT/no-shadow behavior: if the
+                    // attribute is missing on both the class and the current
+                    // instance, keep the generic opcode and just enter
+                    // cooldown instead of specializing a repeated miss path.
+                    let has_instance_attr = if let Some(dict) = obj.dict() {
                         match dict.get_item_opt(attr_name, _vm) {
                             Ok(Some(_)) => true,
                             Ok(None) => false,
@@ -7501,20 +7523,16 @@ impl ExecutingFrame<'_> {
                     } else {
                         false
                     };
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u32(cache_base + 1, type_version);
+                    if has_instance_attr {
+                        unsafe {
+                            self.code
+                                .instructions
+                                .write_cache_u32(cache_base + 1, type_version);
+                        }
+                        self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrWithHint);
+                    } else {
+                        self.cooldown_adaptive_at(cache_base);
                     }
-                    self.specialize_at(
-                        instr_idx,
-                        cache_base,
-                        if use_hint {
-                            Instruction::LoadAttrWithHint
-                        } else {
-                            Instruction::LoadAttrInstanceValue
-                        },
-                    );
                 }
             } else if let Some(ref descr) = cls_attr {
                 // No dict support, plain class attr — cache directly
@@ -7528,15 +7546,8 @@ impl ExecutingFrame<'_> {
                     Instruction::LoadAttrNondescriptorNoDict,
                 );
             } else {
-                // No dict, no class attr — can't specialize
-                unsafe {
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
+                // No dict and no class attr: repeated miss path, so cooldown.
+                self.cooldown_adaptive_at(cache_base);
             }
         }
     }
@@ -7929,6 +7940,15 @@ impl ExecutingFrame<'_> {
                 .instructions
                 .write_adaptive_counter(cache_base, ADAPTIVE_COOLDOWN_VALUE);
             self.code.instructions.replace_op(instr_idx, new_op);
+        }
+    }
+
+    #[inline]
+    fn cooldown_adaptive_at(&mut self, cache_base: usize) {
+        unsafe {
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_COOLDOWN_VALUE);
         }
     }
 
