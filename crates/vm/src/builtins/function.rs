@@ -1374,6 +1374,7 @@ pub(crate) fn vectorcall_function(
 
     let has_kwargs = kwnames.is_some_and(|kw| !kw.is_empty());
     let is_simple = !has_kwargs
+        && code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
         && !code.flags.contains(bytecode::CodeFlags::VARKEYWORDS)
         && code.kwonlyarg_count == 0

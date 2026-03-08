@@ -1,3 +1,5 @@
+// spell-checker: ignore compactlong compactlongs
+
 use crate::anystr::AnyStr;
 #[cfg(feature = "flame")]
 use crate::bytecode::InstructionMetadata;
@@ -8747,7 +8749,7 @@ impl ExecutingFrame<'_> {
             Some(frame_size) => frame_size
                 .checked_add(extra_bytes)
                 .is_some_and(|size| vm.datastack_has_space(size)),
-            None => true,
+            None => extra_bytes == 0 || vm.datastack_has_space(extra_bytes),
         }
     }
 
