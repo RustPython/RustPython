@@ -935,14 +935,14 @@ pub mod module {
                 Ok(n) => n,
                 Err(_) => return 0,
             };
-            let line = match std::str::from_utf8(&buf[..n]) {
+            let line = match core::str::from_utf8(&buf[..n]) {
                 Ok(s) => s,
                 Err(_) => return 0,
             };
             if let Some(field) = line.split_whitespace().nth(19) {
                 return field.parse::<isize>().unwrap_or(0);
             }
-            return 0;
+            0
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {

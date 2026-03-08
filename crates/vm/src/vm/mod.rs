@@ -403,7 +403,12 @@ impl StopTheWorldState {
                 continue;
             }
             slot.stop_requested.store(false, Ordering::Release);
-            if slot.state.load(Ordering::Relaxed) == THREAD_SUSPENDED {
+            let state = slot.state.load(Ordering::Relaxed);
+            debug_assert!(
+                state == THREAD_SUSPENDED,
+                "non-requester thread not suspended at start-the-world: id={id} state={state}"
+            );
+            if state == THREAD_SUSPENDED {
                 slot.state.store(THREAD_DETACHED, Ordering::Release);
                 slot.thread.unpark();
             }
