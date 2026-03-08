@@ -1670,7 +1670,7 @@ impl ExecutingFrame<'_> {
                 self.execute_bin_op(vm, op_val)
             }
             // Super-instruction for BINARY_OP_ADD_UNICODE + STORE_FAST targeting
-            // the left local, mirroring CPython's BINARY_OP_INPLACE_ADD_UNICODE shape.
+            // the left local, matching BINARY_OP_INPLACE_ADD_UNICODE shape.
             Instruction::BinaryOpInplaceAddUnicode => {
                 let b = self.top_value();
                 let a = self.nth_value(1);
@@ -4631,8 +4631,8 @@ impl ExecutingFrame<'_> {
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
                     && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
-                    // CPython guards with code->co_framesize + _Py_InitCleanup.co_framesize.
-                    // RustPython does not materialize frame-specials on datastack, so use
+                    // co_framesize + _Py_InitCleanup.co_framesize guard.
+                    // We do not materialize frame-specials on datastack, so use
                     // only the cleanup shim's eval-stack payload (2 stack slots).
                     const INIT_CLEANUP_STACK_BYTES: usize = 2 * core::mem::size_of::<usize>();
                     if !self.specialization_has_datastack_space_for_func_with_extra(
@@ -5392,8 +5392,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadGlobalModule => {
                 let oparg = u32::from(arg);
                 let cache_base = self.lasti() as usize;
-                // Keep specialized opcode on guard miss, matching CPython's
-                // JUMP_TO_PREDICTED(LOAD_GLOBAL) behavior.
+                // Keep specialized opcode on guard miss (JUMP_TO_PREDICTED behavior).
                 let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
                 if let Ok(current_version) = u16::try_from(self.globals.version())
@@ -7271,7 +7270,7 @@ impl ExecutingFrame<'_> {
                     && func.can_specialize_call(1)
                     && !self.specialization_eval_frame_active(_vm)
                 {
-                    // Property specialization caches fget directly, matching CPython.
+                    // Property specialization caches fget directly.
                     let fget_ptr = &*fget as *const PyObject as usize;
                     unsafe {
                         self.write_cached_descriptor(cache_base, type_version, fget_ptr);
@@ -8630,7 +8629,7 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
-        // CPython's _PyLong_IsCompact() means a one-digit PyLong (base 2^30),
+        // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
         // i.e. abs(value) <= 2^30 - 1.
         const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
         let v = i.try_to_primitive::<i64>(vm).ok()?;
@@ -8643,7 +8642,7 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
-        // CPython's _PyLong_IsNonNegativeCompact() uses a single base-2^30 digit.
+        // _PyLong_IsNonNegativeCompact(): a single base-2^30 digit.
         const CPYTHON_COMPACT_LONG_MAX: u64 = (1u64 << 30) - 1;
         let v = i.try_to_primitive::<u64>(vm).ok()?;
         if v <= CPYTHON_COMPACT_LONG_MAX {

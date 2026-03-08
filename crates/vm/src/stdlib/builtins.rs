@@ -181,7 +181,7 @@ mod builtins {
 
     /// Decode source bytes to a string, handling PEP 263 encoding declarations
     /// and BOM. Raises SyntaxError for invalid UTF-8 without an encoding
-    /// declaration (matching CPython behavior).
+    /// declaration.
     /// Check if an encoding name is a UTF-8 variant after normalization.
     /// Matches: utf-8, utf_8, utf8, UTF-8, etc.
     #[cfg(feature = "parser")]

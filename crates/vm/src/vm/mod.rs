@@ -253,8 +253,7 @@ impl StopTheWorldState {
     }
 
     /// Try to CAS detached threads directly to SUSPENDED and check whether
-    /// stop countdown reached zero after parking detached threads
-    /// (`park_detached_threads`), matching CPython behavior class.
+    /// stop countdown reached zero after parking detached threads.
     fn park_detached_threads(&self, vm: &VirtualMachine) -> bool {
         use thread::{THREAD_ATTACHED, THREAD_DETACHED, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);

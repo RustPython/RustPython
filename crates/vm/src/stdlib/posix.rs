@@ -873,7 +873,7 @@ pub mod module {
     }
 
     /// Best-effort number of OS threads in this process.
-    /// Returns <= 0 when unavailable, mirroring CPython fallback behavior.
+    /// Returns <= 0 when unavailable.
     fn get_number_of_os_threads() -> isize {
         #[cfg(target_os = "macos")]
         {

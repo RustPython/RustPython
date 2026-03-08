@@ -640,7 +640,7 @@ impl Py<PyFunction> {
         new_v
     }
 
-    /// CPython function_kind(SIMPLE_FUNCTION) equivalent for CALL specialization.
+    /// function_kind(SIMPLE_FUNCTION) equivalent for CALL specialization.
     /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args.
     pub(crate) fn is_simple_for_call_specialization(&self) -> bool {
         let code: &Py<PyCode> = &self.code;
@@ -705,8 +705,8 @@ impl Py<PyFunction> {
         );
         debug_assert_eq!(code.kwonlyarg_count, 0);
 
-        // Generator/coroutine code objects are SIMPLE_FUNCTION in CPython's
-        // call specialization classification, but their call path must still
+        // Generator/coroutine code objects are SIMPLE_FUNCTION in call
+        // specialization classification, but their call path must still
         // go through invoke() to produce generator/coroutine objects.
         if code
             .flags
