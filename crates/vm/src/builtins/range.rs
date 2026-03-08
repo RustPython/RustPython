@@ -84,7 +84,7 @@ impl PyPayload for PyRange {
     }
 
     #[inline]
-    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+    unsafe fn freelist_push(obj: *mut PyObject, _hint: usize, _typ: &Py<PyType>) -> bool {
         RANGE_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();
@@ -101,7 +101,7 @@ impl PyPayload for PyRange {
     }
 
     #[inline]
-    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         RANGE_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();

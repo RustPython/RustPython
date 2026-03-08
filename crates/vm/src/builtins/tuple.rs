@@ -27,6 +27,8 @@ use crate::{
     vm::VirtualMachine,
 };
 use alloc::fmt;
+use core::cell::Cell;
+use core::ptr::NonNull;
 
 #[pyclass(module = false, name = "tuple", traverse = "manual")]
 pub struct PyTuple<R = PyObjectRef> {
@@ -53,13 +55,104 @@ unsafe impl Traverse for PyTuple {
     }
 }
 
-// No freelist for PyTuple: structseq types (stat_result, struct_time, etc.)
-// are static subtypes sharing the same Rust payload, making type-safe reuse
-// impractical without a type-pointer comparison at push time.
+// spell-checker:ignore MAXFREELIST MAXSAVESIZE
+/// Per-size freelist storage for tuples, matching tuples[PyTuple_MAXSAVESIZE].
+/// Each bucket caches tuples of a specific element count (index = len - 1).
+struct TupleFreeList {
+    buckets: [Vec<NonNull<PyObject>>; Self::MAXSAVESIZE],
+}
+
+impl TupleFreeList {
+    /// Largest tuple size to cache on the freelist (sizes 1..=20).
+    const MAXSAVESIZE: usize = 20;
+    const fn new() -> Self {
+        Self {
+            buckets: [const { Vec::new() }; Self::MAXSAVESIZE],
+        }
+    }
+}
+
+impl Default for TupleFreeList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for TupleFreeList {
+    fn drop(&mut self) {
+        // Same safety pattern as FreeList<T>::drop — free raw allocation
+        // without running payload destructors to avoid TLS-after-destruction panics.
+        let layout = crate::object::pyinner_layout::<PyTuple>();
+        for bucket in &mut self.buckets {
+            for ptr in bucket.drain(..) {
+                unsafe {
+                    alloc::alloc::dealloc(ptr.as_ptr() as *mut u8, layout);
+                }
+            }
+        }
+    }
+}
+
+thread_local! {
+    static TUPLE_FREELIST: Cell<TupleFreeList> = const { Cell::new(TupleFreeList::new()) };
+}
+
 impl PyPayload for PyTuple {
+    const MAX_FREELIST: usize = 2000;
+    const HAS_FREELIST: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.tuple_type
+    }
+
+    #[inline]
+    unsafe fn freelist_hint(obj: *mut PyObject) -> usize {
+        let py_tuple = unsafe { &*(obj as *const crate::Py<PyTuple>) };
+        py_tuple.elements.len()
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject, hint: usize, typ: &Py<PyType>) -> bool {
+        // Py_IS_TYPE(op, &PyTuple_Type): reject structseq and other subtypes
+        if !core::ptr::eq(typ, Self::class(crate::vm::Context::genesis())) {
+            return false;
+        }
+        let len = hint;
+        if len == 0 || len > TupleFreeList::MAXSAVESIZE {
+            return false;
+        }
+        TUPLE_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let bucket = &mut list.buckets[len - 1];
+                let stored = if bucket.len() < Self::MAX_FREELIST {
+                    bucket.push(unsafe { NonNull::new_unchecked(obj) });
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop(payload: &Self) -> Option<NonNull<PyObject>> {
+        let len = payload.elements.len();
+        if len == 0 || len > TupleFreeList::MAXSAVESIZE {
+            return None;
+        }
+        TUPLE_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.buckets[len - 1].pop();
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
     }
 }
 
