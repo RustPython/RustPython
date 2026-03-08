@@ -280,9 +280,7 @@ mod decl {
 
         loop {
             let mut tv = timeout.map(sec_to_timeval);
-            let res = vm.allow_threads(|| {
-                super::select(nfds, &mut r, &mut w, &mut x, tv.as_mut())
-            });
+            let res = vm.allow_threads(|| super::select(nfds, &mut r, &mut w, &mut x, tv.as_mut()));
 
             match res {
                 Ok(_) => break,
@@ -504,7 +502,9 @@ mod decl {
                 let deadline = timeout.map(|d| Instant::now() + d);
                 let mut poll_timeout = timeout_ms;
                 loop {
-                    let res = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, poll_timeout) };
+                    let res = vm.allow_threads(|| unsafe {
+                        libc::poll(fds.as_mut_ptr(), fds.len() as _, poll_timeout)
+                    });
                     match nix::Error::result(res) {
                         Ok(_) => break,
                         Err(nix::Error::EINTR) => vm.check_signals()?,
@@ -697,11 +697,13 @@ mod decl {
 
                 loop {
                     events.clear();
-                    match epoll::wait(
-                        epoll,
-                        rustix::buffer::spare_capacity(&mut events),
-                        poll_timeout.as_ref(),
-                    ) {
+                    match vm.allow_threads(|| {
+                        epoll::wait(
+                            epoll,
+                            rustix::buffer::spare_capacity(&mut events),
+                            poll_timeout.as_ref(),
+                        )
+                    }) {
                         Ok(_) => break,
                         Err(rustix::io::Errno::INTR) => vm.check_signals()?,
                         Err(e) => return Err(e.into_pyexception(vm)),
