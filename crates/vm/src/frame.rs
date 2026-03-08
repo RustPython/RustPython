@@ -4582,7 +4582,6 @@ impl ExecutingFrame<'_> {
                     let self_index =
                         stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
                     if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                        && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && (descr.method.flags
                             & (PyMethodFlags::VARARGS
                                 | PyMethodFlags::FASTCALL
@@ -4630,7 +4629,6 @@ impl ExecutingFrame<'_> {
                     let self_index =
                         stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
                     if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                        && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && (descr.method.flags
                             & (PyMethodFlags::VARARGS
                                 | PyMethodFlags::FASTCALL
@@ -4678,7 +4676,6 @@ impl ExecutingFrame<'_> {
                     stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
                 if total_nargs > 0
                     && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && (descr.method.flags
                         & (PyMethodFlags::VARARGS
                             | PyMethodFlags::FASTCALL
@@ -4812,7 +4809,6 @@ impl ExecutingFrame<'_> {
                     stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
                 if total_nargs > 0
                     && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && (descr.method.flags
                         & (PyMethodFlags::VARARGS
                             | PyMethodFlags::FASTCALL
@@ -8173,9 +8169,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Try to specialize method descriptor calls
-        if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-            && descr.method.flags.contains(PyMethodFlags::METHOD)
-        {
+        if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm) {
             let call_cache_entries = Instruction::CallListAppend.cache_entries();
             let next_idx = cache_base + call_cache_entries;
             let next_is_pop_top = if next_idx < self.code.instructions.len() {
@@ -8340,15 +8334,26 @@ impl ExecutingFrame<'_> {
                     (cls_new, object_new, cls_alloc, object_alloc)
                     && cls_new_fn as usize == obj_new_fn as usize
                     && cls_alloc_fn as usize == obj_alloc_fn as usize
-                    && let Some(init) = cls.get_attr(identifier!(vm, __init__))
-                    && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
-                    && init_func.is_simple_for_call_specialization()
                 {
+                    let init = cls.get_attr(identifier!(vm, __init__));
                     let mut version = cls.tp_version_tag.load(Acquire);
                     if version == 0 {
                         version = cls.assign_version_tag();
                     }
-                    if version != 0
+                    if version == 0 {
+                        unsafe {
+                            self.code.instructions.write_adaptive_counter(
+                                cache_base,
+                                bytecode::adaptive_counter_backoff(
+                                    self.code.instructions.read_adaptive_counter(cache_base),
+                                ),
+                            );
+                        }
+                        return;
+                    }
+                    if let Some(init) = init
+                        && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
+                        && init_func.is_simple_for_call_specialization()
                         && cls.cache_init_for_specialization(init_func.to_owned(), version, vm)
                     {
                         unsafe {
