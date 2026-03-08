@@ -2104,18 +2104,9 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
 
-        // Try to reuse from freelist (exact type only, no dict, no heaptype).
-        // During bootstrap, genesis() is not yet available; freelists are empty anyway.
-        let cached = if T::HAS_FREELIST && !has_dict && !is_heaptype {
-            if let Some(ctx) = crate::vm::Context::try_genesis() {
-                if core::ptr::eq(&*typ, T::class(ctx)) {
-                    unsafe { T::freelist_pop(&payload) }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+        // Try to reuse from freelist (no dict, no heaptype)
+        let cached = if !has_dict && !is_heaptype {
+            unsafe { T::freelist_pop(&payload) }
         } else {
             None
         };
@@ -2127,9 +2118,16 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
                 (*inner).gc_bits.store(0, Ordering::Relaxed);
                 core::ptr::drop_in_place(&mut (*inner).payload);
                 core::ptr::write(&mut (*inner).payload, payload);
+                // Freelist only stores exact base types (push-side filter),
+                // but subtypes sharing the same Rust payload (e.g. structseq)
+                // may pop entries. Update typ if it differs.
+                let cached_typ: *const Py<PyType> = &*(*inner).typ;
+                if core::ptr::eq(cached_typ, &*typ) {
+                    drop(typ);
+                } else {
+                    let _old = (*inner).typ.swap(typ);
+                }
             }
-            // Drop the caller's typ since the cached object already holds one
-            drop(typ);
             unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
         } else {
             let inner = PyInner::new(payload, typ, dict);

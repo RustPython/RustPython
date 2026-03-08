@@ -281,15 +281,11 @@ impl Context {
     pub const INT_CACHE_POOL_RANGE: core::ops::RangeInclusive<i32> = (-5)..=256;
     const INT_CACHE_POOL_MIN: i32 = *Self::INT_CACHE_POOL_RANGE.start();
 
-    fn genesis_cell() -> &'static rustpython_common::static_cell::StaticCell<PyRc<Context>> {
+    pub fn genesis() -> &'static PyRc<Self> {
         rustpython_common::static_cell! {
             static CONTEXT: PyRc<Context>;
         }
-        &CONTEXT
-    }
-
-    pub fn genesis() -> &'static PyRc<Self> {
-        Self::genesis_cell().get_or_init(|| {
+        CONTEXT.get_or_init(|| {
             let ctx = PyRc::new(Self::init_genesis());
             // SAFETY: ctx is heap-allocated via PyRc and will be stored in
             // the CONTEXT static cell, so the Context lives for 'static.
@@ -297,14 +293,6 @@ impl Context {
             crate::types::TypeZoo::extend(ctx_ref);
             crate::exceptions::ExceptionZoo::extend(ctx_ref);
             ctx
-        })
-    }
-
-    /// Returns the genesis context if already initialized, `None` during bootstrap.
-    pub fn try_genesis() -> Option<&'static Self> {
-        Self::genesis_cell().get().map(|rc| {
-            // SAFETY: same as genesis() — PyRc is heap-allocated and 'static
-            unsafe { &*PyRc::as_ptr(rc) }
         })
     }
 
