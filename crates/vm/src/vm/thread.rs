@@ -228,7 +228,7 @@ pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     }
 
     detach_thread();
-    let reattach_guard = scopeguard::guard(vm, |vm| attach_thread(vm));
+    let reattach_guard = scopeguard::guard(vm, attach_thread);
     let result = f();
     drop(reattach_guard);
     result
