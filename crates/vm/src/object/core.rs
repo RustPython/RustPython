@@ -188,39 +188,32 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         );
     }
 
-    // Capture freelist bucket hint before tp_clear empties the payload.
-    // Size-based freelists (e.g. PyTuple) need the element count for bucket selection,
-    // but clear() replaces elements with an empty slice.
-    let freelist_hint = if T::HAS_FREELIST {
-        unsafe { T::freelist_hint(obj) }
-    } else {
-        0
-    };
-
-    // Extract child references before deallocation to break circular refs (tp_clear)
-    let mut edges = Vec::new();
-    if let Some(clear_fn) = vtable.clear {
-        unsafe { clear_fn(obj, &mut edges) };
-    }
-
-    // Try to store in freelist for reuse; otherwise deallocate.
+    // Try to store in freelist for reuse BEFORE tp_clear, so that
+    // size-based freelists (e.g. PyTuple) can read the payload directly.
     // Only exact base types (not heaptype or structseq subtypes) go into the freelist.
     let typ = obj_ref.class();
     let pushed = if T::HAS_FREELIST
         && typ.heaptype_ext.is_none()
         && core::ptr::eq(typ, T::class(crate::vm::Context::genesis()))
     {
-        unsafe { T::freelist_push(obj, freelist_hint) }
+        unsafe { T::freelist_push(obj) }
     } else {
         false
     };
+
+    // Extract child references to break circular refs (tp_clear).
+    // This runs regardless of freelist push — the object's children must be released.
+    let mut edges = Vec::new();
+    if let Some(clear_fn) = vtable.clear {
+        unsafe { clear_fn(obj, &mut edges) };
+    }
+
     if !pushed {
         // Deallocate the object memory (handles ObjExt prefix if present)
         unsafe { PyInner::dealloc(obj as *mut PyInner<T>) };
     }
 
     // Drop child references - may trigger recursive destruction.
-    // The object is already deallocated, so circular refs are broken.
     drop(edges);
 
     // Trashcan: decrement depth and process deferred objects at outermost level

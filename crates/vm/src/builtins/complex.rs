@@ -41,7 +41,7 @@ impl PyPayload for PyComplex {
     }
 
     #[inline]
-    unsafe fn freelist_push(obj: *mut PyObject, _hint: usize) -> bool {
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
         COMPLEX_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();

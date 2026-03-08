@@ -69,7 +69,7 @@ impl PyPayload for PyInt {
     }
 
     #[inline]
-    unsafe fn freelist_push(obj: *mut PyObject, _hint: usize) -> bool {
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
         INT_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();

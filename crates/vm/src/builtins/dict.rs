@@ -76,7 +76,7 @@ impl PyPayload for PyDict {
     }
 
     #[inline]
-    unsafe fn freelist_push(obj: *mut PyObject, _hint: usize) -> bool {
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
         DICT_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();
