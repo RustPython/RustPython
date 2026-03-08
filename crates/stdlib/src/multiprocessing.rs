@@ -484,7 +484,7 @@ mod _multiprocessing {
                 tv_sec: (delay / 1_000_000) as _,
                 tv_usec: (delay % 1_000_000) as _,
             };
-            unsafe {
+            vm.allow_threads(|| unsafe {
                 libc::select(
                     0,
                     core::ptr::null_mut(),
@@ -492,7 +492,7 @@ mod _multiprocessing {
                     core::ptr::null_mut(),
                     &mut tv_delay,
                 )
-            };
+            });
 
             // check for signals - preserve the exception (e.g., KeyboardInterrupt)
             if let Err(exc) = vm.check_signals() {
@@ -710,13 +710,13 @@ mod _multiprocessing {
                 #[cfg(not(target_vendor = "apple"))]
                 {
                     loop {
+                        let sem_ptr = self.handle.as_ptr();
                         // Py_BEGIN_ALLOW_THREADS / Py_END_ALLOW_THREADS
-                        // RustPython doesn't have GIL, so we just do the wait
-                        if let Some(ref dl) = deadline {
-                            res = unsafe { libc::sem_timedwait(self.handle.as_ptr(), dl) };
+                        res = if let Some(ref dl) = deadline {
+                            vm.allow_threads(|| unsafe { libc::sem_timedwait(sem_ptr, dl) })
                         } else {
-                            res = unsafe { libc::sem_wait(self.handle.as_ptr()) };
-                        }
+                            vm.allow_threads(|| unsafe { libc::sem_wait(sem_ptr) })
+                        };
 
                         if res >= 0 {
                             break;
@@ -750,7 +750,8 @@ mod _multiprocessing {
                     } else {
                         // No timeout: use sem_wait (available on macOS)
                         loop {
-                            res = unsafe { libc::sem_wait(self.handle.as_ptr()) };
+                            let sem_ptr = self.handle.as_ptr();
+                            res = vm.allow_threads(|| unsafe { libc::sem_wait(sem_ptr) });
                             if res >= 0 {
                                 break;
                             }

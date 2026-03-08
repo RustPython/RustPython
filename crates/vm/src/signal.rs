@@ -91,6 +91,11 @@ pub(crate) fn set_triggered() {
     ANY_TRIGGERED.store(true, Ordering::Release);
 }
 
+#[inline(always)]
+pub(crate) fn is_triggered() -> bool {
+    ANY_TRIGGERED.load(Ordering::Relaxed)
+}
+
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
 #[cfg(unix)]

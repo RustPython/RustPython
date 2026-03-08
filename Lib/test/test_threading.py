@@ -1162,8 +1162,6 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
-    # TODO: RUSTPYTHON - __del__ not called during interpreter finalization (no cyclic GC)
-    @unittest.expectedFailure
     def test_start_new_thread_at_finalization(self):
         code = """if 1:
             import _thread

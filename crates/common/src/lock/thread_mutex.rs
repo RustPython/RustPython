@@ -54,6 +54,18 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
         .is_some()
     }
 
+    /// Like `lock()` but wraps the blocking wait in `wrap_fn`.
+    /// The caller can use this to detach thread state while waiting.
+    pub fn lock_wrapped<F: FnOnce(&dyn Fn())>(&self, wrap_fn: F) -> bool {
+        let id = self.get_thread_id.nonzero_thread_id().get();
+        if self.owner.load(Ordering::Relaxed) == id {
+            return false;
+        }
+        wrap_fn(&|| self.mutex.lock());
+        self.owner.store(id, Ordering::Relaxed);
+        true
+    }
+
     /// Returns `Some(true)` if able to successfully lock without blocking, `Some(false)`
     /// otherwise, and `None` when the mutex is already locked on the current thread.
     pub fn try_lock(&self) -> Option<bool> {
@@ -135,6 +147,23 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
             None
         }
     }
+
+    /// Like `lock()` but wraps the blocking wait in `wrap_fn`.
+    /// The caller can use this to detach thread state while waiting.
+    pub fn lock_wrapped<F: FnOnce(&dyn Fn())>(
+        &self,
+        wrap_fn: F,
+    ) -> Option<ThreadMutexGuard<'_, R, G, T>> {
+        if self.raw.lock_wrapped(wrap_fn) {
+            Some(ThreadMutexGuard {
+                mu: self,
+                marker: PhantomData,
+            })
+        } else {
+            None
+        }
+    }
+
     pub fn try_lock(&self) -> Result<ThreadMutexGuard<'_, R, G, T>, TryLockThreadError> {
         match self.raw.try_lock() {
             Some(true) => Ok(ThreadMutexGuard {

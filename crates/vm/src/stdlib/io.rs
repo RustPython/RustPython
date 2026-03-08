@@ -1580,7 +1580,7 @@ mod _io {
 
         fn lock(&self, vm: &VirtualMachine) -> PyResult<PyThreadMutexGuard<'_, BufferedData>> {
             self.data()
-                .lock()
+                .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside buffered io"))
         }
 
@@ -2812,7 +2812,7 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyResult<PyThreadMutexGuard<'_, Option<TextIOData>>> {
             self.data
-                .lock()
+                .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside textio"))
         }
 
@@ -4158,7 +4158,7 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyResult<PyThreadMutexGuard<'_, Option<IncrementalNewlineDecoderData>>> {
             self.data
-                .lock()
+                .lock_wrapped(|do_lock| vm.allow_threads(do_lock))
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside nldecoder"))
         }
 
@@ -5336,7 +5336,7 @@ mod fileio {
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use std::io::{Read, Write};
+    use std::io::Read;
 
     bitflags::bitflags! {
         #[derive(Copy, Clone, Debug, PartialEq)]
@@ -5740,12 +5740,12 @@ mod fileio {
                     "File or stream is not readable".to_owned(),
                 ));
             }
-            let mut handle = zelf.get_fd(vm)?;
+            let handle = zelf.get_fd(vm)?;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
                 let mut bytes = vec![0; read_byte];
                 // Loop on EINTR (PEP 475)
                 let n = loop {
-                    match handle.read(&mut bytes) {
+                    match vm.allow_threads(|| crt_fd::read(handle, &mut bytes)) {
                         Ok(n) => break n,
                         Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
                             vm.check_signals()?;
@@ -5764,7 +5764,10 @@ mod fileio {
                 let mut bytes = vec![];
                 // Loop on EINTR (PEP 475)
                 loop {
-                    match handle.read_to_end(&mut bytes) {
+                    match vm.allow_threads(|| {
+                        let mut h = handle;
+                        h.read_to_end(&mut bytes)
+                    }) {
                         Ok(_) => break,
                         Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
                             vm.check_signals()?;
@@ -5802,10 +5805,9 @@ mod fileio {
             let handle = zelf.get_fd(vm)?;
 
             let mut buf = obj.borrow_buf_mut();
-            let mut f = handle.take(buf.len() as _);
             // Loop on EINTR (PEP 475)
             let ret = loop {
-                match f.read(&mut buf) {
+                match vm.allow_threads(|| crt_fd::read(handle, &mut buf)) {
                     Ok(n) => break n,
                     Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
                         vm.check_signals()?;
@@ -5835,11 +5837,11 @@ mod fileio {
                 ));
             }
 
-            let mut handle = zelf.get_fd(vm)?;
+            let handle = zelf.get_fd(vm)?;
 
             // Loop on EINTR (PEP 475)
             let len = loop {
-                match obj.with_ref(|b| handle.write(b)) {
+                match obj.with_ref(|b| vm.allow_threads(|| crt_fd::write(handle, b))) {
                     Ok(n) => break n,
                     Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
                         vm.check_signals()?;
