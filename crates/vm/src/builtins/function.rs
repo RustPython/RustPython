@@ -529,6 +529,10 @@ impl PyFunction {
 }
 
 impl Py<PyFunction> {
+    pub(crate) fn is_optimized_for_call_specialization(&self) -> bool {
+        self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
+    }
+
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
@@ -636,43 +640,90 @@ impl Py<PyFunction> {
         new_v
     }
 
+    /// CPython function_kind(SIMPLE_FUNCTION) equivalent for CALL specialization.
+    /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args.
+    pub(crate) fn is_simple_for_call_specialization(&self) -> bool {
+        let code: &Py<PyCode> = &self.code;
+        let flags = code.flags;
+        flags.contains(bytecode::CodeFlags::OPTIMIZED)
+            && !flags.intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
+            && code.kwonlyarg_count == 0
+    }
+
     /// Check if this function is eligible for exact-args call specialization.
-    /// Returns true if: no VARARGS, no VARKEYWORDS, no kwonly args, not generator/coroutine,
+    /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args,
     /// and effective_nargs matches co_argcount.
     pub(crate) fn can_specialize_call(&self, effective_nargs: u32) -> bool {
         let code: &Py<PyCode> = &self.code;
         let flags = code.flags;
-        flags.contains(bytecode::CodeFlags::NEWLOCALS)
-            && !flags.intersects(
-                bytecode::CodeFlags::VARARGS
-                    | bytecode::CodeFlags::VARKEYWORDS
-                    | bytecode::CodeFlags::GENERATOR
-                    | bytecode::CodeFlags::COROUTINE,
-            )
+        flags.contains(bytecode::CodeFlags::OPTIMIZED)
+            && !flags.intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
             && code.kwonlyarg_count == 0
             && code.arg_count == effective_nargs
     }
 
+    /// Runtime guard for CALL_*_EXACT_ARGS specialization: check only argcount.
+    /// Other invariants are guaranteed by function versioning and specialization-time checks.
+    #[inline]
+    pub(crate) fn has_exact_argcount(&self, effective_nargs: u32) -> bool {
+        self.code.arg_count == effective_nargs
+    }
+
+    /// Bytes required for this function's frame on RustPython's thread datastack.
+    /// Returns `None` for generator/coroutine code paths that do not push a
+    /// regular datastack-backed frame in the fast call path.
+    pub(crate) fn datastack_frame_size_bytes(&self) -> Option<usize> {
+        let code: &Py<PyCode> = &self.code;
+        if code
+            .flags
+            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+        {
+            return None;
+        }
+        let nlocalsplus = code
+            .varnames
+            .len()
+            .checked_add(code.cellvars.len())?
+            .checked_add(code.freevars.len())?;
+        let capacity = nlocalsplus.checked_add(code.max_stackdepth as usize)?;
+        capacity.checked_mul(core::mem::size_of::<usize>())
+    }
+
     /// Fast path for calling a simple function with exact positional args.
     /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
-    /// Only valid when: no VARARGS, no VARKEYWORDS, no kwonlyargs, not generator/coroutine,
+    /// Only valid when: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonlyargs,
     /// and nargs == co_argcount.
     pub fn invoke_exact_args(&self, mut args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
-        debug_assert!(code.flags.contains(bytecode::CodeFlags::NEWLOCALS));
-        debug_assert!(!code.flags.intersects(
-            bytecode::CodeFlags::VARARGS
-                | bytecode::CodeFlags::VARKEYWORDS
-                | bytecode::CodeFlags::GENERATOR
-                | bytecode::CodeFlags::COROUTINE
-        ));
+        debug_assert!(code.flags.contains(bytecode::CodeFlags::OPTIMIZED));
+        debug_assert!(
+            !code
+                .flags
+                .intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
+        );
         debug_assert_eq!(code.kwonlyarg_count, 0);
+
+        // Generator/coroutine code objects are SIMPLE_FUNCTION in CPython's
+        // call specialization classification, but their call path must still
+        // go through invoke() to produce generator/coroutine objects.
+        if code
+            .flags
+            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+        {
+            return self.invoke(FuncArgs::from(args), vm);
+        }
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            None
+        } else {
+            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+        };
 
         let frame = Frame::new(
             code.clone(),
-            Scope::new(None, self.globals.clone()),
+            Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
