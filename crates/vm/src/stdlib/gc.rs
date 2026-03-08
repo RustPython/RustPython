@@ -55,11 +55,11 @@ mod gc {
         }
 
         // Invoke callbacks with "start" phase
-        invoke_callbacks(vm, "start", generation_num as usize, 0, 0);
+        invoke_callbacks(vm, "start", generation_num as usize, &Default::default());
 
         // Manual gc.collect() should run even if GC is disabled
         let gc = gc_state::gc_state();
-        let (collected, uncollectable) = gc.collect_force(generation_num as usize);
+        let result = gc.collect_force(generation_num as usize);
 
         // Move objects from gc_state.garbage to vm.ctx.gc_garbage (for DEBUG_SAVEALL)
         {
@@ -74,26 +74,21 @@ mod gc {
         }
 
         // Invoke callbacks with "stop" phase
-        invoke_callbacks(
-            vm,
-            "stop",
-            generation_num as usize,
-            collected,
-            uncollectable,
-        );
+        invoke_callbacks(vm, "stop", generation_num as usize, &result);
 
-        Ok(collected as i32)
+        Ok((result.collected + result.uncollectable) as i32)
     }
 
     /// Return the current collection thresholds as a tuple.
+    /// The third value is always 0.
     #[pyfunction]
     fn get_threshold(vm: &VirtualMachine) -> PyObjectRef {
-        let (t0, t1, t2) = gc_state::gc_state().get_threshold();
+        let (t0, t1, _t2) = gc_state::gc_state().get_threshold();
         vm.ctx
             .new_tuple(vec![
                 vm.ctx.new_int(t0).into(),
                 vm.ctx.new_int(t1).into(),
-                vm.ctx.new_int(t2).into(),
+                vm.ctx.new_int(0).into(),
             ])
             .into()
     }
@@ -148,6 +143,8 @@ mod gc {
                 vm.ctx.new_int(stat.uncollectable).into(),
                 vm,
             )?;
+            dict.set_item("candidates", vm.ctx.new_int(stat.candidates).into(), vm)?;
+            dict.set_item("duration", vm.ctx.new_float(stat.duration).into(), vm)?;
             result.push(dict.into());
         }
 
@@ -189,10 +186,49 @@ mod gc {
     /// Return the list of objects that directly refer to any of the arguments.
     #[pyfunction]
     fn get_referrers(args: FuncArgs, vm: &VirtualMachine) -> PyListRef {
-        // This is expensive: we need to scan all tracked objects
-        // For now, return an empty list (would need full object tracking to implement)
-        let _ = args;
-        vm.ctx.new_list(vec![])
+        use std::collections::HashSet;
+
+        // Build a set of target object pointers for fast lookup
+        let targets: HashSet<usize> = args
+            .args
+            .iter()
+            .map(|obj| obj.as_ref() as *const crate::PyObject as usize)
+            .collect();
+
+        // Collect pointers of frames currently on the execution stack.
+        // In CPython, executing frames (_PyInterpreterFrame) are not GC-tracked
+        // PyObjects, so they never appear in get_referrers results. Since
+        // RustPython materializes every frame as a PyObject, we must exclude
+        // them manually to match the expected behavior.
+        let stack_frames: HashSet<usize> = vm
+            .frames
+            .borrow()
+            .iter()
+            .map(|fp| {
+                let frame: &crate::PyObject = unsafe { fp.as_ref() }.as_ref();
+                frame as *const crate::PyObject as usize
+            })
+            .collect();
+
+        let mut result = Vec::new();
+
+        // Scan all tracked objects across all generations
+        let all_objects = gc_state::gc_state().get_objects(None);
+        for obj in all_objects {
+            let obj_ptr = obj.as_ref() as *const crate::PyObject as usize;
+            if stack_frames.contains(&obj_ptr) {
+                continue;
+            }
+            let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
+            for child_ptr in referent_ptrs {
+                if targets.contains(&(child_ptr.as_ptr() as usize)) {
+                    result.push(obj.clone());
+                    break;
+                }
+            }
+        }
+
+        vm.ctx.new_list(result)
     }
 
     /// Return True if the object is tracked by the garbage collector.
@@ -243,8 +279,7 @@ mod gc {
         vm: &VirtualMachine,
         phase: &str,
         generation: usize,
-        collected: usize,
-        uncollectable: usize,
+        result: &gc_state::CollectResult,
     ) {
         let callbacks_list = &vm.ctx.gc_callbacks;
         let callbacks: Vec<PyObjectRef> = callbacks_list.borrow_vec().to_vec();
@@ -255,8 +290,14 @@ mod gc {
         let phase_str: PyObjectRef = vm.ctx.new_str(phase).into();
         let info = vm.ctx.new_dict();
         let _ = info.set_item("generation", vm.ctx.new_int(generation).into(), vm);
-        let _ = info.set_item("collected", vm.ctx.new_int(collected).into(), vm);
-        let _ = info.set_item("uncollectable", vm.ctx.new_int(uncollectable).into(), vm);
+        let _ = info.set_item("collected", vm.ctx.new_int(result.collected).into(), vm);
+        let _ = info.set_item(
+            "uncollectable",
+            vm.ctx.new_int(result.uncollectable).into(),
+            vm,
+        );
+        let _ = info.set_item("candidates", vm.ctx.new_int(result.candidates).into(), vm);
+        let _ = info.set_item("duration", vm.ctx.new_float(result.duration).into(), vm);
 
         for callback in callbacks {
             let _ = callback.call((phase_str.clone(), info.clone()), vm);
