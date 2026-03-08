@@ -1046,7 +1046,7 @@ struct ExecutingFrame<'a> {
 }
 
 #[inline]
-fn cpython_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
+fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
     // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
     // i.e. abs(value) <= 2^30 - 1.
     const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
@@ -1061,7 +1061,7 @@ fn cpython_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
 #[inline]
 fn compact_int_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<isize> {
     obj.downcast_ref_if_exact::<PyInt>(vm)
-        .and_then(|i| cpython_compact_int_value(i, vm))
+        .and_then(|i| specialization_compact_int_value(i, vm))
 }
 
 #[inline]
@@ -1070,7 +1070,7 @@ fn exact_float_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<f64> {
 }
 
 #[inline]
-fn cpython_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
+fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
     // _PyLong_IsNonNegativeCompact(): a single base-2^30 digit.
     const CPYTHON_COMPACT_LONG_MAX: u64 = (1u64 << 30) - 1;
     let v = i.try_to_primitive::<u64>(vm).ok()?;
@@ -3926,7 +3926,7 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm)
                     && let Some(int_idx) = idx.downcast_ref_if_exact::<PyInt>(vm)
-                    && let Some(i) = Self::specialization_nonnegative_compact_index(int_idx, vm)
+                    && let Some(i) = specialization_nonnegative_compact_index(int_idx, vm)
                 {
                     let mut vec = list.borrow_vec_mut();
                     if i < vec.len() {
@@ -4026,7 +4026,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(list), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyList>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Some(i) = Self::specialization_nonnegative_compact_index(idx, vm)
+                ) && let Some(i) = specialization_nonnegative_compact_index(idx, vm)
                 {
                     let vec = list.borrow_vec();
                     if i < vec.len() {
@@ -4046,7 +4046,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(tuple), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyTuple>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Some(i) = Self::specialization_nonnegative_compact_index(idx, vm)
+                ) && let Some(i) = specialization_nonnegative_compact_index(idx, vm)
                 {
                     let elements = tuple.as_slice();
                     if i < elements.len() {
@@ -4088,7 +4088,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(a_str), Some(b_int)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Some(i) = Self::specialization_nonnegative_compact_index(b_int, vm)
+                ) && let Some(i) = specialization_nonnegative_compact_index(b_int, vm)
                     && let Ok(ch) = a_str.getitem_by_index(vm, i as isize)
                     && ch.is_ascii()
                 {
@@ -5143,8 +5143,8 @@ impl ExecutingFrame<'_> {
                     a.downcast_ref_if_exact::<PyInt>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
                 ) && let (Some(a_val), Some(b_val)) = (
-                    Self::specialization_compact_int_value(a_int, vm),
-                    Self::specialization_compact_int_value(b_int, vm),
+                    specialization_compact_int_value(a_int, vm),
+                    specialization_compact_int_value(b_int, vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
                     let result = op.eval_ord(a_val.cmp(&b_val));
@@ -7724,9 +7724,9 @@ impl ExecutingFrame<'_> {
                 }
             }
             bytecode::BinaryOperator::Subscr => {
-                let b_is_nonnegative_int = b.downcast_ref_if_exact::<PyInt>(vm).is_some_and(|i| {
-                    Self::specialization_nonnegative_compact_index(i, vm).is_some()
-                });
+                let b_is_nonnegative_int = b
+                    .downcast_ref_if_exact::<PyInt>(vm)
+                    .is_some_and(|i| specialization_nonnegative_compact_index(i, vm).is_some());
                 if a.downcast_ref_if_exact::<PyList>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrListInt)
                 } else if a.downcast_ref_if_exact::<PyTuple>(vm).is_some() && b_is_nonnegative_int {
@@ -8531,8 +8531,8 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            if Self::specialization_compact_int_value(a_int, vm).is_some()
-                && Self::specialization_compact_int_value(b_int, vm).is_some()
+            if specialization_compact_int_value(a_int, vm).is_some()
+                && specialization_compact_int_value(b_int, vm).is_some()
             {
                 Some(Instruction::CompareOpInt)
             } else {
@@ -8688,16 +8688,6 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
-        cpython_compact_int_value(i, vm)
-    }
-
-    #[inline]
-    fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
-        cpython_nonnegative_compact_index(i, vm)
-    }
-
-    #[inline]
     fn specialization_call_recursion_guard(&self, vm: &VirtualMachine) -> bool {
         self.specialization_call_recursion_guard_with_extra_frames(vm, 0)
     }
@@ -8840,9 +8830,7 @@ impl ExecutingFrame<'_> {
             idx.downcast_ref_if_exact::<PyInt>(vm),
         ) {
             let list_len = list.borrow_vec().len();
-            if Self::specialization_nonnegative_compact_index(int_idx, vm)
-                .is_some_and(|i| i < list_len)
-            {
+            if specialization_nonnegative_compact_index(int_idx, vm).is_some_and(|i| i < list_len) {
                 Some(Instruction::StoreSubscrListInt)
             } else {
                 None
