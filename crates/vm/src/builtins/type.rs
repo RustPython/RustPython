@@ -297,7 +297,14 @@ impl TypeSpecializationCache {
     }
 
     #[inline]
-    fn swap_init(&self, new_init: Option<PyRef<PyFunction>>) {
+    fn swap_init(&self, new_init: Option<PyRef<PyFunction>>, vm: Option<&VirtualMachine>) {
+        if let Some(vm) = vm {
+            // Keep replaced refs alive for the currently executing frame, matching
+            // CPython-style "old pointer remains valid during ongoing execution"
+            // without accumulating global retired refs.
+            self.init.swap_to_temporary_refs(new_init, vm);
+            return;
+        }
         // SAFETY: old value is moved to `retired`, so it stays alive while
         // concurrent readers may still hold borrowed references.
         let old = unsafe { self.init.swap(new_init) };
@@ -305,7 +312,11 @@ impl TypeSpecializationCache {
     }
 
     #[inline]
-    fn swap_getitem(&self, new_getitem: Option<PyRef<PyFunction>>) {
+    fn swap_getitem(&self, new_getitem: Option<PyRef<PyFunction>>, vm: Option<&VirtualMachine>) {
+        if let Some(vm) = vm {
+            self.getitem.swap_to_temporary_refs(new_getitem, vm);
+            return;
+        }
         // SAFETY: old value is moved to `retired`, so it stays alive while
         // concurrent readers may still hold borrowed references.
         let old = unsafe { self.getitem.swap(new_getitem) };
@@ -317,7 +328,7 @@ impl TypeSpecializationCache {
         // Match CPython _spec_cache contract: type modification invalidates
         // getitem cache by NULLing the pointer. `getitem_version` becomes
         // meaningless when getitem is NULL.
-        self.swap_getitem(None);
+        self.swap_getitem(None, None);
     }
 
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
@@ -888,6 +899,7 @@ impl PyType {
         &self,
         init: PyRef<PyFunction>,
         tp_version: u32,
+        vm: &VirtualMachine,
     ) -> bool {
         let Some(ext) = self.heaptype_ext.as_ref() else {
             return false;
@@ -898,7 +910,7 @@ impl PyType {
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return false;
         }
-        ext.specialization_cache.swap_init(Some(init));
+        ext.specialization_cache.swap_init(Some(init), Some(vm));
         true
     }
 
@@ -925,6 +937,7 @@ impl PyType {
         &self,
         getitem: PyRef<PyFunction>,
         tp_version: u32,
+        vm: &VirtualMachine,
     ) -> bool {
         let Some(ext) = self.heaptype_ext.as_ref() else {
             return false;
@@ -939,7 +952,8 @@ impl PyType {
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return false;
         }
-        ext.specialization_cache.swap_getitem(Some(getitem));
+        ext.specialization_cache
+            .swap_getitem(Some(getitem), Some(vm));
         ext.specialization_cache
             .getitem_version
             .store(func_version, Ordering::Relaxed);

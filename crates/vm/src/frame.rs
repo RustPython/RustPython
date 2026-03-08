@@ -7752,7 +7752,11 @@ impl ExecutingFrame<'_> {
                             type_version = cls.assign_version_tag();
                         }
                         if type_version != 0 {
-                            if cls.cache_getitem_for_specialization(func.to_owned(), type_version) {
+                            if cls.cache_getitem_for_specialization(
+                                func.to_owned(),
+                                type_version,
+                                vm,
+                            ) {
                                 Some(Instruction::BinaryOpSubscrGetitem)
                             } else {
                                 None
@@ -8286,7 +8290,7 @@ impl ExecutingFrame<'_> {
                         version = cls.assign_version_tag();
                     }
                     if version != 0
-                        && cls.cache_init_for_specialization(init_func.to_owned(), version)
+                        && cls.cache_init_for_specialization(init_func.to_owned(), version, vm)
                     {
                         unsafe {
                             self.code
