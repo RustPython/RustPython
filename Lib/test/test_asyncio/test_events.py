@@ -2876,7 +2876,6 @@ class PolicyTests(unittest.TestCase):
         policy.set_event_loop(None)
         self.assertRaises(RuntimeError, policy.get_event_loop)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - mock.patch doesn't work correctly with threading.current_thread
     @mock.patch('asyncio.events.threading.current_thread')
     def test_get_event_loop_thread(self, m_current_thread):
 

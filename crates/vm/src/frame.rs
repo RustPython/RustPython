@@ -1199,7 +1199,9 @@ impl ExecutingFrame<'_> {
                 }
             }
 
-            if let Err(exception) = vm.check_signals() {
+            if vm.eval_breaker_tripped()
+                && let Err(exception) = vm.check_signals()
+            {
                 #[cold]
                 fn handle_signal_exception(
                     frame: &mut ExecutingFrame<'_>,
