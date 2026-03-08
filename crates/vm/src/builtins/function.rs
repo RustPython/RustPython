@@ -13,7 +13,7 @@ use crate::{
     bytecode,
     class::PyClassImpl,
     common::wtf8::{Wtf8Buf, wtf8_concat},
-    frame::Frame,
+    frame::{Frame, FrameRef},
     function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{
@@ -689,11 +689,67 @@ impl Py<PyFunction> {
         capacity.checked_mul(core::mem::size_of::<usize>())
     }
 
+    pub(crate) fn prepare_exact_args_frame(
+        &self,
+        mut args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> FrameRef {
+        let code: PyRef<PyCode> = (*self.code).to_owned();
+
+        debug_assert_eq!(args.len(), code.arg_count as usize);
+        debug_assert!(code.flags.contains(bytecode::CodeFlags::OPTIMIZED));
+        debug_assert!(
+            !code
+                .flags
+                .intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
+        );
+        debug_assert_eq!(code.kwonlyarg_count, 0);
+        debug_assert!(
+            !code
+                .flags
+                .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+        );
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            None
+        } else {
+            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+        };
+
+        let frame = Frame::new(
+            code.clone(),
+            Scope::new(locals, self.globals.clone()),
+            self.builtins.clone(),
+            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            Some(self.to_owned().into()),
+            true, // Exact-args fast path is only used for non-gen/coro functions.
+            vm,
+        )
+        .into_ref(&vm.ctx);
+
+        {
+            let fastlocals = unsafe { frame.fastlocals_mut() };
+            for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..)) {
+                *slot = Some(arg);
+            }
+        }
+
+        if let Some(cell2arg) = code.cell2arg.as_deref() {
+            let fastlocals = unsafe { frame.fastlocals_mut() };
+            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
+                let x = fastlocals[*arg_idx as usize].take();
+                frame.set_cell_contents(cell_idx, x);
+            }
+        }
+
+        frame
+    }
+
     /// Fast path for calling a simple function with exact positional args.
     /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
     /// Only valid when: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonlyargs,
     /// and nargs == co_argcount.
-    pub fn invoke_exact_args(&self, mut args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    pub fn invoke_exact_args(&self, args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
@@ -714,40 +770,7 @@ impl Py<PyFunction> {
         {
             return self.invoke(FuncArgs::from(args), vm);
         }
-
-        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
-            None
-        } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
-        };
-
-        let frame = Frame::new(
-            code.clone(),
-            Scope::new(locals, self.globals.clone()),
-            self.builtins.clone(),
-            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            Some(self.to_owned().into()),
-            true, // Always use datastack (invoke_exact_args is never gen/coro)
-            vm,
-        )
-        .into_ref(&vm.ctx);
-
-        // Move args directly into fastlocals (no clone/refcount needed)
-        {
-            let fastlocals = unsafe { frame.fastlocals_mut() };
-            for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..)) {
-                *slot = Some(arg);
-            }
-        }
-
-        // Handle cell2arg
-        if let Some(cell2arg) = code.cell2arg.as_deref() {
-            let fastlocals = unsafe { frame.fastlocals_mut() };
-            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
-                let x = fastlocals[*arg_idx as usize].take();
-                frame.set_cell_contents(cell_idx, x);
-            }
-        }
+        let frame = self.prepare_exact_args_frame(args, vm);
 
         let result = vm.run_frame(frame.clone());
         unsafe {
@@ -1361,37 +1384,8 @@ pub(crate) fn vectorcall_function(
     if is_simple && nargs == code.arg_count as usize {
         // FAST PATH: simple positional-only call, exact arg count.
         // Move owned args directly into fastlocals — no clone needed.
-        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
-            None // lazy allocation — most frames never access locals dict
-        } else {
-            Some(ArgMapping::from_dict_exact(zelf.globals.clone()))
-        };
-
-        let frame = Frame::new(
-            code.to_owned(),
-            Scope::new(locals, zelf.globals.clone()),
-            zelf.builtins.clone(),
-            zelf.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            Some(zelf.to_owned().into()),
-            true, // Always use datastack (is_simple excludes gen/coro)
-            vm,
-        )
-        .into_ref(&vm.ctx);
-
-        {
-            let fastlocals = unsafe { frame.fastlocals_mut() };
-            for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..nargs)) {
-                *slot = Some(arg);
-            }
-        }
-
-        if let Some(cell2arg) = code.cell2arg.as_deref() {
-            let fastlocals = unsafe { frame.fastlocals_mut() };
-            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
-                let x = fastlocals[*arg_idx as usize].take();
-                frame.set_cell_contents(cell_idx, x);
-            }
-        }
+        args.truncate(nargs);
+        let frame = zelf.prepare_exact_args_frame(args, vm);
 
         let result = vm.run_frame(frame.clone());
         unsafe {

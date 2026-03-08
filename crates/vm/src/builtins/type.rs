@@ -329,9 +329,9 @@ impl TypeSpecializationCache {
     #[inline]
     fn invalidate_for_type_modified(&self) {
         let _guard = self.write_lock.lock();
-        // Match CPython _spec_cache contract: type modification invalidates
-        // getitem cache by NULLing the pointer. `getitem_version` becomes
-        // meaningless when getitem is NULL.
+        // _spec_cache contract: type modification invalidates all cached
+        // specialization functions.
+        self.swap_init(None, None);
         self.swap_getitem(None, None);
     }
 

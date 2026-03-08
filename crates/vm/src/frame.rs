@@ -1081,6 +1081,14 @@ fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> O
     }
 }
 
+fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
+    unsafe {
+        if let Some(base) = frame.materialize_localsplus() {
+            vm.datastack_pop(base);
+        }
+    }
+}
+
 type BinaryOpExtendGuard = fn(&PyObject, &PyObject, &VirtualMachine) -> bool;
 type BinaryOpExtendAction = fn(&PyObject, &PyObject, &VirtualMachine) -> Option<PyObjectRef>;
 
@@ -1249,6 +1257,52 @@ impl fmt::Debug for ExecutingFrame<'_> {
 }
 
 impl ExecutingFrame<'_> {
+    fn specialization_new_init_cleanup_frame(&self, vm: &VirtualMachine) -> FrameRef {
+        Frame::new(
+            vm.ctx.init_cleanup_code.clone(),
+            Scope::new(
+                Some(ArgMapping::from_dict_exact(vm.ctx.new_dict())),
+                self.globals.clone(),
+            ),
+            self.builtins.clone(),
+            &[],
+            None,
+            true,
+            vm,
+        )
+        .into_ref(&vm.ctx)
+    }
+
+    fn specialization_run_init_cleanup_shim(
+        &self,
+        new_obj: PyObjectRef,
+        init_func: &Py<PyFunction>,
+        pos_args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let shim = self.specialization_new_init_cleanup_frame(vm);
+        let shim_result = vm.with_frame_untraced(shim.clone(), |shim| {
+            shim.with_exec(vm, |mut exec| exec.push_value(new_obj.clone()));
+
+            let mut all_args = Vec::with_capacity(pos_args.len() + 1);
+            all_args.push(new_obj.clone());
+            all_args.extend(pos_args);
+
+            let init_frame = init_func.prepare_exact_args_frame(all_args, vm);
+            let init_result = vm.run_frame(init_frame.clone());
+            release_datastack_frame(&init_frame, vm);
+            let init_result = init_result?;
+
+            shim.with_exec(vm, |mut exec| exec.push_value(init_result));
+            match shim.run(vm)? {
+                ExecutionResult::Return(value) => Ok(value),
+                ExecutionResult::Yield(_) => unreachable!("_Py_InitCleanup shim cannot yield"),
+            }
+        });
+        release_datastack_frame(&shim, vm);
+        shim_result
+    }
+
     #[inline(always)]
     fn update_lasti(&mut self, f: impl FnOnce(&mut u32)) {
         let mut val = self.lasti.load(Relaxed);
@@ -4737,24 +4791,9 @@ impl ExecutingFrame<'_> {
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
                     let _null = self.pop_value_opt(); // self_or_null (None)
                     let _callable = self.pop_value(); // callable (type)
-
-                    let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-                    all_args.push(new_obj.clone());
-                    all_args.extend(pos_args);
-
-                    // Match CPython's `_CREATE_INIT_FRAME` fast-path shape:
-                    // run `__init__` as an exact-args Python function call.
-                    let init_result = init_func.invoke_exact_args(all_args, vm)?;
-
-                    // EXIT_INIT_CHECK: __init__ must return None
-                    if !vm.is_none(&init_result) {
-                        return Err(vm.new_type_error(format!(
-                            "__init__() should return None, not '{}'",
-                            init_result.class().name()
-                        )));
-                    }
-
-                    self.push_value(new_obj);
+                    let result = self
+                        .specialization_run_init_cleanup_shim(new_obj, &init_func, pos_args, vm)?;
+                    self.push_value(result);
                     return Ok(None);
                 }
                 self.execute_call_vectorcall(nargs, vm)
