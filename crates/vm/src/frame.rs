@@ -4774,9 +4774,6 @@ impl ExecutingFrame<'_> {
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
                     && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
-                    // Match CPython's `code->co_framesize + _Py_InitCleanup.co_framesize`
-                    // shape, using RustPython's datastack-backed frame size
-                    // equivalent for the extra shim frame.
                     let init_cleanup_stack_bytes =
                         datastack_frame_size_bytes_for_code(&vm.ctx.init_cleanup_code)
                             .expect("_Py_InitCleanup shim is not a generator/coroutine");
