@@ -4,7 +4,7 @@ use crate::{
     bytecode::{
         BorrowedConstant, Constant, InstrDisplayContext,
         oparg::{
-            BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator,
+            self, BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator,
             ConvertValueOparg, IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr,
             LoadSuperAttr, MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind,
             SpecialMethod, StoreFastLoadFast, UnpackExArgs,
@@ -186,7 +186,7 @@ pub enum Instruction {
         idx: Arg<CommonConstant>,
     } = 81,
     LoadConst {
-        consti: Arg<u32>,
+        consti: Arg<oparg::ConstIdx>,
     } = 82,
     LoadDeref {
         i: Arg<NameIdx>,
@@ -1124,22 +1124,25 @@ impl InstructionMetadata for Instruction {
         let name = |i: u32| ctx.get_name(i as usize);
         let cell_name = |i: u32| ctx.get_cell_name(i as usize);
 
-        let fmt_const =
-            |op: &str, arg: OpArg, f: &mut fmt::Formatter<'_>, idx: &Arg<u32>| -> fmt::Result {
-                let value = ctx.get_constant(idx.get(arg) as usize);
-                match value.borrow_constant() {
-                    BorrowedConstant::Code { code } if expand_code_objects => {
-                        write!(f, "{op:pad$}({code:?}):")?;
-                        code.display_inner(f, true, level + 1)?;
-                        Ok(())
-                    }
-                    c => {
-                        write!(f, "{op:pad$}(")?;
-                        c.fmt_display(f)?;
-                        write!(f, ")")
-                    }
+        let fmt_const = |op: &str,
+                         arg: OpArg,
+                         f: &mut fmt::Formatter<'_>,
+                         consti: &Arg<oparg::ConstIdx>|
+         -> fmt::Result {
+            let value = ctx.get_constant(consti.get(arg));
+            match value.borrow_constant() {
+                BorrowedConstant::Code { code } if expand_code_objects => {
+                    write!(f, "{op:pad$}({code:?}):")?;
+                    code.display_inner(f, true, level + 1)?;
+                    Ok(())
                 }
-            };
+                c => {
+                    write!(f, "{op:pad$}(")?;
+                    c.fmt_display(f)?;
+                    write!(f, ")")
+                }
+            }
+        };
 
         match self {
             Self::BinarySlice => w!(BINARY_SLICE),
