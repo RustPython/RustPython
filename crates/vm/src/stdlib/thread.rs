@@ -1625,10 +1625,12 @@ pub(crate) mod _thread {
         let handle_clone = handle.clone();
         let inner_clone = handle.inner.clone();
         let done_event_clone = handle.done_event.clone();
-        let started_event = Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+        // Use std::sync (pthread-based) instead of parking_lot for these
+        // events so they remain fork-safe without the parking_lot_core patch.
+        let started_event = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
         let started_event_clone = Arc::clone(&started_event);
         let handle_ready_event =
-            Arc::new((parking_lot::Mutex::new(false), parking_lot::Condvar::new()));
+            Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
         let handle_ready_event_clone = Arc::clone(&handle_ready_event);
 
         let mut thread_builder = thread::Builder::new();
@@ -1645,16 +1647,20 @@ pub(crate) mod _thread {
                 }
                 {
                     let (started_lock, started_cvar) = &*started_event_clone;
-                    *started_lock.lock() = true;
+                    *started_lock.lock().unwrap() = true;
                     started_cvar.notify_all();
                 }
-                // Match CPython handle_ready behavior class: don't execute the
-                // target function until parent marks the handle as running.
+                // Don't execute the target function until parent marks the
+                // handle as running.
                 {
                     let (ready_lock, ready_cvar) = &*handle_ready_event_clone;
-                    let mut ready = ready_lock.lock();
+                    let mut ready = ready_lock.lock().unwrap();
                     while !*ready {
-                        vm.allow_threads(|| ready_cvar.wait(&mut ready));
+                        // Short timeout so we stay responsive to STW requests.
+                        let (guard, _) = ready_cvar
+                            .wait_timeout(ready, core::time::Duration::from_millis(1))
+                            .unwrap();
+                        ready = guard;
                     }
                 }
 
@@ -1732,9 +1738,12 @@ pub(crate) mod _thread {
         // Wait until the new thread has reported its ident.
         {
             let (started_lock, started_cvar) = &*started_event;
-            let mut started = started_lock.lock();
+            let mut started = started_lock.lock().unwrap();
             while !*started {
-                vm.allow_threads(|| started_cvar.wait(&mut started));
+                let (guard, _) = started_cvar
+                    .wait_timeout(started, core::time::Duration::from_millis(1))
+                    .unwrap();
+                started = guard;
             }
         }
 
@@ -1749,7 +1758,7 @@ pub(crate) mod _thread {
         // Unblock the started thread once handle state is fully published.
         {
             let (ready_lock, ready_cvar) = &*handle_ready_event;
-            *ready_lock.lock() = true;
+            *ready_lock.lock().unwrap() = true;
             ready_cvar.notify_all();
         }
 
