@@ -662,6 +662,33 @@ impl Py<PyFunction> {
             && code.arg_count == effective_nargs
     }
 
+    /// Runtime guard for CALL_*_EXACT_ARGS specialization: check only argcount.
+    /// Other invariants are guaranteed by function versioning and specialization-time checks.
+    #[inline]
+    pub(crate) fn has_exact_argcount(&self, effective_nargs: u32) -> bool {
+        self.code.arg_count == effective_nargs
+    }
+
+    /// Bytes required for this function's frame on RustPython's thread datastack.
+    /// Returns `None` for generator/coroutine code paths that do not push a
+    /// regular datastack-backed frame in the fast call path.
+    pub(crate) fn datastack_frame_size_bytes(&self) -> Option<usize> {
+        let code: &Py<PyCode> = &self.code;
+        if code
+            .flags
+            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+        {
+            return None;
+        }
+        let nlocalsplus = code
+            .varnames
+            .len()
+            .checked_add(code.cellvars.len())?
+            .checked_add(code.freevars.len())?;
+        let capacity = nlocalsplus.checked_add(code.max_stackdepth as usize)?;
+        capacity.checked_mul(core::mem::size_of::<usize>())
+    }
+
     /// Fast path for calling a simple function with exact positional args.
     /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
     /// Only valid when: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonlyargs,

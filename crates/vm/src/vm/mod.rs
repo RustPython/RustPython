@@ -94,6 +94,7 @@ pub struct VirtualMachine {
     pub initialized: bool,
     recursion_depth: Cell<usize>,
     /// C stack soft limit for detecting stack overflow (like c_stack_soft_limit)
+    #[cfg_attr(miri, allow(dead_code))]
     c_stack_soft_limit: Cell<usize>,
     /// Async generator firstiter hook (per-thread, set via sys.set_asyncgen_hooks)
     pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
@@ -651,6 +652,12 @@ impl VirtualMachine {
     #[inline(always)]
     pub(crate) fn datastack_push(&self, size: usize) -> *mut u8 {
         unsafe { (*self.datastack.get()).push(size) }
+    }
+
+    /// Check whether the thread data stack currently has room for `size` bytes.
+    #[inline(always)]
+    pub(crate) fn datastack_has_space(&self, size: usize) -> bool {
+        unsafe { (*self.datastack.get()).has_space(size) }
     }
 
     /// Pop a previous data stack allocation.
@@ -1414,6 +1421,7 @@ impl VirtualMachine {
 
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// 2048 * sizeof(void*) = 16KB for 64-bit.
+    #[cfg_attr(miri, allow(dead_code))]
     const STACK_MARGIN_BYTES: usize = 2048 * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
@@ -1520,11 +1528,6 @@ impl VirtualMachine {
     #[inline(always)]
     fn check_c_stack_overflow(&self) -> bool {
         false
-    }
-
-    #[inline(always)]
-    pub(crate) fn reached_c_stack_limit(&self) -> bool {
-        self.check_c_stack_overflow()
     }
 
     /// Used to run the body of a (possibly) recursive function. It will raise a
