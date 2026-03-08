@@ -18,7 +18,7 @@ use crate::{
     common::{
         ascii,
         borrow::BorrowedValue,
-        lock::{PyRwLock, PyRwLockReadGuard},
+        lock::{PyMutex, PyRwLock, PyRwLockReadGuard},
     },
     function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
@@ -276,6 +276,8 @@ pub struct TypeSpecializationCache {
     pub init: PyAtomicRef<Option<PyFunction>>,
     pub getitem: PyAtomicRef<Option<PyFunction>>,
     pub getitem_version: AtomicU32,
+    // Serialize cache writes/invalidation similar to CPython's BEGIN_TYPE_LOCK.
+    write_lock: PyMutex<()>,
     retired: PyRwLock<Vec<PyObjectRef>>,
 }
 
@@ -285,6 +287,7 @@ impl TypeSpecializationCache {
             init: PyAtomicRef::from(None::<PyRef<PyFunction>>),
             getitem: PyAtomicRef::from(None::<PyRef<PyFunction>>),
             getitem_version: AtomicU32::new(0),
+            write_lock: PyMutex::new(()),
             retired: PyRwLock::new(Vec::new()),
         }
     }
@@ -325,6 +328,7 @@ impl TypeSpecializationCache {
 
     #[inline]
     fn invalidate_for_type_modified(&self) {
+        let _guard = self.write_lock.lock();
         // Match CPython _spec_cache contract: type modification invalidates
         // getitem cache by NULLing the pointer. `getitem_version` becomes
         // meaningless when getitem is NULL.
@@ -346,6 +350,7 @@ impl TypeSpecializationCache {
     }
 
     fn clear_into(&self, out: &mut Vec<PyObjectRef>) {
+        let _guard = self.write_lock.lock();
         let old_init = unsafe { self.init.swap(None) };
         if let Some(old_init) = old_init {
             out.push(old_init.into());
@@ -910,6 +915,10 @@ impl PyType {
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return false;
         }
+        let _guard = ext.specialization_cache.write_lock.lock();
+        if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+            return false;
+        }
         ext.specialization_cache.swap_init(Some(init), Some(vm));
         true
     }
@@ -945,11 +954,12 @@ impl PyType {
         if tp_version == 0 {
             return false;
         }
-        let func_version = getitem.get_version_for_current_state();
-        if func_version == 0 {
+        let _guard = ext.specialization_cache.write_lock.lock();
+        if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return false;
         }
-        if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+        let func_version = getitem.get_version_for_current_state();
+        if func_version == 0 {
             return false;
         }
         ext.specialization_cache
@@ -963,6 +973,11 @@ impl PyType {
     /// Read cached __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
     pub(crate) fn get_cached_getitem_for_specialization(&self) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
+        // Match CPython check order: pointer (Acquire) then function version.
+        let getitem = ext
+            .specialization_cache
+            .getitem
+            .to_owned_ordering(Ordering::Acquire)?;
         let cached_version = ext
             .specialization_cache
             .getitem_version
@@ -970,10 +985,7 @@ impl PyType {
         if cached_version == 0 {
             return None;
         }
-        ext.specialization_cache
-            .getitem
-            .to_owned_ordering(Ordering::Acquire)
-            .map(|getitem| (getitem, cached_version))
+        Some((getitem, cached_version))
     }
 
     pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {

@@ -4723,9 +4723,9 @@ impl ExecutingFrame<'_> {
                     ) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    // CPython creates two frames for this opcode:
-                    // `_Py_InitCleanup` trampoline + `__init__` frame.
-                    // Guard recursion limit accordingly and fall back.
+                    // CPython creates `_Py_InitCleanup` + `__init__` frames here.
+                    // Keep the guard conservative and deopt when the effective
+                    // recursion budget for those two frames is not available.
                     if self.specialization_call_recursion_guard_with_extra_frames(vm, 1) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
@@ -4742,8 +4742,8 @@ impl ExecutingFrame<'_> {
                     all_args.push(new_obj.clone());
                     all_args.extend(pos_args);
 
-                    // Match CPython's _CREATE_INIT_FRAME path shape: run init
-                    // as exact-args Python function call.
+                    // Match CPython's `_CREATE_INIT_FRAME` fast-path shape:
+                    // run `__init__` as an exact-args Python function call.
                     let init_result = init_func.invoke_exact_args(all_args, vm)?;
 
                     // EXIT_INIT_CHECK: __init__ must return None
