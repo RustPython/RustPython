@@ -4723,6 +4723,12 @@ impl ExecutingFrame<'_> {
                     ) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
+                    // CPython creates two frames for this opcode:
+                    // `_Py_InitCleanup` trampoline + `__init__` frame.
+                    // Guard recursion limit accordingly and fall back.
+                    if self.specialization_call_recursion_guard_with_extra_frames(vm, 1) {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     // Allocate object directly (tp_new == object.__new__, tp_alloc == generic).
                     let cls_ref = cls.to_owned();
                     let new_obj = cls_alloc(cls_ref, 0, vm)?;
@@ -4736,10 +4742,9 @@ impl ExecutingFrame<'_> {
                     all_args.push(new_obj.clone());
                     all_args.extend(pos_args);
 
-                    let init_callable: PyObjectRef = init_func.into();
-                    let effective_nargs = all_args.len();
-                    let init_result =
-                        vectorcall_function(&init_callable, all_args, effective_nargs, None, vm)?;
+                    // Match CPython's _CREATE_INIT_FRAME path shape: run init
+                    // as exact-args Python function call.
+                    let init_result = init_func.invoke_exact_args(all_args, vm)?;
 
                     // EXIT_INIT_CHECK: __init__ must return None
                     if !vm.is_none(&init_result) {
@@ -8690,7 +8695,19 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn specialization_call_recursion_guard(&self, vm: &VirtualMachine) -> bool {
-        vm.current_recursion_depth().saturating_add(1) >= vm.recursion_limit.get()
+        self.specialization_call_recursion_guard_with_extra_frames(vm, 0)
+    }
+
+    #[inline]
+    fn specialization_call_recursion_guard_with_extra_frames(
+        &self,
+        vm: &VirtualMachine,
+        extra_frames: usize,
+    ) -> bool {
+        vm.current_recursion_depth()
+            .saturating_add(1)
+            .saturating_add(extra_frames)
+            >= vm.recursion_limit.get()
     }
 
     #[inline]

@@ -914,7 +914,9 @@ impl PyType {
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return None;
         }
-        ext.specialization_cache.init.to_owned()
+        ext.specialization_cache
+            .init
+            .to_owned_ordering(Ordering::Acquire)
     }
 
     /// Cache __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
@@ -940,7 +942,7 @@ impl PyType {
         ext.specialization_cache.swap_getitem(Some(getitem));
         ext.specialization_cache
             .getitem_version
-            .store(func_version, Ordering::Release);
+            .store(func_version, Ordering::Relaxed);
         true
     }
 
@@ -950,16 +952,13 @@ impl PyType {
         let cached_version = ext
             .specialization_cache
             .getitem_version
-            .load(Ordering::Acquire);
+            .load(Ordering::Relaxed);
         if cached_version == 0 {
-            return None;
-        }
-        if self.tp_version_tag.load(Ordering::Acquire) == 0 {
             return None;
         }
         ext.specialization_cache
             .getitem
-            .to_owned()
+            .to_owned_ordering(Ordering::Acquire)
             .map(|getitem| (getitem, cached_version))
     }
 
