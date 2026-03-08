@@ -2,8 +2,7 @@
  * I/O core tools.
  */
 pub(crate) use _io::module_def;
-
-#[cfg(all(unix, feature = "threading", feature = "host_env"))]
+#[cfg(feature = "fork")]
 pub(crate) use _io::reinit_std_streams_after_fork;
 
 cfg_select! {
@@ -4993,7 +4992,7 @@ mod _io {
     ///
     /// Must only be called from the single-threaded child process immediately
     /// after `fork()`, before any other thread is created.
-    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
+    #[cfg(feature = "fork")]
     pub(crate) unsafe fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
         for name in ["stdin", "stdout", "stderr"] {
             let Ok(stream) = vm.sys_module.get_attr(name, vm) else {
@@ -5003,7 +5002,7 @@ mod _io {
         }
     }
 
-    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
+    #[cfg(feature = "fork")]
     fn reinit_io_locks(obj: &PyObject) {
         use crate::common::lock::reinit_thread_mutex_after_fork;
 
