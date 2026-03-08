@@ -64,19 +64,6 @@ impl Constructor for PyBaseObject {
             }
         }
 
-        // more or less __new__ operator
-        // Only create dict if the class has HAS_DICT flag (i.e., __slots__ was not defined
-        // or __dict__ is in __slots__)
-        let dict = if cls
-            .slots
-            .flags
-            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
-        {
-            Some(vm.ctx.new_dict())
-        } else {
-            None
-        };
-
         // Ensure that all abstract methods are implemented before instantiating instance.
         if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__))
             && let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm)
@@ -109,12 +96,27 @@ impl Constructor for PyBaseObject {
             }
         }
 
-        Ok(crate::PyRef::new_ref(Self, cls, dict).into())
+        generic_alloc(cls, 0, vm)
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
         unimplemented!("use slot_new")
     }
+}
+
+pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine) -> PyResult {
+    // Only create dict if the class has HAS_DICT flag (i.e., __slots__ was not defined
+    // or __dict__ is in __slots__)
+    let dict = if cls
+        .slots
+        .flags
+        .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+    {
+        Some(vm.ctx.new_dict())
+    } else {
+        None
+    };
+    Ok(crate::PyRef::new_ref(PyBaseObject, cls, dict).into())
 }
 
 impl Initializer for PyBaseObject {
@@ -561,8 +563,9 @@ pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -
 }
 
 pub fn init(ctx: &'static Context) {
-    // Manually set init slot - derive macro doesn't generate extend_slots
+    // Manually set alloc/init slots - derive macro doesn't generate extend_slots
     // for trait impl that overrides #[pyslot] method
+    ctx.types.object_type.slots.alloc.store(Some(generic_alloc));
     ctx.types
         .object_type
         .slots
