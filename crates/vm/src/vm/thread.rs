@@ -634,6 +634,7 @@ impl VirtualMachine {
             async_gen_finalizer: RefCell::new(None),
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
+            callable_cache: self.callable_cache.clone(),
         };
         ThreadedVirtualMachine { vm }
     }

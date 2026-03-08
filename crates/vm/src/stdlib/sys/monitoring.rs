@@ -777,7 +777,7 @@ fn fire(
                 // Non-local events (RAISE, EXCEPTION_HANDLED, PY_UNWIND, etc.)
                 // cannot be disabled per code object.
                 if event_id >= LOCAL_EVENTS_COUNT {
-                    // Remove the callback, matching CPython behavior.
+                    // Remove the callback.
                     let mut state = vm.state.monitoring.lock();
                     state.callbacks.remove(&(tool, event_id));
                     return Err(vm.new_value_error(format!(

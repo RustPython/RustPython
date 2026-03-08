@@ -1021,7 +1021,7 @@ where
             .iter()
             .any(|arg| matches!(arg, syn::FnArg::Receiver(_)));
         let drop_first_typed = match self.inner.attr_name {
-            AttrName::Method | AttrName::ClassMethod if !has_receiver => 1,
+            AttrName::Method | AttrName::ClassMethod if !has_receiver && !raw => 1,
             _ => 0,
         };
         let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);

@@ -1674,10 +1674,9 @@ impl PyObject {
         }
 
         // 2. Clear dict and member slots (subtype_clear)
-        // Use mutable access to actually detach the dict, matching CPython's
-        // Py_CLEAR(*_PyObject_GetDictPtr(self)) which NULLs the dict pointer
-        // without clearing dict contents. This is critical because the dict
-        // may still be referenced by other live objects (e.g. function.__globals__).
+        // Detach the dict via Py_CLEAR(*_PyObject_GetDictPtr(self)) — NULL
+        // the pointer without clearing dict contents. The dict may still be
+        // referenced by other live objects (e.g. function.__globals__).
         if obj.0.has_ext() {
             let self_addr = (ptr as *const u8).addr();
             let ext_ptr = core::ptr::with_exposed_provenance_mut::<ObjExt>(

@@ -174,6 +174,7 @@ pub struct PyTypeSlots {
     // tp_dictoffset
     pub init: AtomicCell<Option<InitFunc>>,
     // tp_alloc
+    pub alloc: AtomicCell<Option<AllocFunc>>,
     pub new: AtomicCell<Option<NewFunc>>,
     // tp_free
     // tp_is_gc
@@ -298,6 +299,7 @@ pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type DescrSetFunc =
     fn(&PyObject, PyObjectRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
+pub(crate) type AllocFunc = fn(PyTypeRef, usize, &VirtualMachine) -> PyResult;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;

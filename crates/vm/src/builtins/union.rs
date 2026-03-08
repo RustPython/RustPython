@@ -51,7 +51,7 @@ impl PyUnion {
         })
     }
 
-    /// Direct access to args field, matching CPython's _Py_union_args
+    /// Direct access to args field (_Py_union_args)
     #[inline]
     pub fn args(&self) -> &Py<PyTuple> {
         &self.args
@@ -292,8 +292,8 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<U
     // - For hashable elements: use Python's set semantics (hash + equality)
     // - For unhashable elements: use equality comparison
     //
-    // This avoids calling __eq__ when hashes differ, matching CPython behavior
-    // where `int | BadType` doesn't raise even if BadType.__eq__ raises.
+    // This avoids calling __eq__ when hashes differ, so `int | BadType`
+    // doesn't raise even if BadType.__eq__ raises.
 
     let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.len());
 
