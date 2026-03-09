@@ -57,10 +57,11 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
 
     /// Try to push a dead object onto this type's freelist for reuse.
     /// Returns true if the object was stored (caller must NOT free the memory).
+    /// Called before tp_clear, so the payload is still intact.
     ///
     /// # Safety
-    /// `obj` must be a valid pointer to a `PyInner<Self>` with refcount 0,
-    /// after `drop_slow_inner` and `tp_clear` have already run.
+    /// `obj` must be a valid pointer to a `PyInner<Self>` with refcount 0.
+    /// The payload is still initialized and can be read for bucket selection.
     #[inline]
     unsafe fn freelist_push(_obj: *mut PyObject) -> bool {
         false
@@ -75,7 +76,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// whose payload is still initialized from a previous allocation. The caller
     /// will drop and overwrite `payload` before reuse.
     #[inline]
-    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         None
     }
 
