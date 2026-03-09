@@ -133,7 +133,7 @@ pub enum Instruction {
         i: Arg<NameIdx>,
     } = 62,
     DeleteFast {
-        var_num: Arg<NameIdx>,
+        var_num: Arg<oparg::VarNum>,
     } = 63,
     DeleteGlobal {
         namei: Arg<NameIdx>,
@@ -192,19 +192,19 @@ pub enum Instruction {
         i: Arg<NameIdx>,
     } = 83,
     LoadFast {
-        var_num: Arg<NameIdx>,
+        var_num: Arg<oparg::VarNum>,
     } = 84,
     LoadFastAndClear {
-        var_num: Arg<NameIdx>,
+        var_num: Arg<oparg::VarNum>,
     } = 85,
     LoadFastBorrow {
-        var_num: Arg<NameIdx>,
+        var_num: Arg<oparg::VarNum>,
     } = 86,
     LoadFastBorrowLoadFastBorrow {
         var_nums: Arg<u32>,
     } = 87,
     LoadFastCheck {
-        var_num: Arg<NameIdx>,
+        var_num: Arg<oparg::VarNum>,
     } = 88,
     LoadFastLoadFast {
         var_nums: Arg<u32>,
@@ -276,7 +276,7 @@ pub enum Instruction {
         i: Arg<NameIdx>,
     } = 111,
     StoreFast {
-        var_num: Arg<NameIdx>,
+        var_num: Arg<oparg::VarNum>,
     } = 112,
     StoreFastLoadFast {
         var_nums: Arg<StoreFastLoadFast>,
@@ -1105,7 +1105,13 @@ impl InstructionMetadata for Instruction {
             };
             ($variant:ident, $map:ident = $arg_marker:expr) => {{
                 let arg = $arg_marker.get(arg);
-                write!(f, "{:pad$}({}, {})", stringify!($variant), arg, $map(arg))
+                write!(
+                    f,
+                    "{:pad$}({}, {})",
+                    stringify!($variant),
+                    u32::from(arg),
+                    $map(arg)
+                )
             }};
             ($variant:ident, $arg_marker:expr) => {
                 write!(f, "{:pad$}({})", stringify!($variant), $arg_marker.get(arg))
@@ -1120,7 +1126,7 @@ impl InstructionMetadata for Instruction {
             };
         }
 
-        let varname = |i: u32| ctx.get_varname(i as usize);
+        let varname = |var_num: oparg::VarNum| ctx.get_varname(var_num);
         let name = |i: u32| ctx.get_name(i as usize);
         let cell_name = |i: u32| ctx.get_cell_name(i as usize);
 
@@ -1226,16 +1232,16 @@ impl InstructionMetadata for Instruction {
                 let oparg = var_nums.get(arg);
                 let idx1 = oparg >> 4;
                 let idx2 = oparg & 15;
-                let name1 = varname(idx1);
-                let name2 = varname(idx2);
+                let name1 = varname(idx1.into());
+                let name2 = varname(idx2.into());
                 write!(f, "{:pad$}({}, {})", "LOAD_FAST_LOAD_FAST", name1, name2)
             }
             Self::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let idx1 = oparg >> 4;
                 let idx2 = oparg & 15;
-                let name1 = varname(idx1);
-                let name2 = varname(idx2);
+                let name1 = varname(idx1.into());
+                let name2 = varname(idx2.into());
                 write!(
                     f,
                     "{:pad$}({}, {})",
@@ -1362,8 +1368,8 @@ impl InstructionMetadata for Instruction {
                     f,
                     "{:pad$}({}, {})",
                     "STORE_FAST_STORE_FAST",
-                    varname(idx1),
-                    varname(idx2)
+                    varname(idx1.into()),
+                    varname(idx2.into())
                 )
             }
             Self::StoreGlobal { namei } => w!(STORE_GLOBAL, name = namei),
