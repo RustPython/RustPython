@@ -427,7 +427,7 @@ impl Context {
             obj_name: names.__init__,
             qualname: names.__init__,
             cell2arg: None,
-            constants: Vec::new().into_boxed_slice(),
+            constants: core::iter::empty().collect(),
             names: Vec::new().into_boxed_slice(),
             varnames: Vec::new().into_boxed_slice(),
             cellvars: Vec::new().into_boxed_slice(),
