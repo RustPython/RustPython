@@ -10,7 +10,7 @@ use rustpython_compiler_core::{
     bytecode::{
         AnyInstruction, Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData,
         ExceptionTableEntry, InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg,
-        PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table,
+        PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table, oparg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -695,15 +695,15 @@ impl CodeInfo {
                         }
                         (Instruction::LoadConst { consti }, Instruction::ToBool) => {
                             let consti = consti.get(curr.arg);
-                            let constant = &self.metadata.consts[consti as usize];
+                            let constant = &self.metadata.consts[consti.as_usize()];
                             if let ConstantData::Boolean { .. } = constant {
-                                Some((curr_instr, OpArg::from(consti)))
+                                Some((curr_instr, OpArg::from(consti.as_u32())))
                             } else {
                                 None
                             }
                         }
                         (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
-                            let constant = &self.metadata.consts[consti.get(curr.arg) as usize];
+                            let constant = &self.metadata.consts[consti.get(curr.arg).as_usize()];
                             match constant {
                                 ConstantData::Boolean { value } => {
                                     let (const_idx, _) = self
@@ -1100,15 +1100,19 @@ impl CodeInfo {
 
 impl InstrDisplayContext for CodeInfo {
     type Constant = ConstantData;
-    fn get_constant(&self, i: usize) -> &ConstantData {
-        &self.metadata.consts[i]
+
+    fn get_constant(&self, consti: oparg::ConstIdx) -> &ConstantData {
+        &self.metadata.consts[consti.as_usize()]
     }
+
     fn get_name(&self, i: usize) -> &str {
         self.metadata.names[i].as_ref()
     }
+
     fn get_varname(&self, i: usize) -> &str {
         self.metadata.varnames[i].as_ref()
     }
+
     fn get_cell_name(&self, i: usize) -> &str {
         self.metadata
             .cellvars

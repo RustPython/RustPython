@@ -637,9 +637,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::LoadConst { consti } => {
-                let val = self.prepare_const(
-                    bytecode.constants[consti.get(arg) as usize].borrow_constant(),
-                )?;
+                let val =
+                    self.prepare_const(bytecode.constants[consti.get(arg)].borrow_constant())?;
                 self.stack.push(val);
                 Ok(())
             }

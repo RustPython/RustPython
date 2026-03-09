@@ -29,7 +29,7 @@ use rustpython_compiler_core::{
         self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
         ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, IntrinsicFunction1,
         Invert, LoadAttr, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction, SpecialMethod,
-        UnpackExArgs,
+        UnpackExArgs, oparg,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -8075,9 +8075,9 @@ impl Compiler {
 
     // fn block_done()
 
-    fn arg_constant(&mut self, constant: ConstantData) -> u32 {
+    fn arg_constant(&mut self, constant: ConstantData) -> oparg::ConstIdx {
         let info = self.current_code_info();
-        info.metadata.consts.insert_full(constant).0.to_u32()
+        info.metadata.consts.insert_full(constant).0.to_u32().into()
     }
 
     fn emit_load_const(&mut self, constant: ConstantData) {

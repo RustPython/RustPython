@@ -538,16 +538,14 @@ impl Constructor for PyCode {
             .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?;
 
         // Convert constants
-        let constants: Box<[Literal]> = args
+        let constants = args
             .consts
             .iter()
             .map(|obj| {
-                // Convert PyObject to Literal constant
-                // For now, just wrap it
+                // Convert PyObject to Literal constant. For now, just wrap it
                 Literal(obj.clone())
             })
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect();
 
         // Create locations (start and end pairs)
         let row = if args.firstlineno > 0 {
