@@ -2177,10 +2177,11 @@ fn make_fields(
         }
 
         let new_descr = super::PyCField::new_from_field(fdescr, index, offset);
-        cls.set_attr(
+        cls.as_object().set_attr(
             vm.ctx.intern_str(fname.as_wtf8()),
             new_descr.to_pyobject(vm),
-        );
+            vm,
+        )?;
     }
 
     Ok(())
@@ -2219,10 +2220,11 @@ pub(super) fn make_anon_fields(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResul
 
         let mut new_descr = super::PyCField::new_from_field(descr, 0, 0);
         new_descr.set_anonymous(true);
-        cls.set_attr(
+        cls.as_object().set_attr(
             vm.ctx.intern_str(fname.as_wtf8()),
             new_descr.to_pyobject(vm),
-        );
+            vm,
+        )?;
 
         make_fields(cls, descr, descr.index, descr.offset, vm)?;
     }
