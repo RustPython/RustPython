@@ -536,7 +536,8 @@ impl GcState {
         if unreachable.is_empty() {
             drop(gen_locks);
             self.promote_survivors(generation, &survivor_refs);
-            for i in 0..generation {
+            let reset_end = if generation >= 2 { 2 } else { generation + 1 };
+            for i in 0..reset_end {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
             let duration = elapsed_secs(&start_time);
@@ -556,7 +557,8 @@ impl GcState {
 
         if unreachable_refs.is_empty() {
             self.promote_survivors(generation, &survivor_refs);
-            for i in 0..generation {
+            let reset_end = if generation >= 2 { 2 } else { generation + 1 };
+            for i in 0..reset_end {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
             let duration = elapsed_secs(&start_time);
