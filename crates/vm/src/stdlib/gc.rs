@@ -80,15 +80,14 @@ mod gc {
     }
 
     /// Return the current collection thresholds as a tuple.
-    /// The third value is always 0.
     #[pyfunction]
     fn get_threshold(vm: &VirtualMachine) -> PyObjectRef {
-        let (t0, t1, _t2) = gc_state::gc_state().get_threshold();
+        let (t0, t1, t2) = gc_state::gc_state().get_threshold();
         vm.ctx
             .new_tuple(vec![
                 vm.ctx.new_int(t0).into(),
                 vm.ctx.new_int(t1).into(),
-                vm.ctx.new_int(0).into(),
+                vm.ctx.new_int(t2).into(),
             ])
             .into()
     }
