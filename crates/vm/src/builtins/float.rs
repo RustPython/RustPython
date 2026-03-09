@@ -65,7 +65,7 @@ impl PyPayload for PyFloat {
     }
 
     #[inline]
-    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         FLOAT_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();

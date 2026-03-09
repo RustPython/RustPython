@@ -188,27 +188,32 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         );
     }
 
-    // Extract child references before deallocation to break circular refs (tp_clear)
+    // Try to store in freelist for reuse BEFORE tp_clear, so that
+    // size-based freelists (e.g. PyTuple) can read the payload directly.
+    // Only exact base types (not heaptype or structseq subtypes) go into the freelist.
+    let typ = obj_ref.class();
+    let pushed = if T::HAS_FREELIST
+        && typ.heaptype_ext.is_none()
+        && core::ptr::eq(typ, T::class(crate::vm::Context::genesis()))
+    {
+        unsafe { T::freelist_push(obj) }
+    } else {
+        false
+    };
+
+    // Extract child references to break circular refs (tp_clear).
+    // This runs regardless of freelist push — the object's children must be released.
     let mut edges = Vec::new();
     if let Some(clear_fn) = vtable.clear {
         unsafe { clear_fn(obj, &mut edges) };
     }
 
-    // Try to store in freelist for reuse; otherwise deallocate.
-    // Only exact types (not heaptype subclasses) go into the freelist,
-    // because the pop site assumes the cached typ matches the base type.
-    let pushed = if T::HAS_FREELIST && obj_ref.class().heaptype_ext.is_none() {
-        unsafe { T::freelist_push(obj) }
-    } else {
-        false
-    };
     if !pushed {
         // Deallocate the object memory (handles ObjExt prefix if present)
         unsafe { PyInner::dealloc(obj as *mut PyInner<T>) };
     }
 
     // Drop child references - may trigger recursive destruction.
-    // The object is already deallocated, so circular refs are broken.
     drop(edges);
 
     // Trashcan: decrement depth and process deferred objects at outermost level
@@ -1087,6 +1092,11 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             }))
         }
     }
+}
+
+/// Returns the allocation layout for `PyInner<T>`, for use in freelist Drop impls.
+pub(crate) const fn pyinner_layout<T: PyPayload>() -> core::alloc::Layout {
+    core::alloc::Layout::new::<PyInner<T>>()
 }
 
 /// Thread-local freelist storage for reusing object allocations.
@@ -2168,9 +2178,9 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
 
-        // Try to reuse from freelist (exact type only, no dict, no heaptype)
+        // Try to reuse from freelist (no dict, no heaptype)
         let cached = if !has_dict && !is_heaptype {
-            unsafe { T::freelist_pop() }
+            unsafe { T::freelist_pop(&payload) }
         } else {
             None
         };
@@ -2182,11 +2192,16 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
                 (*inner).gc_bits.store(0, Ordering::Relaxed);
                 core::ptr::drop_in_place(&mut (*inner).payload);
                 core::ptr::write(&mut (*inner).payload, payload);
-                // typ, vtable, slots are preserved; dict is None, weak_list was
-                // cleared by drop_slow_inner before freelist push
+                // Freelist only stores exact base types (push-side filter),
+                // but subtypes sharing the same Rust payload (e.g. structseq)
+                // may pop entries. Update typ if it differs.
+                let cached_typ: *const Py<PyType> = &*(*inner).typ;
+                if core::ptr::eq(cached_typ, &*typ) {
+                    drop(typ);
+                } else {
+                    let _old = (*inner).typ.swap(typ);
+                }
             }
-            // Drop the caller's typ since the cached object already holds one
-            drop(typ);
             unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
         } else {
             let inner = PyInner::new(payload, typ, dict);
