@@ -15,7 +15,7 @@ pub(crate) mod _thread {
         builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         frame::FrameRef,
-        function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
+        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
     use alloc::{
@@ -65,33 +65,26 @@ pub(crate) mod _thread {
     struct AcquireArgs {
         #[pyarg(any, default = true)]
         blocking: bool,
-        #[pyarg(any, default = Either::A(-1.0))]
-        timeout: Either<f64, i64>,
+        #[pyarg(any, default = TimeoutSeconds::new(-1.0))]
+        timeout: TimeoutSeconds,
     }
 
     macro_rules! acquire_lock_impl {
         ($mu:expr, $args:expr, $vm:expr) => {{
             let (mu, args, vm) = ($mu, $args, $vm);
-            let timeout = match args.timeout {
-                Either::A(f) => f,
-                Either::B(i) => i as f64,
-            };
+            let timeout = args.timeout.to_secs_f64();
             match args.blocking {
                 true if timeout == -1.0 => {
                     vm.allow_threads(|| mu.lock());
                     Ok(true)
                 }
                 true if timeout < 0.0 => {
-                    Err(vm.new_value_error("timeout value must be positive".to_owned()))
+                    Err(vm
+                        .new_value_error("timeout value must be a non-negative number".to_owned()))
                 }
                 true => {
-                    // modified from std::time::Duration::from_secs_f64 to avoid a panic.
-                    // TODO: put this in the Duration::try_from_object impl, maybe?
-                    let nanos = timeout * 1_000_000_000.0;
-                    if timeout > TIMEOUT_MAX as f64 || nanos < 0.0 || !nanos.is_finite() {
-                        return Err(vm.new_overflow_error(
-                            "timestamp too large to convert to Rust Duration".to_owned(),
-                        ));
+                    if timeout > TIMEOUT_MAX {
+                        return Err(vm.new_overflow_error("timeout value is too large".to_owned()));
                     }
 
                     Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout))))
