@@ -240,7 +240,7 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let len = rdr.read_u32()?;
     let constants = (0..len)
         .map(|_| deserialize_value(rdr, bag))
-        .collect::<Result<Box<[_]>>>()?;
+        .collect::<Result<_>>()?;
 
     let mut read_names = || {
         let len = rdr.read_u32()?;

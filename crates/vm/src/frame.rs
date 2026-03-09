@@ -2375,8 +2375,8 @@ impl ExecutingFrame<'_> {
                 });
                 Ok(None)
             }
-            Instruction::LoadConst { consti: idx } => {
-                self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
+            Instruction::LoadConst { consti } => {
+                self.push_value(self.code.constants[consti.get(arg)].clone().into());
                 // Mirror CPython's LOAD_CONST family transition. RustPython does
                 // not currently distinguish immortal constants at runtime.
                 let instr_idx = self.lasti() as usize - 1;
@@ -2388,7 +2388,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadConstMortal | Instruction::LoadConstImmortal => {
-                self.push_value(self.code.constants[u32::from(arg) as usize].clone().into());
+                self.push_value(self.code.constants[u32::from(arg).into()].clone().into());
                 Ok(None)
             }
             Instruction::LoadCommonConstant { idx } => {
