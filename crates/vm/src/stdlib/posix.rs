@@ -840,6 +840,7 @@ pub mod module {
             reinit_mutex_after_fork(&vm.state.atexit_funcs);
             reinit_mutex_after_fork(&vm.state.global_trace_func);
             reinit_mutex_after_fork(&vm.state.global_profile_func);
+            reinit_mutex_after_fork(&vm.state.type_mutex);
             reinit_mutex_after_fork(&vm.state.monitoring);
 
             // PyGlobalState parking_lot::Mutex locks
