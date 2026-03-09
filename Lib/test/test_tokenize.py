@@ -1167,7 +1167,6 @@ async def f():
     DEDENT     ''            (7, 0) (7, 0)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +  "    NEWLINE    '\\n'          (4, 1) (4, 2)"]
     def test_newline_after_parenthesized_block_with_comment(self):
         self.check_tokenize('''\
 [
@@ -1192,7 +1191,6 @@ async def f():
     NAME       'x'           (1, 3) (1, 4)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; '    FSTRING_END "\'\'\'"         (2, 68) (2, 71)']
     def test_multiline_non_ascii_fstring(self):
         self.check_tokenize("""\
 a = f'''
@@ -1204,7 +1202,6 @@ a = f'''
     FSTRING_END "\'\'\'"         (2, 68) (2, 71)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 696 characters long. Set self.maxDiff to None to see it.
     def test_multiline_non_ascii_fstring_with_expr(self):
         self.check_tokenize("""\
 f'''
@@ -2176,7 +2173,6 @@ if 1:
         # Two string literals on the same line
         self.check_roundtrip("'' ''")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_random_files(self):
         # Test roundtrip on random python modules.
         # pass the '-ucpu' option to process the full directory.
@@ -2214,7 +2210,6 @@ if 1:
 
 
 class InvalidPythonTests(TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Diff is 1046 characters long. Set self.maxDiff to None to see it.
     def test_number_followed_by_name(self):
         # See issue #gh-105549
         source = "2sin(x)"
@@ -2254,7 +2249,6 @@ class CTokenizeTest(TestCase):
             )
             self.assertEqual(result, expected.rstrip().splitlines())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_encoding(self):
         def readline(encoding):
             yield "1+1".encode(encoding)
@@ -2386,7 +2380,6 @@ class CTokenizeTest(TestCase):
     NUMBER     '3.14e159'    (1, 4) (1, 12)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_string(self):
 
         self.check_tokenize('x = \'\'; y = ""', """\
@@ -2818,7 +2811,6 @@ f'''__{
     NUMBER     '1'           (1, 22) (1, 23)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_selector(self):
 
         self.check_tokenize("import sys, time\nx = sys.modules['time'].time()", """\
@@ -2841,7 +2833,6 @@ f'''__{
     RPAR       ')'           (2, 29) (2, 30)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_method(self):
 
         self.check_tokenize('@staticmethod\ndef foo(x,y): pass', """\
@@ -2859,7 +2850,6 @@ f'''__{
     NAME       'pass'        (2, 14) (2, 18)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tabs(self):
 
         self.check_tokenize('@staticmethod\ndef foo(x,y): pass', """\
@@ -3144,7 +3134,6 @@ async def f():
     DEDENT     ''            (6, -1) (6, -1)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode(self):
 
         self.check_tokenize("Örter = u'places'\ngrün = U'green'", """\
@@ -3394,7 +3383,6 @@ class CommandLineTest(unittest.TestCase):
             with contextlib.redirect_stderr(StringIO()):
                 _ = self.invoke_tokenize('--unknown')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_without_flag(self):
         # test 'python -m tokenize source.py'
         source = 'a = 1'
@@ -3408,7 +3396,6 @@ class CommandLineTest(unittest.TestCase):
         '''
         self.check_output(source, expect)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exact_flag(self):
         # test 'python -m tokenize -e/--exact source.py'
         source = 'a = 1'
