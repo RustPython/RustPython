@@ -2037,20 +2037,13 @@ impl SymbolTableBuilder {
             self.line_index_start(range),
         );
 
-        // Mark non-generator comprehensions as inlined (PEP 709)
-        // inline_comp = entry->ste_comprehension && !entry->ste_generator && !ste->ste_can_see_class_scope
-        // We check is_generator and can_see_class_scope of parent
-        let parent_can_see_class = self
-            .tables
-            .get(self.tables.len().saturating_sub(2))
-            .map(|t| t.can_see_class_scope)
-            .unwrap_or(false);
-        if !is_generator
-            && !parent_can_see_class
-            && let Some(table) = self.tables.last_mut()
-        {
-            table.comp_inlined = true;
-        }
+        // PEP 709: inlined comprehensions are not yet implemented in the
+        // compiler (is_inlined_comprehension_context always returns false),
+        // so do NOT mark comp_inlined here.  Setting it would cause the
+        // symbol-table analyzer to merge comprehension-local symbols into
+        // the parent scope, while the compiler still emits a separate code
+        // object — leading to the merged symbols being missing from the
+        // comprehension's own symbol table lookup.
 
         // Register the passed argument to the generator function as the name ".0"
         self.register_name(".0", SymbolUsage::Parameter, range)?;
