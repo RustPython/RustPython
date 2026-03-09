@@ -331,8 +331,7 @@ const _: () = assert!(core::mem::align_of::<ObjExt>() >= core::mem::align_of::<P
 const _: () = assert!(
     core::mem::size_of::<WeakRefList>().is_multiple_of(core::mem::align_of::<WeakRefList>())
 );
-const _: () =
-    assert!(core::mem::align_of::<WeakRefList>() >= core::mem::align_of::<PyInner<()>>());
+const _: () = assert!(core::mem::align_of::<WeakRefList>() >= core::mem::align_of::<PyInner<()>>());
 
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
@@ -375,8 +374,7 @@ impl<T> PyInner<T> {
     #[inline(always)]
     pub(super) fn ext_ref(&self) -> Option<&ObjExt> {
         let (flags, member_count) = self.read_type_flags();
-        let has_ext =
-            flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
+        let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
         if !has_ext {
             return None;
         }
@@ -387,8 +385,7 @@ impl<T> PyInner<T> {
             EXT_OFFSET
         };
         let self_addr = (self as *const Self as *const u8).addr();
-        let ext_ptr =
-            core::ptr::with_exposed_provenance::<ObjExt>(self_addr.wrapping_sub(offset));
+        let ext_ptr = core::ptr::with_exposed_provenance::<ObjExt>(self_addr.wrapping_sub(offset));
         Some(unsafe { &*ext_ptr })
     }
 
@@ -957,8 +954,8 @@ impl<T: PyPayload> PyInner<T> {
     unsafe fn dealloc(ptr: *mut Self) {
         unsafe {
             let (flags, member_count) = (*ptr).read_type_flags();
-            let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT)
-                || member_count > 0;
+            let has_ext =
+                flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
             let has_weakref = flags.has_feature(crate::types::PyTypeFlags::HAS_WEAKREF);
 
             if has_ext || has_weakref {
@@ -977,9 +974,8 @@ impl<T: PyPayload> PyInner<T> {
                         .unwrap()
                         .0;
                 }
-                let (combined, inner_offset) = layout
-                    .extend(core::alloc::Layout::new::<Self>())
-                    .unwrap();
+                let (combined, inner_offset) =
+                    layout.extend(core::alloc::Layout::new::<Self>()).unwrap();
                 let combined = combined.pad_to_align();
 
                 let alloc_ptr = (ptr as *mut u8).sub(inner_offset);
@@ -1045,9 +1041,8 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                 None
             };
 
-            let (combined, inner_offset) = layout
-                .extend(core::alloc::Layout::new::<Self>())
-                .unwrap();
+            let (combined, inner_offset) =
+                layout.extend(core::alloc::Layout::new::<Self>()).unwrap();
             let combined = combined.pad_to_align();
 
             let alloc_ptr = unsafe { alloc::alloc::alloc(combined) };
@@ -1757,8 +1752,7 @@ impl PyObject {
         // the pointer without clearing dict contents. The dict may still be
         // referenced by other live objects (e.g. function.__globals__).
         let (flags, member_count) = obj.0.read_type_flags();
-        let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT)
-            || member_count > 0;
+        let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
         if has_ext {
             let has_weakref = flags.has_feature(crate::types::PyTypeFlags::HAS_WEAKREF);
             let offset = if has_weakref {
@@ -1767,9 +1761,8 @@ impl PyObject {
                 EXT_OFFSET
             };
             let self_addr = (ptr as *const u8).addr();
-            let ext_ptr = core::ptr::with_exposed_provenance_mut::<ObjExt>(
-                self_addr.wrapping_sub(offset),
-            );
+            let ext_ptr =
+                core::ptr::with_exposed_provenance_mut::<ObjExt>(self_addr.wrapping_sub(offset));
             let ext = unsafe { &mut *ext_ptr };
             if let Some(old_dict) = ext.dict.take() {
                 // Get the dict ref before dropping InstanceDict
