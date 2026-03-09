@@ -1176,7 +1176,7 @@ long_float_action!(compactlong_float_subtract, -);
 long_float_action!(compactlong_float_multiply, *);
 long_float_action!(compactlong_float_true_div, /);
 
-static BINARY_OP_EXTEND_DESCRS: &[BinaryOpExtendSpecializationDescr] = &[
+static BINARY_OP_EXTEND_DESCRIPTORS: &[BinaryOpExtendSpecializationDescr] = &[
     // long-long arithmetic
     BinaryOpExtendSpecializationDescr {
         oparg: bytecode::BinaryOperator::Or,
@@ -7264,7 +7264,7 @@ impl ExecutingFrame<'_> {
         if ptr == 0 {
             return None;
         }
-        // SAFETY: We only store pointers to entries in `BINARY_OP_EXTEND_DESCRS`.
+        // SAFETY: We only store pointers to entries in `BINARY_OP_EXTEND_DESCRIPTORS`.
         Some(unsafe { &*(ptr as *const BinaryOpExtendSpecializationDescr) })
     }
 
@@ -7276,7 +7276,7 @@ impl ExecutingFrame<'_> {
         rhs: &PyObject,
         vm: &VirtualMachine,
     ) -> Option<&'static BinaryOpExtendSpecializationDescr> {
-        BINARY_OP_EXTEND_DESCRS
+        BINARY_OP_EXTEND_DESCRIPTORS
             .iter()
             .find(|d| d.oparg == op && (d.guard)(lhs, rhs, vm))
     }
