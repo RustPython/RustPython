@@ -14,7 +14,10 @@ use crate::{
         builtin_func::PyNativeFunction,
         descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
-        function::{PyBoundMethod, PyCell, PyCellRef, PyFunction, vectorcall_function},
+        function::{
+            PyBoundMethod, PyCell, PyCellRef, PyFunction, datastack_frame_size_bytes_for_code,
+            vectorcall_function,
+        },
         list::PyListIterator,
         range::PyRangeIterator,
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
@@ -1259,6 +1262,11 @@ impl fmt::Debug for ExecutingFrame<'_> {
 }
 
 impl ExecutingFrame<'_> {
+    #[inline]
+    fn monitoring_disabled_for_code(&self, vm: &VirtualMachine) -> bool {
+        self.code.is(&vm.ctx.init_cleanup_code)
+    }
+
     fn specialization_new_init_cleanup_frame(&self, vm: &VirtualMachine) -> FrameRef {
         Frame::new(
             vm.ctx.init_cleanup_code.clone(),
@@ -3146,6 +3154,17 @@ impl ExecutingFrame<'_> {
                     self.code.instructions.quicken();
                     atomic::fence(atomic::Ordering::Release);
                 }
+                if self.monitoring_disabled_for_code(vm) {
+                    let global_ver = vm
+                        .state
+                        .instrumentation_version
+                        .load(atomic::Ordering::Acquire);
+                    monitoring::instrument_code(self.code, 0);
+                    self.code
+                        .instrumentation_version
+                        .store(global_ver, atomic::Ordering::Release);
+                    return Ok(None);
+                }
                 // Check if bytecode needs re-instrumentation
                 let global_ver = vm
                     .state
@@ -4757,22 +4776,16 @@ impl ExecutingFrame<'_> {
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
                     && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
-                    // CPython guard is:
-                    //   code->co_framesize + _Py_InitCleanup.co_framesize
-                    // and _Py_InitCleanup.co_framesize is defined as:
-                    //   2 + FRAME_SPECIALS_SIZE
-                    // (see cpython/Python/specialize.c).
-                    //
-                    // RustPython datastack stores localsplus payload only, but we
-                    // keep the guard conservative and CPython-shaped by accounting
-                    // for the full cleanup frame size.
-                    const CPYTHON_INIT_CLEANUP_CO_FRAMESIZE_SLOTS: usize = 11;
-                    const INIT_CLEANUP_STACK_BYTES: usize =
-                        CPYTHON_INIT_CLEANUP_CO_FRAMESIZE_SLOTS * core::mem::size_of::<usize>();
+                    // Match CPython's `code->co_framesize + _Py_InitCleanup.co_framesize`
+                    // shape, using RustPython's datastack-backed frame size
+                    // equivalent for the extra shim frame.
+                    let init_cleanup_stack_bytes =
+                        datastack_frame_size_bytes_for_code(&vm.ctx.init_cleanup_code)
+                            .expect("_Py_InitCleanup shim is not a generator/coroutine");
                     if !self.specialization_has_datastack_space_for_func_with_extra(
                         vm,
                         &init_func,
-                        INIT_CLEANUP_STACK_BYTES,
+                        init_cleanup_stack_bytes,
                     ) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
@@ -5586,6 +5599,18 @@ impl ExecutingFrame<'_> {
             instruction.is_instrumented(),
             "execute_instrumented called with non-instrumented opcode {instruction:?}"
         );
+        if self.monitoring_disabled_for_code(vm) {
+            let global_ver = vm
+                .state
+                .instrumentation_version
+                .load(atomic::Ordering::Acquire);
+            monitoring::instrument_code(self.code, 0);
+            self.code
+                .instrumentation_version
+                .store(global_ver, atomic::Ordering::Release);
+            self.update_lasti(|i| *i -= 1);
+            return Ok(None);
+        }
         self.monitoring_mask = vm.state.monitoring_events.load();
         match instruction {
             Instruction::InstrumentedResume => {

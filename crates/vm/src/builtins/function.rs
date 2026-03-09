@@ -673,20 +673,7 @@ impl Py<PyFunction> {
     /// Returns `None` for generator/coroutine code paths that do not push a
     /// regular datastack-backed frame in the fast call path.
     pub(crate) fn datastack_frame_size_bytes(&self) -> Option<usize> {
-        let code: &Py<PyCode> = &self.code;
-        if code
-            .flags
-            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
-        {
-            return None;
-        }
-        let nlocalsplus = code
-            .varnames
-            .len()
-            .checked_add(code.cellvars.len())?
-            .checked_add(code.freevars.len())?;
-        let capacity = nlocalsplus.checked_add(code.max_stackdepth as usize)?;
-        capacity.checked_mul(core::mem::size_of::<usize>())
+        datastack_frame_size_bytes_for_code(&self.code)
     }
 
     pub(crate) fn prepare_exact_args_frame(
@@ -780,6 +767,22 @@ impl Py<PyFunction> {
         }
         result
     }
+}
+
+pub(crate) fn datastack_frame_size_bytes_for_code(code: &Py<PyCode>) -> Option<usize> {
+    if code
+        .flags
+        .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+    {
+        return None;
+    }
+    let nlocalsplus = code
+        .varnames
+        .len()
+        .checked_add(code.cellvars.len())?
+        .checked_add(code.freevars.len())?;
+    let capacity = nlocalsplus.checked_add(code.max_stackdepth as usize)?;
+    capacity.checked_mul(core::mem::size_of::<usize>())
 }
 
 impl PyPayload for PyFunction {
