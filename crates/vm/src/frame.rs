@@ -7456,10 +7456,7 @@ impl ExecutingFrame<'_> {
             .load()
             .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
         if !is_default_getattro {
-            let mut type_version = cls.tp_version_tag.load(Acquire);
-            if type_version == 0 {
-                type_version = cls.assign_version_tag();
-            }
+            let type_version = cls.version_for_specialization(_vm);
             if type_version != 0
                 && !oparg.is_method()
                 && !self.specialization_eval_frame_active(_vm)
@@ -7497,10 +7494,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Get or assign type version
-        let mut type_version = cls.tp_version_tag.load(Acquire);
-        if type_version == 0 {
-            type_version = cls.assign_version_tag();
-        }
+        let type_version = cls.version_for_specialization(_vm);
         if type_version == 0 {
             // Version counter overflow — backoff to avoid re-attempting every execution
             unsafe {
@@ -7720,10 +7714,7 @@ impl ExecutingFrame<'_> {
         let owner_type = obj.downcast_ref::<PyType>().unwrap();
 
         // Get or assign type version for the type object itself
-        let mut type_version = owner_type.tp_version_tag.load(Acquire);
-        if type_version == 0 {
-            type_version = owner_type.assign_version_tag();
-        }
+        let type_version = owner_type.version_for_specialization(_vm);
         if type_version == 0 {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
@@ -7758,10 +7749,7 @@ impl ExecutingFrame<'_> {
         }
         let mut metaclass_version = 0;
         if !mcl.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            metaclass_version = mcl.tp_version_tag.load(Acquire);
-            if metaclass_version == 0 {
-                metaclass_version = mcl.assign_version_tag();
-            }
+            metaclass_version = mcl.version_for_specialization(_vm);
             if metaclass_version == 0 {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
@@ -7948,16 +7936,14 @@ impl ExecutingFrame<'_> {
                     Some(Instruction::BinaryOpSubscrListSlice)
                 } else {
                     let cls = a.class();
+                    let (getitem, type_version) =
+                        cls.lookup_ref_and_version_interned(identifier!(vm, __getitem__), vm);
                     if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
                         && !self.specialization_eval_frame_active(vm)
-                        && let Some(_getitem) = cls.get_attr(identifier!(vm, __getitem__))
+                        && let Some(_getitem) = getitem
                         && let Some(func) = _getitem.downcast_ref_if_exact::<PyFunction>(vm)
                         && func.can_specialize_call(2)
                     {
-                        let mut type_version = cls.tp_version_tag.load(Acquire);
-                        if type_version == 0 {
-                            type_version = cls.assign_version_tag();
-                        }
                         if type_version != 0 {
                             if cls.cache_getitem_for_specialization(
                                 func.to_owned(),
@@ -8496,11 +8482,8 @@ impl ExecutingFrame<'_> {
                     && cls_new_fn as usize == obj_new_fn as usize
                     && cls_alloc_fn as usize == obj_alloc_fn as usize
                 {
-                    let init = cls.get_attr(identifier!(vm, __init__));
-                    let mut version = cls.tp_version_tag.load(Acquire);
-                    if version == 0 {
-                        version = cls.assign_version_tag();
-                    }
+                    let (init, version) =
+                        cls.lookup_ref_and_version_interned(identifier!(vm, __init__), vm);
                     if version == 0 {
                         unsafe {
                             self.code.instructions.write_adaptive_counter(
@@ -8820,10 +8803,7 @@ impl ExecutingFrame<'_> {
             && cls.slots.as_sequence.length.load().is_none()
         {
             // Cache type version for ToBoolAlwaysTrue guard
-            let mut type_version = cls.tp_version_tag.load(Acquire);
-            if type_version == 0 {
-                type_version = cls.assign_version_tag();
-            }
+            let type_version = cls.version_for_specialization(vm);
             if type_version != 0 {
                 unsafe {
                     self.code
@@ -9161,10 +9141,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Get or assign type version
-        let mut type_version = cls.tp_version_tag.load(Acquire);
-        if type_version == 0 {
-            type_version = cls.assign_version_tag();
-        }
+        let type_version = cls.version_for_specialization(vm);
         if type_version == 0 {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
