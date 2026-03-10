@@ -1,5 +1,5 @@
 use super::*;
-use crate::stdlib::ast::argument::{merge_class_def_args, split_class_def_args};
+use crate::stdlib::_ast::argument::{merge_class_def_args, split_class_def_args};
 use rustpython_compiler_core::SourceFile;
 
 // sum

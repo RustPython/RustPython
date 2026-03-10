@@ -1,35 +1,31 @@
 mod _abc;
-mod _types;
 #[cfg(feature = "ast")]
-pub(crate) mod ast;
+pub(crate) mod _ast;
+mod _codecs;
+mod _collections;
+mod _functools;
+mod _imp;
+pub mod _io;
+mod _operator;
+mod _sre;
+mod _stat;
+mod _string;
+#[cfg(feature = "compiler")]
+mod _symtable;
+mod _sysconfig;
+mod _sysconfigdata;
+mod _types;
+pub mod _typing;
+pub mod _warnings;
+mod _weakref;
 pub mod atexit;
 pub mod builtins;
-mod codecs;
-mod collections;
 pub mod errno;
-mod functools;
 mod gc;
-mod imp;
-pub mod io;
 mod itertools;
 mod marshal;
-mod operator;
-// TODO: maybe make this an extension module, if we ever get those
-// mod re;
-mod sre;
-mod stat;
-mod string;
-#[cfg(feature = "compiler")]
-mod symtable;
-mod sysconfig;
-mod sysconfigdata;
-#[cfg(feature = "threading")]
-pub mod thread;
 pub mod time;
 mod typevar;
-pub mod typing;
-pub mod warnings;
-mod weakref;
 
 #[cfg(feature = "host_env")]
 #[macro_use]
@@ -47,7 +43,7 @@ pub mod posix;
     any(target_os = "linux", target_os = "macos", target_os = "windows"),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
-mod ctypes;
+mod _ctypes;
 #[cfg(all(feature = "host_env", windows))]
 pub(crate) mod msvcrt;
 
@@ -58,10 +54,12 @@ pub(crate) mod msvcrt;
 ))]
 mod pwd;
 
+#[cfg(feature = "host_env")]
+pub(crate) mod _signal;
+#[cfg(feature = "threading")]
+pub mod _thread;
 #[cfg(all(feature = "host_env", windows))]
 mod _wmi;
-#[cfg(feature = "host_env")]
-pub(crate) mod signal;
 pub mod sys;
 #[cfg(all(feature = "host_env", windows))]
 #[path = "_winapi.rs"]
@@ -83,28 +81,28 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         _abc::module_def(ctx),
         _types::module_def(ctx),
         #[cfg(feature = "ast")]
-        ast::module_def(ctx),
+        _ast::module_def(ctx),
         atexit::module_def(ctx),
-        codecs::module_def(ctx),
-        collections::module_def(ctx),
+        _codecs::module_def(ctx),
+        _collections::module_def(ctx),
         #[cfg(all(
             feature = "host_env",
             any(target_os = "linux", target_os = "macos", target_os = "windows"),
             not(any(target_env = "musl", target_env = "sgx"))
         ))]
-        ctypes::module_def(ctx),
+        _ctypes::module_def(ctx),
         errno::module_def(ctx),
-        functools::module_def(ctx),
+        _functools::module_def(ctx),
         gc::module_def(ctx),
-        imp::module_def(ctx),
-        io::module_def(ctx),
+        _imp::module_def(ctx),
+        _io::module_def(ctx),
         itertools::module_def(ctx),
         marshal::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]
         msvcrt::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]
         nt::module_def(ctx),
-        operator::module_def(ctx),
+        _operator::module_def(ctx),
         #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
         posix::module_def(ctx),
         #[cfg(all(feature = "host_env", not(any(unix, windows, target_os = "wasi"))))]
@@ -116,20 +114,20 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         ))]
         pwd::module_def(ctx),
         #[cfg(feature = "host_env")]
-        signal::module_def(ctx),
-        sre::module_def(ctx),
-        stat::module_def(ctx),
-        string::module_def(ctx),
+        _signal::module_def(ctx),
+        _sre::module_def(ctx),
+        _stat::module_def(ctx),
+        _string::module_def(ctx),
         #[cfg(feature = "compiler")]
-        symtable::module_def(ctx),
-        sysconfigdata::module_def(ctx),
-        sysconfig::module_def(ctx),
+        _symtable::module_def(ctx),
+        _sysconfigdata::module_def(ctx),
+        _sysconfig::module_def(ctx),
         #[cfg(feature = "threading")]
-        thread::module_def(ctx),
+        _thread::module_def(ctx),
         time::module_def(ctx),
-        typing::module_def(ctx),
-        warnings::module_def(ctx),
-        weakref::module_def(ctx),
+        _typing::module_def(ctx),
+        _warnings::module_def(ctx),
+        _weakref::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]
         winapi::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]

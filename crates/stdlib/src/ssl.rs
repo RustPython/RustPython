@@ -48,7 +48,7 @@ mod _ssl {
             function::{
                 ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, PyComparisonValue,
             },
-            stdlib::warnings,
+            stdlib::_warnings,
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
         },
     };
@@ -976,7 +976,7 @@ mod _ssl {
 
             // Warn if any deprecated options are being newly set
             if (set & opt_no) != 0 {
-                warnings::warn(
+                _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     "ssl.OP_NO_SSL*/ssl.OP_NO_TLS* options are deprecated".to_owned(),
                     2, // stack_level = 2

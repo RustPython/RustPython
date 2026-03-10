@@ -405,7 +405,7 @@ mod decl {
         // Get all threads' frame stacks from the shared registry
         #[cfg(feature = "threading")]
         {
-            let current_tid = rustpython_vm::stdlib::thread::get_ident();
+            let current_tid = rustpython_vm::stdlib::_thread::get_ident();
             let registry = vm.state.thread_frames.lock();
 
             // First dump non-current threads, then current thread last

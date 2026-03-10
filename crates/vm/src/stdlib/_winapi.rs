@@ -1537,7 +1537,7 @@ mod _winapi {
 
         #[cfg(feature = "threading")]
         let sigint_event = {
-            let is_main = crate::stdlib::thread::get_ident() == vm.state.main_thread_ident.load();
+            let is_main = crate::stdlib::_thread::get_ident() == vm.state.main_thread_ident.load();
             if is_main {
                 let handle = crate::signal::get_sigint_event().unwrap_or_else(|| {
                     let handle = unsafe { WinCreateEventW(null(), 1, 0, null()) };

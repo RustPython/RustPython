@@ -2,7 +2,7 @@ use crate::{
     AsObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyList, PyTuple},
     class::PyClassImpl,
-    stdlib::ast::NodeAst,
+    stdlib::_ast::NodeAst,
 };
 use rustpython_common::wtf8::Wtf8Buf;
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::stdlib::ast::type_ignore::TypeIgnore;
+use crate::stdlib::_ast::type_ignore::TypeIgnore;
 use rustpython_compiler_core::SourceFile;
 
 /// Represents the different types of Python module structures.

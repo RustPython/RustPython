@@ -5122,7 +5122,7 @@ mod _io {
 
         // Warn if line buffering is requested in binary mode
         if opts.buffering == 1 && matches!(mode.encode, EncodeMode::Bytes) {
-            crate::stdlib::warnings::warn(
+            crate::stdlib::_warnings::warn(
                 vm.ctx.exceptions.runtime_warning,
                 "line buffering (buffering=1) isn't supported in binary mode, the default buffer size will be used".to_owned(),
                 1,
@@ -5248,7 +5248,7 @@ mod _io {
                     }
                 }
                 let stacklevel = usize::try_from(stacklevel).unwrap_or(0);
-                crate::stdlib::warnings::warn(
+                crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.encoding_warning,
                     "'encoding' argument not specified".to_owned(),
                     stacklevel,
@@ -5488,7 +5488,7 @@ mod fileio {
             let name = args.name;
             // Check if bool is used as file descriptor
             if name.class().is(vm.ctx.types.bool_type) {
-                crate::stdlib::warnings::warn(
+                crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.runtime_warning,
                     "bool is used as a file descriptor".to_owned(),
                     1,
@@ -5958,7 +5958,7 @@ mod fileio {
                     .repr(vm)
                     .map(|s| s.as_wtf8().to_owned())
                     .unwrap_or_else(|_| Wtf8Buf::from("<file>"));
-                if let Err(e) = crate::stdlib::warnings::warn(
+                if let Err(e) = crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed file {repr}"),
                     1,
@@ -6197,7 +6197,7 @@ mod winconsoleio {
 
             // Warn if bool is used as file descriptor
             if nameobj.class().is(vm.ctx.types.bool_type) {
-                crate::stdlib::warnings::warn(
+                crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.runtime_warning,
                     "bool is used as a file descriptor".to_owned(),
                     1,
@@ -6511,7 +6511,7 @@ mod winconsoleio {
                     .repr(vm)
                     .map(|s| s.as_wtf8().to_owned())
                     .unwrap_or_else(|_| Wtf8Buf::from("<file>"));
-                if let Err(e) = crate::stdlib::warnings::warn(
+                if let Err(e) = crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed file {repr}"),
                     1,

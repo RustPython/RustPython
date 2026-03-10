@@ -9,7 +9,7 @@ use crate::{
     convert::ToPyObject,
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
-    stdlib::typing::{TypeAliasType, call_typing_func_object},
+    stdlib::_typing::{TypeAliasType, call_typing_func_object},
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
 };
 use alloc::fmt;

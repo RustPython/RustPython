@@ -9,8 +9,8 @@ pub(crate) use python::_ast::module_def;
 mod pyast;
 
 use crate::builtins::{PyInt, PyStr};
-use crate::stdlib::ast::module::{Mod, ModFunctionType, ModInteractive};
-use crate::stdlib::ast::node::BoxedSlice;
+use crate::stdlib::_ast::module::{Mod, ModFunctionType, ModInteractive};
+use crate::stdlib::_ast::node::BoxedSlice;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, VirtualMachine,

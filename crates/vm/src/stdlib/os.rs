@@ -111,7 +111,7 @@ pub(crate) fn warn_if_bool_fd(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResul
         .class()
         .is(crate::builtins::bool_::PyBool::static_type())
     {
-        crate::stdlib::warnings::warn(
+        crate::stdlib::_warnings::warn(
             vm.ctx.exceptions.runtime_warning,
             "bool is used as a file descriptor".to_owned(),
             1,
@@ -938,7 +938,7 @@ pub(super) mod _os {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Emit ResourceWarning if the iterator is not yet exhausted/closed
             if zelf.entries.read().is_some() {
-                let _ = crate::stdlib::warnings::warn(
+                let _ = crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed scandir iterator {:?}", zelf.as_object()),
                     1,
@@ -1101,7 +1101,7 @@ pub(super) mod _os {
     impl Destructor for ScandirIteratorFd {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.dir.lock().is_some() {
-                let _ = crate::stdlib::warnings::warn(
+                let _ = crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed scandir iterator {:?}", zelf.as_object()),
                     1,

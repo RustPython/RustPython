@@ -12,7 +12,7 @@ pub(crate) mod _ast {
         class::{PyClassImpl, StaticType},
         common::wtf8::Wtf8,
         function::{FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
-        stdlib::ast::repr,
+        stdlib::_ast::repr,
         types::{Constructor, Initializer},
         warn,
     };
