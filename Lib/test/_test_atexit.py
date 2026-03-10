@@ -135,7 +135,6 @@ class GeneralTest(unittest.TestCase):
         finally:
             atexit.unregister(func)
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_eq_unregister_clear(self):
         # Issue #112127: callback's __eq__ may call unregister or _clear
         class Evil:
@@ -149,7 +148,6 @@ class GeneralTest(unittest.TestCase):
                 atexit.unregister(Evil())
                 atexit._clear()
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_eq_unregister(self):
         # Issue #112127: callback's __eq__ may call unregister
         def f1():

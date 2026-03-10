@@ -7,7 +7,11 @@ mod atexit {
 
     #[pyfunction]
     fn register(func: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
-        vm.state.atexit_funcs.lock().push((func.clone(), args));
+        // Callbacks go in LIFO order (insert at front)
+        vm.state
+            .atexit_funcs
+            .lock()
+            .insert(0, Box::new((func.clone(), args)));
         func
     }
 
@@ -18,35 +22,62 @@ mod atexit {
 
     #[pyfunction]
     fn unregister(func: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let mut funcs = vm.state.atexit_funcs.lock();
-
-        let mut i = 0;
-        while i < funcs.len() {
-            if vm.bool_eq(&funcs[i].0, &func)? {
-                funcs.remove(i);
-            } else {
-                i += 1;
+        // Iterate backward (oldest to newest in LIFO list).
+        // Release the lock during comparison so __eq__ can call atexit functions.
+        let mut i = {
+            let funcs = vm.state.atexit_funcs.lock();
+            funcs.len() as isize - 1
+        };
+        while i >= 0 {
+            let (cb, entry_ptr) = {
+                let funcs = vm.state.atexit_funcs.lock();
+                if i as usize >= funcs.len() {
+                    i = funcs.len() as isize;
+                    i -= 1;
+                    continue;
+                }
+                let entry = &funcs[i as usize];
+                (entry.0.clone(), &**entry as *const (PyObjectRef, FuncArgs))
+            };
+            // Lock released: __eq__ can safely call atexit functions
+            let eq = vm.bool_eq(&func, &cb)?;
+            if eq {
+                // The entry may have moved during __eq__. Search backward by identity.
+                let mut funcs = vm.state.atexit_funcs.lock();
+                let mut j = (funcs.len() as isize - 1).min(i);
+                while j >= 0 {
+                    if core::ptr::eq(&**funcs.get(j as usize).unwrap(), entry_ptr) {
+                        funcs.remove(j as usize);
+                        i = j;
+                        break;
+                    }
+                    j -= 1;
+                }
             }
+            {
+                let funcs = vm.state.atexit_funcs.lock();
+                if i as usize >= funcs.len() {
+                    i = funcs.len() as isize;
+                }
+            }
+            i -= 1;
         }
-
         Ok(())
     }
 
     #[pyfunction]
     pub fn _run_exitfuncs(vm: &VirtualMachine) {
         let funcs: Vec<_> = core::mem::take(&mut *vm.state.atexit_funcs.lock());
-        for (func, args) in funcs.into_iter().rev() {
+        // Callbacks stored in LIFO order, iterate forward
+        for entry in funcs.into_iter() {
+            let (func, args) = *entry;
             if let Err(e) = func.call(args, vm) {
                 let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
                 let msg = func
                     .repr(vm)
-                    .map(|r| {
-                        format!("Exception ignored in atexit callback {}", r.as_wtf8())
-                    })
-                    .unwrap_or_else(|_| {
-                        "Exception ignored in atexit callback".to_owned()
-                    });
-                vm.run_unraisable(e, Some(msg), vm.ctx.none());
+                    .ok()
+                    .map(|r| format!("Exception ignored in atexit callback {}", r.as_wtf8()));
+                vm.run_unraisable(e, msg, vm.ctx.none());
                 if exit {
                     break;
                 }
