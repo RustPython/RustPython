@@ -20,6 +20,7 @@ flame-it = ["rustpython-vm/flame-it", "rustpython-stdlib/flame-it", "flame", "fl
 freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
+fork = ["rustpython-vm/fork", "rustpython-stdlib/fork"]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = []
 ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]

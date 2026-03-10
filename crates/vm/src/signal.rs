@@ -98,8 +98,7 @@ pub(crate) fn is_triggered() -> bool {
 
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
-#[cfg(unix)]
-#[cfg(feature = "host_env")]
+#[cfg(feature = "fork")]
 pub(crate) fn clear_after_fork() {
     ANY_TRIGGERED.store(false, Ordering::Release);
     for trigger in &TRIGGERS {

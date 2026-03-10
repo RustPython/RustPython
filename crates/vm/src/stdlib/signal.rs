@@ -710,7 +710,7 @@ pub(crate) mod _signal {
 
     /// Reset wakeup fd after fork in child process.
     /// The child must not write to the parent's wakeup fd.
-    #[cfg(unix)]
+    #[cfg(feature = "fork")]
     pub(crate) fn clear_wakeup_fd_after_fork() {
         WAKEUP.store(INVALID_WAKEUP, Ordering::Relaxed);
     }

@@ -1,4 +1,4 @@
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 use super::StopTheWorldState;
 use super::{Context, PyConfig, PyGlobalState, VirtualMachine, setting::Settings, thread};
 use crate::{
@@ -108,8 +108,11 @@ where
         finalizing: AtomicBool::new(false),
         warnings,
         override_frozen_modules: AtomicCell::new(0),
+        #[cfg(feature = "fork")]
         before_forkers: PyMutex::default(),
+        #[cfg(feature = "fork")]
         after_forkers_child: PyMutex::default(),
+        #[cfg(feature = "fork")]
         after_forkers_parent: PyMutex::default(),
         int_max_str_digits,
         switch_interval: AtomicCell::new(0.005),
@@ -126,7 +129,7 @@ where
         monitoring: PyMutex::default(),
         monitoring_events: AtomicCell::new(0),
         instrumentation_version: AtomicU64::new(0),
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "fork")]
         stop_the_world: StopTheWorldState::new(),
     });
 

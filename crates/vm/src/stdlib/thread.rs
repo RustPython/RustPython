@@ -1,5 +1,5 @@
 //! Implementation of the _thread module
-#[cfg(unix)]
+#[cfg(feature = "fork")]
 pub(crate) use _thread::after_fork_child;
 pub use _thread::get_ident;
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
@@ -327,7 +327,7 @@ pub(crate) mod _thread {
         current_thread_id()
     }
 
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     #[pyfunction]
     fn _stop_the_world_stats(vm: &VirtualMachine) -> PyResult<PyDictRef> {
         let stats = vm.state.stop_the_world.stats_snapshot();
@@ -378,7 +378,7 @@ pub(crate) mod _thread {
         Ok(d)
     }
 
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     #[pyfunction]
     fn _stop_the_world_reset_stats(vm: &VirtualMachine) {
         vm.state.stop_the_world.reset_stats();
@@ -1050,7 +1050,7 @@ pub(crate) mod _thread {
     ///
     /// Precondition: `reinit_locks_after_fork()` has already been called, so all
     /// parking_lot-based locks in VmState are in unlocked state.
-    #[cfg(unix)]
+    #[cfg(feature = "fork")]
     pub fn after_fork_child(vm: &VirtualMachine) {
         let current_ident = get_ident();
 
@@ -1134,7 +1134,7 @@ pub(crate) mod _thread {
     }
 
     /// Reset a parking_lot::Mutex to unlocked state after fork.
-    #[cfg(unix)]
+    #[cfg(feature = "fork")]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
         unsafe { rustpython_common::lock::zero_reinit_after_fork(mutex.raw()) };
     }

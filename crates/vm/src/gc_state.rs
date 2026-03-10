@@ -92,7 +92,7 @@ impl GcGeneration {
     /// # Safety
     /// Must only be called after fork() in the child process when no other
     /// threads exist.
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     unsafe fn reinit_stats_after_fork(&self) {
         unsafe { crate::common::lock::reinit_mutex_after_fork(&self.stats) };
     }
@@ -731,7 +731,7 @@ impl GcState {
     /// # Safety
     /// Must only be called after fork() in the child process when no other
     /// threads exist. The calling thread must NOT hold any of these locks.
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     pub unsafe fn reinit_after_fork(&self) {
         use crate::common::lock::{reinit_mutex_after_fork, reinit_rwlock_after_fork};
 
