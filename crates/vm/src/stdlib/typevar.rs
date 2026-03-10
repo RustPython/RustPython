@@ -10,7 +10,7 @@ pub(crate) mod typevar {
         common::lock::PyMutex,
         function::{FuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
-        stdlib::typing::{call_typing_func_object, decl::const_evaluator_alloc},
+        stdlib::_typing::{call_typing_func_object, decl::const_evaluator_alloc},
         types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
     };
 

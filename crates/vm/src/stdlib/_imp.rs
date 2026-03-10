@@ -10,7 +10,7 @@ pub use crate::vm::resolve_frozen_alias;
 #[cfg(feature = "threading")]
 #[pymodule(sub)]
 mod lock {
-    use crate::{PyResult, VirtualMachine, stdlib::thread::RawRMutex};
+    use crate::{PyResult, VirtualMachine, stdlib::_thread::RawRMutex};
 
     static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 

@@ -735,7 +735,7 @@ pub fn subscript_generic(type_params: PyObjectRef, vm: &VirtualMachine) -> PyRes
         PyTuple::new_ref(vec![type_params], &vm.ctx)
     };
 
-    let args = crate::stdlib::typing::unpack_typevartuples(&params, vm)?;
+    let args = crate::stdlib::_typing::unpack_typevartuples(&params, vm)?;
 
     generic_alias_class.call((generic_type, args.to_pyobject(vm)), vm)
 }

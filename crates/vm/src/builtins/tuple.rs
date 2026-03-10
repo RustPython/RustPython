@@ -108,7 +108,9 @@ impl PyPayload for PyTuple {
 
     #[inline]
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
-        let len = unsafe { &*(obj as *const crate::Py<PyTuple>) }.elements.len();
+        let len = unsafe { &*(obj as *const crate::Py<PyTuple>) }
+            .elements
+            .len();
         if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
             return false;
         }

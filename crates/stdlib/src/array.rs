@@ -35,7 +35,7 @@ mod array {
                 SaturatedSlice, SequenceIndex, SequenceIndexOp, SliceableSequenceMutOp,
                 SliceableSequenceOp,
             },
-            stdlib::warnings,
+            stdlib::_warnings,
             types::{
                 AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext, Iterable,
                 PyComparisonOp, Representable, SelfIter,
@@ -647,7 +647,7 @@ mod array {
             }
 
             if spec == 'u' {
-                warnings::warn(
+                _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     "The 'u' type code is deprecated and will be removed in Python 3.16".to_owned(),
                     1,

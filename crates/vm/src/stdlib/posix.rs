@@ -769,7 +769,7 @@ pub mod module {
         run_at_forkers(before_forkers, true, vm);
 
         #[cfg(feature = "threading")]
-        crate::stdlib::imp::acquire_imp_lock_for_fork();
+        crate::stdlib::_imp::acquire_imp_lock_for_fork();
 
         #[cfg(feature = "threading")]
         vm.state.stop_the_world.stop_the_world(vm);
@@ -790,12 +790,12 @@ pub mod module {
         // held by dead parent threads, causing deadlocks on any IO in the child.
         #[cfg(feature = "threading")]
         unsafe {
-            crate::stdlib::io::reinit_std_streams_after_fork(vm)
+            crate::stdlib::_io::reinit_std_streams_after_fork(vm)
         };
 
         // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
-        crate::stdlib::signal::_signal::clear_wakeup_fd_after_fork();
+        crate::stdlib::_signal::_signal::clear_wakeup_fd_after_fork();
 
         // Reset weakref stripe locks that may have been held during fork.
         #[cfg(feature = "threading")]
@@ -804,13 +804,13 @@ pub mod module {
         // Phase 3: Clean up thread state. Locks are now reinit'd so we can
         // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
-        crate::stdlib::thread::after_fork_child(vm);
+        crate::stdlib::_thread::after_fork_child(vm);
 
         // CPython parity: reinit import lock ownership metadata in child
         // and release the lock acquired by PyOS_BeforeFork().
         #[cfg(feature = "threading")]
         unsafe {
-            crate::stdlib::imp::after_fork_child_imp_lock_release()
+            crate::stdlib::_imp::after_fork_child_imp_lock_release()
         };
 
         // Initialize signal handlers for the child's main thread.
@@ -857,7 +857,7 @@ pub mod module {
             crate::gc_state::gc_state().reinit_after_fork();
 
             // Import lock (RawReentrantMutex<RawMutex, RawThreadId>)
-            crate::stdlib::imp::reinit_imp_lock_after_fork();
+            crate::stdlib::_imp::reinit_imp_lock_after_fork();
         }
     }
 
@@ -866,7 +866,7 @@ pub mod module {
         vm.state.stop_the_world.start_the_world(vm);
 
         #[cfg(feature = "threading")]
-        crate::stdlib::imp::release_imp_lock_after_fork_parent();
+        crate::stdlib::_imp::release_imp_lock_after_fork_parent();
 
         let after_forkers_parent: Vec<PyObjectRef> = vm.state.after_forkers_parent.lock().clone();
         run_at_forkers(after_forkers_parent, false, vm);
@@ -994,7 +994,7 @@ pub mod module {
             // Match PyErr_WarnFormat(..., stacklevel=1) in CPython.
             // Best effort: ignore failures like CPython does in this path.
             let _ =
-                crate::stdlib::warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm);
+                crate::stdlib::_warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm);
         }
     }
 

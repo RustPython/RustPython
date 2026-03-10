@@ -3,7 +3,7 @@ use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
 use crate::function::{FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
-use crate::stdlib::warnings;
+use crate::stdlib::_warnings;
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
@@ -259,7 +259,7 @@ impl PyCStructType {
                     cls.name(),
                     base_type_name,
                 );
-                warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
+                _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
             }
         }
 

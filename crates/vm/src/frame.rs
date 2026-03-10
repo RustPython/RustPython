@@ -29,7 +29,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     sliceable::SliceableSequenceOp,
-    stdlib::{builtins, sys::monitoring, typing},
+    stdlib::{_typing, builtins, sys::monitoring},
     types::{PyComparisonOp, PyTypeFlags},
     vm::{Context, PyMethod},
 };
@@ -9134,19 +9134,19 @@ impl ExecutingFrame<'_> {
             }
             bytecode::IntrinsicFunction1::TypeVar => {
                 let type_var: PyObjectRef =
-                    typing::TypeVar::new(vm, arg.clone(), vm.ctx.none(), vm.ctx.none())
+                    _typing::TypeVar::new(vm, arg.clone(), vm.ctx.none(), vm.ctx.none())
                         .into_ref(&vm.ctx)
                         .into();
                 Ok(type_var)
             }
             bytecode::IntrinsicFunction1::ParamSpec => {
-                let param_spec: PyObjectRef = typing::ParamSpec::new(arg.clone(), vm)
+                let param_spec: PyObjectRef = _typing::ParamSpec::new(arg.clone(), vm)
                     .into_ref(&vm.ctx)
                     .into();
                 Ok(param_spec)
             }
             bytecode::IntrinsicFunction1::TypeVarTuple => {
-                let type_var_tuple: PyObjectRef = typing::TypeVarTuple::new(arg.clone(), vm)
+                let type_var_tuple: PyObjectRef = _typing::TypeVarTuple::new(arg.clone(), vm)
                     .into_ref(&vm.ctx)
                     .into();
                 Ok(type_var_tuple)
@@ -9179,7 +9179,7 @@ impl ExecutingFrame<'_> {
                 let name = name
                     .downcast::<crate::builtins::PyStr>()
                     .map_err(|_| vm.new_type_error("TypeAliasType name must be a string"))?;
-                let type_alias = typing::TypeAliasType::new(name, type_params, compute_value);
+                let type_alias = _typing::TypeAliasType::new(name, type_params, compute_value);
                 Ok(type_alias.into_ref(&vm.ctx).into())
             }
             bytecode::IntrinsicFunction1::ListToTuple => {
@@ -9225,7 +9225,7 @@ impl ExecutingFrame<'_> {
     ) -> PyResult {
         match func {
             bytecode::IntrinsicFunction2::SetTypeparamDefault => {
-                crate::stdlib::typing::set_typeparam_default(arg1, arg2, vm)
+                crate::stdlib::_typing::set_typeparam_default(arg1, arg2, vm)
             }
             bytecode::IntrinsicFunction2::SetFunctionTypeParams => {
                 // arg1 is the function, arg2 is the type params tuple
@@ -9235,14 +9235,14 @@ impl ExecutingFrame<'_> {
             }
             bytecode::IntrinsicFunction2::TypeVarWithBound => {
                 let type_var: PyObjectRef =
-                    typing::TypeVar::new(vm, arg1.clone(), arg2, vm.ctx.none())
+                    _typing::TypeVar::new(vm, arg1.clone(), arg2, vm.ctx.none())
                         .into_ref(&vm.ctx)
                         .into();
                 Ok(type_var)
             }
             bytecode::IntrinsicFunction2::TypeVarWithConstraint => {
                 let type_var: PyObjectRef =
-                    typing::TypeVar::new(vm, arg1.clone(), vm.ctx.none(), arg2)
+                    _typing::TypeVar::new(vm, arg1.clone(), vm.ctx.none(), arg2)
                         .into_ref(&vm.ctx)
                         .into();
                 Ok(type_var)
