@@ -1459,7 +1459,7 @@ class _TestLock(BaseTestCase):
         for _ in range(n):
             lock.release()
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky timeout")
+    @unittest.skip("TODO: RUSTPYTHON; flaky timeout - thread start latency")
     def test_repr_rlock(self):
         if self.TYPE != 'processes':
             self.skipTest('test not appropriate for {}'.format(self.TYPE))
@@ -4415,7 +4415,6 @@ class _TestSharedMemory(BaseTestCase):
 
         sms.close()
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @unittest.skipIf(os.name != "posix", "not feasible in non-posix platforms")
     def test_shared_memory_SharedMemoryServer_ignores_sigint(self):
         # bpo-36368: protect SharedMemoryManager server process from
@@ -4440,7 +4439,6 @@ class _TestSharedMemory(BaseTestCase):
 
         smm.shutdown()
 
-    @unittest.skip("TODO: RUSTPYTHON: sem_unlink cleanup race causes spurious stderr output")
     @unittest.skipIf(os.name != "posix", "resource_tracker is posix only")
     @resource_tracker_format_subtests
     def test_shared_memory_SharedMemoryManager_reuses_resource_tracker(self):
