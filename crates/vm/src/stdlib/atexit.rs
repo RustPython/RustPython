@@ -38,7 +38,15 @@ mod atexit {
         for (func, args) in funcs.into_iter().rev() {
             if let Err(e) = func.call(args, vm) {
                 let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
-                vm.run_unraisable(e, Some("Error in atexit._run_exitfuncs".to_owned()), func);
+                let msg = func
+                    .repr(vm)
+                    .map(|r| {
+                        format!("Exception ignored in atexit callback {}", r.as_wtf8())
+                    })
+                    .unwrap_or_else(|_| {
+                        "Exception ignored in atexit callback".to_owned()
+                    });
+                vm.run_unraisable(e, Some(msg), vm.ctx.none());
                 if exit {
                     break;
                 }
