@@ -998,9 +998,7 @@ mod builtins {
         };
         let write = |obj: PyStrRef| vm.call_method(&file, "write", (obj,));
 
-        let sep = options
-            .sep
-            .unwrap_or_else(|| PyStr::from(" ").into_ref(&vm.ctx));
+        let sep = options.sep.unwrap_or_else(|| vm.ctx.new_str(" "));
 
         let mut first = true;
         for object in objects {
@@ -1013,9 +1011,7 @@ mod builtins {
             write(object.str(vm)?)?;
         }
 
-        let end = options
-            .end
-            .unwrap_or_else(|| PyStr::from("\n").into_ref(&vm.ctx));
+        let end = options.end.unwrap_or_else(|| vm.ctx.new_str("\n"));
         write(end)?;
 
         if options.flush.into() {

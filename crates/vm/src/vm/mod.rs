@@ -1550,7 +1550,7 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_frame_exc(frame, None, f)
+        self.with_frame_impl(frame, None, true, f)
     }
 
     /// Like `with_frame` but allows specifying the initial exception state.
@@ -1558,6 +1558,24 @@ impl VirtualMachine {
         &self,
         frame: FrameRef,
         exc: Option<PyBaseExceptionRef>,
+        f: F,
+    ) -> PyResult<R> {
+        self.with_frame_impl(frame, exc, true, f)
+    }
+
+    pub(crate) fn with_frame_untraced<R, F: FnOnce(FrameRef) -> PyResult<R>>(
+        &self,
+        frame: FrameRef,
+        f: F,
+    ) -> PyResult<R> {
+        self.with_frame_impl(frame, None, false, f)
+    }
+
+    fn with_frame_impl<R, F: FnOnce(FrameRef) -> PyResult<R>>(
+        &self,
+        frame: FrameRef,
+        exc: Option<PyBaseExceptionRef>,
+        traced: bool,
         f: F,
     ) -> PyResult<R> {
         self.with_recursion("", || {
@@ -1594,7 +1612,11 @@ impl VirtualMachine {
                 crate::vm::thread::pop_thread_frame();
             }
 
-            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+            if traced {
+                self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+            } else {
+                f(frame.to_owned())
+            }
         })
     }
 

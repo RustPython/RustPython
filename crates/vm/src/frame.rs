@@ -1,3 +1,5 @@
+// spell-checker: ignore compactlong compactlongs
+
 use crate::anystr::AnyStr;
 #[cfg(feature = "flame")]
 use crate::bytecode::InstructionMetadata;
@@ -12,7 +14,10 @@ use crate::{
         builtin_func::PyNativeFunction,
         descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
-        function::{PyBoundMethod, PyCell, PyCellRef, PyFunction, vectorcall_function},
+        function::{
+            PyBoundMethod, PyCell, PyCellRef, PyFunction, datastack_frame_size_bytes_for_code,
+            vectorcall_function,
+        },
         list::PyListIterator,
         range::PyRangeIterator,
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
@@ -1045,6 +1050,208 @@ struct ExecutingFrame<'a> {
     monitoring_mask: u32,
 }
 
+#[inline]
+fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
+    // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
+    // i.e. abs(value) <= 2^30 - 1.
+    const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
+    let v = i.try_to_primitive::<i64>(vm).ok()?;
+    if (-CPYTHON_COMPACT_LONG_ABS_MAX..=CPYTHON_COMPACT_LONG_ABS_MAX).contains(&v) {
+        Some(v as isize)
+    } else {
+        None
+    }
+}
+
+#[inline]
+fn compact_int_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<isize> {
+    obj.downcast_ref_if_exact::<PyInt>(vm)
+        .and_then(|i| specialization_compact_int_value(i, vm))
+}
+
+#[inline]
+fn exact_float_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<f64> {
+    obj.downcast_ref_if_exact::<PyFloat>(vm).map(|f| f.to_f64())
+}
+
+#[inline]
+fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
+    // _PyLong_IsNonNegativeCompact(): a single base-2^30 digit.
+    const CPYTHON_COMPACT_LONG_MAX: u64 = (1u64 << 30) - 1;
+    let v = i.try_to_primitive::<u64>(vm).ok()?;
+    if v <= CPYTHON_COMPACT_LONG_MAX {
+        Some(v as usize)
+    } else {
+        None
+    }
+}
+
+fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
+    unsafe {
+        if let Some(base) = frame.materialize_localsplus() {
+            vm.datastack_pop(base);
+        }
+    }
+}
+
+type BinaryOpExtendGuard = fn(&PyObject, &PyObject, &VirtualMachine) -> bool;
+type BinaryOpExtendAction = fn(&PyObject, &PyObject, &VirtualMachine) -> Option<PyObjectRef>;
+
+struct BinaryOpExtendSpecializationDescr {
+    oparg: bytecode::BinaryOperator,
+    guard: BinaryOpExtendGuard,
+    action: BinaryOpExtendAction,
+}
+
+const BINARY_OP_EXTEND_EXTERNAL_CACHE_OFFSET: usize = 1;
+
+#[inline]
+fn compactlongs_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bool {
+    compact_int_from_obj(lhs, vm).is_some() && compact_int_from_obj(rhs, vm).is_some()
+}
+
+macro_rules! bitwise_longs_action {
+    ($name:ident, $op:tt) => {
+        #[inline]
+        fn $name(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyObjectRef> {
+            let lhs_val = compact_int_from_obj(lhs, vm)?;
+            let rhs_val = compact_int_from_obj(rhs, vm)?;
+            Some(vm.ctx.new_int(lhs_val $op rhs_val).into())
+        }
+    };
+}
+bitwise_longs_action!(compactlongs_or, |);
+bitwise_longs_action!(compactlongs_and, &);
+bitwise_longs_action!(compactlongs_xor, ^);
+
+#[inline]
+fn float_compactlong_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bool {
+    exact_float_from_obj(lhs, vm).is_some_and(|f| !f.is_nan())
+        && compact_int_from_obj(rhs, vm).is_some()
+}
+
+#[inline]
+fn nonzero_float_compactlong_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bool {
+    float_compactlong_guard(lhs, rhs, vm) && compact_int_from_obj(rhs, vm).is_some_and(|v| v != 0)
+}
+
+macro_rules! float_long_action {
+    ($name:ident, $op:tt) => {
+        #[inline]
+        fn $name(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyObjectRef> {
+            let lhs_val = exact_float_from_obj(lhs, vm)?;
+            let rhs_val = compact_int_from_obj(rhs, vm)?;
+            Some(vm.ctx.new_float(lhs_val $op rhs_val as f64).into())
+        }
+    };
+}
+float_long_action!(float_compactlong_add, +);
+float_long_action!(float_compactlong_subtract, -);
+float_long_action!(float_compactlong_multiply, *);
+float_long_action!(float_compactlong_true_div, /);
+
+#[inline]
+fn compactlong_float_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bool {
+    compact_int_from_obj(lhs, vm).is_some()
+        && exact_float_from_obj(rhs, vm).is_some_and(|f| !f.is_nan())
+}
+
+#[inline]
+fn nonzero_compactlong_float_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bool {
+    compactlong_float_guard(lhs, rhs, vm) && exact_float_from_obj(rhs, vm).is_some_and(|f| f != 0.0)
+}
+
+macro_rules! long_float_action {
+    ($name:ident, $op:tt) => {
+        #[inline]
+        fn $name(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyObjectRef> {
+            let lhs_val = compact_int_from_obj(lhs, vm)?;
+            let rhs_val = exact_float_from_obj(rhs, vm)?;
+            Some(vm.ctx.new_float(lhs_val as f64 $op rhs_val).into())
+        }
+    };
+}
+long_float_action!(compactlong_float_add, +);
+long_float_action!(compactlong_float_subtract, -);
+long_float_action!(compactlong_float_multiply, *);
+long_float_action!(compactlong_float_true_div, /);
+
+static BINARY_OP_EXTEND_DESCRIPTORS: &[BinaryOpExtendSpecializationDescr] = &[
+    // long-long arithmetic
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Or,
+        guard: compactlongs_guard,
+        action: compactlongs_or,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::And,
+        guard: compactlongs_guard,
+        action: compactlongs_and,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Xor,
+        guard: compactlongs_guard,
+        action: compactlongs_xor,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::InplaceOr,
+        guard: compactlongs_guard,
+        action: compactlongs_or,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::InplaceAnd,
+        guard: compactlongs_guard,
+        action: compactlongs_and,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::InplaceXor,
+        guard: compactlongs_guard,
+        action: compactlongs_xor,
+    },
+    // float-long arithmetic
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Add,
+        guard: float_compactlong_guard,
+        action: float_compactlong_add,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Subtract,
+        guard: float_compactlong_guard,
+        action: float_compactlong_subtract,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::TrueDivide,
+        guard: nonzero_float_compactlong_guard,
+        action: float_compactlong_true_div,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Multiply,
+        guard: float_compactlong_guard,
+        action: float_compactlong_multiply,
+    },
+    // long-float arithmetic
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Add,
+        guard: compactlong_float_guard,
+        action: compactlong_float_add,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Subtract,
+        guard: compactlong_float_guard,
+        action: compactlong_float_subtract,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::TrueDivide,
+        guard: nonzero_compactlong_float_guard,
+        action: compactlong_float_true_div,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Multiply,
+        guard: compactlong_float_guard,
+        action: compactlong_float_multiply,
+    },
+];
+
 impl fmt::Debug for ExecutingFrame<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutingFrame")
@@ -1055,6 +1262,57 @@ impl fmt::Debug for ExecutingFrame<'_> {
 }
 
 impl ExecutingFrame<'_> {
+    #[inline]
+    fn monitoring_disabled_for_code(&self, vm: &VirtualMachine) -> bool {
+        self.code.is(&vm.ctx.init_cleanup_code)
+    }
+
+    fn specialization_new_init_cleanup_frame(&self, vm: &VirtualMachine) -> FrameRef {
+        Frame::new(
+            vm.ctx.init_cleanup_code.clone(),
+            Scope::new(
+                Some(ArgMapping::from_dict_exact(vm.ctx.new_dict())),
+                self.globals.clone(),
+            ),
+            self.builtins.clone(),
+            &[],
+            None,
+            true,
+            vm,
+        )
+        .into_ref(&vm.ctx)
+    }
+
+    fn specialization_run_init_cleanup_shim(
+        &self,
+        new_obj: PyObjectRef,
+        init_func: &Py<PyFunction>,
+        pos_args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let shim = self.specialization_new_init_cleanup_frame(vm);
+        let shim_result = vm.with_frame_untraced(shim.clone(), |shim| {
+            shim.with_exec(vm, |mut exec| exec.push_value(new_obj.clone()));
+
+            let mut all_args = Vec::with_capacity(pos_args.len() + 1);
+            all_args.push(new_obj.clone());
+            all_args.extend(pos_args);
+
+            let init_frame = init_func.prepare_exact_args_frame(all_args, vm);
+            let init_result = vm.run_frame(init_frame.clone());
+            release_datastack_frame(&init_frame, vm);
+            let init_result = init_result?;
+
+            shim.with_exec(vm, |mut exec| exec.push_value(init_result));
+            match shim.run(vm)? {
+                ExecutionResult::Return(value) => Ok(value),
+                ExecutionResult::Yield(_) => unreachable!("_Py_InitCleanup shim cannot yield"),
+            }
+        });
+        release_datastack_frame(&shim, vm);
+        shim_result
+    }
+
     #[inline(always)]
     fn update_lasti(&mut self, f: impl FnOnce(&mut u32)) {
         let mut val = self.lasti.load(Relaxed);
@@ -2896,6 +3154,17 @@ impl ExecutingFrame<'_> {
                     self.code.instructions.quicken();
                     atomic::fence(atomic::Ordering::Release);
                 }
+                if self.monitoring_disabled_for_code(vm) {
+                    let global_ver = vm
+                        .state
+                        .instrumentation_version
+                        .load(atomic::Ordering::Acquire);
+                    monitoring::instrument_code(self.code, 0);
+                    self.code
+                        .instrumentation_version
+                        .store(global_ver, atomic::Ordering::Release);
+                    return Ok(None);
+                }
                 // Check if bytecode needs re-instrumentation
                 let global_ver = vm
                     .state
@@ -3732,7 +4001,7 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm)
                     && let Some(int_idx) = idx.downcast_ref_if_exact::<PyInt>(vm)
-                    && let Some(i) = Self::specialization_nonnegative_compact_index(int_idx, vm)
+                    && let Some(i) = specialization_nonnegative_compact_index(int_idx, vm)
                 {
                     let mut vec = list.borrow_vec_mut();
                     if i < vec.len() {
@@ -3812,133 +4081,12 @@ impl ExecutingFrame<'_> {
                 let op = self.binary_op_from_arg(arg);
                 let b = self.top_value();
                 let a = self.nth_value(1);
-
-                let fast = match op {
-                    bytecode::BinaryOperator::And | bytecode::BinaryOperator::InplaceAnd => {
-                        if let (Some(a_int), Some(b_int)) = (
-                            a.downcast_ref_if_exact::<PyInt>(vm),
-                            b.downcast_ref_if_exact::<PyInt>(vm),
-                        ) && let (Some(a_val), Some(b_val)) = (
-                            Self::specialization_compact_int_value(a_int, vm),
-                            Self::specialization_compact_int_value(b_int, vm),
-                        ) {
-                            Some(vm.ctx.new_int(a_val & b_val).into())
-                        } else {
-                            None
-                        }
-                    }
-                    bytecode::BinaryOperator::Or | bytecode::BinaryOperator::InplaceOr => {
-                        if let (Some(a_int), Some(b_int)) = (
-                            a.downcast_ref_if_exact::<PyInt>(vm),
-                            b.downcast_ref_if_exact::<PyInt>(vm),
-                        ) && let (Some(a_val), Some(b_val)) = (
-                            Self::specialization_compact_int_value(a_int, vm),
-                            Self::specialization_compact_int_value(b_int, vm),
-                        ) {
-                            Some(vm.ctx.new_int(a_val | b_val).into())
-                        } else {
-                            None
-                        }
-                    }
-                    bytecode::BinaryOperator::Xor | bytecode::BinaryOperator::InplaceXor => {
-                        if let (Some(a_int), Some(b_int)) = (
-                            a.downcast_ref_if_exact::<PyInt>(vm),
-                            b.downcast_ref_if_exact::<PyInt>(vm),
-                        ) && let (Some(a_val), Some(b_val)) = (
-                            Self::specialization_compact_int_value(a_int, vm),
-                            Self::specialization_compact_int_value(b_int, vm),
-                        ) {
-                            Some(vm.ctx.new_int(a_val ^ b_val).into())
-                        } else {
-                            None
-                        }
-                    }
-                    bytecode::BinaryOperator::Add => {
-                        if let (Some(a_float), Some(b_int)) = (
-                            a.downcast_ref_if_exact::<PyFloat>(vm),
-                            b.downcast_ref_if_exact::<PyInt>(vm),
-                        ) && let Some(b_val) = Self::specialization_compact_int_value(b_int, vm)
-                            && !a_float.to_f64().is_nan()
-                        {
-                            Some(vm.ctx.new_float(a_float.to_f64() + b_val as f64).into())
-                        } else if let (Some(a_int), Some(b_float)) = (
-                            a.downcast_ref_if_exact::<PyInt>(vm),
-                            b.downcast_ref_if_exact::<PyFloat>(vm),
-                        ) && let Some(a_val) =
-                            Self::specialization_compact_int_value(a_int, vm)
-                            && !b_float.to_f64().is_nan()
-                        {
-                            Some(vm.ctx.new_float(a_val as f64 + b_float.to_f64()).into())
-                        } else {
-                            None
-                        }
-                    }
-                    bytecode::BinaryOperator::Subtract => {
-                        if let (Some(a_float), Some(b_int)) = (
-                            a.downcast_ref_if_exact::<PyFloat>(vm),
-                            b.downcast_ref_if_exact::<PyInt>(vm),
-                        ) && let Some(b_val) = Self::specialization_compact_int_value(b_int, vm)
-                            && !a_float.to_f64().is_nan()
-                        {
-                            Some(vm.ctx.new_float(a_float.to_f64() - b_val as f64).into())
-                        } else if let (Some(a_int), Some(b_float)) = (
-                            a.downcast_ref_if_exact::<PyInt>(vm),
-                            b.downcast_ref_if_exact::<PyFloat>(vm),
-                        ) && let Some(a_val) =
-                            Self::specialization_compact_int_value(a_int, vm)
-                            && !b_float.to_f64().is_nan()
-                        {
-                            Some(vm.ctx.new_float(a_val as f64 - b_float.to_f64()).into())
-                        } else {
-                            None
-                        }
-                    }
-                    bytecode::BinaryOperator::Multiply => {
-                        if let (Some(a_float), Some(b_int)) = (
-                            a.downcast_ref_if_exact::<PyFloat>(vm),
-                            b.downcast_ref_if_exact::<PyInt>(vm),
-                        ) && let Some(b_val) = Self::specialization_compact_int_value(b_int, vm)
-                            && !a_float.to_f64().is_nan()
-                        {
-                            Some(vm.ctx.new_float(a_float.to_f64() * b_val as f64).into())
-                        } else if let (Some(a_int), Some(b_float)) = (
-                            a.downcast_ref_if_exact::<PyInt>(vm),
-                            b.downcast_ref_if_exact::<PyFloat>(vm),
-                        ) && let Some(a_val) =
-                            Self::specialization_compact_int_value(a_int, vm)
-                            && !b_float.to_f64().is_nan()
-                        {
-                            Some(vm.ctx.new_float(a_val as f64 * b_float.to_f64()).into())
-                        } else {
-                            None
-                        }
-                    }
-                    bytecode::BinaryOperator::TrueDivide => {
-                        if let (Some(a_float), Some(b_int)) = (
-                            a.downcast_ref_if_exact::<PyFloat>(vm),
-                            b.downcast_ref_if_exact::<PyInt>(vm),
-                        ) && let Some(b_val) = Self::specialization_compact_int_value(b_int, vm)
-                            && b_val != 0
-                            && !a_float.to_f64().is_nan()
-                        {
-                            Some(vm.ctx.new_float(a_float.to_f64() / b_val as f64).into())
-                        } else if let (Some(a_int), Some(b_float)) = (
-                            a.downcast_ref_if_exact::<PyInt>(vm),
-                            b.downcast_ref_if_exact::<PyFloat>(vm),
-                        ) && let Some(a_val) =
-                            Self::specialization_compact_int_value(a_int, vm)
-                            && b_float.to_f64() != 0.0
-                            && !b_float.to_f64().is_nan()
-                        {
-                            Some(vm.ctx.new_float(a_val as f64 / b_float.to_f64()).into())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-
-                if let Some(result) = fast {
+                let cache_base = self.lasti() as usize;
+                if let Some(descr) = self.read_cached_binary_op_extend_descr(cache_base)
+                    && descr.oparg == op
+                    && (descr.guard)(a, b, vm)
+                    && let Some(result) = (descr.action)(a, b, vm)
+                {
                     self.pop_value();
                     self.pop_value();
                     self.push_value(result);
@@ -3953,7 +4101,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(list), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyList>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Some(i) = Self::specialization_nonnegative_compact_index(idx, vm)
+                ) && let Some(i) = specialization_nonnegative_compact_index(idx, vm)
                 {
                     let vec = list.borrow_vec();
                     if i < vec.len() {
@@ -3973,7 +4121,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(tuple), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyTuple>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Some(i) = Self::specialization_nonnegative_compact_index(idx, vm)
+                ) && let Some(i) = specialization_nonnegative_compact_index(idx, vm)
                 {
                     let elements = tuple.as_slice();
                     if i < elements.len() {
@@ -4015,7 +4163,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(a_str), Some(b_int)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Some(i) = Self::specialization_nonnegative_compact_index(b_int, vm)
+                ) && let Some(i) = specialization_nonnegative_compact_index(b_int, vm)
                     && let Ok(ch) = a_str.getitem_by_index(vm, i as isize)
                     && ch.is_ascii()
                 {
@@ -4455,7 +4603,6 @@ impl ExecutingFrame<'_> {
                     let self_index =
                         stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
                     if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                        && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && (descr.method.flags
                             & (PyMethodFlags::VARARGS
                                 | PyMethodFlags::FASTCALL
@@ -4503,7 +4650,6 @@ impl ExecutingFrame<'_> {
                     let self_index =
                         stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
                     if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                        && descr.method.flags.contains(PyMethodFlags::METHOD)
                         && (descr.method.flags
                             & (PyMethodFlags::VARARGS
                                 | PyMethodFlags::FASTCALL
@@ -4551,7 +4697,6 @@ impl ExecutingFrame<'_> {
                     stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
                 if total_nargs > 0
                     && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && (descr.method.flags
                         & (PyMethodFlags::VARARGS
                             | PyMethodFlags::FASTCALL
@@ -4631,15 +4776,23 @@ impl ExecutingFrame<'_> {
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
                     && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
-                    // co_framesize + _Py_InitCleanup.co_framesize guard.
-                    // We do not materialize frame-specials on datastack, so use
-                    // only the cleanup shim's eval-stack payload (2 stack slots).
-                    const INIT_CLEANUP_STACK_BYTES: usize = 2 * core::mem::size_of::<usize>();
+                    // Match CPython's `code->co_framesize + _Py_InitCleanup.co_framesize`
+                    // shape, using RustPython's datastack-backed frame size
+                    // equivalent for the extra shim frame.
+                    let init_cleanup_stack_bytes =
+                        datastack_frame_size_bytes_for_code(&vm.ctx.init_cleanup_code)
+                            .expect("_Py_InitCleanup shim is not a generator/coroutine");
                     if !self.specialization_has_datastack_space_for_func_with_extra(
                         vm,
                         &init_func,
-                        INIT_CLEANUP_STACK_BYTES,
+                        init_cleanup_stack_bytes,
                     ) {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
+                    // CPython creates `_Py_InitCleanup` + `__init__` frames here.
+                    // Keep the guard conservative and deopt when the effective
+                    // recursion budget for those two frames is not available.
+                    if self.specialization_call_recursion_guard_with_extra_frames(vm, 1) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     // Allocate object directly (tp_new == object.__new__, tp_alloc == generic).
@@ -4650,25 +4803,9 @@ impl ExecutingFrame<'_> {
                     let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
                     let _null = self.pop_value_opt(); // self_or_null (None)
                     let _callable = self.pop_value(); // callable (type)
-
-                    let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-                    all_args.push(new_obj.clone());
-                    all_args.extend(pos_args);
-
-                    let init_callable: PyObjectRef = init_func.into();
-                    let effective_nargs = all_args.len();
-                    let init_result =
-                        vectorcall_function(&init_callable, all_args, effective_nargs, None, vm)?;
-
-                    // EXIT_INIT_CHECK: __init__ must return None
-                    if !vm.is_none(&init_result) {
-                        return Err(vm.new_type_error(format!(
-                            "__init__() should return None, not '{}'",
-                            init_result.class().name()
-                        )));
-                    }
-
-                    self.push_value(new_obj);
+                    let result = self
+                        .specialization_run_init_cleanup_shim(new_obj, &init_func, pos_args, vm)?;
+                    self.push_value(result);
                     return Ok(None);
                 }
                 self.execute_call_vectorcall(nargs, vm)
@@ -4687,7 +4824,6 @@ impl ExecutingFrame<'_> {
                     stack_len - nargs as usize - 1 + usize::from(!self_or_null_is_some);
                 if total_nargs > 0
                     && let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-                    && descr.method.flags.contains(PyMethodFlags::METHOD)
                     && (descr.method.flags
                         & (PyMethodFlags::VARARGS
                             | PyMethodFlags::FASTCALL
@@ -5057,8 +5193,8 @@ impl ExecutingFrame<'_> {
                     a.downcast_ref_if_exact::<PyInt>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
                 ) && let (Some(a_val), Some(b_val)) = (
-                    Self::specialization_compact_int_value(a_int, vm),
-                    Self::specialization_compact_int_value(b_int, vm),
+                    specialization_compact_int_value(a_int, vm),
+                    specialization_compact_int_value(b_int, vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
                     let result = op.eval_ord(a_val.cmp(&b_val));
@@ -5463,6 +5599,18 @@ impl ExecutingFrame<'_> {
             instruction.is_instrumented(),
             "execute_instrumented called with non-instrumented opcode {instruction:?}"
         );
+        if self.monitoring_disabled_for_code(vm) {
+            let global_ver = vm
+                .state
+                .instrumentation_version
+                .load(atomic::Ordering::Acquire);
+            monitoring::instrument_code(self.code, 0);
+            self.code
+                .instrumentation_version
+                .store(global_ver, atomic::Ordering::Release);
+            self.update_lasti(|i| *i -= 1);
+            return Ok(None);
+        }
         self.monitoring_mask = vm.state.monitoring_events.load();
         match instruction {
             Instruction::InstrumentedResume => {
@@ -7094,6 +7242,51 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    #[inline]
+    unsafe fn write_cached_binary_op_extend_descr(
+        &self,
+        cache_base: usize,
+        descr: Option<&'static BinaryOpExtendSpecializationDescr>,
+    ) {
+        let ptr = descr.map_or(0, |d| {
+            d as *const BinaryOpExtendSpecializationDescr as usize
+        });
+        unsafe {
+            self.code
+                .instructions
+                .write_cache_ptr(cache_base + BINARY_OP_EXTEND_EXTERNAL_CACHE_OFFSET, ptr);
+        }
+    }
+
+    #[inline]
+    fn read_cached_binary_op_extend_descr(
+        &self,
+        cache_base: usize,
+    ) -> Option<&'static BinaryOpExtendSpecializationDescr> {
+        let ptr = self
+            .code
+            .instructions
+            .read_cache_ptr(cache_base + BINARY_OP_EXTEND_EXTERNAL_CACHE_OFFSET);
+        if ptr == 0 {
+            return None;
+        }
+        // SAFETY: We only store pointers to entries in `BINARY_OP_EXTEND_DESCRIPTORS`.
+        Some(unsafe { &*(ptr as *const BinaryOpExtendSpecializationDescr) })
+    }
+
+    #[inline]
+    fn binary_op_extended_specialization(
+        &self,
+        op: bytecode::BinaryOperator,
+        lhs: &PyObject,
+        rhs: &PyObject,
+        vm: &VirtualMachine,
+    ) -> Option<&'static BinaryOpExtendSpecializationDescr> {
+        BINARY_OP_EXTEND_DESCRIPTORS
+            .iter()
+            .find(|d| d.oparg == op && (d.guard)(lhs, rhs, vm))
+    }
+
     fn load_attr(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
         self.adaptive(|s, ii, cb| s.specialize_load_attr(vm, oparg, ii, cb));
         self.load_attr_slow(vm, oparg)
@@ -7187,18 +7380,37 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // Module attribute access: use LoadAttrModule
-        if obj.downcast_ref_if_exact::<PyModule>(_vm).is_some() {
-            unsafe {
-                self.code
-                    .instructions
-                    .write_cache_u32(cache_base + 1, type_version);
+        let attr_name = self.code.names[oparg.name_idx() as usize];
+
+        // Match CPython: only specialize module attribute loads when the
+        // current module dict has no __getattr__ override and the attribute is
+        // already present.
+        if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
+            let module_dict = module.dict();
+            match (
+                module_dict.get_item_opt(identifier!(_vm, __getattr__), _vm),
+                module_dict.get_item_opt(attr_name, _vm),
+            ) {
+                (Ok(None), Ok(Some(_))) => {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, type_version);
+                    }
+                    self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
+                }
+                (Ok(_), Ok(_)) => self.cooldown_adaptive_at(cache_base),
+                _ => unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                },
             }
-            self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
             return;
         }
-
-        let attr_name = self.code.names[oparg.name_idx() as usize];
 
         // Look up attr in class via MRO
         let cls_attr = cls.get_attr(attr_name);
@@ -7309,8 +7521,11 @@ impl ExecutingFrame<'_> {
                         Instruction::LoadAttrNondescriptorWithValues,
                     );
                 } else {
-                    // No class attr, must be in instance dict
-                    let use_hint = if let Some(dict) = obj.dict() {
+                    // Match CPython ABSENT/no-shadow behavior: if the
+                    // attribute is missing on both the class and the current
+                    // instance, keep the generic opcode and just enter
+                    // cooldown instead of specializing a repeated miss path.
+                    let has_instance_attr = if let Some(dict) = obj.dict() {
                         match dict.get_item_opt(attr_name, _vm) {
                             Ok(Some(_)) => true,
                             Ok(None) => false,
@@ -7331,20 +7546,16 @@ impl ExecutingFrame<'_> {
                     } else {
                         false
                     };
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u32(cache_base + 1, type_version);
+                    if has_instance_attr {
+                        unsafe {
+                            self.code
+                                .instructions
+                                .write_cache_u32(cache_base + 1, type_version);
+                        }
+                        self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrWithHint);
+                    } else {
+                        self.cooldown_adaptive_at(cache_base);
                     }
-                    self.specialize_at(
-                        instr_idx,
-                        cache_base,
-                        if use_hint {
-                            Instruction::LoadAttrWithHint
-                        } else {
-                            Instruction::LoadAttrInstanceValue
-                        },
-                    );
                 }
             } else if let Some(ref descr) = cls_attr {
                 // No dict support, plain class attr — cache directly
@@ -7358,15 +7569,8 @@ impl ExecutingFrame<'_> {
                     Instruction::LoadAttrNondescriptorNoDict,
                 );
             } else {
-                // No dict, no class attr — can't specialize
-                unsafe {
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
+                // No dict and no class attr: repeated miss path, so cooldown.
+                self.cooldown_adaptive_at(cache_base);
             }
         }
     }
@@ -7518,6 +7722,11 @@ impl ExecutingFrame<'_> {
         }
         let b = self.top_value();
         let a = self.nth_value(1);
+        // `external_cache` in _PyBinaryOpCache is used only by BINARY_OP_EXTEND.
+        unsafe {
+            self.write_cached_binary_op_extend_descr(cache_base, None);
+        }
+        let mut cached_extend_descr = None;
 
         let new_op = match op {
             bytecode::BinaryOperator::Add => {
@@ -7540,28 +7749,9 @@ impl ExecutingFrame<'_> {
                     } else {
                         Some(Instruction::BinaryOpAddUnicode)
                     }
-                } else if let (Some(a_float), Some(b_int)) = (
-                    a.downcast_ref_if_exact::<PyFloat>(vm),
-                    b.downcast_ref_if_exact::<PyInt>(vm),
-                ) {
-                    if !a_float.to_f64().is_nan()
-                        && Self::specialization_compact_int_value(b_int, vm).is_some()
-                    {
-                        Some(Instruction::BinaryOpExtend)
-                    } else {
-                        None
-                    }
-                } else if let (Some(a_int), Some(b_float)) = (
-                    a.downcast_ref_if_exact::<PyInt>(vm),
-                    b.downcast_ref_if_exact::<PyFloat>(vm),
-                ) {
-                    if !b_float.to_f64().is_nan()
-                        && Self::specialization_compact_int_value(a_int, vm).is_some()
-                    {
-                        Some(Instruction::BinaryOpExtend)
-                    } else {
-                        None
-                    }
+                } else if let Some(descr) = self.binary_op_extended_specialization(op, a, b, vm) {
+                    cached_extend_descr = Some(descr);
+                    Some(Instruction::BinaryOpExtend)
                 } else {
                     None
                 }
@@ -7575,28 +7765,9 @@ impl ExecutingFrame<'_> {
                     && b.downcast_ref_if_exact::<PyFloat>(vm).is_some()
                 {
                     Some(Instruction::BinaryOpSubtractFloat)
-                } else if let (Some(a_float), Some(b_int)) = (
-                    a.downcast_ref_if_exact::<PyFloat>(vm),
-                    b.downcast_ref_if_exact::<PyInt>(vm),
-                ) {
-                    if !a_float.to_f64().is_nan()
-                        && Self::specialization_compact_int_value(b_int, vm).is_some()
-                    {
-                        Some(Instruction::BinaryOpExtend)
-                    } else {
-                        None
-                    }
-                } else if let (Some(a_int), Some(b_float)) = (
-                    a.downcast_ref_if_exact::<PyInt>(vm),
-                    b.downcast_ref_if_exact::<PyFloat>(vm),
-                ) {
-                    if !b_float.to_f64().is_nan()
-                        && Self::specialization_compact_int_value(a_int, vm).is_some()
-                    {
-                        Some(Instruction::BinaryOpExtend)
-                    } else {
-                        None
-                    }
+                } else if let Some(descr) = self.binary_op_extended_specialization(op, a, b, vm) {
+                    cached_extend_descr = Some(descr);
+                    Some(Instruction::BinaryOpExtend)
                 } else {
                     None
                 }
@@ -7610,64 +7781,25 @@ impl ExecutingFrame<'_> {
                     && b.downcast_ref_if_exact::<PyFloat>(vm).is_some()
                 {
                     Some(Instruction::BinaryOpMultiplyFloat)
-                } else if let (Some(a_float), Some(b_int)) = (
-                    a.downcast_ref_if_exact::<PyFloat>(vm),
-                    b.downcast_ref_if_exact::<PyInt>(vm),
-                ) {
-                    if !a_float.to_f64().is_nan()
-                        && Self::specialization_compact_int_value(b_int, vm).is_some()
-                    {
-                        Some(Instruction::BinaryOpExtend)
-                    } else {
-                        None
-                    }
-                } else if let (Some(a_int), Some(b_float)) = (
-                    a.downcast_ref_if_exact::<PyInt>(vm),
-                    b.downcast_ref_if_exact::<PyFloat>(vm),
-                ) {
-                    if !b_float.to_f64().is_nan()
-                        && Self::specialization_compact_int_value(a_int, vm).is_some()
-                    {
-                        Some(Instruction::BinaryOpExtend)
-                    } else {
-                        None
-                    }
+                } else if let Some(descr) = self.binary_op_extended_specialization(op, a, b, vm) {
+                    cached_extend_descr = Some(descr);
+                    Some(Instruction::BinaryOpExtend)
                 } else {
                     None
                 }
             }
             bytecode::BinaryOperator::TrueDivide => {
-                if let (Some(a_float), Some(b_int)) = (
-                    a.downcast_ref_if_exact::<PyFloat>(vm),
-                    b.downcast_ref_if_exact::<PyInt>(vm),
-                ) {
-                    if !a_float.to_f64().is_nan()
-                        && Self::specialization_compact_int_value(b_int, vm).is_some_and(|x| x != 0)
-                    {
-                        Some(Instruction::BinaryOpExtend)
-                    } else {
-                        None
-                    }
-                } else if let (Some(a_int), Some(b_float)) = (
-                    a.downcast_ref_if_exact::<PyInt>(vm),
-                    b.downcast_ref_if_exact::<PyFloat>(vm),
-                ) {
-                    if !b_float.to_f64().is_nan()
-                        && b_float.to_f64() != 0.0
-                        && Self::specialization_compact_int_value(a_int, vm).is_some()
-                    {
-                        Some(Instruction::BinaryOpExtend)
-                    } else {
-                        None
-                    }
+                if let Some(descr) = self.binary_op_extended_specialization(op, a, b, vm) {
+                    cached_extend_descr = Some(descr);
+                    Some(Instruction::BinaryOpExtend)
                 } else {
                     None
                 }
             }
             bytecode::BinaryOperator::Subscr => {
-                let b_is_nonnegative_int = b.downcast_ref_if_exact::<PyInt>(vm).is_some_and(|i| {
-                    Self::specialization_nonnegative_compact_index(i, vm).is_some()
-                });
+                let b_is_nonnegative_int = b
+                    .downcast_ref_if_exact::<PyInt>(vm)
+                    .is_some_and(|i| specialization_nonnegative_compact_index(i, vm).is_some());
                 if a.downcast_ref_if_exact::<PyList>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrListInt)
                 } else if a.downcast_ref_if_exact::<PyTuple>(vm).is_some() && b_is_nonnegative_int {
@@ -7693,7 +7825,11 @@ impl ExecutingFrame<'_> {
                             type_version = cls.assign_version_tag();
                         }
                         if type_version != 0 {
-                            if cls.cache_getitem_for_specialization(func.to_owned(), type_version) {
+                            if cls.cache_getitem_for_specialization(
+                                func.to_owned(),
+                                type_version,
+                                vm,
+                            ) {
                                 Some(Instruction::BinaryOpSubscrGetitem)
                             } else {
                                 None
@@ -7762,17 +7898,9 @@ impl ExecutingFrame<'_> {
             | bytecode::BinaryOperator::InplaceAnd
             | bytecode::BinaryOperator::InplaceOr
             | bytecode::BinaryOperator::InplaceXor => {
-                if let (Some(a_int), Some(b_int)) = (
-                    a.downcast_ref_if_exact::<PyInt>(vm),
-                    b.downcast_ref_if_exact::<PyInt>(vm),
-                ) {
-                    if Self::specialization_compact_int_value(a_int, vm).is_some()
-                        && Self::specialization_compact_int_value(b_int, vm).is_some()
-                    {
-                        Some(Instruction::BinaryOpExtend)
-                    } else {
-                        None
-                    }
+                if let Some(descr) = self.binary_op_extended_specialization(op, a, b, vm) {
+                    cached_extend_descr = Some(descr);
+                    Some(Instruction::BinaryOpExtend)
                 } else {
                     None
                 }
@@ -7780,6 +7908,11 @@ impl ExecutingFrame<'_> {
             _ => None,
         };
 
+        if matches!(new_op, Some(Instruction::BinaryOpExtend)) {
+            unsafe {
+                self.write_cached_binary_op_extend_descr(cache_base, cached_extend_descr);
+            }
+        }
         self.commit_specialization(instr_idx, cache_base, new_op);
     }
 
@@ -7830,6 +7963,15 @@ impl ExecutingFrame<'_> {
                 .instructions
                 .write_adaptive_counter(cache_base, ADAPTIVE_COOLDOWN_VALUE);
             self.code.instructions.replace_op(instr_idx, new_op);
+        }
+    }
+
+    #[inline]
+    fn cooldown_adaptive_at(&mut self, cache_base: usize) {
+        unsafe {
+            self.code
+                .instructions
+                .write_adaptive_counter(cache_base, ADAPTIVE_COOLDOWN_VALUE);
         }
     }
 
@@ -8054,9 +8196,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Try to specialize method descriptor calls
-        if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm)
-            && descr.method.flags.contains(PyMethodFlags::METHOD)
-        {
+        if let Some(descr) = callable.downcast_ref_if_exact::<PyMethodDescriptor>(vm) {
             let call_cache_entries = Instruction::CallListAppend.cache_entries();
             let next_idx = cache_base + call_cache_entries;
             let next_is_pop_top = if next_idx < self.code.instructions.len() {
@@ -8221,16 +8361,27 @@ impl ExecutingFrame<'_> {
                     (cls_new, object_new, cls_alloc, object_alloc)
                     && cls_new_fn as usize == obj_new_fn as usize
                     && cls_alloc_fn as usize == obj_alloc_fn as usize
-                    && let Some(init) = cls.get_attr(identifier!(vm, __init__))
-                    && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
-                    && init_func.is_simple_for_call_specialization()
                 {
+                    let init = cls.get_attr(identifier!(vm, __init__));
                     let mut version = cls.tp_version_tag.load(Acquire);
                     if version == 0 {
                         version = cls.assign_version_tag();
                     }
-                    if version != 0
-                        && cls.cache_init_for_specialization(init_func.to_owned(), version)
+                    if version == 0 {
+                        unsafe {
+                            self.code.instructions.write_adaptive_counter(
+                                cache_base,
+                                bytecode::adaptive_counter_backoff(
+                                    self.code.instructions.read_adaptive_counter(cache_base),
+                                ),
+                            );
+                        }
+                        return;
+                    }
+                    if let Some(init) = init
+                        && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
+                        && init_func.is_simple_for_call_specialization()
+                        && cls.cache_init_for_specialization(init_func.to_owned(), version, vm)
                     {
                         unsafe {
                             self.code
@@ -8471,8 +8622,8 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            if Self::specialization_compact_int_value(a_int, vm).is_some()
-                && Self::specialization_compact_int_value(b_int, vm).is_some()
+            if specialization_compact_int_value(a_int, vm).is_some()
+                && specialization_compact_int_value(b_int, vm).is_some()
             {
                 Some(Instruction::CompareOpInt)
             } else {
@@ -8623,38 +8774,25 @@ impl ExecutingFrame<'_> {
             Some(frame_size) => frame_size
                 .checked_add(extra_bytes)
                 .is_some_and(|size| vm.datastack_has_space(size)),
-            None => true,
-        }
-    }
-
-    #[inline]
-    fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
-        // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
-        // i.e. abs(value) <= 2^30 - 1.
-        const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
-        let v = i.try_to_primitive::<i64>(vm).ok()?;
-        if (-CPYTHON_COMPACT_LONG_ABS_MAX..=CPYTHON_COMPACT_LONG_ABS_MAX).contains(&v) {
-            Some(v as isize)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
-        // _PyLong_IsNonNegativeCompact(): a single base-2^30 digit.
-        const CPYTHON_COMPACT_LONG_MAX: u64 = (1u64 << 30) - 1;
-        let v = i.try_to_primitive::<u64>(vm).ok()?;
-        if v <= CPYTHON_COMPACT_LONG_MAX {
-            Some(v as usize)
-        } else {
-            None
+            None => extra_bytes == 0 || vm.datastack_has_space(extra_bytes),
         }
     }
 
     #[inline]
     fn specialization_call_recursion_guard(&self, vm: &VirtualMachine) -> bool {
-        vm.current_recursion_depth().saturating_add(1) >= vm.recursion_limit.get()
+        self.specialization_call_recursion_guard_with_extra_frames(vm, 0)
+    }
+
+    #[inline]
+    fn specialization_call_recursion_guard_with_extra_frames(
+        &self,
+        vm: &VirtualMachine,
+        extra_frames: usize,
+    ) -> bool {
+        vm.current_recursion_depth()
+            .saturating_add(1)
+            .saturating_add(extra_frames)
+            >= vm.recursion_limit.get()
     }
 
     #[inline]
@@ -8783,9 +8921,7 @@ impl ExecutingFrame<'_> {
             idx.downcast_ref_if_exact::<PyInt>(vm),
         ) {
             let list_len = list.borrow_vec().len();
-            if Self::specialization_nonnegative_compact_index(int_idx, vm)
-                .is_some_and(|i| i < list_len)
-            {
+            if specialization_nonnegative_compact_index(int_idx, vm).is_some_and(|i| i < list_len) {
                 Some(Instruction::StoreSubscrListInt)
             } else {
                 None

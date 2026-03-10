@@ -614,7 +614,7 @@ fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResu
     let res = vm.call_special_method(&obj, identifier!(vm, __init__), args)?;
     if !vm.is_none(&res) {
         return Err(vm.new_type_error(format!(
-            "__init__ should return None, not '{:.200}'",
+            "__init__() should return None, not '{:.200}'",
             res.class().name()
         )));
     }
