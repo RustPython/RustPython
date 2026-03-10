@@ -260,7 +260,7 @@ mod builtins {
         }
         #[cfg(feature = "ast")]
         {
-            use crate::{class::PyClassImpl, stdlib::ast};
+            use crate::{class::PyClassImpl, stdlib::_ast};
 
             let feature_version = feature_version_from_arg(args._feature_version, vm)?;
 
@@ -277,10 +277,10 @@ mod builtins {
 
             if args
                 .source
-                .fast_isinstance(&ast::NodeAst::make_static_type())
+                .fast_isinstance(&_ast::NodeAst::make_static_type())
             {
                 let flags: i32 = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
-                let is_ast_only = !(flags & ast::PY_CF_ONLY_AST).is_zero();
+                let is_ast_only = !(flags & _ast::PY_CF_ONLY_AST).is_zero();
 
                 // func_type mode requires PyCF_ONLY_AST
                 if mode_str == "func_type" && !is_ast_only {
@@ -291,7 +291,7 @@ mod builtins {
 
                 // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
                 if is_ast_only {
-                    let (expected_type, expected_name) = ast::mode_type_and_name(mode_str)
+                    let (expected_type, expected_name) = _ast::mode_type_and_name(mode_str)
                         .ok_or_else(|| {
                             vm.new_value_error(
                                 "compile() mode must be 'exec', 'eval', 'single' or 'func_type'",
@@ -304,7 +304,7 @@ mod builtins {
                             args.source.class().name()
                         )));
                     }
-                    ast::validate_ast_object(vm, args.source.clone())?;
+                    _ast::validate_ast_object(vm, args.source.clone())?;
                     return Ok(args.source);
                 }
 
@@ -317,7 +317,7 @@ mod builtins {
                     let mode = mode_str
                         .parse::<crate::compiler::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    return ast::compile(
+                    return _ast::compile(
                         vm,
                         args.source,
                         &args.filename.to_string_lossy(),
@@ -346,16 +346,16 @@ mod builtins {
 
                 let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
 
-                if !(flags & !ast::PY_COMPILE_FLAGS_MASK).is_zero() {
+                if !(flags & !_ast::PY_COMPILE_FLAGS_MASK).is_zero() {
                     return Err(vm.new_value_error("compile() unrecognized flags"));
                 }
 
-                let allow_incomplete = !(flags & ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
-                let type_comments = !(flags & ast::PY_CF_TYPE_COMMENTS).is_zero();
+                let allow_incomplete = !(flags & _ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
+                let type_comments = !(flags & _ast::PY_CF_TYPE_COMMENTS).is_zero();
 
                 let optimize_level = optimize;
 
-                if (flags & ast::PY_CF_ONLY_AST).is_zero() {
+                if (flags & _ast::PY_CF_ONLY_AST).is_zero() {
                     #[cfg(not(feature = "compiler"))]
                     {
                         Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED.to_owned()))
@@ -366,7 +366,7 @@ mod builtins {
                             let mode = mode_str
                                 .parse::<parser::Mode>()
                                 .map_err(|err| vm.new_value_error(err.to_string()))?;
-                            let _ = ast::parse(
+                            let _ = _ast::parse(
                                 vm,
                                 source,
                                 mode,
@@ -398,14 +398,14 @@ mod builtins {
                     }
                 } else {
                     if mode_str == "func_type" {
-                        return ast::parse_func_type(vm, source, optimize_level, feature_version)
+                        return _ast::parse_func_type(vm, source, optimize_level, feature_version)
                             .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm));
                     }
 
                     let mode = mode_str
                         .parse::<parser::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    let parsed = ast::parse(
+                    let parsed = _ast::parse(
                         vm,
                         source,
                         mode,
@@ -416,7 +416,7 @@ mod builtins {
                     .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm))?;
 
                     if mode_str == "single" {
-                        return ast::wrap_interactive(vm, parsed);
+                        return _ast::wrap_interactive(vm, parsed);
                     }
 
                     Ok(parsed)
@@ -998,9 +998,7 @@ mod builtins {
         };
         let write = |obj: PyStrRef| vm.call_method(&file, "write", (obj,));
 
-        let sep = options
-            .sep
-            .unwrap_or_else(|| PyStr::from(" ").into_ref(&vm.ctx));
+        let sep = options.sep.unwrap_or_else(|| vm.ctx.new_str(" "));
 
         let mut first = true;
         for object in objects {
@@ -1013,9 +1011,7 @@ mod builtins {
             write(object.str(vm)?)?;
         }
 
-        let end = options
-            .end
-            .unwrap_or_else(|| PyStr::from("\n").into_ref(&vm.ctx));
+        let end = options.end.unwrap_or_else(|| vm.ctx.new_str("\n"));
         write(end)?;
 
         if options.flush.into() {

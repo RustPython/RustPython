@@ -11,7 +11,7 @@ use crate::{
     common::int::{BytesToIntError, bytes_to_int},
     function::ArgBytesLike,
     object::{Traverse, TraverseFn},
-    stdlib::warnings,
+    stdlib::_warnings,
 };
 
 pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber<'_>, &VirtualMachine) -> PyResult<R>;
@@ -59,7 +59,7 @@ impl PyObject {
         } else if let Some(i) = self.number().int(vm).or_else(|| self.try_index_opt(vm)) {
             i
         } else if let Ok(Some(f)) = vm.get_special_method(self, identifier!(vm, __trunc__)) {
-            warnings::warn(
+            _warnings::warn(
                 vm.ctx.exceptions.deprecation_warning,
                 "The delegation of int() to __trunc__ is deprecated.".to_owned(),
                 1,
@@ -589,7 +589,7 @@ impl PyNumber<'_> {
 
             let ret_class = ret.class().to_owned();
             if let Some(ret) = ret.downcast_ref::<PyInt>() {
-                warnings::warn(
+                _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
                         "__int__ returned non-int (type {ret_class}).  \
@@ -622,7 +622,7 @@ impl PyNumber<'_> {
 
             let ret_class = ret.class().to_owned();
             if let Some(ret) = ret.downcast_ref::<PyInt>() {
-                warnings::warn(
+                _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
                         "__index__ returned non-int (type {ret_class}).  \
@@ -655,7 +655,7 @@ impl PyNumber<'_> {
 
             let ret_class = ret.class().to_owned();
             if let Some(ret) = ret.downcast_ref::<PyFloat>() {
-                warnings::warn(
+                _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
                         "__float__ returned non-float (type {ret_class}).  \

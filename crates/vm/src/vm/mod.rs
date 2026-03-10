@@ -325,7 +325,7 @@ impl StopTheWorldState {
     ///    to self-suspend in `check_signals`.
     pub fn stop_the_world(&self, vm: &VirtualMachine) {
         let start = std::time::Instant::now();
-        let requester_ident = crate::stdlib::thread::get_ident();
+        let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
         self.stats_stop_calls.fetch_add(1, Ordering::Relaxed);
         let initial_countdown = self.init_thread_countdown(vm);
@@ -562,7 +562,7 @@ pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
         let _ = writeln!(
             &mut out,
             "[rp-stw tid={}] {}",
-            crate::stdlib::thread::get_ident(),
+            crate::stdlib::_thread::get_ident(),
             msg
         );
         unsafe {
@@ -604,13 +604,13 @@ pub struct PyGlobalState {
     pub main_thread_ident: AtomicCell<u64>,
     /// Registry of all threads' slots for sys._current_frames() and sys._current_exceptions()
     #[cfg(feature = "threading")]
-    pub thread_frames: parking_lot::Mutex<HashMap<u64, stdlib::thread::CurrentFrameSlot>>,
+    pub thread_frames: parking_lot::Mutex<HashMap<u64, stdlib::_thread::CurrentFrameSlot>>,
     /// Registry of all ThreadHandles for fork cleanup
     #[cfg(feature = "threading")]
-    pub thread_handles: parking_lot::Mutex<Vec<stdlib::thread::HandleEntry>>,
+    pub thread_handles: parking_lot::Mutex<Vec<stdlib::_thread::HandleEntry>>,
     /// Registry for non-daemon threads that need to be joined at shutdown
     #[cfg(feature = "threading")]
-    pub shutdown_handles: parking_lot::Mutex<Vec<stdlib::thread::ShutdownEntry>>,
+    pub shutdown_handles: parking_lot::Mutex<Vec<stdlib::_thread::ShutdownEntry>>,
     /// sys.monitoring state (tool names, events, callbacks)
     pub monitoring: PyMutex<stdlib::sys::monitoring::MonitoringState>,
     /// Fast-path mask: OR of all tools' events. 0 means no monitoring overhead.
@@ -685,7 +685,7 @@ impl VirtualMachine {
     pub(crate) fn is_main_thread(&self) -> bool {
         #[cfg(feature = "threading")]
         {
-            crate::stdlib::thread::get_ident() == self.state.main_thread_ident.load()
+            crate::stdlib::_thread::get_ident() == self.state.main_thread_ident.load()
         }
         #[cfg(not(feature = "threading"))]
         {
@@ -874,7 +874,7 @@ impl VirtualMachine {
 
         // Initialize main thread ident before any threading operations
         #[cfg(feature = "threading")]
-        stdlib::thread::init_main_thread_ident(self);
+        stdlib::_thread::init_main_thread_ident(self);
 
         stdlib::builtins::init_module(self, &self.builtins);
         let callable_cache_init = self.init_callable_cache();
@@ -904,10 +904,10 @@ impl VirtualMachine {
                 let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
                     let buffered_stdio = self.state.config.settings.buffered_stdio;
                     let unbuffered = write && !buffered_stdio;
-                    let buf = crate::stdlib::io::open(
+                    let buf = crate::stdlib::_io::open(
                         self.ctx.new_int(fd).into(),
                         Some(if write { "wb" } else { "rb" }),
-                        crate::stdlib::io::OpenArgs {
+                        crate::stdlib::_io::OpenArgs {
                             buffering: if unbuffered { 0 } else { -1 },
                             closefd: false,
                             ..Default::default()
@@ -1550,7 +1550,7 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_frame_exc(frame, None, f)
+        self.with_frame_impl(frame, None, true, f)
     }
 
     /// Like `with_frame` but allows specifying the initial exception state.
@@ -1558,6 +1558,24 @@ impl VirtualMachine {
         &self,
         frame: FrameRef,
         exc: Option<PyBaseExceptionRef>,
+        f: F,
+    ) -> PyResult<R> {
+        self.with_frame_impl(frame, exc, true, f)
+    }
+
+    pub(crate) fn with_frame_untraced<R, F: FnOnce(FrameRef) -> PyResult<R>>(
+        &self,
+        frame: FrameRef,
+        f: F,
+    ) -> PyResult<R> {
+        self.with_frame_impl(frame, None, false, f)
+    }
+
+    fn with_frame_impl<R, F: FnOnce(FrameRef) -> PyResult<R>>(
+        &self,
+        frame: FrameRef,
+        exc: Option<PyBaseExceptionRef>,
+        traced: bool,
         f: F,
     ) -> PyResult<R> {
         self.with_recursion("", || {
@@ -1594,7 +1612,11 @@ impl VirtualMachine {
                 crate::vm::thread::pop_thread_frame();
             }
 
-            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+            if traced {
+                self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+            } else {
+                f(frame.to_owned())
+            }
         })
     }
 

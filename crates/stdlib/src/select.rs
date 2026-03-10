@@ -337,7 +337,7 @@ mod decl {
             common::lock::PyMutex,
             convert::{IntoPyException, ToPyObject},
             function::OptionalArg,
-            stdlib::io::Fildes,
+            stdlib::_io::Fildes,
         };
         use core::{convert::TryFrom, time::Duration};
         use libc::pollfd;
@@ -554,7 +554,7 @@ mod decl {
             common::lock::{PyRwLock, PyRwLockReadGuard},
             convert::{IntoPyException, ToPyObject},
             function::OptionalArg,
-            stdlib::io::Fildes,
+            stdlib::_io::Fildes,
             types::Constructor,
         };
         use core::ops::Deref;

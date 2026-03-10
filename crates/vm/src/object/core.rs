@@ -188,27 +188,32 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         );
     }
 
-    // Extract child references before deallocation to break circular refs (tp_clear)
+    // Try to store in freelist for reuse BEFORE tp_clear, so that
+    // size-based freelists (e.g. PyTuple) can read the payload directly.
+    // Only exact base types (not heaptype or structseq subtypes) go into the freelist.
+    let typ = obj_ref.class();
+    let pushed = if T::HAS_FREELIST
+        && typ.heaptype_ext.is_none()
+        && core::ptr::eq(typ, T::class(crate::vm::Context::genesis()))
+    {
+        unsafe { T::freelist_push(obj) }
+    } else {
+        false
+    };
+
+    // Extract child references to break circular refs (tp_clear).
+    // This runs regardless of freelist push — the object's children must be released.
     let mut edges = Vec::new();
     if let Some(clear_fn) = vtable.clear {
         unsafe { clear_fn(obj, &mut edges) };
     }
 
-    // Try to store in freelist for reuse; otherwise deallocate.
-    // Only exact types (not heaptype subclasses) go into the freelist,
-    // because the pop site assumes the cached typ matches the base type.
-    let pushed = if T::HAS_FREELIST && obj_ref.class().heaptype_ext.is_none() {
-        unsafe { T::freelist_push(obj) }
-    } else {
-        false
-    };
     if !pushed {
         // Deallocate the object memory (handles ObjExt prefix if present)
         unsafe { PyInner::dealloc(obj as *mut PyInner<T>) };
     }
 
     // Drop child references - may trigger recursive destruction.
-    // The object is already deallocated, so circular refs are broken.
     drop(edges);
 
     // Trashcan: decrement depth and process deferred objects at outermost level
@@ -331,8 +336,7 @@ const _: () = assert!(core::mem::align_of::<ObjExt>() >= core::mem::align_of::<P
 const _: () = assert!(
     core::mem::size_of::<WeakRefList>().is_multiple_of(core::mem::align_of::<WeakRefList>())
 );
-const _: () =
-    assert!(core::mem::align_of::<WeakRefList>() >= core::mem::align_of::<PyInner<()>>());
+const _: () = assert!(core::mem::align_of::<WeakRefList>() >= core::mem::align_of::<PyInner<()>>());
 
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
@@ -375,8 +379,7 @@ impl<T> PyInner<T> {
     #[inline(always)]
     pub(super) fn ext_ref(&self) -> Option<&ObjExt> {
         let (flags, member_count) = self.read_type_flags();
-        let has_ext =
-            flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
+        let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
         if !has_ext {
             return None;
         }
@@ -387,8 +390,7 @@ impl<T> PyInner<T> {
             EXT_OFFSET
         };
         let self_addr = (self as *const Self as *const u8).addr();
-        let ext_ptr =
-            core::ptr::with_exposed_provenance::<ObjExt>(self_addr.wrapping_sub(offset));
+        let ext_ptr = core::ptr::with_exposed_provenance::<ObjExt>(self_addr.wrapping_sub(offset));
         Some(unsafe { &*ext_ptr })
     }
 
@@ -957,8 +959,8 @@ impl<T: PyPayload> PyInner<T> {
     unsafe fn dealloc(ptr: *mut Self) {
         unsafe {
             let (flags, member_count) = (*ptr).read_type_flags();
-            let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT)
-                || member_count > 0;
+            let has_ext =
+                flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
             let has_weakref = flags.has_feature(crate::types::PyTypeFlags::HAS_WEAKREF);
 
             if has_ext || has_weakref {
@@ -977,9 +979,8 @@ impl<T: PyPayload> PyInner<T> {
                         .unwrap()
                         .0;
                 }
-                let (combined, inner_offset) = layout
-                    .extend(core::alloc::Layout::new::<Self>())
-                    .unwrap();
+                let (combined, inner_offset) =
+                    layout.extend(core::alloc::Layout::new::<Self>()).unwrap();
                 let combined = combined.pad_to_align();
 
                 let alloc_ptr = (ptr as *mut u8).sub(inner_offset);
@@ -1045,9 +1046,8 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                 None
             };
 
-            let (combined, inner_offset) = layout
-                .extend(core::alloc::Layout::new::<Self>())
-                .unwrap();
+            let (combined, inner_offset) =
+                layout.extend(core::alloc::Layout::new::<Self>()).unwrap();
             let combined = combined.pad_to_align();
 
             let alloc_ptr = unsafe { alloc::alloc::alloc(combined) };
@@ -1092,6 +1092,11 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             }))
         }
     }
+}
+
+/// Returns the allocation layout for `PyInner<T>`, for use in freelist Drop impls.
+pub(crate) const fn pyinner_layout<T: PyPayload>() -> core::alloc::Layout {
+    core::alloc::Layout::new::<PyInner<T>>()
 }
 
 /// Thread-local freelist storage for reusing object allocations.
@@ -1757,8 +1762,7 @@ impl PyObject {
         // the pointer without clearing dict contents. The dict may still be
         // referenced by other live objects (e.g. function.__globals__).
         let (flags, member_count) = obj.0.read_type_flags();
-        let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT)
-            || member_count > 0;
+        let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
         if has_ext {
             let has_weakref = flags.has_feature(crate::types::PyTypeFlags::HAS_WEAKREF);
             let offset = if has_weakref {
@@ -1767,9 +1771,8 @@ impl PyObject {
                 EXT_OFFSET
             };
             let self_addr = (ptr as *const u8).addr();
-            let ext_ptr = core::ptr::with_exposed_provenance_mut::<ObjExt>(
-                self_addr.wrapping_sub(offset),
-            );
+            let ext_ptr =
+                core::ptr::with_exposed_provenance_mut::<ObjExt>(self_addr.wrapping_sub(offset));
             let ext = unsafe { &mut *ext_ptr };
             if let Some(old_dict) = ext.dict.take() {
                 // Get the dict ref before dropping InstanceDict
@@ -2175,9 +2178,9 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
 
-        // Try to reuse from freelist (exact type only, no dict, no heaptype)
+        // Try to reuse from freelist (no dict, no heaptype)
         let cached = if !has_dict && !is_heaptype {
-            unsafe { T::freelist_pop() }
+            unsafe { T::freelist_pop(&payload) }
         } else {
             None
         };
@@ -2189,11 +2192,16 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
                 (*inner).gc_bits.store(0, Ordering::Relaxed);
                 core::ptr::drop_in_place(&mut (*inner).payload);
                 core::ptr::write(&mut (*inner).payload, payload);
-                // typ, vtable, slots are preserved; dict is None, weak_list was
-                // cleared by drop_slow_inner before freelist push
+                // Freelist only stores exact base types (push-side filter),
+                // but subtypes sharing the same Rust payload (e.g. structseq)
+                // may pop entries. Update typ if it differs.
+                let cached_typ: *const Py<PyType> = &*(*inner).typ;
+                if core::ptr::eq(cached_typ, &*typ) {
+                    drop(typ);
+                } else {
+                    let _old = (*inner).typ.swap(typ);
+                }
             }
-            // Drop the caller's typ since the cached object already holds one
-            drop(typ);
             unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) }
         } else {
             let inner = PyInner::new(payload, typ, dict);
