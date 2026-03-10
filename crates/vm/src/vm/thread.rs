@@ -110,7 +110,7 @@ pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 fn init_thread_slot_if_needed(vm: &VirtualMachine) {
     CURRENT_THREAD_SLOT.with(|slot| {
         if slot.borrow().is_none() {
-            let thread_id = crate::stdlib::thread::get_ident();
+            let thread_id = crate::stdlib::_thread::get_ident();
             let mut registry = vm.state.thread_frames.lock();
             let new_slot = Arc::new(ThreadSlot {
                 frames: parking_lot::Mutex::new(Vec::new()),
@@ -424,7 +424,7 @@ pub fn get_all_current_exceptions(vm: &VirtualMachine) -> Vec<(u64, Option<PyBas
 /// Cleanup thread slot for the current thread. Called at thread exit.
 #[cfg(feature = "threading")]
 pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
-    let thread_id = crate::stdlib::thread::get_ident();
+    let thread_id = crate::stdlib::_thread::get_ident();
     let current_slot = CURRENT_THREAD_SLOT.with(|slot| slot.borrow().as_ref().cloned());
 
     // A dying thread should not remain logically ATTACHED while its
@@ -473,7 +473,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 /// VmState locks to unlocked.
 #[cfg(feature = "threading")]
 pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
-    let current_ident = crate::stdlib::thread::get_ident();
+    let current_ident = crate::stdlib::_thread::get_ident();
     let current_frames: Vec<FramePtr> = vm.frames.borrow().clone();
     let new_slot = Arc::new(ThreadSlot {
         frames: parking_lot::Mutex::new(current_frames),

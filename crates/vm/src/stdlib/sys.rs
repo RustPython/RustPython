@@ -45,7 +45,7 @@ mod sys {
         convert::ToPyObject,
         frame::{Frame, FrameRef},
         function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
-        stdlib::{builtins, warnings::warn},
+        stdlib::{_warnings::warn, builtins},
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
@@ -1037,7 +1037,7 @@ mod sys {
     #[pyfunction]
     fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
         use crate::AsObject;
-        use crate::stdlib::thread::get_all_current_frames;
+        use crate::stdlib::_thread::get_all_current_frames;
 
         let frames = get_all_current_frames(vm);
         let dict = vm.ctx.new_dict();
@@ -1633,7 +1633,7 @@ mod sys {
     #[cfg(feature = "threading")]
     impl ThreadInfoData {
         const INFO: Self = Self {
-            name: crate::stdlib::thread::_thread::PYTHREAD_NAME,
+            name: crate::stdlib::_thread::_thread::PYTHREAD_NAME,
             // As I know, there's only way to use lock as "Mutex" in Rust
             // with satisfying python document spec.
             lock: Some("mutex+cond"),

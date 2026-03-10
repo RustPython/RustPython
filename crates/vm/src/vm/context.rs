@@ -42,7 +42,7 @@ pub struct Context {
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyRef<PyNotImplemented>,
 
-    pub typing_no_default: PyRef<crate::stdlib::typing::NoDefault>,
+    pub typing_no_default: PyRef<crate::stdlib::_typing::NoDefault>,
 
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
@@ -313,8 +313,8 @@ impl Context {
         let not_implemented = create_object(PyNotImplemented, PyNotImplemented::static_type());
 
         let typing_no_default = create_object(
-            crate::stdlib::typing::NoDefault,
-            crate::stdlib::typing::NoDefault::static_type(),
+            crate::stdlib::_typing::NoDefault,
+            crate::stdlib::_typing::NoDefault::static_type(),
         );
 
         let int_cache_pool = Self::INT_CACHE_POOL_RANGE

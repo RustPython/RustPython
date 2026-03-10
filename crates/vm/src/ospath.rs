@@ -86,7 +86,7 @@ impl PathConverter {
                 .class()
                 .is(crate::builtins::bool_::PyBool::static_type())
             {
-                crate::stdlib::warnings::warn(
+                crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.runtime_warning,
                     "bool is used as a file descriptor".to_owned(),
                     1,
