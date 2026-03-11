@@ -47,7 +47,6 @@ class GeneralTest(unittest.TestCase):
                           ('func2', (), {}),
                           ('func1', (1, 2), {})])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_badargs(self):
         def func():
             pass
@@ -55,14 +54,12 @@ class GeneralTest(unittest.TestCase):
         # func() has no parameter, but it's called with 2 parameters
         self.assert_raises_unraisable(TypeError, func, 1 ,2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_raise(self):
         def raise_type_error():
             raise TypeError
 
         self.assert_raises_unraisable(TypeError, raise_type_error)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_raise_unnormalized(self):
         # bpo-10756: Make sure that an unnormalized exception is handled
         # properly.
@@ -71,7 +68,6 @@ class GeneralTest(unittest.TestCase):
 
         self.assert_raises_unraisable(ZeroDivisionError, div_zero)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exit(self):
         self.assert_raises_unraisable(SystemExit, sys.exit)
 
@@ -122,7 +118,6 @@ class GeneralTest(unittest.TestCase):
         atexit._run_exitfuncs()
         self.assertEqual(l, [5])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_atexit_with_unregistered_function(self):
         # See bpo-46025 for more info
         def func():
@@ -140,7 +135,6 @@ class GeneralTest(unittest.TestCase):
         finally:
             atexit.unregister(func)
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_eq_unregister_clear(self):
         # Issue #112127: callback's __eq__ may call unregister or _clear
         class Evil:
@@ -154,7 +148,6 @@ class GeneralTest(unittest.TestCase):
                 atexit.unregister(Evil())
                 atexit._clear()
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_eq_unregister(self):
         # Issue #112127: callback's __eq__ may call unregister
         def f1():
