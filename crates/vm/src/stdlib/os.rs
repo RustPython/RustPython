@@ -1219,6 +1219,7 @@ pub(super) mod _os {
         }
     }
 
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
     #[derive(Debug, FromArgs)]
     #[pystruct_sequence_data]
     struct StatResultData {
