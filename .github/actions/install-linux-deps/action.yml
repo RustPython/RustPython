@@ -42,8 +42,8 @@ runs:
       run: >
         sudo apt-get update
 
-        sudo apt-get install
+        sudo apt-get install --no-install-recommends
         ${{ fromJSON(inputs.gcc-multilib) && 'gcc-multilib' || '' }}
         ${{ fromJSON(inputs.musl-tools) && 'musl-tools' || '' }}
         ${{ fromJSON(inputs.clang) && 'clang' || '' }}
-        ${{ fromJSON(inputs.gcc-aarch64-linux-gnu) && 'gcc-aarch64-linux-gnu' || '' }}
+        ${{ fromJSON(inputs.gcc-aarch64-linux-gnu) && 'gcc-aarch64-linux-gnu linux-libc-dev-arm64-cross libc6-dev-arm64-cross' || '' }}

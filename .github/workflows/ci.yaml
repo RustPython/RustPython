@@ -188,93 +188,57 @@ jobs:
           PYTHONPATH: scripts
         if: runner.os == 'Linux'
 
-      - name: prepare Intel MacOS build
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          target: x86_64-apple-darwin
-        if: runner.os == 'macOS'
-      - name: Check compilation for Intel MacOS
-        run: cargo check --target x86_64-apple-darwin
-        if: runner.os == 'macOS'
-      - name: prepare iOS build
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          target: aarch64-apple-ios
-        if: runner.os == 'macOS'
-      - name: Check compilation for iOS
-        run: cargo check --target aarch64-apple-ios ${{ env.CARGO_ARGS_NO_SSL }}
-        if: runner.os == 'macOS'
-
-  exotic_targets:
+  cargo_check:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Ensure compilation on various targets
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include: 
+        - os: ubuntu-latest
+          targets:
+            - aarch64-linux-android
+            - i686-unknown-linux-gnu
+            - i686-unknown-linux-musl
+            - wasm32-wasip2
+            - x86_64-unknown-freebsd
+          dependencies:
+            gcc-multilib: true
+            musl-tools: true
+        - os: ubuntu-latest
+          targets:
+            - aarch64-unknown-linux-gnu
+          dependencies:
+            gcc-aarch64-linux-gnu: true # conflict with `gcc-multilib`
+        - os: macos-latest
+          targets:
+            - aarch64-apple-ios
+            - x86_64-apple-darwin
+      fail-fast: false
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          target: i686-unknown-linux-gnu
+          persist-credentials: false
 
-      - name: Install gcc-multilib and musl-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v0-rust-${{ join(matrix.targets, '-') }}
+
+      - name: Install dependencies
         uses: ./.github/actions/install-linux-deps
-        with:
-          gcc-multilib: true
-          musl-tools: true
-
-      - name: Check compilation for x86 32bit
-        run: cargo check --target i686-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
+        with: ${{ matrix.dependencies || fromJSON('{}') }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          target: aarch64-linux-android
+          targets: ${{ join(matrix.targets, ',') }}
 
       - name: Setup Android NDK
+        if: ${{ contains(matrix.targets, 'aarch64-linux-android') }}
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27
           add-to-path: true
-
-      - name: Check compilation for android
-        run: cargo check --target aarch64-linux-android ${{ env.CARGO_ARGS_NO_SSL }}
-        env:
-          CC_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-          AR_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: aarch64-unknown-linux-gnu
-
-      - name: Install gcc-aarch64-linux-gnu
-        uses: ./.github/actions/install-linux-deps
-        with:
-          gcc-aarch64-linux-gnu: true
-
-      - name: Check compilation for aarch64 linux gnu
-        run: cargo check --target aarch64-unknown-linux-gnu ${{ env.CARGO_ARGS_NO_SSL }}
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: i686-unknown-linux-musl
-
-      - name: Check compilation for musl
-        run: cargo check --target i686-unknown-linux-musl ${{ env.CARGO_ARGS_NO_SSL }}
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: x86_64-unknown-freebsd
-
-      - name: Check compilation for freebsd
-        run: cargo check --target x86_64-unknown-freebsd ${{ env.CARGO_ARGS_NO_SSL }}
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          target: wasm32-wasip2
-
-      - name: Check compilation for wasip2
-        run: cargo check --target wasm32-wasip2 ${{ env.CARGO_ARGS_NO_SSL }}
 
       # - name: Prepare repository for redox compilation
       #   run: bash scripts/redox/uncomment-cargo.sh
@@ -283,6 +247,19 @@ jobs:
       #   with:
       #     command: check
       #     args: --ignore-rust-version
+
+      - name: Check compilation
+        run: |
+          for target in ${{ join(matrix.targets, ' ') }}
+          do
+            echo "::group::${target}"
+            cargo check --target $target ${{ env.CARGO_ARGS_NO_SSL }}
+            echo "::endgroup::"
+          done
+        env:
+          CC_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          AR_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
