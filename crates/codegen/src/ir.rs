@@ -1109,8 +1109,8 @@ impl InstrDisplayContext for CodeInfo {
         self.metadata.names[i].as_ref()
     }
 
-    fn get_varname(&self, i: usize) -> &str {
-        self.metadata.varnames[i].as_ref()
+    fn get_varname(&self, var_num: oparg::VarNum) -> &str {
+        self.metadata.varnames[var_num.as_usize()].as_ref()
     }
 
     fn get_cell_name(&self, i: usize) -> &str {

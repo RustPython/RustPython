@@ -2162,9 +2162,9 @@ impl ExecutingFrame<'_> {
                 self.cell_ref(i.get(arg) as usize).set(None);
                 Ok(None)
             }
-            Instruction::DeleteFast { var_num: idx } => {
+            Instruction::DeleteFast { var_num } => {
                 let fastlocals = self.localsplus.fastlocals_mut();
-                let idx = idx.get(arg) as usize;
+                let idx = var_num.get(arg);
                 if fastlocals[idx].is_none() {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
@@ -2680,7 +2680,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFast { var_num: idx } => {
+            Instruction::LoadFast { var_num } => {
                 #[cold]
                 fn reference_error(
                     varname: &'static PyStrInterned,
@@ -2691,27 +2691,27 @@ impl ExecutingFrame<'_> {
                         format!("local variable '{varname}' referenced before assignment").into(),
                     )
                 }
-                let idx = idx.get(arg) as usize;
+                let idx = var_num.get(arg);
                 let x = self.localsplus.fastlocals()[idx]
                     .clone()
                     .ok_or_else(|| reference_error(self.code.varnames[idx], vm))?;
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFastAndClear { var_num: idx } => {
+            Instruction::LoadFastAndClear { var_num } => {
                 // Load value and clear the slot (for inlined comprehensions)
                 // If slot is empty, push None (not an error - variable may not exist yet)
-                let idx = idx.get(arg) as usize;
+                let idx = var_num.get(arg);
                 let x = self.localsplus.fastlocals_mut()[idx]
                     .take()
                     .unwrap_or_else(|| vm.ctx.none());
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFastCheck { var_num: idx } => {
+            Instruction::LoadFastCheck { var_num } => {
                 // Same as LoadFast but explicitly checks for unbound locals
                 // (LoadFast in RustPython already does this check)
-                let idx = idx.get(arg) as usize;
+                let idx = var_num.get(arg);
                 let x = self.localsplus.fastlocals()[idx].clone().ok_or_else(|| {
                     vm.new_exception_msg(
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
@@ -2759,8 +2759,8 @@ impl ExecutingFrame<'_> {
             // Borrow optimization not yet active; falls back to clone.
             // push_borrowed() is available but disabled until stack
             // lifetime issues at yield/exception points are resolved.
-            Instruction::LoadFastBorrow { var_num: idx } => {
-                let idx = idx.get(arg) as usize;
+            Instruction::LoadFastBorrow { var_num } => {
+                let idx = var_num.get(arg);
                 let x = self.localsplus.fastlocals()[idx].clone().ok_or_else(|| {
                     vm.new_exception_msg(
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
@@ -3299,10 +3299,10 @@ impl ExecutingFrame<'_> {
                 self.cell_ref(i.get(arg) as usize).set(Some(value));
                 Ok(None)
             }
-            Instruction::StoreFast { var_num: idx } => {
+            Instruction::StoreFast { var_num } => {
                 let value = self.pop_value();
                 let fastlocals = self.localsplus.fastlocals_mut();
-                fastlocals[idx.get(arg) as usize] = Some(value);
+                fastlocals[var_num.get(arg)] = Some(value);
                 Ok(None)
             }
             Instruction::StoreFastLoadFast { var_nums } => {
