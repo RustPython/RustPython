@@ -11,7 +11,7 @@ use bitflags::bitflags;
 use core::{
     cell::UnsafeCell,
     hash, mem,
-    ops::{Deref, Index},
+    ops::{Deref, Index, IndexMut},
     sync::atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering},
 };
 use itertools::Itertools;
@@ -315,6 +315,22 @@ impl<C: Constant> Index<oparg::ConstIdx> for Constants<C> {
 impl<C: Constant> FromIterator<C> for Constants<C> {
     fn from_iter<T: IntoIterator<Item = C>>(iter: T) -> Self {
         Self(iter.into_iter().collect())
+    }
+}
+
+// TODO: Newtype "CodeObject.varnames". Make sure only `oparg:VarNum` can be used as index
+impl<T> Index<oparg::VarNum> for [T] {
+    type Output = T;
+
+    fn index(&self, var_num: oparg::VarNum) -> &Self::Output {
+        &self[var_num.as_usize()]
+    }
+}
+
+// TODO: Newtype "CodeObject.varnames". Make sure only `oparg:VarNum` can be used as index
+impl<T> IndexMut<oparg::VarNum> for [T] {
+    fn index_mut(&mut self, var_num: oparg::VarNum) -> &mut Self::Output {
+        &mut self[var_num.as_usize()]
     }
 }
 
@@ -1037,8 +1053,7 @@ impl<C: Constant> CodeObject<C> {
     pub fn map_bag<Bag: ConstantBag>(self, bag: Bag) -> CodeObject<Bag::Constant> {
         let map_names = |names: Box<[C::Name]>| {
             names
-                .into_vec()
-                .into_iter()
+                .iter()
                 .map(|x| bag.make_name(x.as_ref()))
                 .collect::<Box<[_]>>()
         };
@@ -1123,7 +1138,7 @@ pub trait InstrDisplayContext {
 
     fn get_name(&self, i: usize) -> &str;
 
-    fn get_varname(&self, i: usize) -> &str;
+    fn get_varname(&self, var_num: oparg::VarNum) -> &str;
 
     fn get_cell_name(&self, i: usize) -> &str;
 }
@@ -1139,8 +1154,8 @@ impl<C: Constant> InstrDisplayContext for CodeObject<C> {
         self.names[i].as_ref()
     }
 
-    fn get_varname(&self, i: usize) -> &str {
-        self.varnames[i].as_ref()
+    fn get_varname(&self, var_num: oparg::VarNum) -> &str {
+        self.varnames[var_num].as_ref()
     }
 
     fn get_cell_name(&self, i: usize) -> &str {

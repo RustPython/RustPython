@@ -715,14 +715,14 @@ impl Compiler {
     }
 
     /// Get the index of a local variable.
-    fn get_local_var_index(&mut self, name: &str) -> CompileResult<u32> {
+    fn get_local_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .varnames
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.varnames.insert_full(name.to_owned()).0);
-        Ok(idx.to_u32())
+        Ok(idx.to_u32().into())
     }
 
     /// Get the index of a global name.
@@ -1283,7 +1283,12 @@ impl Compiler {
     /// if format > VALUE_WITH_FAKE_GLOBALS (2): raise NotImplementedError
     fn emit_format_validation(&mut self) -> CompileResult<()> {
         // Load format parameter (first local variable, index 0)
-        emit!(self, Instruction::LoadFast { var_num: 0 });
+        emit!(
+            self,
+            Instruction::LoadFast {
+                var_num: oparg::VarNum::from_u32(0)
+            }
+        );
 
         // Load VALUE_WITH_FAKE_GLOBALS constant (2)
         self.emit_load_const(ConstantData::Integer { value: 2.into() });
@@ -1562,15 +1567,19 @@ impl Compiler {
     fn name(&mut self, name: &str) -> bytecode::NameIdx {
         self._name_inner(name, |i| &mut i.metadata.names)
     }
-    fn varname(&mut self, name: &str) -> CompileResult<bytecode::NameIdx> {
+
+    fn varname(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
         // Note: __debug__ checks are now handled in symboltable phase
-        Ok(self._name_inner(name, |i| &mut i.metadata.varnames))
+        Ok(oparg::VarNum::from_u32(
+            self._name_inner(name, |i| &mut i.metadata.varnames),
+        ))
     }
+
     fn _name_inner(
         &mut self,
         name: &str,
         cache: impl FnOnce(&mut ir::CodeInfo) -> &mut IndexSet<String>,
-    ) -> bytecode::NameIdx {
+    ) -> u32 {
         let name = self.mangle(name);
         let cache = cache(self.current_code_info());
         cache
@@ -4129,7 +4138,8 @@ impl Compiler {
 
             // Load defaults/kwdefaults with LOAD_FAST
             for i in 0..num_typeparam_args {
-                emit!(self, Instruction::LoadFast { var_num: i as u32 });
+                let var_num = oparg::VarNum::from(i as u32);
+                emit!(self, Instruction::LoadFast { var_num });
             }
         }
 
