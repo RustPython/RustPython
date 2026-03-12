@@ -47,7 +47,15 @@ jobs:
       - name: Run generate_opcode_metadata.py
         run: python scripts/generate_opcode_metadata.py
 
+      - name: Check for formatting changes
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Formatting changes detected. Please run 'cargo fmt --all', 'ruff format', and 'ruff check --select I --fix' locally."
+            exit 1
+          fi
+
       - name: Post formatting suggestions
+        if: failure()
         uses: reviewdog/action-suggester@v1
         with:
           tool_name: auto-format
