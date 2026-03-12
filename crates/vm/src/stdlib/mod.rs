@@ -38,10 +38,13 @@ pub mod posix;
 #[path = "posix_compat.rs"]
 pub mod posix;
 
-#[cfg(all(
-    feature = "host_env",
-    any(target_os = "linux", target_os = "macos", target_os = "windows"),
-    not(any(target_env = "musl", target_env = "sgx"))
+#[cfg(any(
+    feature = "ctypes",
+    all(
+        feature = "host_env",
+        any(target_os = "linux", target_os = "macos", target_os = "windows"),
+        not(any(target_env = "musl", target_env = "sgx"))
+    )
 ))]
 mod _ctypes;
 #[cfg(all(feature = "host_env", windows))]
@@ -85,10 +88,13 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         atexit::module_def(ctx),
         _codecs::module_def(ctx),
         _collections::module_def(ctx),
-        #[cfg(all(
-            feature = "host_env",
-            any(target_os = "linux", target_os = "macos", target_os = "windows"),
-            not(any(target_env = "musl", target_env = "sgx"))
+        #[cfg(any(
+            feature = "ctypes",
+            all(
+                feature = "host_env",
+                any(target_os = "linux", target_os = "macos", target_os = "windows"),
+                not(any(target_env = "musl", target_env = "sgx"))
+            )
         ))]
         _ctypes::module_def(ctx),
         errno::module_def(ctx),

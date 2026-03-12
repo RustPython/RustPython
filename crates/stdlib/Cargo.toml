@@ -12,6 +12,7 @@ license.workspace = true
 
 [features]
 default = ["compiler", "host_env"]
+ctypes = ["rustpython-vm/ctypes"]
 host_env = ["rustpython-vm/host_env"]
 compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]

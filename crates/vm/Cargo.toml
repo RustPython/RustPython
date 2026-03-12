@@ -12,6 +12,7 @@ license.workspace = true
 [features]
 default = ["compiler", "wasmbind", "gc", "host_env", "stdio"]
 host_env = []
+ctypes = ["dep:libffi", "dep:libloading"]
 stdio = []
 importlib = []
 encodings = ["importlib"]
@@ -83,6 +84,9 @@ optional = { workspace = true }
 result-like = "0.5.0"
 timsort = "0.1.2"
 
+libffi = { workspace = true, features = ["system"], optional = true }
+libloading = { version = "0.9", optional = true }
+
 ## unicode stuff
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
@@ -117,31 +121,31 @@ junction = { workspace = true }
 [target.'cfg(windows)'.dependencies.windows-sys]
 workspace = true
 features = [
-  "Win32_Foundation",
-  "Win32_Globalization",
-  "Win32_Media_Audio",
-  "Win32_Networking_WinSock",
-  "Win32_Security",
-  "Win32_Security_Authorization",
-  "Win32_Storage_FileSystem",
-  "Win32_System_Console",
-  "Win32_System_Diagnostics_Debug",
-  "Win32_System_Environment",
-  "Win32_System_IO",
-  "Win32_System_Ioctl",
-  "Win32_System_Kernel",
-  "Win32_System_LibraryLoader",
-  "Win32_System_Memory",
-  "Win32_System_Performance",
-  "Win32_System_Pipes",
-  "Win32_System_Registry",
-  "Win32_System_SystemInformation",
-  "Win32_System_SystemServices",
-  "Win32_System_Threading",
-  "Win32_System_Time",
-  "Win32_System_WindowsProgramming",
-  "Win32_UI_Shell",
-  "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Media_Audio",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Performance",
+    "Win32_System_Pipes",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_Time",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ]
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
