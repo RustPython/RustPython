@@ -2699,13 +2699,12 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadFastAndClear { var_num } => {
-                // Load value and clear the slot (for inlined comprehensions)
-                // If slot is empty, push None (not an error - variable may not exist yet)
+                // Save current slot value and clear it (for inlined comprehensions).
+                // Pushes NULL (None at Option level) if slot was empty, so that
+                // StoreFast can restore the empty state after the comprehension.
                 let idx = var_num.get(arg);
-                let x = self.localsplus.fastlocals_mut()[idx]
-                    .take()
-                    .unwrap_or_else(|| vm.ctx.none());
-                self.push_value(x);
+                let x = self.localsplus.fastlocals_mut()[idx].take();
+                self.push_value_opt(x);
                 Ok(None)
             }
             Instruction::LoadFastCheck { var_num } => {
@@ -3298,9 +3297,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::StoreFast { var_num } => {
-                let value = self.pop_value();
+                // pop_value_opt: allows NULL from LoadFastAndClear restore path
+                let value = self.pop_value_opt();
                 let fastlocals = self.localsplus.fastlocals_mut();
-                fastlocals[var_num.get(arg)] = Some(value);
+                fastlocals[var_num.get(arg)] = value;
                 Ok(None)
             }
             Instruction::StoreFastLoadFast { var_nums } => {

@@ -968,12 +968,21 @@ impl Compiler {
         Ok(())
     }
 
-    /// Check if this is an inlined comprehension context (PEP 709)
-    /// Currently disabled - always returns false to avoid stack issues
-    fn is_inlined_comprehension_context(&self, _comprehension_type: ComprehensionType) -> bool {
-        // TODO: Implement PEP 709 inlined comprehensions properly
-        // For now, disabled to avoid stack underflow issues
-        false
+    /// Check if this is an inlined comprehension context (PEP 709).
+    /// Only inline in function-like scopes (fastlocals) — module/class
+    /// level uses STORE_NAME which is incompatible with LOAD_FAST_AND_CLEAR.
+    /// Generator expressions are never inlined.
+    fn is_inlined_comprehension_context(&self, comprehension_type: ComprehensionType) -> bool {
+        if comprehension_type == ComprehensionType::Generator {
+            return false;
+        }
+        if !self.ctx.in_func() {
+            return false;
+        }
+        self.symbol_table_stack
+            .last()
+            .and_then(|t| t.sub_tables.get(t.next_sub_table))
+            .is_some_and(|st| st.comp_inlined)
     }
 
     /// Enter a new scope
@@ -7649,12 +7658,15 @@ impl Compiler {
 
         if is_inlined {
             // PEP 709: Inlined comprehension - compile inline without new scope
-            return self.compile_inlined_comprehension(
+            self.current_code_info().in_inlined_comp = true;
+            let result = self.compile_inlined_comprehension(
                 init_collection,
                 generators,
                 compile_element,
                 has_an_async_gen,
             );
+            self.current_code_info().in_inlined_comp = false;
+            return result;
         }
 
         // Non-inlined path: create a new code object (generator expressions, etc.)
@@ -7680,9 +7692,6 @@ impl Compiler {
 
         // Create magnificent function <listcomp>:
         self.push_output(flags, 1, 1, 0, name.to_owned())?;
-
-        // Mark that we're in an inlined comprehension
-        self.current_code_info().in_inlined_comp = true;
 
         // Set qualname for comprehension
         self.set_qualname();
@@ -7846,15 +7855,23 @@ impl Compiler {
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
         _has_an_async_gen: bool,
     ) -> CompileResult<()> {
-        // PEP 709: Consume the comprehension's sub_table (but we won't use it as a separate scope)
-        // We need to consume it to keep sub_tables in sync with AST traversal order.
+        // PEP 709: Consume the comprehension's sub_table (but we won't use it as a separate scope).
         // The symbols are already merged into parent scope by analyze_symbol_table.
-        let _comp_table = self
+        // Splice the comprehension's sub_tables into the parent so nested scopes
+        // (e.g. inner comprehensions, lambdas) can still find their sub_tables.
+        let current_table = self
             .symbol_table_stack
             .last_mut()
-            .expect("no current symbol table")
-            .sub_tables
-            .remove(0);
+            .expect("no current symbol table");
+        let comp_table = current_table.sub_tables[current_table.next_sub_table].clone();
+        current_table.next_sub_table += 1;
+        // Insert the comprehension's sub_tables right after the consumed entry
+        if !comp_table.sub_tables.is_empty() {
+            let insert_pos = current_table.next_sub_table;
+            for (i, st) in comp_table.sub_tables.iter().enumerate() {
+                current_table.sub_tables.insert(insert_pos + i, st.clone());
+            }
+        }
 
         // Collect local variables that need to be saved/restored
         // These are variables bound in the comprehension (iteration vars from targets)

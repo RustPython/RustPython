@@ -459,34 +459,62 @@ impl SymbolTableAnalyzer {
 
         symbol_table.symbols = info.0;
 
-        // PEP 709: Merge symbols from inlined comprehensions into parent scope
-        // Only merge symbols that are actually bound in the comprehension,
-        // not references to outer scope variables (Free symbols).
+        // PEP 709: Merge symbols from inlined comprehensions into parent scope.
+        // If a comprehension-bound name conflicts with an existing parent symbol,
+        // disable inlining for that comprehension (the save/restore mechanism
+        // via LOAD_FAST_AND_CLEAR / STORE_FAST can't handle scope mismatches).
         const BOUND_FLAGS: SymbolFlags = SymbolFlags::ASSIGNED
             .union(SymbolFlags::PARAMETER)
             .union(SymbolFlags::ITER)
             .union(SymbolFlags::ASSIGNED_IN_COMPREHENSION);
 
-        for sub_table in sub_tables.iter() {
-            if sub_table.comp_inlined {
-                for (name, sub_symbol) in &sub_table.symbols {
-                    // Skip the .0 parameter - it's internal to the comprehension
-                    if name == ".0" {
-                        continue;
-                    }
-                    // Only merge symbols that are bound in the comprehension
-                    // Skip Free references to outer scope variables
-                    if !sub_symbol.flags.intersects(BOUND_FLAGS) {
-                        continue;
-                    }
-                    // If the symbol doesn't exist in parent, add it
-                    if !symbol_table.symbols.contains_key(name) {
-                        let mut symbol = sub_symbol.clone();
-                        // Mark as local in parent scope
-                        symbol.scope = SymbolScope::Local;
-                        symbol_table.symbols.insert(name.clone(), symbol);
-                    }
+        // Track symbols added by inlined comprehensions, so later comps
+        // can detect when a reference would resolve to a comp-local.
+        let mut comp_added_symbols: IndexSet<String> = IndexSet::default();
+
+        for sub_table in sub_tables.iter_mut() {
+            if !sub_table.comp_inlined {
+                continue;
+            }
+            // Don't inline if the comprehension contains nested scopes
+            // (lambdas, inner comprehensions, nested functions) — these need
+            // Cell/Free variable handling that inlining doesn't support yet.
+            if !sub_table.sub_tables.is_empty() {
+                sub_table.comp_inlined = false;
+                continue;
+            }
+            // Don't inline if a bound comprehension name conflicts with parent
+            let has_bound_conflict = sub_table.symbols.iter().any(|(name, sym)| {
+                name != ".0"
+                    && sym.flags.intersects(BOUND_FLAGS)
+                    && symbol_table.symbols.contains_key(name)
+            });
+            // Don't inline if a non-bound reference would resolve to a
+            // symbol added by a previous inlined comprehension
+            let has_ref_conflict = sub_table.symbols.iter().any(|(name, sym)| {
+                name != ".0"
+                    && !sym.flags.intersects(BOUND_FLAGS)
+                    && comp_added_symbols.contains(name)
+            });
+            if has_bound_conflict || has_ref_conflict {
+                sub_table.comp_inlined = false;
+                continue;
+            }
+            for (name, sub_symbol) in &sub_table.symbols {
+                if name == ".0" {
+                    continue;
                 }
+                if symbol_table.symbols.contains_key(name) {
+                    continue;
+                }
+                let mut symbol = sub_symbol.clone();
+                if sub_symbol.flags.intersects(BOUND_FLAGS) {
+                    symbol.scope = SymbolScope::Local;
+                    comp_added_symbols.insert(name.clone());
+                }
+                // Non-bound symbols keep their analyzed scope from the
+                // comprehension sub_table (e.g., GlobalImplicit, Free).
+                symbol_table.symbols.insert(name.clone(), symbol);
             }
         }
 
@@ -2037,13 +2065,31 @@ impl SymbolTableBuilder {
             self.line_index_start(range),
         );
 
-        // PEP 709: inlined comprehensions are not yet implemented in the
-        // compiler (is_inlined_comprehension_context always returns false),
-        // so do NOT mark comp_inlined here.  Setting it would cause the
-        // symbol-table analyzer to merge comprehension-local symbols into
-        // the parent scope, while the compiler still emits a separate code
-        // object — leading to the merged symbols being missing from the
-        // comprehension's own symbol table lookup.
+        // PEP 709: Mark non-generator comprehensions for inlining,
+        // but only inside function-like scopes (fastlocals).
+        // Module/class scope uses STORE_NAME which is incompatible
+        // with LOAD_FAST_AND_CLEAR / STORE_FAST save/restore.
+        // Note: tables.last() is the comprehension scope we just pushed,
+        // so we check the second-to-last for the parent scope.
+        if !is_generator {
+            let parent_is_func = self
+                .tables
+                .iter()
+                .rev()
+                .nth(1)
+                .is_some_and(|t| {
+                    matches!(
+                        t.typ,
+                        CompilerScope::Function
+                            | CompilerScope::AsyncFunction
+                            | CompilerScope::Lambda
+                            | CompilerScope::Comprehension
+                    )
+                });
+            if parent_is_func {
+                self.tables.last_mut().unwrap().comp_inlined = true;
+            }
+        }
 
         // Register the passed argument to the generator function as the name ".0"
         self.register_name(".0", SymbolUsage::Parameter, range)?;
