@@ -1,5 +1,6 @@
 from test import support
-from test.support import os_helper
+from test.support import is_apple_mobile, os_helper, requires_debug_ranges, is_emscripten
+from test.support.script_helper import assert_python_ok
 import array
 import io
 import marshal
@@ -7,6 +8,7 @@ import sys
 import unittest
 import os
 import types
+import textwrap
 
 try:
     import _testcapi
@@ -26,6 +28,13 @@ class HelperMixin:
         finally:
             os_helper.unlink(os_helper.TESTFN)
 
+def omit_last_byte(data):
+    """return data[:-1]"""
+    # This file's code is used in CompatibilityTestCase,
+    # but slices need marshal version 5.
+    # Avoid the slice literal.
+    return data[slice(0, -1)]
+
 class IntTestCase(unittest.TestCase, HelperMixin):
     def test_ints(self):
         # Test a range of Python ints larger than the machine word size.
@@ -34,8 +43,13 @@ class IntTestCase(unittest.TestCase, HelperMixin):
             for expected in (-n, n):
                 self.helper(expected)
             n = n >> 1
+        n = 1 << 100
+        while n:
+            for expected in (-n, -n+1, n-1, n):
+                self.helper(expected)
+            n = n >> 1
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_int64(self):
         # Simulate int marshaling with TYPE_INT64.
         maxint64 = (1 << 63) - 1
@@ -109,8 +123,7 @@ class ExceptionTestCase(unittest.TestCase):
         self.assertEqual(StopIteration, new)
 
 class CodeTestCase(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_code(self):
         co = ExceptionTestCase.test_exceptions.__code__
         new = marshal.loads(marshal.dumps(co))
@@ -118,8 +131,8 @@ class CodeTestCase(unittest.TestCase):
 
     def test_many_codeobjects(self):
         # Issue2957: bad recursion count on code objects
-        count = 5000    # more than MAX_MARSHAL_STACK_DEPTH
-        codes = (ExceptionTestCase.test_exceptions.__code__,) * count
+        # more than MAX_MARSHAL_STACK_DEPTH
+        codes = (ExceptionTestCase.test_exceptions.__code__,) * 10_000
         marshal.loads(marshal.dumps(codes))
 
     def test_different_filenames(self):
@@ -128,6 +141,56 @@ class CodeTestCase(unittest.TestCase):
         co1, co2 = marshal.loads(marshal.dumps((co1, co2)))
         self.assertEqual(co1.co_filename, "f1")
         self.assertEqual(co2.co_filename, "f2")
+
+    def test_no_allow_code(self):
+        data = {'a': [({0},)]}
+        dump = marshal.dumps(data, allow_code=False)
+        self.assertEqual(marshal.loads(dump, allow_code=False), data)
+
+        f = io.BytesIO()
+        marshal.dump(data, f, allow_code=False)
+        f.seek(0)
+        self.assertEqual(marshal.load(f, allow_code=False), data)
+
+        co = ExceptionTestCase.test_exceptions.__code__
+        data = {'a': [({co, 0},)]}
+        dump = marshal.dumps(data, allow_code=True)
+        self.assertEqual(marshal.loads(dump, allow_code=True), data)
+        with self.assertRaises(ValueError):
+            marshal.dumps(data, allow_code=False)
+        with self.assertRaises(ValueError):
+            marshal.loads(dump, allow_code=False)
+
+        marshal.dump(data, io.BytesIO(), allow_code=True)
+        self.assertEqual(marshal.load(io.BytesIO(dump), allow_code=True), data)
+        with self.assertRaises(ValueError):
+            marshal.dump(data, io.BytesIO(), allow_code=False)
+        with self.assertRaises(ValueError):
+            marshal.load(io.BytesIO(dump), allow_code=False)
+
+    @requires_debug_ranges()
+    def test_minimal_linetable_with_no_debug_ranges(self):
+        # Make sure when demarshalling objects with `-X no_debug_ranges`
+        # that the columns are None.
+        co = ExceptionTestCase.test_exceptions.__code__
+        code = textwrap.dedent("""
+        import sys
+        import marshal
+        with open(sys.argv[1], 'rb') as f:
+            co = marshal.load(f)
+            positions = list(co.co_positions())
+            assert positions[0][2] is None
+            assert positions[0][3] is None
+        """)
+
+        try:
+            with open(os_helper.TESTFN, 'wb') as f:
+                marshal.dump(co, f)
+
+            assert_python_ok('-X', 'no_debug_ranges',
+                             '-c', code, os_helper.TESTFN)
+        finally:
+            os_helper.unlink(os_helper.TESTFN)
 
     @support.cpython_only
     def test_same_filename_used(self):
@@ -164,22 +227,21 @@ class ContainerTestCase(unittest.TestCase, HelperMixin):
 
 
 class BufferTestCase(unittest.TestCase, HelperMixin):
+
     def test_bytearray(self):
         b = bytearray(b"abc")
         self.helper(b)
         new = marshal.loads(marshal.dumps(b))
         self.assertEqual(type(new), bytes)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_memoryview(self):
         b = memoryview(b"abc")
         self.helper(b)
         new = marshal.loads(marshal.dumps(b))
         self.assertEqual(type(new), bytes)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_array(self):
         a = array.array('B', b"abc")
         new = marshal.loads(marshal.dumps(a))
@@ -194,7 +256,8 @@ class BugsTestCase(unittest.TestCase):
     def test_patch_873224(self):
         self.assertRaises(Exception, marshal.loads, b'0')
         self.assertRaises(Exception, marshal.loads, b'f')
-        self.assertRaises(Exception, marshal.loads, marshal.dumps(2**65)[:-1])
+        self.assertRaises(Exception, marshal.loads,
+                          omit_last_byte(marshal.dumps(2**65)))
 
     def test_version_argument(self):
         # Python 2.4.0 crashes for any call to marshal.dumps(x, y)
@@ -211,8 +274,7 @@ class BugsTestCase(unittest.TestCase):
             except Exception:
                 pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_loads_recursion(self):
         def run_tests(N, check):
             # (((...None...),),)
@@ -232,16 +294,18 @@ class BugsTestCase(unittest.TestCase):
             self.assertRaises(ValueError, marshal.loads, s)
         run_tests(2**20, check)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; segfault
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; segfault
     def test_recursion_limit(self):
         # Create a deeply nested structure.
         head = last = []
         # The max stack depth should match the value in Python/marshal.c.
         # BUG: https://bugs.python.org/issue33720
         # Windows always limits the maximum depth on release and debug builds
-        #if os.name == 'nt' and hasattr(sys, 'gettotalrefcount'):
+        #if os.name == 'nt' and support.Py_DEBUG:
         if os.name == 'nt':
             MAX_MARSHAL_STACK_DEPTH = 1000
+        elif sys.platform == 'wasi' or is_emscripten or is_apple_mobile:
+            MAX_MARSHAL_STACK_DEPTH = 1500
         else:
             MAX_MARSHAL_STACK_DEPTH = 2000
         for i in range(MAX_MARSHAL_STACK_DEPTH - 2):
@@ -259,8 +323,7 @@ class BugsTestCase(unittest.TestCase):
         last.append([0])
         self.assertRaises(ValueError, marshal.dumps, head)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exact_type_match(self):
         # Former bug:
         #   >>> class Int(int): pass
@@ -284,8 +347,7 @@ class BugsTestCase(unittest.TestCase):
         invalid_string = b'l\x02\x00\x00\x00\x00\x00\x00\x00'
         self.assertRaises(ValueError, marshal.loads, invalid_string)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiple_dumps_and_loads(self):
         # Issue 12291: marshal.load() should be callable multiple times
         # with interleaved data written by non-marshal code
@@ -315,8 +377,7 @@ class BugsTestCase(unittest.TestCase):
         unicode_string = 'T'
         self.assertRaises(TypeError, marshal.loads, unicode_string)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_reader(self):
         class BadReader(io.BytesIO):
             def readinto(self, buf):
@@ -332,6 +393,54 @@ class BugsTestCase(unittest.TestCase):
         data = marshal.dumps(("hello", "dolly", None))
         for i in range(len(data)):
             self.assertRaises(EOFError, marshal.loads, data[0: i])
+
+    def test_deterministic_sets(self):
+        # bpo-37596: To support reproducible builds, sets and frozensets need to
+        # have their elements serialized in a consistent order (even when they
+        # have been scrambled by hash randomization):
+        for kind in ("set", "frozenset"):
+            for elements in (
+                "float('nan'), b'a', b'b', b'c', 'x', 'y', 'z'",
+                # Also test for bad interactions with backreferencing:
+                "('Spam', 0), ('Spam', 1), ('Spam', 2), ('Spam', 3), ('Spam', 4), ('Spam', 5)",
+            ):
+                s = f"{kind}([{elements}])"
+                with self.subTest(s):
+                    # First, make sure that our test case still has different
+                    # orders under hash seeds 0 and 1. If this check fails, we
+                    # need to update this test with different elements. Skip
+                    # this part if we are configured to use any other hash
+                    # algorithm (for example, using Py_HASH_EXTERNAL):
+                    if sys.hash_info.algorithm in {"fnv", "siphash24"}:
+                        args = ["-c", f"print({s})"]
+                        _, repr_0, _ = assert_python_ok(*args, PYTHONHASHSEED="0")
+                        _, repr_1, _ = assert_python_ok(*args, PYTHONHASHSEED="1")
+                        self.assertNotEqual(repr_0, repr_1)
+                    # Then, perform the actual test:
+                    args = ["-c", f"import marshal; print(marshal.dumps({s}))"]
+                    _, dump_0, _ = assert_python_ok(*args, PYTHONHASHSEED="0")
+                    _, dump_1, _ = assert_python_ok(*args, PYTHONHASHSEED="1")
+                    self.assertEqual(dump_0, dump_1)
+
+    def test_unmarshallable(self):
+        # Check no crash after encountering unmarshallable objects.
+        # See https://github.com/python/cpython/issues/106287.
+        fset = frozenset([int])
+        code = compile("a = 1", "<string>", "exec")
+        code = code.replace(co_consts=(1, fset, None))
+        cases = (('tuple', (fset,)),
+                 ('list', [fset]),
+                 ('set', fset),
+                 ('dict key', {fset: 'x'}),
+                 ('dict value', {'x': fset}),
+                 ('dict key & value', {fset: fset}),
+                 ('slice', slice(fset, fset)),
+                 ('code', code))
+        for name, arg in cases:
+            with self.subTest(name, arg=arg):
+                with self.assertRaisesRegex(ValueError, "unmarshallable object"):
+                    marshal.dumps((arg, memoryview(b'')))
+
 
 LARGE_SIZE = 2**31
 pointer_size = 8 if sys.maxsize > 0xFFFFFFFF else 4
@@ -420,76 +529,66 @@ class InstancingTestCase(unittest.TestCase, HelperMixin):
             else:
                 self.assertGreaterEqual(len(s2), len(s3))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testInt(self):
         intobj = 123321
         self.helper(intobj)
         self.helper3(intobj, simple=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testFloat(self):
         floatobj = 1.2345
         self.helper(floatobj)
         self.helper3(floatobj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testStr(self):
         strobj = "abcde"*3
         self.helper(strobj)
         self.helper3(strobj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testBytes(self):
         bytesobj = b"abcde"*3
         self.helper(bytesobj)
         self.helper3(bytesobj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testList(self):
         for obj in self.keys:
             listobj = [obj, obj]
             self.helper(listobj)
             self.helper3(listobj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testTuple(self):
         for obj in self.keys:
             tupleobj = (obj, obj)
             self.helper(tupleobj)
             self.helper3(tupleobj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSet(self):
         for obj in self.keys:
             setobj = {(obj, 1), (obj, 2)}
             self.helper(setobj)
             self.helper3(setobj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testFrozenSet(self):
         for obj in self.keys:
             frozensetobj = frozenset({(obj, 1), (obj, 2)})
             self.helper(frozensetobj)
             self.helper3(frozensetobj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testDict(self):
         for obj in self.keys:
             dictobj = {"hello": obj, "goodbye": obj, obj: "hello"}
             self.helper(dictobj)
             self.helper3(dictobj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testModule(self):
         with open(__file__, "rb") as f:
             code = f.read()
@@ -533,8 +632,7 @@ class InterningTestCase(unittest.TestCase, HelperMixin):
     strobj = "this is an interned string"
     strobj = sys.intern(strobj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testIntern(self):
         s = marshal.loads(marshal.dumps(self.strobj))
         self.assertEqual(s, self.strobj)
@@ -548,6 +646,19 @@ class InterningTestCase(unittest.TestCase, HelperMixin):
         self.assertNotEqual(id(s), id(self.strobj))
         s2 = sys.intern(s)
         self.assertNotEqual(id(s2), id(s))
+
+class SliceTestCase(unittest.TestCase, HelperMixin):
+    def test_slice(self):
+        for obj in (
+            slice(None), slice(1), slice(1, 2), slice(1, 2, 3),
+            slice({'set'}, ('tuple', {'with': 'dict'}, ), self.helper.__code__)
+        ):
+            with self.subTest(obj=str(obj)):
+                self.helper(obj)
+
+                for version in range(4):
+                    with self.assertRaises(ValueError):
+                        marshal.dumps(obj, version)
 
 @support.cpython_only
 @unittest.skipUnless(_testcapi, 'requires _testcapi')
@@ -609,7 +720,7 @@ class CAPI_TestCase(unittest.TestCase, HelperMixin):
             self.assertEqual(r, obj)
 
             with open(os_helper.TESTFN, 'wb') as f:
-                f.write(data[:1])
+                f.write(omit_last_byte(data))
             with self.assertRaises(EOFError):
                 _testcapi.pymarshal_read_last_object_from_file(os_helper.TESTFN)
             os_helper.unlink(os_helper.TESTFN)
@@ -626,7 +737,7 @@ class CAPI_TestCase(unittest.TestCase, HelperMixin):
             self.assertEqual(p, len(data))
 
             with open(os_helper.TESTFN, 'wb') as f:
-                f.write(data[:1])
+                f.write(omit_last_byte(data))
             with self.assertRaises(EOFError):
                 _testcapi.pymarshal_read_object_from_file(os_helper.TESTFN)
             os_helper.unlink(os_helper.TESTFN)
