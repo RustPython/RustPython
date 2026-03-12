@@ -178,7 +178,6 @@ pub(super) mod _os {
     };
     use core::time::Duration;
     use crossbeam_utils::atomic::AtomicCell;
-    use itertools::Itertools;
     use rustpython_common::wtf8::Wtf8Buf;
     use std::{env, fs, fs::OpenOptions, io, path::PathBuf, time::SystemTime};
 
@@ -1363,29 +1362,30 @@ pub(super) mod _os {
     #[pyclass(with(PyStructSequence))]
     impl PyStatResult {
         #[pyslot]
-        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let flatten_args = |r: &[PyObjectRef]| {
-                let mut vec_args = Vec::from(r);
-                loop {
-                    if let Ok(obj) = vec_args.iter().exactly_one() {
-                        match obj.downcast_ref::<PyTuple>() {
-                            Some(t) => {
-                                vec_args = Vec::from(t.as_slice());
-                            }
-                            None => {
-                                return vec_args;
-                            }
-                        }
-                    } else {
-                        return vec_args;
-                    }
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let seq: PyObjectRef = args.bind(vm)?;
+            let result = crate::types::struct_sequence_new(cls.clone(), seq, vm)?;
+            let tuple = result.downcast_ref::<PyTuple>().unwrap();
+            let mut items: Vec<PyObjectRef> = tuple.to_vec();
+
+            // Derive hidden time fields from integer time fields.
+            // indices 7-9 are st_atime_int, st_mtime_int, st_ctime_int.
+            // i+3 → st_atime/st_mtime/st_ctime (float)
+            // i+6 → st_atime_ns/st_mtime_ns/st_ctime_ns (int nanoseconds)
+            for i in 7..=9 {
+                if vm.is_none(&items[i + 3]) {
+                    let float_val = items[i].try_float(vm)?;
+                    items[i + 3] = float_val.into();
                 }
-            };
+                if vm.is_none(&items[i + 6]) {
+                    let int_val: i64 = items[i].clone().try_into_value(vm)?;
+                    items[i + 6] = vm.ctx.new_int(int_val as i128 * 1_000_000_000).into();
+                }
+            }
 
-            let args: FuncArgs = flatten_args(&args.args).into();
-
-            let stat: StatResultData = args.bind(vm)?;
-            Ok(stat.to_pyobject(vm))
+            PyTuple::new_unchecked(items.into_boxed_slice())
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 

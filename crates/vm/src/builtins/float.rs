@@ -534,7 +534,7 @@ fn vectorcall_float(
 ) -> PyResult {
     let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
-    PyFloat::slot_new(zelf.to_owned(), func_args, vm)
+    (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
 }
 
 #[rustfmt::skip] // to avoid line splitting
