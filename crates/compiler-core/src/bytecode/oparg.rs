@@ -872,3 +872,56 @@ impl LoadAttrBuilder {
         self
     }
 }
+
+macro_rules! newtype_oparg {
+    (
+      $(#[$oparg_meta:meta])*
+      $vis:vis struct $name:ident(u32)
+    ) => {
+        $(#[$oparg_meta])*
+        $vis struct $name(u32);
+
+        impl $name {
+            #[must_use]
+            pub const fn from_u32(value: u32) -> Self {
+                Self(value)
+            }
+
+            /// Returns the oparg as a `u32` value.
+            #[must_use]
+            pub const fn as_u32(self) -> u32 {
+                self.0
+            }
+
+            /// Returns the oparg as a `usize` value.
+            #[must_use]
+            pub const fn as_usize(self) -> usize {
+              self.0 as usize
+            }
+        }
+
+        impl From<u32> for $name {
+            fn from(value: u32) -> Self {
+                Self::from_u32(value)
+            }
+        }
+
+        impl From<$name> for u32 {
+            fn from(value: $name) -> Self {
+                value.as_u32()
+            }
+        }
+
+        impl OpArgType for $name {}
+    }
+}
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    pub struct ConstIdx(u32)
+);
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    pub struct VarNum(u32)
+);

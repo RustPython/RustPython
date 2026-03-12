@@ -40,6 +40,8 @@ use crate::{
     warn::WarningsState,
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
+#[cfg(all(unix, feature = "threading"))]
+use core::sync::atomic::AtomicI64;
 use core::{
     cell::{Cell, OnceCell, RefCell},
     ptr::NonNull,
@@ -92,6 +94,7 @@ pub struct VirtualMachine {
     pub initialized: bool,
     recursion_depth: Cell<usize>,
     /// C stack soft limit for detecting stack overflow (like c_stack_soft_limit)
+    #[cfg_attr(miri, allow(dead_code))]
     c_stack_soft_limit: Cell<usize>,
     /// Async generator firstiter hook (per-thread, set via sys.set_asyncgen_hooks)
     pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
@@ -101,6 +104,7 @@ pub struct VirtualMachine {
     pub asyncio_running_loop: RefCell<Option<PyObjectRef>>,
     /// Current running asyncio task for this thread
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
+    pub(crate) callable_cache: CallableCache,
 }
 
 /// Non-owning frame pointer for the frames stack.
@@ -131,11 +135,15 @@ struct ExceptionStack {
 pub struct StopTheWorldState {
     /// Fast-path flag checked in the bytecode loop (like `_PY_EVAL_PLEASE_STOP_BIT`)
     pub(crate) requested: AtomicBool,
+    /// Whether the world is currently stopped (`stw->world_stopped`).
+    world_stopped: AtomicBool,
     /// Ident of the thread that requested the stop (like `stw->requester`)
     requester: AtomicU64,
     /// Signaled by suspending threads when their state transitions to SUSPENDED
     notify_mutex: std::sync::Mutex<()>,
     notify_cv: std::sync::Condvar,
+    /// Number of non-requester threads still expected to park for current stop request.
+    thread_countdown: AtomicI64,
     /// Number of stop-the-world attempts.
     stats_stop_calls: AtomicU64,
     /// Most recent stop-the-world wait duration in ns.
@@ -156,8 +164,6 @@ pub struct StopTheWorldState {
     stats_attach_wait_yields: AtomicU64,
     /// Number of yield loops while suspend waited on SUSPENDED->DETACHED.
     stats_suspend_wait_yields: AtomicU64,
-    /// Number of yield loops while detach waited on SUSPENDED->DETACHED.
-    stats_detach_wait_yields: AtomicU64,
 }
 
 #[cfg(all(unix, feature = "threading"))]
@@ -173,7 +179,7 @@ pub struct StopTheWorldStats {
     pub suspend_notifications: u64,
     pub attach_wait_yields: u64,
     pub suspend_wait_yields: u64,
-    pub detach_wait_yields: u64,
+    pub world_stopped: bool,
 }
 
 #[cfg(all(unix, feature = "threading"))]
@@ -188,9 +194,11 @@ impl StopTheWorldState {
     pub const fn new() -> Self {
         Self {
             requested: AtomicBool::new(false),
+            world_stopped: AtomicBool::new(false),
             requester: AtomicU64::new(0),
             notify_mutex: std::sync::Mutex::new(()),
             notify_cv: std::sync::Condvar::new(),
+            thread_countdown: AtomicI64::new(0),
             stats_stop_calls: AtomicU64::new(0),
             stats_last_wait_ns: AtomicU64::new(0),
             stats_total_wait_ns: AtomicU64::new(0),
@@ -201,7 +209,6 @@ impl StopTheWorldState {
             stats_suspend_notifications: AtomicU64::new(0),
             stats_attach_wait_yields: AtomicU64::new(0),
             stats_suspend_wait_yields: AtomicU64::new(0),
-            stats_detach_wait_yields: AtomicU64::new(0),
         }
     }
 
@@ -209,18 +216,48 @@ impl StopTheWorldState {
     pub(crate) fn notify_suspended(&self) {
         self.stats_suspend_notifications
             .fetch_add(1, Ordering::Relaxed);
-        // Just signal the condvar; the requester holds the mutex.
+        // Synchronize with requester wait loop to avoid lost wakeups.
+        let _guard = self.notify_mutex.lock().unwrap();
+        self.decrement_thread_countdown(1);
         self.notify_cv.notify_one();
     }
 
+    #[inline]
+    fn init_thread_countdown(&self, vm: &VirtualMachine) -> i64 {
+        let requester = self.requester.load(Ordering::Relaxed);
+        let registry = vm.state.thread_frames.lock();
+        // Keep requested/count initialization serialized with thread-slot
+        // registration (which also takes this lock), matching the
+        // HEAD_LOCK-guarded stop-the-world bookkeeping.
+        self.requested.store(true, Ordering::Release);
+        let count = registry
+            .keys()
+            .filter(|&&thread_id| thread_id != requester)
+            .count();
+        let count = (count.min(i64::MAX as usize)) as i64;
+        self.thread_countdown.store(count, Ordering::Release);
+        count
+    }
+
+    #[inline]
+    fn decrement_thread_countdown(&self, n: u64) {
+        if n == 0 {
+            return;
+        }
+        let n = (n.min(i64::MAX as u64)) as i64;
+        let prev = self.thread_countdown.fetch_sub(n, Ordering::AcqRel);
+        if prev <= n {
+            // Clamp at 0 for safety in case of duplicate notifications.
+            self.thread_countdown.store(0, Ordering::Release);
+        }
+    }
+
     /// Try to CAS detached threads directly to SUSPENDED and check whether
-    /// all non-requester threads are now SUSPENDED.
-    /// Like CPython's `park_detached_threads`.
+    /// stop countdown reached zero after parking detached threads.
     fn park_detached_threads(&self, vm: &VirtualMachine) -> bool {
         use thread::{THREAD_ATTACHED, THREAD_DETACHED, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = vm.state.thread_frames.lock();
-        let mut all_suspended = true;
         let mut attached_seen = 0u64;
         let mut forced_parks = 0u64;
         for (&id, slot) in registry.iter() {
@@ -230,17 +267,40 @@ impl StopTheWorldState {
             let state = slot.state.load(Ordering::Relaxed);
             if state == THREAD_DETACHED {
                 // CAS DETACHED → SUSPENDED (park without thread cooperation)
-                let _ = slot.state.compare_exchange(
+                match slot.state.compare_exchange(
                     THREAD_DETACHED,
                     THREAD_SUSPENDED,
                     Ordering::AcqRel,
                     Ordering::Relaxed,
-                );
-                all_suspended = false; // re-check on next poll
-                forced_parks = forced_parks.saturating_add(1);
+                ) {
+                    Ok(_) => {
+                        slot.stop_requested.store(false, Ordering::Release);
+                        forced_parks = forced_parks.saturating_add(1);
+                    }
+                    Err(THREAD_ATTACHED) => {
+                        // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
+                        slot.stop_requested.store(true, Ordering::Release);
+                        // Raced with a thread re-attaching; it will self-suspend.
+                        attached_seen = attached_seen.saturating_add(1);
+                    }
+                    Err(THREAD_DETACHED) => {
+                        // Extremely unlikely race; next poll will handle it.
+                    }
+                    Err(THREAD_SUSPENDED) => {
+                        slot.stop_requested.store(false, Ordering::Release);
+                        // Another path parked it first.
+                    }
+                    Err(other) => {
+                        debug_assert!(
+                            false,
+                            "unexpected thread state in park_detached_threads: {other}"
+                        );
+                    }
+                }
             } else if state == THREAD_ATTACHED {
+                // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
+                slot.stop_requested.store(true, Ordering::Release);
                 // Thread is in bytecode — it will see `requested` and self-suspend
-                all_suspended = false;
                 attached_seen = attached_seen.saturating_add(1);
             }
             // THREAD_SUSPENDED → already parked
@@ -250,13 +310,14 @@ impl StopTheWorldState {
                 .fetch_add(attached_seen, Ordering::Relaxed);
         }
         if forced_parks != 0 {
+            self.decrement_thread_countdown(forced_parks);
             self.stats_forced_parks
                 .fetch_add(forced_parks, Ordering::Relaxed);
         }
-        all_suspended
+        forced_parks != 0 && self.thread_countdown.load(Ordering::Acquire) == 0
     }
 
-    /// Stop all non-requester threads. Like CPython's `stop_the_world`.
+    /// Stop all non-requester threads (`stop_the_world`).
     ///
     /// 1. Sets `requested`, marking the requester thread.
     /// 2. CAS detached threads to SUSPENDED.
@@ -264,11 +325,20 @@ impl StopTheWorldState {
     ///    to self-suspend in `check_signals`.
     pub fn stop_the_world(&self, vm: &VirtualMachine) {
         let start = std::time::Instant::now();
-        let requester_ident = crate::stdlib::thread::get_ident();
+        let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
-        self.requested.store(true, Ordering::Release);
         self.stats_stop_calls.fetch_add(1, Ordering::Relaxed);
+        let initial_countdown = self.init_thread_countdown(vm);
         stw_trace(format_args!("stop begin requester={requester_ident}"));
+        if initial_countdown == 0 {
+            self.world_stopped.store(true, Ordering::Release);
+            #[cfg(debug_assertions)]
+            self.debug_assert_all_non_requester_suspended(vm);
+            stw_trace(format_args!(
+                "stop end requester={requester_ident} wait_ns=0 polls=0"
+            ));
+            return;
+        }
 
         let mut polls = 0u64;
         loop {
@@ -276,8 +346,15 @@ impl StopTheWorldState {
                 break;
             }
             polls = polls.saturating_add(1);
-            // Wait up to 1 ms for a thread to notify us it suspended
+            // Wait up to 1 ms for a thread to notify us it suspended.
+            // Re-check under the wait mutex first to avoid a lost-wake race:
+            // a thread may have suspended and notified right before we enter wait.
             let guard = self.notify_mutex.lock().unwrap();
+            if self.thread_countdown.load(Ordering::Acquire) == 0 || self.park_detached_threads(vm)
+            {
+                drop(guard);
+                break;
+            }
             let _ = self
                 .notify_cv
                 .wait_timeout(guard, core::time::Duration::from_millis(1));
@@ -301,6 +378,7 @@ impl StopTheWorldState {
                 Err(observed) => prev_max = observed,
             }
         }
+        self.world_stopped.store(true, Ordering::Release);
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_suspended(vm);
         stw_trace(format_args!(
@@ -308,26 +386,36 @@ impl StopTheWorldState {
         ));
     }
 
-    /// Resume all suspended threads. Like CPython's `start_the_world`.
+    /// Resume all suspended threads (`start_the_world`).
     pub fn start_the_world(&self, vm: &VirtualMachine) {
         use thread::{THREAD_DETACHED, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);
         stw_trace(format_args!("start begin requester={requester}"));
+        let registry = vm.state.thread_frames.lock();
         // Clear the request flag BEFORE waking threads. Otherwise a thread
         // returning from allow_threads → attach_thread could observe
         // `requested == true`, re-suspend itself, and stay parked forever.
+        // Keep this write under the registry lock to serialize with new
+        // thread-slot initialization.
         self.requested.store(false, Ordering::Release);
-        let registry = vm.state.thread_frames.lock();
+        self.world_stopped.store(false, Ordering::Release);
         for (&id, slot) in registry.iter() {
             if id == requester {
                 continue;
             }
-            if slot.state.load(Ordering::Relaxed) == THREAD_SUSPENDED {
+            slot.stop_requested.store(false, Ordering::Release);
+            let state = slot.state.load(Ordering::Relaxed);
+            debug_assert!(
+                state == THREAD_SUSPENDED,
+                "non-requester thread not suspended at start-the-world: id={id} state={state}"
+            );
+            if state == THREAD_SUSPENDED {
                 slot.state.store(THREAD_DETACHED, Ordering::Release);
                 slot.thread.unpark();
             }
         }
         drop(registry);
+        self.thread_countdown.store(0, Ordering::Release);
         self.requester.store(0, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(vm);
@@ -337,8 +425,22 @@ impl StopTheWorldState {
     /// Reset after fork in the child (only one thread alive).
     pub fn reset_after_fork(&self) {
         self.requested.store(false, Ordering::Relaxed);
+        self.world_stopped.store(false, Ordering::Relaxed);
         self.requester.store(0, Ordering::Relaxed);
+        self.thread_countdown.store(0, Ordering::Relaxed);
         stw_trace(format_args!("reset-after-fork"));
+    }
+
+    #[inline]
+    pub(crate) fn requester_ident(&self) -> u64 {
+        self.requester.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub(crate) fn notify_thread_gone(&self) {
+        let _guard = self.notify_mutex.lock().unwrap();
+        self.decrement_thread_countdown(1);
+        self.notify_cv.notify_one();
     }
 
     pub fn stats_snapshot(&self) -> StopTheWorldStats {
@@ -353,7 +455,7 @@ impl StopTheWorldState {
             suspend_notifications: self.stats_suspend_notifications.load(Ordering::Relaxed),
             attach_wait_yields: self.stats_attach_wait_yields.load(Ordering::Relaxed),
             suspend_wait_yields: self.stats_suspend_wait_yields.load(Ordering::Relaxed),
-            detach_wait_yields: self.stats_detach_wait_yields.load(Ordering::Relaxed),
+            world_stopped: self.world_stopped.load(Ordering::Relaxed),
         }
     }
 
@@ -368,7 +470,6 @@ impl StopTheWorldState {
         self.stats_suspend_notifications.store(0, Ordering::Relaxed);
         self.stats_attach_wait_yields.store(0, Ordering::Relaxed);
         self.stats_suspend_wait_yields.store(0, Ordering::Relaxed);
-        self.stats_detach_wait_yields.store(0, Ordering::Relaxed);
     }
 
     #[inline]
@@ -387,17 +488,9 @@ impl StopTheWorldState {
         }
     }
 
-    #[inline]
-    pub(crate) fn add_detach_wait_yields(&self, n: u64) {
-        if n != 0 {
-            self.stats_detach_wait_yields
-                .fetch_add(n, Ordering::Relaxed);
-        }
-    }
-
     #[cfg(debug_assertions)]
     fn debug_assert_all_non_requester_suspended(&self, vm: &VirtualMachine) {
-        use thread::THREAD_ATTACHED;
+        use thread::THREAD_SUSPENDED;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = vm.state.thread_frames.lock();
         for (&id, slot) in registry.iter() {
@@ -406,8 +499,8 @@ impl StopTheWorldState {
             }
             let state = slot.state.load(Ordering::Relaxed);
             debug_assert!(
-                state != THREAD_ATTACHED,
-                "non-requester thread still attached during stop-the-world: id={id} state={state}"
+                state == THREAD_SUSPENDED,
+                "non-requester thread not suspended during stop-the-world: id={id} state={state}"
             );
         }
     }
@@ -469,13 +562,20 @@ pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
         let _ = writeln!(
             &mut out,
             "[rp-stw tid={}] {}",
-            crate::stdlib::thread::get_ident(),
+            crate::stdlib::_thread::get_ident(),
             msg
         );
         unsafe {
             let _ = libc::write(libc::STDERR_FILENO, out.buf.as_ptr().cast(), out.len);
         }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CallableCache {
+    pub len: Option<PyObjectRef>,
+    pub isinstance: Option<PyObjectRef>,
+    pub list_append: Option<PyObjectRef>,
 }
 
 pub struct PyGlobalState {
@@ -485,7 +585,7 @@ pub struct PyGlobalState {
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
-    pub atexit_funcs: PyMutex<Vec<(PyObjectRef, FuncArgs)>>,
+    pub atexit_funcs: PyMutex<Vec<Box<(PyObjectRef, FuncArgs)>>>,
     pub codec_registry: CodecsRegistry,
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
@@ -504,13 +604,13 @@ pub struct PyGlobalState {
     pub main_thread_ident: AtomicCell<u64>,
     /// Registry of all threads' slots for sys._current_frames() and sys._current_exceptions()
     #[cfg(feature = "threading")]
-    pub thread_frames: parking_lot::Mutex<HashMap<u64, stdlib::thread::CurrentFrameSlot>>,
+    pub thread_frames: parking_lot::Mutex<HashMap<u64, stdlib::_thread::CurrentFrameSlot>>,
     /// Registry of all ThreadHandles for fork cleanup
     #[cfg(feature = "threading")]
-    pub thread_handles: parking_lot::Mutex<Vec<stdlib::thread::HandleEntry>>,
+    pub thread_handles: parking_lot::Mutex<Vec<stdlib::_thread::HandleEntry>>,
     /// Registry for non-daemon threads that need to be joined at shutdown
     #[cfg(feature = "threading")]
-    pub shutdown_handles: parking_lot::Mutex<Vec<stdlib::thread::ShutdownEntry>>,
+    pub shutdown_handles: parking_lot::Mutex<Vec<stdlib::_thread::ShutdownEntry>>,
     /// sys.monitoring state (tool names, events, callbacks)
     pub monitoring: PyMutex<stdlib::sys::monitoring::MonitoringState>,
     /// Fast-path mask: OR of all tools' events. 0 means no monitoring overhead.
@@ -531,6 +631,19 @@ pub fn process_hash_secret_seed() -> u32 {
 }
 
 impl VirtualMachine {
+    fn init_callable_cache(&mut self) -> PyResult<()> {
+        self.callable_cache.len = Some(self.builtins.get_attr("len", self)?);
+        self.callable_cache.isinstance = Some(self.builtins.get_attr("isinstance", self)?);
+        let list_append = self
+            .ctx
+            .types
+            .list_type
+            .get_attr(self.ctx.intern_str("append"))
+            .ok_or_else(|| self.new_runtime_error("failed to cache list.append".to_owned()))?;
+        self.callable_cache.list_append = Some(list_append);
+        Ok(())
+    }
+
     /// Bump-allocate `size` bytes from the thread data stack.
     ///
     /// # Safety
@@ -538,6 +651,12 @@ impl VirtualMachine {
     #[inline(always)]
     pub(crate) fn datastack_push(&self, size: usize) -> *mut u8 {
         unsafe { (*self.datastack.get()).push(size) }
+    }
+
+    /// Check whether the thread data stack currently has room for `size` bytes.
+    #[inline(always)]
+    pub(crate) fn datastack_has_space(&self, size: usize) -> bool {
+        unsafe { (*self.datastack.get()).has_space(size) }
     }
 
     /// Pop a previous data stack allocation.
@@ -566,7 +685,7 @@ impl VirtualMachine {
     pub(crate) fn is_main_thread(&self) -> bool {
         #[cfg(feature = "threading")]
         {
-            crate::stdlib::thread::get_ident() == self.state.main_thread_ident.load()
+            crate::stdlib::_thread::get_ident() == self.state.main_thread_ident.load()
         }
         #[cfg(not(feature = "threading"))]
         {
@@ -623,6 +742,7 @@ impl VirtualMachine {
             async_gen_finalizer: RefCell::new(None),
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
+            callable_cache: CallableCache::default(),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -754,9 +874,11 @@ impl VirtualMachine {
 
         // Initialize main thread ident before any threading operations
         #[cfg(feature = "threading")]
-        stdlib::thread::init_main_thread_ident(self);
+        stdlib::_thread::init_main_thread_ident(self);
 
         stdlib::builtins::init_module(self, &self.builtins);
+        let callable_cache_init = self.init_callable_cache();
+        self.expect_pyresult(callable_cache_init, "failed to initialize callable cache");
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
         self.expect_pyresult(
             stdlib::sys::set_bootstrap_stderr(self),
@@ -782,10 +904,10 @@ impl VirtualMachine {
                 let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
                     let buffered_stdio = self.state.config.settings.buffered_stdio;
                     let unbuffered = write && !buffered_stdio;
-                    let buf = crate::stdlib::io::open(
+                    let buf = crate::stdlib::_io::open(
                         self.ctx.new_int(fd).into(),
                         Some(if write { "wb" } else { "rb" }),
-                        crate::stdlib::io::OpenArgs {
+                        crate::stdlib::_io::OpenArgs {
                             buffering: if unbuffered { 0 } else { -1 },
                             closefd: false,
                             ..Default::default()
@@ -1298,6 +1420,7 @@ impl VirtualMachine {
 
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// 2048 * sizeof(void*) = 16KB for 64-bit.
+    #[cfg_attr(miri, allow(dead_code))]
     const STACK_MARGIN_BYTES: usize = 2048 * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
@@ -1427,7 +1550,7 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_frame_exc(frame, None, f)
+        self.with_frame_impl(frame, None, true, f)
     }
 
     /// Like `with_frame` but allows specifying the initial exception state.
@@ -1435,6 +1558,24 @@ impl VirtualMachine {
         &self,
         frame: FrameRef,
         exc: Option<PyBaseExceptionRef>,
+        f: F,
+    ) -> PyResult<R> {
+        self.with_frame_impl(frame, exc, true, f)
+    }
+
+    pub(crate) fn with_frame_untraced<R, F: FnOnce(FrameRef) -> PyResult<R>>(
+        &self,
+        frame: FrameRef,
+        f: F,
+    ) -> PyResult<R> {
+        self.with_frame_impl(frame, None, false, f)
+    }
+
+    fn with_frame_impl<R, F: FnOnce(FrameRef) -> PyResult<R>>(
+        &self,
+        frame: FrameRef,
+        exc: Option<PyBaseExceptionRef>,
+        traced: bool,
         f: F,
     ) -> PyResult<R> {
         self.with_recursion("", || {
@@ -1471,7 +1612,11 @@ impl VirtualMachine {
                 crate::vm::thread::pop_thread_frame();
             }
 
-            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+            if traced {
+                self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+            } else {
+                f(frame.to_owned())
+            }
         })
     }
 
@@ -1835,6 +1980,26 @@ impl VirtualMachine {
     pub(crate) fn get_str_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
         let method_name = self.ctx.interned_str(method_name)?;
         self.get_method(obj, method_name)
+    }
+
+    #[inline]
+    pub(crate) fn eval_breaker_tripped(&self) -> bool {
+        #[cfg(feature = "threading")]
+        if self.state.finalizing.load(Ordering::Relaxed) && !self.is_main_thread() {
+            return true;
+        }
+
+        #[cfg(all(unix, feature = "threading"))]
+        if thread::stop_requested_for_current_thread() {
+            return true;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if crate::signal::is_triggered() {
+            return true;
+        }
+
+        false
     }
 
     #[inline]

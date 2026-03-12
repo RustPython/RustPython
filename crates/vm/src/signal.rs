@@ -91,6 +91,11 @@ pub(crate) fn set_triggered() {
     ANY_TRIGGERED.store(true, Ordering::Release);
 }
 
+#[inline(always)]
+pub(crate) fn is_triggered() -> bool {
+    ANY_TRIGGERED.load(Ordering::Relaxed)
+}
+
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
 #[cfg(unix)]
@@ -116,7 +121,7 @@ pub fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
 #[allow(dead_code)]
 #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
 pub fn set_interrupt_ex(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
-    use crate::stdlib::signal::_signal::{SIG_DFL, SIG_IGN, run_signal};
+    use crate::stdlib::_signal::_signal::{SIG_DFL, SIG_IGN, run_signal};
     assert_in_range(signum, vm)?;
 
     match signum as usize {

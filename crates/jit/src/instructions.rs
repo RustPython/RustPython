@@ -6,7 +6,7 @@ use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::bytecode::{
     self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction,
-    IntrinsicFunction1, Label, OpArg, OpArgState,
+    IntrinsicFunction1, Label, OpArg, OpArgState, oparg,
 };
 use std::collections::HashMap;
 
@@ -94,7 +94,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
         for (i, (ty, val)) in arg_types.iter().zip(params).enumerate() {
             compiler
-                .store_variable(i as u32, JitValue::from_type_and_value(ty.clone(), val))
+                .store_variable(
+                    (i as u32).into(),
+                    JitValue::from_type_and_value(ty.clone(), val),
+                )
                 .unwrap();
         }
         compiler
@@ -105,14 +108,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.stack.drain(stack_len - count..).collect()
     }
 
-    fn store_variable(
-        &mut self,
-        idx: bytecode::NameIdx,
-        val: JitValue,
-    ) -> Result<(), JitCompileError> {
+    fn store_variable(&mut self, idx: oparg::VarNum, val: JitValue) -> Result<(), JitCompileError> {
         let builder = &mut self.builder;
         let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-        let local = self.variables[idx as usize].get_or_insert_with(|| {
+        let local = self.variables[idx].get_or_insert_with(|| {
             let var = builder.declare_var(ty.to_cranelift());
             Local {
                 var,
@@ -637,9 +636,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::LoadConst { consti } => {
-                let val = self.prepare_const(
-                    bytecode.constants[consti.get(arg) as usize].borrow_constant(),
-                )?;
+                let val =
+                    self.prepare_const(bytecode.constants[consti.get(arg)].borrow_constant())?;
                 self.stack.push(val);
                 Ok(())
             }
@@ -650,7 +648,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
-                let local = self.variables[var_num.get(arg) as usize]
+                let local = self.variables[var_num.get(arg)]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.stack.push(JitValue::from_type_and_value(

@@ -1500,14 +1500,25 @@ impl PyRef<PyStr> {
     }
 
     pub fn concat_in_place(&mut self, other: &Wtf8, vm: &VirtualMachine) {
-        // TODO: call [A]Rc::get_mut on the str to try to mutate the data in place
         if other.is_empty() {
             return;
         }
         let mut s = Wtf8Buf::with_capacity(self.byte_len() + other.len());
         s.push_wtf8(self.as_ref());
         s.push_wtf8(other);
-        *self = PyStr::from(s).into_ref(&vm.ctx);
+        if self.as_object().strong_count() == 1 {
+            // SAFETY: strong_count()==1 guarantees unique ownership of this PyStr.
+            // Mutating payload in place preserves semantics while avoiding PyObject reallocation.
+            unsafe {
+                let payload = self.payload() as *const PyStr as *mut PyStr;
+                (*payload).data = PyStr::from(s).data;
+                (*payload)
+                    .hash
+                    .store(hash::SENTINEL, atomic::Ordering::Relaxed);
+            }
+        } else {
+            *self = PyStr::from(s).into_ref(&vm.ctx);
+        }
     }
 
     pub fn try_into_utf8(self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {
@@ -1678,13 +1689,23 @@ impl ToPyObject for Wtf8Buf {
 
 impl ToPyObject for char {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(self).into()
+        let cp = self as u32;
+        if cp <= u8::MAX as u32 {
+            vm.ctx.latin1_char(cp as u8).into()
+        } else {
+            vm.ctx.new_str(self).into()
+        }
     }
 }
 
 impl ToPyObject for CodePoint {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(self).into()
+        let cp = self.to_u32();
+        if cp <= u8::MAX as u32 {
+            vm.ctx.latin1_char(cp as u8).into()
+        } else {
+            vm.ctx.new_str(self).into()
+        }
     }
 }
 
@@ -1726,7 +1747,7 @@ impl ToPyObject for AsciiString {
 
 impl ToPyObject for AsciiChar {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(self).into()
+        vm.ctx.latin1_char(u8::from(self)).into()
     }
 }
 

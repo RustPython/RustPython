@@ -1251,6 +1251,26 @@ mod _winapi {
 
                 err
             };
+
+            // Without GIL, the Python-level PipeConnection._send_bytes has a
+            // race on _send_ov when the caller (SimpleQueue) skips locking on
+            // Windows. Wait for completion here so the caller never sees
+            // ERROR_IO_PENDING and never blocks in WaitForMultipleObjects,
+            // keeping the _send_ov window negligibly small.
+            if err == ERROR_IO_PENDING {
+                let event = ov.inner.lock().overlapped.hEvent;
+                vm.allow_threads(|| unsafe {
+                    windows_sys::Win32::System::Threading::WaitForSingleObject(
+                        event,
+                        windows_sys::Win32::System::Threading::INFINITE,
+                    );
+                });
+                let result = vm
+                    .ctx
+                    .new_tuple(vec![ov.into_pyobject(vm), vm.ctx.new_int(0u32).into()]);
+                return Ok(result.into());
+            }
+
             let result = vm
                 .ctx
                 .new_tuple(vec![ov.into_pyobject(vm), vm.ctx.new_int(err).into()]);
@@ -1517,7 +1537,7 @@ mod _winapi {
 
         #[cfg(feature = "threading")]
         let sigint_event = {
-            let is_main = crate::stdlib::thread::get_ident() == vm.state.main_thread_ident.load();
+            let is_main = crate::stdlib::_thread::get_ident() == vm.state.main_thread_ident.load();
             if is_main {
                 let handle = crate::signal::get_sigint_event().unwrap_or_else(|| {
                     let handle = unsafe { WinCreateEventW(null(), 1, 0, null()) };

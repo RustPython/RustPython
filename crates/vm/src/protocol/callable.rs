@@ -146,6 +146,14 @@ pub(crate) enum TraceEvent {
 }
 
 impl TraceEvent {
+    /// Whether sys.settrace receives this event.
+    fn is_trace_event(&self) -> bool {
+        matches!(
+            self,
+            Self::Call | Self::Return | Self::Exception | Self::Line | Self::Opcode
+        )
+    }
+
     /// Whether sys.setprofile receives this event.
     /// In legacy_tracing.c, profile callbacks are only registered for
     /// PY_RETURN, PY_UNWIND, C_CALL, C_RETURN, C_RAISE.
@@ -211,6 +219,7 @@ impl VirtualMachine {
             return Ok(None);
         }
 
+        let is_trace_event = event.is_trace_event();
         let is_profile_event = event.is_profile_event();
         let is_opcode_event = event.is_opcode_event();
 
@@ -231,7 +240,7 @@ impl VirtualMachine {
 
         // temporarily disable tracing, during the call to the
         // tracing function itself.
-        if !self.is_none(&trace_func) {
+        if is_trace_event && !self.is_none(&trace_func) {
             self.use_tracing.set(false);
             let res = trace_func.call(args.clone(), self);
             self.use_tracing.set(true);

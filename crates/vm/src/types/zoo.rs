@@ -198,7 +198,7 @@ impl TypeZoo {
             weakproxy_type: weakproxy::PyWeakProxy::init_builtin_type(),
             method_descriptor_type: descriptor::PyMethodDescriptor::init_builtin_type(),
             none_type: singletons::PyNone::init_builtin_type(),
-            typing_no_default_type: crate::stdlib::typing::NoDefault::init_builtin_type(),
+            typing_no_default_type: crate::stdlib::_typing::NoDefault::init_builtin_type(),
             not_implemented_type: singletons::PyNotImplemented::init_builtin_type(),
             generic_alias_type: genericalias::PyGenericAlias::init_builtin_type(),
             generic_alias_iterator_type: genericalias::PyGenericAliasIterator::init_builtin_type(),
@@ -265,6 +265,6 @@ impl TypeZoo {
         interpolation::init(context);
         template::init(context);
         descriptor::init(context);
-        crate::stdlib::typing::init(context);
+        crate::stdlib::_typing::init(context);
     }
 }

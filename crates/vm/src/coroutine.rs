@@ -189,7 +189,7 @@ impl Coro {
         exc_tb: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
-        // Validate throw arguments (matching CPython _gen_throw)
+        // Validate throw arguments (_gen_throw)
         if exc_type.fast_isinstance(vm.ctx.exceptions.base_exception_type) && !vm.is_none(&exc_val)
         {
             return Err(vm.new_type_error("instance exception may not have a separate value"));

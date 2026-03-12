@@ -13,7 +13,7 @@ use crate::{
     bytecode,
     class::PyClassImpl,
     common::wtf8::{Wtf8Buf, wtf8_concat},
-    frame::Frame,
+    frame::{Frame, FrameRef},
     function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{
@@ -529,6 +529,10 @@ impl PyFunction {
 }
 
 impl Py<PyFunction> {
+    pub(crate) fn is_optimized_for_call_specialization(&self) -> bool {
+        self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
+    }
+
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
@@ -636,52 +640,80 @@ impl Py<PyFunction> {
         new_v
     }
 
+    /// function_kind(SIMPLE_FUNCTION) equivalent for CALL specialization.
+    /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args.
+    pub(crate) fn is_simple_for_call_specialization(&self) -> bool {
+        let code: &Py<PyCode> = &self.code;
+        let flags = code.flags;
+        flags.contains(bytecode::CodeFlags::OPTIMIZED)
+            && !flags.intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
+            && code.kwonlyarg_count == 0
+    }
+
     /// Check if this function is eligible for exact-args call specialization.
-    /// Returns true if: no VARARGS, no VARKEYWORDS, no kwonly args, not generator/coroutine,
+    /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args,
     /// and effective_nargs matches co_argcount.
     pub(crate) fn can_specialize_call(&self, effective_nargs: u32) -> bool {
         let code: &Py<PyCode> = &self.code;
         let flags = code.flags;
-        flags.contains(bytecode::CodeFlags::NEWLOCALS)
-            && !flags.intersects(
-                bytecode::CodeFlags::VARARGS
-                    | bytecode::CodeFlags::VARKEYWORDS
-                    | bytecode::CodeFlags::GENERATOR
-                    | bytecode::CodeFlags::COROUTINE,
-            )
+        flags.contains(bytecode::CodeFlags::OPTIMIZED)
+            && !flags.intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
             && code.kwonlyarg_count == 0
             && code.arg_count == effective_nargs
     }
 
-    /// Fast path for calling a simple function with exact positional args.
-    /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
-    /// Only valid when: no VARARGS, no VARKEYWORDS, no kwonlyargs, not generator/coroutine,
-    /// and nargs == co_argcount.
-    pub fn invoke_exact_args(&self, mut args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    /// Runtime guard for CALL_*_EXACT_ARGS specialization: check only argcount.
+    /// Other invariants are guaranteed by function versioning and specialization-time checks.
+    #[inline]
+    pub(crate) fn has_exact_argcount(&self, effective_nargs: u32) -> bool {
+        self.code.arg_count == effective_nargs
+    }
+
+    /// Bytes required for this function's frame on RustPython's thread datastack.
+    /// Returns `None` for generator/coroutine code paths that do not push a
+    /// regular datastack-backed frame in the fast call path.
+    pub(crate) fn datastack_frame_size_bytes(&self) -> Option<usize> {
+        datastack_frame_size_bytes_for_code(&self.code)
+    }
+
+    pub(crate) fn prepare_exact_args_frame(
+        &self,
+        mut args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> FrameRef {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
-        debug_assert!(code.flags.contains(bytecode::CodeFlags::NEWLOCALS));
-        debug_assert!(!code.flags.intersects(
-            bytecode::CodeFlags::VARARGS
-                | bytecode::CodeFlags::VARKEYWORDS
-                | bytecode::CodeFlags::GENERATOR
-                | bytecode::CodeFlags::COROUTINE
-        ));
+        debug_assert!(code.flags.contains(bytecode::CodeFlags::OPTIMIZED));
+        debug_assert!(
+            !code
+                .flags
+                .intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
+        );
         debug_assert_eq!(code.kwonlyarg_count, 0);
+        debug_assert!(
+            !code
+                .flags
+                .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+        );
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            None
+        } else {
+            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+        };
 
         let frame = Frame::new(
             code.clone(),
-            Scope::new(None, self.globals.clone()),
+            Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             Some(self.to_owned().into()),
-            true, // Always use datastack (invoke_exact_args is never gen/coro)
+            true, // Exact-args fast path is only used for non-gen/coro functions.
             vm,
         )
         .into_ref(&vm.ctx);
 
-        // Move args directly into fastlocals (no clone/refcount needed)
         {
             let fastlocals = unsafe { frame.fastlocals_mut() };
             for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..)) {
@@ -689,7 +721,6 @@ impl Py<PyFunction> {
             }
         }
 
-        // Handle cell2arg
         if let Some(cell2arg) = code.cell2arg.as_deref() {
             let fastlocals = unsafe { frame.fastlocals_mut() };
             for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
@@ -697,6 +728,36 @@ impl Py<PyFunction> {
                 frame.set_cell_contents(cell_idx, x);
             }
         }
+
+        frame
+    }
+
+    /// Fast path for calling a simple function with exact positional args.
+    /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
+    /// Only valid when: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonlyargs,
+    /// and nargs == co_argcount.
+    pub fn invoke_exact_args(&self, args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+        let code: PyRef<PyCode> = (*self.code).to_owned();
+
+        debug_assert_eq!(args.len(), code.arg_count as usize);
+        debug_assert!(code.flags.contains(bytecode::CodeFlags::OPTIMIZED));
+        debug_assert!(
+            !code
+                .flags
+                .intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
+        );
+        debug_assert_eq!(code.kwonlyarg_count, 0);
+
+        // Generator/coroutine code objects are SIMPLE_FUNCTION in call
+        // specialization classification, but their call path must still
+        // go through invoke() to produce generator/coroutine objects.
+        if code
+            .flags
+            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+        {
+            return self.invoke(FuncArgs::from(args), vm);
+        }
+        let frame = self.prepare_exact_args_frame(args, vm);
 
         let result = vm.run_frame(frame.clone());
         unsafe {
@@ -706,6 +767,22 @@ impl Py<PyFunction> {
         }
         result
     }
+}
+
+pub(crate) fn datastack_frame_size_bytes_for_code(code: &Py<PyCode>) -> Option<usize> {
+    if code
+        .flags
+        .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+    {
+        return None;
+    }
+    let nlocalsplus = code
+        .varnames
+        .len()
+        .checked_add(code.cellvars.len())?
+        .checked_add(code.freevars.len())?;
+    let capacity = nlocalsplus.checked_add(code.max_stackdepth as usize)?;
+    capacity.checked_mul(core::mem::size_of::<usize>())
 }
 
 impl PyPayload for PyFunction {
@@ -1300,6 +1377,7 @@ pub(crate) fn vectorcall_function(
 
     let has_kwargs = kwnames.is_some_and(|kw| !kw.is_empty());
     let is_simple = !has_kwargs
+        && code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
         && !code.flags.contains(bytecode::CodeFlags::VARKEYWORDS)
         && code.kwonlyarg_count == 0
@@ -1310,37 +1388,8 @@ pub(crate) fn vectorcall_function(
     if is_simple && nargs == code.arg_count as usize {
         // FAST PATH: simple positional-only call, exact arg count.
         // Move owned args directly into fastlocals — no clone needed.
-        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
-            None // lazy allocation — most frames never access locals dict
-        } else {
-            Some(ArgMapping::from_dict_exact(zelf.globals.clone()))
-        };
-
-        let frame = Frame::new(
-            code.to_owned(),
-            Scope::new(locals, zelf.globals.clone()),
-            zelf.builtins.clone(),
-            zelf.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            Some(zelf.to_owned().into()),
-            true, // Always use datastack (is_simple excludes gen/coro)
-            vm,
-        )
-        .into_ref(&vm.ctx);
-
-        {
-            let fastlocals = unsafe { frame.fastlocals_mut() };
-            for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..nargs)) {
-                *slot = Some(arg);
-            }
-        }
-
-        if let Some(cell2arg) = code.cell2arg.as_deref() {
-            let fastlocals = unsafe { frame.fastlocals_mut() };
-            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
-                let x = fastlocals[*arg_idx as usize].take();
-                frame.set_cell_contents(cell_idx, x);
-            }
-        }
+        args.truncate(nargs);
+        let frame = zelf.prepare_exact_args_frame(args, vm);
 
         let result = vm.run_frame(frame.clone());
         unsafe {

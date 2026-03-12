@@ -769,7 +769,7 @@ pub mod module {
         run_at_forkers(before_forkers, true, vm);
 
         #[cfg(feature = "threading")]
-        crate::stdlib::imp::acquire_imp_lock_for_fork();
+        crate::stdlib::_imp::acquire_imp_lock_for_fork();
 
         #[cfg(feature = "threading")]
         vm.state.stop_the_world.stop_the_world(vm);
@@ -790,12 +790,12 @@ pub mod module {
         // held by dead parent threads, causing deadlocks on any IO in the child.
         #[cfg(feature = "threading")]
         unsafe {
-            crate::stdlib::io::reinit_std_streams_after_fork(vm)
+            crate::stdlib::_io::reinit_std_streams_after_fork(vm)
         };
 
         // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
-        crate::stdlib::signal::_signal::clear_wakeup_fd_after_fork();
+        crate::stdlib::_signal::_signal::clear_wakeup_fd_after_fork();
 
         // Reset weakref stripe locks that may have been held during fork.
         #[cfg(feature = "threading")]
@@ -804,13 +804,13 @@ pub mod module {
         // Phase 3: Clean up thread state. Locks are now reinit'd so we can
         // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
-        crate::stdlib::thread::after_fork_child(vm);
+        crate::stdlib::_thread::after_fork_child(vm);
 
         // CPython parity: reinit import lock ownership metadata in child
         // and release the lock acquired by PyOS_BeforeFork().
         #[cfg(feature = "threading")]
         unsafe {
-            crate::stdlib::imp::after_fork_child_imp_lock_release()
+            crate::stdlib::_imp::after_fork_child_imp_lock_release()
         };
 
         // Initialize signal handlers for the child's main thread.
@@ -857,7 +857,7 @@ pub mod module {
             crate::gc_state::gc_state().reinit_after_fork();
 
             // Import lock (RawReentrantMutex<RawMutex, RawThreadId>)
-            crate::stdlib::imp::reinit_imp_lock_after_fork();
+            crate::stdlib::_imp::reinit_imp_lock_after_fork();
         }
     }
 
@@ -866,63 +866,135 @@ pub mod module {
         vm.state.stop_the_world.start_the_world(vm);
 
         #[cfg(feature = "threading")]
-        crate::stdlib::imp::release_imp_lock_after_fork_parent();
+        crate::stdlib::_imp::release_imp_lock_after_fork_parent();
 
         let after_forkers_parent: Vec<PyObjectRef> = vm.state.after_forkers_parent.lock().clone();
         run_at_forkers(after_forkers_parent, false, vm);
     }
 
-    /// Warn if forking from a multi-threaded process
-    fn warn_if_multi_threaded(name: &str, vm: &VirtualMachine) {
-        // Only check threading if it was already imported
-        // Avoid vm.import() which can execute arbitrary Python code in the fork path
-        let threading = match vm
-            .sys_module
-            .get_attr("modules", vm)
-            .and_then(|m| m.get_item("threading", vm))
+    /// Best-effort number of OS threads in this process.
+    /// Returns <= 0 when unavailable.
+    fn get_number_of_os_threads() -> isize {
+        #[cfg(target_os = "macos")]
         {
-            Ok(m) => m,
-            Err(_) => return,
-        };
-        let active = threading.get_attr("_active", vm).ok();
-        let limbo = threading.get_attr("_limbo", vm).ok();
+            type MachPortT = libc::c_uint;
+            type KernReturnT = libc::c_int;
+            type MachMsgTypeNumberT = libc::c_uint;
+            type ThreadActArrayT = *mut MachPortT;
+            const KERN_SUCCESS: KernReturnT = 0;
+            unsafe extern "C" {
+                fn mach_task_self() -> MachPortT;
+                fn task_for_pid(
+                    task: MachPortT,
+                    pid: libc::c_int,
+                    target_task: *mut MachPortT,
+                ) -> KernReturnT;
+                fn task_threads(
+                    target_task: MachPortT,
+                    act_list: *mut ThreadActArrayT,
+                    act_list_cnt: *mut MachMsgTypeNumberT,
+                ) -> KernReturnT;
+                fn vm_deallocate(
+                    target_task: MachPortT,
+                    address: libc::uintptr_t,
+                    size: libc::uintptr_t,
+                ) -> KernReturnT;
+            }
 
-        let count_dict = |obj: Option<crate::PyObjectRef>| -> usize {
-            obj.and_then(|o| o.length_opt(vm))
-                .and_then(|r| r.ok())
+            let self_task = unsafe { mach_task_self() };
+            let mut proc_task: MachPortT = 0;
+            if unsafe { task_for_pid(self_task, libc::getpid(), &mut proc_task) } == KERN_SUCCESS {
+                let mut threads: ThreadActArrayT = core::ptr::null_mut();
+                let mut n_threads: MachMsgTypeNumberT = 0;
+                if unsafe { task_threads(proc_task, &mut threads, &mut n_threads) } == KERN_SUCCESS
+                {
+                    if !threads.is_null() {
+                        let _ = unsafe {
+                            vm_deallocate(
+                                self_task,
+                                threads as libc::uintptr_t,
+                                (n_threads as usize * core::mem::size_of::<MachPortT>())
+                                    as libc::uintptr_t,
+                            )
+                        };
+                    }
+                    return n_threads as isize;
+                }
+            }
+            0
+        }
+        #[cfg(target_os = "linux")]
+        {
+            use std::io::Read as _;
+            let mut file = match std::fs::File::open("/proc/self/stat") {
+                Ok(f) => f,
+                Err(_) => return 0,
+            };
+            let mut buf = [0u8; 160];
+            let n = match file.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => return 0,
+            };
+            let line = match core::str::from_utf8(&buf[..n]) {
+                Ok(s) => s,
+                Err(_) => return 0,
+            };
+            if let Some(field) = line.split_whitespace().nth(19) {
+                return field.parse::<isize>().unwrap_or(0);
+            }
+            0
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            0
+        }
+    }
+
+    /// Warn if forking from a multi-threaded process.
+    /// `num_os_threads` should be captured before parent after-fork hooks run.
+    fn warn_if_multi_threaded(name: &str, num_os_threads: isize, vm: &VirtualMachine) {
+        let num_threads = if num_os_threads > 0 {
+            num_os_threads as usize
+        } else {
+            // CPython fallback: if OS-level count isn't available, use the
+            // threading module's active+limbo view.
+            // Only check threading if it was already imported. Avoid vm.import()
+            // which can execute arbitrary Python code in the fork path.
+            let threading = match vm
+                .sys_module
+                .get_attr("modules", vm)
+                .and_then(|m| m.get_item("threading", vm))
+            {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+            let active = threading.get_attr("_active", vm).ok();
+            let limbo = threading.get_attr("_limbo", vm).ok();
+
+            // Match threading module internals and avoid sequence overcounting:
+            // count only dict-backed _active/_limbo containers.
+            let count_dict = |obj: Option<crate::PyObjectRef>| -> usize {
+                obj.and_then(|o| {
+                    o.downcast_ref::<crate::builtins::PyDict>()
+                        .map(|d| d.__len__())
+                })
                 .unwrap_or(0)
+            };
+
+            count_dict(active) + count_dict(limbo)
         };
 
-        let num_threads = count_dict(active) + count_dict(limbo);
         if num_threads > 1 {
-            // Use Python warnings module to ensure filters are applied correctly
-            let Ok(warnings) = vm.import("warnings", 0) else {
-                return;
-            };
-            let Ok(warn_fn) = warnings.get_attr("warn", vm) else {
-                return;
-            };
-
             let pid = unsafe { libc::getpid() };
             let msg = format!(
                 "This process (pid={}) is multi-threaded, use of {}() may lead to deadlocks in the child.",
                 pid, name
             );
 
-            // Call warnings.warn(message, DeprecationWarning, stacklevel=2)
-            // stacklevel=2 to point to the caller of fork()
-            let args = crate::function::FuncArgs::new(
-                vec![
-                    vm.ctx.new_str(msg).into(),
-                    vm.ctx.exceptions.deprecation_warning.as_object().to_owned(),
-                ],
-                crate::function::KwArgs::new(
-                    [("stacklevel".to_owned(), vm.ctx.new_int(2).into())]
-                        .into_iter()
-                        .collect(),
-                ),
-            );
-            let _ = warn_fn.call(args, vm);
+            // Match PyErr_WarnFormat(..., stacklevel=1) in CPython.
+            // Best effort: ignore failures like CPython does in this path.
+            let _ =
+                crate::stdlib::_warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm);
         }
     }
 
@@ -953,9 +1025,12 @@ pub mod module {
         if pid == 0 {
             py_os_after_fork_child(vm);
         } else {
+            // Match CPython timing: capture this before parent after-fork hooks
+            // in case those hooks start threads.
+            let num_os_threads = get_number_of_os_threads();
             py_os_after_fork_parent(vm);
             // Match CPython timing: warn only after parent callback path resumes world.
-            warn_if_multi_threaded("fork", vm);
+            warn_if_multi_threaded("fork", num_os_threads, vm);
         }
         if pid == -1 {
             Err(nix::Error::from_raw(saved_errno).into_pyexception(vm))

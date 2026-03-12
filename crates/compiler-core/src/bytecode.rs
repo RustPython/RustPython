@@ -11,7 +11,7 @@ use bitflags::bitflags;
 use core::{
     cell::UnsafeCell,
     hash, mem,
-    ops::Deref,
+    ops::{Deref, Index, IndexMut},
     sync::atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering},
 };
 use itertools::Itertools;
@@ -32,7 +32,7 @@ pub use crate::bytecode::{
 };
 
 mod instruction;
-mod oparg;
+pub mod oparg;
 
 /// Exception table entry for zero-cost exception handling
 /// Format: (start, size, target, depth<<1|lasti)
@@ -293,6 +293,47 @@ impl ConstantBag for BasicBag {
     }
 }
 
+#[derive(Clone)]
+pub struct Constants<C: Constant>(Box<[C]>);
+
+impl<C: Constant> Deref for Constants<C> {
+    type Target = [C];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<C: Constant> Index<oparg::ConstIdx> for Constants<C> {
+    type Output = C;
+
+    fn index(&self, consti: oparg::ConstIdx) -> &Self::Output {
+        &self.0[consti.as_usize()]
+    }
+}
+
+impl<C: Constant> FromIterator<C> for Constants<C> {
+    fn from_iter<T: IntoIterator<Item = C>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+// TODO: Newtype "CodeObject.varnames". Make sure only `oparg:VarNum` can be used as index
+impl<T> Index<oparg::VarNum> for [T] {
+    type Output = T;
+
+    fn index(&self, var_num: oparg::VarNum) -> &Self::Output {
+        &self[var_num.as_usize()]
+    }
+}
+
+// TODO: Newtype "CodeObject.varnames". Make sure only `oparg:VarNum` can be used as index
+impl<T> IndexMut<oparg::VarNum> for [T] {
+    fn index_mut(&mut self, var_num: oparg::VarNum) -> &mut Self::Output {
+        &mut self[var_num.as_usize()]
+    }
+}
+
 /// Primary container of a single code object. Each python function has
 /// a code object. Also a module has a code object.
 #[derive(Clone)]
@@ -312,7 +353,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
     /// Qualified name of the object (like CPython's co_qualname)
     pub qualname: C::Name,
     pub cell2arg: Option<Box<[i32]>>,
-    pub constants: Box<[C]>,
+    pub constants: Constants<C>,
     pub names: Box<[C::Name]>,
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
@@ -1012,16 +1053,14 @@ impl<C: Constant> CodeObject<C> {
     pub fn map_bag<Bag: ConstantBag>(self, bag: Bag) -> CodeObject<Bag::Constant> {
         let map_names = |names: Box<[C::Name]>| {
             names
-                .into_vec()
-                .into_iter()
+                .iter()
                 .map(|x| bag.make_name(x.as_ref()))
                 .collect::<Box<[_]>>()
         };
         CodeObject {
             constants: self
                 .constants
-                .into_vec()
-                .into_iter()
+                .iter()
                 .map(|x| bag.make_constant(x.borrow_constant()))
                 .collect(),
             names: map_names(self.names),
@@ -1095,11 +1134,11 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
 pub trait InstrDisplayContext {
     type Constant: Constant;
 
-    fn get_constant(&self, i: usize) -> &Self::Constant;
+    fn get_constant(&self, consti: oparg::ConstIdx) -> &Self::Constant;
 
     fn get_name(&self, i: usize) -> &str;
 
-    fn get_varname(&self, i: usize) -> &str;
+    fn get_varname(&self, var_num: oparg::VarNum) -> &str;
 
     fn get_cell_name(&self, i: usize) -> &str;
 }
@@ -1107,16 +1146,16 @@ pub trait InstrDisplayContext {
 impl<C: Constant> InstrDisplayContext for CodeObject<C> {
     type Constant = C;
 
-    fn get_constant(&self, i: usize) -> &C {
-        &self.constants[i]
+    fn get_constant(&self, consti: oparg::ConstIdx) -> &C {
+        &self.constants[consti]
     }
 
     fn get_name(&self, i: usize) -> &str {
         self.names[i].as_ref()
     }
 
-    fn get_varname(&self, i: usize) -> &str {
-        self.varnames[i].as_ref()
+    fn get_varname(&self, var_num: oparg::VarNum) -> &str {
+        self.varnames[var_num].as_ref()
     }
 
     fn get_cell_name(&self, i: usize) -> &str {

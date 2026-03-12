@@ -1527,9 +1527,9 @@ dependencies = [
 
 [[package]]
 name = "insta"
-version = "1.46.1"
+version = "1.46.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "248b42847813a1550dafd15296fd9748c651d0c32194559dbc05d804d54b21e8"
+checksum = "e82db8c87c7f1ccecb34ce0c24399b8a73081427f3c7c50a5d597925356115e4"
 dependencies = [
  "console",
  "once_cell",
@@ -2258,8 +2258,7 @@ dependencies = [
 [[package]]
 name = "parking_lot_core"
 version = "0.9.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
+source = "git+https://github.com/youknowone/parking_lot?branch=rustpython#4392edbe879acc9c0dd94eda53d2205d3ab912c9"
 dependencies = [
  "cfg-if",
  "libc",
@@ -2863,7 +2862,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_ast"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
+source = "git+https://github.com/astral-sh/ruff.git?rev=5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be#5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be"
 dependencies = [
  "aho-corasick",
  "bitflags 2.11.0",
@@ -2881,7 +2880,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_parser"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
+source = "git+https://github.com/astral-sh/ruff.git?rev=5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be#5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be"
 dependencies = [
  "bitflags 2.11.0",
  "bstr",
@@ -2901,7 +2900,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_trivia"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
+source = "git+https://github.com/astral-sh/ruff.git?rev=5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be#5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be"
 dependencies = [
  "itertools 0.14.0",
  "ruff_source_file",
@@ -2912,7 +2911,7 @@ dependencies = [
 [[package]]
 name = "ruff_source_file"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
+source = "git+https://github.com/astral-sh/ruff.git?rev=5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be#5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be"
 dependencies = [
  "memchr",
  "ruff_text_size",
@@ -2921,7 +2920,7 @@ dependencies = [
 [[package]]
 name = "ruff_text_size"
 version = "0.0.0"
-source = "git+https://github.com/astral-sh/ruff.git?rev=f14edd8661e2803254f89265548c7487f47a09f6#f14edd8661e2803254f89265548c7487f47a09f6"
+source = "git+https://github.com/astral-sh/ruff.git?rev=5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be#5e4a3d9c3b381df20f6a52caef0f56ed0ebc74be"
 dependencies = [
  "get-size2",
 ]
@@ -3283,6 +3282,10 @@ dependencies = [
  "pkcs8",
  "pymath",
  "rand_core 0.9.5",
+ "ruff_python_ast",
+ "ruff_python_parser",
+ "ruff_source_file",
+ "ruff_text_size",
  "rustix",
  "rustls",
  "rustls-native-certs",
@@ -3706,12 +3709,12 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "socket2"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
+checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3762,9 +3765,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
-version = "2.0.114"
+version = "2.0.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4d107df263a3013ef9b1879b0df87d706ff80f65a86ea879bd9c31f9b307c2a"
+checksum = "e665b8803e7b1d2a727f4023456bbbbe74da67099c585258af0ad9c5013b9b99"
 dependencies = [
  "proc-macro2",
  "quote",

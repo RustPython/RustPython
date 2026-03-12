@@ -1,5 +1,5 @@
 use super::VirtualMachine;
-use crate::stdlib::warnings;
+use crate::stdlib::_warnings;
 use crate::{
     PyRef,
     builtins::{PyInt, PyStr, PyStrRef, PyUtf8Str},
@@ -485,7 +485,7 @@ impl VirtualMachine {
             This returns the bitwise inversion of the underlying int object and is usually not what you expect from negating a bool. \
             Use the 'not' operator for boolean negation or ~int(x) if you really want the bitwise inversion of the underlying int.";
         if a.fast_isinstance(self.ctx.types.bool_type) {
-            warnings::warn(
+            _warnings::warn(
                 self.ctx.exceptions.deprecation_warning,
                 STR.to_owned(),
                 1,

@@ -154,6 +154,7 @@ prec
 preinitialized
 pybuilddir
 pycore
+pyinner
 pydecimal
 Pyfunc
 pylifecycle

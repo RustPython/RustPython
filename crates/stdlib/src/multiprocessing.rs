@@ -484,7 +484,7 @@ mod _multiprocessing {
                 tv_sec: (delay / 1_000_000) as _,
                 tv_usec: (delay % 1_000_000) as _,
             };
-            unsafe {
+            vm.allow_threads(|| unsafe {
                 libc::select(
                     0,
                     core::ptr::null_mut(),
@@ -492,7 +492,7 @@ mod _multiprocessing {
                     core::ptr::null_mut(),
                     &mut tv_delay,
                 )
-            };
+            });
 
             // check for signals - preserve the exception (e.g., KeyboardInterrupt)
             if let Err(exc) = vm.check_signals() {
@@ -706,27 +706,57 @@ mod _multiprocessing {
 
             // if (res < 0 && errno == EAGAIN && blocking)
             if res < 0 && Errno::last() == Errno::EAGAIN && blocking {
-                // Couldn't acquire immediately, need to block
+                // Couldn't acquire immediately, need to block.
+                //
+                // Save errno inside the allow_threads closure, before
+                // attach_thread() runs — matches CPython which saves
+                // `err = errno` before Py_END_ALLOW_THREADS.
+
                 #[cfg(not(target_vendor = "apple"))]
                 {
+                    let mut saved_errno;
                     loop {
+                        let sem_ptr = self.handle.as_ptr();
                         // Py_BEGIN_ALLOW_THREADS / Py_END_ALLOW_THREADS
-                        // RustPython doesn't have GIL, so we just do the wait
-                        if let Some(ref dl) = deadline {
-                            res = unsafe { libc::sem_timedwait(self.handle.as_ptr(), dl) };
+                        let (r, e) = if let Some(ref dl) = deadline {
+                            vm.allow_threads(|| {
+                                let r = unsafe { libc::sem_timedwait(sem_ptr, dl) };
+                                (
+                                    r,
+                                    if r < 0 {
+                                        Errno::last()
+                                    } else {
+                                        Errno::from_raw(0)
+                                    },
+                                )
+                            })
                         } else {
-                            res = unsafe { libc::sem_wait(self.handle.as_ptr()) };
-                        }
+                            vm.allow_threads(|| {
+                                let r = unsafe { libc::sem_wait(sem_ptr) };
+                                (
+                                    r,
+                                    if r < 0 {
+                                        Errno::last()
+                                    } else {
+                                        Errno::from_raw(0)
+                                    },
+                                )
+                            })
+                        };
+                        res = r;
+                        saved_errno = e;
 
                         if res >= 0 {
                             break;
                         }
-                        let err = Errno::last();
-                        if err == Errno::EINTR {
+                        if saved_errno == Errno::EINTR {
                             vm.check_signals()?;
                             continue;
                         }
                         break;
+                    }
+                    if res < 0 {
+                        return handle_wait_error(vm, saved_errno);
                     }
                 }
                 #[cfg(target_vendor = "apple")]
@@ -734,13 +764,11 @@ mod _multiprocessing {
                     // macOS: use polled fallback since sem_timedwait is not available
                     if let Some(ref dl) = deadline {
                         match sem_timedwait_polled(self.handle.as_ptr(), dl, vm) {
-                            Ok(()) => res = 0,
+                            Ok(()) => {}
                             Err(SemWaitError::Timeout) => {
-                                // Timeout occurred - return false directly
                                 return Ok(false);
                             }
                             Err(SemWaitError::SignalException(exc)) => {
-                                // Propagate the original exception (e.g., KeyboardInterrupt)
                                 return Err(exc);
                             }
                             Err(SemWaitError::OsError(e)) => {
@@ -749,30 +777,42 @@ mod _multiprocessing {
                         }
                     } else {
                         // No timeout: use sem_wait (available on macOS)
+                        let mut saved_errno;
                         loop {
-                            res = unsafe { libc::sem_wait(self.handle.as_ptr()) };
+                            let sem_ptr = self.handle.as_ptr();
+                            let (r, e) = vm.allow_threads(|| {
+                                let r = unsafe { libc::sem_wait(sem_ptr) };
+                                (
+                                    r,
+                                    if r < 0 {
+                                        Errno::last()
+                                    } else {
+                                        Errno::from_raw(0)
+                                    },
+                                )
+                            });
+                            res = r;
+                            saved_errno = e;
                             if res >= 0 {
                                 break;
                             }
-                            let err = Errno::last();
-                            if err == Errno::EINTR {
+                            if saved_errno == Errno::EINTR {
                                 vm.check_signals()?;
                                 continue;
                             }
                             break;
                         }
+                        if res < 0 {
+                            return handle_wait_error(vm, saved_errno);
+                        }
                     }
                 }
-            }
-
-            // result handling:
-            if res < 0 {
+            } else if res < 0 {
+                // Non-blocking path failed, or blocking=false
                 let err = Errno::last();
                 match err {
                     Errno::EAGAIN | Errno::ETIMEDOUT => return Ok(false),
                     Errno::EINTR => {
-                        // EINTR should be handled by the check_signals() loop above
-                        // If we reach here, check signals again and propagate any exception
                         return vm.check_signals().map(|_| false);
                     }
                     _ => return Err(os_error(vm, err)),
@@ -1078,6 +1118,14 @@ mod _multiprocessing {
         }
         full.push_str(name);
         CString::new(full).map_err(|_| vm.new_value_error("embedded null character"))
+    }
+
+    fn handle_wait_error(vm: &VirtualMachine, saved_errno: Errno) -> PyResult<bool> {
+        match saved_errno {
+            Errno::EAGAIN | Errno::ETIMEDOUT => Ok(false),
+            Errno::EINTR => vm.check_signals().map(|_| false),
+            _ => Err(os_error(vm, saved_errno)),
+        }
     }
 
     fn os_error(vm: &VirtualMachine, err: Errno) -> PyBaseExceptionRef {

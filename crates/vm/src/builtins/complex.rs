@@ -7,7 +7,7 @@ use crate::{
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
-    stdlib::warnings,
+    stdlib::_warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use core::cell::Cell;
@@ -58,7 +58,7 @@ impl PyPayload for PyComplex {
     }
 
     #[inline]
-    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         COMPLEX_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();
@@ -95,7 +95,7 @@ impl PyObjectRef {
 
             let ret_class = result.class().to_owned();
             if let Some(ret) = result.downcast_ref::<PyComplex>() {
-                warnings::warn(
+                _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
                         "__complex__ returned non-complex (type {ret_class}).  \

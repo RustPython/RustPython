@@ -174,6 +174,7 @@ pub struct PyTypeSlots {
     // tp_dictoffset
     pub init: AtomicCell<Option<InitFunc>>,
     // tp_alloc
+    pub alloc: AtomicCell<Option<AllocFunc>>,
     pub new: AtomicCell<Option<NewFunc>>,
     // tp_free
     // tp_is_gc
@@ -215,6 +216,7 @@ bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
     #[non_exhaustive]
     pub struct PyTypeFlags: u64 {
+        const MANAGED_WEAKREF = 1 << 3;
         const MANAGED_DICT = 1 << 4;
         const SEQUENCE = 1 << 5;
         const MAPPING = 1 << 6;
@@ -298,6 +300,7 @@ pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type DescrSetFunc =
     fn(&PyObject, PyObjectRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
+pub(crate) type AllocFunc = fn(PyTypeRef, usize, &VirtualMachine) -> PyResult;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
@@ -611,7 +614,7 @@ fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResu
     let res = vm.call_special_method(&obj, identifier!(vm, __init__), args)?;
     if !vm.is_none(&res) {
         return Err(vm.new_type_error(format!(
-            "__init__ should return None, not '{:.200}'",
+            "__init__() should return None, not '{:.200}'",
             res.class().name()
         )));
     }

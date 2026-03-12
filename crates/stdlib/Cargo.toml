@@ -31,6 +31,11 @@ rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
 
+ruff_python_parser = { workspace = true }
+ruff_python_ast = { workspace = true }
+ruff_text_size = { workspace = true }
+ruff_source_file = { workspace = true }
+
 ahash = { workspace = true }
 ascii = { workspace = true }
 cfg-if = { workspace = true }
@@ -115,7 +120,7 @@ rustix = { workspace = true }
 memmap2 = "0.9.9"
 page_size = "0.6"
 gethostname = "1.0.2"
-socket2 = { version = "0.6.0", features = ["all"] }
+socket2 = { version = "0.6.3", features = ["all"] }
 dns-lookup = "3.0"
 
 # OpenSSL dependencies (optional, for ssl-openssl feature)

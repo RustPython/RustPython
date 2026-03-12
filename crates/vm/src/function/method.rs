@@ -214,7 +214,7 @@ impl PyMethodDef {
         class: &'static Py<PyType>,
     ) -> PyRef<PyNativeMethod> {
         debug_assert!(self.flags.contains(PyMethodFlags::STATIC));
-        // Set zelf to the class, matching CPython's m_self = type for static methods.
+        // Set zelf to the class (m_self = type for static methods).
         // Callable::call skips prepending when STATIC flag is set.
         let func = PyNativeFunction {
             zelf: Some(class.to_owned().into()),

@@ -316,7 +316,6 @@ class TestCommandLine(TestCase):
             self.assertListEqual(out.splitlines(), stdout.splitlines())
             self.assertListEqual(err.splitlines(), stderr.splitlines())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Should displays error when errored python file is given.
     def test_with_errored_file(self):
         """Should displays error when errored python file is given."""
         with TemporaryPyFile(SOURCE_CODES["wrong_indented"]) as file_path:

@@ -1,0 +1,49 @@
+# This action installs a few dependencies necessary to build RustPython on Linux.
+# It can be configured depending on which libraries are needed:
+#
+# ```
+# - uses: ./.github/actions/install-linux-deps
+#   with:
+#     gcc-multilib: true
+#     musl-tools: false
+# ```
+#
+# See the `inputs` section for all options and their defaults. Note that you must checkout the
+# repository before you can use this action.
+#
+# This action will only install dependencies when the current operating system is Linux. It will do
+# nothing on any other OS (macOS, Windows).
+
+name: Install Linux dependencies
+description: Installs the dependencies necessary to build RustPython on Linux.
+inputs:
+  gcc-multilib:
+    description: Install gcc-multilib (gcc-multilib)
+    required: false
+    default: "false"
+  musl-tools:
+    description: Install musl-tools (musl-tools)
+    required: false
+    default: "false"
+  gcc-aarch64-linux-gnu:
+    description: Install gcc-aarch64-linux-gnu (gcc-aarch64-linux-gnu)
+    required: false
+    default: "false"
+  clang:
+    description: Install clang (clang)
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Install Linux dependencies
+      shell: bash
+      if: ${{ runner.os == 'Linux' }}
+      run: >
+        sudo apt-get update
+
+        sudo apt-get install --no-install-recommends
+        ${{ fromJSON(inputs.gcc-multilib) && 'gcc-multilib' || '' }}
+        ${{ fromJSON(inputs.musl-tools) && 'musl-tools' || '' }}
+        ${{ fromJSON(inputs.clang) && 'clang' || '' }}
+        ${{ fromJSON(inputs.gcc-aarch64-linux-gnu) && 'gcc-aarch64-linux-gnu linux-libc-dev-arm64-cross libc6-dev-arm64-cross' || '' }}

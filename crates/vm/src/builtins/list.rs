@@ -105,7 +105,7 @@ impl PyPayload for PyList {
     }
 
     #[inline]
-    unsafe fn freelist_pop() -> Option<NonNull<PyObject>> {
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         LIST_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();
@@ -286,7 +286,16 @@ impl PyList {
 
     fn _setitem(&self, needle: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
-            SequenceIndex::Int(index) => self.borrow_vec_mut().setitem_by_index(vm, index, value),
+            SequenceIndex::Int(index) => self
+                .borrow_vec_mut()
+                .setitem_by_index(vm, index, value)
+                .map_err(|e| {
+                    if e.class().is(vm.ctx.exceptions.index_error) {
+                        vm.new_index_error("list assignment index out of range".to_owned())
+                    } else {
+                        e
+                    }
+                }),
             SequenceIndex::Slice(slice) => {
                 let sec = extract_cloned(&value, Ok, vm)?;
                 self.borrow_vec_mut().setitem_by_slice(vm, slice, &sec)
@@ -509,6 +518,13 @@ impl AsSequence for PyList {
                 } else {
                     zelf.borrow_vec_mut().delitem_by_index(vm, i)
                 }
+                .map_err(|e| {
+                    if e.class().is(vm.ctx.exceptions.index_error) {
+                        vm.new_index_error("list assignment index out of range".to_owned())
+                    } else {
+                        e
+                    }
+                })
             }),
             contains: atomic_func!(|seq, target, vm| {
                 let zelf = PyList::sequence_downcast(seq);

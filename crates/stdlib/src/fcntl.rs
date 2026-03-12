@@ -8,7 +8,7 @@ mod fcntl {
         PyResult, VirtualMachine,
         builtins::PyIntRef,
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
-        stdlib::io,
+        stdlib::_io,
     };
 
     // TODO: supply these from <asm-generic/fnctl.h> (please file an issue/PR upstream):
@@ -57,7 +57,7 @@ mod fcntl {
 
     #[pyfunction]
     fn fcntl(
-        io::Fildes(fd): io::Fildes,
+        _io::Fildes(fd): _io::Fildes,
         cmd: i32,
         arg: OptionalArg<Either<ArgStrOrBytesLike, PyIntRef>>,
         vm: &VirtualMachine,
@@ -91,7 +91,7 @@ mod fcntl {
 
     #[pyfunction]
     fn ioctl(
-        io::Fildes(fd): io::Fildes,
+        _io::Fildes(fd): _io::Fildes,
         request: i64,
         arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
         mutate_flag: OptionalArg<bool>,
@@ -149,7 +149,7 @@ mod fcntl {
     // XXX: at the time of writing, wasi and redox don't have the necessary constants/function
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
-    fn flock(io::Fildes(fd): io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
+    fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
         let ret = unsafe { libc::flock(fd, operation) };
         // TODO: add support for platforms that don't have a builtin `flock` syscall
         if ret < 0 {
@@ -162,7 +162,7 @@ mod fcntl {
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn lockf(
-        io::Fildes(fd): io::Fildes,
+        _io::Fildes(fd): _io::Fildes,
         cmd: i32,
         len: OptionalArg<PyIntRef>,
         start: OptionalArg<PyIntRef>,
