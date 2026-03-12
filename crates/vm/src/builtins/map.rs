@@ -1,19 +1,21 @@
-use super::{PyType, PyTypeRef};
+use super::PyType;
 use crate::{
-    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::PyTupleRef,
     class::PyClassImpl,
-    function::PosArgs,
+    function::{ArgIntoBool, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
-    raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
+use rustpython_common::atomic::{self, PyAtomic, Radium};
 
 #[pyclass(module = false, name = "map", traverse)]
 #[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,
     iterators: Vec<PyIter>,
+    #[pytraverse(skip)]
+    strict: PyAtomic<bool>,
 }
 
 impl PyPayload for PyMap {
@@ -23,16 +25,27 @@ impl PyPayload for PyMap {
     }
 }
 
+#[derive(FromArgs)]
+pub struct PyMapNewArgs {
+    #[pyarg(named, optional)]
+    strict: OptionalArg<bool>,
+}
+
 impl Constructor for PyMap {
-    type Args = (PyObjectRef, PosArgs<PyIter>);
+    type Args = (PyObjectRef, PosArgs<PyIter>, PyMapNewArgs);
 
     fn py_new(
         _cls: &Py<PyType>,
-        (mapper, iterators): Self::Args,
+        (mapper, iterators, args): Self::Args,
         _vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let iterators = iterators.into_vec();
-        Ok(Self { mapper, iterators })
+        let strict = Radium::new(args.strict.unwrap_or(false));
+        Ok(Self {
+            mapper,
+            iterators,
+            strict,
+        })
     }
 }
 
@@ -48,10 +61,24 @@ impl PyMap {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
-        let mut vec = vec![self.mapper.clone()];
-        vec.extend(self.iterators.iter().map(|o| o.clone().into()));
-        (vm.ctx.types.map_type.to_owned(), vm.new_tuple(vec))
+    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let cls = zelf.class().to_owned();
+        let mut vec = vec![zelf.mapper.clone()];
+        vec.extend(zelf.iterators.iter().map(|o| o.clone().into()));
+        let tuple_args = vm.ctx.new_tuple(vec);
+        Ok(if zelf.strict.load(atomic::Ordering::Acquire) {
+            vm.new_tuple((cls, tuple_args, true))
+        } else {
+            vm.new_tuple((cls, tuple_args))
+        })
+    }
+
+    #[pymethod]
+    fn __setstate__(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
+            zelf.strict.store(obj.into(), atomic::Ordering::Release);
+        }
+        Ok(())
     }
 }
 
@@ -60,8 +87,35 @@ impl SelfIter for PyMap {}
 impl IterNext for PyMap {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut next_objs = Vec::new();
-        for iterator in &zelf.iterators {
-            let item = raise_if_stop!(iterator.next(vm)?);
+        for (idx, iterator) in zelf.iterators.iter().enumerate() {
+            let item = match iterator.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => {
+                    if zelf.strict.load(atomic::Ordering::Acquire) {
+                        if idx > 0 {
+                            let plural = if idx == 1 { " " } else { "s 1-" };
+                            return Err(vm.new_value_error(format!(
+                                "map() argument {} is shorter than argument{}{}",
+                                idx + 1,
+                                plural,
+                                idx,
+                            )));
+                        }
+                        for (idx, iterator) in zelf.iterators[1..].iter().enumerate() {
+                            if let PyIterReturn::Return(_) = iterator.next(vm)? {
+                                let plural = if idx == 0 { " " } else { "s 1-" };
+                                return Err(vm.new_value_error(format!(
+                                    "map() argument {} is longer than argument{}{}",
+                                    idx + 2,
+                                    plural,
+                                    idx + 1,
+                                )));
+                            }
+                        }
+                    }
+                    return Ok(PyIterReturn::StopIteration(v));
+                }
+            };
             next_objs.push(item);
         }
 
