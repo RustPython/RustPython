@@ -538,7 +538,7 @@ class TestPEP380Operation(unittest.TestCase):
             "finishing g",
         ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_broken_getattr_handling(self):
         """
         Test subiterator with a broken getattr implementation
@@ -882,7 +882,7 @@ class TestPEP380Operation(unittest.TestCase):
             yield from ()
         self.assertRaises(StopIteration, next, g())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_delegating_generators_claim_to_be_running(self):
         # Check with basic iteration
         def one():
@@ -909,7 +909,7 @@ class TestPEP380Operation(unittest.TestCase):
             pass
         self.assertEqual(res, [0, 1, 2, 3])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: Lists differ: [0, 1, 2] != [0, 1, 2, 3]
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Lists differ: [0, 1, 2] != [0, 1, 2, 3]
     def test_delegating_generators_claim_to_be_running_with_throw(self):
         # Check with throw
         class MyErr(Exception):
@@ -1071,7 +1071,7 @@ class TestInterestingEdgeCases(unittest.TestCase):
     def assert_generator_ignored_generator_exit(self):
         return self.assertRaisesRegex(RuntimeError, r"^generator ignored GeneratorExit$")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_close_and_throw_work(self):
 
         yielded_first = object()
@@ -1209,7 +1209,7 @@ class TestInterestingEdgeCases(unittest.TestCase):
             self.assertIsNone(caught.exception.__context__.__context__)
             self.assert_stop_iteration(g)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
     def test_close_and_throw_raise_stop_iteration(self):
 
         yielded_first = object()
@@ -1449,7 +1449,7 @@ class TestInterestingEdgeCases(unittest.TestCase):
             self.assertIsNone(caught.exception.__context__.__context__)
             self.assert_stop_iteration(g)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: None is not StopIteration()
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None is not StopIteration()
     def test_close_and_throw_yield(self):
 
         yielded_first = object()
@@ -1531,8 +1531,9 @@ class TestInterestingEdgeCases(unittest.TestCase):
             try:
                 yield yielded_first
                 yield yielded_second
-            finally:
-                return returned
+            except:
+                pass
+            return returned
 
         def outer():
             return (yield from inner())
@@ -1586,6 +1587,19 @@ class TestInterestingEdgeCases(unittest.TestCase):
             self.assertIs(caught.exception.value, returned)
             self.assertIsNone(caught.exception.__context__)
             self.assert_stop_iteration(g)
+
+    def test_throws_in_iter(self):
+        # See GH-126366: NULL pointer dereference if __iter__
+        # threw an exception.
+        class Silly:
+            def __iter__(self):
+                raise RuntimeError("nobody expects the spanish inquisition")
+
+        def my_generator():
+            yield from Silly()
+
+        with self.assertRaisesRegex(RuntimeError, "nobody expects the spanish inquisition"):
+            next(iter(my_generator()))
 
 
 if __name__ == '__main__':
