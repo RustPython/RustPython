@@ -7656,16 +7656,14 @@ impl Compiler {
         // We must have at least one generator:
         assert!(!generators.is_empty());
 
-        if is_inlined {
+        if is_inlined && !has_an_async_gen && !element_contains_await {
             // PEP 709: Inlined comprehension - compile inline without new scope
+            // Async comprehensions are not inlined due to complex exception handling
+            let was_in_inlined_comp = self.current_code_info().in_inlined_comp;
             self.current_code_info().in_inlined_comp = true;
-            let result = self.compile_inlined_comprehension(
-                init_collection,
-                generators,
-                compile_element,
-                has_an_async_gen,
-            );
-            self.current_code_info().in_inlined_comp = false;
+            let result =
+                self.compile_inlined_comprehension(init_collection, generators, compile_element);
+            self.current_code_info().in_inlined_comp = was_in_inlined_comp;
             return result;
         }
 
@@ -7853,7 +7851,6 @@ impl Compiler {
         init_collection: Option<AnyInstruction>,
         generators: &[ast::Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
-        _has_an_async_gen: bool,
     ) -> CompileResult<()> {
         // PEP 709: Consume the comprehension's sub_table (but we won't use it as a separate scope).
         // The symbols are already merged into parent scope by analyze_symbol_table.
@@ -7881,13 +7878,9 @@ impl Compiler {
         }
 
         // Step 1: Compile the outermost iterator
+        // Async comprehensions are never inlined, so only sync iteration here
         self.compile_expression(&generators[0].iter)?;
-        // Use is_async from the first generator, not has_an_async_gen which covers ALL generators
-        if generators[0].is_async {
-            emit!(self, Instruction::GetAIter);
-        } else {
-            emit!(self, Instruction::GetIter);
-        }
+        emit!(self, Instruction::GetIter);
 
         // Step 2: Save local variables that will be shadowed by the comprehension
         for name in &pushed_locals {
@@ -7937,32 +7930,15 @@ impl Compiler {
             if i > 0 {
                 // For nested loops, compile the iterator expression
                 self.compile_expression(&generator.iter)?;
-                if generator.is_async {
-                    emit!(self, Instruction::GetAIter);
-                } else {
-                    emit!(self, Instruction::GetIter);
-                }
+                emit!(self, Instruction::GetIter);
             }
 
             self.switch_to_block(loop_block);
-            let mut end_async_for_target = BlockIdx::NULL;
 
-            if generator.is_async {
-                emit!(self, Instruction::GetANext);
-                self.emit_load_const(ConstantData::None);
-                end_async_for_target = self.compile_yield_from_sequence(true)?;
-                self.compile_store(&generator.target)?;
-            } else {
-                emit!(self, Instruction::ForIter { delta: after_block });
-                self.compile_store(&generator.target)?;
-            }
-            loop_labels.push((
-                loop_block,
-                if_cleanup_block,
-                after_block,
-                generator.is_async,
-                end_async_for_target,
-            ));
+            emit!(self, Instruction::ForIter { delta: after_block });
+            self.compile_store(&generator.target)?;
+
+            loop_labels.push((loop_block, if_cleanup_block, after_block));
 
             // Evaluate the if conditions
             for if_condition in &generator.ifs {
@@ -7973,25 +7949,16 @@ impl Compiler {
         // Step 6: Compile the element expression and append to collection
         compile_element(self)?;
 
-        // Step 7: Close all loops
-        for (loop_block, if_cleanup_block, after_block, is_async, end_async_for_target) in
-            loop_labels.iter().rev().copied()
-        {
+        // Step 7: Close all loops (sync only - async comprehensions are never inlined)
+        for (loop_block, if_cleanup_block, after_block) in loop_labels.iter().rev().copied() {
             emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
             self.switch_to_block(if_cleanup_block);
             emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
             self.switch_to_block(after_block);
-            if is_async {
-                self.emit_end_async_for(end_async_for_target);
-                // Pop the iterator
-                emit!(self, Instruction::PopTop);
-            } else {
-                // END_FOR + POP_ITER pattern (CPython 3.14)
-                emit!(self, Instruction::EndFor);
-                emit!(self, Instruction::PopIter);
-            }
+            emit!(self, Instruction::EndFor);
+            emit!(self, Instruction::PopIter);
         }
 
         // Step 8: Clean up - restore saved locals

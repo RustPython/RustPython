@@ -2072,20 +2072,15 @@ impl SymbolTableBuilder {
         // Note: tables.last() is the comprehension scope we just pushed,
         // so we check the second-to-last for the parent scope.
         if !is_generator {
-            let parent_is_func = self
-                .tables
-                .iter()
-                .rev()
-                .nth(1)
-                .is_some_and(|t| {
-                    matches!(
-                        t.typ,
-                        CompilerScope::Function
-                            | CompilerScope::AsyncFunction
-                            | CompilerScope::Lambda
-                            | CompilerScope::Comprehension
-                    )
-                });
+            let parent_is_func = self.tables.iter().rev().nth(1).is_some_and(|t| {
+                matches!(
+                    t.typ,
+                    CompilerScope::Function
+                        | CompilerScope::AsyncFunction
+                        | CompilerScope::Lambda
+                        | CompilerScope::Comprehension
+                )
+            });
             if parent_is_func {
                 self.tables.last_mut().unwrap().comp_inlined = true;
             }
