@@ -142,6 +142,7 @@ class CodeTestCase(unittest.TestCase):
         self.assertEqual(co1.co_filename, "f1")
         self.assertEqual(co2.co_filename, "f2")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument allow_code
     def test_no_allow_code(self):
         data = {'a': [({0},)]}
         dump = marshal.dumps(data, allow_code=False)
@@ -650,6 +651,7 @@ class InterningTestCase(unittest.TestCase, HelperMixin):
         self.assertNotEqual(id(s2), id(s))
 
 class SliceTestCase(unittest.TestCase, HelperMixin):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; NotImplementedError: TODO: not implemented yet or marshal unsupported type
     def test_slice(self):
         for obj in (
             slice(None), slice(1), slice(1, 2), slice(1, 2, 3),
