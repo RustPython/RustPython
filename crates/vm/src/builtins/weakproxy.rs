@@ -178,10 +178,9 @@ fn proxy_upgrade(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
 }
 
 fn proxy_upgrade_opt(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-    if obj.downcast_ref::<PyWeakProxy>().is_some() {
-        Ok(Some(proxy_upgrade(obj, vm)?))
-    } else {
-        Ok(None)
+    match obj.downcast_ref::<PyWeakProxy>() {
+        Some(proxy) => Ok(Some(proxy.try_upgrade(vm)?)),
+        None => Ok(None),
     }
 }
 
@@ -200,82 +199,45 @@ macro_rules! proxy_unary_slot {
     };
 }
 
+fn proxy_binary_op(
+    a: &PyObject,
+    b: &PyObject,
+    vm: &VirtualMachine,
+    op: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
+) -> PyResult {
+    let a_up = proxy_upgrade_opt(a, vm)?;
+    let b_up = proxy_upgrade_opt(b, vm)?;
+    let a_ref = a_up.as_deref().unwrap_or(a);
+    let b_ref = b_up.as_deref().unwrap_or(b);
+    op(vm, a_ref, b_ref)
+}
+
 macro_rules! proxy_binary_slot {
-    ($slot:ident) => {
-        Some(|a, b, vm| {
-            let a_up = proxy_upgrade_opt(a, vm)?;
-            let b_up = proxy_upgrade_opt(b, vm)?;
-            let a_ref = a_up.as_deref().unwrap_or(a);
-            let b_ref = b_up.as_deref().unwrap_or(b);
-            if let Some(f) = a_ref.class().slots.as_number.$slot.load() {
-                f(a_ref, b_ref, vm)
-            } else {
-                Ok(vm.ctx.not_implemented())
-            }
-        })
-    };
-    ($slot:ident, $right_slot:ident) => {
-        Some(|a, b, vm| {
-            let a_up = proxy_upgrade_opt(a, vm)?;
-            let b_up = proxy_upgrade_opt(b, vm)?;
-            let a_ref = a_up.as_deref().unwrap_or(a);
-            let b_ref = b_up.as_deref().unwrap_or(b);
-            if a_up.is_some() {
-                // Proxy on the left: use forward slot
-                if let Some(f) = a_ref.class().slots.as_number.$slot.load() {
-                    f(a_ref, b_ref, vm)
-                } else {
-                    Ok(vm.ctx.not_implemented())
-                }
-            } else {
-                // Proxy on the right: use right slot
-                if let Some(f) = b_ref.class().slots.as_number.$right_slot.load() {
-                    f(a_ref, b_ref, vm)
-                } else {
-                    Ok(vm.ctx.not_implemented())
-                }
-            }
-        })
-    };
+  ($vm_method:ident) => {
+      Some(|a, b, vm| proxy_binary_op(a, b, vm, |vm, a, b| vm.$vm_method(a, b)))
+  };
+}
+
+fn proxy_ternary_op(
+    a: &PyObject,
+    b: &PyObject,
+    c: &PyObject,
+    vm: &VirtualMachine,
+    op: fn(&VirtualMachine, &PyObject, &PyObject, &PyObject) -> PyResult,
+) -> PyResult {
+    let a_up = proxy_upgrade_opt(a, vm)?;
+    let b_up = proxy_upgrade_opt(b, vm)?;
+    let c_up = proxy_upgrade_opt(c, vm)?;
+    let a_ref = a_up.as_deref().unwrap_or(a);
+    let b_ref = b_up.as_deref().unwrap_or(b);
+    let c_ref = c_up.as_deref().unwrap_or(c);
+    op(vm, a_ref, b_ref, c_ref)
 }
 
 macro_rules! proxy_ternary_slot {
-    ($slot:ident) => {
+    ($vm_method:ident) => {
         Some(|a, b, c, vm| {
-            let a_up = proxy_upgrade_opt(a, vm)?;
-            let b_up = proxy_upgrade_opt(b, vm)?;
-            let c_up = proxy_upgrade_opt(c, vm)?;
-            let a_ref = a_up.as_deref().unwrap_or(a);
-            let b_ref = b_up.as_deref().unwrap_or(b);
-            let c_ref = c_up.as_deref().unwrap_or(c);
-            if let Some(f) = a_ref.class().slots.as_number.$slot.load() {
-                f(a_ref, b_ref, c_ref, vm)
-            } else {
-                Ok(vm.ctx.not_implemented())
-            }
-        })
-    };
-    ($slot:ident, $right_slot:ident) => {
-        Some(|a, b, c, vm| {
-            let a_up = proxy_upgrade_opt(a, vm)?;
-            let b_up = proxy_upgrade_opt(b, vm)?;
-            let c_up = proxy_upgrade_opt(c, vm)?;
-            let a_ref = a_up.as_deref().unwrap_or(a);
-            let b_ref = b_up.as_deref().unwrap_or(b);
-            let c_ref = c_up.as_deref().unwrap_or(c);
-            if a_up.is_some() {
-                if let Some(f) = a_ref.class().slots.as_number.$slot.load() {
-                    f(a_ref, b_ref, c_ref, vm)
-                } else {
-                    Ok(vm.ctx.not_implemented())
-                }
-            } else {
-                if let Some(f) = b_ref.class().slots.as_number.$right_slot.load() {
-                    f(a_ref, b_ref, c_ref, vm)
-                } else {
-                    Ok(vm.ctx.not_implemented())
-                }
-            }
+            proxy_ternary_op(a, b, c, vm, |vm, a, b, c| vm.$vm_method(a, b, c))
         })
     };
 }
@@ -284,43 +246,52 @@ impl AsNumber for PyWeakProxy {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: LazyLock<PyNumberMethods> = LazyLock::new(|| PyNumberMethods {
             boolean: Some(|number, vm| {
-                let zelf = number.obj.downcast_ref::<PyWeakProxy>().unwrap();
-                zelf.try_upgrade(vm)?.is_true(vm)
+                let obj = proxy_upgrade(number.obj, vm)?;
+                obj.is_true(vm)
             }),
-            int: proxy_unary_slot!(int),
-            float: proxy_unary_slot!(float),
-            index: proxy_unary_slot!(index),
+            int: Some(|number, vm| {
+                let obj = proxy_upgrade(number.obj, vm)?;
+                obj.try_int(vm).map(Into::into)
+            }),
+            float: Some(|number, vm| {
+                let obj = proxy_upgrade(number.obj, vm)?;
+                obj.try_float(vm).map(Into::into)
+            }),
+            index: Some(|number, vm| {
+                let obj = proxy_upgrade(number.obj, vm)?;
+                obj.try_index(vm).map(Into::into)
+            }),
             negative: proxy_unary_slot!(negative),
             positive: proxy_unary_slot!(positive),
             absolute: proxy_unary_slot!(absolute),
             invert: proxy_unary_slot!(invert),
-            add: proxy_binary_slot!(add, right_add),
-            subtract: proxy_binary_slot!(subtract, right_subtract),
-            multiply: proxy_binary_slot!(multiply, right_multiply),
-            remainder: proxy_binary_slot!(remainder, right_remainder),
-            divmod: proxy_binary_slot!(divmod, right_divmod),
-            lshift: proxy_binary_slot!(lshift, right_lshift),
-            rshift: proxy_binary_slot!(rshift, right_rshift),
-            and: proxy_binary_slot!(and, right_and),
-            xor: proxy_binary_slot!(xor, right_xor),
-            or: proxy_binary_slot!(or, right_or),
-            floor_divide: proxy_binary_slot!(floor_divide, right_floor_divide),
-            true_divide: proxy_binary_slot!(true_divide, right_true_divide),
-            matrix_multiply: proxy_binary_slot!(matrix_multiply, right_matrix_multiply),
-            inplace_add: proxy_binary_slot!(inplace_add),
-            inplace_subtract: proxy_binary_slot!(inplace_subtract),
-            inplace_multiply: proxy_binary_slot!(inplace_multiply),
-            inplace_remainder: proxy_binary_slot!(inplace_remainder),
-            inplace_lshift: proxy_binary_slot!(inplace_lshift),
-            inplace_rshift: proxy_binary_slot!(inplace_rshift),
-            inplace_and: proxy_binary_slot!(inplace_and),
-            inplace_xor: proxy_binary_slot!(inplace_xor),
-            inplace_or: proxy_binary_slot!(inplace_or),
-            inplace_floor_divide: proxy_binary_slot!(inplace_floor_divide),
-            inplace_true_divide: proxy_binary_slot!(inplace_true_divide),
-            inplace_matrix_multiply: proxy_binary_slot!(inplace_matrix_multiply),
-            power: proxy_ternary_slot!(power, right_power),
-            inplace_power: proxy_ternary_slot!(inplace_power),
+            add: proxy_binary_slot!(_add),
+            subtract: proxy_binary_slot!(_sub),
+            multiply: proxy_binary_slot!(_mul),
+            remainder: proxy_binary_slot!(_mod),
+            divmod: proxy_binary_slot!(_divmod),
+            lshift: proxy_binary_slot!(_lshift),
+            rshift: proxy_binary_slot!(_rshift),
+            and: proxy_binary_slot!(_and),
+            xor: proxy_binary_slot!(_xor),
+            or: proxy_binary_slot!(_or),
+            floor_divide: proxy_binary_slot!(_floordiv),
+            true_divide: proxy_binary_slot!(_truediv),
+            matrix_multiply: proxy_binary_slot!(_matmul),
+            inplace_add: proxy_binary_slot!(_iadd),
+            inplace_subtract: proxy_binary_slot!(_isub),
+            inplace_multiply: proxy_binary_slot!(_imul),
+            inplace_remainder: proxy_binary_slot!(_imod),
+            inplace_lshift: proxy_binary_slot!(_ilshift),
+            inplace_rshift: proxy_binary_slot!(_irshift),
+            inplace_and: proxy_binary_slot!(_iand),
+            inplace_xor: proxy_binary_slot!(_ixor),
+            inplace_or: proxy_binary_slot!(_ior),
+            inplace_floor_divide: proxy_binary_slot!(_ifloordiv),
+            inplace_true_divide: proxy_binary_slot!(_itruediv),
+            inplace_matrix_multiply: proxy_binary_slot!(_imatmul),
+            power: proxy_ternary_slot!(_pow),
+            inplace_power: proxy_ternary_slot!(_ipow),
         });
         &AS_NUMBER
     }
