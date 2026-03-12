@@ -1024,7 +1024,7 @@ impl<C: Constant> CodeObject<C> {
             }
 
             // arrow and offset
-            let arrow = if label_targets.contains(&Label(offset as u32)) {
+            let arrow = if label_targets.contains(&Label::new(offset as u32)) {
                 ">>"
             } else {
                 "  "
