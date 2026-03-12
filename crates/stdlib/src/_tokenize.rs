@@ -13,6 +13,7 @@ mod _tokenize {
             types::{Constructor, IterNext, Iterable, SelfIter},
         },
     };
+    use core::fmt;
     use ruff_python_ast::PySourceType;
     use ruff_python_ast::token::{Token, TokenKind};
     use ruff_python_parser::{
@@ -20,7 +21,6 @@ mod _tokenize {
     };
     use ruff_source_file::{LineIndex, LineRanges};
     use ruff_text_size::{Ranged, TextSize};
-    use core::fmt;
 
     const TOKEN_ENDMARKER: u8 = 0;
     const TOKEN_DEDENT: u8 = 6;
@@ -114,8 +114,7 @@ mod _tokenize {
                         let line = zelf.readline(vm)?;
                         if line.is_empty() {
                             let accumulated = core::mem::take(source);
-                            let parsed =
-                                parse_unchecked_source(&accumulated, PySourceType::Python);
+                            let parsed = parse_unchecked_source(&accumulated, PySourceType::Python);
                             let tokens: Vec<Token> = parsed.tokens().iter().copied().collect();
                             let errors: Vec<ParseError> = parsed.errors().to_vec();
                             let line_index = LineIndex::from_source_text(&accumulated);
@@ -135,8 +134,7 @@ mod _tokenize {
                         }
                     }
                     TokenizerPhase::Yielding { .. } => {
-                        let result =
-                            emit_next_token(&mut state, zelf.extra_tokens, vm)?;
+                        let result = emit_next_token(&mut state, zelf.extra_tokens, vm)?;
                         *zelf.state.write() = state;
                         return Ok(result);
                     }
@@ -191,10 +189,16 @@ mod _tokenize {
                 .take(sl.saturating_sub(1))
                 .map(|l| l.len() + 1)
                 .sum();
-            let full_line =
-                source.full_line_str(TextSize::from(offset.min(source.len()) as u32));
+            let full_line = source.full_line_str(TextSize::from(offset.min(source.len()) as u32));
             return Ok(PyIterReturn::Return(make_token_tuple(
-                vm, tok_type, &tok_str, sl, sc as isize, el, ec as isize, full_line,
+                vm,
+                tok_type,
+                &tok_str,
+                sl,
+                sc as isize,
+                el,
+                ec as isize,
+                full_line,
             )));
         }
 
@@ -218,9 +222,7 @@ mod _tokenize {
                     ) {
                         continue;
                     }
-                    if err.location.start() <= range.start()
-                        && range.start() < err.location.end()
-                    {
+                    if err.location.start() <= range.start() && range.start() < err.location.end() {
                         return Err(raise_indentation_error(vm, err, source, line_index));
                     }
                 }
@@ -230,15 +232,12 @@ mod _tokenize {
                 continue;
             }
 
-            if !extra_tokens
-                && matches!(kind, TokenKind::Comment | TokenKind::NonLogicalNewline)
-            {
+            if !extra_tokens && matches!(kind, TokenKind::Comment | TokenKind::NonLogicalNewline) {
                 continue;
             }
 
             let raw_type = token_kind_value(kind);
-            let token_type = if extra_tokens && raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP
-            {
+            let token_type = if extra_tokens && raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP {
                 TOKEN_OP
             } else {
                 raw_type
@@ -294,15 +293,21 @@ mod _tokenize {
                 && (token_str.contains("{{") || token_str.contains("}}"))
             {
                 let mut parts =
-                    split_fstring_middle(token_str, token_type, start_line, start_col)
-                        .into_iter();
+                    split_fstring_middle(token_str, token_type, start_line, start_col).into_iter();
                 let (tt, ts, sl, sc, el, ec) = parts.next().unwrap();
                 let rest: Vec<_> = parts.collect();
                 for p in rest.into_iter().rev() {
                     pending_fstring_parts.push(p);
                 }
                 return Ok(PyIterReturn::Return(make_token_tuple(
-                    vm, tt, &ts, sl, sc as isize, el, ec as isize, line_str,
+                    vm,
+                    tt,
+                    &ts,
+                    sl,
+                    sc as isize,
+                    el,
+                    ec as isize,
+                    line_str,
                 )));
             }
 
@@ -315,17 +320,19 @@ mod _tokenize {
                     .is_some_and(|t| t.kind() == TokenKind::Rbrace)
             {
                 let mid_type = find_fstring_middle_type(tokens, *index);
-                *pending_empty_fstring_middle = Some((
-                    mid_type,
-                    end_line,
-                    end_col,
-                    line_str.to_string(),
-                ));
+                *pending_empty_fstring_middle =
+                    Some((mid_type, end_line, end_col, line_str.to_string()));
             }
 
             return Ok(PyIterReturn::Return(make_token_tuple(
-                vm, token_type, token_str, start_line, start_col as isize, end_line,
-                end_col as isize, line_str,
+                vm,
+                token_type,
+                token_str,
+                start_line,
+                start_col as isize,
+                end_line,
+                end_col as isize,
+                line_str,
             )));
         }
 
@@ -380,14 +387,20 @@ mod _tokenize {
         let (em_line, em_col, em_line_str): (usize, isize, &str) = if extra_tokens {
             (last_line + 1, 0, "")
         } else {
-            let last_line_text = source.full_line_str(TextSize::from(
-                source.len().saturating_sub(1) as u32,
-            ));
+            let last_line_text =
+                source.full_line_str(TextSize::from(source.len().saturating_sub(1) as u32));
             (last_line, -1, last_line_text)
         };
 
         let result = make_token_tuple(
-            vm, TOKEN_ENDMARKER, "", em_line, em_col, em_line, em_col, em_line_str,
+            vm,
+            TOKEN_ENDMARKER,
+            "",
+            em_line,
+            em_col,
+            em_line,
+            em_col,
+            em_line_str,
         );
         state.phase = TokenizerPhase::Done;
         Ok(PyIterReturn::Return(result))
@@ -448,10 +461,7 @@ mod _tokenize {
         lineno: usize,
         offset: usize,
     ) -> rustpython_vm::builtins::PyBaseExceptionRef {
-        let exc = vm.new_exception_msg(
-            vm.ctx.exceptions.syntax_error.to_owned(),
-            msg.into(),
-        );
+        let exc = vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), msg.into());
         let obj = exc.as_object();
         let _ = obj.set_attr("msg", vm.ctx.new_str(msg), vm);
         let _ = obj.set_attr("lineno", vm.ctx.new_int(lineno), vm);
@@ -739,9 +749,7 @@ mod _tokenize {
             TokenKind::TStringStart => 62,
             TokenKind::TStringMiddle => 63,
             TokenKind::TStringEnd => 64,
-            TokenKind::IpyEscapeCommand
-            | TokenKind::Question
-            | TokenKind::Unknown => 67, // ERRORTOKEN
+            TokenKind::IpyEscapeCommand | TokenKind::Question | TokenKind::Unknown => 67, // ERRORTOKEN
         }
     }
 }

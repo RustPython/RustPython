@@ -41,6 +41,8 @@ mod json;
 mod locale;
 
 mod _opcode;
+#[path = "_tokenize.rs"]
+mod _tokenize;
 mod math;
 #[cfg(all(feature = "host_env", any(unix, windows)))]
 mod mmap;
@@ -49,8 +51,6 @@ mod pystruct;
 mod random;
 mod statistics;
 mod suggestions;
-#[path = "_tokenize.rs"]
-mod _tokenize;
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
 #[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
