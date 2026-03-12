@@ -143,10 +143,6 @@ jobs:
 
       - name: run rust tests
         run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --verbose --features threading ${{ env.CARGO_ARGS }}
-        if: runner.os != 'macOS'
-      - name: run rust tests
-        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --exclude rustpython-jit --verbose --features threading ${{ env.CARGO_ARGS }}
-        if: runner.os == 'macOS'
 
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
