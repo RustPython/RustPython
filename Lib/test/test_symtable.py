@@ -561,7 +561,6 @@ class ComprehensionTests(unittest.TestCase):
         for ch in st.get_children():
             self.get_identifiers_recursive(ch, res)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 2 != 1
     def test_loopvar_in_only_one_scope(self):
         # ensure that the loop variable appears only once in the symtable
         comps = [

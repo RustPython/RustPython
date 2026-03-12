@@ -1384,13 +1384,20 @@ mod _socket {
 
     impl DefaultConstructor for PySocket {}
 
+    #[derive(FromArgs)]
+    pub struct SocketInitArgs {
+        #[pyarg(any, optional)]
+        family: OptionalArg<i32>,
+        #[pyarg(any, optional)]
+        r#type: OptionalArg<i32>,
+        #[pyarg(any, optional)]
+        proto: OptionalArg<i32>,
+        #[pyarg(any, optional)]
+        fileno: OptionalOption<PyObjectRef>,
+    }
+
     impl Initializer for PySocket {
-        type Args = (
-            OptionalArg<i32>,
-            OptionalArg<i32>,
-            OptionalArg<i32>,
-            OptionalOption<PyObjectRef>,
-        );
+        type Args = SocketInitArgs;
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             Self::_init(zelf, args, vm).map_err(|e| e.into_pyexception(vm))
@@ -1414,13 +1421,14 @@ mod _socket {
     impl PySocket {
         fn _init(
             zelf: PyRef<Self>,
-            (family, socket_kind, proto, fileno): <Self as Initializer>::Args,
+            args: <Self as Initializer>::Args,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
-            let mut family = family.unwrap_or(-1);
-            let mut socket_kind = socket_kind.unwrap_or(-1);
-            let mut proto = proto.unwrap_or(-1);
+            let mut family = args.family.unwrap_or(-1);
+            let mut socket_kind = args.r#type.unwrap_or(-1);
+            let mut proto = args.proto.unwrap_or(-1);
 
+            let fileno = args.fileno;
             let sock;
 
             // On Windows, fileno can be bytes from socket.share() for fromshare()
