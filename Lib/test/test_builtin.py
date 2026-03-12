@@ -1365,7 +1365,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
 
     # strict map tests based on strict zip tests
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_pickle_strict(self):
         a = (1, 2, 3)
         b = (4, 5, 6)
@@ -1374,7 +1373,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             m1 = map(pack, a, b, strict=True)
             self.check_iter_pickle(m1, t, proto)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_pickle_strict_fail(self):
         a = (1, 2, 3)
         b = (4, 5, 6, 7)
@@ -1385,7 +1383,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             self.assertEqual(self.iter_error(m1, ValueError), t)
             self.assertEqual(self.iter_error(m2, ValueError), t)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_strict(self):
         self.assertEqual(tuple(map(pack, (1, 2, 3), 'abc', strict=True)),
                          ((1, 'a'), (2, 'b'), (3, 'c')))
@@ -1412,7 +1409,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(ValueError, tuple,
                           map(pack, 'a', t2, t3, strict=True))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_strict_iterators(self):
         x = iter(range(5))
         y = [0]
@@ -1422,7 +1418,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertEqual(next(x), 2)
         self.assertEqual(next(z), 1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_strict_error_handling(self):
 
         class Error(Exception):
@@ -1456,7 +1451,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         l8 = self.iter_error(map(pack, Iter(3), "AB", strict=True), ValueError)
         self.assertEqual(l8, [(2, "A"), (1, "B")])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument strict
     def test_map_strict_error_handling_stopiteration(self):
 
         class Iter:
