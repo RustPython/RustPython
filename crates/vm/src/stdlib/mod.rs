@@ -40,7 +40,12 @@ pub mod posix;
 
 #[cfg(all(
     feature = "host_env",
-    any(target_os = "linux", target_os = "macos", target_os = "windows"),
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
 mod _ctypes;
@@ -87,7 +92,12 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         _collections::module_def(ctx),
         #[cfg(all(
             feature = "host_env",
-            any(target_os = "linux", target_os = "macos", target_os = "windows"),
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "windows",
+                target_os = "android"
+            ),
             not(any(target_env = "musl", target_env = "sgx"))
         ))]
         _ctypes::module_def(ctx),
