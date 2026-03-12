@@ -104,7 +104,7 @@ which = "8"
 errno = "0.3"
 widestring = { workspace = true }
 
-[target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
+[target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
 libffi = { workspace = true, features = ["system"] }
 libloading = "0.9"
 
