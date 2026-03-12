@@ -906,7 +906,19 @@ impl Frame {
             }
         }
         if !code.cellvars.is_empty() || !code.freevars.is_empty() {
+            let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
             for (i, &k) in code.cellvars.iter().enumerate() {
+                // When a variable appears in both varnames and cellvars
+                // (inlined comprehension with scope tweak), the fastlocal
+                // value takes precedence, matching CPython FrameLocalsProxy.
+                let has_fastlocal = code
+                    .varnames
+                    .iter()
+                    .position(|&v| v == k)
+                    .is_some_and(|idx| fastlocals.get(idx).is_some_and(|v| v.is_some()));
+                if has_fastlocal {
+                    continue;
+                }
                 let cell_value = self.get_cell_contents(i);
                 match locals_map.ass_subscript(k, cell_value, vm) {
                     Ok(()) => {}
@@ -2699,13 +2711,12 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadFastAndClear { var_num } => {
-                // Load value and clear the slot (for inlined comprehensions)
-                // If slot is empty, push None (not an error - variable may not exist yet)
+                // Save current slot value and clear it (for inlined comprehensions).
+                // Pushes NULL (None at Option level) if slot was empty, so that
+                // StoreFast can restore the empty state after the comprehension.
                 let idx = var_num.get(arg);
-                let x = self.localsplus.fastlocals_mut()[idx]
-                    .take()
-                    .unwrap_or_else(|| vm.ctx.none());
-                self.push_value(x);
+                let x = self.localsplus.fastlocals_mut()[idx].take();
+                self.push_value_opt(x);
                 Ok(None)
             }
             Instruction::LoadFastCheck { var_num } => {
@@ -2854,8 +2865,29 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::MakeFunction => self.execute_make_function(vm),
-            Instruction::MakeCell { .. } => {
-                // Cell creation is handled at frame creation time in RustPython
+            Instruction::MakeCell { i } => {
+                // PEP 709: Save the current cell object on the stack and
+                // create a fresh empty cell for the inlined comprehension.
+                // The old cell is restored afterwards via RestoreCell.
+                let cell_idx = i.get(arg) as usize;
+                let nlocals = self.code.varnames.len();
+                let old_cell = self.localsplus.fastlocals_mut()[nlocals + cell_idx]
+                    .take()
+                    .expect("cell slot empty");
+                let new_cell = PyCell::default().into_ref(&vm.ctx).into();
+                self.localsplus.fastlocals_mut()[nlocals + cell_idx] = Some(new_cell);
+                // Push the old cell object itself
+                self.push_value(old_cell);
+                Ok(None)
+            }
+            Instruction::RestoreCell { i } => {
+                // PEP 709: Restore the saved cell object after an inlined
+                // comprehension. Pops the old cell from the stack and writes
+                // it back to the cell slot, replacing the temporary cell.
+                let cell_idx = i.get(arg) as usize;
+                let nlocals = self.code.varnames.len();
+                let old_cell = self.pop_value();
+                self.localsplus.fastlocals_mut()[nlocals + cell_idx] = Some(old_cell);
                 Ok(None)
             }
             Instruction::MapAdd { i } => {
@@ -3298,9 +3330,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::StoreFast { var_num } => {
-                let value = self.pop_value();
+                // pop_value_opt: allows NULL from LoadFastAndClear restore path
+                let value = self.pop_value_opt();
                 let fastlocals = self.localsplus.fastlocals_mut();
-                fastlocals[var_num.get(arg)] = Some(value);
+                fastlocals[var_num.get(arg)] = value;
                 Ok(None)
             }
             Instruction::StoreFastLoadFast { var_nums } => {
