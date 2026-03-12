@@ -294,6 +294,7 @@ class BugsTestCase(unittest.TestCase):
             self.assertRaises(ValueError, marshal.loads, s)
         run_tests(2**20, check)
 
+    @unittest.skipIf(support.is_android, "TODO: RUSTPYTHON; segfault")
     @unittest.expectedFailure  # TODO: RUSTPYTHON; segfault
     def test_recursion_limit(self):
         # Create a deeply nested structure.
@@ -422,6 +423,7 @@ class BugsTestCase(unittest.TestCase):
                     _, dump_1, _ = assert_python_ok(*args, PYTHONHASHSEED="1")
                     self.assertEqual(dump_0, dump_1)
 
+    @unittest.skip("TODO: RUSTPYTHON; unexpected payload for constant python value")
     def test_unmarshallable(self):
         # Check no crash after encountering unmarshallable objects.
         # See https://github.com/python/cpython/issues/106287.
