@@ -129,8 +129,26 @@ impl PyObjectRef {
     }
 }
 
+fn vectorcall_complex(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PyComplex::slot_new(zelf.to_owned(), func_args, vm)
+}
+
 pub fn init(context: &'static Context) {
     PyComplex::extend_class(context, context.types.complex_type);
+    context
+        .types
+        .complex_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_complex));
 }
 
 fn to_op_complex(value: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {

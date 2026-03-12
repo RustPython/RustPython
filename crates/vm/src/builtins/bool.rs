@@ -182,8 +182,26 @@ impl Representable for PyBool {
     }
 }
 
+fn vectorcall_bool(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PyBool::slot_new(zelf.to_owned(), func_args, vm)
+}
+
 pub(crate) fn init(context: &'static Context) {
     PyBool::extend_class(context, context.types.bool_type);
+    context
+        .types
+        .bool_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_bool));
 }
 
 // pub fn not(vm: &VirtualMachine, obj: &PyObject) -> PyResult<bool> {

@@ -1782,8 +1782,25 @@ struct ReplaceArgs {
     count: isize,
 }
 
+fn vectorcall_str(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PyStr::slot_new(zelf.to_owned(), func_args, vm)
+}
+
 pub fn init(ctx: &'static Context) {
     PyStr::extend_class(ctx, ctx.types.str_type);
+    ctx.types
+        .str_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_str));
 
     PyStrIterator::extend_class(ctx, ctx.types.str_iterator_type);
 }

@@ -23,7 +23,8 @@ use crate::{
     },
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIterable, ArgSize, Either, OptionalArg, OptionalOption, PyComparisonValue,
+        ArgBytesLike, ArgIterable, ArgSize, Either, FuncArgs, OptionalArg, OptionalOption,
+        PyComparisonValue,
     },
     protocol::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -66,9 +67,29 @@ impl PyPayload for PyByteArray {
     }
 }
 
+fn vectorcall_bytearray(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let obj = PyByteArray::default().into_ref_with_type(vm, zelf.to_owned())?;
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PyByteArray::slot_init(obj.clone().into(), func_args, vm)?;
+    Ok(obj.into())
+}
+
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &'static Context) {
     PyByteArray::extend_class(context, context.types.bytearray_type);
+    context
+        .types
+        .bytearray_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_bytearray));
     PyByteArrayIterator::extend_class(context, context.types.bytearray_iterator_type);
 }
 

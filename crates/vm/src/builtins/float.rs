@@ -525,7 +525,20 @@ pub(crate) fn get_value(obj: &PyObject) -> f64 {
     obj.downcast_ref::<PyFloat>().unwrap().value
 }
 
+fn vectorcall_float(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PyFloat::slot_new(zelf.to_owned(), func_args, vm)
+}
+
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &'static Context) {
     PyFloat::extend_class(context, context.types.float_type);
+    context.types.float_type.slots.vectorcall.store(Some(vectorcall_float));
 }

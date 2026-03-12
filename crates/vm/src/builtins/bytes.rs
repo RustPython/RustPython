@@ -86,9 +86,27 @@ impl PyPayload for PyBytes {
     }
 }
 
+fn vectorcall_bytes(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PyBytes::slot_new(zelf.to_owned(), func_args, vm)
+}
+
 pub(crate) fn init(context: &'static Context) {
     PyBytes::extend_class(context, context.types.bytes_type);
     PyBytesIterator::extend_class(context, context.types.bytes_iterator_type);
+    context
+        .types
+        .bytes_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_bytes));
 }
 
 impl Constructor for PyBytes {
