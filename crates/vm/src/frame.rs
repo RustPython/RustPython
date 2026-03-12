@@ -2311,7 +2311,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIter { .. } => {
                 // Relative forward jump: target = lasti + caches + delta
-                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
                 self.adaptive(|s, ii, cb| s.specialize_for_iter(vm, u32::from(arg), ii, cb));
                 self.execute_for_iter(vm, target)?;
                 Ok(None)
@@ -3440,7 +3440,7 @@ impl ExecutingFrame<'_> {
             Instruction::Send { .. } => {
                 // (receiver, v -- receiver, retval)
                 self.adaptive(|s, ii, cb| s.specialize_send(vm, ii, cb));
-                let exit_label = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let exit_label = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
                 let receiver = self.nth_value(1);
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
@@ -3478,7 +3478,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::SendGen => {
-                let exit_label = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let exit_label = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
                 // Stack: [receiver, val] — peek receiver before popping
                 let receiver = self.nth_value(1);
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
@@ -5450,7 +5450,7 @@ impl ExecutingFrame<'_> {
                 self.unpack_sequence(size as u32, vm)
             }
             Instruction::ForIterRange => {
-                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
                 if let Some(range_iter) = iter.downcast_ref_if_exact::<PyRangeIterator>(vm) {
                     if let Some(value) = range_iter.fast_next() {
@@ -5465,7 +5465,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::ForIterList => {
-                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
                 if let Some(list_iter) = iter.downcast_ref_if_exact::<PyListIterator>(vm) {
                     if let Some(value) = list_iter.fast_next() {
@@ -5480,7 +5480,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::ForIterTuple => {
-                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
                 if let Some(tuple_iter) = iter.downcast_ref_if_exact::<PyTupleIterator>(vm) {
                     if let Some(value) = tuple_iter.fast_next() {
@@ -5495,7 +5495,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::ForIterGen => {
-                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
                 if self.specialization_eval_frame_active(vm) {
                     self.execute_for_iter(vm, target)?;
@@ -5737,26 +5737,26 @@ impl ExecutingFrame<'_> {
             Instruction::InstrumentedJumpForward => {
                 let src_offset = (self.lasti() - 1) * 2;
                 let target_idx = self.lasti() + u32::from(arg);
-                let target = bytecode::Label(target_idx);
+                let target = bytecode::Label::new(target_idx);
                 self.jump(target);
                 if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
-                    monitoring::fire_jump(vm, self.code, src_offset, target.0 * 2)?;
+                    monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
                 }
                 Ok(None)
             }
             Instruction::InstrumentedJumpBackward => {
                 let src_offset = (self.lasti() - 1) * 2;
                 let target_idx = self.lasti() + 1 - u32::from(arg);
-                let target = bytecode::Label(target_idx);
+                let target = bytecode::Label::new(target_idx);
                 self.jump(target);
                 if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
-                    monitoring::fire_jump(vm, self.code, src_offset, target.0 * 2)?;
+                    monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
                 }
                 Ok(None)
             }
             Instruction::InstrumentedForIter => {
                 let src_offset = (self.lasti() - 1) * 2;
-                let target = bytecode::Label(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
                 let continued = self.execute_for_iter(vm, target)?;
                 if continued {
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
@@ -5806,7 +5806,7 @@ impl ExecutingFrame<'_> {
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 if value {
-                    self.jump(bytecode::Label(target_idx));
+                    self.jump(bytecode::Label::new(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
@@ -5819,7 +5819,7 @@ impl ExecutingFrame<'_> {
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 if !value {
-                    self.jump(bytecode::Label(target_idx));
+                    self.jump(bytecode::Label::new(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
@@ -5831,7 +5831,7 @@ impl ExecutingFrame<'_> {
                 let target_idx = self.lasti() + 1 + u32::from(arg);
                 let value = self.pop_value();
                 if vm.is_none(&value) {
-                    self.jump(bytecode::Label(target_idx));
+                    self.jump(bytecode::Label::new(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
@@ -5843,7 +5843,7 @@ impl ExecutingFrame<'_> {
                 let target_idx = self.lasti() + 1 + u32::from(arg);
                 let value = self.pop_value();
                 if !vm.is_none(&value) {
-                    self.jump(bytecode::Label(target_idx));
+                    self.jump(bytecode::Label::new(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
@@ -6235,7 +6235,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(exception.into());
 
                     // 4. Jump to handler
-                    self.jump(bytecode::Label(entry.target));
+                    self.jump(bytecode::Label::new(entry.target));
 
                     Ok(None)
                 } else {
@@ -6741,7 +6741,7 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn jump(&mut self, label: bytecode::Label) {
-        let target_pc = label.0;
+        let target_pc = label.as_u32();
         vm_trace!("jump from {:?} to {:?}", self.lasti(), target_pc);
         self.update_lasti(|i| *i = target_pc);
     }
@@ -6833,14 +6833,14 @@ impl ExecutingFrame<'_> {
 
     /// Compute the jump target for FOR_ITER exhaustion: skip END_FOR and jump to POP_ITER.
     fn for_iter_jump_target(&self, target: bytecode::Label) -> bytecode::Label {
-        let target_idx = target.0 as usize;
+        let target_idx = target.as_usize();
         if let Some(unit) = self.code.instructions.get(target_idx)
             && matches!(
                 unit.op,
                 bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
             )
         {
-            return bytecode::Label(target.0 + 1);
+            return bytecode::Label::new(target.as_u32() + 1);
         }
         target
     }
@@ -8815,13 +8815,13 @@ impl ExecutingFrame<'_> {
     /// Handle iterator exhaustion in specialized FOR_ITER handlers.
     /// Skips END_FOR if present at target and jumps.
     fn for_iter_jump_on_exhausted(&mut self, target: bytecode::Label) {
-        let target_idx = target.0 as usize;
+        let target_idx = target.as_usize();
         let jump_target = if let Some(unit) = self.code.instructions.get(target_idx) {
             if matches!(
                 unit.op,
                 bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
             ) {
-                bytecode::Label(target.0 + 1)
+                bytecode::Label::new(target.as_u32() + 1)
             } else {
                 target
             }

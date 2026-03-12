@@ -293,77 +293,6 @@ pub type NameIdx = u32;
 
 impl OpArgType for u32 {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-#[repr(transparent)]
-pub struct Label(pub u32);
-
-impl Label {
-    pub const fn new(value: u32) -> Self {
-        Self(value)
-    }
-}
-
-impl From<u32> for Label {
-    fn from(value: u32) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<Label> for u32 {
-    fn from(value: Label) -> Self {
-        value.0
-    }
-}
-
-impl OpArgType for Label {}
-
-impl fmt::Display for Label {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-#[repr(transparent)]
-pub struct StoreFastLoadFast(u32);
-
-impl StoreFastLoadFast {
-    #[must_use]
-    pub const fn new(value: u32) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub const fn store_idx(self) -> NameIdx {
-        self.0 >> 4
-    }
-
-    #[must_use]
-    pub const fn load_idx(self) -> NameIdx {
-        self.0 & 15
-    }
-}
-
-impl From<u32> for StoreFastLoadFast {
-    fn from(value: u32) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<StoreFastLoadFast> for u32 {
-    fn from(value: StoreFastLoadFast) -> Self {
-        value.0
-    }
-}
-
-impl OpArgType for StoreFastLoadFast {}
-
-impl fmt::Display for StoreFastLoadFast {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
 oparg_enum!(
     /// The kind of Raise that occurred.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -724,15 +653,159 @@ impl fmt::Display for UnpackExArgs {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct LoadSuperAttr(u32);
+macro_rules! newtype_oparg {
+    (
+      $(#[$oparg_meta:meta])*
+      $vis:vis struct $name:ident(u32)
+    ) => {
+        $(#[$oparg_meta])*
+        $vis struct $name(u32);
 
-impl LoadSuperAttr {
+        impl $name {
+            /// Creates a new [`$name`] instance.
+            #[must_use]
+            pub const fn new(value: u32) -> Self {
+                Self(value)
+            }
+
+            /// Alias to [`$name::new`].
+            #[must_use]
+            pub const fn from_u32(value: u32) -> Self {
+                Self::new(value)
+            }
+
+            /// Returns the oparg as a `u32` value.
+            #[must_use]
+            pub const fn as_u32(self) -> u32 {
+                self.0
+            }
+
+            /// Returns the oparg as a `usize` value.
+            #[must_use]
+            pub const fn as_usize(self) -> usize {
+              self.0 as usize
+            }
+        }
+
+        impl From<u32> for $name {
+            fn from(value: u32) -> Self {
+                Self::from_u32(value)
+            }
+        }
+
+        impl From<$name> for u32 {
+            fn from(value: $name) -> Self {
+                value.as_u32()
+            }
+        }
+
+        impl From<$name> for usize {
+            fn from(value: $name) -> Self {
+                value.as_usize()
+            }
+        }
+
+        impl ::core::fmt::Display for $name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                self.0.fmt(f)
+            }
+        }
+        impl OpArgType for $name {}
+    }
+}
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
+    pub struct ConstIdx(u32)
+);
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
+    pub struct VarNum(u32)
+);
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
+    pub struct LoadAttr(u32)
+);
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
+    pub struct LoadSuperAttr(u32)
+);
+
+newtype_oparg!(
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+    #[repr(transparent)]
+    pub struct Label(u32)
+);
+
+newtype_oparg!(
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+    #[repr(transparent)]
+    pub struct StoreFastLoadFast(u32)
+);
+
+impl StoreFastLoadFast {
     #[must_use]
-    pub const fn new(value: u32) -> Self {
-        Self(value)
+    pub const fn store_idx(self) -> NameIdx {
+        self.0 >> 4
     }
 
+    #[must_use]
+    pub const fn load_idx(self) -> NameIdx {
+        self.0 & 15
+    }
+}
+
+impl LoadAttr {
+    #[must_use]
+    pub fn builder() -> LoadAttrBuilder {
+        LoadAttrBuilder::default()
+    }
+
+    #[must_use]
+    pub const fn name_idx(self) -> u32 {
+        self.0 >> 1
+    }
+
+    #[must_use]
+    pub const fn is_method(self) -> bool {
+        (self.0 & 1) == 1
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct LoadAttrBuilder {
+    name_idx: u32,
+    is_method: bool,
+}
+
+impl LoadAttrBuilder {
+    #[must_use]
+    pub const fn build(self) -> LoadAttr {
+        let value = (self.name_idx << 1) | (self.is_method as u32);
+        LoadAttr::new(value)
+    }
+
+    #[must_use]
+    pub const fn name_idx(mut self, value: u32) -> Self {
+        self.name_idx = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn is_method(mut self, value: bool) -> Self {
+        self.is_method = value;
+        self
+    }
+}
+
+impl LoadSuperAttr {
     #[must_use]
     pub fn builder() -> LoadSuperAttrBuilder {
         LoadSuperAttrBuilder::default()
@@ -751,20 +824,6 @@ impl LoadSuperAttr {
     #[must_use]
     pub const fn has_class(self) -> bool {
         (self.0 & 2) == 2
-    }
-}
-
-impl OpArgType for LoadSuperAttr {}
-
-impl From<u32> for LoadSuperAttr {
-    fn from(value: u32) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<LoadSuperAttr> for u32 {
-    fn from(value: LoadSuperAttr) -> Self {
-        value.0
     }
 }
 
@@ -807,121 +866,3 @@ impl From<LoadSuperAttrBuilder> for LoadSuperAttr {
         builder.build()
     }
 }
-
-#[derive(Clone, Copy)]
-pub struct LoadAttr(u32);
-
-impl LoadAttr {
-    #[must_use]
-    pub const fn new(value: u32) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub fn builder() -> LoadAttrBuilder {
-        LoadAttrBuilder::default()
-    }
-
-    #[must_use]
-    pub const fn name_idx(self) -> u32 {
-        self.0 >> 1
-    }
-
-    #[must_use]
-    pub const fn is_method(self) -> bool {
-        (self.0 & 1) == 1
-    }
-}
-
-impl OpArgType for LoadAttr {}
-
-impl From<u32> for LoadAttr {
-    fn from(value: u32) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<LoadAttr> for u32 {
-    fn from(value: LoadAttr) -> Self {
-        value.0
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct LoadAttrBuilder {
-    name_idx: u32,
-    is_method: bool,
-}
-
-impl LoadAttrBuilder {
-    #[must_use]
-    pub const fn build(self) -> LoadAttr {
-        let value = (self.name_idx << 1) | (self.is_method as u32);
-        LoadAttr::new(value)
-    }
-
-    #[must_use]
-    pub const fn name_idx(mut self, value: u32) -> Self {
-        self.name_idx = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn is_method(mut self, value: bool) -> Self {
-        self.is_method = value;
-        self
-    }
-}
-
-macro_rules! newtype_oparg {
-    (
-      $(#[$oparg_meta:meta])*
-      $vis:vis struct $name:ident(u32)
-    ) => {
-        $(#[$oparg_meta])*
-        $vis struct $name(u32);
-
-        impl $name {
-            #[must_use]
-            pub const fn from_u32(value: u32) -> Self {
-                Self(value)
-            }
-
-            /// Returns the oparg as a `u32` value.
-            #[must_use]
-            pub const fn as_u32(self) -> u32 {
-                self.0
-            }
-
-            /// Returns the oparg as a `usize` value.
-            #[must_use]
-            pub const fn as_usize(self) -> usize {
-              self.0 as usize
-            }
-        }
-
-        impl From<u32> for $name {
-            fn from(value: u32) -> Self {
-                Self::from_u32(value)
-            }
-        }
-
-        impl From<$name> for u32 {
-            fn from(value: $name) -> Self {
-                value.as_u32()
-            }
-        }
-
-        impl OpArgType for $name {}
-    }
-}
-
-newtype_oparg!(
-    #[derive(Clone, Copy)]
-    pub struct ConstIdx(u32)
-);
-
-newtype_oparg!(
-    #[derive(Clone, Copy)]
-    pub struct VarNum(u32)
-);

@@ -1105,13 +1105,7 @@ impl InstructionMetadata for Instruction {
             };
             ($variant:ident, $map:ident = $arg_marker:expr) => {{
                 let arg = $arg_marker.get(arg);
-                write!(
-                    f,
-                    "{:pad$}({}, {})",
-                    stringify!($variant),
-                    u32::from(arg),
-                    $map(arg)
-                )
+                write!(f, "{:pad$}({}, {})", stringify!($variant), arg, $map(arg))
             }};
             ($variant:ident, $arg_marker:expr) => {
                 write!(f, "{:pad$}({})", stringify!($variant), $arg_marker.get(arg))

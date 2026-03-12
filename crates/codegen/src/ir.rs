@@ -342,7 +342,7 @@ impl CodeInfo {
             }
         }
 
-        let mut block_to_offset = vec![Label(0); blocks.len()];
+        let mut block_to_offset = vec![Label::new(0); blocks.len()];
         // block_to_index: maps block idx to instruction index (for exception table)
         // This is the index into the final instructions array, including EXTENDED_ARG and CACHE
         let mut block_to_index = vec![0u32; blocks.len()];
@@ -351,7 +351,7 @@ impl CodeInfo {
         loop {
             let mut num_instructions = 0;
             for (idx, block) in iter_blocks(&blocks) {
-                block_to_offset[idx.idx()] = Label(num_instructions as u32);
+                block_to_offset[idx.idx()] = Label::new(num_instructions as u32);
                 // block_to_index uses the same value as block_to_offset but as u32
                 // because lasti in frame.rs is the index into instructions array
                 // and instructions array index == byte offset (each instruction is 1 CodeUnit)
@@ -369,7 +369,7 @@ impl CodeInfo {
             while next_block != BlockIdx::NULL {
                 let block = &mut blocks[next_block];
                 // Track current instruction offset for jump direction resolution
-                let mut current_offset = block_to_offset[next_block.idx()].0;
+                let mut current_offset = block_to_offset[next_block.idx()].as_u32();
                 for info in &mut block.instructions {
                     let target = info.target;
                     let mut op = info.instr.expect_real();
@@ -380,7 +380,7 @@ impl CodeInfo {
                     let offset_after = current_offset + old_arg_size as u32 + old_cache_entries;
 
                     if target != BlockIdx::NULL {
-                        let target_offset = block_to_offset[target.idx()].0;
+                        let target_offset = block_to_offset[target.idx()].as_u32();
                         // Direction must be based on concrete instruction offsets.
                         // Empty blocks can share offsets, so block-order-based resolution
                         // may classify some jumps incorrectly.
