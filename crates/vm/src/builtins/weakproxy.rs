@@ -173,7 +173,7 @@ impl SetAttr for PyWeakProxy {
 
 fn proxy_upgrade(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
     obj.downcast_ref::<PyWeakProxy>()
-        .unwrap()
+        .expect("proxy_upgrade called on non-PyWeakProxy object")
         .try_upgrade(vm)
 }
 
