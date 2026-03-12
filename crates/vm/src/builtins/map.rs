@@ -86,51 +86,37 @@ impl SelfIter for PyMap {}
 
 impl IterNext for PyMap {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let strict = zelf.strict.load(atomic::Ordering::Acquire);
         let mut next_objs = Vec::new();
-        let mut stopped_at: Option<usize> = None;
-
         for (idx, iterator) in zelf.iterators.iter().enumerate() {
-            match iterator.next(vm)? {
-                PyIterReturn::Return(obj) => {
-                    if let Some(stopped_idx) = stopped_at {
-                        if strict {
-                            let plural = if stopped_idx == 0 { " " } else { "s 1-" };
+            let item = match iterator.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(v) => {
+                    if zelf.strict.load(atomic::Ordering::Acquire) {
+                        if idx > 0 {
+                            let plural = if idx == 1 { " " } else { "s 1-" };
                             return Err(vm.new_value_error(format!(
-                                "map() argument {} is longer than argument{}{}",
+                                "map() argument {} is shorter than argument{}{}",
                                 idx + 1,
                                 plural,
-                                stopped_idx + 1,
+                                idx,
                             )));
                         }
-                        return Ok(PyIterReturn::StopIteration(None));
+                        for (idx, iterator) in zelf.iterators[1..].iter().enumerate() {
+                            if let PyIterReturn::Return(_) = iterator.next(vm)? {
+                                let plural = if idx == 0 { " " } else { "s 1-" };
+                                return Err(vm.new_value_error(format!(
+                                    "map() argument {} is longer than argument{}{}",
+                                    idx + 2,
+                                    plural,
+                                    idx + 1,
+                                )));
+                            }
+                        }
                     }
-                    next_objs.push(obj);
+                    return Ok(PyIterReturn::StopIteration(v));
                 }
-                PyIterReturn::StopIteration(v) => {
-                    if stopped_at.is_some() {
-                        continue;
-                    }
-                    if strict && idx > 0 {
-                        let plural = if idx == 1 { " " } else { "s 1-" };
-                        return Err(vm.new_value_error(format!(
-                            "map() argument {} is shorter than argument{}{}",
-                            idx + 1,
-                            plural,
-                            idx,
-                        )));
-                    }
-                    if strict {
-                        stopped_at = Some(idx);
-                    } else {
-                        return Ok(PyIterReturn::StopIteration(v));
-                    }
-                }
-            }
-        }
-
-        if stopped_at.is_some() {
-            return Ok(PyIterReturn::StopIteration(None));
+            };
+            next_objs.push(item);
         }
 
         // the mapper itself can raise StopIteration which does stop the map iteration
