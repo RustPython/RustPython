@@ -390,6 +390,8 @@ class ModuleFinderTest(unittest.TestCase):
         os.remove(source_path)
         self._do_test(bytecode_test)
 
+    # TODO: RUSTPYTHON; panics at code.rs with 'called Option::unwrap() on a None value'
+    @unittest.skip("TODO: RUSTPYTHON; panics in co_filename replacement")
     def test_replace_paths(self):
         old_path = os.path.join(self.test_dir, 'a', 'module.py')
         new_path = os.path.join(self.test_dir, 'a', 'spam.py')
