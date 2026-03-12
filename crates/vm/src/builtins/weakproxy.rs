@@ -93,7 +93,6 @@ impl PyWeakProxy {
         self.try_upgrade(vm)?.bytes(vm)
     }
 
-
     #[pymethod]
     fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
         let obj = self.try_upgrade(vm)?;
