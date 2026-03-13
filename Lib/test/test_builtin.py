@@ -728,7 +728,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertIs(None.__ne__(0), NotImplemented)
         self.assertIs(None.__ne__("abc"), NotImplemented)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; wrong error message
     def test_divmod(self):
         self.assertEqual(divmod(12, 7), (1, 5))
         self.assertEqual(divmod(-12, 7), (-2, 2))
