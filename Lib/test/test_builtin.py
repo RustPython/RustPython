@@ -2434,7 +2434,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             not NotImplemented
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_singleton_attribute_access(self):
         for singleton in (NotImplemented, Ellipsis):
             with self.subTest(singleton):
