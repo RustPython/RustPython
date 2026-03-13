@@ -396,7 +396,7 @@ class BugsTestCase(unittest.TestCase):
         for i in range(len(data)):
             self.assertRaises(EOFError, marshal.loads, data[0: i])
 
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_deterministic_sets(self):
         # bpo-37596: To support reproducible builds, sets and frozensets need to
         # have their elements serialized in a consistent order (even when they
