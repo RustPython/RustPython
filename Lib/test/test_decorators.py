@@ -291,7 +291,6 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(bar(), 42)
         self.assertEqual(actions, expected_actions)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_bound_function_inside_classmethod(self):
         class A:
             def foo(self, cls):
