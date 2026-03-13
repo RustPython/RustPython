@@ -4188,10 +4188,11 @@ mod _ssl {
                                     let now = std::time::Instant::now();
                                     if now >= dl {
                                         // Timeout reached - raise TimeoutError
-                                        return Err(vm.new_exception_msg(
-                                            vm.ctx.exceptions.timeout_error.to_owned(),
-                                            "The read operation timed out".into(),
-                                        ));
+                                        return Err(timeout_error_msg(
+                                            vm,
+                                            "The read operation timed out".to_string(),
+                                        )
+                                        .upcast());
                                     }
                                     Some(dl - now)
                                 } else {
@@ -4207,11 +4208,11 @@ mod _ssl {
 
                                 if timed_out {
                                     // Timeout waiting for peer's close_notify
-                                    // Raise TimeoutError
-                                    return Err(vm.new_exception_msg(
-                                        vm.ctx.exceptions.timeout_error.to_owned(),
-                                        "The read operation timed out".into(),
-                                    ));
+                                    return Err(timeout_error_msg(
+                                        vm,
+                                        "The read operation timed out".to_string(),
+                                    )
+                                    .upcast());
                                 }
 
                                 // Try to read data from socket

@@ -1614,7 +1614,13 @@ mod _winapi {
 
             if let Some(err) = err {
                 if err == windows_sys::Win32::Foundation::WAIT_TIMEOUT {
-                    return Err(vm.new_exception_empty(vm.ctx.exceptions.timeout_error.to_owned()));
+                    return Err(vm
+                        .new_os_subtype_error(
+                            vm.ctx.exceptions.timeout_error.to_owned(),
+                            None,
+                            "timed out",
+                        )
+                        .upcast());
                 }
                 if err == windows_sys::Win32::Foundation::ERROR_CONTROL_C_EXIT {
                     return Err(vm
@@ -1783,7 +1789,13 @@ mod _winapi {
             // Return result
             if let Some(e) = thread_err {
                 if e == windows_sys::Win32::Foundation::WAIT_TIMEOUT {
-                    return Err(vm.new_exception_empty(vm.ctx.exceptions.timeout_error.to_owned()));
+                    return Err(vm
+                        .new_os_subtype_error(
+                            vm.ctx.exceptions.timeout_error.to_owned(),
+                            None,
+                            "timed out",
+                        )
+                        .upcast());
                 }
                 if e == windows_sys::Win32::Foundation::ERROR_CONTROL_C_EXIT {
                     return Err(vm
