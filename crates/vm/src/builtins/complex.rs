@@ -150,6 +150,30 @@ fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
     Ok(v1.fdiv(v2))
 }
 
+fn complex_add(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    if let Some(a_complex) = a.downcast_ref::<PyComplex>() {
+        let value = if let Some(b_complex) = b.downcast_ref::<PyComplex>() {
+            // complex + complex
+            a_complex.value + b_complex.value
+        } else if let Some(b_real) = float::to_op_float(b, vm)? {
+            // complex + float
+            Complex64::new(a_complex.value.re + b_real, a_complex.value.im)
+        } else {
+            return Ok(vm.ctx.not_implemented());
+        };
+        return value.to_pyresult(vm);
+    }
+
+    // float + complex
+    if let Some(b_complex) = b.downcast_ref::<PyComplex>()
+        && let Some(a_real) = float::to_op_float(a, vm)?
+    {
+        return Complex64::new(a_real + b_complex.value.re, b_complex.value.im).to_pyresult(vm);
+    }
+
+    Ok(vm.ctx.not_implemented())
+}
+
 fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
     if v1.is_zero() {
         return if v2.re < 0.0 || v2.im != 0.0 {
@@ -396,7 +420,7 @@ impl Hashable for PyComplex {
 impl AsNumber for PyComplex {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            add: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a + b, vm)),
+            add: Some(complex_add),
             subtract: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a - b, vm)),
             multiply: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)),
             power: Some(|a, b, c, vm| {
