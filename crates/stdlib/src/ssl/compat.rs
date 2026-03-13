@@ -1164,21 +1164,20 @@ fn handshake_write_loop(
 /// TLS record header size (content_type + version + length).
 const TLS_RECORD_HEADER_SIZE: usize = 5;
 
-/// Determine how many bytes to read from the socket during a TLS handshake.
+/// Read exactly one TLS record from the TCP socket.
 ///
 /// OpenSSL reads one TLS record at a time (no read-ahead by default).
 /// Rustls, however, consumes all available TCP data when fed via read_tls().
-/// If application data arrives simultaneously with the final handshake record,
-/// the eager read drains the TCP buffer, leaving the app data in rustls's
-/// internal buffer where select() cannot see it.  This causes asyncore-based
-/// servers (which rely on select() for readability) to miss the data and the
-/// peer times out.
+/// If a close_notify or other control record arrives alongside application
+/// data, the eager read drains the TCP buffer, leaving the control record in
+/// rustls's internal buffer where select() cannot see it.  This causes
+/// asyncore-based servers (which rely on select() for readability) to miss
+/// the data and the peer times out.
 ///
 /// Fix: peek at the TCP buffer to find the first complete TLS record boundary
-/// and recv() only that many bytes.  Any remaining data (including application
-/// data that piggybacked on the same TCP segment) stays in the kernel buffer
-/// and remains visible to select().
-fn handshake_recv_one_record(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<PyObjectRef> {
+/// and recv() only that many bytes.  Any remaining data stays in the kernel
+/// buffer and remains visible to select().
+fn recv_one_tls_record(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<PyObjectRef> {
     // Peek at what is available without consuming it.
     let peeked_obj = match socket.sock_peek(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
         Ok(d) => d,
@@ -1195,7 +1194,10 @@ fn handshake_recv_one_record(socket: &PySSLSocket, vm: &VirtualMachine) -> SslRe
     let peeked_bytes = peeked.borrow_buf();
 
     if peeked_bytes.is_empty() {
-        return Err(SslError::WantRead);
+        // Empty peek means the peer has closed the TCP connection (FIN).
+        // Non-blocking sockets would have returned EAGAIN/EWOULDBLOCK
+        // (caught above as WantRead), so empty bytes here always means EOF.
+        return Err(SslError::Eof);
     }
 
     if peeked_bytes.len() < TLS_RECORD_HEADER_SIZE {
@@ -1238,6 +1240,34 @@ fn handshake_recv_one_record(socket: &PySSLSocket, vm: &VirtualMachine) -> SslRe
     })
 }
 
+/// Read a single TLS record for post-handshake I/O while preserving the
+/// SSL-vs-socket error precedence from the old sock_recv() path.
+fn recv_one_tls_record_for_data(
+    conn: &mut TlsConnection,
+    socket: &PySSLSocket,
+    vm: &VirtualMachine,
+) -> SslResult<PyObjectRef> {
+    match recv_one_tls_record(socket, vm) {
+        Ok(data) => Ok(data),
+        Err(SslError::Eof) => {
+            if let Err(rustls_err) = conn.process_new_packets() {
+                return Err(SslError::from_rustls(rustls_err));
+            }
+            Ok(vm.ctx.new_bytes(vec![]).into())
+        }
+        Err(SslError::Py(e)) => {
+            if let Err(rustls_err) = conn.process_new_packets() {
+                return Err(SslError::from_rustls(rustls_err));
+            }
+            if is_connection_closed_error(&e, vm) {
+                return Err(SslError::Eof);
+            }
+            Err(SslError::Py(e))
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn handshake_read_data(
     conn: &mut TlsConnection,
     socket: &PySSLSocket,
@@ -1272,7 +1302,7 @@ fn handshake_read_data(
         // record.  This matches OpenSSL's default (no read-ahead) behaviour
         // and keeps remaining data in the kernel buffer where select() can
         // detect it.
-        handshake_recv_one_record(socket, vm)?
+        recv_one_tls_record(socket, vm)?
     } else {
         match socket.sock_recv(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
             Ok(d) => d,
@@ -1716,17 +1746,8 @@ pub(super) fn ssl_read(
                 }
                 // Blocking socket or socket with timeout: try to read more data from socket.
                 // Even though rustls says it doesn't want to read, more TLS records may arrive.
-                // This handles the case where rustls processed all buffered TLS records but
-                // more data is coming over the network.
-                let data = match socket.sock_recv(2048, vm) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        if is_connection_closed_error(&e, vm) {
-                            return Err(SslError::Eof);
-                        }
-                        return Err(SslError::Py(e));
-                    }
-                };
+                // Use single-record reading to avoid consuming close_notify alongside data.
+                let data = recv_one_tls_record_for_data(conn, socket, vm)?;
 
                 let bytes_read = data
                     .clone()
@@ -2128,28 +2149,27 @@ fn ssl_ensure_data_available(
             // else: non-blocking socket (timeout=0) or blocking socket (timeout=None) - skip select
         }
 
-        let data = match socket.sock_recv(2048, vm) {
-            Ok(data) => data,
-            Err(e) => {
-                if is_blocking_io_error(&e, vm) {
-                    return Err(SslError::WantRead);
+        // Read one TLS record at a time for non-BIO sockets (matching
+        // OpenSSL's default no-read-ahead behaviour).  This prevents
+        // consuming a close_notify that arrives alongside application data,
+        // keeping it in the kernel buffer where select() can detect it.
+        let data = if !is_bio {
+            recv_one_tls_record_for_data(conn, socket, vm)?
+        } else {
+            match socket.sock_recv(2048, vm) {
+                Ok(data) => data,
+                Err(e) => {
+                    if is_blocking_io_error(&e, vm) {
+                        return Err(SslError::WantRead);
+                    }
+                    if let Err(rustls_err) = conn.process_new_packets() {
+                        return Err(SslError::from_rustls(rustls_err));
+                    }
+                    if is_connection_closed_error(&e, vm) {
+                        return Err(SslError::Eof);
+                    }
+                    return Err(SslError::Py(e));
                 }
-                // Before returning socket error, check if rustls already has a queued TLS alert
-                // This mirrors CPython/OpenSSL behavior: SSL errors take precedence over socket errors
-                // On Windows, TCP RST may arrive before we read the alert, but rustls may have
-                // already received and buffered the alert from a previous read
-                if let Err(rustls_err) = conn.process_new_packets() {
-                    return Err(SslError::from_rustls(rustls_err));
-                }
-                // In SSL context, connection closed errors (ECONNABORTED, ECONNRESET) indicate
-                // unexpected connection termination - the peer closed without proper TLS shutdown.
-                // This is semantically equivalent to "EOF occurred in violation of protocol"
-                // because no close_notify alert was received.
-                // On Windows, TCP RST can arrive before we read the TLS alert, causing these errors.
-                if is_connection_closed_error(&e, vm) {
-                    return Err(SslError::Eof);
-                }
-                return Err(SslError::Py(e));
             }
         };
 
