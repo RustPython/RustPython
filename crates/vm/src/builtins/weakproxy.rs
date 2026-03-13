@@ -135,6 +135,9 @@ impl Iterable for PyWeakProxy {
 impl IterNext for PyWeakProxy {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let obj = zelf.try_upgrade(vm)?;
+        if obj.class().slots.iternext.load().is_none() {
+            return Err(vm.new_type_error("Weakref proxy referenced a non-iterator".to_owned()));
+        }
         PyIter::new(obj).next(vm)
     }
 }
@@ -166,14 +169,125 @@ impl SetAttr for PyWeakProxy {
     }
 }
 
+fn proxy_upgrade(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
+    obj.downcast_ref::<PyWeakProxy>()
+        .expect("proxy_upgrade called on non-PyWeakProxy object")
+        .try_upgrade(vm)
+}
+
+fn proxy_upgrade_opt(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+    match obj.downcast_ref::<PyWeakProxy>() {
+        Some(proxy) => Ok(Some(proxy.try_upgrade(vm)?)),
+        None => Ok(None),
+    }
+}
+
+fn proxy_unary_op(
+    obj: &PyObject,
+    vm: &VirtualMachine,
+    op: fn(&VirtualMachine, &PyObject) -> PyResult,
+) -> PyResult {
+    let upgraded = proxy_upgrade(obj, vm)?;
+    op(vm, &upgraded)
+}
+
+macro_rules! proxy_unary_slot {
+    ($vm_method:ident) => {
+        Some(|number, vm| proxy_unary_op(number.obj, vm, |vm, obj| vm.$vm_method(obj)))
+    };
+}
+
+fn proxy_binary_op(
+    a: &PyObject,
+    b: &PyObject,
+    vm: &VirtualMachine,
+    op: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
+) -> PyResult {
+    let a_up = proxy_upgrade_opt(a, vm)?;
+    let b_up = proxy_upgrade_opt(b, vm)?;
+    let a_ref = a_up.as_deref().unwrap_or(a);
+    let b_ref = b_up.as_deref().unwrap_or(b);
+    op(vm, a_ref, b_ref)
+}
+
+macro_rules! proxy_binary_slot {
+    ($vm_method:ident) => {
+        Some(|a, b, vm| proxy_binary_op(a, b, vm, |vm, a, b| vm.$vm_method(a, b)))
+    };
+}
+
+fn proxy_ternary_op(
+    a: &PyObject,
+    b: &PyObject,
+    c: &PyObject,
+    vm: &VirtualMachine,
+    op: fn(&VirtualMachine, &PyObject, &PyObject, &PyObject) -> PyResult,
+) -> PyResult {
+    let a_up = proxy_upgrade_opt(a, vm)?;
+    let b_up = proxy_upgrade_opt(b, vm)?;
+    let c_up = proxy_upgrade_opt(c, vm)?;
+    let a_ref = a_up.as_deref().unwrap_or(a);
+    let b_ref = b_up.as_deref().unwrap_or(b);
+    let c_ref = c_up.as_deref().unwrap_or(c);
+    op(vm, a_ref, b_ref, c_ref)
+}
+
+macro_rules! proxy_ternary_slot {
+    ($vm_method:ident) => {
+        Some(|a, b, c, vm| proxy_ternary_op(a, b, c, vm, |vm, a, b, c| vm.$vm_method(a, b, c)))
+    };
+}
+
 impl AsNumber for PyWeakProxy {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: LazyLock<PyNumberMethods> = LazyLock::new(|| PyNumberMethods {
             boolean: Some(|number, vm| {
-                let zelf = number.obj.downcast_ref::<PyWeakProxy>().unwrap();
-                zelf.try_upgrade(vm)?.is_true(vm)
+                let obj = proxy_upgrade(number.obj, vm)?;
+                obj.is_true(vm)
             }),
-            ..PyNumberMethods::NOT_IMPLEMENTED
+            int: Some(|number, vm| {
+                let obj = proxy_upgrade(number.obj, vm)?;
+                obj.try_int(vm).map(Into::into)
+            }),
+            float: Some(|number, vm| {
+                let obj = proxy_upgrade(number.obj, vm)?;
+                obj.try_float(vm).map(Into::into)
+            }),
+            index: Some(|number, vm| {
+                let obj = proxy_upgrade(number.obj, vm)?;
+                obj.try_index(vm).map(Into::into)
+            }),
+            negative: proxy_unary_slot!(_neg),
+            positive: proxy_unary_slot!(_pos),
+            absolute: proxy_unary_slot!(_abs),
+            invert: proxy_unary_slot!(_invert),
+            add: proxy_binary_slot!(_add),
+            subtract: proxy_binary_slot!(_sub),
+            multiply: proxy_binary_slot!(_mul),
+            remainder: proxy_binary_slot!(_mod),
+            divmod: proxy_binary_slot!(_divmod),
+            lshift: proxy_binary_slot!(_lshift),
+            rshift: proxy_binary_slot!(_rshift),
+            and: proxy_binary_slot!(_and),
+            xor: proxy_binary_slot!(_xor),
+            or: proxy_binary_slot!(_or),
+            floor_divide: proxy_binary_slot!(_floordiv),
+            true_divide: proxy_binary_slot!(_truediv),
+            matrix_multiply: proxy_binary_slot!(_matmul),
+            inplace_add: proxy_binary_slot!(_iadd),
+            inplace_subtract: proxy_binary_slot!(_isub),
+            inplace_multiply: proxy_binary_slot!(_imul),
+            inplace_remainder: proxy_binary_slot!(_imod),
+            inplace_lshift: proxy_binary_slot!(_ilshift),
+            inplace_rshift: proxy_binary_slot!(_irshift),
+            inplace_and: proxy_binary_slot!(_iand),
+            inplace_xor: proxy_binary_slot!(_ixor),
+            inplace_or: proxy_binary_slot!(_ior),
+            inplace_floor_divide: proxy_binary_slot!(_ifloordiv),
+            inplace_true_divide: proxy_binary_slot!(_itruediv),
+            inplace_matrix_multiply: proxy_binary_slot!(_imatmul),
+            power: proxy_ternary_slot!(_pow),
+            inplace_power: proxy_ternary_slot!(_ipow),
         });
         &AS_NUMBER
     }
