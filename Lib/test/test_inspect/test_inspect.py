@@ -910,7 +910,6 @@ class TestGetsourceStdlib(unittest.TestCase):
         self.assertRaises(OSError, inspect.getsource, tomllib.TOMLDecodeError)
         self.assertRaises(OSError, inspect.getsourcelines, tomllib.TOMLDecodeError)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by getsource
     def test_getsource_stdlib_abc(self):
         # Pure Python implementation
         abc = import_helper.import_fresh_module('abc', blocked=['_abc'])
