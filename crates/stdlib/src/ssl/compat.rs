@@ -1161,6 +1161,83 @@ fn handshake_write_loop(
 ///
 /// Waits for and reads TLS records from the peer, handling SNI callback setup.
 /// Returns (made_progress, is_first_sni_read).
+/// TLS record header size (content_type + version + length).
+const TLS_RECORD_HEADER_SIZE: usize = 5;
+
+/// Determine how many bytes to read from the socket during a TLS handshake.
+///
+/// OpenSSL reads one TLS record at a time (no read-ahead by default).
+/// Rustls, however, consumes all available TCP data when fed via read_tls().
+/// If application data arrives simultaneously with the final handshake record,
+/// the eager read drains the TCP buffer, leaving the app data in rustls's
+/// internal buffer where select() cannot see it.  This causes asyncore-based
+/// servers (which rely on select() for readability) to miss the data and the
+/// peer times out.
+///
+/// Fix: peek at the TCP buffer to find the first complete TLS record boundary
+/// and recv() only that many bytes.  Any remaining data (including application
+/// data that piggybacked on the same TCP segment) stays in the kernel buffer
+/// and remains visible to select().
+fn handshake_recv_one_record(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<PyObjectRef> {
+    // Peek at what is available without consuming it.
+    let peeked_obj = match socket.sock_peek(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
+        Ok(d) => d,
+        Err(e) => {
+            if is_blocking_io_error(&e, vm) {
+                return Err(SslError::WantRead);
+            }
+            return Err(SslError::Py(e));
+        }
+    };
+
+    let peeked = ArgBytesLike::try_from_object(vm, peeked_obj)
+        .map_err(|_| SslError::Syscall("Expected bytes-like object from peek".to_string()))?;
+    let peeked_bytes = peeked.borrow_buf();
+
+    if peeked_bytes.is_empty() {
+        return Err(SslError::WantRead);
+    }
+
+    if peeked_bytes.len() < TLS_RECORD_HEADER_SIZE {
+        // Not enough data for a TLS record header yet.
+        // Read all available bytes so rustls can buffer the partial header;
+        // this avoids busy-waiting because the kernel buffer is now empty
+        // and select() will only wake us when new data arrives.
+        return socket.sock_recv(peeked_bytes.len(), vm).map_err(|e| {
+            if is_blocking_io_error(&e, vm) {
+                SslError::WantRead
+            } else {
+                SslError::Py(e)
+            }
+        });
+    }
+
+    // Parse the TLS record length from the header.
+    let record_body_len = u16::from_be_bytes([peeked_bytes[3], peeked_bytes[4]]) as usize;
+    let total_record_size = TLS_RECORD_HEADER_SIZE + record_body_len;
+
+    let recv_size = if peeked_bytes.len() >= total_record_size {
+        // Complete record available — consume exactly one record.
+        total_record_size
+    } else {
+        // Incomplete record — consume everything so the kernel buffer is
+        // drained and select() will block until more data arrives.
+        peeked_bytes.len()
+    };
+
+    // Must drop the borrow before calling sock_recv (which re-enters Python).
+    drop(peeked_bytes);
+    drop(peeked);
+
+    socket.sock_recv(recv_size, vm).map_err(|e| {
+        if is_blocking_io_error(&e, vm) {
+            SslError::WantRead
+        } else {
+            SslError::Py(e)
+        }
+    })
+}
+
 fn handshake_read_data(
     conn: &mut TlsConnection,
     socket: &PySSLSocket,
@@ -1189,23 +1266,25 @@ fn handshake_read_data(
         }
     }
 
-    let data_obj = match socket.sock_recv(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
-        Ok(d) => d,
-        Err(e) => {
-            if is_blocking_io_error(&e, vm) {
-                return Err(SslError::WantRead);
-            }
-            // In socket mode, if recv times out and we're only waiting for read
-            // (no wants_write), we might be waiting for optional NewSessionTicket in TLS 1.3
-            // Consider the handshake complete
-            if !is_bio && !conn.wants_write() {
-                // Check if it's a timeout exception
-                if e.fast_isinstance(vm.ctx.exceptions.timeout_error) {
-                    // Timeout waiting for optional data - handshake is complete
+    let data_obj = if !is_bio {
+        // In socket mode, read one TLS record at a time to avoid consuming
+        // application data that may arrive alongside the final handshake
+        // record.  This matches OpenSSL's default (no read-ahead) behaviour
+        // and keeps remaining data in the kernel buffer where select() can
+        // detect it.
+        handshake_recv_one_record(socket, vm)?
+    } else {
+        match socket.sock_recv(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
+            Ok(d) => d,
+            Err(e) => {
+                if is_blocking_io_error(&e, vm) {
+                    return Err(SslError::WantRead);
+                }
+                if !conn.wants_write() && e.fast_isinstance(vm.ctx.exceptions.timeout_error) {
                     return Ok((false, false));
                 }
+                return Err(SslError::Py(e));
             }
-            return Err(SslError::Py(e));
         }
     };
 

@@ -110,8 +110,8 @@ impl VirtualMachine {
         debug_assert_eq!(
             exc_type.slots.basicsize,
             core::mem::size_of::<PyBaseException>(),
-            "vm.new_exception() is only for exception types without additional payload. The given type '{}' is not allowed.",
-            exc_type.class().name()
+            "vm.new_exception() is only for exception types without additional payload. The given type '{}' is not allowed. Use vm.new_os_subtype_error() for OSError subtypes.",
+            exc_type.name()
         );
 
         PyRef::new_ref(

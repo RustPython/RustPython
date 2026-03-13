@@ -2859,10 +2859,11 @@ mod _ssl {
                     // Wait briefly for peer's close_notify before retrying
                     match socket_stream.select(SslNeeds::Read, &deadline) {
                         SelectRet::TimedOut => {
-                            return Err(vm.new_exception_msg(
-                                vm.ctx.exceptions.timeout_error.to_owned(),
-                                "The read operation timed out".to_owned(),
-                            ));
+                            return Err(socket::timeout_error_msg(
+                                vm,
+                                "The read operation timed out".to_string(),
+                            )
+                            .upcast());
                         }
                         SelectRet::Closed => {
                             return Err(socket_closed_error(vm));
@@ -2901,10 +2902,7 @@ mod _ssl {
                         } else {
                             "The write operation timed out"
                         };
-                        return Err(vm.new_exception_msg(
-                            vm.ctx.exceptions.timeout_error.to_owned(),
-                            msg.to_owned(),
-                        ));
+                        return Err(socket::timeout_error_msg(vm, msg.to_string()).upcast());
                     }
                     SelectRet::Closed => {
                         return Err(socket_closed_error(vm));
