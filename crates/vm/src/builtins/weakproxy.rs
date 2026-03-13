@@ -5,11 +5,11 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
-    protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumber, PyNumberMethods, PySequenceMethods},
+    protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
-        AsMapping, AsNumber, AsSequence, Comparable, Constructor, GetAttr, Hashable,
-        IterNext, Iterable, PyComparisonOp, Representable, SetAttr,
+        AsMapping, AsNumber, AsSequence, Comparable, Constructor, GetAttr, Hashable, IterNext,
+        Iterable, PyComparisonOp, Representable, SetAttr,
     },
 };
 
@@ -136,9 +136,7 @@ impl IterNext for PyWeakProxy {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let obj = zelf.try_upgrade(vm)?;
         if obj.class().slots.iternext.load().is_none() {
-            return Err(vm.new_type_error(
-                "Weakref proxy referenced a non-iterator".to_owned(),
-            ));
+            return Err(vm.new_type_error("Weakref proxy referenced a non-iterator".to_owned()));
         }
         PyIter::new(obj).next(vm)
     }
@@ -184,18 +182,18 @@ fn proxy_upgrade_opt(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyO
     }
 }
 
+fn proxy_unary_op(
+    obj: &PyObject,
+    vm: &VirtualMachine,
+    op: fn(&VirtualMachine, &PyObject) -> PyResult,
+) -> PyResult {
+    let upgraded = proxy_upgrade(obj, vm)?;
+    op(vm, &upgraded)
+}
+
 macro_rules! proxy_unary_slot {
-    ($slot:ident) => {
-        Some(|number, vm| {
-            let obj = proxy_upgrade(number.obj, vm)?;
-            let f = obj.class().slots.as_number.$slot.load()
-                .ok_or_else(|| vm.new_type_error(format!(
-                    "bad operand type for unary op: '{}'",
-                    obj.class().name()
-                )))?;
-            let number = PyNumber { obj: &obj };
-            f(number, vm).map(|v| v.into())
-        })
+    ($vm_method:ident) => {
+        Some(|number, vm| proxy_unary_op(number.obj, vm, |vm, obj| vm.$vm_method(obj)))
     };
 }
 
@@ -213,9 +211,9 @@ fn proxy_binary_op(
 }
 
 macro_rules! proxy_binary_slot {
-  ($vm_method:ident) => {
-      Some(|a, b, vm| proxy_binary_op(a, b, vm, |vm, a, b| vm.$vm_method(a, b)))
-  };
+    ($vm_method:ident) => {
+        Some(|a, b, vm| proxy_binary_op(a, b, vm, |vm, a, b| vm.$vm_method(a, b)))
+    };
 }
 
 fn proxy_ternary_op(
@@ -236,9 +234,7 @@ fn proxy_ternary_op(
 
 macro_rules! proxy_ternary_slot {
     ($vm_method:ident) => {
-        Some(|a, b, c, vm| {
-            proxy_ternary_op(a, b, c, vm, |vm, a, b, c| vm.$vm_method(a, b, c))
-        })
+        Some(|a, b, c, vm| proxy_ternary_op(a, b, c, vm, |vm, a, b, c| vm.$vm_method(a, b, c)))
     };
 }
 
@@ -261,10 +257,10 @@ impl AsNumber for PyWeakProxy {
                 let obj = proxy_upgrade(number.obj, vm)?;
                 obj.try_index(vm).map(Into::into)
             }),
-            negative: proxy_unary_slot!(negative),
-            positive: proxy_unary_slot!(positive),
-            absolute: proxy_unary_slot!(absolute),
-            invert: proxy_unary_slot!(invert),
+            negative: proxy_unary_slot!(_neg),
+            positive: proxy_unary_slot!(_pos),
+            absolute: proxy_unary_slot!(_abs),
+            invert: proxy_unary_slot!(_invert),
             add: proxy_binary_slot!(_add),
             subtract: proxy_binary_slot!(_sub),
             multiply: proxy_binary_slot!(_mul),
