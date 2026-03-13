@@ -3629,18 +3629,17 @@ mod _ssl {
                             return return_data(buf, &buffer, vm);
                         }
                     }
-                    // Clean closure with close_notify
-                    // CPython behavior depends on whether we've sent our close_notify:
-                    // - If we've already sent close_notify (unwrap was called): raise SSLZeroReturnError
-                    // - If we haven't sent close_notify yet: return empty bytes
+                    // Clean closure via close_notify from peer.
+                    // If we already sent close_notify (unwrap was called),
+                    // raise SSLZeroReturnError (bidirectional shutdown).
+                    // Otherwise return empty bytes, which callers (asyncore,
+                    // asyncio sslproto) interpret as EOF.
                     let our_shutdown_state = *self.shutdown_state.lock();
                     if our_shutdown_state == ShutdownState::SentCloseNotify
                         || our_shutdown_state == ShutdownState::Completed
                     {
-                        // We already sent close_notify, now receiving peer's → SSLZeroReturnError
                         Err(create_ssl_zero_return_error(vm).upcast())
                     } else {
-                        // We haven't sent close_notify yet → return empty bytes
                         return_data(vec![], &buffer, vm)
                     }
                 }
