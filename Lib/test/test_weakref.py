@@ -337,7 +337,6 @@ class ReferencesTestCase(TestBase):
         self.assertIn("__bytes__", dir(weakref.proxy(instance)))
         self.assertEqual(bytes(weakref.proxy(instance)), b"bytes")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_proxy_index(self):
         class C:
             def __index__(self):
@@ -346,7 +345,6 @@ class ReferencesTestCase(TestBase):
         p = weakref.proxy(o)
         self.assertEqual(operator.index(p), 10)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_proxy_div(self):
         class C:
             def __floordiv__(self, other):
@@ -359,7 +357,6 @@ class ReferencesTestCase(TestBase):
         p //= 5
         self.assertEqual(p, 21)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_proxy_matmul(self):
         class C:
             def __matmul__(self, other):
@@ -504,7 +501,6 @@ class ReferencesTestCase(TestBase):
         # Calls proxy.__next__
         self.assertEqual(list(weak_it), [4, 5, 6])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_proxy_bad_next(self):
         # bpo-44720: PyIter_Next() shouldn't be called if the reference
         # isn't an iterator.
@@ -594,7 +590,6 @@ class ReferencesTestCase(TestBase):
         self.assertEqual(weakref.getweakrefs(1), [],
                      "list of refs does not match for int")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_newstyle_number_ops(self):
         class F(float):
             pass
