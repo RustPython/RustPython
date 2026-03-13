@@ -2366,6 +2366,14 @@ impl Compiler {
                     );
 
                     self.switch_to_block(after_block);
+                } else {
+                    // Optimized-out asserts still need to consume any nested
+                    // scope symbol tables they contain so later nested scopes
+                    // stay aligned with AST traversal order.
+                    self.consume_skipped_nested_scopes_in_expr(test)?;
+                    if let Some(expr) = msg {
+                        self.consume_skipped_nested_scopes_in_expr(expr)?;
+                    }
                 }
             }
             ast::Stmt::Break(_) => {
@@ -7605,6 +7613,92 @@ impl Compiler {
         })
     }
 
+    fn consume_next_sub_table(&mut self) -> CompileResult<()> {
+        {
+            let _ = self.push_symbol_table()?;
+        }
+        let _ = self.pop_symbol_table();
+        Ok(())
+    }
+
+    fn consume_skipped_nested_scopes_in_expr(
+        &mut self,
+        expression: &ast::Expr,
+    ) -> CompileResult<()> {
+        use ast::visitor::Visitor;
+
+        struct SkippedScopeVisitor<'a> {
+            compiler: &'a mut Compiler,
+            error: Option<CodegenError>,
+        }
+
+        impl SkippedScopeVisitor<'_> {
+            fn consume_scope(&mut self) {
+                if self.error.is_none() {
+                    self.error = self.compiler.consume_next_sub_table().err();
+                }
+            }
+        }
+
+        impl ast::visitor::Visitor<'_> for SkippedScopeVisitor<'_> {
+            fn visit_expr(&mut self, expr: &ast::Expr) {
+                if self.error.is_some() {
+                    return;
+                }
+
+                match expr {
+                    ast::Expr::Lambda(ast::ExprLambda { parameters, .. }) => {
+                        // Defaults are scanned before enter_scope in the
+                        // symbol table builder, so their nested scopes
+                        // precede the lambda scope in sub_tables.
+                        if let Some(params) = parameters.as_deref() {
+                            for default in params
+                                .posonlyargs
+                                .iter()
+                                .chain(&params.args)
+                                .chain(&params.kwonlyargs)
+                                .filter_map(|p| p.default.as_deref())
+                            {
+                                self.visit_expr(default);
+                            }
+                        }
+                        self.consume_scope();
+                    }
+                    ast::Expr::ListComp(ast::ExprListComp { generators, .. })
+                    | ast::Expr::SetComp(ast::ExprSetComp { generators, .. })
+                    | ast::Expr::Generator(ast::ExprGenerator { generators, .. }) => {
+                        // leave_scope runs before the first iterator is
+                        // scanned, so the comprehension scope comes first
+                        // in sub_tables, then any nested scopes from the
+                        // first iterator.
+                        self.consume_scope();
+                        if let Some(first) = generators.first() {
+                            self.visit_expr(&first.iter);
+                        }
+                    }
+                    ast::Expr::DictComp(ast::ExprDictComp { generators, .. }) => {
+                        self.consume_scope();
+                        if let Some(first) = generators.first() {
+                            self.visit_expr(&first.iter);
+                        }
+                    }
+                    _ => ast::visitor::walk_expr(self, expr),
+                }
+            }
+        }
+
+        let mut visitor = SkippedScopeVisitor {
+            compiler: self,
+            error: None,
+        };
+        visitor.visit_expr(expression);
+        if let Some(err) = visitor.error {
+            Err(err)
+        } else {
+            Ok(())
+        }
+    }
+
     fn compile_comprehension(
         &mut self,
         name: &str,
@@ -9183,5 +9277,46 @@ async def test():
                 self.fail(f'{stop_exc} was suppressed')
 "
         ));
+    }
+
+    #[test]
+    fn test_optimized_assert_preserves_nested_scope_order() {
+        compile_exec_optimized(
+            "\
+class S:
+    def f(self, sequence):
+        _formats = [self._types_mapping[type(item)] for item in sequence]
+        _list_len = len(_formats)
+        assert sum(len(fmt) <= 8 for fmt in _formats) == _list_len
+        _recreation_codes = [self._extract_recreation_code(item) for item in sequence]
+",
+        );
+    }
+
+    #[test]
+    fn test_optimized_assert_with_nested_scope_in_first_iter() {
+        // First iterator of a comprehension is evaluated in the enclosing
+        // scope, so nested scopes inside it (the generator here) must also
+        // be consumed when the assert is optimized away.
+        compile_exec_optimized(
+            "\
+def f(items):
+    assert [x for x in (y for y in items)]
+    return [x for x in items]
+",
+        );
+    }
+
+    #[test]
+    fn test_optimized_assert_with_lambda_defaults() {
+        // Lambda default values are evaluated in the enclosing scope,
+        // so nested scopes inside defaults must be consumed.
+        compile_exec_optimized(
+            "\
+def f(items):
+    assert (lambda x=[i for i in items]: x)()
+    return [x for x in items]
+",
+        );
     }
 }

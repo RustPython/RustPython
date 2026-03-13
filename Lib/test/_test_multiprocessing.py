@@ -5442,8 +5442,6 @@ class TestFlags(unittest.TestCase):
         flags = (tuple(sys.flags), grandchild_flags)
         print(json.dumps(flags))
 
-    # TODO: RUSTPYTHON - SyntaxError in subprocess after fork
-    @unittest.expectedFailure
     def test_flags(self):
         import json
         # start child process using unusual flags
