@@ -19,16 +19,16 @@ env:
 jobs:
   update-issue:
     runs-on: ubuntu-latest
+    if: ${{ github.repository == 'RustPython/RustPython' }}
     steps:
       - name: Clone RustPython
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: rustpython
-          persist-credentials: "false"
+          persist-credentials: false
           sparse-checkout: |-
               Lib
               scripts/update_lib
-
 
       - name: Clone CPython ${{ env.PYTHON_VERSION }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -36,7 +36,7 @@ jobs:
           repository: python/cpython
           path: cpython
           ref: ${{ env.PYTHON_VERSION }}
-          persist-credentials: "false"
+          persist-credentials: false
           sparse-checkout: |
             Lib
 
