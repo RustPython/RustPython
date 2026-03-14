@@ -13,7 +13,7 @@ use crate::{
     IndexMap, IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
-    symboltable::{self, CompilerScope, SymbolFlags, SymbolScope, SymbolTable},
+    symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
 use alloc::borrow::Cow;
@@ -1012,12 +1012,14 @@ impl Compiler {
         // Use varnames from symbol table (already collected in definition order)
         let varname_cache: IndexSet<String> = ste.varnames.iter().cloned().collect();
 
-        // Build cellvars using dictbytype (CELL scope, sorted)
+        // Build cellvars using dictbytype (CELL scope or COMP_CELL flag, sorted)
         let mut cellvar_cache = IndexSet::default();
         let mut cell_names: Vec<_> = ste
             .symbols
             .iter()
-            .filter(|(_, s)| s.scope == SymbolScope::Cell)
+            .filter(|(_, s)| {
+                s.scope == SymbolScope::Cell || s.flags.contains(SymbolFlags::COMP_CELL)
+            })
             .map(|(name, _)| name.clone())
             .collect();
         cell_names.sort();
@@ -7656,13 +7658,16 @@ impl Compiler {
         // We must have at least one generator:
         assert!(!generators.is_empty());
 
-        if is_inlined && !has_an_async_gen && !element_contains_await {
+        if is_inlined {
             // PEP 709: Inlined comprehension - compile inline without new scope
-            // Async comprehensions are not inlined due to complex exception handling
             let was_in_inlined_comp = self.current_code_info().in_inlined_comp;
             self.current_code_info().in_inlined_comp = true;
-            let result =
-                self.compile_inlined_comprehension(init_collection, generators, compile_element);
+            let result = self.compile_inlined_comprehension(
+                init_collection,
+                generators,
+                compile_element,
+                has_an_async_gen,
+            );
             self.current_code_info().in_inlined_comp = was_in_inlined_comp;
             return result;
         }
@@ -7816,34 +7821,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Collect variable names from an assignment target expression
-    fn collect_target_names(&self, target: &ast::Expr, names: &mut Vec<String>) {
-        match target {
-            ast::Expr::Name(name) => {
-                let name_str = name.id.to_string();
-                if !names.contains(&name_str) {
-                    names.push(name_str);
-                }
-            }
-            ast::Expr::Tuple(tuple) => {
-                for elt in &tuple.elts {
-                    self.collect_target_names(elt, names);
-                }
-            }
-            ast::Expr::List(list) => {
-                for elt in &list.elts {
-                    self.collect_target_names(elt, names);
-                }
-            }
-            ast::Expr::Starred(starred) => {
-                self.collect_target_names(&starred.value, names);
-            }
-            _ => {
-                // Other targets (attribute, subscript) don't bind local names
-            }
-        }
-    }
-
     /// Compile an inlined comprehension (PEP 709)
     /// This generates bytecode inline without creating a new code object
     fn compile_inlined_comprehension(
@@ -7851,18 +7828,18 @@ impl Compiler {
         init_collection: Option<AnyInstruction>,
         generators: &[ast::Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
+        has_async: bool,
     ) -> CompileResult<()> {
-        // PEP 709: Consume the comprehension's sub_table (but we won't use it as a separate scope).
+        // PEP 709: Consume the comprehension's sub_table.
         // The symbols are already merged into parent scope by analyze_symbol_table.
-        // Splice the comprehension's sub_tables into the parent so nested scopes
-        // (e.g. inner comprehensions, lambdas) can still find their sub_tables.
+        // Splice the comprehension's children into the parent so nested scopes
+        // (e.g. inner comprehensions, lambdas) can be found by the compiler.
         let current_table = self
             .symbol_table_stack
             .last_mut()
             .expect("no current symbol table");
         let comp_table = current_table.sub_tables[current_table.next_sub_table].clone();
         current_table.next_sub_table += 1;
-        // Insert the comprehension's sub_tables right after the consumed entry
         if !comp_table.sub_tables.is_empty() {
             let insert_pos = current_table.next_sub_table;
             for (i, st) in comp_table.sub_tables.iter().enumerate() {
@@ -7870,36 +7847,110 @@ impl Compiler {
             }
         }
 
-        // Collect local variables that need to be saved/restored
-        // These are variables bound in the comprehension (iteration vars from targets)
-        let mut pushed_locals: Vec<String> = Vec::new();
-        for generator in generators {
-            self.collect_target_names(&generator.target, &mut pushed_locals);
+        // Step 1: Compile the outermost iterator BEFORE tweaking scopes
+        self.compile_expression(&generators[0].iter)?;
+        if has_async && generators[0].is_async {
+            emit!(self, Instruction::GetAIter);
+        } else {
+            emit!(self, Instruction::GetIter);
         }
 
-        // Step 1: Compile the outermost iterator
-        // Async comprehensions are never inlined, so only sync iteration here
-        self.compile_expression(&generators[0].iter)?;
-        emit!(self, Instruction::GetIter);
+        // Collect local variables that need to be saved/restored.
+        // All DEF_LOCAL && !DEF_NONLOCAL names from the comp table, plus class block names.
+        let in_class_block = {
+            let ct = self.current_symbol_table();
+            ct.typ == CompilerScope::Class && !self.current_code_info().in_inlined_comp
+        };
+        let mut pushed_locals: Vec<String> = Vec::new();
+        for (name, sym) in &comp_table.symbols {
+            if sym.flags.contains(SymbolFlags::PARAMETER) {
+                continue; // skip .0
+            }
+            // Walrus operator targets (ASSIGNED_IN_COMPREHENSION without ITER)
+            // are not local to the comprehension; they leak to the outer scope.
+            let is_walrus = sym.flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
+                && !sym.flags.contains(SymbolFlags::ITER);
+            let is_local = sym
+                .flags
+                .intersects(SymbolFlags::ASSIGNED | SymbolFlags::ITER)
+                && !sym.flags.contains(SymbolFlags::NONLOCAL)
+                && !is_walrus;
+            if is_local || in_class_block {
+                pushed_locals.push(name.clone());
+            }
+        }
 
-        // Step 2: Save local variables that will be shadowed by the comprehension
+        // TweakInlinedComprehensionScopes: temporarily override parent symbols
+        // with comp scopes where they differ.
+        let mut temp_symbols: IndexMap<String, Symbol> = IndexMap::default();
+        for (name, comp_sym) in &comp_table.symbols {
+            if comp_sym.flags.contains(SymbolFlags::PARAMETER) {
+                continue; // skip .0
+            }
+            let comp_scope = comp_sym.scope;
+
+            let current_table = self.symbol_table_stack.last().expect("no symbol table");
+            if let Some(outer_sym) = current_table.symbols.get(name) {
+                let outer_scope = outer_sym.scope;
+                if (comp_scope != outer_scope
+                    && comp_scope != SymbolScope::Free
+                    && !(comp_scope == SymbolScope::Cell && outer_scope == SymbolScope::Free))
+                    || in_class_block
+                {
+                    temp_symbols.insert(name.clone(), outer_sym.clone());
+                    let current_table =
+                        self.symbol_table_stack.last_mut().expect("no symbol table");
+                    current_table.symbols.insert(name.clone(), comp_sym.clone());
+                }
+            }
+        }
+
+        // Step 2: Save local variables that will be shadowed by the comprehension.
+        // For each variable, we push the fast local value via LoadFastAndClear.
+        // For CELL variables, we additionally push the cell content via MakeCell
+        // (which saves the old cell value and clears the cell for the comprehension).
+        // Track cell indices to restore them later.
+        let mut cell_indices: Vec<Option<u32>> = Vec::new();
+        let mut total_stack_items: usize = 0;
         for name in &pushed_locals {
             let var_num = self.varname(name)?;
             emit!(self, Instruction::LoadFastAndClear { var_num });
+            total_stack_items += 1;
+            // If the comp symbol is CELL, emit MAKE_CELL to save cell value
+            if let Some(comp_sym) = comp_table.symbols.get(name) {
+                if comp_sym.scope == SymbolScope::Cell {
+                    let i = if self
+                        .current_symbol_table()
+                        .symbols
+                        .get(name)
+                        .is_some_and(|s| s.scope == SymbolScope::Free)
+                    {
+                        self.get_free_var_index(name)?
+                    } else {
+                        self.get_cell_var_index(name)?
+                    };
+                    emit!(self, Instruction::MakeCell { i });
+                    cell_indices.push(Some(i));
+                    total_stack_items += 1;
+                } else {
+                    cell_indices.push(None);
+                }
+            } else {
+                cell_indices.push(None);
+            }
         }
 
-        // Step 3: SWAP iterator to TOS (above saved locals)
-        if !pushed_locals.is_empty() {
+        // Step 3: SWAP iterator to TOS (above saved locals + cell values)
+        if total_stack_items > 0 {
             emit!(
                 self,
                 Instruction::Swap {
-                    i: u32::try_from(pushed_locals.len() + 1).unwrap()
+                    i: u32::try_from(total_stack_items + 1).unwrap()
                 }
             );
         }
 
         // Step 4: Create the collection (list/set/dict)
-        // For generator expressions, init_collection is None
         if let Some(init_collection) = init_collection {
             self._emit(init_collection, OpArg::new(0), BlockIdx::NULL);
             // SWAP to get iterator on top
@@ -7921,24 +7972,49 @@ impl Compiler {
         }
 
         // Step 5: Compile the comprehension loop(s)
-        let mut loop_labels = vec![];
+        let mut loop_labels: Vec<(BlockIdx, BlockIdx, BlockIdx, bool, BlockIdx)> = vec![];
         for (i, generator) in generators.iter().enumerate() {
             let loop_block = self.new_block();
             let if_cleanup_block = self.new_block();
             let after_block = self.new_block();
 
             if i > 0 {
-                // For nested loops, compile the iterator expression
                 self.compile_expression(&generator.iter)?;
-                emit!(self, Instruction::GetIter);
+                if generator.is_async {
+                    emit!(self, Instruction::GetAIter);
+                } else {
+                    emit!(self, Instruction::GetIter);
+                }
             }
 
             self.switch_to_block(loop_block);
 
-            emit!(self, Instruction::ForIter { delta: after_block });
-            self.compile_store(&generator.target)?;
+            let mut end_async_for_target = BlockIdx::NULL;
+            if generator.is_async {
+                emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
+                emit!(self, Instruction::GetANext);
+                self.push_fblock(
+                    FBlockType::AsyncComprehensionGenerator,
+                    loop_block,
+                    after_block,
+                )?;
+                self.emit_load_const(ConstantData::None);
+                end_async_for_target = self.compile_yield_from_sequence(true)?;
+                emit!(self, PseudoInstruction::PopBlock);
+                self.pop_fblock(FBlockType::AsyncComprehensionGenerator);
+                self.compile_store(&generator.target)?;
+            } else {
+                emit!(self, Instruction::ForIter { delta: after_block });
+                self.compile_store(&generator.target)?;
+            }
 
-            loop_labels.push((loop_block, if_cleanup_block, after_block));
+            loop_labels.push((
+                loop_block,
+                if_cleanup_block,
+                after_block,
+                generator.is_async,
+                end_async_for_target,
+            ));
 
             // Evaluate the if conditions
             for if_condition in &generator.ifs {
@@ -7949,20 +8025,26 @@ impl Compiler {
         // Step 6: Compile the element expression and append to collection
         compile_element(self)?;
 
-        // Step 7: Close all loops (sync only - async comprehensions are never inlined)
-        for (loop_block, if_cleanup_block, after_block) in loop_labels.iter().rev().copied() {
+        // Step 7: Close all loops
+        for &(loop_block, if_cleanup_block, after_block, is_async, end_async_for_target) in
+            loop_labels.iter().rev()
+        {
             emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
             self.switch_to_block(if_cleanup_block);
             emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
             self.switch_to_block(after_block);
-            emit!(self, Instruction::EndFor);
-            emit!(self, Instruction::PopIter);
+            if is_async {
+                self.emit_end_async_for(end_async_for_target);
+            } else {
+                emit!(self, Instruction::EndFor);
+                emit!(self, Instruction::PopIter);
+            }
         }
 
-        // Step 8: Clean up - restore saved locals
-        if !pushed_locals.is_empty() {
+        // Step 8: Clean up - restore saved locals (and cell values)
+        if total_stack_items > 0 {
             emit!(self, PseudoInstruction::PopBlock);
             self.pop_fblock(FBlockType::TryExcept);
 
@@ -7971,19 +8053,21 @@ impl Compiler {
 
             // Exception cleanup path
             self.switch_to_block(cleanup_block);
-            // Stack: [saved_locals..., collection, exception]
-            // Swap to get collection out from under exception
+            // Stack: [saved_values..., collection, exception]
             emit!(self, Instruction::Swap { i: 2 });
             emit!(self, Instruction::PopTop); // Pop incomplete collection
 
-            // Restore locals
+            // Restore locals and cell values
             emit!(
                 self,
                 Instruction::Swap {
-                    i: u32::try_from(pushed_locals.len() + 1).unwrap()
+                    i: u32::try_from(total_stack_items + 1).unwrap()
                 }
             );
-            for name in pushed_locals.iter().rev() {
+            for (name, cell_idx) in pushed_locals.iter().rev().zip(cell_indices.iter().rev()) {
+                if let Some(i) = cell_idx {
+                    emit!(self, Instruction::RestoreCell { i: *i });
+                }
                 let var_num = self.varname(name)?;
                 emit!(self, Instruction::StoreFast { var_num });
             }
@@ -7994,20 +8078,29 @@ impl Compiler {
             self.switch_to_block(end_block);
         }
 
-        // SWAP result to TOS (above saved locals)
-        if !pushed_locals.is_empty() {
+        // SWAP result to TOS (above saved values)
+        if total_stack_items > 0 {
             emit!(
                 self,
                 Instruction::Swap {
-                    i: u32::try_from(pushed_locals.len() + 1).unwrap()
+                    i: u32::try_from(total_stack_items + 1).unwrap()
                 }
             );
         }
 
-        // Restore saved locals
-        for name in pushed_locals.iter().rev() {
+        // Restore saved locals and cell values
+        for (name, cell_idx) in pushed_locals.iter().rev().zip(cell_indices.iter().rev()) {
+            if let Some(i) = cell_idx {
+                emit!(self, Instruction::RestoreCell { i: *i });
+            }
             let var_num = self.varname(name)?;
             emit!(self, Instruction::StoreFast { var_num });
+        }
+
+        // RevertInlinedComprehensionScopes: restore original symbols
+        let current_table = self.symbol_table_stack.last_mut().expect("no symbol table");
+        for (name, original_sym) in temp_symbols {
+            current_table.symbols.insert(name, original_sym);
         }
 
         Ok(())

@@ -2853,8 +2853,29 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::MakeFunction => self.execute_make_function(vm),
-            Instruction::MakeCell { .. } => {
-                // Cell creation is handled at frame creation time in RustPython
+            Instruction::MakeCell { i } => {
+                // PEP 709: Save the current cell object on the stack and
+                // create a fresh empty cell for the inlined comprehension.
+                // The old cell is restored afterwards via RestoreCell.
+                let cell_idx = i.get(arg) as usize;
+                let nlocals = self.code.varnames.len();
+                let old_cell = self.localsplus.fastlocals_mut()[nlocals + cell_idx]
+                    .take()
+                    .expect("cell slot empty");
+                let new_cell = PyCell::default().into_ref(&vm.ctx).into();
+                self.localsplus.fastlocals_mut()[nlocals + cell_idx] = Some(new_cell);
+                // Push the old cell object itself
+                self.push_value(old_cell);
+                Ok(None)
+            }
+            Instruction::RestoreCell { i } => {
+                // PEP 709: Restore the saved cell object after an inlined
+                // comprehension. Pops the old cell from the stack and writes
+                // it back to the cell slot, replacing the temporary cell.
+                let cell_idx = i.get(arg) as usize;
+                let nlocals = self.code.varnames.len();
+                let old_cell = self.pop_value();
+                self.localsplus.fastlocals_mut()[nlocals + cell_idx] = Some(old_cell);
                 Ok(None)
             }
             Instruction::MapAdd { i } => {

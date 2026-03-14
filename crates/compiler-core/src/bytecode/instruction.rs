@@ -302,6 +302,13 @@ pub enum Instruction {
     YieldValue {
         arg: Arg<u32>,
     } = 120,
+    /// PEP 709: Restore a saved cell object after an inlined comprehension.
+    /// Pops the old cell object from the stack and writes it back to the
+    /// cell slot at `fastlocals[nlocals + i]`, replacing the temporary cell
+    /// created by `MakeCell`.
+    RestoreCell {
+        i: Arg<NameIdx>,
+    } = 121,
     // CPython 3.14 RESUME (128)
     Resume {
         context: Arg<u32>,
@@ -446,8 +453,8 @@ impl TryFrom<u8> for Instruction {
         let instrumented_start = u8::from(Self::InstrumentedEndFor);
         let instrumented_end = u8::from(Self::InstrumentedLine);
 
-        // No RustPython-only opcodes anymore - all opcodes match CPython 3.14
-        let custom_ops: &[u8] = &[];
+        // RustPython-specific opcodes (PEP 709 RestoreCell)
+        let custom_ops: &[u8] = &[u8::from(Self::RestoreCell { i: Arg::marker() })];
 
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
@@ -1018,7 +1025,8 @@ impl InstructionMetadata for Instruction {
             Self::LoadSuperAttr { .. } => (1 + (oparg & 1), 3),
             Self::LoadSuperAttrAttr => (1, 3),
             Self::LoadSuperAttrMethod => (2, 3),
-            Self::MakeCell { .. } => (0, 0),
+            Self::MakeCell { .. } => (1, 0),
+            Self::RestoreCell { .. } => (0, 1),
             Self::MakeFunction { .. } => (1, 1),
             Self::MapAdd { .. } => (1 + (oparg - 1), 3 + (oparg - 1)),
             Self::MatchClass { .. } => (1, 3),
@@ -1314,6 +1322,7 @@ impl InstructionMetadata for Instruction {
                 )
             }
             Self::MakeCell { i } => w!(MAKE_CELL, cell_name = i),
+            Self::RestoreCell { i } => w!(RESTORE_CELL, cell_name = i),
             Self::MakeFunction => w!(MAKE_FUNCTION),
             Self::MapAdd { i } => w!(MAP_ADD, i),
             Self::MatchClass { count } => w!(MATCH_CLASS, count),
