@@ -712,7 +712,8 @@ mod math {
                 }
                 // Finalize float path
                 if !flt_p_values.is_empty() {
-                    let flt_result = pymath::math::sumprod(&flt_p_values, &flt_q_values);
+                    let flt_result = pymath::math::sumprod(&flt_p_values, &flt_q_values)
+                        .map_err(|err| pymath_exception(err, vm))?;
                     let flt_obj: PyObjectRef = vm.ctx.new_float(flt_result).into();
                     obj_total = Some(match obj_total {
                         Some(total) => vm._add(&total, &flt_obj)?,
