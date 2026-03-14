@@ -88,7 +88,7 @@ mod builtins {
     #[pyfunction]
     fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<CodePoint> {
         let value = i
-            .try_to_primitive::<isize>(vm)?
+            .as_bigint()
             .to_u32()
             .and_then(CodePoint::from_u32)
             .ok_or_else(|| vm.new_value_error("chr() arg not in range(0x110000)"))?;
