@@ -1649,7 +1649,7 @@ impl PyType {
     fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.check_set_special_type_attr(identifier!(vm, __module__), vm)?;
         let mut attributes = self.attributes.write();
-        attributes.swap_remove(vm.ctx.intern_str("__firstlineno__"));
+        attributes.swap_remove(identifier!(vm, __firstlineno__));
         attributes.insert(identifier!(vm, __module__), value);
         Ok(())
     }
