@@ -151,27 +151,28 @@ fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
 }
 
 fn complex_add(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    if let Some(a_complex) = a.downcast_ref::<PyComplex>() {
-        let value = if let Some(b_complex) = b.downcast_ref::<PyComplex>() {
-            // complex + complex
-            a_complex.value + b_complex.value
-        } else if let Some(b_real) = float::to_op_float(b, vm)? {
-            // complex + float
+    let value = match (a.downcast_ref::<PyComplex>(), b.downcast_ref::<PyComplex>()) {
+        // complex + complex
+        (Some(a_complex), Some(b_complex)) => a_complex.value + b_complex.value,
+        (Some(a_complex), None) => {
+            let Some(b_real) = float::to_op_float(b, vm)? else {
+                return Ok(vm.ctx.not_implemented());
+            };
+
+            // complex + real
             Complex64::new(a_complex.value.re + b_real, a_complex.value.im)
-        } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-        return value.to_pyresult(vm);
-    }
+        }
+        (None, Some(b_complex)) => {
+            let Some(a_real) = float::to_op_float(a, vm)? else {
+                return Ok(vm.ctx.not_implemented());
+            };
 
-    // float + complex
-    if let Some(b_complex) = b.downcast_ref::<PyComplex>()
-        && let Some(a_real) = float::to_op_float(a, vm)?
-    {
-        return Complex64::new(a_real + b_complex.value.re, b_complex.value.im).to_pyresult(vm);
-    }
-
-    Ok(vm.ctx.not_implemented())
+            // real + complex
+            Complex64::new(a_real + b_complex.value.re, b_complex.value.im)
+        }
+        (None, None) => return Ok(vm.ctx.not_implemented()),
+    };
+    value.to_pyresult(vm)
 }
 
 fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
