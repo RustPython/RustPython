@@ -135,6 +135,7 @@ declare_const_name! {
     __eq__,
     __exit__,
     __file__,
+    __firstlineno__,
     __float__,
     __floor__,
     __floordiv__,

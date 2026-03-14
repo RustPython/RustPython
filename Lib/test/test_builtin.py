@@ -2939,7 +2939,6 @@ class TestType(unittest.TestCase):
             A.__qualname__ = b'B'
         self.assertEqual(A.__qualname__, 'D.E')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '__firstlineno__' unexpectedly found in mappingproxy({'__firstlineno__': 42, '__module__': 'testmodule', '__dict__': <attribute '__dict__' of 'A' objects>, '__doc__': None})
     def test_type_firstlineno(self):
         A = type('A', (), {'__firstlineno__': 42})
         self.assertEqual(A.__name__, 'A')
