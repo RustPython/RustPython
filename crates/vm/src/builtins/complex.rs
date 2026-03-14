@@ -297,21 +297,21 @@ impl PyComplex {
         vm: &VirtualMachine,
     ) -> PyResult
     where
-        CCF: FnOnce(Complex64, Complex64, &VirtualMachine) -> R,
-        CRF: FnOnce(Complex64, f64, &VirtualMachine) -> R,
-        RCF: FnOnce(f64, Complex64, &VirtualMachine) -> R,
+        CCF: FnOnce(Complex64, Complex64) -> R,
+        CRF: FnOnce(Complex64, f64) -> R,
+        RCF: FnOnce(f64, Complex64) -> R,
         R: ToPyResult,
     {
         let value = match (a.downcast_ref::<PyComplex>(), b.downcast_ref::<PyComplex>()) {
             // complex + complex
-            (Some(a_complex), Some(b_complex)) => cc_op(a_complex.value, b_complex.value, vm),
+            (Some(a_complex), Some(b_complex)) => cc_op(a_complex.value, b_complex.value),
             (Some(a_complex), None) => {
                 let Some(b_real) = float::to_op_float(b, vm)? else {
                     return Ok(vm.ctx.not_implemented());
                 };
 
                 // complex + real
-                cr_op(a_complex.value, b_real, vm)
+                cr_op(a_complex.value, b_real)
             }
             (None, Some(b_complex)) => {
                 let Some(a_real) = float::to_op_float(a, vm)? else {
@@ -319,7 +319,7 @@ impl PyComplex {
                 };
 
                 // real + complex
-                rc_op(a_real, b_complex.value, vm)
+                rc_op(a_real, b_complex.value)
             }
             (None, None) => return Ok(vm.ctx.not_implemented()),
         };
@@ -438,9 +438,9 @@ impl AsNumber for PyComplex {
                 PyComplex::complex_real_binop(
                     a,
                     b,
-                    |a, b, _vm| a + b,
-                    |a_complex, b_real, _vm| Complex64::new(a_complex.re + b_real, a_complex.im),
-                    |a_real, b_complex, _vm| Complex64::new(a_real + b_complex.re, b_complex.im),
+                    |a, b| a + b,
+                    |a_complex, b_real| Complex64::new(a_complex.re + b_real, a_complex.im),
+                    |a_real, b_complex| Complex64::new(a_real + b_complex.re, b_complex.im),
                     vm,
                 )
             }),
@@ -448,9 +448,9 @@ impl AsNumber for PyComplex {
                 PyComplex::complex_real_binop(
                     a,
                     b,
-                    |a, b, _vm| a - b,
-                    |a_complex, b_real, _vm| Complex64::new(a_complex.re - b_real, a_complex.im),
-                    |a_real, b_complex, _vm| Complex64::new(a_real - b_complex.re, -b_complex.im),
+                    |a, b| a - b,
+                    |a_complex, b_real| Complex64::new(a_complex.re - b_real, a_complex.im),
+                    |a_real, b_complex| Complex64::new(a_real - b_complex.re, -b_complex.im),
                     vm,
                 )
             }),
