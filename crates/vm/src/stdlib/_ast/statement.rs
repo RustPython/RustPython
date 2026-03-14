@@ -1043,6 +1043,7 @@ impl Node for ast::StmtImport {
             node_index: _,
             names,
             range: _range,
+            is_lazy: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtImport::static_type().to_owned())
@@ -1053,6 +1054,7 @@ impl Node for ast::StmtImport {
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_file: &SourceFile,
@@ -1066,6 +1068,7 @@ impl Node for ast::StmtImport {
                 get_node_field(_vm, &_object, "names", "Import")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "Import")?,
+            is_lazy: false, // Placeholder
         })
     }
 }
@@ -1078,6 +1081,7 @@ impl Node for ast::StmtImportFrom {
             names,
             level,
             range,
+            is_lazy: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeStmtImportFrom::static_type().to_owned())
@@ -1092,6 +1096,7 @@ impl Node for ast::StmtImportFrom {
         node_add_location(&dict, range, vm, source_file);
         node.into()
     }
+
     fn ast_from_object(
         vm: &VirtualMachine,
         source_file: &SourceFile,
@@ -1120,6 +1125,7 @@ impl Node for ast::StmtImportFrom {
                 .transpose()?
                 .unwrap_or(0),
             range: range_from_object(vm, source_file, _object, "ImportFrom")?,
+            is_lazy: false, // Placeholder
         })
     }
 }
