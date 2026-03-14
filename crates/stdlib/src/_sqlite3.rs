@@ -1900,10 +1900,14 @@ mod _sqlite3 {
             };
 
             let mut list = vec![];
-            while let PyIterReturn::Return(row) = Cursor::next(zelf, vm)? {
-                list.push(row);
-                if max_rows > 0 && list.len() as c_int >= max_rows {
-                    break;
+            let mut remaining = max_rows;
+            while remaining > 0 {
+                match Cursor::next(zelf, vm)? {
+                    PyIterReturn::Return(row) => {
+                        list.push(row);
+                        remaining -= 1;
+                    }
+                    PyIterReturn::StopIteration(_) => break,
                 }
             }
             Ok(list)

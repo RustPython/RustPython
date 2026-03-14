@@ -1096,7 +1096,6 @@ class CursorTests(unittest.TestCase):
         self.assertRaises(ValueError, setter, -3)
         self.assertRaises(OverflowError, setter, UINT32_MAX + 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON fetchmany behavior with exhausted cursor differs
     def test_fetchmany(self):
         # no active SQL statement
         res = self.cu.fetchmany()
