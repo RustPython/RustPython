@@ -454,75 +454,77 @@ impl PyFunction {
     /// Set function attribute based on MakeFunctionFlags
     pub(crate) fn set_function_attribute(
         &mut self,
-        attr: bytecode::MakeFunctionFlags,
+        attr: bytecode::MakeFunctionFlag,
         attr_value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         use crate::builtins::PyDict;
-        if attr == bytecode::MakeFunctionFlags::DEFAULTS {
-            let defaults = match attr_value.downcast::<PyTuple>() {
-                Ok(tuple) => tuple,
-                Err(obj) => {
-                    return Err(vm.new_type_error(format!(
-                        "__defaults__ must be a tuple, not {}",
-                        obj.class().name()
-                    )));
-                }
-            };
-            self.defaults_and_kwdefaults.lock().0 = Some(defaults);
-        } else if attr == bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS {
-            let kwdefaults = match attr_value.downcast::<PyDict>() {
-                Ok(dict) => dict,
-                Err(obj) => {
-                    return Err(vm.new_type_error(format!(
-                        "__kwdefaults__ must be a dict, not {}",
-                        obj.class().name()
-                    )));
-                }
-            };
-            self.defaults_and_kwdefaults.lock().1 = Some(kwdefaults);
-        } else if attr == bytecode::MakeFunctionFlags::ANNOTATIONS {
-            let annotations = match attr_value.downcast::<PyDict>() {
-                Ok(dict) => dict,
-                Err(obj) => {
-                    return Err(vm.new_type_error(format!(
-                        "__annotations__ must be a dict, not {}",
-                        obj.class().name()
-                    )));
-                }
-            };
-            *self.annotations.lock() = Some(annotations);
-        } else if attr == bytecode::MakeFunctionFlags::CLOSURE {
-            // For closure, we need special handling
-            // The closure tuple contains cell objects
-            let closure_tuple = attr_value
-                .clone()
-                .downcast_exact::<PyTuple>(vm)
-                .map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "closure must be a tuple, not {}",
-                        obj.class().name()
-                    ))
-                })?
-                .into_pyref();
-
-            self.closure = Some(closure_tuple.try_into_typed::<PyCell>(vm)?);
-        } else if attr == bytecode::MakeFunctionFlags::TYPE_PARAMS {
-            let type_params = attr_value.clone().downcast::<PyTuple>().map_err(|_| {
-                vm.new_type_error(format!(
-                    "__type_params__ must be a tuple, not {}",
-                    attr_value.class().name()
-                ))
-            })?;
-            *self.type_params.lock() = type_params;
-        } else if attr == bytecode::MakeFunctionFlags::ANNOTATE {
-            // PEP 649: Store the __annotate__ function closure
-            if !attr_value.is_callable() {
-                return Err(vm.new_type_error("__annotate__ must be callable"));
+        match attr {
+            bytecode::MakeFunctionFlag::Defaults => {
+                let defaults = match attr_value.downcast::<PyTuple>() {
+                    Ok(tuple) => tuple,
+                    Err(obj) => {
+                        return Err(vm.new_type_error(format!(
+                            "__defaults__ must be a tuple, not {}",
+                            obj.class().name()
+                        )));
+                    }
+                };
+                self.defaults_and_kwdefaults.lock().0 = Some(defaults);
             }
-            *self.annotate.lock() = Some(attr_value);
-        } else {
-            unreachable!("This is a compiler bug");
+            bytecode::MakeFunctionFlag::KwOnlyDefaults => {
+                let kwdefaults = match attr_value.downcast::<PyDict>() {
+                    Ok(dict) => dict,
+                    Err(obj) => {
+                        return Err(vm.new_type_error(format!(
+                            "__kwdefaults__ must be a dict, not {}",
+                            obj.class().name()
+                        )));
+                    }
+                };
+                self.defaults_and_kwdefaults.lock().1 = Some(kwdefaults);
+            }
+            bytecode::MakeFunctionFlag::Annotations => {
+                let annotations = match attr_value.downcast::<PyDict>() {
+                    Ok(dict) => dict,
+                    Err(obj) => {
+                        return Err(vm.new_type_error(format!(
+                            "__annotations__ must be a dict, not {}",
+                            obj.class().name()
+                        )));
+                    }
+                };
+                *self.annotations.lock() = Some(annotations);
+            }
+            bytecode::MakeFunctionFlag::Closure => {
+                let closure_tuple = attr_value
+                    .clone()
+                    .downcast_exact::<PyTuple>(vm)
+                    .map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "closure must be a tuple, not {}",
+                            obj.class().name()
+                        ))
+                    })?
+                    .into_pyref();
+
+                self.closure = Some(closure_tuple.try_into_typed::<PyCell>(vm)?);
+            }
+            bytecode::MakeFunctionFlag::TypeParams => {
+                let type_params = attr_value.clone().downcast::<PyTuple>().map_err(|_| {
+                    vm.new_type_error(format!(
+                        "__type_params__ must be a tuple, not {}",
+                        attr_value.class().name()
+                    ))
+                })?;
+                *self.type_params.lock() = type_params;
+            }
+            bytecode::MakeFunctionFlag::Annotate => {
+                if !attr_value.is_callable() {
+                    return Err(vm.new_type_error("__annotate__ must be callable"));
+                }
+                *self.annotate.lock() = Some(attr_value);
+            }
         }
         Ok(())
     }

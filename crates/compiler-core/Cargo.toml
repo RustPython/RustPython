@@ -14,6 +14,7 @@ ruff_source_file = { workspace = true }
 rustpython-wtf8 = { workspace = true }
 
 bitflags = { workspace = true }
+bitflagset = { workspace = true }
 itertools = { workspace = true }
 malachite-bigint = { workspace = true }
 num-complex = { workspace = true }

@@ -2509,7 +2509,7 @@ impl Compiler {
                     self.compile_expression(value)?;
                     emit!(self, Instruction::ReturnValue);
                     let value_code = self.exit_scope();
-                    self.make_closure(value_code, bytecode::MakeFunctionFlags::empty())?;
+                    self.make_closure(value_code, bytecode::MakeFunctionFlags::new())?;
                     // Stack: [type_params_tuple, value_closure]
 
                     // Swap so unpack_sequence reverse gives correct order
@@ -2522,7 +2522,7 @@ impl Compiler {
 
                     let code = self.exit_scope();
                     self.ctx = prev_ctx;
-                    self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+                    self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
                     emit!(self, Instruction::PushNull);
                     emit!(self, Instruction::Call { argc: 0 });
 
@@ -2561,7 +2561,7 @@ impl Compiler {
 
                     let code = self.exit_scope();
                     self.ctx = prev_ctx;
-                    self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+                    self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
                     // Stack: [name, None, closure]
                 }
 
@@ -2725,7 +2725,7 @@ impl Compiler {
         self.ctx = prev_ctx;
 
         // Create closure for lazy evaluation
-        self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+        self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
 
         Ok(())
     }
@@ -3649,7 +3649,7 @@ impl Compiler {
         &mut self,
         parameters: &ast::Parameters,
     ) -> CompileResult<bytecode::MakeFunctionFlags> {
-        let mut funcflags = bytecode::MakeFunctionFlags::empty();
+        let mut funcflags = bytecode::MakeFunctionFlags::new();
 
         // Handle positional defaults
         let defaults: Vec<_> = core::iter::empty()
@@ -3669,7 +3669,7 @@ impl Compiler {
                     count: defaults.len().to_u32()
                 }
             );
-            funcflags |= bytecode::MakeFunctionFlags::DEFAULTS;
+            funcflags.insert(bytecode::MakeFunctionFlag::Defaults);
         }
 
         // Handle keyword-only defaults
@@ -3694,7 +3694,7 @@ impl Compiler {
                     count: kw_with_defaults.len().to_u32(),
                 }
             );
-            funcflags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+            funcflags.insert(bytecode::MakeFunctionFlag::KwOnlyDefaults);
         }
 
         Ok(funcflags)
@@ -3844,7 +3844,7 @@ impl Compiler {
         let annotate_code = self.exit_annotation_scope(saved_ctx);
 
         // Make a closure from the code object
-        self.make_closure(annotate_code, bytecode::MakeFunctionFlags::empty())?;
+        self.make_closure(annotate_code, bytecode::MakeFunctionFlags::new())?;
 
         Ok(true)
     }
@@ -4054,7 +4054,7 @@ impl Compiler {
         );
 
         // Make a closure from the code object
-        self.make_closure(annotate_code, bytecode::MakeFunctionFlags::empty())?;
+        self.make_closure(annotate_code, bytecode::MakeFunctionFlags::new())?;
 
         // Store as __annotate_func__ for classes, __annotate__ for modules
         let name = if parent_scope_type == CompilerScope::Class {
@@ -4092,10 +4092,10 @@ impl Compiler {
 
         if is_generic {
             // Count args to pass to type params scope
-            if funcflags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+            if funcflags.contains(&bytecode::MakeFunctionFlag::Defaults) {
                 num_typeparam_args += 1;
             }
-            if funcflags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+            if funcflags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
                 num_typeparam_args += 1;
             }
 
@@ -4120,13 +4120,13 @@ impl Compiler {
             // Add parameter names to varnames for the type params scope
             // These will be passed as arguments when the closure is called
             let current_info = self.current_code_info();
-            if funcflags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+            if funcflags.contains(&bytecode::MakeFunctionFlag::Defaults) {
                 current_info
                     .metadata
                     .varnames
                     .insert(".defaults".to_owned());
             }
-            if funcflags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+            if funcflags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
                 current_info
                     .metadata
                     .varnames
@@ -4144,11 +4144,10 @@ impl Compiler {
         }
 
         // Compile annotations as closure (PEP 649)
-        let annotations_flag = if self.compile_annotations_closure(name, parameters, returns)? {
-            bytecode::MakeFunctionFlags::ANNOTATE
-        } else {
-            bytecode::MakeFunctionFlags::empty()
-        };
+        let mut annotations_flag = bytecode::MakeFunctionFlags::new();
+        if self.compile_annotations_closure(name, parameters, returns)? {
+            annotations_flag.insert(bytecode::MakeFunctionFlag::Annotate);
+        }
 
         // Compile function body
         let final_funcflags = funcflags | annotations_flag;
@@ -4179,7 +4178,7 @@ impl Compiler {
             self.ctx = saved_ctx;
 
             // Make closure for type params code
-            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
+            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::new())?;
 
             // Call the type params closure with defaults/kwdefaults as arguments.
             // Call protocol: [callable, self_or_null, arg1, ..., argN]
@@ -4347,57 +4346,57 @@ impl Compiler {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlags::CLOSURE
+                    flag: bytecode::MakeFunctionFlag::Closure
                 }
             );
         }
 
         // Set annotations if present
-        if flags.contains(bytecode::MakeFunctionFlags::ANNOTATIONS) {
+        if flags.contains(&bytecode::MakeFunctionFlag::Annotations) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlags::ANNOTATIONS
+                    flag: bytecode::MakeFunctionFlag::Annotations
                 }
             );
         }
 
         // Set __annotate__ closure if present (PEP 649)
-        if flags.contains(bytecode::MakeFunctionFlags::ANNOTATE) {
+        if flags.contains(&bytecode::MakeFunctionFlag::Annotate) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlags::ANNOTATE
+                    flag: bytecode::MakeFunctionFlag::Annotate
                 }
             );
         }
 
         // Set kwdefaults if present
-        if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
+        if flags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS
+                    flag: bytecode::MakeFunctionFlag::KwOnlyDefaults
                 }
             );
         }
 
         // Set defaults if present
-        if flags.contains(bytecode::MakeFunctionFlags::DEFAULTS) {
+        if flags.contains(&bytecode::MakeFunctionFlag::Defaults) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlags::DEFAULTS
+                    flag: bytecode::MakeFunctionFlag::Defaults
                 }
             );
         }
 
         // Set type_params if present
-        if flags.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
+        if flags.contains(&bytecode::MakeFunctionFlag::TypeParams) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlags::TYPE_PARAMS
+                    flag: bytecode::MakeFunctionFlag::TypeParams
                 }
             );
         }
@@ -4689,14 +4688,14 @@ impl Compiler {
             emit!(self, Instruction::PushNull);
 
             // Set up the class function with type params
-            let mut func_flags = bytecode::MakeFunctionFlags::empty();
+            let mut func_flags = bytecode::MakeFunctionFlags::new();
             emit!(
                 self,
                 Instruction::LoadName {
                     namei: dot_type_params
                 }
             );
-            func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
+            func_flags.insert(bytecode::MakeFunctionFlag::TypeParams);
 
             // Create class function with closure
             self.make_closure(class_code, func_flags)?;
@@ -4819,7 +4818,7 @@ impl Compiler {
             self.ctx = saved_ctx;
 
             // Execute the type params function
-            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::empty())?;
+            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::new())?;
             emit!(self, Instruction::PushNull);
             emit!(self, Instruction::Call { argc: 0 });
         } else {
@@ -4828,7 +4827,7 @@ impl Compiler {
             emit!(self, Instruction::PushNull);
 
             // Create class function with closure
-            self.make_closure(class_code, bytecode::MakeFunctionFlags::empty())?;
+            self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             if let Some(arguments) = arguments {
@@ -7096,12 +7095,12 @@ impl Compiler {
                 }
 
                 self.enter_function(&name, params)?;
-                let mut func_flags = bytecode::MakeFunctionFlags::empty();
+                let mut func_flags = bytecode::MakeFunctionFlags::new();
                 if have_defaults {
-                    func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
+                    func_flags.insert(bytecode::MakeFunctionFlag::Defaults);
                 }
                 if have_kwdefaults {
-                    func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+                    func_flags.insert(bytecode::MakeFunctionFlag::KwOnlyDefaults);
                 }
 
                 // Set qualname for lambda
@@ -7785,7 +7784,7 @@ impl Compiler {
         self.ctx = prev_ctx;
 
         // Create comprehension function with closure
-        self.make_closure(code, bytecode::MakeFunctionFlags::empty())?;
+        self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
         emit!(self, Instruction::PushNull);
 
         // Evaluate iterated item:
