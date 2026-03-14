@@ -98,7 +98,7 @@ impl Constructor for PyNotImplemented {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber, Representable))]
+#[pyclass(with(Constructor, AsNumber, Representable), flags(IMMUTABLETYPE))]
 impl PyNotImplemented {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {

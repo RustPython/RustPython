@@ -393,7 +393,7 @@ impl Constructor for PyEllipsis {
     }
 }
 
-#[pyclass(with(Constructor, Representable))]
+#[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
 impl PyEllipsis {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
