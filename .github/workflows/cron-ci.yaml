@@ -24,7 +24,10 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: actions/setup-python@v6.2.0
@@ -53,7 +56,10 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: true
+
       - uses: dtolnay/rust-toolchain@stable
       - name: build rustpython
         run: cargo build --release --verbose
@@ -85,7 +91,10 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: true
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6.2.0
         with:
@@ -143,7 +152,10 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: true
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6.2.0
         with:
