@@ -6,7 +6,7 @@ use crate::{
         oparg::{
             self, BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator,
             ConvertValueOparg, IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr,
-            LoadSuperAttr, MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind,
+            LoadSuperAttr, MakeFunctionFlag, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind,
             SpecialMethod, StoreFastLoadFast, UnpackExArgs,
         },
     },
@@ -264,7 +264,7 @@ pub enum Instruction {
         i: Arg<u32>,
     } = 107,
     SetFunctionAttribute {
-        flag: Arg<MakeFunctionFlags>,
+        flag: Arg<MakeFunctionFlag>,
     } = 108,
     SetUpdate {
         i: Arg<u32>,

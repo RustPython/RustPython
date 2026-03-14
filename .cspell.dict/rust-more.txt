@@ -5,6 +5,7 @@ biguint
 bindgen
 bitand
 bitflags
+bitflagset
 bitor
 bitvec
 bitxor

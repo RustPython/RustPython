@@ -6861,7 +6861,7 @@ impl ExecutingFrame<'_> {
     fn execute_set_function_attribute(
         &mut self,
         vm: &VirtualMachine,
-        attr: bytecode::MakeFunctionFlags,
+        attr: bytecode::MakeFunctionFlag,
     ) -> FrameResult {
         // SET_FUNCTION_ATTRIBUTE sets attributes on a function
         // Stack: [..., attr_value, func] -> [..., func]
