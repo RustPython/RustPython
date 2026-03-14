@@ -367,7 +367,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         c3 = C3()
         self.assertTrue(callable(c3))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust isize
     def test_chr(self):
         self.assertEqual(chr(0), '\0')
         self.assertEqual(chr(32), ' ')
