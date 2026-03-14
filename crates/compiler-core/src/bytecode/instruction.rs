@@ -1731,6 +1731,22 @@ impl InstructionMetadata for PseudoInstruction {
         matches!(self, Self::Jump { .. } | Self::JumpNoInterrupt { .. })
     }
 
+    fn name(&self) -> &str {
+        match self {
+            Self::AnnotationsPlaceholder => "ANNOTATIONS_PLACEHOLDER",
+            Self::Jump { .. } => "JUMP",
+            Self::JumpIfFalse { .. } => "JUMP_IF_FALSE",
+            Self::JumpIfTrue { .. } => "JUMP_IF_TRUE",
+            Self::JumpNoInterrupt { .. } => "JUMP_NO_INTERRUPT",
+            Self::LoadClosure { .. } => "LOAD_CLOSURE",
+            Self::PopBlock => "POP_BLOCK",
+            Self::SetupCleanup { .. } => "SETUP_CLEANUP",
+            Self::SetupFinally { .. } => "SETUP_FINALLY",
+            Self::SetupWith { .. } => "SETUP_WITH",
+            Self::StoreFastMaybeNull { .. } => "STORE_FAST_MAYBE_NULL",
+        }
+    }
+
     fn fmt_dis(
         &self,
         _arg: OpArg,
@@ -1802,6 +1818,8 @@ impl InstructionMetadata for AnyInstruction {
     inst_either!(fn stack_effect(&self, oparg: u32) -> i32);
 
     inst_either!(fn stack_effect_info(&self, oparg: u32) -> StackEffect);
+
+    inst_either!(fn name(&self) -> &str);
 
     inst_either!(fn fmt_dis(
         &self,
