@@ -7,7 +7,7 @@ use crate::{
             self, BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator,
             ConvertValueOparg, IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr,
             LoadSuperAttr, MakeFunctionFlag, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind,
-            SpecialMethod, StoreFastLoadFast, UnpackExArgs,
+            SpecialMethod, UnpackExArgs,
         },
     },
     marshal::MarshalError,
@@ -201,13 +201,13 @@ pub enum Instruction {
         var_num: Arg<oparg::VarNum>,
     } = 86,
     LoadFastBorrowLoadFastBorrow {
-        var_nums: Arg<u32>,
+        var_nums: Arg<oparg::VarNums>,
     } = 87,
     LoadFastCheck {
         var_num: Arg<oparg::VarNum>,
     } = 88,
     LoadFastLoadFast {
-        var_nums: Arg<u32>,
+        var_nums: Arg<oparg::VarNums>,
     } = 89,
     LoadFromDictOrDeref {
         i: Arg<NameIdx>,
@@ -279,10 +279,10 @@ pub enum Instruction {
         var_num: Arg<oparg::VarNum>,
     } = 112,
     StoreFastLoadFast {
-        var_nums: Arg<StoreFastLoadFast>,
+        var_nums: Arg<oparg::VarNums>,
     } = 113,
     StoreFastStoreFast {
-        var_nums: Arg<u32>,
+        var_nums: Arg<oparg::VarNums>,
     } = 114,
     StoreGlobal {
         namei: Arg<NameIdx>,
@@ -1224,18 +1224,16 @@ impl InstructionMetadata for Instruction {
             Self::LoadFastCheck { var_num } => w!(LOAD_FAST_CHECK, varname = var_num),
             Self::LoadFastLoadFast { var_nums } => {
                 let oparg = var_nums.get(arg);
-                let idx1 = oparg >> 4;
-                let idx2 = oparg & 15;
-                let name1 = varname(idx1.into());
-                let name2 = varname(idx2.into());
+                let (idx1, idx2) = oparg.indexes();
+                let name1 = varname(idx1);
+                let name2 = varname(idx2);
                 write!(f, "{:pad$}({}, {})", "LOAD_FAST_LOAD_FAST", name1, name2)
             }
             Self::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
-                let idx1 = oparg >> 4;
-                let idx2 = oparg & 15;
-                let name1 = varname(idx1.into());
-                let name2 = varname(idx2.into());
+                let (idx1, idx2) = oparg.indexes();
+                let name1 = varname(idx1);
+                let name2 = varname(idx2);
                 write!(
                     f,
                     "{:pad$}({}, {})",
@@ -1349,21 +1347,19 @@ impl InstructionMetadata for Instruction {
             Self::StoreFast { var_num } => w!(STORE_FAST, varname = var_num),
             Self::StoreFastLoadFast { var_nums } => {
                 let oparg = var_nums.get(arg);
-                let store_idx = oparg.store_idx();
-                let load_idx = oparg.load_idx();
+                let (store_idx, load_idx) = oparg.indexes();
                 write!(f, "STORE_FAST_LOAD_FAST")?;
                 write!(f, " ({}, {})", store_idx, load_idx)
             }
             Self::StoreFastStoreFast { var_nums } => {
                 let oparg = var_nums.get(arg);
-                let idx1 = oparg >> 4;
-                let idx2 = oparg & 15;
+                let (idx1, idx2) = oparg.indexes();
                 write!(
                     f,
                     "{:pad$}({}, {})",
                     "STORE_FAST_STORE_FAST",
-                    varname(idx1.into()),
-                    varname(idx2.into())
+                    varname(idx1),
+                    varname(idx2)
                 )
             }
             Self::StoreGlobal { namei } => w!(STORE_GLOBAL, name = namei),
