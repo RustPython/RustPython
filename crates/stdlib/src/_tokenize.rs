@@ -750,6 +750,7 @@ mod _tokenize {
             TokenKind::TStringMiddle => 63,
             TokenKind::TStringEnd => 64,
             TokenKind::IpyEscapeCommand | TokenKind::Question | TokenKind::Unknown => 67, // ERRORTOKEN
+            TokenKind::Lazy => u8::MAX, // Placeholder: RustPython Doesn't support `lazy imports` yet
         }
     }
 }
