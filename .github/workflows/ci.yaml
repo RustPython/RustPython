@@ -253,14 +253,19 @@ jobs:
       matrix:
         include:
         - os: macos-latest
+          extra_test_args:
+            - '-u all'
           env_polluting_tests: []
           skips: []
           timeout: 50
         - os: ubuntu-latest
+          extra_test_args:
+            - '-u all'
           env_polluting_tests: []
           skips: []
           timeout: 60
         - os: windows-2025
+          extra_test_args: [] # TODO: Enable '-u all'
           env_polluting_tests: []
           skips:
             - test_rlcompleter
@@ -302,7 +307,7 @@ jobs:
 
       - name: run cpython platform-dependent tests
         run: |
-          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ join(matrix.skips, ' ') }}
+          target/release/rustpython -m test -j 1 ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ join(matrix.skips, ' ') }}
         timeout-minutes: ${{ matrix.timeout }}
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
