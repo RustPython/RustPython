@@ -7,7 +7,7 @@ use crate::{
             self, BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator,
             ConvertValueOparg, IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr,
             LoadSuperAttr, MakeFunctionFlag, NameIdx, OpArg, OpArgByte, OpArgType, RaiseKind,
-            SpecialMethod, StoreFastLoadFast, UnpackExArgs,
+            SpecialMethod, UnpackExArgs,
         },
     },
     marshal::MarshalError,
@@ -201,13 +201,13 @@ pub enum Instruction {
         var_num: Arg<oparg::VarNum>,
     } = 86,
     LoadFastBorrowLoadFastBorrow {
-        var_nums: Arg<u32>,
+        var_nums: Arg<oparg::VarNums>,
     } = 87,
     LoadFastCheck {
         var_num: Arg<oparg::VarNum>,
     } = 88,
     LoadFastLoadFast {
-        var_nums: Arg<u32>,
+        var_nums: Arg<oparg::VarNums>,
     } = 89,
     LoadFromDictOrDeref {
         i: Arg<NameIdx>,
@@ -279,10 +279,10 @@ pub enum Instruction {
         var_num: Arg<oparg::VarNum>,
     } = 112,
     StoreFastLoadFast {
-        var_nums: Arg<StoreFastLoadFast>,
+        var_nums: Arg<oparg::VarNums>,
     } = 113,
     StoreFastStoreFast {
-        var_nums: Arg<u32>,
+        var_nums: Arg<oparg::VarNums>,
     } = 114,
     StoreGlobal {
         namei: Arg<NameIdx>,
@@ -1342,19 +1342,21 @@ impl InstructionMetadata for Instruction {
             // Oparg needs to be passed into a function.
             ($map:ident = $arg_marker:expr) => {{
                 let arg = $arg_marker.get(arg);
-                write!(f, "{:pad$}({}, {})", self.name(), arg, $map(arg))
+                write!(f, "{:pad$}({}, {})", opname, arg, $map(arg))
             }};
 
             // Oparg to be shown via `fmt::Display`
             ($arg_marker:expr) => {
-                write!(f, "{:pad$}({})", self.name(), $arg_marker.get(arg))
+                write!(f, "{:pad$}({})", opname, $arg_marker.get(arg))
             };
 
             // Oparg to be shown via `fmt::Debug`
             ( ?$arg_marker:expr) => {
-                write!(f, "{:pad$}({:?})", self.name(), $arg_marker.get(arg))
+                write!(f, "{:pad$}({:?})", opname, $arg_marker.get(arg))
             };
         }
+
+        let opname = self.name();
 
         let varname = |var_num: oparg::VarNum| ctx.get_varname(var_num);
         let name = |i: u32| ctx.get_name(i as usize);
@@ -1382,7 +1384,7 @@ impl InstructionMetadata for Instruction {
 
         match self {
             Self::BinarySlice => w!(),
-            Self::BinaryOp { op } => write!(f, "{:pad$}({})", self.name(), op.get(arg)),
+            Self::BinaryOp { op } => write!(f, "{:pad$}({})", opname, op.get(arg)),
             Self::BinaryOpInplaceAddUnicode => w!(),
             Self::BuildList { count } => w!(count),
             Self::BuildMap { count } => w!(count),
@@ -1401,7 +1403,7 @@ impl InstructionMetadata for Instruction {
             Self::CleanupThrow => w!(),
             Self::CompareOp { opname } => w!(?opname),
             Self::ContainsOp { invert } => w!(?invert),
-            Self::ConvertValue { oparg } => write!(f, "{:pad$}{}", self.name(), oparg.get(arg)),
+            Self::ConvertValue { oparg } => write!(f, "{:pad$}{}", opname, oparg.get(arg)),
             Self::Copy { i } => w!(i),
             Self::CopyFreeVars { n } => w!(n),
             Self::DeleteAttr { namei } => w!(name = namei),
@@ -1438,7 +1440,6 @@ impl InstructionMetadata for Instruction {
                 let oparg = namei.get(arg);
                 let oparg_u32 = u32::from(oparg);
                 let attr_name = name(oparg.name_idx());
-                let opname = self.name();
                 if oparg.is_method() {
                     write!(
                         f,
@@ -1452,7 +1453,7 @@ impl InstructionMetadata for Instruction {
             Self::LoadBuildClass => w!(),
             Self::LoadCommonConstant { idx } => w!(?idx),
             Self::LoadFromDictOrDeref { i } => w!(cell_name = i),
-            Self::LoadConst { consti } => fmt_const(self.name(), arg, f, consti),
+            Self::LoadConst { consti } => fmt_const(opname, arg, f, consti),
             Self::LoadSmallInt { i } => w!(i),
             Self::LoadDeref { i } => w!(cell_name = i),
             Self::LoadFast { var_num } => w!(varname = var_num),
@@ -1461,25 +1462,22 @@ impl InstructionMetadata for Instruction {
             Self::LoadFastCheck { var_num } => w!(varname = var_num),
             Self::LoadFastLoadFast { var_nums } => {
                 let oparg = var_nums.get(arg);
-                let idx1 = oparg >> 4;
-                let idx2 = oparg & 15;
-                let name1 = varname(idx1.into());
-                let name2 = varname(idx2.into());
-                write!(f, "{:pad$}({}, {})", self.name(), name1, name2)
+                let (idx1, idx2) = oparg.indexes();
+                let name1 = varname(idx1);
+                let name2 = varname(idx2);
+                write!(f, "{:pad$}({}, {})", opnmae, name1, name2)
             }
             Self::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
-                let idx1 = oparg >> 4;
-                let idx2 = oparg & 15;
-                let name1 = varname(idx1.into());
-                let name2 = varname(idx2.into());
-                write!(f, "{:pad$}({}, {})", self.name(), name1, name2)
+                let (idx1, idx2) = oparg.indexes();
+                let name1 = varname(idx1);
+                let name2 = varname(idx2);
+                write!(f, "{:pad$}({}, {})", opname, name1, name2)
             }
             Self::LoadFromDictOrGlobals { i } => w!(name = i),
             Self::LoadGlobal { namei } => {
                 let oparg = namei.get(arg);
                 let name_idx = oparg >> 1;
-                let opname = self.name();
                 if (oparg & 1) != 0 {
                     write!(f, "{:pad$}({}, NULL + {})", opname, oparg, name(name_idx))
                 } else {
@@ -1489,7 +1487,6 @@ impl InstructionMetadata for Instruction {
             Self::LoadGlobalBuiltin => {
                 let oparg = u32::from(arg);
                 let name_idx = oparg >> 1;
-                let opname = self.name();
                 if (oparg & 1) != 0 {
                     write!(f, "{:pad$}({}, NULL + {})", opname, oparg, name(name_idx))
                 } else {
@@ -1499,7 +1496,6 @@ impl InstructionMetadata for Instruction {
             Self::LoadGlobalModule => {
                 let oparg = u32::from(arg);
                 let name_idx = oparg >> 1;
-                let opname = self.name();
                 if (oparg & 1) != 0 {
                     write!(f, "{:pad$}({}, NULL + {})", opname, oparg, name(name_idx))
                 } else {
@@ -1514,7 +1510,7 @@ impl InstructionMetadata for Instruction {
                 write!(
                     f,
                     "{:pad$}({}, {}, method={}, class={})",
-                    self.name(),
+                    opname,
                     u32::from(oparg),
                     name(oparg.name_idx()),
                     oparg.is_load_method(),
@@ -1555,21 +1551,13 @@ impl InstructionMetadata for Instruction {
             Self::StoreFast { var_num } => w!(varname = var_num),
             Self::StoreFastLoadFast { var_nums } => {
                 let oparg = var_nums.get(arg);
-                let store_idx = oparg.store_idx();
-                let load_idx = oparg.load_idx();
-                write!(f, "{:pad$}({}, {})", self.name(), store_idx, load_idx)
+                let (store_idx, load_idx) = oparg.indexes();
+                write!(f, " {:pad$}({}, {})", opnmae, store_idx, load_idx)
             }
             Self::StoreFastStoreFast { var_nums } => {
                 let oparg = var_nums.get(arg);
-                let idx1 = oparg >> 4;
-                let idx2 = oparg & 15;
-                write!(
-                    f,
-                    "{:pad$}({}, {})",
-                    self.name(),
-                    varname(idx1.into()),
-                    varname(idx2.into())
-                )
+                let (idx1, idx2) = oparg.indexes();
+                write!(f, "{:pad$}({}, {})", opname, varname(idx1), varname(idx2))
             }
             Self::StoreGlobal { namei } => w!(name = namei),
             Self::StoreName { namei } => w!(name = namei),
