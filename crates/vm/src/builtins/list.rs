@@ -396,7 +396,7 @@ impl PyList {
         core::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
         res?;
 
-        if !elements.is_empty() {
+        if elements.capacity() > 0 {
             return Err(vm.new_value_error("list modified during sort"));
         }
 
