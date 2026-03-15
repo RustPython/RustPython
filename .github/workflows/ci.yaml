@@ -23,94 +23,6 @@ env:
   # - rustpython-compiler-source: deprecated
   # - rustpython-venvlauncher: Windows-only
   WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
-  # Skip additional tests on Windows. They are checked on Linux and MacOS.
-  # test_glob: many failing tests
-  # test_pathlib: panic by surrogate chars
-  # test_posixpath: OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
-  # test_venv: couple of failing tests
-  WINDOWS_SKIPS: >-
-    test_rlcompleter
-    test_pathlib
-    test_posixpath
-    test_venv
-  # PLATFORM_INDEPENDENT_TESTS are tests that do not depend on the underlying OS. They are currently
-  # only run on Linux to speed up the CI.
-  PLATFORM_INDEPENDENT_TESTS: >-
-    test__colorize
-    test_array
-    test_asyncgen
-    test_binop
-    test_bisect
-    test_bool
-    test_bytes
-    test_call
-    test_class
-    test_cmath
-    test_collections
-    test_complex
-    test_contains
-    test_copy
-    test_dataclasses
-    test_decimal
-    test_decorators
-    test_defaultdict
-    test_deque
-    test_dict
-    test_dictcomps
-    test_dictviews
-    test_dis
-    test_enumerate
-    test_exception_variations
-    test_float
-    test_format
-    test_fractions
-    test_genericalias
-    test_genericclass
-    test_grammar
-    test_range
-    test_index
-    test_int
-    test_int_literal
-    test_isinstance
-    test_iter
-    test_iterlen
-    test_itertools
-    test_json
-    test_keyword
-    test_keywordonlyarg
-    test_list
-    test_long
-    test_longexp
-    test_math
-    test_operator
-    test_ordered_dict
-    test_pep646_syntax
-    test_pow
-    test_raise
-    test_richcmp
-    test_scope
-    test_set
-    test_slice
-    test_sort
-    test_string
-    test_string_literals
-    test_strtod
-    test_structseq
-    test_subclassinit
-    test_super
-    test_syntax
-    test_tstring
-    test_tuple
-    test_types
-    test_unary
-    test_unpack
-    test_unpack_ex
-    test_weakref
-    test_yield_from
-  ENV_POLLUTING_TESTS_COMMON: >-
-  ENV_POLLUTING_TESTS_LINUX: >-
-  ENV_POLLUTING_TESTS_MACOS: >-
-  ENV_POLLUTING_TESTS_WINDOWS: >-
   # Python version targeted by the CI.
   PYTHON_VERSION: "3.14.3"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
@@ -261,19 +173,114 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
+      # PLATFORM_INDEPENDENT_TESTS are tests that do not depend on the underlying OS.
+      # They are currently only run on Linux to speed up the CI.
+      PLATFORM_INDEPENDENT_TESTS: >-
+        test__colorize
+        test_array
+        test_asyncgen
+        test_binop
+        test_bisect
+        test_bool
+        test_bytes
+        test_call
+        test_class
+        test_cmath
+        test_collections
+        test_complex
+        test_contains
+        test_copy
+        test_dataclasses
+        test_decimal
+        test_decorators
+        test_defaultdict
+        test_deque
+        test_dict
+        test_dictcomps
+        test_dictviews
+        test_dis
+        test_enumerate
+        test_exception_variations
+        test_float
+        test_format
+        test_fractions
+        test_genericalias
+        test_genericclass
+        test_grammar
+        test_range
+        test_index
+        test_int
+        test_int_literal
+        test_isinstance
+        test_iter
+        test_iterlen
+        test_itertools
+        test_json
+        test_keyword
+        test_keywordonlyarg
+        test_list
+        test_long
+        test_longexp
+        test_math
+        test_operator
+        test_ordered_dict
+        test_pep646_syntax
+        test_pow
+        test_raise
+        test_richcmp
+        test_scope
+        test_set
+        test_slice
+        test_sort
+        test_string
+        test_string_literals
+        test_strtod
+        test_structseq
+        test_subclassinit
+        test_super
+        test_syntax
+        test_tstring
+        test_tuple
+        test_types
+        test_unary
+        test_unpack
+        test_unpack_ex
+        test_weakref
+        test_yield_from
     name: Run snippets and cpython tests
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os:
-        - macos-latest
-        - ubuntu-latest
-        - windows-2025
+        include:
+        - os: macos-latest
+          extra_test_args:
+            - '-u all'
+          env_polluting_tests: []
+          skips: []
+          timeout: 50
+        - os: ubuntu-latest
+          extra_test_args:
+            - '-u all'
+          env_polluting_tests: []
+          skips: []
+          timeout: 60
+        - os: windows-2025
+          extra_test_args: [] # TODO: Enable '-u all'
+          env_polluting_tests: []
+          skips:
+            - test_rlcompleter
+            - test_pathlib # panic by surrogate chars
+            - test_posixpath # OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
+            - test_venv # couple of failing tests
+          timeout: 50
       fail-fast: false
     steps:
       - uses: actions/checkout@v6
+
       - uses: dtolnay/rust-toolchain@stable
+
       - uses: Swatinem/rust-cache@v2
+
       - uses: actions/setup-python@v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -290,39 +297,25 @@ jobs:
         run: python -m pip install -r requirements.txt && pytest -v
         working-directory: ./extra_tests
 
-      - if: runner.os == 'Linux'
-        name: run cpython platform-independent tests
-        env:
-          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+      - name: run cpython platform-independent tests
+        if: runner.os == 'Linux'
+        run: |
+          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 45
-
-      - if: runner.os == 'Linux'
-        name: run cpython platform-dependent tests (Linux)
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 60
 
-      - if: runner.os == 'macOS'
-        name: run cpython platform-dependent tests (MacOS)
+      - name: run cpython platform-dependent tests
+        run: |
+          target/release/rustpython -m test -j 1 ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ join(matrix.skips, ' ') }}
+        timeout-minutes: ${{ matrix.timeout }}
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-        timeout-minutes: 50
 
-      - if: runner.os == 'Windows'
-        name: run cpython platform-dependent tests (windows partial - fixme)
-        env:
-          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
-        timeout-minutes: 50
-
-      - if: runner.os == 'Linux'
-        name: run cpython tests to check if env polluters have stopped polluting (Common/Linux)
+      - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
         run: |
-          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_LINUX }}; do
+          for thing in ${{ join(matrix.env_polluting_tests, ' ') }}; do
             for i in $(seq 1 10); do
               set +e
               target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
@@ -335,63 +328,7 @@ jobs:
             done
             if [ ${exit_code} -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
-              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_LINUX in '.github/workflows/ci.yaml'."
-              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
-              if [ ${exit_code} -ne 0 ]; then
-                echo "Test ${thing} failed with exit code ${exit_code}."
-                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
-              fi
-              exit 1
-            fi
-          done
-        timeout-minutes: 15
-
-      - if: runner.os == 'macOS'
-        name: run cpython tests to check if env polluters have stopped polluting (Common/macOS)
-        shell: bash
-        run: |
-          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_MACOS }}; do
-            for i in $(seq 1 10); do
-              set +e
-              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
-              exit_code=$?
-              set -e
-              if [ ${exit_code} -eq 3 ]; then
-                echo "Test ${thing} polluted the environment on attempt ${i}."
-                break
-              fi
-            done
-            if [ ${exit_code} -ne 3 ]; then
-              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
-              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_MACOS in '.github/workflows/ci.yaml'."
-              echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
-              if [ ${exit_code} -ne 0 ]; then
-                echo "Test ${thing} failed with exit code ${exit_code}."
-                echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
-              fi
-              exit 1
-            fi
-          done
-        timeout-minutes: 15
-
-      - if: runner.os == 'Windows'
-        name: run cpython tests to check if env polluters have stopped polluting (Common/windows)
-        shell: bash
-        run: |
-          for thing in ${{ env.ENV_POLLUTING_TESTS_COMMON }} ${{ env.ENV_POLLUTING_TESTS_WINDOWS }}; do
-            for i in $(seq 1 10); do
-              set +e
-              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
-              exit_code=$?
-              set -e
-              if [ ${exit_code} -eq 3 ]; then
-                echo "Test ${thing} polluted the environment on attempt ${i}."
-                break
-              fi
-            done
-            if [ ${exit_code} -ne 3 ]; then
-              echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
-              echo "Please remove ${thing} from either ENV_POLLUTING_TESTS_COMMON or ENV_POLLUTING_TESTS_WINDOWS in '.github/workflows/ci.yaml'."
+              echo "Please remove ${thing} from matrix.env_polluting_tests in '.github/workflows/ci.yaml'."
               echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
               if [ ${exit_code} -ne 0 ]; then
                 echo "Test ${thing} failed with exit code ${exit_code}."
@@ -408,10 +345,12 @@ jobs:
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
           target/release/rustpython -m pip install six
+
       - name: Check that ensurepip succeeds.
         run: |
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
+
       - if: runner.os != 'Windows'
         name: Check if pip inside venv is functional
         run: |
