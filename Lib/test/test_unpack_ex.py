@@ -148,27 +148,27 @@ List comprehension element unpacking
     [0, 1, 2, 3, 4]
 
     >>> l = [a, (3, 4), {5}, {6: None}, (i for i in range(7, 10))]
-    >>> [*item for item in l] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> [*item for item in l]
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> [*[0, 1] for i in range(10)] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> [*[0, 1] for i in range(10)]
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> [*'a' for i in range(10)] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> [*'a' for i in range(10)]
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> [*[] for i in range(10)] # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> [*[] for i in range(10)]
     Traceback (most recent call last):
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> {**{} for a in [1]} # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> {**{} for a in [1]} # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
     ...
     SyntaxError: dict unpacking cannot be used in dict comprehension

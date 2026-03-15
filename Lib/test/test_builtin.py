@@ -727,7 +727,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertIs(None.__ne__(0), NotImplemented)
         self.assertIs(None.__ne__("abc"), NotImplemented)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; wrong error message
     def test_divmod(self):
         self.assertEqual(divmod(12, 7), (1, 5))
         self.assertEqual(divmod(-12, 7), (-2, 2))
@@ -1972,7 +1971,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
 
     # test_str(): see test_str.py and test_bytes.py for str() tests.
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: floats 0.0 and -0.0 are not identical: zeros have different signs
     def test_sum(self):
         self.assertEqual(sum([]), 0)
         self.assertEqual(sum(list(range(2,8))), 27)

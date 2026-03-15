@@ -287,6 +287,44 @@ impl PyComplex {
             Ok(vm.ctx.not_implemented())
         }
     }
+
+    fn complex_real_binop<CCF, RCF, CRF, R>(
+        a: &PyObject,
+        b: &PyObject,
+        cc_op: CCF,
+        cr_op: CRF,
+        rc_op: RCF,
+        vm: &VirtualMachine,
+    ) -> PyResult
+    where
+        CCF: FnOnce(Complex64, Complex64) -> R,
+        CRF: FnOnce(Complex64, f64) -> R,
+        RCF: FnOnce(f64, Complex64) -> R,
+        R: ToPyResult,
+    {
+        let value = match (a.downcast_ref::<PyComplex>(), b.downcast_ref::<PyComplex>()) {
+            // complex + complex
+            (Some(a_complex), Some(b_complex)) => cc_op(a_complex.value, b_complex.value),
+            (Some(a_complex), None) => {
+                let Some(b_real) = float::to_op_float(b, vm)? else {
+                    return Ok(vm.ctx.not_implemented());
+                };
+
+                // complex + real
+                cr_op(a_complex.value, b_real)
+            }
+            (None, Some(b_complex)) => {
+                let Some(a_real) = float::to_op_float(a, vm)? else {
+                    return Ok(vm.ctx.not_implemented());
+                };
+
+                // real + complex
+                rc_op(a_real, b_complex.value)
+            }
+            (None, None) => return Ok(vm.ctx.not_implemented()),
+        };
+        value.to_pyresult(vm)
+    }
 }
 
 #[pyclass(
@@ -396,8 +434,26 @@ impl Hashable for PyComplex {
 impl AsNumber for PyComplex {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            add: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a + b, vm)),
-            subtract: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a - b, vm)),
+            add: Some(|a, b, vm| {
+                PyComplex::complex_real_binop(
+                    a,
+                    b,
+                    |a, b| a + b,
+                    |a_complex, b_real| Complex64::new(a_complex.re + b_real, a_complex.im),
+                    |a_real, b_complex| Complex64::new(a_real + b_complex.re, b_complex.im),
+                    vm,
+                )
+            }),
+            subtract: Some(|a, b, vm| {
+                PyComplex::complex_real_binop(
+                    a,
+                    b,
+                    |a, b| a - b,
+                    |a_complex, b_real| Complex64::new(a_complex.re - b_real, a_complex.im),
+                    |a_real, b_complex| Complex64::new(a_real - b_complex.re, -b_complex.im),
+                    vm,
+                )
+            }),
             multiply: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)),
             power: Some(|a, b, c, vm| {
                 if vm.is_none(c) {
