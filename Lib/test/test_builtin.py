@@ -1971,7 +1971,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
 
     # test_str(): see test_str.py and test_bytes.py for str() tests.
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: floats 0.0 and -0.0 are not identical: zeros have different signs
     def test_sum(self):
         self.assertEqual(sum([]), 0)
         self.assertEqual(sum(list(range(2,8))), 27)
