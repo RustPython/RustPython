@@ -1333,6 +1333,8 @@ impl InstructionMetadata for Instruction {
         pad: usize,
         level: usize,
     ) -> fmt::Result {
+        let opname = self.name();
+
         macro_rules! w {
             // No oparg. Show only opcode name
             () => {
@@ -1355,8 +1357,6 @@ impl InstructionMetadata for Instruction {
                 write!(f, "{:pad$}({:?})", opname, $arg_marker.get(arg))
             };
         }
-
-        let opname = self.name();
 
         let varname = |var_num: oparg::VarNum| ctx.get_varname(var_num);
         let name = |i: u32| ctx.get_name(i as usize);
@@ -1465,7 +1465,7 @@ impl InstructionMetadata for Instruction {
                 let (idx1, idx2) = oparg.indexes();
                 let name1 = varname(idx1);
                 let name2 = varname(idx2);
-                write!(f, "{:pad$}({}, {})", opnmae, name1, name2)
+                write!(f, "{:pad$}({}, {})", opname, name1, name2)
             }
             Self::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
@@ -1552,7 +1552,7 @@ impl InstructionMetadata for Instruction {
             Self::StoreFastLoadFast { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (store_idx, load_idx) = oparg.indexes();
-                write!(f, " {:pad$}({}, {})", opnmae, store_idx, load_idx)
+                write!(f, " {:pad$}({}, {})", opname, store_idx, load_idx)
             }
             Self::StoreFastStoreFast { var_nums } => {
                 let oparg = var_nums.get(arg);
