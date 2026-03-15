@@ -352,6 +352,7 @@ pub(crate) fn is_space(ch: u32) -> bool {
 #[inline]
 pub(crate) fn is_digit(ch: u32) -> bool {
     u8::try_from(ch)
+        .ok()
         .map(|x| x.is_ascii_digit())
         .unwrap_or(false)
 }
@@ -359,6 +360,7 @@ pub(crate) fn is_digit(ch: u32) -> bool {
 pub(crate) fn is_loc_alnum(ch: u32) -> bool {
     // FIXME: Ignore the locales
     u8::try_from(ch)
+        .ok()
         .map(|x| x.is_ascii_alphanumeric())
         .unwrap_or(false)
 }
@@ -373,6 +375,7 @@ pub(crate) const fn is_linebreak(ch: u32) -> bool {
 #[inline]
 pub fn lower_ascii(ch: u32) -> u32 {
     u8::try_from(ch)
+        .ok()
         .map(|x| x.to_ascii_lowercase() as u32)
         .unwrap_or(ch)
 }
@@ -385,6 +388,7 @@ pub(crate) fn lower_locate(ch: u32) -> u32 {
 pub(crate) fn upper_locate(ch: u32) -> u32 {
     // FIXME: Ignore the locales
     u8::try_from(ch)
+        .ok()
         .map(|x| x.to_ascii_uppercase() as u32)
         .unwrap_or(ch)
 }
@@ -392,6 +396,7 @@ pub(crate) fn upper_locate(ch: u32) -> u32 {
 pub(crate) fn is_uni_digit(ch: u32) -> bool {
     // TODO: check with cpython
     char::try_from(ch)
+        .ok()
         .map(|x| x.is_ascii_digit())
         .unwrap_or(false)
 }
@@ -443,6 +448,7 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
     // TODO: check with cpython
     char::try_from(ch)
+        .ok()
         .map(|x| x.is_alphanumeric())
         .unwrap_or(false)
 }
@@ -454,13 +460,17 @@ pub(crate) fn is_uni_word(ch: u32) -> bool {
 pub fn lower_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
     char::try_from(ch)
-        .map(|x| x.to_lowercase().next().unwrap() as u32)
+        .ok()
+        .and_then(|x| x.to_lowercase().next())
+        .map(|c| c as u32)
         .unwrap_or(ch)
 }
 #[inline]
 pub fn upper_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
     char::try_from(ch)
-        .map(|x| x.to_uppercase().next().unwrap() as u32)
+        .ok()
+        .and_then(|x| x.to_uppercase().next())
+        .map(|c| c as u32)
         .unwrap_or(ch)
 }

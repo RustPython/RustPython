@@ -92,15 +92,17 @@ impl Marks {
     }
 
     fn pop(&mut self) {
-        let (marks, last_index) = self.marks_stack.pop().unwrap();
-        self.marks = marks;
-        self.last_index = last_index;
+        if let Some((marks, last_index)) = self.marks_stack.pop() {
+            self.marks = marks;
+            self.last_index = last_index;
+        }
     }
 
     fn pop_keep(&mut self) {
-        let (marks, last_index) = self.marks_stack.last().unwrap().clone();
-        self.marks = marks;
-        self.last_index = last_index;
+        if let Some((marks, last_index)) = self.marks_stack.last() {
+            self.marks = marks.clone();
+            self.last_index = last_index.clone();
+        }
     }
 
     fn pop_discard(&mut self) {
@@ -206,15 +208,19 @@ impl State {
             return true;
         }
 
-        if ctx.try_peek_code_as::<SreOpcode, _>(&req, 0).unwrap() == SreOpcode::AT
-            && (ctx.try_peek_code_as::<SreAtCode, _>(&req, 1).unwrap() == SreAtCode::BEGINNING
-                || ctx.try_peek_code_as::<SreAtCode, _>(&req, 1).unwrap()
-                    == SreAtCode::BEGINNING_STRING)
-        {
-            self.cursor.position = req.end;
-            self.cursor.ptr = null();
-            // self.reset(&req, req.end);
-            return false;
+        if let (Some(opcode), Some(at_code)) = (
+            ctx.try_peek_code_as::<SreOpcode, _>(&req, 0),
+            ctx.try_peek_code_as::<SreAtCode, _>(&req, 1)
+        ) {
+            if opcode == SreOpcode::AT
+                && (at_code == SreAtCode::BEGINNING
+                    || at_code == SreAtCode::BEGINNING_STRING)
+            {
+                self.cursor.position = req.end;
+                self.cursor.ptr = null();
+                // self.reset(&req, req.end);
+                return false;
+            }
         }
 
         req.must_advance = false;
@@ -581,7 +587,10 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                         break 'result false;
                     }
                     let opcode = ctx.peek_code(req, 0);
-                    let opcode = SreOpcode::try_from(opcode).unwrap();
+                    let opcode = match SreOpcode::try_from(opcode) {
+                        Ok(opcode) => opcode,
+                        Err(_) => break 'result false,
+                    };
 
                     match opcode {
                         SreOpcode::FAILURE => break 'result false,
@@ -635,11 +644,15 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                             break 'context next_ctx;
                         }
                         SreOpcode::AT => {
-                            let at_code = SreAtCode::try_from(ctx.peek_code(req, 1)).unwrap();
-                            if at(req, &ctx, at_code) {
-                                ctx.skip_code(2);
-                            } else {
-                                break 'result false;
+                            match SreAtCode::try_from(ctx.peek_code(req, 1)) {
+                                Ok(at_code) => {
+                                    if at(req, &ctx, at_code) {
+                                        ctx.skip_code(2);
+                                    } else {
+                                        break 'result false;
+                                    }
+                                }
+                                Err(_) => break 'result false,
                             }
                         }
                         // <BRANCH> <0=skip> code <JUMP> ... <NULL>
@@ -650,11 +663,15 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                             continue 'context;
                         }
                         SreOpcode::CATEGORY => {
-                            let cat_code = SreCatCode::try_from(ctx.peek_code(req, 1)).unwrap();
-                            if ctx.at_end(req) || !category(cat_code, ctx.peek_char::<S>()) {
-                                break 'result false;
+                            match SreCatCode::try_from(ctx.peek_code(req, 1)) {
+                                Ok(cat_code) => {
+                                    if ctx.at_end(req) || !category(cat_code, ctx.peek_char::<S>()) {
+                                        break 'result false;
+                                    }
+                                    ctx.skip_code(2);
+                                }
+                                Err(_) => break 'result false,
                             }
-                            ctx.skip_code(2);
                             ctx.advance_char::<S>();
                         }
                         SreOpcode::IN => general_op_in!(charset),
@@ -721,21 +738,24 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                             break 'context next_ctx;
                         }
                         SreOpcode::MIN_UNTIL => {
-                            let repeat_ctx = state.repeat_stack.last_mut().unwrap();
-                            state.cursor = ctx.cursor;
-                            repeat_ctx.count += 1;
+                            if let Some(repeat_ctx) = state.repeat_stack.last_mut() {
+                                state.cursor = ctx.cursor;
+                                repeat_ctx.count += 1;
 
-                            if (repeat_ctx.count as usize) < repeat_ctx.min_count {
-                                // not enough matches
-                                break 'context ctx
-                                    .next_at(repeat_ctx.code_position + 4, Jump::UntilBacktrace);
+                                if (repeat_ctx.count as usize) < repeat_ctx.min_count {
+                                    // not enough matches
+                                    break 'context ctx
+                                        .next_at(repeat_ctx.code_position + 4, Jump::UntilBacktrace);
+                                }
+
+                                state.marks.push();
+                                ctx.count = ctx.repeat_ctx_id as isize;
+                                let mut next_ctx = ctx.next_offset(1, Jump::MinUntil1);
+                                next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
+                                break 'context next_ctx;
+                            } else {
+                                break 'result false;
                             }
-
-                            state.marks.push();
-                            ctx.count = ctx.repeat_ctx_id as isize;
-                            let mut next_ctx = ctx.next_offset(1, Jump::MinUntil1);
-                            next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
-                            break 'context next_ctx;
                         }
                         /* <REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
                         SreOpcode::REPEAT_ONE => {
@@ -1344,7 +1364,10 @@ fn _count<S: StrDrive>(
 ) -> usize {
     let max_count = core::cmp::min(max_count, ctx.remaining_chars(req));
     let end = ctx.cursor.position + max_count;
-    let opcode = SreOpcode::try_from(ctx.peek_code(req, 0)).unwrap();
+    let opcode = match SreOpcode::try_from(ctx.peek_code(req, 0)) {
+        Ok(opcode) => opcode,
+        Err(_) => return 0,
+    };
 
     match opcode {
         SreOpcode::ANY => {
