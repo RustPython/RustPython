@@ -9,8 +9,6 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 
-const NONE_HASH: PyHash = 0xFCA8_6420;
-
 #[pyclass(module = false, name = "NoneType")]
 #[derive(Debug)]
 pub struct PyNone;
@@ -93,7 +91,7 @@ impl Comparable for PyNone {
 
 impl Hashable for PyNone {
     fn hash(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
-        Ok(NONE_HASH)
+        Ok(0xFCA8_6420)
     }
 }
 
