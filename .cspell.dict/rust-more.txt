@@ -52,6 +52,8 @@ muldiv
 nanos
 nonoverlapping
 objclass
+oelements
+olen
 peekable
 pemfile
 powc
@@ -92,3 +94,5 @@ widestring
 winapi
 winresource
 winsock
+zelements
+zlen
