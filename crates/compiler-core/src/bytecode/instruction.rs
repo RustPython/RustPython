@@ -1552,7 +1552,7 @@ impl InstructionMetadata for Instruction {
             Self::StoreFastLoadFast { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (store_idx, load_idx) = oparg.indexes();
-                write!(f, " {:pad$}({}, {})", opname, store_idx, load_idx)
+                write!(f, "{:pad$}({}, {})", opname, store_idx, load_idx)
             }
             Self::StoreFastStoreFast { var_nums } => {
                 let oparg = var_nums.get(arg);
