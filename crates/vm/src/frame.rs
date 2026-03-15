@@ -2725,12 +2725,11 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFastLoadFast { var_nums: packed } => {
+            Instruction::LoadFastLoadFast { var_nums } => {
                 // Load two local variables at once
                 // oparg encoding: (idx1 << 4) | idx2
-                let oparg = packed.get(arg);
-                let idx1 = (oparg >> 4) as usize;
-                let idx2 = (oparg & 15) as usize;
+                let oparg = var_nums.get(arg);
+                let (idx1, idx2) = oparg.indexes();
                 let fastlocals = self.localsplus.fastlocals();
                 let x1 = fastlocals[idx1].clone().ok_or_else(|| {
                     vm.new_exception_msg(
@@ -2774,10 +2773,9 @@ impl ExecutingFrame<'_> {
                 self.push_value(x);
                 Ok(None)
             }
-            Instruction::LoadFastBorrowLoadFastBorrow { var_nums: packed } => {
-                let oparg = packed.get(arg);
-                let idx1 = (oparg >> 4) as usize;
-                let idx2 = (oparg & 15) as usize;
+            Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                let oparg = var_nums.get(arg);
+                let (idx1, idx2) = oparg.indexes();
                 let fastlocals = self.localsplus.fastlocals();
                 let x1 = fastlocals[idx1].clone().ok_or_else(|| {
                     vm.new_exception_msg(
@@ -3309,17 +3307,17 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 let locals = self.localsplus.fastlocals_mut();
                 let oparg = var_nums.get(arg);
-                locals[oparg.store_idx() as usize] = Some(value);
-                let load_value = locals[oparg.load_idx() as usize]
+                let (store_idx, load_idx) = oparg.indexes();
+                locals[store_idx] = Some(value);
+                let load_value = locals[load_idx]
                     .clone()
                     .expect("StoreFastLoadFast: load slot should have value after store");
                 self.push_value(load_value);
                 Ok(None)
             }
-            Instruction::StoreFastStoreFast { var_nums: packed } => {
-                let oparg = packed.get(arg);
-                let idx1 = (oparg >> 4) as usize;
-                let idx2 = (oparg & 15) as usize;
+            Instruction::StoreFastStoreFast { var_nums } => {
+                let oparg = var_nums.get(arg);
+                let (idx1, idx2) = oparg.indexes();
                 let value1 = self.pop_value();
                 let value2 = self.pop_value();
                 let fastlocals = self.localsplus.fastlocals_mut();

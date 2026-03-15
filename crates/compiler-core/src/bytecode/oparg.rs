@@ -733,6 +733,12 @@ newtype_oparg!(
 newtype_oparg!(
     #[derive(Clone, Copy)]
     #[repr(transparent)]
+    pub struct VarNums(u32)
+);
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
     pub struct LoadAttr(u32)
 );
 
@@ -748,21 +754,20 @@ newtype_oparg!(
     pub struct Label(u32)
 );
 
-newtype_oparg!(
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-    #[repr(transparent)]
-    pub struct StoreFastLoadFast(u32)
-);
-
-impl StoreFastLoadFast {
+impl VarNums {
     #[must_use]
-    pub const fn store_idx(self) -> NameIdx {
-        self.0 >> 4
+    pub const fn idx_1(self) -> VarNum {
+        VarNum::new(self.0 >> 4)
     }
 
     #[must_use]
-    pub const fn load_idx(self) -> NameIdx {
-        self.0 & 15
+    pub const fn idx_2(self) -> VarNum {
+        VarNum::new(self.0 & 15)
+    }
+
+    #[must_use]
+    pub const fn indexes(self) -> (VarNum, VarNum) {
+        (self.idx_1(), self.idx_2())
     }
 }
 

@@ -660,10 +660,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::LoadFastLoadFast { var_nums }
             | Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
-                let idx1 = oparg >> 4;
-                let idx2 = oparg & 0xF;
+                let (idx1, idx2) = oparg.indexes();
                 for idx in [idx1, idx2] {
-                    let local = self.variables[idx as usize]
+                    let local = self.variables[idx]
                         .as_ref()
                         .ok_or(JitCompileError::BadBytecode)?;
                     self.stack.push(JitValue::from_type_and_value(
