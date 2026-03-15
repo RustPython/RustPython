@@ -1051,7 +1051,7 @@ struct ExecutingFrame<'a> {
 }
 
 #[inline]
-fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
+fn cpython_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
     // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
     // i.e. abs(value) <= 2^30 - 1.
     const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
@@ -1066,7 +1066,7 @@ fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<is
 #[inline]
 fn compact_int_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<isize> {
     obj.downcast_ref_if_exact::<PyInt>(vm)
-        .and_then(|i| specialization_compact_int_value(i, vm))
+        .and_then(|i| cpython_compact_int_value(i, vm))
 }
 
 #[inline]
@@ -1075,7 +1075,7 @@ fn exact_float_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<f64> {
 }
 
 #[inline]
-fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
+fn cpython_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
     // _PyLong_IsNonNegativeCompact(): a single base-2^30 digit.
     const CPYTHON_COMPACT_LONG_MAX: u64 = (1u64 << 30) - 1;
     let v = i.try_to_primitive::<u64>(vm).ok()?;
@@ -3999,7 +3999,7 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm)
                     && let Some(int_idx) = idx.downcast_ref_if_exact::<PyInt>(vm)
-                    && let Some(i) = specialization_nonnegative_compact_index(int_idx, vm)
+                    && let Some(i) = cpython_nonnegative_compact_index(int_idx, vm)
                 {
                     let mut vec = list.borrow_vec_mut();
                     if i < vec.len() {
@@ -4099,7 +4099,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(list), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyList>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Some(i) = specialization_nonnegative_compact_index(idx, vm)
+                ) && let Some(i) = cpython_nonnegative_compact_index(idx, vm)
                 {
                     let vec = list.borrow_vec();
                     if i < vec.len() {
@@ -4119,7 +4119,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(tuple), Some(idx)) = (
                     a.downcast_ref_if_exact::<PyTuple>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Some(i) = specialization_nonnegative_compact_index(idx, vm)
+                ) && let Some(i) = cpython_nonnegative_compact_index(idx, vm)
                 {
                     let elements = tuple.as_slice();
                     if i < elements.len() {
@@ -4161,7 +4161,7 @@ impl ExecutingFrame<'_> {
                 if let (Some(a_str), Some(b_int)) = (
                     a.downcast_ref_if_exact::<PyStr>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
-                ) && let Some(i) = specialization_nonnegative_compact_index(b_int, vm)
+                ) && let Some(i) = cpython_nonnegative_compact_index(b_int, vm)
                     && let Ok(ch) = a_str.getitem_by_index(vm, i as isize)
                     && ch.is_ascii()
                 {
@@ -4774,9 +4774,6 @@ impl ExecutingFrame<'_> {
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
                     && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
-                    // Match CPython's `code->co_framesize + _Py_InitCleanup.co_framesize`
-                    // shape, using RustPython's datastack-backed frame size
-                    // equivalent for the extra shim frame.
                     let init_cleanup_stack_bytes =
                         datastack_frame_size_bytes_for_code(&vm.ctx.init_cleanup_code)
                             .expect("_Py_InitCleanup shim is not a generator/coroutine");
@@ -4787,9 +4784,8 @@ impl ExecutingFrame<'_> {
                     ) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    // CPython creates `_Py_InitCleanup` + `__init__` frames here.
-                    // Keep the guard conservative and deopt when the effective
-                    // recursion budget for those two frames is not available.
+                    // Two frames are created: `_Py_InitCleanup` + `__init__`.
+                    // Guard recursion limit accordingly and fall back.
                     if self.specialization_call_recursion_guard_with_extra_frames(vm, 1) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
@@ -5191,8 +5187,8 @@ impl ExecutingFrame<'_> {
                     a.downcast_ref_if_exact::<PyInt>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
                 ) && let (Some(a_val), Some(b_val)) = (
-                    specialization_compact_int_value(a_int, vm),
-                    specialization_compact_int_value(b_int, vm),
+                    cpython_compact_int_value(a_int, vm),
+                    cpython_compact_int_value(b_int, vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
                     let result = op.eval_ord(a_val.cmp(&b_val));
@@ -7320,10 +7316,7 @@ impl ExecutingFrame<'_> {
             .load()
             .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
         if !is_default_getattro {
-            let mut type_version = cls.tp_version_tag.load(Acquire);
-            if type_version == 0 {
-                type_version = cls.assign_version_tag();
-            }
+            let type_version = cls.version_for_specialization(_vm);
             if type_version != 0
                 && !oparg.is_method()
                 && !self.specialization_eval_frame_active(_vm)
@@ -7361,10 +7354,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Get or assign type version
-        let mut type_version = cls.tp_version_tag.load(Acquire);
-        if type_version == 0 {
-            type_version = cls.assign_version_tag();
-        }
+        let type_version = cls.version_for_specialization(_vm);
         if type_version == 0 {
             // Version counter overflow — backoff to avoid re-attempting every execution
             unsafe {
@@ -7584,10 +7574,7 @@ impl ExecutingFrame<'_> {
         let owner_type = obj.downcast_ref::<PyType>().unwrap();
 
         // Get or assign type version for the type object itself
-        let mut type_version = owner_type.tp_version_tag.load(Acquire);
-        if type_version == 0 {
-            type_version = owner_type.assign_version_tag();
-        }
+        let type_version = owner_type.version_for_specialization(_vm);
         if type_version == 0 {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
@@ -7622,10 +7609,7 @@ impl ExecutingFrame<'_> {
         }
         let mut metaclass_version = 0;
         if !mcl.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            metaclass_version = mcl.tp_version_tag.load(Acquire);
-            if metaclass_version == 0 {
-                metaclass_version = mcl.assign_version_tag();
-            }
+            metaclass_version = mcl.version_for_specialization(_vm);
             if metaclass_version == 0 {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
@@ -7797,7 +7781,7 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::Subscr => {
                 let b_is_nonnegative_int = b
                     .downcast_ref_if_exact::<PyInt>(vm)
-                    .is_some_and(|i| specialization_nonnegative_compact_index(i, vm).is_some());
+                    .is_some_and(|i| cpython_nonnegative_compact_index(i, vm).is_some());
                 if a.downcast_ref_if_exact::<PyList>(vm).is_some() && b_is_nonnegative_int {
                     Some(Instruction::BinaryOpSubscrListInt)
                 } else if a.downcast_ref_if_exact::<PyTuple>(vm).is_some() && b_is_nonnegative_int {
@@ -7812,16 +7796,14 @@ impl ExecutingFrame<'_> {
                     Some(Instruction::BinaryOpSubscrListSlice)
                 } else {
                     let cls = a.class();
+                    let (getitem, type_version) =
+                        cls.lookup_ref_and_version_interned(identifier!(vm, __getitem__), vm);
                     if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
                         && !self.specialization_eval_frame_active(vm)
-                        && let Some(_getitem) = cls.get_attr(identifier!(vm, __getitem__))
+                        && let Some(_getitem) = getitem
                         && let Some(func) = _getitem.downcast_ref_if_exact::<PyFunction>(vm)
                         && func.can_specialize_call(2)
                     {
-                        let mut type_version = cls.tp_version_tag.load(Acquire);
-                        if type_version == 0 {
-                            type_version = cls.assign_version_tag();
-                        }
                         if type_version != 0 {
                             if cls.cache_getitem_for_specialization(
                                 func.to_owned(),
@@ -8360,11 +8342,8 @@ impl ExecutingFrame<'_> {
                     && cls_new_fn as usize == obj_new_fn as usize
                     && cls_alloc_fn as usize == obj_alloc_fn as usize
                 {
-                    let init = cls.get_attr(identifier!(vm, __init__));
-                    let mut version = cls.tp_version_tag.load(Acquire);
-                    if version == 0 {
-                        version = cls.assign_version_tag();
-                    }
+                    let (init, version) =
+                        cls.lookup_ref_and_version_interned(identifier!(vm, __init__), vm);
                     if version == 0 {
                         unsafe {
                             self.code.instructions.write_adaptive_counter(
@@ -8620,8 +8599,8 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            if specialization_compact_int_value(a_int, vm).is_some()
-                && specialization_compact_int_value(b_int, vm).is_some()
+            if cpython_compact_int_value(a_int, vm).is_some()
+                && cpython_compact_int_value(b_int, vm).is_some()
             {
                 Some(Instruction::CompareOpInt)
             } else {
@@ -8684,10 +8663,7 @@ impl ExecutingFrame<'_> {
             && cls.slots.as_sequence.length.load().is_none()
         {
             // Cache type version for ToBoolAlwaysTrue guard
-            let mut type_version = cls.tp_version_tag.load(Acquire);
-            if type_version == 0 {
-                type_version = cls.assign_version_tag();
-            }
+            let type_version = cls.version_for_specialization(vm);
             if type_version != 0 {
                 unsafe {
                     self.code
@@ -8919,7 +8895,7 @@ impl ExecutingFrame<'_> {
             idx.downcast_ref_if_exact::<PyInt>(vm),
         ) {
             let list_len = list.borrow_vec().len();
-            if specialization_nonnegative_compact_index(int_idx, vm).is_some_and(|i| i < list_len) {
+            if cpython_nonnegative_compact_index(int_idx, vm).is_some_and(|i| i < list_len) {
                 Some(Instruction::StoreSubscrListInt)
             } else {
                 None
@@ -9025,10 +9001,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Get or assign type version
-        let mut type_version = cls.tp_version_tag.load(Acquire);
-        if type_version == 0 {
-            type_version = cls.assign_version_tag();
-        }
+        let type_version = cls.version_for_specialization(vm);
         if type_version == 0 {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
