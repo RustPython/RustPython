@@ -906,7 +906,19 @@ impl Frame {
             }
         }
         if !code.cellvars.is_empty() || !code.freevars.is_empty() {
+            let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
             for (i, &k) in code.cellvars.iter().enumerate() {
+                // When a variable appears in both varnames and cellvars
+                // (inlined comprehension with scope tweak), the fastlocal
+                // value takes precedence, matching CPython FrameLocalsProxy.
+                let has_fastlocal = code
+                    .varnames
+                    .iter()
+                    .position(|&v| v == k)
+                    .is_some_and(|idx| fastlocals.get(idx).is_some_and(|v| v.is_some()));
+                if has_fastlocal {
+                    continue;
+                }
                 let cell_value = self.get_cell_contents(i);
                 match locals_map.ass_subscript(k, cell_value, vm) {
                     Ok(()) => {}
