@@ -2665,6 +2665,13 @@ fn vectorcall_type(
         if nargs == 1 && no_kwargs {
             return Ok(args[0].obj_type());
         }
+    } else if zelf.slots.call.load().is_none() {
+        // Per-type constructor vectorcall for non-callable types (dict, list, int, etc.)
+        // When slots.call is set, slots.vectorcall is for calling instances (e.g. vectorcall_function),
+        // not for constructing them, so we must not dispatch it here.
+        if let Some(type_vc) = zelf.slots.vectorcall.load() {
+            return type_vc(zelf_obj, args, nargs, kwnames, vm);
+        }
     }
 
     // Fallback: construct FuncArgs and use standard call

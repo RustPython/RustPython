@@ -827,11 +827,17 @@ impl PyType {
             }
             SlotAccessor::TpIter => update_main_slot!(iter, iter_wrapper, Iter),
             SlotAccessor::TpIternext => update_main_slot!(iternext, iternext_wrapper, IterNext),
-            SlotAccessor::TpInit => update_main_slot!(init, init_wrapper, Init),
+            SlotAccessor::TpInit => {
+                update_main_slot!(init, init_wrapper, Init);
+                if ADD {
+                    self.slots.vectorcall.store(None);
+                }
+            }
             SlotAccessor::TpNew => {
                 // __new__ is not wrapped via PyWrapper
                 if ADD {
                     self.slots.new.store(Some(new_wrapper));
+                    self.slots.vectorcall.store(None);
                 } else {
                     accessor.inherit_from_mro(self);
                 }
