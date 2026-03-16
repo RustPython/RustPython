@@ -3070,7 +3070,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cfg-if",
  "criterion",
@@ -3093,7 +3093,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-codegen"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ahash",
  "bitflags 2.11.0",
@@ -3117,7 +3117,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-common"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ascii",
  "bitflags 2.11.0",
@@ -3144,7 +3144,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-compiler"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ruff_python_ast",
  "ruff_python_parser",
@@ -3157,7 +3157,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-compiler-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitflags 2.11.0",
  "bitflagset",
@@ -3179,7 +3179,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-derive"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
@@ -3188,7 +3188,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-derive-impl"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "itertools 0.14.0",
  "maplit",
@@ -3203,14 +3203,14 @@ dependencies = [
 
 [[package]]
 name = "rustpython-doc"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "phf 0.13.1",
 ]
 
 [[package]]
 name = "rustpython-jit"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "approx",
  "cranelift",
@@ -3226,7 +3226,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-literal"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "hexf-parse",
  "is-macro",
@@ -3239,7 +3239,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-pylib"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "glob",
  "rustpython-compiler-core",
@@ -3248,7 +3248,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-sre_engine"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitflags 2.11.0",
  "criterion",
@@ -3259,7 +3259,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-stdlib"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "adler32",
  "ahash",
@@ -3357,14 +3357,14 @@ dependencies = [
 
 [[package]]
 name = "rustpython-venvlauncher"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rustpython-vm"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ahash",
  "ascii",
@@ -3439,7 +3439,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-wtf8"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ascii",
  "bstr",
@@ -3449,7 +3449,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython_wasm"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
