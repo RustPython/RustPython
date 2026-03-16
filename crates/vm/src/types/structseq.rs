@@ -244,11 +244,6 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[pymethod]
-    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Self::slot_repr(&zelf, vm)
-    }
-
-    #[pymethod]
     fn __replace__(zelf: PyRef<PyTuple>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() {
             return Err(vm.new_type_error("__replace__() takes no positional arguments"));
