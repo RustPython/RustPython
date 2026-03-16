@@ -917,7 +917,7 @@ where
                 ("__new__", "Constructor"),
                 ("__init__", "Initializer"),
                 // Representable trait
-                // ("__repr__", "Representable"),
+                ("__repr__", "Representable"),
                 // ("__str__", "???"), // allow __str__
                 // Hashable trait
                 ("__hash__", "Hashable"),
@@ -927,9 +927,9 @@ where
                 // NOTE: __getattribute__, __setattr__, __delattr__ are intentionally NOT forbidden
                 // because they need pymethod for subclass override mechanism to work properly.
                 // GetDescriptor/SetDescriptor traits
-                // ("__get__", "GetDescriptor"),
-                // ("__set__", "SetDescriptor"),
-                // ("__delete__", "SetDescriptor"),
+                ("__get__", "GetDescriptor"),
+                ("__set__", "SetDescriptor"),
+                ("__delete__", "SetDescriptor"),
                 // AsNumber trait
                 ("__add__", "AsNumber"),
                 ("__radd__", "AsNumber"),
@@ -981,15 +981,15 @@ where
                 ("__index__", "AsNumber"),
                 ("__bool__", "AsNumber"),
                 // AsSequence trait
-                // ("__len__", "AsSequence (or AsMapping)"),
-                // ("__contains__", "AsSequence"),
+                ("__len__", "AsSequence (or AsMapping)"),
+                ("__contains__", "AsSequence"),
                 // AsMapping trait
-                // ("__getitem__", "AsMapping (or AsSequence)"),
-                // ("__setitem__", "AsMapping (or AsSequence)"),
-                // ("__delitem__", "AsMapping (or AsSequence)"),
-                // IterNext trait
-                // ("__iter__", "IterNext"),
-                // ("__next__", "IterNext"),
+                ("__getitem__", "AsMapping (or AsSequence)"),
+                ("__setitem__", "AsMapping (or AsSequence)"),
+                ("__delitem__", "AsMapping (or AsSequence)"),
+                // Iterable/IterNext traits
+                ("__iter__", "Iterable"),
+                ("__next__", "IterNext"),
                 // Comparable trait
                 ("__eq__", "Comparable"),
                 ("__ne__", "Comparable"),

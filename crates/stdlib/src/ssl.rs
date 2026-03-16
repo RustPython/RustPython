@@ -857,16 +857,11 @@ mod _ssl {
         binary_form: OptionalArg<bool>,
     }
 
-    #[pyclass(with(Constructor), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PySSLContext {
         // Helper method to convert DER certificate bytes to Python dict
         fn cert_der_to_dict(&self, vm: &VirtualMachine, cert_der: &[u8]) -> PyResult<PyObjectRef> {
             cert::cert_der_to_dict_helper(vm, cert_der)
-        }
-
-        #[pymethod]
-        fn __repr__(&self) -> String {
-            format!("<SSLContext(protocol={})>", self.protocol)
         }
 
         #[pygetset]
@@ -2191,6 +2186,13 @@ mod _ssl {
         }
     }
 
+    impl Representable for PySSLContext {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!("<SSLContext(protocol={})>", zelf.protocol))
+        }
+    }
+
     impl Constructor for PySSLContext {
         type Args = (i32,);
 
@@ -2374,7 +2376,7 @@ mod _ssl {
         Completed,       // unwrap() completed successfully
     }
 
-    #[pyclass(with(Constructor), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PySSLSocket {
         // Check if this is BIO mode
         pub(crate) fn is_bio_mode(&self) -> bool {
@@ -3019,11 +3021,6 @@ mod _ssl {
                     }
                 }
             }
-        }
-
-        #[pymethod]
-        fn __repr__(&self) -> String {
-            "<SSLSocket>".to_string()
         }
 
         // Helper function to convert Python PROTO_* constants to rustls versions
@@ -4559,6 +4556,13 @@ mod _ssl {
             // Return None to indicate channel binding is not available
             // This matches the behavior when the handshake hasn't completed yet
             Ok(None)
+        }
+    }
+
+    impl Representable for PySSLSocket {
+        #[inline]
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok("<SSLSocket>".to_owned())
         }
     }
 
