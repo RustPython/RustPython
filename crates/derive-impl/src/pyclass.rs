@@ -987,9 +987,9 @@ where
                 // ("__getitem__", "AsMapping (or AsSequence)"),
                 // ("__setitem__", "AsMapping (or AsSequence)"),
                 // ("__delitem__", "AsMapping (or AsSequence)"),
-                // IterNext trait
-                // ("__iter__", "IterNext"),
-                // ("__next__", "IterNext"),
+                // Iterable/IterNext traits
+                ("__iter__", "Iterable"),
+                ("__next__", "IterNext"),
                 // Comparable trait
                 ("__eq__", "Comparable"),
                 ("__ne__", "Comparable"),
