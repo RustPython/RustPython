@@ -917,7 +917,7 @@ where
                 ("__new__", "Constructor"),
                 ("__init__", "Initializer"),
                 // Representable trait
-                // ("__repr__", "Representable"),
+                ("__repr__", "Representable"),
                 // ("__str__", "???"), // allow __str__
                 // Hashable trait
                 ("__hash__", "Hashable"),
