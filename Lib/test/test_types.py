@@ -630,7 +630,6 @@ class TypesTests(unittest.TestCase):
         self.assertGreater(object.__basicsize__, 0)
         self.assertGreater(tuple.__itemsize__, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <method '__lt__' of 'int' objects> is not an instance of <class 'wrapper_descriptor'>
     def test_slot_wrapper_types(self):
         self.assertIsInstance(object.__init__, types.WrapperDescriptorType)
         self.assertIsInstance(object.__str__, types.WrapperDescriptorType)
@@ -646,7 +645,6 @@ class TypesTests(unittest.TestCase):
         # gh-93021: Second parameter is optional
         self.assertIs(sig.parameters["owner"].default, None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <built-in method __lt__ of int object at 0xad6c41080> is not an instance of <class 'method-wrapper'>
     def test_method_wrapper_types(self):
         self.assertIsInstance(object().__init__, types.MethodWrapperType)
         self.assertIsInstance(object().__str__, types.MethodWrapperType)

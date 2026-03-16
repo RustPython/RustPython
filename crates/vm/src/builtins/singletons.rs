@@ -2,10 +2,11 @@ use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
+    common::hash::PyHash,
     convert::ToPyObject,
-    function::FuncArgs,
+    function::{FuncArgs, PyComparisonValue},
     protocol::PyNumberMethods,
-    types::{AsNumber, Constructor, Representable},
+    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 
 #[pyclass(module = false, name = "NoneType")]
@@ -49,7 +50,7 @@ impl Constructor for PyNone {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber, Representable))]
+#[pyclass(with(Constructor, AsNumber, Comparable, Hashable, Representable))]
 impl PyNone {}
 
 impl Representable for PyNone {
@@ -71,6 +72,26 @@ impl AsNumber for PyNone {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
+    }
+}
+
+impl Comparable for PyNone {
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &crate::PyObject,
+        op: PyComparisonOp,
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        Ok(op
+            .identical_optimization(zelf, other)
+            .map(PyComparisonValue::Implemented)
+            .unwrap_or(PyComparisonValue::NotImplemented))
+    }
+}
+
+impl Hashable for PyNone {
+    fn hash(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
+        Ok(0xFCA86420)
     }
 }
 

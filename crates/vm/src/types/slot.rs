@@ -3,13 +3,11 @@ use crate::common::lock::{
 };
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef},
+    builtins::{PyInt, PyStr, PyStrInterned, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     common::hash::{PyHash, fix_sentinel, hash_bigint},
     convert::ToPyObject,
-    function::{
-        Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PySetterValue,
-    },
+    function::{Either, FromArgs, FuncArgs, PyComparisonValue, PyMethodDef, PySetterValue},
     protocol::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
         PyNumberMethods, PyNumberSlots, PySequence, PySequenceMethods, PySequenceSlots,
@@ -1681,11 +1679,6 @@ pub trait Destructor: PyPayload {
         Self::del(zelf, vm)
     }
 
-    #[pymethod]
-    fn __del__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::slot_del(&zelf, vm)
-    }
-
     fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()>;
 }
 
@@ -1711,11 +1704,6 @@ pub trait Callable: PyPayload {
         Self::call(zelf, args, vm)
     }
 
-    #[inline]
-    #[pymethod]
-    fn __call__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::slot_call(&zelf, args.bind(vm)?, vm)
-    }
     fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
@@ -1728,17 +1716,6 @@ pub trait GetDescriptor: PyPayload {
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult;
-
-    #[inline]
-    #[pymethod]
-    fn __get__(
-        zelf: PyObjectRef,
-        obj: PyObjectRef,
-        cls: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        Self::descr_get(zelf, Some(obj), cls.into_option(), vm)
-    }
 
     #[inline]
     fn _as_pyref<'a>(zelf: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a Py<Self>> {
@@ -1847,61 +1824,6 @@ pub trait Comparable: PyPayload {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue>;
-
-    #[inline]
-    #[pymethod]
-    fn __eq__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Eq, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __ne__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Ne, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __lt__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Lt, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __le__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Le, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __ge__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Ge, vm)
-    }
-    #[inline]
-    #[pymethod]
-    fn __gt__(
-        zelf: &Py<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(zelf, &other, PyComparisonOp::Gt, vm)
-    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -2013,12 +1935,6 @@ pub trait GetAttr: PyPayload {
     }
 
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult;
-
-    #[inline]
-    #[pymethod]
-    fn __getattribute__(zelf: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::slot_getattro(&zelf, &name, vm)
-    }
 }
 
 #[pyclass]
@@ -2043,23 +1959,6 @@ pub trait SetAttr: PyPayload {
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()>;
-
-    #[inline]
-    #[pymethod]
-    fn __setattr__(
-        zelf: PyObjectRef,
-        name: PyStrRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        Self::slot_setattro(&zelf, &name, PySetterValue::Assign(value), vm)
-    }
-
-    #[inline]
-    #[pymethod]
-    fn __delattr__(zelf: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::slot_setattro(&zelf, &name, PySetterValue::Delete, vm)
-    }
 }
 
 #[pyclass]
