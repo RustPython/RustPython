@@ -663,7 +663,6 @@ impl PyStr {
         self.data.is_empty()
     }
 
-    #[pymethod(name = "__len__")]
     #[inline]
     pub fn char_len(&self) -> usize {
         self.data.char_len()

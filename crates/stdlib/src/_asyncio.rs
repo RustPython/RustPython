@@ -765,11 +765,6 @@ pub(crate) mod _asyncio {
         }
 
         #[pymethod]
-        fn __iter__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyFutureIter> {
-            Self::__await__(zelf, vm)
-        }
-
-        #[pymethod]
         fn __await__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyFutureIter> {
             Ok(PyFutureIter {
                 future: PyRwLock::new(Some(zelf.into())),
@@ -1826,13 +1821,6 @@ pub(crate) mod _asyncio {
             } else {
                 vm.ctx.new_list(result).into()
             }
-        }
-
-        #[pymethod]
-        fn __iter__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyFutureIter> {
-            Ok(PyFutureIter {
-                future: PyRwLock::new(Some(zelf.into())),
-            })
         }
 
         #[pymethod]
