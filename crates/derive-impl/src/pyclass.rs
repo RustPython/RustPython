@@ -927,9 +927,9 @@ where
                 // NOTE: __getattribute__, __setattr__, __delattr__ are intentionally NOT forbidden
                 // because they need pymethod for subclass override mechanism to work properly.
                 // GetDescriptor/SetDescriptor traits
-                // ("__get__", "GetDescriptor"),
-                // ("__set__", "SetDescriptor"),
-                // ("__delete__", "SetDescriptor"),
+                ("__get__", "GetDescriptor"),
+                ("__set__", "SetDescriptor"),
+                ("__delete__", "SetDescriptor"),
                 // AsNumber trait
                 ("__add__", "AsNumber"),
                 ("__radd__", "AsNumber"),
