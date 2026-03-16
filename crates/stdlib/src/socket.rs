@@ -20,7 +20,7 @@ mod _socket {
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
             OptionalArg, OptionalOption,
         },
-        types::{Constructor, DefaultConstructor, Initializer, Representable},
+        types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
     };
 
@@ -1417,7 +1417,44 @@ mod _socket {
         }
     }
 
-    #[pyclass(with(Constructor, Initializer, Representable), flags(BASETYPE))]
+    impl Destructor for PySocket {
+        fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            // Emit ResourceWarning if socket is still open
+            if zelf.sock.read().is_some() {
+                let laddr = if let Ok(sock) = zelf.sock()
+                    && let Ok(addr) = sock.local_addr()
+                    && let Ok(repr) = get_addr_tuple(&addr, vm).repr(vm)
+                {
+                    format!(", laddr={}", repr.as_wtf8())
+                } else {
+                    String::new()
+                };
+
+                let msg = format!(
+                    "unclosed <socket.socket fd={}, family={}, type={}, proto={}{}>",
+                    zelf.fileno(),
+                    zelf.family.load(),
+                    zelf.kind.load(),
+                    zelf.proto.load(),
+                    laddr
+                );
+                let _ = crate::vm::warn::warn(
+                    vm.ctx.new_str(msg).into(),
+                    Some(vm.ctx.exceptions.resource_warning.to_owned()),
+                    1,
+                    None,
+                    vm,
+                );
+            }
+            let _ = zelf.close();
+            Ok(())
+        }
+    }
+
+    #[pyclass(
+        with(Constructor, Initializer, Representable, Destructor),
+        flags(BASETYPE)
+    )]
     impl PySocket {
         fn _init(
             zelf: PyRef<Self>,
@@ -2137,38 +2174,6 @@ mod _socket {
                 close_inner(into_sock_fileno(sock))?;
             }
             Ok(())
-        }
-
-        #[pymethod]
-        fn __del__(&self, vm: &VirtualMachine) {
-            // Emit ResourceWarning if socket is still open
-            if self.sock.read().is_some() {
-                let laddr = if let Ok(sock) = self.sock()
-                    && let Ok(addr) = sock.local_addr()
-                    && let Ok(repr) = get_addr_tuple(&addr, vm).repr(vm)
-                {
-                    format!(", laddr={}", repr.as_wtf8())
-                } else {
-                    String::new()
-                };
-
-                let msg = format!(
-                    "unclosed <socket.socket fd={}, family={}, type={}, proto={}{}>",
-                    self.fileno(),
-                    self.family.load(),
-                    self.kind.load(),
-                    self.proto.load(),
-                    laddr
-                );
-                let _ = crate::vm::warn::warn(
-                    vm.ctx.new_str(msg).into(),
-                    Some(vm.ctx.exceptions.resource_warning.to_owned()),
-                    1,
-                    None,
-                    vm,
-                );
-            }
-            let _ = self.close();
         }
 
         #[pymethod]
