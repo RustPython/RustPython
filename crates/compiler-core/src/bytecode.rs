@@ -371,6 +371,7 @@ bitflags! {
         const NEWLOCALS = 0x0002;
         const VARARGS = 0x0004;
         const VARKEYWORDS = 0x0008;
+        const NESTED = 0x0010;
         const GENERATOR = 0x0020;
         const COROUTINE = 0x0080;
         const ITERABLE_COROUTINE = 0x0100;
