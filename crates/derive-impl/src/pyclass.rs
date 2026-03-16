@@ -981,12 +981,12 @@ where
                 ("__index__", "AsNumber"),
                 ("__bool__", "AsNumber"),
                 // AsSequence trait
-                // ("__len__", "AsSequence (or AsMapping)"),
-                // ("__contains__", "AsSequence"),
+                ("__len__", "AsSequence (or AsMapping)"),
+                ("__contains__", "AsSequence"),
                 // AsMapping trait
-                // ("__getitem__", "AsMapping (or AsSequence)"),
-                // ("__setitem__", "AsMapping (or AsSequence)"),
-                // ("__delitem__", "AsMapping (or AsSequence)"),
+                ("__getitem__", "AsMapping (or AsSequence)"),
+                ("__setitem__", "AsMapping (or AsSequence)"),
+                ("__delitem__", "AsMapping (or AsSequence)"),
                 // Iterable/IterNext traits
                 ("__iter__", "Iterable"),
                 ("__next__", "IterNext"),
