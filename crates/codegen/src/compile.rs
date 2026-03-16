@@ -1081,6 +1081,14 @@ impl Compiler {
             ),
         };
 
+        // Set CO_NESTED for scopes defined inside another function/class/etc.
+        // (i.e., not at module level)
+        let flags = if self.code_stack.len() > 1 {
+            flags | bytecode::CodeFlags::NESTED
+        } else {
+            flags
+        };
+
         // Get private name from parent scope
         let private = if !self.code_stack.is_empty() {
             self.code_stack.last().unwrap().private.clone()
@@ -1202,7 +1210,8 @@ impl Compiler {
         // enter_scope sets default values based on scope_type, but push_output
         // allows callers to specify exact values
         if let Some(info) = self.code_stack.last_mut() {
-            info.flags = flags;
+            // Preserve NESTED flag set by enter_scope
+            info.flags = flags | (info.flags & bytecode::CodeFlags::NESTED);
             info.metadata.argcount = arg_count;
             info.metadata.posonlyargcount = posonlyarg_count;
             info.metadata.kwonlyargcount = kwonlyarg_count;
@@ -2179,18 +2188,26 @@ impl Compiler {
                 }
             }
             ast::Stmt::Expr(ast::StmtExpr { value, .. }) => {
-                self.compile_expression(value)?;
+                // Optimize away constant expressions with no side effects.
+                // In interactive mode, always compile (to print the result).
+                let dominated_by_interactive =
+                    self.interactive && !self.ctx.in_func() && !self.ctx.in_class;
+                if !dominated_by_interactive && Self::is_const_expression(value) {
+                    // Skip compilation entirely - the expression has no side effects
+                } else {
+                    self.compile_expression(value)?;
 
-                if self.interactive && !self.ctx.in_func() && !self.ctx.in_class {
-                    emit!(
-                        self,
-                        Instruction::CallIntrinsic1 {
-                            func: bytecode::IntrinsicFunction1::Print
-                        }
-                    );
+                    if dominated_by_interactive {
+                        emit!(
+                            self,
+                            Instruction::CallIntrinsic1 {
+                                func: bytecode::IntrinsicFunction1::Print
+                            }
+                        );
+                    }
+
+                    emit!(self, Instruction::PopTop);
                 }
-
-                emit!(self, Instruction::PopTop);
             }
             ast::Stmt::Global(_) | ast::Stmt::Nonlocal(_) => {
                 // Handled during symbol table construction.
@@ -3748,18 +3765,22 @@ impl Compiler {
                 });
             self.current_code_info().flags |= bytecode::CodeFlags::HAS_DOCSTRING;
         }
-        // If no docstring, don't add None to co_consts
-        // Note: RETURN_GENERATOR + POP_TOP for async functions is emitted in enter_scope()
-
         // Compile body statements
         self.compile_statements(body)?;
 
-        // Emit None at end if needed
+        // Emit implicit `return None` if the body doesn't end with return.
+        // Also ensure None is in co_consts even when not emitting return
+        // (matching CPython: functions without explicit constants always
+        // have None in co_consts).
         match body.last() {
             Some(ast::Stmt::Return(_)) => {}
             _ => {
                 self.emit_return_const(ConstantData::None);
             }
+        }
+        // Functions with no other constants should still have None in co_consts
+        if self.current_code_info().metadata.consts.is_empty() {
+            self.arg_constant(ConstantData::None);
         }
 
         // Exit scope and create function object
@@ -6880,6 +6901,19 @@ impl Compiler {
         emit!(self, Instruction::EndSend);
 
         Ok(send_block)
+    }
+
+    /// Returns true if the expression is a constant with no side effects.
+    fn is_const_expression(expr: &ast::Expr) -> bool {
+        matches!(
+            expr,
+            ast::Expr::StringLiteral(_)
+                | ast::Expr::BytesLiteral(_)
+                | ast::Expr::NumberLiteral(_)
+                | ast::Expr::BooleanLiteral(_)
+                | ast::Expr::NoneLiteral(_)
+                | ast::Expr::EllipsisLiteral(_)
+        )
     }
 
     fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {

@@ -664,7 +664,10 @@ impl Constructor for PyCode {
     }
 }
 
-#[pyclass(with(Representable, Constructor, Comparable, Hashable), flags(HAS_WEAKREF))]
+#[pyclass(
+    with(Representable, Constructor, Comparable, Hashable),
+    flags(HAS_WEAKREF)
+)]
 impl PyCode {
     #[pygetset]
     const fn co_posonlyargcount(&self) -> usize {
@@ -790,6 +793,7 @@ impl PyCode {
         vm.ctx.new_bytes(self.code.exceptiontable.to_vec())
     }
 
+    // spell-checker: ignore lnotab
     // co_lnotab is intentionally not implemented.
     // It was deprecated since 3.12 and scheduled for removal in 3.14.
     // Use co_lines() or co_linetable instead.
@@ -1063,6 +1067,11 @@ impl PyCode {
 
         let list = vm.ctx.new_list(branches);
         vm.call_method(list.as_object(), "__iter__", ())
+    }
+
+    #[pymethod]
+    pub fn __replace__(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        self.replace(args, vm)
     }
 
     #[pymethod]

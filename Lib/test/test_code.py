@@ -412,8 +412,6 @@ class CodeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             co.replace(co_nlocals=co.co_nlocals + 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_shrinking_localsplus(self):
         # Check that PyCode_NewWithPosOnlyArgs resizes both
         # localsplusnames and localspluskinds, if an argument is a cell.
@@ -429,7 +427,7 @@ class CodeTest(unittest.TestCase):
         new_code = code = func.__code__.replace(co_linetable=b'')
         self.assertEqual(list(new_code.co_lines()), [])
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON; co_lnotab intentionally not implemented (deprecated since 3.12)
     @unittest.expectedFailure
     def test_co_lnotab_is_deprecated(self):  # TODO: remove in 3.14
         def func():
@@ -493,6 +491,8 @@ class CodeTest(unittest.TestCase):
                 res = _testinternalcapi.code_returns_only_none(func.__code__)
                 self.assertFalse(res)
 
+    # TODO: RUSTPYTHON; replace() rejects invalid bytecodes for safety
+    @unittest.expectedFailure
     def test_invalid_bytecode(self):
         def foo():
             pass
