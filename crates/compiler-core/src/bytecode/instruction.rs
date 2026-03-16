@@ -446,13 +446,9 @@ impl TryFrom<u8> for Instruction {
         let instrumented_start = u8::from(Self::InstrumentedEndFor);
         let instrumented_end = u8::from(Self::InstrumentedLine);
 
-        // No RustPython-only opcodes anymore - all opcodes match CPython 3.14
-        let custom_ops: &[u8] = &[];
-
         if (cpython_start..=cpython_end).contains(&value)
             || value == resume_id
             || value == enter_executor_id
-            || custom_ops.contains(&value)
             || (specialized_start..=specialized_end).contains(&value)
             || (instrumented_start..=instrumented_end).contains(&value)
         {
