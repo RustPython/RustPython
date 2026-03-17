@@ -10,7 +10,7 @@ use crate::{
     convert::{ToPyException, ToPyObject},
     frozen,
     function::OptionalArg,
-    types::{Constructor, Representable},
+    types::{Comparable, Constructor, Hashable, Representable},
 };
 use alloc::fmt;
 use core::{
@@ -447,6 +447,75 @@ impl Representable for PyCode {
     }
 }
 
+impl Comparable for PyCode {
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: crate::types::PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<crate::function::PyComparisonValue> {
+        op.eq_only(|| {
+            let other = class_or_notimplemented!(Self, other);
+            let a = &zelf.code;
+            let b = &other.code;
+            let eq = a.obj_name == b.obj_name
+                && a.arg_count == b.arg_count
+                && a.posonlyarg_count == b.posonlyarg_count
+                && a.kwonlyarg_count == b.kwonlyarg_count
+                && a.flags == b.flags
+                && a.first_line_number == b.first_line_number
+                && a.instructions.original_bytes() == b.instructions.original_bytes()
+                && a.linetable == b.linetable
+                && a.exceptiontable == b.exceptiontable
+                && a.names == b.names
+                && a.varnames == b.varnames
+                && a.freevars == b.freevars
+                && a.cellvars == b.cellvars
+                && {
+                    let a_consts: Vec<_> = a.constants.iter().map(|c| c.0.clone()).collect();
+                    let b_consts: Vec<_> = b.constants.iter().map(|c| c.0.clone()).collect();
+                    if a_consts.len() != b_consts.len() {
+                        false
+                    } else {
+                        let mut eq = true;
+                        for (ac, bc) in a_consts.iter().zip(b_consts.iter()) {
+                            if !vm.bool_eq(ac, bc)? {
+                                eq = false;
+                                break;
+                            }
+                        }
+                        eq
+                    }
+                };
+            Ok(eq.into())
+        })
+    }
+}
+
+impl Hashable for PyCode {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<crate::common::hash::PyHash> {
+        let code = &zelf.code;
+        // Hash a tuple of key attributes, matching CPython's code_hash
+        let tuple = vm.ctx.new_tuple(vec![
+            vm.ctx.new_str(code.obj_name.as_str()).into(),
+            vm.ctx.new_int(code.arg_count).into(),
+            vm.ctx.new_int(code.posonlyarg_count).into(),
+            vm.ctx.new_int(code.kwonlyarg_count).into(),
+            vm.ctx.new_int(code.varnames.len()).into(),
+            vm.ctx.new_int(code.flags.bits()).into(),
+            vm.ctx
+                .new_int(code.first_line_number.map_or(0, |n| n.get()) as i64)
+                .into(),
+            vm.ctx.new_bytes(code.instructions.original_bytes()).into(),
+            {
+                let consts: Vec<_> = code.constants.iter().map(|c| c.0.clone()).collect();
+                vm.ctx.new_tuple(consts).into()
+            },
+        ]);
+        tuple.as_object().hash(vm)
+    }
+}
+
 // Arguments for code object constructor
 #[derive(FromArgs)]
 pub struct PyCodeNewArgs {
@@ -595,7 +664,10 @@ impl Constructor for PyCode {
     }
 }
 
-#[pyclass(with(Representable, Constructor), flags(HAS_WEAKREF))]
+#[pyclass(
+    with(Representable, Constructor, Comparable, Hashable),
+    flags(HAS_WEAKREF)
+)]
 impl PyCode {
     #[pygetset]
     const fn co_posonlyargcount(&self) -> usize {
@@ -720,6 +792,11 @@ impl PyCode {
         // Return the actual exception table from the code object
         vm.ctx.new_bytes(self.code.exceptiontable.to_vec())
     }
+
+    // spell-checker: ignore lnotab
+    // co_lnotab is intentionally not implemented.
+    // It was deprecated since 3.12 and scheduled for removal in 3.14.
+    // Use co_lines() or co_linetable instead.
 
     #[pymethod]
     pub fn co_lines(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
@@ -990,6 +1067,11 @@ impl PyCode {
 
         let list = vm.ctx.new_list(branches);
         vm.call_method(list.as_object(), "__iter__", ())
+    }
+
+    #[pymethod]
+    pub fn __replace__(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        self.replace(args, vm)
     }
 
     #[pymethod]

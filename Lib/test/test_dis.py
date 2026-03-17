@@ -1130,7 +1130,6 @@ class DisTests(DisTestBase):
         # Test that negative operargs are handled properly
         self.do_disassembly_test(bug46724, dis_bug46724)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kw_names(self):
         # Test that value is displayed for keyword argument names:
         self.do_disassembly_test(wrap_func_w_kwargs, dis_kw_names)
@@ -1178,7 +1177,6 @@ class DisTests(DisTestBase):
         self.do_disassembly_test(fn_with_annotate_str, dis_fn_with_annotate_str)
         self.do_disassembly_test(compound_stmt_str, dis_compound_stmt_str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_bytes(self):
         self.do_disassembly_test(_f.__code__.co_code, dis_f_co_code)
 

@@ -190,13 +190,7 @@ impl CodeInfo {
     ) -> crate::InternalResult<CodeObject> {
         // Always fold tuple constants
         self.fold_tuple_constants();
-        // Python only applies LOAD_SMALL_INT conversion to module-level code
-        // (not inside functions). Module code lacks OPTIMIZED flag.
-        // Note: RustPython incorrectly sets NEWLOCALS on modules, so only check OPTIMIZED
-        let is_module_level = !self.flags.contains(CodeFlags::OPTIMIZED);
-        if is_module_level {
-            self.convert_to_load_small_int();
-        }
+        self.convert_to_load_small_int();
         self.remove_unused_consts();
         self.remove_nops();
 
@@ -786,8 +780,8 @@ impl CodeInfo {
                     continue;
                 };
 
-                // Check if it's in small int range: -5 to 256 (_PY_IS_SMALL_INT)
-                if let Some(small) = value.to_i32().filter(|v| (-5..=256).contains(v)) {
+                // LOAD_SMALL_INT oparg is unsigned, so only 0..=255 can be encoded
+                if let Some(small) = value.to_i32().filter(|v| (0..=255).contains(v)) {
                     // Convert LOAD_CONST to LOAD_SMALL_INT
                     instr.instr = Instruction::LoadSmallInt { i: Arg::marker() }.into();
                     // The arg is the i32 value stored as u32 (two's complement)
