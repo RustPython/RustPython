@@ -64,10 +64,13 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ascii::AsciiString> {
+    pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let repr = obj.repr(vm)?;
-        let ascii = to_ascii(repr.as_wtf8());
-        Ok(ascii)
+        if repr.as_wtf8().is_ascii() {
+            Ok(repr)
+        } else {
+            Ok(vm.ctx.new_str(to_ascii(repr.as_wtf8())))
+        }
     }
 
     #[pyfunction]

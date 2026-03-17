@@ -112,7 +112,6 @@ class StrTest(string_tests.StringLikeTest,
         # raw strings should not have unicode escapes
         self.assertNotEqual(r"\u0020", " ")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'str'> is not <class 'test.test_str.StrSubclass'>
     def test_ascii(self):
         self.assertEqual(ascii('abc'), "'abc'")
         self.assertEqual(ascii('ab\\c'), "'ab\\\\c'")
