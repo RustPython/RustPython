@@ -555,7 +555,8 @@ impl Instruction {
             _ => return None,
         })
     }
-    /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
+
+    /// Map a specialized opcode back to its adaptive (base) variant.
     /// `_PyOpcode_Deopt`
     pub const fn deopt(self) -> Option<Self> {
         Some(match self {
@@ -681,7 +682,7 @@ impl Instruction {
         })
     }
 
-    /// Map a specialized opcode back to its adaptive (base) variant.
+    /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
     pub const fn deoptimize(self) -> Self {
         match self.deopt() {
             Some(v) => v,
