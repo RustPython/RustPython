@@ -9,6 +9,7 @@
     "@cspell/dict-win32/cspell-ext.json",
     "@cspell/dict-shell/cspell-ext.json",
   ],
+  "allowCompoundWords": true,
   // language - current active spelling language
   "language": "en",
   // dictionaries - list of the names of the dictionaries to use
