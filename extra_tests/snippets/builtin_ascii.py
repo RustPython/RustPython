@@ -6,16 +6,20 @@ assert ascii(chr(0x10001)) == "'\\U00010001'"
 assert ascii(chr(0x9999)) == "'\\u9999'"
 assert ascii(chr(0x0A)) == "'\\n'"
 
+
 class MyStr(str):
     pass
+
 
 class Foo:
     def __repr__(self):
         return MyStr("hello")
 
+
 class Bar:
     def __repr__(self):
         return MyStr("héllo")
+
 
 assert type(ascii(Foo())) is MyStr
 assert ascii(Foo()) == MyStr("hello")
