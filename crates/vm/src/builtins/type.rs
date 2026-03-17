@@ -18,7 +18,7 @@ use crate::{
     common::{
         ascii,
         borrow::BorrowedValue,
-        lock::{PyMutex, PyRwLock, PyRwLockReadGuard},
+        lock::{PyRwLock, PyRwLockReadGuard},
     },
     function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
@@ -276,8 +276,6 @@ pub struct TypeSpecializationCache {
     pub init: PyAtomicRef<Option<PyFunction>>,
     pub getitem: PyAtomicRef<Option<PyFunction>>,
     pub getitem_version: AtomicU32,
-    // Serialize cache writes/invalidation similar to CPython's BEGIN_TYPE_LOCK.
-    write_lock: PyMutex<()>,
     retired: PyRwLock<Vec<PyObjectRef>>,
 }
 
@@ -287,7 +285,6 @@ impl TypeSpecializationCache {
             init: PyAtomicRef::from(None::<PyRef<PyFunction>>),
             getitem: PyAtomicRef::from(None::<PyRef<PyFunction>>),
             getitem_version: AtomicU32::new(0),
-            write_lock: PyMutex::new(()),
             retired: PyRwLock::new(Vec::new()),
         }
     }
@@ -328,9 +325,6 @@ impl TypeSpecializationCache {
 
     #[inline]
     fn invalidate_for_type_modified(&self) {
-        let _guard = self.write_lock.lock();
-        // _spec_cache contract: type modification invalidates all cached
-        // specialization functions.
         self.swap_init(None, None);
         self.swap_getitem(None, None);
     }
@@ -350,7 +344,6 @@ impl TypeSpecializationCache {
     }
 
     fn clear_into(&self, out: &mut Vec<PyObjectRef>) {
-        let _guard = self.write_lock.lock();
         let old_init = unsafe { self.init.swap(None) };
         if let Some(old_init) = old_init {
             out.push(old_init.into());
@@ -1009,7 +1002,6 @@ impl PyType {
             if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
                 return false;
             }
-            let _guard = ext.specialization_cache.write_lock.lock();
             if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
                 return false;
             }
@@ -1050,7 +1042,6 @@ impl PyType {
             return false;
         }
         Self::with_type_lock(vm, || {
-            let _guard = ext.specialization_cache.write_lock.lock();
             if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
                 return false;
             }
@@ -1569,18 +1560,19 @@ impl PyType {
         drop(attrs);
 
         let none = vm.ctx.none();
-        Ok(Self::with_type_lock(vm, || {
+        let (result, _prev) = Self::with_type_lock(vm, || {
             let mut attrs = self.attributes.write();
             if let Some(annotate) = attrs.get(annotate_key).cloned() {
-                return annotate;
+                return (annotate, None);
             }
             if let Some(annotate) = attrs.get(annotate_func_key).cloned() {
-                return annotate;
+                return (annotate, None);
             }
             self.modified_inner();
-            attrs.insert(annotate_func_key, none.clone());
-            none
-        }))
+            let prev = attrs.insert(annotate_func_key, none.clone());
+            (none, prev)
+        });
+        Ok(result)
     }
 
     #[pygetset(setter)]
@@ -1603,13 +1595,16 @@ impl PyType {
             return Err(vm.new_type_error("__annotate__ must be callable or None"));
         }
 
-        Self::with_type_lock(vm, || {
+        let _prev_values = Self::with_type_lock(vm, || {
             self.modified_inner();
             let mut attrs = self.attributes.write();
-            if !vm.is_none(&value) {
-                attrs.swap_remove(identifier!(vm, __annotations_cache__));
-            }
-            attrs.insert(identifier!(vm, __annotate_func__), value);
+            let removed = if !vm.is_none(&value) {
+                attrs.swap_remove(identifier!(vm, __annotations_cache__))
+            } else {
+                None
+            };
+            let prev = attrs.insert(identifier!(vm, __annotate_func__), value);
+            (removed, prev)
         });
 
         Ok(())
@@ -1672,20 +1667,21 @@ impl PyType {
             vm.ctx.new_dict().into()
         };
 
-        Ok(Self::with_type_lock(vm, || {
+        let (result, _prev) = Self::with_type_lock(vm, || {
             let mut attrs = self.attributes.write();
             if let Some(existing) = attrs.get(annotations_key).cloned()
                 && !existing.class().is(vm.ctx.types.getset_type)
             {
-                return existing;
+                return (existing, None);
             }
             if let Some(existing) = attrs.get(annotations_cache_key).cloned() {
-                return existing;
+                return (existing, None);
             }
             self.modified_inner();
-            attrs.insert(annotations_cache_key, annotations.clone());
-            annotations
-        }))
+            let prev = attrs.insert(annotations_cache_key, annotations.clone());
+            (annotations, prev)
+        });
+        Ok(result)
     }
 
     #[pygetset(setter)]
@@ -1701,11 +1697,12 @@ impl PyType {
             )));
         }
 
-        Self::with_type_lock(vm, || {
+        let _prev_values = Self::with_type_lock(vm, || {
             self.modified_inner();
             let mut attrs = self.attributes.write();
             let has_annotations = attrs.contains_key(identifier!(vm, __annotations__));
 
+            let mut prev = Vec::new();
             match value {
                 crate::function::PySetterValue::Assign(value) => {
                     let key = if has_annotations {
@@ -1713,32 +1710,29 @@ impl PyType {
                     } else {
                         identifier!(vm, __annotations_cache__)
                     };
-                    attrs.insert(key, value);
+                    prev.extend(attrs.insert(key, value));
                     if has_annotations {
-                        attrs.swap_remove(identifier!(vm, __annotations_cache__));
+                        prev.extend(attrs.swap_remove(identifier!(vm, __annotations_cache__)));
                     }
                 }
                 crate::function::PySetterValue::Delete => {
                     let removed = if has_annotations {
-                        attrs
-                            .swap_remove(identifier!(vm, __annotations__))
-                            .is_some()
+                        attrs.swap_remove(identifier!(vm, __annotations__))
                     } else {
-                        attrs
-                            .swap_remove(identifier!(vm, __annotations_cache__))
-                            .is_some()
+                        attrs.swap_remove(identifier!(vm, __annotations_cache__))
                     };
-                    if !removed {
+                    if removed.is_none() {
                         return Err(vm.new_attribute_error("__annotations__"));
                     }
+                    prev.extend(removed);
                     if has_annotations {
-                        attrs.swap_remove(identifier!(vm, __annotations_cache__));
+                        prev.extend(attrs.swap_remove(identifier!(vm, __annotations_cache__)));
                     }
                 }
             }
-            attrs.swap_remove(identifier!(vm, __annotate_func__));
-            attrs.swap_remove(identifier!(vm, __annotate__));
-            Ok(())
+            prev.extend(attrs.swap_remove(identifier!(vm, __annotate_func__)));
+            prev.extend(attrs.swap_remove(identifier!(vm, __annotate__)));
+            Ok(prev)
         })?;
 
         Ok(())
@@ -1772,11 +1766,12 @@ impl PyType {
     #[pygetset(setter)]
     fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.check_set_special_type_attr(identifier!(vm, __module__), vm)?;
-        Self::with_type_lock(vm, || {
+        let _prev_values = Self::with_type_lock(vm, || {
             self.modified_inner();
-            self.attributes
-                .write()
-                .insert(identifier!(vm, __module__), value);
+            let mut attributes = self.attributes.write();
+            let removed = attributes.swap_remove(identifier!(vm, __firstlineno__));
+            let prev = attributes.insert(identifier!(vm, __module__), value);
+            (removed, prev)
         });
         Ok(())
     }
@@ -1903,9 +1898,9 @@ impl PyType {
         match value {
             PySetterValue::Assign(val) => {
                 self.check_set_special_type_attr(key, vm)?;
-                Self::with_type_lock(vm, || {
+                let _prev_value = Self::with_type_lock(vm, || {
                     self.modified_inner();
-                    self.attributes.write().insert(key, val.into());
+                    self.attributes.write().insert(key, val.into())
                 });
             }
             PySetterValue::Delete => {
@@ -1915,9 +1910,9 @@ impl PyType {
                         self.slot_name()
                     )));
                 }
-                Self::with_type_lock(vm, || {
+                let _prev_value = Self::with_type_lock(vm, || {
                     self.modified_inner();
-                    self.attributes.write().shift_remove(&key);
+                    self.attributes.write().shift_remove(&key)
                 });
             }
         }
@@ -2542,11 +2537,11 @@ impl Py<PyType> {
         // Check if we can set this special type attribute
         self.check_set_special_type_attr(identifier!(vm, __doc__), vm)?;
 
-        PyType::with_type_lock(vm, || {
+        let _prev_value = PyType::with_type_lock(vm, || {
             self.modified_inner();
             self.attributes
                 .write()
-                .insert(identifier!(vm, __doc__), value);
+                .insert(identifier!(vm, __doc__), value)
         });
 
         Ok(())
@@ -2609,14 +2604,17 @@ impl SetAttr for PyType {
         }
         let assign = value.is_assign();
 
-        Self::with_type_lock(vm, || {
+        // Drop old value OUTSIDE the type lock to avoid deadlock:
+        // dropping may trigger weakref callbacks → method calls →
+        // LOAD_ATTR specialization → version_for_specialization → type lock.
+        let _prev_value = Self::with_type_lock(vm, || {
             // Invalidate inline caches before modifying attributes.
             // This ensures other threads see the version invalidation before
             // any attribute changes, preventing use-after-free of cached descriptors.
             zelf.modified_inner();
 
             if let PySetterValue::Assign(value) = value {
-                zelf.attributes.write().insert(attr_name, value);
+                Ok(zelf.attributes.write().insert(attr_name, value))
             } else {
                 let prev_value = zelf.attributes.write().shift_remove(attr_name); // TODO: swap_remove applicable?
                 if prev_value.is_none() {
@@ -2626,8 +2624,8 @@ impl SetAttr for PyType {
                         attr_name,
                     )));
                 }
+                Ok(prev_value)
             }
-            Ok(())
         })?;
 
         if attr_name.as_wtf8().starts_with("__") && attr_name.as_wtf8().ends_with("__") {

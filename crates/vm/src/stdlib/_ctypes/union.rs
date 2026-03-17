@@ -312,8 +312,7 @@ impl PyCUnionType {
                 PyCField::new(name.clone(), field_type_ref, 0, size as isize, index)
             };
 
-            cls.as_object()
-                .set_attr(vm.ctx.intern_str(name), c_field.to_pyobject(vm), vm)?;
+            cls.set_attr(vm.ctx.intern_str(name), c_field.to_pyobject(vm));
         }
 
         // Calculate total_align and aligned_size
