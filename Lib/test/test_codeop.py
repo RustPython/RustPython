@@ -30,7 +30,6 @@ class CodeopTests(unittest.TestCase):
         except OverflowError:
             self.assertTrue(not is_syntax)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <code object <module> at 0xc99532080 file "<input>", line 1> != <code object <module> at 0xc99532f80 file "<input>", line 1>
     def test_valid(self):
         av = self.assertValid
 
