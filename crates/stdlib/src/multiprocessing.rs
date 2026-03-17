@@ -193,7 +193,8 @@ mod _multiprocessing {
                     remaining.min(poll_ms)
                 };
 
-                let res = unsafe { WaitForSingleObjectEx(self.handle.as_raw(), wait_ms, 0) };
+                let handle = self.handle.as_raw();
+                let res = vm.allow_threads(|| unsafe { WaitForSingleObjectEx(handle, wait_ms, 0) });
 
                 match res {
                     WAIT_OBJECT_0 => {
