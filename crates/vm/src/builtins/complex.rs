@@ -8,7 +8,7 @@ use crate::{
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
     stdlib::_warnings,
-    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use core::cell::Cell;
 use core::num::Wrapping;
@@ -370,6 +370,28 @@ impl PyComplex {
         result
             .map(Wtf8Buf::from_string)
             .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[pyclassmethod]
+    fn from_number(cls: PyTypeRef, number: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if number.class().is(vm.ctx.types.complex_type) && cls.is(vm.ctx.types.complex_type) {
+            return Ok(number);
+        }
+        let value = number
+            .try_complex(vm)?
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "must be real number, not {}",
+                    number.class().name()
+                ))
+            })?
+            .0;
+        let result = vm.ctx.new_complex(value);
+        if cls.is(vm.ctx.types.complex_type) {
+            Ok(result.into())
+        } else {
+            PyType::call(&cls, vec![result.into()].into(), vm)
+        }
     }
 }
 
