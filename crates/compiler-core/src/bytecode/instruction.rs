@@ -462,7 +462,7 @@ impl TryFrom<u8> for Instruction {
 impl Instruction {
     /// Returns `true` if this is any instrumented opcode
     /// (regular INSTRUMENTED_*, INSTRUMENTED_LINE, or INSTRUMENTED_INSTRUCTION).
-    pub fn is_instrumented(self) -> bool {
+    pub const fn is_instrumented(self) -> bool {
         self.to_base().is_some()
             || matches!(self, Self::InstrumentedLine | Self::InstrumentedInstruction)
     }
@@ -509,7 +509,7 @@ impl Instruction {
     ///
     /// The returned base opcode uses `Arg::marker()` for typed fields —
     /// only the opcode byte matters since `replace_op` preserves the arg byte.
-    pub fn to_base(self) -> Option<Self> {
+    pub const fn to_base(self) -> Option<Self> {
         Some(match self {
             Self::InstrumentedResume => Self::Resume {
                 context: Arg::marker(),
@@ -555,11 +555,10 @@ impl Instruction {
             _ => return None,
         })
     }
-
-    /// Map a specialized opcode back to its adaptive (base) variant.
+    /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
     /// `_PyOpcode_Deopt`
-    pub fn deoptimize(self) -> Self {
-        match self {
+    pub const fn deopt(self) -> Option<Self> {
+        Some(match self {
             // RESUME specializations
             Self::ResumeCheck => Self::Resume {
                 context: Arg::marker(),
@@ -678,17 +677,27 @@ impl Instruction {
             Self::CallKwBoundMethod | Self::CallKwPy | Self::CallKwNonPy => Self::CallKw {
                 argc: Arg::marker(),
             },
-            // Instrumented opcodes map back to their base
-            _ => match self.to_base() {
-                Some(base) => base,
-                None => self,
-            },
+            _ => return None,
+        })
+    }
+
+    /// Map a specialized opcode back to its adaptive (base) variant.
+    pub const fn deoptimize(self) -> Self {
+        match self.deopt() {
+            Some(v) => v,
+            None => {
+                // Instrumented opcodes map back to their base
+                match self.to_base() {
+                    Some(v) => v,
+                    None => self,
+                }
+            }
         }
     }
 
     /// Number of CACHE code units that follow this instruction.
     /// _PyOpcode_Caches
-    pub fn cache_entries(self) -> usize {
+    pub const fn cache_entries(self) -> usize {
         match self {
             // LOAD_ATTR: 9 cache entries
             Self::LoadAttr { .. }
