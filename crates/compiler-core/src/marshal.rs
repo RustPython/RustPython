@@ -271,9 +271,10 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
         let ncells = cellvars.len();
         let nfrees = freevars.len();
         // Count merged cells (cellvar also in varnames)
-        let numdropped = cellvars.iter().filter(|cv| {
-            varnames.iter().any(|v| v.as_ref() == cv.as_ref())
-        }).count();
+        let numdropped = cellvars
+            .iter()
+            .filter(|cv| varnames.iter().any(|v| v.as_ref() == cv.as_ref()))
+            .count();
         let nlocalsplus = nlocals + ncells - numdropped + nfrees;
         let mut kinds = vec![0u8; nlocalsplus];
         // Mark locals

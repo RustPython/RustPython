@@ -639,9 +639,10 @@ impl Constructor for PyCode {
             let nlocals = varnames.len();
             let ncells = cellvars.len();
             let nfrees = freevars.len();
-            let numdropped = cellvars.iter().filter(|cv| {
-                varnames.iter().any(|v| *v == **cv)
-            }).count();
+            let numdropped = cellvars
+                .iter()
+                .filter(|cv| varnames.iter().any(|v| *v == **cv))
+                .count();
             let nlocalsplus = nlocals + ncells - numdropped + nfrees;
             let mut kinds = vec![0u8; nlocalsplus];
             for kind in kinds.iter_mut().take(nlocals) {

@@ -685,15 +685,25 @@ impl Frame {
     ) -> Self {
         let nlocalsplus = code.localspluskinds.len();
         let max_stackdepth = code.max_stackdepth as usize;
-        let localsplus = if use_datastack {
+        let mut localsplus = if use_datastack {
             LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm)
         } else {
             LocalsPlus::new(nlocalsplus, max_stackdepth)
         };
 
-        // Free vars and cells are now set up by COPY_FREE_VARS and MAKE_CELL
-        // instructions emitted at function entry. No pre-creation needed.
-        let _ = closure;
+        // Pre-copy closure cells into free var slots so that locals() works
+        // even before COPY_FREE_VARS runs (e.g. coroutine before first send).
+        // COPY_FREE_VARS will overwrite these on first execution.
+        {
+            let nfrees = code.freevars.len();
+            if nfrees > 0 {
+                let freevar_start = nlocalsplus - nfrees;
+                let fastlocals = localsplus.fastlocals_mut();
+                for (i, cell) in closure.iter().enumerate() {
+                    fastlocals[freevar_start + i] = Some(cell.clone().into());
+                }
+            }
+        }
 
         let iframe = InterpreterFrame {
             localsplus,
@@ -862,7 +872,9 @@ impl Frame {
     }
 
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
-        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL};
+        use rustpython_compiler_core::bytecode::{
+            CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
+        };
         // SAFETY: Either the frame is not executing (caller checked owner),
         // or we're in a trace callback on the same thread that's executing.
         let locals = &self.locals;
@@ -881,7 +893,24 @@ impl Frame {
 
         for (i, &kind) in code.localspluskinds.iter().enumerate() {
             if kind & CO_FAST_HIDDEN != 0 {
-                continue;
+                // Hidden variables are only skipped when their slot is empty.
+                // After a comprehension restores values, they should appear in locals().
+                let slot_empty = match fastlocals[i].as_ref() {
+                    None => true,
+                    Some(obj) => {
+                        if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
+                            // If it's a PyCell, check if the cell is empty.
+                            // If it's a raw value (merged cell during inlined comp), not empty.
+                            obj.downcast_ref::<PyCell>()
+                                .is_some_and(|cell| cell.get().is_none())
+                        } else {
+                            false
+                        }
+                    }
+                };
+                if slot_empty {
+                    continue;
+                }
             }
 
             // Free variables only included for optimized (function-like) scopes.
@@ -900,7 +929,7 @@ impl Frame {
                 let mut found_name = None;
                 let mut skip = nonmerged_cell_idx;
                 for cv in code.cellvars.iter() {
-                    let is_merged = code.varnames.iter().any(|&v| v == *cv);
+                    let is_merged = code.varnames.contains(cv);
                     if !is_merged {
                         if skip == 0 {
                             found_name = Some(*cv);
@@ -920,11 +949,16 @@ impl Frame {
 
             // Get the value
             let value = if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
-                // Cell or free var: extract value from PyCell
-                fastlocals[i]
-                    .as_ref()
-                    .and_then(|obj| obj.downcast_ref::<PyCell>())
-                    .and_then(|cell| cell.get())
+                // Cell or free var: extract value from PyCell.
+                // During inlined comprehensions, a merged cell slot may hold a raw
+                // value (not a PyCell) after LOAD_FAST_AND_CLEAR + STORE_FAST.
+                fastlocals[i].as_ref().and_then(|obj| {
+                    if let Some(cell) = obj.downcast_ref::<PyCell>() {
+                        cell.get()
+                    } else {
+                        Some(obj.clone())
+                    }
+                })
             } else {
                 // Regular local
                 fastlocals[i].clone()
@@ -1935,7 +1969,7 @@ impl ExecutingFrame<'_> {
             let mut cv_idx = 0;
             let mut nonmerged_count = 0;
             for (i, name) in self.code.cellvars.iter().enumerate() {
-                let is_merged = self.code.varnames.iter().any(|v| *v == *name);
+                let is_merged = self.code.varnames.contains(name);
                 if !is_merged {
                     if nonmerged_count == nonmerged_pos {
                         cv_idx = i;

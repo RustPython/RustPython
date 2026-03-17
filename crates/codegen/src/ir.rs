@@ -8,9 +8,9 @@ use num_traits::ToPrimitive;
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
-        AnyInstruction, Arg, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_LOCAL, CodeFlags, CodeObject,
-        CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry, InstrDisplayContext, Instruction,
-        InstructionMetadata, Label, OpArg, PseudoInstruction, PyCodeLocationInfoKind,
+        AnyInstruction, Arg, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL, CodeFlags,
+        CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry, InstrDisplayContext,
+        Instruction, InstructionMetadata, Label, OpArg, PseudoInstruction, PyCodeLocationInfoKind,
         encode_exception_table, oparg,
     },
     varint::{write_signed_varint, write_varint},
@@ -236,7 +236,7 @@ impl CodeInfo {
             varnames: varname_cache,
             cellvars: cellvar_cache,
             freevars: freevar_cache,
-            fast_hidden: _,
+            fast_hidden,
             argcount: arg_count,
             posonlyargcount: posonlyarg_count,
             kwonlyargcount: kwonlyarg_count,
@@ -513,6 +513,12 @@ impl CodeInfo {
         for i in 0..nfrees {
             let idx = cellfixedoffsets[ncells + i] as usize;
             localspluskinds[idx] = CO_FAST_FREE;
+        }
+        // Apply CO_FAST_HIDDEN for inlined comprehension variables
+        for (name, &hidden) in &fast_hidden {
+            if hidden && let Some(idx) = varname_cache.get_index_of(name.as_str()) {
+                localspluskinds[idx] |= CO_FAST_HIDDEN;
+            }
         }
 
         Ok(CodeObject {

@@ -92,7 +92,12 @@ impl Initializer for PySuper {
                 .clone()
                 .and_then(|val| {
                     // If slot 0 is a merged cell (LOCAL|CELL), extract value from cell
-                    if frame.code.localspluskinds.first().is_some_and(|&k| k & CO_FAST_CELL != 0) {
+                    if frame
+                        .code
+                        .localspluskinds
+                        .first()
+                        .is_some_and(|&k| k & CO_FAST_CELL != 0)
+                    {
                         val.downcast_ref::<PyCell>().and_then(|c| c.get())
                     } else {
                         Some(val)

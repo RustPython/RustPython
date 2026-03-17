@@ -1155,11 +1155,16 @@ impl Compiler {
         {
             let nfrees = self.code_stack.last().unwrap().metadata.freevars.len();
             if nfrees > 0 {
-                emit!(self, Instruction::CopyFreeVars { n: nfrees as u32 });
+                emit!(
+                    self,
+                    Instruction::CopyFreeVars {
+                        n: u32::try_from(nfrees).expect("too many freevars"),
+                    }
+                );
             }
             let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
             for i in 0..ncells {
-                let i_varnum: oparg::VarNum = (i as u32).into();
+                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
                 emit!(self, Instruction::MakeCell { i: i_varnum });
             }
         }
@@ -2022,6 +2027,19 @@ impl Compiler {
                     _ => unreachable!("Invalid scope for Deref operation"),
                 };
 
+                // Mark cell variables accessed inside inlined comprehensions as hidden
+                if self.current_code_info().in_inlined_comp {
+                    let info = self.code_stack.last_mut().unwrap();
+                    if info
+                        .metadata
+                        .fast_hidden
+                        .get(name.as_ref())
+                        .is_none_or(|&v| v)
+                    {
+                        info.metadata.fast_hidden.insert(name.to_string(), true);
+                    }
+                }
+
                 match usage {
                     NameUsage::Load => {
                         // ClassBlock (not inlined comp): LOAD_LOCALS first, then LOAD_FROM_DICT_OR_DEREF
@@ -2043,6 +2061,18 @@ impl Compiler {
             }
             NameOp::Fast => {
                 let var_num = self.get_local_var_index(&name)?;
+                // Mark variables accessed inside inlined comprehensions as hidden
+                if self.current_code_info().in_inlined_comp {
+                    let info = self.code_stack.last_mut().unwrap();
+                    if info
+                        .metadata
+                        .fast_hidden
+                        .get(name.as_ref())
+                        .is_none_or(|&v| v)
+                    {
+                        info.metadata.fast_hidden.insert(name.to_string(), true);
+                    }
+                }
                 match usage {
                     NameUsage::Load => emit!(self, Instruction::LoadFast { var_num }),
                     NameUsage::Store => emit!(self, Instruction::StoreFast { var_num }),
@@ -7349,6 +7379,14 @@ impl Compiler {
                 node_index: _,
                 range: _,
             }) => {
+                // Walrus targets in inlined comps should NOT be hidden from locals()
+                if self.current_code_info().in_inlined_comp
+                    && let ast::Expr::Name(ast::ExprName { id, .. }) = target.as_ref()
+                {
+                    let name = self.mangle(id.as_str());
+                    let info = self.code_stack.last_mut().unwrap();
+                    info.metadata.fast_hidden.insert(name.to_string(), false);
+                }
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Copy { i: 1 });
                 self.compile_store(target)?;
@@ -7801,7 +7839,7 @@ impl Compiler {
         // We must have at least one generator:
         assert!(!generators.is_empty());
 
-        if is_inlined {
+        if is_inlined && !has_an_async_gen && !element_contains_await {
             // PEP 709: Inlined comprehension - compile inline without new scope
             let was_in_inlined_comp = self.current_code_info().in_inlined_comp;
             self.current_code_info().in_inlined_comp = true;
@@ -8059,20 +8097,20 @@ impl Compiler {
             emit!(self, Instruction::LoadFastAndClear { var_num });
             total_stack_items += 1;
             // If the comp symbol is CELL, emit MAKE_CELL to create fresh cell
-            if let Some(comp_sym) = comp_table.symbols.get(name) {
-                if comp_sym.scope == SymbolScope::Cell {
-                    let i = if self
-                        .current_symbol_table()
-                        .symbols
-                        .get(name)
-                        .is_some_and(|s| s.scope == SymbolScope::Free)
-                    {
-                        self.get_free_var_index(name)?
-                    } else {
-                        self.get_cell_var_index(name)?
-                    };
-                    emit!(self, Instruction::MakeCell { i });
-                }
+            if let Some(comp_sym) = comp_table.symbols.get(name)
+                && comp_sym.scope == SymbolScope::Cell
+            {
+                let i = if self
+                    .current_symbol_table()
+                    .symbols
+                    .get(name)
+                    .is_some_and(|s| s.scope == SymbolScope::Free)
+                {
+                    self.get_free_var_index(name)?
+                } else {
+                    self.get_cell_var_index(name)?
+                };
+                emit!(self, Instruction::MakeCell { i });
             }
         }
 
