@@ -35,7 +35,6 @@ rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler", "gc"] }
-ruff_python_parser = { workspace = true }
 
 cfg-if = { workspace = true }
 log = { workspace = true }
@@ -169,7 +168,6 @@ ascii = "1.1"
 bitflags = "2.11.0"
 bitflagset = "0.0.3"
 bstr = "1"
-bytes = "1.11.1"
 cfg-if = "1.0"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
