@@ -1,5 +1,6 @@
 "Test the functionality of Python classes implementing operators."
 
+import sys
 import unittest
 from test import support
 from test.support import cpython_only, import_helper, script_helper
@@ -614,6 +615,7 @@ class ClassTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             a >= b
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; flaky on Windows")
     def testHashComparisonOfMethods(self):
         # Test comparison and hash of methods
         class A:

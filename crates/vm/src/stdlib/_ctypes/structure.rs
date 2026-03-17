@@ -498,11 +498,7 @@ impl PyCStructType {
             };
 
             // Set the CField as a class attribute
-            cls.as_object().set_attr(
-                vm.ctx.intern_str(name.clone()),
-                c_field.to_pyobject(vm),
-                vm,
-            )?;
+            cls.set_attr(vm.ctx.intern_str(name.clone()), c_field.to_pyobject(vm));
 
             // Update tracking - don't advance offset for packed bitfields
             if field_advances_offset {
