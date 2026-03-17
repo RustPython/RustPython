@@ -129,7 +129,8 @@ pub fn get_git_datetime() -> String {
 }
 
 // Must be aligned to Lib/importlib/_bootstrap_external.py
-pub const PYC_MAGIC_NUMBER: u16 = 2996;
+// Bumped to 2997 for MAKE_CELL/COPY_FREE_VARS prolog and cell-local merging
+pub const PYC_MAGIC_NUMBER: u16 = 2997;
 
 // CPython format: magic_number | ('\r' << 16) | ('\n' << 24)
 // This protects against text-mode file reads

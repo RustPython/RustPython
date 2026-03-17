@@ -633,6 +633,37 @@ impl Constructor for PyCode {
             )],
         > = vec![(loc, loc); instructions.len()].into_boxed_slice();
 
+        // Build localspluskinds with cell-local merging
+        let localspluskinds = {
+            use rustpython_compiler_core::bytecode::*;
+            let nlocals = varnames.len();
+            let ncells = cellvars.len();
+            let nfrees = freevars.len();
+            let numdropped = cellvars.iter().filter(|cv| {
+                varnames.iter().any(|v| *v == **cv)
+            }).count();
+            let nlocalsplus = nlocals + ncells - numdropped + nfrees;
+            let mut kinds = vec![0u8; nlocalsplus];
+            for kind in kinds.iter_mut().take(nlocals) {
+                *kind = CO_FAST_LOCAL;
+            }
+            let mut cell_numdropped = 0usize;
+            for (i, cv) in cellvars.iter().enumerate() {
+                let merged_idx = varnames.iter().position(|v| **v == **cv);
+                if let Some(local_idx) = merged_idx {
+                    kinds[local_idx] |= CO_FAST_CELL;
+                    cell_numdropped += 1;
+                } else {
+                    kinds[nlocals + i - cell_numdropped] = CO_FAST_CELL;
+                }
+            }
+            let free_start = nlocals + ncells - numdropped;
+            for i in 0..nfrees {
+                kinds[free_start + i] = CO_FAST_FREE;
+            }
+            kinds.into_boxed_slice()
+        };
+
         // Build the CodeObject
         let code = CodeObject {
             instructions,
@@ -650,12 +681,12 @@ impl Constructor for PyCode {
             max_stackdepth: args.stacksize,
             obj_name: vm.ctx.intern_str(args.name.as_wtf8()),
             qualname: vm.ctx.intern_str(args.qualname.as_wtf8()),
-            cell2arg: None, // TODO: reuse `fn cell2arg`
             constants,
             names,
             varnames,
             cellvars,
             freevars,
+            localspluskinds,
             linetable: args.linetable.as_bytes().to_vec().into_boxed_slice(),
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
@@ -1237,7 +1268,7 @@ impl PyCode {
                 .collect(),
             cellvars,
             freevars,
-            cell2arg: self.code.cell2arg.clone(),
+            localspluskinds: self.code.localspluskinds.clone(),
             linetable,
             exceptiontable,
         };

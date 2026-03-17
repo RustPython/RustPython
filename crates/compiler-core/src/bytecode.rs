@@ -334,6 +334,12 @@ impl<T> IndexMut<oparg::VarNum> for [T] {
     }
 }
 
+/// Per-slot kind flags for localsplus (co_localspluskinds).
+pub const CO_FAST_HIDDEN: u8 = 0x10;
+pub const CO_FAST_LOCAL: u8 = 0x20;
+pub const CO_FAST_CELL: u8 = 0x40;
+pub const CO_FAST_FREE: u8 = 0x80;
+
 /// Primary container of a single code object. Each python function has
 /// a code object. Also a module has a code object.
 #[derive(Clone)]
@@ -352,12 +358,14 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub obj_name: C::Name,
     /// Qualified name of the object (like CPython's co_qualname)
     pub qualname: C::Name,
-    pub cell2arg: Option<Box<[i32]>>,
     pub constants: Constants<C>,
     pub names: Box<[C::Name]>,
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
     pub freevars: Box<[C::Name]>,
+    /// Per-slot kind flags: CO_FAST_LOCAL, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN.
+    /// Length = nlocalsplus (nlocals + ncells + nfrees).
+    pub localspluskinds: Box<[u8]>,
     /// Line number table (CPython 3.11+ format)
     pub linetable: Box<[u8]>,
     /// Exception handling table
@@ -1080,7 +1088,7 @@ impl<C: Constant> CodeObject<C> {
             kwonlyarg_count: self.kwonlyarg_count,
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
-            cell2arg: self.cell2arg,
+            localspluskinds: self.localspluskinds,
             linetable: self.linetable,
             exceptiontable: self.exceptiontable,
         }
@@ -1112,7 +1120,7 @@ impl<C: Constant> CodeObject<C> {
             kwonlyarg_count: self.kwonlyarg_count,
             first_line_number: self.first_line_number,
             max_stackdepth: self.max_stackdepth,
-            cell2arg: self.cell2arg.clone(),
+            localspluskinds: self.localspluskinds.clone(),
             linetable: self.linetable.clone(),
             exceptiontable: self.exceptiontable.clone(),
         }
@@ -1141,7 +1149,8 @@ pub trait InstrDisplayContext {
 
     fn get_varname(&self, var_num: oparg::VarNum) -> &str;
 
-    fn get_cell_name(&self, i: usize) -> &str;
+    /// Get name for a localsplus index (used by DEREF instructions).
+    fn get_localsplus_name(&self, var_num: oparg::VarNum) -> &str;
 }
 
 impl<C: Constant> InstrDisplayContext for CodeObject<C> {
@@ -1159,11 +1168,18 @@ impl<C: Constant> InstrDisplayContext for CodeObject<C> {
         self.varnames[var_num].as_ref()
     }
 
-    fn get_cell_name(&self, i: usize) -> &str {
-        self.cellvars
-            .get(i)
-            .unwrap_or_else(|| &self.freevars[i - self.cellvars.len()])
-            .as_ref()
+    fn get_localsplus_name(&self, var_num: oparg::VarNum) -> &str {
+        let idx = var_num.as_usize();
+        let nlocals = self.varnames.len();
+        if idx < nlocals {
+            self.varnames[idx].as_ref()
+        } else {
+            let cell_idx = idx - nlocals;
+            self.cellvars
+                .get(cell_idx)
+                .unwrap_or_else(|| &self.freevars[cell_idx - self.cellvars.len()])
+                .as_ref()
+        }
     }
 }
 

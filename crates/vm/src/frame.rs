@@ -41,7 +41,6 @@ use crate::{
 use alloc::fmt;
 use bstr::ByteSlice;
 use core::cell::UnsafeCell;
-use core::iter::zip;
 use core::sync::atomic;
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering::{Acquire, Relaxed};
@@ -684,29 +683,17 @@ impl Frame {
         use_datastack: bool,
         vm: &VirtualMachine,
     ) -> Self {
-        let nlocals = code.varnames.len();
-        let num_cells = code.cellvars.len();
-        let nfrees = closure.len();
-
-        let nlocalsplus = nlocals
-            .checked_add(num_cells)
-            .and_then(|v| v.checked_add(nfrees))
-            .expect("Frame::new: nlocalsplus overflow");
+        let nlocalsplus = code.localspluskinds.len();
         let max_stackdepth = code.max_stackdepth as usize;
-        let mut localsplus = if use_datastack {
+        let localsplus = if use_datastack {
             LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm)
         } else {
             LocalsPlus::new(nlocalsplus, max_stackdepth)
         };
 
-        // Store cell/free variable objects directly in localsplus
-        let fastlocals = localsplus.fastlocals_mut();
-        for i in 0..num_cells {
-            fastlocals[nlocals + i] = Some(PyCell::default().into_ref(&vm.ctx).into());
-        }
-        for (i, cell) in closure.iter().enumerate() {
-            fastlocals[nlocals + num_cells + i] = Some(cell.clone().into());
-        }
+        // Free vars and cells are now set up by COPY_FREE_VARS and MAKE_CELL
+        // instructions emitted at function entry. No pre-creation needed.
+        let _ = closure;
 
         let iframe = InterpreterFrame {
             localsplus,
@@ -791,28 +778,15 @@ impl Frame {
         }
     }
 
-    /// Get cell contents by cell index. Reads through fastlocals (no state lock needed).
-    pub(crate) fn get_cell_contents(&self, cell_idx: usize) -> Option<PyObjectRef> {
-        let nlocals = self.code.varnames.len();
+    /// Get cell contents by localsplus index.
+    pub(crate) fn get_cell_contents(&self, localsplus_idx: usize) -> Option<PyObjectRef> {
         // SAFETY: Frame not executing; no concurrent mutation.
         let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
         fastlocals
-            .get(nlocals + cell_idx)
+            .get(localsplus_idx)
             .and_then(|slot| slot.as_ref())
             .and_then(|obj| obj.downcast_ref::<PyCell>())
             .and_then(|cell| cell.get())
-    }
-
-    /// Set cell contents by cell index. Only safe to call before frame execution starts.
-    pub(crate) fn set_cell_contents(&self, cell_idx: usize, value: Option<PyObjectRef>) {
-        let nlocals = self.code.varnames.len();
-        // SAFETY: Called before frame execution starts.
-        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
-        fastlocals[nlocals + cell_idx]
-            .as_ref()
-            .and_then(|obj| obj.downcast_ref::<PyCell>())
-            .expect("cell slot empty or not a PyCell")
-            .set(value);
     }
 
     /// Store a borrowed back-reference to the owning generator/coroutine.
@@ -888,53 +862,78 @@ impl Frame {
     }
 
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
+        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL};
         // SAFETY: Either the frame is not executing (caller checked owner),
         // or we're in a trace callback on the same thread that's executing.
         let locals = &self.locals;
         let code = &**self.code;
-        let map = &code.varnames;
-        let j = core::cmp::min(map.len(), code.varnames.len());
         let locals_map = locals.mapping(vm);
-        if !code.varnames.is_empty() {
-            let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
-            for (&k, v) in zip(&map[..j], fastlocals) {
-                match locals_map.ass_subscript(k, v.clone(), vm) {
-                    Ok(()) => {}
-                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
-                    Err(e) => return Err(e),
-                }
+        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
+
+        // Iterate through all localsplus slots using localspluskinds
+        let nlocalsplus = code.localspluskinds.len();
+        let nfrees = code.freevars.len();
+        let free_start = nlocalsplus - nfrees;
+        let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
+
+        // Track which non-merged cellvar index we're at
+        let mut nonmerged_cell_idx = 0;
+
+        for (i, &kind) in code.localspluskinds.iter().enumerate() {
+            if kind & CO_FAST_HIDDEN != 0 {
+                continue;
             }
-        }
-        if !code.cellvars.is_empty() || !code.freevars.is_empty() {
-            let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
-            for (i, &k) in code.cellvars.iter().enumerate() {
-                // When a variable appears in both varnames and cellvars
-                // (inlined comprehension with scope tweak), the fastlocal
-                // value takes precedence, matching CPython FrameLocalsProxy.
-                let has_fastlocal = code
-                    .varnames
-                    .iter()
-                    .position(|&v| v == k)
-                    .is_some_and(|idx| fastlocals.get(idx).is_some_and(|v| v.is_some()));
-                if has_fastlocal {
-                    continue;
-                }
-                let cell_value = self.get_cell_contents(i);
-                match locals_map.ass_subscript(k, cell_value, vm) {
-                    Ok(()) => {}
-                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
-                    Err(e) => return Err(e),
-                }
+
+            // Free variables only included for optimized (function-like) scopes.
+            // Class/module scopes should not expose free vars in locals().
+            if kind == CO_FAST_FREE && !is_optimized {
+                continue;
             }
-            if code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
-                for (i, &k) in code.freevars.iter().enumerate() {
-                    let cell_value = self.get_cell_contents(code.cellvars.len() + i);
-                    match locals_map.ass_subscript(k, cell_value, vm) {
-                        Ok(()) => {}
-                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
-                        Err(e) => return Err(e),
+
+            // Get the name for this slot
+            let name = if kind & CO_FAST_LOCAL != 0 {
+                code.varnames[i]
+            } else if kind & CO_FAST_FREE != 0 {
+                code.freevars[i - free_start]
+            } else if kind & CO_FAST_CELL != 0 {
+                // Non-merged cell: find the name by skipping merged cellvars
+                let mut found_name = None;
+                let mut skip = nonmerged_cell_idx;
+                for cv in code.cellvars.iter() {
+                    let is_merged = code.varnames.iter().any(|&v| v == *cv);
+                    if !is_merged {
+                        if skip == 0 {
+                            found_name = Some(*cv);
+                            break;
+                        }
+                        skip -= 1;
                     }
                 }
+                nonmerged_cell_idx += 1;
+                match found_name {
+                    Some(n) => n,
+                    None => continue,
+                }
+            } else {
+                continue;
+            };
+
+            // Get the value
+            let value = if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
+                // Cell or free var: extract value from PyCell
+                fastlocals[i]
+                    .as_ref()
+                    .and_then(|obj| obj.downcast_ref::<PyCell>())
+                    .and_then(|cell| cell.get())
+            } else {
+                // Regular local
+                fastlocals[i].clone()
+            };
+
+            match locals_map.ass_subscript(name, value, vm) {
+                Ok(()) => {}
+                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
+                Err(e) => return Err(e),
             }
         }
         Ok(locals.clone_mapping(vm))
@@ -1337,13 +1336,12 @@ impl ExecutingFrame<'_> {
         self.lasti.load(Relaxed)
     }
 
-    /// Access the PyCellRef at the given cell/free variable index.
-    /// `cell_idx` is 0-based: 0..ncells for cellvars, ncells.. for freevars.
+    /// Access the PyCellRef at the given localsplus index.
     #[inline(always)]
-    fn cell_ref(&self, cell_idx: usize) -> &PyCell {
-        let nlocals = self.code.varnames.len();
-        self.localsplus.fastlocals()[nlocals + cell_idx]
-            .as_ref()
+    fn cell_ref(&self, localsplus_idx: usize) -> &PyCell {
+        let fastlocals = self.localsplus.fastlocals();
+        let slot = &fastlocals[localsplus_idx];
+        slot.as_ref()
             .expect("cell slot empty")
             .downcast_ref::<PyCell>()
             .expect("cell slot is not a PyCell")
@@ -1883,18 +1881,72 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn unbound_cell_exception(&self, i: usize, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        if let Some(&name) = self.code.cellvars.get(i) {
-            vm.new_exception_msg(
-                vm.ctx.exceptions.unbound_local_error.to_owned(),
-                format!("local variable '{name}' referenced before assignment").into(),
-            )
-        } else {
-            let name = self.code.freevars[i - self.code.cellvars.len()];
+    fn unbound_cell_exception(
+        &self,
+        localsplus_idx: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        use rustpython_compiler_core::bytecode::CO_FAST_FREE;
+        let kind = self
+            .code
+            .localspluskinds
+            .get(localsplus_idx)
+            .copied()
+            .unwrap_or(0);
+        if kind & CO_FAST_FREE != 0 {
+            let name = self.localsplus_name(localsplus_idx);
             vm.new_name_error(
                 format!("cannot access free variable '{name}' where it is not associated with a value in enclosing scope"),
                 name.to_owned(),
             )
+        } else {
+            // Both merged cells (LOCAL|CELL) and non-merged cells get unbound local error
+            let name = self.localsplus_name(localsplus_idx);
+            vm.new_exception_msg(
+                vm.ctx.exceptions.unbound_local_error.to_owned(),
+                format!("local variable '{name}' referenced before assignment").into(),
+            )
+        }
+    }
+
+    /// Get the variable name for a localsplus index.
+    fn localsplus_name(&self, idx: usize) -> &'static PyStrInterned {
+        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_LOCAL};
+        let nlocals = self.code.varnames.len();
+        let kind = self.code.localspluskinds.get(idx).copied().unwrap_or(0);
+        if kind & CO_FAST_LOCAL != 0 {
+            // Merged cell or regular local: name is in varnames
+            self.code.varnames[idx]
+        } else if kind & CO_FAST_FREE != 0 {
+            // Free var: slots are at the end of localsplus
+            let nlocalsplus = self.code.localspluskinds.len();
+            let nfrees = self.code.freevars.len();
+            let free_start = nlocalsplus - nfrees;
+            self.code.freevars[idx - free_start]
+        } else if kind & CO_FAST_CELL != 0 {
+            // Non-merged cell: count how many non-merged cell slots are before
+            // this index to find the corresponding cellvars entry.
+            // Non-merged cellvars appear in their original order (skipping merged ones).
+            let nonmerged_pos = self.code.localspluskinds[nlocals..idx]
+                .iter()
+                .filter(|&&k| k == CO_FAST_CELL)
+                .count();
+            // Skip merged cellvars to find the right one
+            let mut cv_idx = 0;
+            let mut nonmerged_count = 0;
+            for (i, name) in self.code.cellvars.iter().enumerate() {
+                let is_merged = self.code.varnames.iter().any(|v| *v == *name);
+                if !is_merged {
+                    if nonmerged_count == nonmerged_pos {
+                        cv_idx = i;
+                        break;
+                    }
+                    nonmerged_count += 1;
+                }
+            }
+            self.code.cellvars[cv_idx]
+        } else {
+            self.code.varnames[idx]
         }
     }
 
@@ -2165,13 +2217,29 @@ impl ExecutingFrame<'_> {
                 self.push_stackref_opt(value);
                 Ok(None)
             }
-            Instruction::CopyFreeVars { .. } => {
-                // Free vars are already set up at frame creation time in RustPython
+            Instruction::CopyFreeVars { n } => {
+                let n = n.get(arg) as usize;
+                if n > 0 {
+                    let closure = self
+                        .object
+                        .func_obj
+                        .as_ref()
+                        .and_then(|f| f.downcast_ref::<PyFunction>())
+                        .and_then(|f| f.closure.as_ref());
+                    let nlocalsplus = self.code.localspluskinds.len();
+                    let freevar_start = nlocalsplus - n;
+                    let fastlocals = self.localsplus.fastlocals_mut();
+                    if let Some(closure) = closure {
+                        for i in 0..n {
+                            fastlocals[freevar_start + i] = Some(closure[i].clone().into());
+                        }
+                    }
+                }
                 Ok(None)
             }
             Instruction::DeleteAttr { namei: idx } => self.delete_attr(vm, idx.get(arg)),
             Instruction::DeleteDeref { i } => {
-                self.cell_ref(i.get(arg) as usize).set(None);
+                self.cell_ref(i.get(arg).as_usize()).set(None);
                 Ok(None)
             }
             Instruction::DeleteFast { var_num } => {
@@ -2597,12 +2665,8 @@ impl ExecutingFrame<'_> {
             Instruction::LoadFromDictOrDeref { i } => {
                 // Pop dict from stack (locals or classdict depending on context)
                 let class_dict = self.pop_value();
-                let i = i.get(arg) as usize;
-                let name = if i < self.code.cellvars.len() {
-                    self.code.cellvars[i]
-                } else {
-                    self.code.freevars[i - self.code.cellvars.len()]
-                };
+                let idx = i.get(arg).as_usize();
+                let name = self.localsplus_name(idx);
                 // Only treat KeyError as "not found", propagate other exceptions
                 let value = if let Some(dict_obj) = class_dict.downcast_ref::<PyDict>() {
                     dict_obj.get_item_opt(name, vm)?
@@ -2616,9 +2680,9 @@ impl ExecutingFrame<'_> {
                 self.push_value(match value {
                     Some(v) => v,
                     None => self
-                        .cell_ref(i)
+                        .cell_ref(idx)
                         .get()
-                        .ok_or_else(|| self.unbound_cell_exception(i, vm))?,
+                        .ok_or_else(|| self.unbound_cell_exception(idx, vm))?,
                 });
                 Ok(None)
             }
@@ -2684,7 +2748,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadDeref { i } => {
-                let idx = i.get(arg) as usize;
+                let idx = i.get(arg).as_usize();
                 let x = self
                     .cell_ref(idx)
                     .get()
@@ -2866,28 +2930,14 @@ impl ExecutingFrame<'_> {
             }
             Instruction::MakeFunction => self.execute_make_function(vm),
             Instruction::MakeCell { i } => {
-                // PEP 709: Save the current cell object on the stack and
-                // create a fresh empty cell for the inlined comprehension.
-                // The old cell is restored afterwards via RestoreCell.
-                let cell_idx = i.get(arg) as usize;
-                let nlocals = self.code.varnames.len();
-                let old_cell = self.localsplus.fastlocals_mut()[nlocals + cell_idx]
-                    .take()
-                    .expect("cell slot empty");
-                let new_cell = PyCell::default().into_ref(&vm.ctx).into();
-                self.localsplus.fastlocals_mut()[nlocals + cell_idx] = Some(new_cell);
-                // Push the old cell object itself
-                self.push_value(old_cell);
-                Ok(None)
-            }
-            Instruction::RestoreCell { i } => {
-                // PEP 709: Restore the saved cell object after an inlined
-                // comprehension. Pops the old cell from the stack and writes
-                // it back to the cell slot, replacing the temporary cell.
-                let cell_idx = i.get(arg) as usize;
-                let nlocals = self.code.varnames.len();
-                let old_cell = self.pop_value();
-                self.localsplus.fastlocals_mut()[nlocals + cell_idx] = Some(old_cell);
+                // Wrap the current slot value (if any) in a new PyCell.
+                // For merged cells (LOCAL|CELL), this wraps the argument value.
+                // For non-merged cells, this creates an empty cell.
+                let idx = i.get(arg).as_usize();
+                let fastlocals = self.localsplus.fastlocals_mut();
+                let initial = fastlocals[idx].take();
+                let cell = PyCell::new(initial).into_ref(&vm.ctx).into();
+                fastlocals[idx] = Some(cell);
                 Ok(None)
             }
             Instruction::MapAdd { i } => {
@@ -3326,7 +3376,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::StoreDeref { i } => {
                 let value = self.pop_value();
-                self.cell_ref(i.get(arg) as usize).set(Some(value));
+                self.cell_ref(i.get(arg).as_usize()).set(Some(value));
                 Ok(None)
             }
             Instruction::StoreFast { var_num } => {

@@ -8,9 +8,10 @@ use num_traits::ToPrimitive;
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
-        AnyInstruction, Arg, CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData,
-        ExceptionTableEntry, InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg,
-        PseudoInstruction, PyCodeLocationInfoKind, encode_exception_table, oparg,
+        AnyInstruction, Arg, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_LOCAL, CodeFlags, CodeObject,
+        CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry, InstrDisplayContext, Instruction,
+        InstructionMetadata, Label, OpArg, PseudoInstruction, PyCodeLocationInfoKind,
+        encode_exception_table, oparg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -210,7 +211,6 @@ impl CodeInfo {
         self.optimize_load_global_push_null();
 
         let max_stackdepth = self.max_stackdepth()?;
-        let cell2arg = self.cell2arg();
 
         let Self {
             flags,
@@ -247,8 +247,12 @@ impl CodeInfo {
         let mut locations = Vec::new();
         let mut linetable_locations: Vec<LineTableLocation> = Vec::new();
 
-        // Convert pseudo ops and remove resulting NOPs (keep line-marker NOPs)
-        convert_pseudo_ops(&mut blocks, varname_cache.len() as u32);
+        // Build cellfixedoffsets for cell-local merging
+        let cellfixedoffsets =
+            build_cellfixedoffsets(&varname_cache, &cellvar_cache, &freevar_cache);
+        // Convert pseudo ops (LoadClosure uses cellfixedoffsets) and fixup DEREF opargs
+        convert_pseudo_ops(&mut blocks, &cellfixedoffsets);
+        fixup_deref_opargs(&mut blocks, &cellfixedoffsets);
         // Remove redundant NOPs, keeping line-marker NOPs only when
         // they are needed to preserve tracing.
         let mut block_order = Vec::new();
@@ -482,6 +486,35 @@ impl CodeInfo {
         // Generate exception table before moving source_path
         let exceptiontable = generate_exception_table(&blocks, &block_to_index);
 
+        // Build localspluskinds with cell-local merging
+        let nlocals = varname_cache.len();
+        let ncells = cellvar_cache.len();
+        let nfrees = freevar_cache.len();
+        let numdropped = cellvar_cache
+            .iter()
+            .filter(|cv| varname_cache.contains(cv.as_str()))
+            .count();
+        let nlocalsplus = nlocals + ncells - numdropped + nfrees;
+        let mut localspluskinds = vec![0u8; nlocalsplus];
+        // Mark locals
+        for kind in localspluskinds.iter_mut().take(nlocals) {
+            *kind = CO_FAST_LOCAL;
+        }
+        // Mark cells (merged and non-merged)
+        for (i, cellvar) in cellvar_cache.iter().enumerate() {
+            let idx = cellfixedoffsets[i] as usize;
+            if varname_cache.contains(cellvar.as_str()) {
+                localspluskinds[idx] |= CO_FAST_CELL; // merged: LOCAL | CELL
+            } else {
+                localspluskinds[idx] = CO_FAST_CELL;
+            }
+        }
+        // Mark frees
+        for i in 0..nfrees {
+            let idx = cellfixedoffsets[ncells + i] as usize;
+            localspluskinds[idx] = CO_FAST_FREE;
+        }
+
         Ok(CodeObject {
             flags,
             posonlyarg_count,
@@ -500,41 +533,10 @@ impl CodeInfo {
             varnames: varname_cache.into_iter().collect(),
             cellvars: cellvar_cache.into_iter().collect(),
             freevars: freevar_cache.into_iter().collect(),
-            cell2arg,
+            localspluskinds: localspluskinds.into_boxed_slice(),
             linetable,
             exceptiontable,
         })
-    }
-
-    fn cell2arg(&self) -> Option<Box<[i32]>> {
-        if self.metadata.cellvars.is_empty() {
-            return None;
-        }
-
-        let total_args = self.metadata.argcount
-            + self.metadata.kwonlyargcount
-            + self.flags.contains(CodeFlags::VARARGS) as u32
-            + self.flags.contains(CodeFlags::VARKEYWORDS) as u32;
-
-        let mut found_cellarg = false;
-        let cell2arg = self
-            .metadata
-            .cellvars
-            .iter()
-            .map(|var| {
-                self.metadata
-                    .varnames
-                    .get_index_of(var)
-                    // check that it's actually an arg
-                    .filter(|i| *i < total_args as usize)
-                    .map_or(-1, |i| {
-                        found_cellarg = true;
-                        i as i32
-                    })
-            })
-            .collect::<Box<[_]>>();
-
-        if found_cellarg { Some(cell2arg) } else { None }
     }
 
     fn dce(&mut self) {
@@ -1107,12 +1109,19 @@ impl InstrDisplayContext for CodeInfo {
         self.metadata.varnames[var_num.as_usize()].as_ref()
     }
 
-    fn get_cell_name(&self, i: usize) -> &str {
-        self.metadata
-            .cellvars
-            .get_index(i)
-            .unwrap_or_else(|| &self.metadata.freevars[i - self.metadata.cellvars.len()])
-            .as_ref()
+    fn get_localsplus_name(&self, var_num: oparg::VarNum) -> &str {
+        let idx = var_num.as_usize();
+        let nlocals = self.metadata.varnames.len();
+        if idx < nlocals {
+            self.metadata.varnames[idx].as_ref()
+        } else {
+            let cell_idx = idx - nlocals;
+            self.metadata
+                .cellvars
+                .get_index(cell_idx)
+                .unwrap_or_else(|| &self.metadata.freevars[cell_idx - self.metadata.cellvars.len()])
+                .as_ref()
+        }
     }
 }
 
@@ -1768,7 +1777,7 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
 
 /// Convert remaining pseudo ops to real instructions or NOP.
 /// flowgraph.c convert_pseudo_ops
-pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], varnames_len: u32) {
+pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], cellfixedoffsets: &[u32]) {
     for block in blocks.iter_mut() {
         for info in &mut block.instructions {
             let Some(pseudo) = info.instr.pseudo() else {
@@ -1786,9 +1795,10 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], varnames_len: u32) {
                 PseudoInstruction::PopBlock => {
                     info.instr = Instruction::Nop.into();
                 }
-                // LOAD_CLOSURE → LOAD_FAST (with varnames offset)
+                // LOAD_CLOSURE → LOAD_FAST (using cellfixedoffsets for merged layout)
                 PseudoInstruction::LoadClosure { i } => {
-                    let new_idx = varnames_len + i.get(info.arg);
+                    let cell_relative = i.get(info.arg) as usize;
+                    let new_idx = cellfixedoffsets[cell_relative];
                     info.arg = OpArg::new(new_idx);
                     info.instr = Instruction::LoadFast {
                         var_num: Arg::marker(),
@@ -1804,6 +1814,57 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], varnames_len: u32) {
                 | PseudoInstruction::StoreFastMaybeNull { .. } => {
                     unreachable!("Unexpected pseudo instruction in convert_pseudo_ops: {pseudo:?}")
                 }
+            }
+        }
+    }
+}
+
+/// Build cellfixedoffsets mapping: cell/free index -> localsplus index.
+/// Merged cells (cellvar also in varnames) get the local slot index.
+/// Non-merged cells get slots after nlocals. Free vars follow.
+pub(crate) fn build_cellfixedoffsets(
+    varnames: &IndexSet<String>,
+    cellvars: &IndexSet<String>,
+    freevars: &IndexSet<String>,
+) -> Vec<u32> {
+    let nlocals = varnames.len();
+    let ncells = cellvars.len();
+    let nfrees = freevars.len();
+    let mut fixed = Vec::with_capacity(ncells + nfrees);
+    let mut numdropped = 0usize;
+    for (i, cellvar) in cellvars.iter().enumerate() {
+        if let Some(local_idx) = varnames.get_index_of(cellvar) {
+            fixed.push(local_idx as u32);
+            numdropped += 1;
+        } else {
+            fixed.push((nlocals + i - numdropped) as u32);
+        }
+    }
+    for i in 0..nfrees {
+        fixed.push((nlocals + ncells - numdropped + i) as u32);
+    }
+    fixed
+}
+
+/// Convert DEREF instruction opargs from cell-relative indices to localsplus indices
+/// using the cellfixedoffsets mapping.
+pub(crate) fn fixup_deref_opargs(blocks: &mut [Block], cellfixedoffsets: &[u32]) {
+    for block in blocks.iter_mut() {
+        for info in &mut block.instructions {
+            let Some(instr) = info.instr.real() else {
+                continue;
+            };
+            let needs_fixup = matches!(
+                instr,
+                Instruction::LoadDeref { .. }
+                    | Instruction::StoreDeref { .. }
+                    | Instruction::DeleteDeref { .. }
+                    | Instruction::LoadFromDictOrDeref { .. }
+                    | Instruction::MakeCell { .. }
+            );
+            if needs_fixup {
+                let cell_relative = u32::from(info.arg) as usize;
+                info.arg = OpArg::new(cellfixedoffsets[cell_relative]);
             }
         }
     }

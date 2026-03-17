@@ -1,5 +1,5 @@
 use crate::{OneIndexed, SourceLocation, bytecode::*};
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 use core::convert::Infallible;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
@@ -228,14 +228,11 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let len = rdr.read_u32()?;
     let qualname = bag.make_name(rdr.read_str(len)?);
 
-    let len = rdr.read_u32()?;
-    let cell2arg = (len != 0)
-        .then(|| {
-            (0..len)
-                .map(|_| Ok(rdr.read_u32()? as i32))
-                .collect::<Result<Box<[i32]>>>()
-        })
-        .transpose()?;
+    // Read and discard legacy cell2arg data for backwards compatibility
+    let cell2arg_len = rdr.read_u32()?;
+    for _ in 0..cell2arg_len {
+        let _ = rdr.read_u32()?;
+    }
 
     let len = rdr.read_u32()?;
     let constants = (0..len)
@@ -267,6 +264,42 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
         .to_vec()
         .into_boxed_slice();
 
+    // Build localspluskinds with cell-local merging
+    let localspluskinds = {
+        use crate::bytecode::*;
+        let nlocals = varnames.len();
+        let ncells = cellvars.len();
+        let nfrees = freevars.len();
+        // Count merged cells (cellvar also in varnames)
+        let numdropped = cellvars.iter().filter(|cv| {
+            varnames.iter().any(|v| v.as_ref() == cv.as_ref())
+        }).count();
+        let nlocalsplus = nlocals + ncells - numdropped + nfrees;
+        let mut kinds = vec![0u8; nlocalsplus];
+        // Mark locals
+        for kind in kinds.iter_mut().take(nlocals) {
+            *kind = CO_FAST_LOCAL;
+        }
+        // Build cellfixedoffsets and mark cells
+        let mut cell_numdropped = 0usize;
+        for (i, cv) in cellvars.iter().enumerate() {
+            let merged_idx = varnames.iter().position(|v| v.as_ref() == cv.as_ref());
+            if let Some(local_idx) = merged_idx {
+                kinds[local_idx] |= CO_FAST_CELL; // merged: LOCAL | CELL
+                cell_numdropped += 1;
+            } else {
+                let idx = nlocals + i - cell_numdropped;
+                kinds[idx] = CO_FAST_CELL;
+            }
+        }
+        // Mark frees
+        let free_start = nlocals + ncells - numdropped;
+        for i in 0..nfrees {
+            kinds[free_start + i] = CO_FAST_FREE;
+        }
+        kinds.into_boxed_slice()
+    };
+
     Ok(CodeObject {
         instructions,
         locations,
@@ -279,12 +312,12 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
         max_stackdepth,
         obj_name,
         qualname,
-        cell2arg,
         constants,
         names,
         varnames,
         cellvars,
         freevars,
+        localspluskinds,
         linetable,
         exceptiontable,
     })
@@ -687,11 +720,8 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     write_vec(buf, code.obj_name.as_ref().as_bytes());
     write_vec(buf, code.qualname.as_ref().as_bytes());
 
-    let cell2arg = code.cell2arg.as_deref().unwrap_or(&[]);
-    write_len(buf, cell2arg.len());
-    for &i in cell2arg {
-        buf.write_u32(i as u32)
-    }
+    // Write empty cell2arg for backwards compatibility
+    write_len(buf, 0);
 
     write_len(buf, code.constants.len());
     for constant in &*code.constants {

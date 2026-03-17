@@ -692,26 +692,28 @@ impl Compiler {
             .expect("symbol_table_stack is empty! This is a compiler bug.")
     }
 
-    /// Get the index of a free variable.
-    fn get_free_var_index(&mut self, name: &str) -> CompileResult<u32> {
+    /// Get the cell-relative index of a free variable.
+    /// Returns ncells + freevar_idx. Fixed up to localsplus index during finalize.
+    fn get_free_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .freevars
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.freevars.insert_full(name.to_owned()).0);
-        Ok((idx + info.metadata.cellvars.len()).to_u32())
+        Ok((idx + info.metadata.cellvars.len()).to_u32().into())
     }
 
-    /// Get the index of a cell variable.
-    fn get_cell_var_index(&mut self, name: &str) -> CompileResult<u32> {
+    /// Get the cell-relative index of a cell variable.
+    /// Returns cellvar_idx. Fixed up to localsplus index during finalize.
+    fn get_cell_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .cellvars
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.cellvars.insert_full(name.to_owned()).0);
-        Ok(idx.to_u32())
+        Ok(idx.to_u32().into())
     }
 
     /// Get the index of a local variable.
@@ -1147,6 +1149,19 @@ impl Compiler {
         // Set qualname after pushing (uses compiler_set_qualname logic)
         if scope_type != CompilerScope::Module {
             self.set_qualname();
+        }
+
+        // Emit COPY_FREE_VARS and MAKE_CELL prolog before RESUME
+        {
+            let nfrees = self.code_stack.last().unwrap().metadata.freevars.len();
+            if nfrees > 0 {
+                emit!(self, Instruction::CopyFreeVars { n: nfrees as u32 });
+            }
+            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
+            for i in 0..ncells {
+                let i_varnum: oparg::VarNum = (i as u32).into();
+                emit!(self, Instruction::MakeCell { i: i_varnum });
+            }
         }
 
         // Emit RESUME (handles async preamble and module lineno 0)
@@ -8035,16 +8050,15 @@ impl Compiler {
 
         // Step 2: Save local variables that will be shadowed by the comprehension.
         // For each variable, we push the fast local value via LoadFastAndClear.
-        // For CELL variables, we additionally push the cell content via MakeCell
-        // (which saves the old cell value and clears the cell for the comprehension).
-        // Track cell indices to restore them later.
-        let mut cell_indices: Vec<Option<u32>> = Vec::new();
+        // For merged CELL variables, LoadFastAndClear saves the cell object from
+        // the merged slot, and MAKE_CELL creates a new empty cell in-place.
+        // MAKE_CELL has no stack effect (operates only on fastlocals).
         let mut total_stack_items: usize = 0;
         for name in &pushed_locals {
             let var_num = self.varname(name)?;
             emit!(self, Instruction::LoadFastAndClear { var_num });
             total_stack_items += 1;
-            // If the comp symbol is CELL, emit MAKE_CELL to save cell value
+            // If the comp symbol is CELL, emit MAKE_CELL to create fresh cell
             if let Some(comp_sym) = comp_table.symbols.get(name) {
                 if comp_sym.scope == SymbolScope::Cell {
                     let i = if self
@@ -8058,13 +8072,7 @@ impl Compiler {
                         self.get_cell_var_index(name)?
                     };
                     emit!(self, Instruction::MakeCell { i });
-                    cell_indices.push(Some(i));
-                    total_stack_items += 1;
-                } else {
-                    cell_indices.push(None);
                 }
-            } else {
-                cell_indices.push(None);
             }
         }
 
@@ -8192,10 +8200,7 @@ impl Compiler {
                     i: u32::try_from(total_stack_items + 1).unwrap()
                 }
             );
-            for (name, cell_idx) in pushed_locals.iter().rev().zip(cell_indices.iter().rev()) {
-                if let Some(i) = cell_idx {
-                    emit!(self, Instruction::RestoreCell { i: *i });
-                }
+            for name in pushed_locals.iter().rev() {
                 let var_num = self.varname(name)?;
                 emit!(self, Instruction::StoreFast { var_num });
             }
@@ -8216,11 +8221,8 @@ impl Compiler {
             );
         }
 
-        // Restore saved locals and cell values
-        for (name, cell_idx) in pushed_locals.iter().rev().zip(cell_indices.iter().rev()) {
-            if let Some(i) = cell_idx {
-                emit!(self, Instruction::RestoreCell { i: *i });
-            }
+        // Restore saved locals (StoreFast restores the saved cell object for merged cells)
+        for name in pushed_locals.iter().rev() {
             let var_num = self.varname(name)?;
             emit!(self, Instruction::StoreFast { var_num });
         }

@@ -128,7 +128,6 @@ opmap = {
     'UNPACK_EX': 118,
     'UNPACK_SEQUENCE': 119,
     'YIELD_VALUE': 120,
-    'RESTORE_CELL': 121,
     'RESUME': 128,
     'BINARY_OP_ADD_FLOAT': 129,
     'BINARY_OP_ADD_INT': 130,
