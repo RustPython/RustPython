@@ -302,17 +302,24 @@ jobs:
         run: python -m pip install -r requirements.txt && pytest -v
         working-directory: ./extra_tests
 
+      - name: Detect available cores
+        id: cores
+        shell: bash
+        run: |
+          cores=$(python -c 'print(__import__("os").process_cpu_count())')
+          echo "cores=${cores}" >> $GITHUB_OUTPUT
+
       - name: run cpython platform-independent tests
         if: runner.os == 'Linux'
         run: |
-          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+          target/release/rustpython -m test -j ${{ steps.cores.outputs.cores }} -u all --slowest --fail-env-changed --timeout 600 -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
         timeout-minutes: 45
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
 
       - name: run cpython platform-dependent tests
         run: |
-          target/release/rustpython -m test -j 1 ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ join(matrix.skips, ' ') }}
+          target/release/rustpython -m test -j ${{ steps.cores.outputs.cores }} ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ join(matrix.skips, ' ') }}
         timeout-minutes: ${{ matrix.timeout }}
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
