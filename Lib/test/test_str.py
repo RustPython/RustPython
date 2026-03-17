@@ -2414,7 +2414,6 @@ class StrTest(string_tests.StringLikeTest,
         else:
             self.fail("Should have raised UnicodeDecodeError")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'str'> is not <class 'test.test_str.StrSubclass'>
     def test_conversion(self):
         # Make sure __str__() works properly
         class StrWithStr(str):
