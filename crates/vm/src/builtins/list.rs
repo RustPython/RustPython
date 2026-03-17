@@ -30,11 +30,13 @@ use alloc::fmt;
 use core::cell::Cell;
 use core::ops::DerefMut;
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 #[pyclass(module = false, name = "list", unhashable = true, traverse = "manual")]
 #[derive(Default)]
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
+    mutation_counter: AtomicU32,
 }
 
 impl fmt::Debug for PyList {
@@ -48,6 +50,7 @@ impl From<Vec<PyObjectRef>> for PyList {
     fn from(elements: Vec<PyObjectRef>) -> Self {
         Self {
             elements: PyRwLock::new(elements),
+            mutation_counter: AtomicU32::new(0),
         }
     }
 }
@@ -135,6 +138,7 @@ impl PyList {
     }
 
     pub fn borrow_vec_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
+        self.mutation_counter.fetch_add(1, Ordering::Relaxed);
         self.elements.write()
     }
 
@@ -391,12 +395,14 @@ impl PyList {
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
-        let mut elements = core::mem::take(self.borrow_vec_mut().deref_mut());
+        let mut elements = core::mem::take(self.elements.write().deref_mut());
+        let version_before = self.mutation_counter.load(Ordering::Relaxed);
         let res = do_sort(vm, &mut elements, options.key, options.reverse);
-        core::mem::swap(self.borrow_vec_mut().deref_mut(), &mut elements);
+        let mutated = self.mutation_counter.load(Ordering::Relaxed) != version_before;
+        core::mem::swap(self.elements.write().deref_mut(), &mut elements);
         res?;
 
-        if elements.capacity() > 0 {
+        if mutated {
             return Err(vm.new_value_error("list modified during sort"));
         }
 
