@@ -395,9 +395,7 @@ impl Constructor for PyStr {
 
     fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Optimization: for exact str, return PyObject_Str result as-is
-        if cls.is(vm.ctx.types.str_type)
-            && func_args.args.len() == 1
-            && func_args.kwargs.is_empty()
+        if cls.is(vm.ctx.types.str_type) && func_args.args.len() == 1 && func_args.kwargs.is_empty()
         {
             return func_args.args[0].str(vm).map(Into::into);
         }
