@@ -744,7 +744,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             if not any(ch in lit for ch in 'xXoObB'):
                 self.assertRaises(ValueError, complex, lit)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'complex' has no attribute 'from_number'
     def test_from_number(self, cls=complex):
         def eq(actual, expected):
             self.assertEqual(actual, expected)
@@ -771,7 +770,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(TypeError, cls.from_number, {})
         self.assertRaises(TypeError, cls.from_number)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'ComplexSubclass' has no attribute 'from_number'
     def test_from_number_subclass(self):
         self.test_from_number(ComplexSubclass)
 

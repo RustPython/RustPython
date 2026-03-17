@@ -416,15 +416,7 @@ impl Comparable for PyComplex {
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let result = if let Some(other) = other.downcast_ref::<Self>() {
-                if zelf.value.re.is_nan()
-                    && zelf.value.im.is_nan()
-                    && other.value.re.is_nan()
-                    && other.value.im.is_nan()
-                {
-                    true
-                } else {
-                    zelf.value == other.value
-                }
+                zelf.value == other.value
             } else {
                 match float::to_op_float(other, vm) {
                     Ok(Some(other)) => zelf.value == other.into(),
