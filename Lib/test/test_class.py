@@ -614,6 +614,7 @@ class ClassTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             a >= b
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: 1543448294720 != 1543448295392")
     def testHashComparisonOfMethods(self):
         # Test comparison and hash of methods
         class A:
