@@ -74,14 +74,16 @@ def extract_enum_body(contents: str, enum_name: str) -> str:
 
 def build_deopts(contents: str) -> dict[str, list[str]]:
     raw_body = re.search(
-        r"fn deoptimize\(self\) -> Self(.*)", contents, re.DOTALL
+        r"fn deopt\(self\) -> Option<Self>(.*)", contents, re.DOTALL
     ).group(1)
     body = "\n".join(
         itertools.takewhile(
             lambda l: not l.startswith("_ =>"),  # Take until reaching fallback
             filter(
                 lambda l: (
-                    not l.startswith(("//", "match"))  # Skip comments or start of match
+                    not l.startswith(
+                        ("//", "Some(match")
+                    )  # Skip comments or start of match
                 ),
                 map(str.strip, raw_body.splitlines()),
             ),
