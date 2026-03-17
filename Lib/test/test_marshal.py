@@ -123,7 +123,6 @@ class ExceptionTestCase(unittest.TestCase):
         self.assertEqual(StopIteration, new)
 
 class CodeTestCase(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_code(self):
         co = ExceptionTestCase.test_exceptions.__code__
         new = marshal.loads(marshal.dumps(co))
