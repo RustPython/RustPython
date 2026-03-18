@@ -1738,6 +1738,7 @@ class MathTests(unittest.TestCase):
         self.ftest('radians(-45)', math.radians(-45), -math.pi/4)
         self.ftest('radians(0)', math.radians(0), 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; Error message too long")
     @requires_IEEE_754
     def testRemainder(self):
         from fractions import Fraction
