@@ -187,7 +187,6 @@ jobs:
         test_bool
         test_bytes
         test_call
-        test_class
         test_cmath
         test_collections
         test_complex
@@ -205,7 +204,6 @@ jobs:
         test_enumerate
         test_exception_variations
         test_float
-        test_format
         test_fractions
         test_genericalias
         test_genericclass
@@ -224,7 +222,6 @@ jobs:
         test_list
         test_long
         test_longexp
-        test_math
         test_operator
         test_ordered_dict
         test_pep646_syntax
@@ -244,7 +241,6 @@ jobs:
         test_syntax
         test_tstring
         test_tuple
-        test_types
         test_unary
         test_unpack
         test_unpack_ex

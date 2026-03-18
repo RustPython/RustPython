@@ -431,6 +431,7 @@ class TypesTests(unittest.TestCase):
         test(123456, "1=20", '11111111111111123456')
         test(123456, "*=20", '**************123456')
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: '1,234.57' != '1234.57'")
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8', '')
     def test_float__format__locale(self):
         # test locale support for __format__ code 'n'
@@ -440,6 +441,7 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(locale.format_string('%g', x, grouping=True), format(x, 'n'))
             self.assertEqual(locale.format_string('%.10g', x, grouping=True), format(x, '.10n'))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: '123,456,789,012,345,678,901,234,567,890' != '123456789012345678901234567890'")
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8', '')
     def test_int__format__locale(self):
         # test locale support for __format__ code 'n' for integers
