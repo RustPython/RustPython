@@ -395,11 +395,18 @@ impl PyList {
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
-        let mut elements = core::mem::take(self.elements.write().deref_mut());
-        let version_before = self.mutation_counter.load(Ordering::Relaxed);
+        let (mut elements, version_before) = {
+            let mut guard = self.elements.write();
+            let version_before = self.mutation_counter.load(Ordering::Relaxed);
+            (core::mem::take(guard.deref_mut()), version_before)
+        };
         let res = do_sort(vm, &mut elements, options.key, options.reverse);
-        let mutated = self.mutation_counter.load(Ordering::Relaxed) != version_before;
-        core::mem::swap(self.elements.write().deref_mut(), &mut elements);
+        let mutated = {
+            let mut guard = self.elements.write();
+            let mutated = self.mutation_counter.load(Ordering::Relaxed) != version_before;
+            core::mem::swap(guard.deref_mut(), &mut elements);
+            mutated
+        };
         res?;
 
         if mutated {
