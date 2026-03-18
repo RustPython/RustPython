@@ -13,6 +13,9 @@ concurrency:
   group: format-check-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  PYTHON_VERSION: "3.14.3"
+
 jobs:
   format_check:
     permissions:
@@ -44,6 +47,10 @@ jobs:
 
       - name: Run ruff check import sorting
         run: ruff check --select I --fix
+
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Run generate_opcode_metadata.py
         run: python scripts/generate_opcode_metadata.py

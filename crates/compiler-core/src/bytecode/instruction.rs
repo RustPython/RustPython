@@ -462,7 +462,7 @@ impl TryFrom<u8> for Instruction {
 impl Instruction {
     /// Returns `true` if this is any instrumented opcode
     /// (regular INSTRUMENTED_*, INSTRUMENTED_LINE, or INSTRUMENTED_INSTRUCTION).
-    pub fn is_instrumented(self) -> bool {
+    pub const fn is_instrumented(self) -> bool {
         self.to_base().is_some()
             || matches!(self, Self::InstrumentedLine | Self::InstrumentedInstruction)
     }
@@ -509,7 +509,7 @@ impl Instruction {
     ///
     /// The returned base opcode uses `Arg::marker()` for typed fields —
     /// only the opcode byte matters since `replace_op` preserves the arg byte.
-    pub fn to_base(self) -> Option<Self> {
+    pub const fn to_base(self) -> Option<Self> {
         Some(match self {
             Self::InstrumentedResume => Self::Resume {
                 context: Arg::marker(),
@@ -558,66 +558,15 @@ impl Instruction {
 
     /// Map a specialized opcode back to its adaptive (base) variant.
     /// `_PyOpcode_Deopt`
-    pub fn deoptimize(self) -> Self {
-        match self {
-            // LOAD_ATTR specializations
-            Self::LoadAttrClass
-            | Self::LoadAttrClassWithMetaclassCheck
-            | Self::LoadAttrGetattributeOverridden
-            | Self::LoadAttrInstanceValue
-            | Self::LoadAttrMethodLazyDict
-            | Self::LoadAttrMethodNoDict
-            | Self::LoadAttrMethodWithValues
-            | Self::LoadAttrModule
-            | Self::LoadAttrNondescriptorNoDict
-            | Self::LoadAttrNondescriptorWithValues
-            | Self::LoadAttrProperty
-            | Self::LoadAttrSlot
-            | Self::LoadAttrWithHint => Self::LoadAttr {
-                namei: Arg::marker(),
+    pub const fn deopt(self) -> Option<Self> {
+        Some(match self {
+            // RESUME specializations
+            Self::ResumeCheck => Self::Resume {
+                context: Arg::marker(),
             },
-            // BINARY_OP specializations
-            Self::BinaryOpAddFloat
-            | Self::BinaryOpAddInt
-            | Self::BinaryOpAddUnicode
-            | Self::BinaryOpExtend
-            | Self::BinaryOpInplaceAddUnicode
-            | Self::BinaryOpMultiplyFloat
-            | Self::BinaryOpMultiplyInt
-            | Self::BinaryOpSubscrDict
-            | Self::BinaryOpSubscrGetitem
-            | Self::BinaryOpSubscrListInt
-            | Self::BinaryOpSubscrListSlice
-            | Self::BinaryOpSubscrStrInt
-            | Self::BinaryOpSubscrTupleInt
-            | Self::BinaryOpSubtractFloat
-            | Self::BinaryOpSubtractInt => Self::BinaryOp { op: Arg::marker() },
-            // CALL specializations
-            Self::CallAllocAndEnterInit
-            | Self::CallBoundMethodExactArgs
-            | Self::CallBoundMethodGeneral
-            | Self::CallBuiltinClass
-            | Self::CallBuiltinFast
-            | Self::CallBuiltinFastWithKeywords
-            | Self::CallBuiltinO
-            | Self::CallIsinstance
-            | Self::CallLen
-            | Self::CallListAppend
-            | Self::CallMethodDescriptorFast
-            | Self::CallMethodDescriptorFastWithKeywords
-            | Self::CallMethodDescriptorNoargs
-            | Self::CallMethodDescriptorO
-            | Self::CallNonPyGeneral
-            | Self::CallPyExactArgs
-            | Self::CallPyGeneral
-            | Self::CallStr1
-            | Self::CallTuple1
-            | Self::CallType1 => Self::Call {
-                argc: Arg::marker(),
-            },
-            // CALL_KW specializations
-            Self::CallKwBoundMethod | Self::CallKwNonPy | Self::CallKwPy => Self::CallKw {
-                argc: Arg::marker(),
+            // LOAD_CONST specializations
+            Self::LoadConstMortal | Self::LoadConstImmortal => Self::LoadConst {
+                consti: Arg::marker(),
             },
             // TO_BOOL specializations
             Self::ToBoolAlwaysTrue
@@ -626,69 +575,130 @@ impl Instruction {
             | Self::ToBoolList
             | Self::ToBoolNone
             | Self::ToBoolStr => Self::ToBool,
-            // COMPARE_OP specializations
-            Self::CompareOpFloat | Self::CompareOpInt | Self::CompareOpStr => Self::CompareOp {
-                opname: Arg::marker(),
+            // BINARY_OP specializations
+            Self::BinaryOpMultiplyInt
+            | Self::BinaryOpAddInt
+            | Self::BinaryOpSubtractInt
+            | Self::BinaryOpMultiplyFloat
+            | Self::BinaryOpAddFloat
+            | Self::BinaryOpSubtractFloat
+            | Self::BinaryOpAddUnicode
+            | Self::BinaryOpSubscrListInt
+            | Self::BinaryOpSubscrListSlice
+            | Self::BinaryOpSubscrTupleInt
+            | Self::BinaryOpSubscrStrInt
+            | Self::BinaryOpSubscrDict
+            | Self::BinaryOpSubscrGetitem
+            | Self::BinaryOpExtend
+            | Self::BinaryOpInplaceAddUnicode => Self::BinaryOp { op: Arg::marker() },
+            // STORE_SUBSCR specializations
+            Self::StoreSubscrDict | Self::StoreSubscrListInt => Self::StoreSubscr,
+            // SEND specializations
+            Self::SendGen => Self::Send {
+                delta: Arg::marker(),
             },
-            // CONTAINS_OP specializations
-            Self::ContainsOpDict | Self::ContainsOpSet => Self::ContainsOp {
-                invert: Arg::marker(),
-            },
-            // FOR_ITER specializations
-            Self::ForIterGen | Self::ForIterList | Self::ForIterRange | Self::ForIterTuple => {
-                Self::ForIter {
-                    delta: Arg::marker(),
+            // UNPACK_SEQUENCE specializations
+            Self::UnpackSequenceTwoTuple | Self::UnpackSequenceTuple | Self::UnpackSequenceList => {
+                Self::UnpackSequence {
+                    count: Arg::marker(),
                 }
             }
-            // LOAD_GLOBAL specializations
-            Self::LoadGlobalBuiltin | Self::LoadGlobalModule => Self::LoadGlobal {
-                namei: Arg::marker(),
-            },
             // STORE_ATTR specializations
             Self::StoreAttrInstanceValue | Self::StoreAttrSlot | Self::StoreAttrWithHint => {
                 Self::StoreAttr {
                     namei: Arg::marker(),
                 }
             }
+            // LOAD_GLOBAL specializations
+            Self::LoadGlobalModule | Self::LoadGlobalBuiltin => Self::LoadGlobal {
+                namei: Arg::marker(),
+            },
             // LOAD_SUPER_ATTR specializations
             Self::LoadSuperAttrAttr | Self::LoadSuperAttrMethod => Self::LoadSuperAttr {
                 namei: Arg::marker(),
             },
-            // STORE_SUBSCR specializations
-            Self::StoreSubscrDict | Self::StoreSubscrListInt => Self::StoreSubscr,
-            // UNPACK_SEQUENCE specializations
-            Self::UnpackSequenceList | Self::UnpackSequenceTuple | Self::UnpackSequenceTwoTuple => {
-                Self::UnpackSequence {
-                    count: Arg::marker(),
-                }
-            }
-            // SEND specializations
-            Self::SendGen => Self::Send {
-                delta: Arg::marker(),
+            // LOAD_ATTR specializations
+            Self::LoadAttrInstanceValue
+            | Self::LoadAttrModule
+            | Self::LoadAttrWithHint
+            | Self::LoadAttrSlot
+            | Self::LoadAttrClass
+            | Self::LoadAttrClassWithMetaclassCheck
+            | Self::LoadAttrProperty
+            | Self::LoadAttrGetattributeOverridden
+            | Self::LoadAttrMethodWithValues
+            | Self::LoadAttrMethodNoDict
+            | Self::LoadAttrMethodLazyDict
+            | Self::LoadAttrNondescriptorWithValues
+            | Self::LoadAttrNondescriptorNoDict => Self::LoadAttr {
+                namei: Arg::marker(),
             },
-            // LOAD_CONST specializations
-            Self::LoadConstImmortal | Self::LoadConstMortal => Self::LoadConst {
-                consti: Arg::marker(),
+            // COMPARE_OP specializations
+            Self::CompareOpFloat | Self::CompareOpInt | Self::CompareOpStr => Self::CompareOp {
+                opname: Arg::marker(),
             },
-            // RESUME specializations
-            Self::ResumeCheck => Self::Resume {
-                context: Arg::marker(),
+            // CONTAINS_OP specializations
+            Self::ContainsOpSet | Self::ContainsOpDict => Self::ContainsOp {
+                invert: Arg::marker(),
             },
             // JUMP_BACKWARD specializations
-            Self::JumpBackwardJit | Self::JumpBackwardNoJit => Self::JumpBackward {
+            Self::JumpBackwardNoJit | Self::JumpBackwardJit => Self::JumpBackward {
                 delta: Arg::marker(),
             },
-            // Instrumented opcodes map back to their base
-            _ => match self.to_base() {
-                Some(base) => base,
-                None => self,
+            // FOR_ITER specializations
+            Self::ForIterList | Self::ForIterTuple | Self::ForIterRange | Self::ForIterGen => {
+                Self::ForIter {
+                    delta: Arg::marker(),
+                }
+            }
+            // CALL specializations
+            Self::CallBoundMethodExactArgs
+            | Self::CallPyExactArgs
+            | Self::CallType1
+            | Self::CallStr1
+            | Self::CallTuple1
+            | Self::CallBuiltinClass
+            | Self::CallBuiltinO
+            | Self::CallBuiltinFast
+            | Self::CallBuiltinFastWithKeywords
+            | Self::CallLen
+            | Self::CallIsinstance
+            | Self::CallListAppend
+            | Self::CallMethodDescriptorO
+            | Self::CallMethodDescriptorFastWithKeywords
+            | Self::CallMethodDescriptorNoargs
+            | Self::CallMethodDescriptorFast
+            | Self::CallAllocAndEnterInit
+            | Self::CallPyGeneral
+            | Self::CallBoundMethodGeneral
+            | Self::CallNonPyGeneral => Self::Call {
+                argc: Arg::marker(),
             },
+            // CALL_KW specializations
+            Self::CallKwBoundMethod | Self::CallKwPy | Self::CallKwNonPy => Self::CallKw {
+                argc: Arg::marker(),
+            },
+            _ => return None,
+        })
+    }
+
+    /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
+    pub const fn deoptimize(self) -> Self {
+        match self.deopt() {
+            Some(v) => v,
+            None => {
+                // Instrumented opcodes map back to their base
+                match self.to_base() {
+                    Some(v) => v,
+                    None => self,
+                }
+            }
         }
     }
 
     /// Number of CACHE code units that follow this instruction.
     /// _PyOpcode_Caches
-    pub fn cache_entries(self) -> usize {
+    pub const fn cache_entries(self) -> usize {
         match self {
             // LOAD_ATTR: 9 cache entries
             Self::LoadAttr { .. }

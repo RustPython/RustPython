@@ -197,6 +197,11 @@ mod _opcode {
 
         let opcode = Opcode::try_from_pyint(args.opcode, vm)?;
 
+        // Raise ValueError if specialized.
+        if opcode.inner().real().is_some_and(|op| op.deopt().is_some()) {
+            return Err(vm.new_value_error("invalid opcode or oparg"));
+        }
+
         let _ = jump; // Python API accepts jump but it's not used
         Ok(opcode.stack_effect(oparg))
     }
