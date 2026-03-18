@@ -18,7 +18,7 @@ mod builtins {
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
         },
-        common::{hash::PyHash, str::to_ascii},
+        common::hash::PyHash,
         function::{
             ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
             ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
@@ -65,12 +65,7 @@ mod builtins {
 
     #[pyfunction]
     pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let repr = obj.repr(vm)?;
-        if repr.as_wtf8().is_ascii() {
-            Ok(repr)
-        } else {
-            Ok(vm.ctx.new_str(to_ascii(repr.as_wtf8())))
-        }
+        obj.ascii(vm)
     }
 
     #[pyfunction]
