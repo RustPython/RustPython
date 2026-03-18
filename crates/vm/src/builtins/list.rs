@@ -768,9 +768,24 @@ impl IterNext for PyListReverseIterator {
     }
 }
 
+fn vectorcall_list(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let obj = PyList::default().into_ref_with_type(vm, zelf.to_owned())?;
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PyList::slot_init(obj.clone().into(), func_args, vm)?;
+    Ok(obj.into())
+}
+
 pub fn init(context: &'static Context) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
+    list_type.slots.vectorcall.store(Some(vectorcall_list));
 
     PyListIterator::extend_class(context, context.types.list_iterator_type);
     PyListReverseIterator::extend_class(context, context.types.list_reverseiterator_type);

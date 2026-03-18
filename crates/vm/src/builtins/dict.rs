@@ -15,7 +15,9 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::ascii,
     dict_inner::{self, DictKey},
-    function::{ArgIterable, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue},
+    function::{
+        ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
+    },
     iter::PyExactSizeIterator,
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -1433,8 +1435,28 @@ fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyRes
     set_inner_number_op(a, b, |a, b| a.union(b, vm), vm)
 }
 
+fn vectorcall_dict(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let obj = PyDict::default().into_ref_with_type(vm, zelf.to_owned())?;
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PyDict::slot_init(obj.clone().into(), func_args, vm)?;
+    Ok(obj.into())
+}
+
 pub(crate) fn init(context: &'static Context) {
     PyDict::extend_class(context, context.types.dict_type);
+    context
+        .types
+        .dict_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_dict));
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);
     PyDictReverseKeyIterator::extend_class(context, context.types.dict_reversekeyiterator_type);

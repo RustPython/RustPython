@@ -695,9 +695,29 @@ impl IterNext for PyTupleIterator {
     }
 }
 
+fn vectorcall_tuple(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    // Use the type's own slot_new rather than calling PyTuple::slot_new directly,
+    // so Rust-level subclasses (e.g. struct sequences) get their custom slot_new called.
+    (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
+}
+
 pub(crate) fn init(context: &'static Context) {
     PyTuple::extend_class(context, context.types.tuple_type);
     PyTupleIterator::extend_class(context, context.types.tuple_iterator_type);
+    context
+        .types
+        .tuple_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_tuple));
 }
 
 pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyHash> {

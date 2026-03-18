@@ -453,7 +453,20 @@ impl SlotAccessor {
             Self::TpStr => inherit_main!(str),
             Self::TpCall => {
                 inherit_main!(call);
-                inherit_main!(vectorcall);
+                // CPython does not inherit tp_vectorcall to heap types at all; it only
+                // inherits tp_vectorcall_offset (the per-instance callable fast path).
+                // RustPython approximates this by inheriting vectorcall only from types
+                // with a call slot (instance-call vectorcall), not from types that use
+                // vectorcall as a constructor fast path (call=None).
+                // See vectorcall_type() in type.rs for the dual-use design rationale.
+                let inherited_vc = mro.iter().find_map(|cls| {
+                    if cls.slots.call.load().is_some() {
+                        cls.slots.vectorcall.load()
+                    } else {
+                        None
+                    }
+                });
+                typ.slots.vectorcall.store(inherited_vc);
             }
             Self::TpIter => inherit_main!(iter),
             Self::TpIternext => inherit_main!(iternext),
@@ -573,7 +586,13 @@ impl SlotAccessor {
             Self::TpStr => copy_main!(str),
             Self::TpCall => {
                 copy_main!(call);
-                copy_main!(vectorcall);
+                // See inherit_from_mro TpCall for rationale.
+                if typ.slots.vectorcall.load().is_none()
+                    && base.slots.call.load().is_some()
+                    && let Some(base_val) = base.slots.vectorcall.load()
+                {
+                    typ.slots.vectorcall.store(Some(base_val));
+                }
             }
             Self::TpIter => copy_main!(iter),
             Self::TpIternext => copy_main!(iternext),
