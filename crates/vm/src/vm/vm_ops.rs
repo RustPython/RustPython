@@ -9,7 +9,7 @@ use crate::{
 };
 use num_traits::ToPrimitive;
 
-/// Similar to `method_is_overloaded` in CPython typeobject.c
+/// [CPython `method_is_overloaded`](https://github.com/python/cpython/blob/v3.14.3/Objects/typeobject.c#L9849-L9879)
 fn method_is_overloaded(
     class_a: &Py<PyType>,
     class_b: &Py<PyType>,
