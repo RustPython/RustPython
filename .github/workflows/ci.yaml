@@ -554,3 +554,12 @@ jobs:
         run: wasmer run --dir `pwd` target/wasm32-wasip1/release/rustpython.wasm -- `pwd`/extra_tests/snippets/stdlib_random.py
       - name: run cpython unittest
         run: wasmer run --dir `pwd` target/wasm32-wasip1/release/rustpython.wasm -- `pwd`/Lib/test/test_int.py
+
+  security-lint:
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
+    permissions:
+      security-events: write
+    steps:
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@135698455da5c3b3e55f73f4419e481ab68cdd95 # v0.4.1
