@@ -13,15 +13,18 @@ use num_traits::ToPrimitive;
 fn method_is_overloaded(
     class_a: &Py<PyType>,
     class_b: &Py<PyType>,
-    rop_name: &'static PyStrInterned,
+    rop_name: Option<&'static PyStrInterned>,
     vm: &VirtualMachine,
-) -> bool {
-    let Some(method_b) = class_b.get_attr(rop_name) else {
-        return false;
+) -> PyResult<bool> {
+    let Some(rop_name) = rop_name else {
+        return Ok(false);
     };
-    class_a
-        .get_attr(rop_name)
-        .is_none_or(|method_a| !vm.identical_or_equal(&method_a, &method_b).unwrap_or(false))
+    let Some(method_b) = class_b.get_attr(rop_name) else {
+        return Ok(false);
+    };
+    class_a.get_attr(rop_name).map_or(Ok(true), |method_a| {
+        vm.identical_or_equal(&method_a, &method_b).map(|eq| !eq)
+    })
 }
 
 macro_rules! binary_func {
@@ -177,29 +180,34 @@ impl VirtualMachine {
 
         // Number slots are inherited, direct access is O(1)
         let slot_a = class_a.slots.as_number.left_binary_op(op_slot);
+        let slot_a_addr = slot_a.map(|x| x as usize);
         let mut slot_b = None;
+        let left_b_addr;
 
         if !class_a.is(class_b) {
             let slot_bb = class_b.slots.as_number.right_binary_op(op_slot);
-            if slot_a.map(|x| x as usize)
-                != class_b
-                    .slots
-                    .as_number
-                    .left_binary_op(op_slot)
-                    .map(|x| x as usize)
-            {
-                slot_b = slot_bb;
-            } else if class_b.fast_issubclass(class_a)
-                && let Some(rop_name) = op_slot.right_method_name(self)
-                && method_is_overloaded(class_a, class_b, rop_name, self)
-            {
+            if slot_bb.map(|x| x as usize) != slot_a_addr {
                 slot_b = slot_bb;
             }
+            left_b_addr = class_b
+                .slots
+                .as_number
+                .left_binary_op(op_slot)
+                .map(|x| x as usize);
+        } else {
+            left_b_addr = slot_a_addr;
         }
 
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b
                 && class_b.fast_issubclass(class_a)
+                && (slot_a_addr != left_b_addr
+                    || method_is_overloaded(
+                        class_a,
+                        class_b,
+                        op_slot.right_method_name(self),
+                        self,
+                    )?)
             {
                 let ret = slot_bb(a, b, self)?;
                 if !ret.is(&self.ctx.not_implemented) {
@@ -295,29 +303,34 @@ impl VirtualMachine {
 
         // Number slots are inherited, direct access is O(1)
         let slot_a = class_a.slots.as_number.left_ternary_op(op_slot);
+        let slot_a_addr = slot_a.map(|x| x as usize);
         let mut slot_b = None;
+        let left_b_addr;
 
         if !class_a.is(class_b) {
             let slot_bb = class_b.slots.as_number.right_ternary_op(op_slot);
-            if slot_a.map(|x| x as usize)
-                != class_b
-                    .slots
-                    .as_number
-                    .left_ternary_op(op_slot)
-                    .map(|x| x as usize)
-            {
-                slot_b = slot_bb;
-            } else if class_b.fast_issubclass(class_a)
-                && let Some(rop_name) = op_slot.right_method_name(self)
-                && method_is_overloaded(class_a, class_b, rop_name, self)
-            {
+            if slot_bb.map(|x| x as usize) != slot_a_addr {
                 slot_b = slot_bb;
             }
+            left_b_addr = class_b
+                .slots
+                .as_number
+                .left_ternary_op(op_slot)
+                .map(|x| x as usize);
+        } else {
+            left_b_addr = slot_a_addr;
         }
 
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b
                 && class_b.fast_issubclass(class_a)
+                && (slot_a_addr != left_b_addr
+                    || method_is_overloaded(
+                        class_a,
+                        class_b,
+                        op_slot.right_method_name(self),
+                        self,
+                    )?)
             {
                 let ret = slot_bb(a, b, c, self)?;
                 if !ret.is(&self.ctx.not_implemented) {
