@@ -304,7 +304,7 @@ pub enum Instruction {
     } = 120,
     // CPython 3.14 RESUME (128)
     Resume {
-        context: Arg<u32>,
+        context: Arg<oparg::ResumeType>,
     } = 128,
     // CPython 3.14 specialized opcodes (129-211)
     BinaryOpAddFloat = 129,                     // Placeholder

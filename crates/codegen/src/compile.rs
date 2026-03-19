@@ -6881,9 +6881,9 @@ impl Compiler {
             self,
             Instruction::Resume {
                 context: if is_await {
-                    u32::from(bytecode::ResumeType::AfterAwait)
+                    bytecode::ResumeType::AfterAwait
                 } else {
-                    u32::from(bytecode::ResumeType::AfterYieldFrom)
+                    bytecode::ResumeType::AfterYieldFrom
                 }
             }
         );
@@ -7055,7 +7055,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::Resume {
-                        context: u32::from(bytecode::ResumeType::AfterYield)
+                        context: bytecode::ResumeType::AfterYield
                     }
                 );
             }
@@ -7277,7 +7277,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::Resume {
-                                context: u32::from(bytecode::ResumeType::AfterYield)
+                                context: bytecode::ResumeType::AfterYield
                             }
                         );
                         emit!(compiler, Instruction::PopTop);
