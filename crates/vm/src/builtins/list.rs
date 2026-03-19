@@ -138,8 +138,9 @@ impl PyList {
     }
 
     pub fn borrow_vec_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
+        let guard = self.elements.write();
         self.mutation_counter.fetch_add(1, Ordering::Relaxed);
-        self.elements.write()
+        guard
     }
 
     fn repeat(&self, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
