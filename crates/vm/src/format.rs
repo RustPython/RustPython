@@ -159,9 +159,7 @@ fn format_internal(
                 let argument = match conversion_spec.and_then(FormatConversion::from_char) {
                     Some(FormatConversion::Str) => argument.str(vm)?.into(),
                     Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
-                    Some(FormatConversion::Ascii) => {
-                        vm.ctx.new_str(builtins::ascii(argument, vm)?).into()
-                    }
+                    Some(FormatConversion::Ascii) => builtins::ascii(argument, vm)?.into(),
                     Some(FormatConversion::Bytes) => {
                         vm.call_method(&argument, identifier!(vm, decode).as_str(), ())?
                     }
