@@ -28,6 +28,8 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: reviewdog/action-actionlint@0d952c597ef8459f634d7145b0b044a9699e5e43 # v1.71.0
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
