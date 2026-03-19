@@ -1181,7 +1181,7 @@ mod mmap {
         fn resize(&self, _newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
             self.check_resizeable(vm)?;
             // TODO: implement using mremap on Linux
-            Err(vm.new_os_error("mmap: resizing not available--no mremap()"))
+            Err(vm.new_system_error("mmap: resizing not available--no mremap()"))
         }
 
         #[cfg(windows)]
@@ -1204,7 +1204,7 @@ mod mmap {
 
             // Check if this is a Named mmap - these cannot be resized
             if let Some(MmapObj::Named(_)) = mmap_guard.as_ref() {
-                return Err(vm.new_os_error("mmap: cannot resize a named memory mapping"));
+                return Err(vm.new_system_error("mmap: cannot resize a named memory mapping"));
             }
 
             let is_anonymous = handle == INVALID_HANDLE_VALUE as isize;
