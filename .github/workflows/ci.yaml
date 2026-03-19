@@ -411,7 +411,9 @@ jobs:
       - run: ruff format --check
 
       - name: install prettier
-        run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
+        run: |
+          yarn global add prettier
+          yarn global bin >> $GITHUB_PATH
 
       - name: check wasm code with prettier
         # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
