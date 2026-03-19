@@ -3452,7 +3452,6 @@ version = "0.5.0"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
- "ruff_python_parser",
  "rustpython-common",
  "rustpython-pylib",
  "rustpython-stdlib",
