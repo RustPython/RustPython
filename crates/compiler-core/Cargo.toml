@@ -12,6 +12,7 @@ license.workspace = true
 # rustpython-parser-core = { workspace = true, features=["location"] }
 ruff_source_file = { workspace = true }
 rustpython-wtf8 = { workspace = true }
+rustpython-macros = { workspace = true }
 
 bitflags = { workspace = true }
 bitflagset = { workspace = true }

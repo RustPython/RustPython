@@ -155,6 +155,7 @@ rustpython-stdlib = { path = "crates/stdlib", default-features = false, version 
 rustpython-sre_engine = { path = "crates/sre_engine", version = "0.5.0" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.5.0" }
 rustpython-doc = { path = "crates/doc", version = "0.5.0" }
+rustpython-macros = { path = "crates/macros", version = "0.5.0" }
 
 # Ruff tag 0.15.6 is based on commit e4c7f357777a2fdd34dbe6a98b1b7d3e7488f675
 # at the time of this capture. We use the commit hash to ensure reproducible builds.

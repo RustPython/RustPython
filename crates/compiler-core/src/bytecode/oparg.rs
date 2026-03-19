@@ -1,5 +1,8 @@
 use core::fmt;
 
+use crate as rustpython_compiler_core; // Required for newtype_oparg macro
+use rustpython_macros::newtype_oparg;
+
 use crate::{
     bytecode::{CodeUnit, instruction::Instruction},
     marshal::MarshalError,
@@ -745,103 +748,23 @@ impl fmt::Display for UnpackExArgs {
     }
 }
 
-macro_rules! newtype_oparg {
-    (
-      $(#[$oparg_meta:meta])*
-      $vis:vis struct $name:ident(u32)
-    ) => {
-        $(#[$oparg_meta])*
-        $vis struct $name(u32);
+#[newtype_oparg]
+pub struct ConstIdx;
 
-        impl $name {
-            /// Creates a new [`$name`] instance.
-            #[must_use]
-            pub const fn new(value: u32) -> Self {
-                Self(value)
-            }
+#[newtype_oparg]
+pub struct VarNum;
 
-            /// Alias to [`$name::new`].
-            #[must_use]
-            pub const fn from_u32(value: u32) -> Self {
-                Self::new(value)
-            }
+#[newtype_oparg]
+pub struct VarNums;
 
-            /// Returns the oparg as a `u32` value.
-            #[must_use]
-            pub const fn as_u32(self) -> u32 {
-                self.0
-            }
+#[newtype_oparg]
+pub struct LoadAttr;
 
-            /// Returns the oparg as a `usize` value.
-            #[must_use]
-            pub const fn as_usize(self) -> usize {
-              self.0 as usize
-            }
-        }
+#[newtype_oparg]
+pub struct LoadSuperAttr;
 
-        impl From<u32> for $name {
-            fn from(value: u32) -> Self {
-                Self::from_u32(value)
-            }
-        }
-
-        impl From<$name> for u32 {
-            fn from(value: $name) -> Self {
-                value.as_u32()
-            }
-        }
-
-        impl From<$name> for usize {
-            fn from(value: $name) -> Self {
-                value.as_usize()
-            }
-        }
-
-        impl ::core::fmt::Display for $name {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                self.0.fmt(f)
-            }
-        }
-
-        impl OpArgType for $name {}
-    }
-}
-
-newtype_oparg!(
-    #[derive(Clone, Copy)]
-    #[repr(transparent)]
-    pub struct ConstIdx(u32)
-);
-
-newtype_oparg!(
-    #[derive(Clone, Copy)]
-    #[repr(transparent)]
-    pub struct VarNum(u32)
-);
-
-newtype_oparg!(
-    #[derive(Clone, Copy)]
-    #[repr(transparent)]
-    pub struct VarNums(u32)
-);
-
-newtype_oparg!(
-    #[derive(Clone, Copy)]
-    #[repr(transparent)]
-    pub struct LoadAttr(u32)
-);
-
-newtype_oparg!(
-    #[derive(Clone, Copy)]
-    #[repr(transparent)]
-    pub struct LoadSuperAttr(u32)
-);
-
-newtype_oparg!(
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
-    #[repr(transparent)]
-    pub struct Label(u32)
-);
+#[newtype_oparg]
+pub struct Label;
 
 impl VarNums {
     #[must_use]
