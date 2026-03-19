@@ -489,7 +489,7 @@ jobs:
           cache-dependency-path: "wasm/demo/package-lock.json"
       - name: run test
         run: |
-          export PATH=$PATH:`pwd`/../../geckodriver
+          export PATH="$PATH:$(pwd)/../../geckodriver"
           npm install
           npm run test
         env:
