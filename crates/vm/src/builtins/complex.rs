@@ -142,12 +142,43 @@ fn to_op_complex(value: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Compl
     Ok(r)
 }
 
-fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
-    if v2.is_zero() {
-        return Err(vm.new_zero_division_error("complex division by zero"));
+/// Equivalent of CPython's `_Py_rc_quot`: real / complex division using
+/// Smith's method with C99 Annex G.5.2 NaN recovery.
+fn rc_div(a: f64, b: Complex64) -> Complex64 {
+    let abs_breal = b.re.abs();
+    let abs_bimag = b.im.abs();
+
+    let (mut x, mut y);
+
+    if abs_breal >= abs_bimag {
+        if abs_breal == 0.0 {
+            // zero division — caller should have checked
+            return Complex64::new(0.0, 0.0);
+        }
+        let ratio = b.im / b.re;
+        let denom = b.re + b.im * ratio;
+        x = a / denom;
+        y = (-a * ratio) / denom;
+    } else if abs_bimag >= abs_breal {
+        let ratio = b.re / b.im;
+        let denom = b.re * ratio + b.im;
+        x = (a * ratio) / denom;
+        y = (-a) / denom;
+    } else {
+        // At least one of b.re or b.im is a NaN
+        x = f64::NAN;
+        y = f64::NAN;
     }
 
-    Ok(v1.fdiv(v2))
+    if x.is_nan() && y.is_nan() && a.is_finite() && (abs_breal.is_infinite() || abs_bimag.is_infinite())
+    {
+        let bx = if b.re.is_infinite() { 1.0_f64.copysign(b.re) } else { 0.0_f64.copysign(b.re) };
+        let by = if b.im.is_infinite() { 1.0_f64.copysign(b.im) } else { 0.0_f64.copysign(b.im) };
+        x = 0.0 * (a * bx);
+        y = 0.0 * (-a * by);
+    }
+
+    Complex64::new(x, y)
 }
 
 fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
@@ -468,7 +499,16 @@ impl AsNumber for PyComplex {
                     vm,
                 )
             }),
-            multiply: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)),
+            multiply: Some(|a, b, vm| {
+                PyComplex::complex_real_binop(
+                    a,
+                    b,
+                    |a, b| a.fmul(b),
+                    |a_complex, b_real| Complex64::new(a_complex.re * b_real, a_complex.im * b_real),
+                    |a_real, b_complex| Complex64::new(a_real * b_complex.re, a_real * b_complex.im),
+                    vm,
+                )
+            }),
             power: Some(|a, b, c, vm| {
                 if vm.is_none(c) {
                     PyComplex::number_op(a, b, inner_pow, vm)
@@ -493,7 +533,34 @@ impl AsNumber for PyComplex {
                 result.to_pyresult(vm)
             }),
             boolean: Some(|number, _vm| Ok(!PyComplex::number_downcast(number).value.is_zero())),
-            true_divide: Some(|a, b, vm| PyComplex::number_op(a, b, inner_div, vm)),
+            true_divide: Some(|a, b, vm| {
+                PyComplex::complex_real_binop(
+                    a,
+                    b,
+                    |a, b| -> PyResult<Complex64> {
+                        if b.is_zero() {
+                            Err(vm.new_zero_division_error("complex division by zero"))
+                        } else {
+                            Ok(a.fdiv(b))
+                        }
+                    },
+                    |a_complex, b_real| -> PyResult<Complex64> {
+                        if b_real == 0.0 {
+                            Err(vm.new_zero_division_error("complex division by zero"))
+                        } else {
+                            Ok(Complex64::new(a_complex.re / b_real, a_complex.im / b_real))
+                        }
+                    },
+                    |a_real, b_complex| -> PyResult<Complex64> {
+                        if b_complex.is_zero() {
+                            Err(vm.new_zero_division_error("complex division by zero"))
+                        } else {
+                            Ok(rc_div(a_real, b_complex))
+                        }
+                    },
+                    vm,
+                )
+            }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
