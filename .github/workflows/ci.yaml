@@ -141,7 +141,12 @@ jobs:
 
       - name: Install dependencies
         uses: ./.github/actions/install-linux-deps
-        with: ${{ matrix.dependencies || fromJSON('{}') }}
+        # zizmor has an issue with dynamic `with`
+        # with: ${{ matrix.dependencies || fromJSON('{}') }}
+        with:
+          gcc-multilib: ${{ matrix.dependencies.gcc-multilib || false }}
+          musl-tools: ${{ matrix.dependencies.musl-tools || false }}
+          gcc-aarch64-linux-gnu: ${{ matrix.dependencies.gcc-aarch64-linux-gnu || false }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
