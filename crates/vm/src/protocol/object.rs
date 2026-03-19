@@ -370,10 +370,13 @@ impl PyObject {
         })
     }
 
-    pub fn ascii(&self, vm: &VirtualMachine) -> PyResult<ascii::AsciiString> {
+    pub fn ascii(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let repr = self.repr(vm)?;
-        let ascii = to_ascii(repr.as_wtf8());
-        Ok(ascii)
+        if repr.as_wtf8().is_ascii() {
+            Ok(repr)
+        } else {
+            Ok(vm.ctx.new_str(to_ascii(repr.as_wtf8())))
+        }
     }
 
     pub fn str_utf8(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {

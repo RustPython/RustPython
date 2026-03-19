@@ -28,7 +28,7 @@ fn spec_format_bytes(
             // Unlike strings, %r and %a are identical for bytes: the behaviour corresponds to
             // %a for strings (not %r)
             CFormatConversion::Repr | CFormatConversion::Ascii => {
-                let b = builtins::ascii(obj, vm)?.into();
+                let b = builtins::ascii(obj, vm)?.as_bytes().to_vec();
                 Ok(b)
             }
             CFormatConversion::Str | CFormatConversion::Bytes => {
@@ -132,7 +132,7 @@ fn spec_format_string(
     match &spec.format_type {
         CFormatType::String(conversion) => {
             let result = match conversion {
-                CFormatConversion::Ascii => builtins::ascii(obj, vm)?.into(),
+                CFormatConversion::Ascii => builtins::ascii(obj, vm)?.as_wtf8().to_owned(),
                 CFormatConversion::Str => obj.str(vm)?.as_wtf8().to_owned(),
                 CFormatConversion::Repr => obj.repr(vm)?.as_wtf8().to_owned(),
                 CFormatConversion::Bytes => {

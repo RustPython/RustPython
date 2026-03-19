@@ -7104,7 +7104,7 @@ impl ExecutingFrame<'_> {
         let value = match conversion {
             ConvertValueOparg::Str => value.str(vm)?.into(),
             ConvertValueOparg::Repr => value.repr(vm)?.into(),
-            ConvertValueOparg::Ascii => vm.ctx.new_str(builtins::ascii(value, vm)?).into(),
+            ConvertValueOparg::Ascii => builtins::ascii(value, vm)?.into(),
             ConvertValueOparg::None => value,
         };
 
