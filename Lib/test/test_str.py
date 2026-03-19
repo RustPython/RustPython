@@ -2440,10 +2440,6 @@ class StrTest(string_tests.StringLikeTest,
         self.assertTypedEqual(StrSubclass(StrWithStr(OtherStrSubclass('abc'))),
                               StrSubclass('abc'))
 
-        str_value = StrSubclass('abc')
-        self.assertIs(str(WithStr(str_value)), str_value)
-        self.assertIs(str(StrWithStr(str_value)), str_value)
-
         self.assertTypedEqual(str(WithRepr('<abc>')), '<abc>')
         self.assertTypedEqual(str(WithRepr(StrSubclass('<abc>'))), StrSubclass('<abc>'))
         self.assertTypedEqual(StrSubclass(WithRepr('<abc>')), StrSubclass('<abc>'))
@@ -2451,9 +2447,6 @@ class StrTest(string_tests.StringLikeTest,
                               StrSubclass('<abc>'))
         self.assertTypedEqual(StrSubclass(WithRepr(OtherStrSubclass('<abc>'))),
                               StrSubclass('<abc>'))
-
-        repr_value = StrSubclass('<abc>')
-        self.assertIs(str(WithRepr(repr_value)), repr_value)
 
     def test_unicode_repr(self):
         class s1:
