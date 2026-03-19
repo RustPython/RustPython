@@ -299,6 +299,26 @@ fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String
     }
 }
 
+/// Check if an expression contains an `await` node (shallow, not into nested scopes).
+fn expr_contains_await(expr: &ast::Expr) -> bool {
+    use ast::visitor::Visitor;
+    struct AwaitFinder(bool);
+    impl ast::visitor::Visitor<'_> for AwaitFinder {
+        fn visit_expr(&mut self, expr: &ast::Expr) {
+            if !self.0 {
+                if matches!(expr, ast::Expr::Await(_)) {
+                    self.0 = true;
+                } else {
+                    ast::visitor::walk_expr(self, expr);
+                }
+            }
+        }
+    }
+    let mut finder = AwaitFinder(false);
+    finder.visit_expr(expr);
+    finder.0
+}
+
 /// PEP 709: Merge symbols from an inlined comprehension into the parent scope.
 /// Matches symtable.c inline_comprehension().
 fn inline_comprehension(
@@ -2102,9 +2122,12 @@ impl SymbolTableBuilder {
         // but only inside function-like scopes (fastlocals).
         // Module/class scope uses STORE_NAME which is incompatible
         // with LOAD_FAST_AND_CLEAR / STORE_FAST save/restore.
+        // Async comprehensions cannot be inlined because they need
+        // their own coroutine scope.
         // Note: tables.last() is the comprehension scope we just pushed,
         // so we check the second-to-last for the parent scope.
-        if !is_generator {
+        let element_has_await = expr_contains_await(elt1) || elt2.is_some_and(expr_contains_await);
+        if !is_generator && !has_async_gen && !element_has_await {
             let parent = self.tables.iter().rev().nth(1);
             let parent_is_func = parent.is_some_and(|t| {
                 matches!(
