@@ -17,6 +17,7 @@ freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib"
 no-start-func = []
 
 [dependencies]
+rustpython-common = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, default-features = false, optional = true }
 # make sure no threading! otherwise wasm build will fail
@@ -47,4 +48,4 @@ wasm-opt = false#["-O1"]
 workspace = true
 
 [package.metadata.cargo-shear]
-ignored = ["serde"]
+ignored = ["serde", "rustpython-common"]
