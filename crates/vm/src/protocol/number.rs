@@ -229,10 +229,61 @@ pub enum PyNumberBinaryOp {
     InplaceMatrixMultiply,
 }
 
+impl PyNumberBinaryOp {
+    /// Returns `None` for in-place ops which don't have right-side variants.
+    pub fn right_method_name(
+        self,
+        vm: &VirtualMachine,
+    ) -> Option<&'static crate::builtins::PyStrInterned> {
+        use PyNumberBinaryOp::*;
+        Some(match self {
+            Add => identifier!(vm, __radd__),
+            Subtract => identifier!(vm, __rsub__),
+            Multiply => identifier!(vm, __rmul__),
+            Remainder => identifier!(vm, __rmod__),
+            Divmod => identifier!(vm, __rdivmod__),
+            Lshift => identifier!(vm, __rlshift__),
+            Rshift => identifier!(vm, __rrshift__),
+            And => identifier!(vm, __rand__),
+            Xor => identifier!(vm, __rxor__),
+            Or => identifier!(vm, __ror__),
+            FloorDivide => identifier!(vm, __rfloordiv__),
+            TrueDivide => identifier!(vm, __rtruediv__),
+            MatrixMultiply => identifier!(vm, __rmatmul__),
+            // In-place ops don't have right-side variants
+            InplaceAdd
+            | InplaceSubtract
+            | InplaceMultiply
+            | InplaceRemainder
+            | InplaceLshift
+            | InplaceRshift
+            | InplaceAnd
+            | InplaceXor
+            | InplaceOr
+            | InplaceFloorDivide
+            | InplaceTrueDivide
+            | InplaceMatrixMultiply => return None,
+        })
+    }
+}
+
 #[derive(Copy, Clone)]
 pub enum PyNumberTernaryOp {
     Power,
     InplacePower,
+}
+
+impl PyNumberTernaryOp {
+    /// Returns `None` for in-place ops which don't have right-side variants.
+    pub fn right_method_name(
+        self,
+        vm: &VirtualMachine,
+    ) -> Option<&'static crate::builtins::PyStrInterned> {
+        Some(match self {
+            PyNumberTernaryOp::Power => identifier!(vm, __rpow__),
+            PyNumberTernaryOp::InplacePower => return None,
+        })
+    }
 }
 
 #[derive(Default)]

@@ -4318,7 +4318,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         C.__name__ = Nasty("abc")
         C.__name__ = "normal"
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_subclass_right_op(self):
         # Testing correct dispatch of subclass overloading __r<op>__...
 

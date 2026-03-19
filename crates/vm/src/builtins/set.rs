@@ -1421,8 +1421,48 @@ impl IterNext for PySetIterator {
     }
 }
 
+fn vectorcall_set(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let obj = PySet::default().into_ref_with_type(vm, zelf.to_owned())?;
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    PySet::slot_init(obj.clone().into(), func_args, vm)?;
+    Ok(obj.into())
+}
+
+fn vectorcall_frozenset(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
+}
+
 pub fn init(context: &'static Context) {
     PySet::extend_class(context, context.types.set_type);
+    context
+        .types
+        .set_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_set));
+
     PyFrozenSet::extend_class(context, context.types.frozenset_type);
+    context
+        .types
+        .frozenset_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_frozenset));
+
     PySetIterator::extend_class(context, context.types.set_iterator_type);
 }

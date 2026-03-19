@@ -48,7 +48,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
@@ -131,9 +134,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           prefix-key: v0-rust-${{ join(matrix.targets, '-') }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install dependencies
         uses: ./.github/actions/install-linux-deps
@@ -187,7 +191,6 @@ jobs:
         test_bool
         test_bytes
         test_call
-        test_class
         test_cmath
         test_collections
         test_complex
@@ -205,7 +208,6 @@ jobs:
         test_enumerate
         test_exception_variations
         test_float
-        test_format
         test_fractions
         test_genericalias
         test_genericclass
@@ -224,7 +226,6 @@ jobs:
         test_list
         test_long
         test_longexp
-        test_math
         test_operator
         test_ordered_dict
         test_pep646_syntax
@@ -244,7 +245,6 @@ jobs:
         test_syntax
         test_tstring
         test_tuple
-        test_types
         test_unary
         test_unpack
         test_unpack_ex
@@ -284,7 +284,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: actions/setup-python@v6.2.0
         with:
@@ -409,7 +411,9 @@ jobs:
       - run: ruff format --check
 
       - name: install prettier
-        run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
+        run: |
+          yarn global add prettier
+          yarn global bin >> "$GITHUB_PATH"
 
       - name: check wasm code with prettier
         # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
@@ -440,7 +444,9 @@ jobs:
           toolchain: ${{ env.NIGHTLY_CHANNEL }}
           components: miri
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run tests under miri
         run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test -p rustpython-vm -- miri_test
@@ -461,7 +467,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
@@ -480,7 +489,8 @@ jobs:
           cache-dependency-path: "wasm/demo/package-lock.json"
       - name: run test
         run: |
-          export PATH=$PATH:`pwd`/../../geckodriver
+          driver_path="$(pwd)/../../geckodriver"
+          export PATH="$PATH:${driver_path}"
           npm install
           npm run test
         env:
@@ -529,7 +539,10 @@ jobs:
         with:
           target: wasm32-wasip1
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3
 
@@ -541,9 +554,9 @@ jobs:
       - name: build rustpython
         run: cargo build --release --target wasm32-wasip1 --features freeze-stdlib,stdlib --verbose
       - name: run snippets
-        run: wasmer run --dir `pwd` target/wasm32-wasip1/release/rustpython.wasm -- `pwd`/extra_tests/snippets/stdlib_random.py
+        run: wasmer run --dir $(pwd) target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
       - name: run cpython unittest
-        run: wasmer run --dir `pwd` target/wasm32-wasip1/release/rustpython.wasm -- `pwd`/Lib/test/test_int.py
+        run: wasmer run --dir $(pwd) target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
 
   cargo-shear:
     name: cargo shear

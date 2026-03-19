@@ -791,6 +791,24 @@ pub fn try_to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
         .ok_or_else(|| vm.new_overflow_error("int too large to convert to float"))
 }
 
+fn vectorcall_int(
+    zelf_obj: &PyObject,
+    args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: Option<&[PyObjectRef]>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
+}
+
 pub(crate) fn init(context: &'static Context) {
     PyInt::extend_class(context, context.types.int_type);
+    context
+        .types
+        .int_type
+        .slots
+        .vectorcall
+        .store(Some(vectorcall_int));
 }
