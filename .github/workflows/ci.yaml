@@ -182,6 +182,7 @@ jobs:
       RUST_BACKTRACE: full
       # Tests that can be flaky when running with multiple processes `-j 2`. We will use `-j 1` for these.
       FLAKY_MP_TESTS: >-
+        test_class
         test_eintr
         test_multiprocessing_fork
         test_multiprocessing_forkserver
