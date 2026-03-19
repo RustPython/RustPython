@@ -13,6 +13,9 @@ concurrency:
   group: format-check-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  PYTHON_VERSION: "3.14.3"
+
 jobs:
   format_check:
     permissions:
@@ -24,6 +27,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - uses: reviewdog/action-actionlint@0d952c597ef8459f634d7145b0b044a9699e5e43 # v1.71.0
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -44,6 +49,10 @@ jobs:
 
       - name: Run ruff check import sorting
         run: ruff check --select I --fix
+
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Run generate_opcode_metadata.py
         run: python scripts/generate_opcode_metadata.py
