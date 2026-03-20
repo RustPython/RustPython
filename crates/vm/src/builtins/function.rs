@@ -1241,8 +1241,14 @@ impl Constructor for PyBoundMethod {
     fn py_new(
         _cls: &Py<PyType>,
         Self::Args { function, object }: Self::Args,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<Self> {
+        if !function.is_callable() {
+            return Err(vm.new_type_error("first argument must be callable".to_owned()));
+        }
+        if vm.is_none(&object) {
+            return Err(vm.new_type_error("instance must not be None".to_owned()));
+        }
         Ok(Self::new(object, function))
     }
 }
