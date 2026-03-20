@@ -1,12 +1,12 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 9276
+assertion_line: 9327
 expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pass\n\")"
 ---
   1           0 RESUME               (0)
-        >>    1 LOAD_CONST           (True)
+              1 LOAD_CONST           (True)
               2 TO_BOOL
-              3 CACHE
+        >>    3 CACHE
               4 CACHE
               5 CACHE
               6 POP_JUMP_IF_FALSE    (9)
@@ -14,7 +14,7 @@ expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pa
               8 NOT_TAKEN
         >>    9 LOAD_CONST           (False)
              10 TO_BOOL
-             11 CACHE
+        >>   11 CACHE
              12 CACHE
              13 CACHE
              14 POP_JUMP_IF_TRUE     (17)
@@ -25,7 +25,7 @@ expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pa
              19 CACHE
              20 CACHE
              21 CACHE
-             22 POP_JUMP_IF_FALSE    (9)
+             22 POP_JUMP_IF_FALSE    (11)
              23 CACHE
              24 NOT_TAKEN
              25 LOAD_CONST           (True)
@@ -33,9 +33,11 @@ expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pa
              27 CACHE
              28 CACHE
              29 CACHE
-             30 POP_JUMP_IF_FALSE    (1)
+             30 POP_JUMP_IF_FALSE    (3)
              31 CACHE
              32 NOT_TAKEN
 
   2          33 LOAD_CONST           (None)
              34 RETURN_VALUE
+             35 LOAD_CONST           (None)
+             36 RETURN_VALUE

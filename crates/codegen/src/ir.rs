@@ -208,6 +208,7 @@ impl CodeInfo {
         label_exception_targets(&mut self.blocks);
         push_cold_blocks_to_end(&mut self.blocks);
         normalize_jumps(&mut self.blocks);
+        duplicate_end_returns(&mut self.blocks);
         self.optimize_load_global_push_null();
 
         let max_stackdepth = self.max_stackdepth()?;
@@ -1644,6 +1645,68 @@ fn normalize_jumps(blocks: &mut [Block]) {
                 other => other,
             };
         }
+    }
+}
+
+/// Duplicate `LOAD_CONST None + RETURN_VALUE` for blocks that fall through
+/// to the final return block. Matches CPython's behavior of ensuring every
+/// code path that reaches the end of a function/module has its own explicit
+/// return instruction.
+fn duplicate_end_returns(blocks: &mut [Block]) {
+    // Walk the block chain to find the last block
+    let mut last_block = BlockIdx(0);
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        last_block = current;
+        current = blocks[current.idx()].next;
+    }
+
+    // Check if the last block ends with LOAD_CONST + RETURN_VALUE (the implicit return)
+    let last_insts = &blocks[last_block.idx()].instructions;
+    // Only apply when the last block is EXACTLY a return-None epilogue
+    let is_return_block = last_insts.len() == 2
+        && matches!(
+            last_insts[0].instr,
+            AnyInstruction::Real(Instruction::LoadConst { .. })
+        )
+        && matches!(
+            last_insts[1].instr,
+            AnyInstruction::Real(Instruction::ReturnValue)
+        );
+    if !is_return_block {
+        return;
+    }
+
+    // Get the return instructions to clone
+    let return_insts: Vec<InstructionInfo> = last_insts[last_insts.len() - 2..].to_vec();
+
+    // Find non-cold blocks that fall through to the last block
+    let mut blocks_to_fix = Vec::new();
+    current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        let block = &blocks[current.idx()];
+        if current != last_block
+            && block.next == last_block
+            && !block.cold
+            && !block.except_handler
+        {
+            let has_fallthrough = block
+                .instructions
+                .last()
+                .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
+                .unwrap_or(true);
+            if has_fallthrough {
+                blocks_to_fix.push(current);
+            }
+        }
+        current = blocks[current.idx()].next;
+    }
+
+    // Duplicate the return instructions at the end of fall-through blocks
+    for block_idx in blocks_to_fix {
+        blocks[block_idx.idx()]
+            .instructions
+            .extend_from_slice(&return_insts);
     }
 }
 
