@@ -24,7 +24,7 @@ use core::cell::Cell;
 use core::ops::{Neg, Not};
 use core::ptr::NonNull;
 use malachite_bigint::{BigInt, Sign};
-use num_integer::Integer;
+use num_integer::{ExtendedGcd, Integer};
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 
 #[pyclass(module = false, name = "int")]
@@ -414,7 +414,6 @@ impl PyInt {
                         if a.is_negative() { a + n } else { a }
                     }
                     fn inverse(a: BigInt, n: &BigInt) -> Option<BigInt> {
-                        use num_integer::*;
                         let ExtendedGcd { gcd, x: c, .. } = a.extended_gcd(n);
                         if gcd.is_one() {
                             Some(normalize(c, n))
