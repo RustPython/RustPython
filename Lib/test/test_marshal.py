@@ -49,7 +49,6 @@ class IntTestCase(unittest.TestCase, HelperMixin):
                 self.helper(expected)
             n = n >> 1
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_int64(self):
         # Simulate int marshaling with TYPE_INT64.
         maxint64 = (1 << 63) - 1
@@ -141,7 +140,6 @@ class CodeTestCase(unittest.TestCase):
         self.assertEqual(co1.co_filename, "f1")
         self.assertEqual(co2.co_filename, "f2")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument allow_code
     def test_no_allow_code(self):
         data = {'a': [({0},)]}
         dump = marshal.dumps(data, allow_code=False)
@@ -234,14 +232,12 @@ class BufferTestCase(unittest.TestCase, HelperMixin):
         new = marshal.loads(marshal.dumps(b))
         self.assertEqual(type(new), bytes)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_memoryview(self):
         b = memoryview(b"abc")
         self.helper(b)
         new = marshal.loads(marshal.dumps(b))
         self.assertEqual(type(new), bytes)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_array(self):
         a = array.array('B', b"abc")
         new = marshal.loads(marshal.dumps(a))
@@ -274,7 +270,6 @@ class BugsTestCase(unittest.TestCase):
             except Exception:
                 pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_loads_recursion(self):
         def run_tests(N, check):
             # (((...None...),),)
@@ -295,7 +290,7 @@ class BugsTestCase(unittest.TestCase):
         run_tests(2**20, check)
 
     @unittest.skipIf(support.is_android, "TODO: RUSTPYTHON; segfault")
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; segfault
+    @unittest.skipIf(os.name == 'nt', "TODO: RUSTPYTHON; write depth limit is 2000 not 1000")
     def test_recursion_limit(self):
         # Create a deeply nested structure.
         head = last = []
@@ -324,7 +319,6 @@ class BugsTestCase(unittest.TestCase):
         last.append([0])
         self.assertRaises(ValueError, marshal.dumps, head)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exact_type_match(self):
         # Former bug:
         #   >>> class Int(int): pass
@@ -348,7 +342,6 @@ class BugsTestCase(unittest.TestCase):
         invalid_string = b'l\x02\x00\x00\x00\x00\x00\x00\x00'
         self.assertRaises(ValueError, marshal.loads, invalid_string)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiple_dumps_and_loads(self):
         # Issue 12291: marshal.load() should be callable multiple times
         # with interleaved data written by non-marshal code
@@ -532,66 +525,56 @@ class InstancingTestCase(unittest.TestCase, HelperMixin):
             else:
                 self.assertGreaterEqual(len(s2), len(s3))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testInt(self):
         intobj = 123321
         self.helper(intobj)
         self.helper3(intobj, simple=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testFloat(self):
         floatobj = 1.2345
         self.helper(floatobj)
         self.helper3(floatobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testStr(self):
         strobj = "abcde"*3
         self.helper(strobj)
         self.helper3(strobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testBytes(self):
         bytesobj = b"abcde"*3
         self.helper(bytesobj)
         self.helper3(bytesobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testList(self):
         for obj in self.keys:
             listobj = [obj, obj]
             self.helper(listobj)
             self.helper3(listobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testTuple(self):
         for obj in self.keys:
             tupleobj = (obj, obj)
             self.helper(tupleobj)
             self.helper3(tupleobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSet(self):
         for obj in self.keys:
             setobj = {(obj, 1), (obj, 2)}
             self.helper(setobj)
             self.helper3(setobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testFrozenSet(self):
         for obj in self.keys:
             frozensetobj = frozenset({(obj, 1), (obj, 2)})
             self.helper(frozensetobj)
             self.helper3(frozensetobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testDict(self):
         for obj in self.keys:
             dictobj = {"hello": obj, "goodbye": obj, obj: "hello"}
             self.helper(dictobj)
             self.helper3(dictobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testModule(self):
         with open(__file__, "rb") as f:
             code = f.read()
@@ -651,7 +634,6 @@ class InterningTestCase(unittest.TestCase, HelperMixin):
         self.assertNotEqual(id(s2), id(s))
 
 class SliceTestCase(unittest.TestCase, HelperMixin):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NotImplementedError: TODO: not implemented yet or marshal unsupported type
     def test_slice(self):
         for obj in (
             slice(None), slice(1), slice(1, 2), slice(1, 2, 3),
