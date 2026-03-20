@@ -237,6 +237,18 @@ impl PyBytesInner {
         vm.new_overflow_error("bytes object is too large to make repr")
     }
 
+    pub(crate) fn warn_on_str(message: &'static str, vm: &VirtualMachine) -> PyResult<()> {
+        if vm.state.config.settings.bytes_warning > 0 {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.bytes_warning,
+                message.to_owned(),
+                1,
+                vm,
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn repr_with_name(&self, class_name: &str, vm: &VirtualMachine) -> PyResult<String> {
         const DECORATION_LEN: isize = 2 + 3; // 2 for (), 3 for b"" => bytearray(b"")
         let escape = crate::literal::escape::AsciiEscape::new_repr(&self.elements);
