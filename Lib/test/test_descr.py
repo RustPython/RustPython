@@ -5130,7 +5130,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         gc.collect()
         self.assertEqual(Parent.__subclasses__(), [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_instance_method_get_behavior(self):
         # test case for gh-113157
 

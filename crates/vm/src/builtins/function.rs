@@ -1216,6 +1216,17 @@ impl GetAttr for PyBoundMethod {
     }
 }
 
+impl GetDescriptor for PyBoundMethod {
+    fn descr_get(
+        zelf: PyObjectRef,
+        _obj: Option<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(zelf)
+    }
+}
+
 #[derive(FromArgs)]
 pub struct PyBoundMethodNewArgs {
     #[pyarg(positional)]
@@ -1258,7 +1269,15 @@ impl PyBoundMethod {
 }
 
 #[pyclass(
-    with(Callable, Comparable, Hashable, GetAttr, Constructor, Representable),
+    with(
+        Callable,
+        Comparable,
+        Hashable,
+        GetAttr,
+        GetDescriptor,
+        Constructor,
+        Representable
+    ),
     flags(IMMUTABLETYPE, HAS_WEAKREF)
 )]
 impl PyBoundMethod {
