@@ -5,6 +5,7 @@ use super::{
     PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef, PyTuple,
     PyTupleRef, PyType,
 };
+use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
 use crate::function::ArgMapping;
 use crate::object::{PyAtomicRef, Traverse, TraverseFn};
@@ -17,7 +18,8 @@ use crate::{
     function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{
-        Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp, Representable,
+        Callable, Comparable, Constructor, GetAttr, GetDescriptor, Hashable, PyComparisonOp,
+        Representable,
     },
 };
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
@@ -1193,6 +1195,14 @@ impl Comparable for PyBoundMethod {
     }
 }
 
+impl Hashable for PyBoundMethod {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        let self_hash = crate::common::hash::hash_object_id_raw(zelf.object.get_id());
+        let func_hash = zelf.function.hash(vm)?;
+        Ok(crate::common::hash::fix_sentinel(self_hash ^ func_hash))
+    }
+}
+
 impl GetAttr for PyBoundMethod {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         let class_attr = vm
@@ -1248,7 +1258,7 @@ impl PyBoundMethod {
 }
 
 #[pyclass(
-    with(Callable, Comparable, GetAttr, Constructor, Representable),
+    with(Callable, Comparable, Hashable, GetAttr, Constructor, Representable),
     flags(IMMUTABLETYPE, HAS_WEAKREF)
 )]
 impl PyBoundMethod {
