@@ -1216,6 +1216,17 @@ impl GetAttr for PyBoundMethod {
     }
 }
 
+impl GetDescriptor for PyBoundMethod {
+    fn descr_get(
+        zelf: PyObjectRef,
+        _obj: Option<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(zelf)
+    }
+}
+
 #[derive(FromArgs)]
 pub struct PyBoundMethodNewArgs {
     #[pyarg(positional)]
@@ -1230,8 +1241,14 @@ impl Constructor for PyBoundMethod {
     fn py_new(
         _cls: &Py<PyType>,
         Self::Args { function, object }: Self::Args,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<Self> {
+        if !function.is_callable() {
+            return Err(vm.new_type_error("first argument must be callable".to_owned()));
+        }
+        if vm.is_none(&object) {
+            return Err(vm.new_type_error("instance must not be None".to_owned()));
+        }
         Ok(Self::new(object, function))
     }
 }
@@ -1258,7 +1275,15 @@ impl PyBoundMethod {
 }
 
 #[pyclass(
-    with(Callable, Comparable, Hashable, GetAttr, Constructor, Representable),
+    with(
+        Callable,
+        Comparable,
+        Hashable,
+        GetAttr,
+        GetDescriptor,
+        Constructor,
+        Representable
+    ),
     flags(IMMUTABLETYPE, HAS_WEAKREF)
 )]
 impl PyBoundMethod {
@@ -1266,11 +1291,11 @@ impl PyBoundMethod {
     fn __reduce__(
         &self,
         vm: &VirtualMachine,
-    ) -> (Option<PyObjectRef>, (PyObjectRef, Option<PyObjectRef>)) {
-        let builtins_getattr = vm.builtins.get_attr("getattr", vm).ok();
+    ) -> PyResult<(PyObjectRef, (PyObjectRef, PyObjectRef))> {
+        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
         let func_self = self.object.clone();
-        let func_name = self.function.get_attr("__name__", vm).ok();
-        (builtins_getattr, (func_self, func_name))
+        let func_name = self.function.get_attr("__name__", vm)?;
+        Ok((builtins_getattr, (func_self, func_name)))
     }
 
     #[pygetset]
