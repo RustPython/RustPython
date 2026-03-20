@@ -224,6 +224,12 @@ impl PyBytes {
         size_of::<Self>() + self.len() * size_of::<u8>()
     }
 
+    #[pymethod]
+    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        PyBytesInner::warn_on_str("str() on a bytes instance", vm)?;
+        Ok(vm.ctx.new_str(zelf.inner.repr_bytes(vm)?))
+    }
+
     fn __add__(&self, other: ArgBytesLike) -> Vec<u8> {
         self.inner.add(&other.borrow_buf())
     }
