@@ -1291,11 +1291,11 @@ impl PyBoundMethod {
     fn __reduce__(
         &self,
         vm: &VirtualMachine,
-    ) -> (Option<PyObjectRef>, (PyObjectRef, Option<PyObjectRef>)) {
-        let builtins_getattr = vm.builtins.get_attr("getattr", vm).ok();
+    ) -> PyResult<(PyObjectRef, (PyObjectRef, PyObjectRef))> {
+        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
         let func_self = self.object.clone();
-        let func_name = self.function.get_attr("__name__", vm).ok();
-        (builtins_getattr, (func_self, func_name))
+        let func_name = self.function.get_attr("__name__", vm)?;
+        Ok((builtins_getattr, (func_self, func_name)))
     }
 
     #[pygetset]
