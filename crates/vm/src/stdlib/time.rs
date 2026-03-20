@@ -115,17 +115,30 @@ mod decl {
 
         #[cfg(unix)]
         {
-            // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
-            let ts = nix::sys::time::TimeSpec::from(dur);
-            // Capture errno inside the closure: attach_thread (called by
-            // allow_threads on return) can clobber errno via syscalls.
-            let (res, err) = vm.allow_threads(|| {
-                let r = unsafe { libc::nanosleep(ts.as_ref(), core::ptr::null_mut()) };
-                (r, nix::Error::last_raw())
-            });
-            let interrupted = res == -1 && err == libc::EINTR;
-
-            if interrupted {
+            // Loop on nanosleep, recomputing the
+            // remaining timeout after each EINTR so that signals don't
+            // shorten the requested sleep duration.
+            use std::time::Instant;
+            let deadline = Instant::now() + dur;
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                let ts = nix::sys::time::TimeSpec::from(remaining);
+                let (res, err) = vm.allow_threads(|| {
+                    let r = unsafe { libc::nanosleep(ts.as_ref(), core::ptr::null_mut()) };
+                    (r, nix::Error::last_raw())
+                });
+                if res == 0 {
+                    break;
+                }
+                if err != libc::EINTR {
+                    return Err(
+                        vm.new_os_error(format!("nanosleep: {}", nix::Error::from_raw(err)))
+                    );
+                }
+                // EINTR: run signal handlers, then retry with remaining time
                 vm.check_signals()?;
             }
         }
