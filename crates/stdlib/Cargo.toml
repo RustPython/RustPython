@@ -48,7 +48,6 @@ libc = { workspace = true }
 nix = { workspace = true }
 num-complex = { workspace = true }
 malachite-bigint = { workspace = true }
-num-integer = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
@@ -78,16 +77,12 @@ constant_time_eq = { workspace = true }
 
 ## unicode stuff
 unicode_names2 = { workspace = true }
-# TODO: use unic for this; needed for title case:
-# https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
-unicode-casing = { workspace = true }
 # update version all at the same time
 unic-char-property = { workspace = true }
 unic-normal        = { workspace = true }
 unic-ucd-bidi      = { workspace = true }
 unic-ucd-category  = { workspace = true }
 unic-ucd-age       = { workspace = true }
-unic-ucd-ident     = { workspace = true }
 ucd = "0.1.1"
 unicode-bidi-mirroring = { workspace = true }
 
