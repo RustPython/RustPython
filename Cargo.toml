@@ -35,7 +35,6 @@ rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler", "gc"] }
-ruff_python_parser = { workspace = true }
 
 cfg-if = { workspace = true }
 log = { workspace = true }
@@ -56,6 +55,7 @@ rustyline = { workspace = true }
 criterion = { workspace = true }
 pyo3 = { version = "0.28.2", features = ["auto-initialize"] }
 rustpython-stdlib = { workspace = true }
+ruff_python_parser = { workspace = true }
 
 [[bench]]
 name = "execution"
@@ -169,7 +169,6 @@ ascii = "1.1"
 bitflags = "2.11.0"
 bitflagset = "0.0.3"
 bstr = "1"
-bytes = "1.11.1"
 cfg-if = "1.0"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
@@ -216,7 +215,6 @@ strum = "0.27"
 strum_macros = "0.28"
 syn = "2"
 thiserror = "2.0"
-thread_local = "1.1.9"
 unicode-casing = "0.1.1"
 unic-char-property = "0.9.0"
 unic-normal = "0.9.0"
