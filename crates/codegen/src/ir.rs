@@ -1685,10 +1685,7 @@ fn duplicate_end_returns(blocks: &mut [Block]) {
     current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let block = &blocks[current.idx()];
-        if current != last_block
-            && block.next == last_block
-            && !block.cold
-            && !block.except_handler
+        if current != last_block && block.next == last_block && !block.cold && !block.except_handler
         {
             let has_fallthrough = block
                 .instructions
