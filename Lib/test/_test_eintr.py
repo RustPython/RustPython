@@ -392,7 +392,6 @@ class SocketEINTRTest(EINTRBaseTest):
 class TimeEINTRTest(EINTRBaseTest):
     """ EINTR tests for the time module. """
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sleep(self):
         t0 = time.monotonic()
         time.sleep(self.sleep_time)
