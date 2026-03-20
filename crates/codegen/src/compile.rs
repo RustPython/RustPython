@@ -610,13 +610,13 @@ impl Compiler {
                 self.compile_expression(value)?;
                 match collection_type {
                     CollectionType::List => {
-                        emit!(self, Instruction::ListExtend { i: 0 });
+                        emit!(self, Instruction::ListExtend { i: 1 });
                     }
                     CollectionType::Set => {
-                        emit!(self, Instruction::SetUpdate { i: 0 });
+                        emit!(self, Instruction::SetUpdate { i: 1 });
                     }
                     CollectionType::Tuple => {
-                        emit!(self, Instruction::ListExtend { i: 0 });
+                        emit!(self, Instruction::ListExtend { i: 1 });
                     }
                 }
             } else {
@@ -627,13 +627,13 @@ impl Compiler {
                     // Sequence already exists, append to it
                     match collection_type {
                         CollectionType::List => {
-                            emit!(self, Instruction::ListAppend { i: 0 });
+                            emit!(self, Instruction::ListAppend { i: 1 });
                         }
                         CollectionType::Set => {
-                            emit!(self, Instruction::SetAdd { i: 0 });
+                            emit!(self, Instruction::SetAdd { i: 1 });
                         }
                         CollectionType::Tuple => {
-                            emit!(self, Instruction::ListAppend { i: 0 });
+                            emit!(self, Instruction::ListAppend { i: 1 });
                         }
                     }
                 } else {
@@ -3428,7 +3428,7 @@ impl Compiler {
         if n == 0 {
             // Empty handlers (invalid AST) - append rest to list and proceed
             // Stack: [prev_exc, orig, list, rest]
-            emit!(self, Instruction::ListAppend { i: 0 });
+            emit!(self, Instruction::ListAppend { i: 1 });
             // Stack: [prev_exc, orig, list]
             emit!(
                 self,
@@ -3546,7 +3546,7 @@ impl Compiler {
             // After pop: [prev_exc, orig, list, new_rest, lasti] (len=5)
             // nth_value(i) = stack[len - i - 1], we need stack[2] = list
             // stack[5 - i - 1] = 2 -> i = 2
-            emit!(self, Instruction::ListAppend { i: 2 });
+            emit!(self, Instruction::ListAppend { i: 3 });
             // Stack: [prev_exc, orig, list, new_rest, lasti]
 
             // POP_TOP - pop lasti
@@ -3575,7 +3575,7 @@ impl Compiler {
                 // PEEK(1) = stack[len-1] after pop
                 // RustPython nth_value(i) = stack[len-i-1] after pop
                 // For LIST_APPEND 1: stack[len-1] = stack[len-i-1] -> i = 0
-                emit!(self, Instruction::ListAppend { i: 0 });
+                emit!(self, Instruction::ListAppend { i: 1 });
                 // Stack: [prev_exc, orig, list]
                 emit!(
                     self,
@@ -4839,11 +4839,11 @@ impl Compiler {
                         if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = arg {
                             // Starred: compile and extend
                             self.compile_expression(value)?;
-                            emit!(self, Instruction::ListExtend { i: 0 });
+                            emit!(self, Instruction::ListExtend { i: 1 });
                         } else {
                             // Non-starred: compile and append
                             self.compile_expression(arg)?;
-                            emit!(self, Instruction::ListAppend { i: 0 });
+                            emit!(self, Instruction::ListAppend { i: 1 });
                         }
                     }
                 }
@@ -4855,7 +4855,7 @@ impl Compiler {
                         namei: dot_generic_base
                     }
                 );
-                emit!(self, Instruction::ListAppend { i: 0 });
+                emit!(self, Instruction::ListAppend { i: 1 });
 
                 // Convert list to tuple
                 emit!(
@@ -6524,7 +6524,7 @@ impl Compiler {
                         self.emit_load_const(ConstantData::Integer {
                             value: annotation_index.into(),
                         });
-                        emit!(self, Instruction::SetAdd { i: 0 });
+                        emit!(self, Instruction::SetAdd { i: 1 });
                         emit!(self, Instruction::PopTop);
                     }
                 }
@@ -7273,7 +7273,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::ListAppend {
-                                i: generators.len().to_u32(),
+                                i: (generators.len() + 1).to_u32(),
                             }
                         );
                         Ok(())
@@ -7299,7 +7299,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::SetAdd {
-                                i: generators.len().to_u32(),
+                                i: (generators.len() + 1).to_u32(),
                             }
                         );
                         Ok(())
@@ -7331,7 +7331,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::MapAdd {
-                                i: generators.len().to_u32(),
+                                i: (generators.len() + 1).to_u32(),
                             }
                         );
 
@@ -7591,7 +7591,7 @@ impl Compiler {
             self.compile_expression(&kw.value)?;
 
             if big {
-                emit!(self, Instruction::MapAdd { i: 0 });
+                emit!(self, Instruction::MapAdd { i: 1 });
             }
         }
 
