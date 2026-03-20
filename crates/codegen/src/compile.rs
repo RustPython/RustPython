@@ -1739,7 +1739,7 @@ impl Compiler {
                 value: value.into(),
             });
             let doc = self.name("__doc__");
-            emit!(self, Instruction::StoreGlobal { namei: doc })
+            emit!(self, Instruction::StoreName { namei: doc })
         }
 
         // Handle annotations based on future_annotations flag
@@ -4561,9 +4561,9 @@ impl Compiler {
         // 2. Set up class namespace
         let (doc_str, body) = split_doc(body, &self.opts);
 
-        // Load (global) __name__ and store as __module__
+        // Load __name__ and store as __module__
         let dunder_name = self.name("__name__");
-        self.emit_load_global(dunder_name, false);
+        emit!(self, Instruction::LoadName { namei: dunder_name });
         let dunder_module = self.name("__module__");
         emit!(
             self,
@@ -4584,14 +4584,7 @@ impl Compiler {
             }
         );
 
-        // Store __doc__ only if there's an explicit docstring
-        if let Some(doc) = doc_str {
-            self.emit_load_const(ConstantData::Str { value: doc.into() });
-            let doc_name = self.name("__doc__");
-            emit!(self, Instruction::StoreName { namei: doc_name });
-        }
-
-        // Store __firstlineno__ (new in Python 3.12+)
+        // Store __firstlineno__ before __doc__
         self.emit_load_const(ConstantData::Integer {
             value: BigInt::from(firstlineno),
         });
@@ -4602,6 +4595,13 @@ impl Compiler {
                 namei: firstlineno_name
             }
         );
+
+        // Store __doc__ only if there's an explicit docstring
+        if let Some(doc) = doc_str {
+            self.emit_load_const(ConstantData::Str { value: doc.into() });
+            let doc_name = self.name("__doc__");
+            emit!(self, Instruction::StoreName { namei: doc_name });
+        }
 
         // Set __type_params__ if we have type parameters
         if type_params.is_some() {
@@ -6742,6 +6742,10 @@ impl Compiler {
             _ => {
                 // Fall back case which always will work!
                 self.compile_expression(expression)?;
+                // Compare already produces a bool; everything else needs TO_BOOL
+                if !matches!(expression, ast::Expr::Compare(_)) {
+                    emit!(self, Instruction::ToBool);
+                }
                 if condition {
                     emit!(
                         self,
