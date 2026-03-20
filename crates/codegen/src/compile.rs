@@ -4665,6 +4665,31 @@ impl Compiler {
             .iter()
             .position(|var| *var == "__class__");
 
+        // Emit __static_attributes__ tuple
+        {
+            let attrs: Vec<String> = self
+                .code_stack
+                .last()
+                .unwrap()
+                .static_attributes
+                .as_ref()
+                .map(|s| s.iter().cloned().collect())
+                .unwrap_or_default();
+            self.emit_load_const(ConstantData::Tuple {
+                elements: attrs
+                    .into_iter()
+                    .map(|s| ConstantData::Str { value: s.into() })
+                    .collect(),
+            });
+            let static_attrs_name = self.name("__static_attributes__");
+            emit!(
+                self,
+                Instruction::StoreName {
+                    namei: static_attrs_name
+                }
+            );
+        }
+
         if let Some(classcell_idx) = classcell_idx {
             emit!(
                 self,
