@@ -7549,11 +7549,19 @@ impl Compiler {
                 // CALL at .method( line (not the full expression line)
                 self.codegen_call_helper(0, args, attr.range())?;
             } else {
-                // Normal method call: compile object, then LOAD_ATTR with method flag
-                // LOAD_ATTR(method=1) pushes [method, self_or_null] on stack
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                self.emit_load_attr_method(idx);
+                // Imported names (modules) use plain LOAD_ATTR + PUSH_NULL;
+                // other names use method call mode LOAD_ATTR
+                let is_import = matches!(value.as_ref(), ast::Expr::Name(ast::ExprName { id, .. })
+                    if self.current_symbol_table().symbols.get(id.as_str())
+                        .is_some_and(|s| s.flags.contains(SymbolFlags::IMPORTED)));
+                if is_import {
+                    self.emit_load_attr(idx);
+                    emit!(self, Instruction::PushNull);
+                } else {
+                    self.emit_load_attr_method(idx);
+                }
                 self.codegen_call_helper(0, args, call_range)?;
             }
         } else {
