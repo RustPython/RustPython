@@ -209,6 +209,7 @@ impl CodeInfo {
         label_exception_targets(&mut self.blocks);
         push_cold_blocks_to_end(&mut self.blocks);
         normalize_jumps(&mut self.blocks);
+        self.eliminate_unreachable_blocks();
         duplicate_end_returns(&mut self.blocks);
         self.optimize_load_global_push_null();
 
@@ -548,6 +549,7 @@ impl CodeInfo {
     }
 
     fn dce(&mut self) {
+        // Truncate instructions after terminal instructions within each block
         for block in &mut self.blocks {
             let mut last_instr = None;
             for (i, ins) in block.instructions.iter().enumerate() {
@@ -558,6 +560,45 @@ impl CodeInfo {
             }
             if let Some(i) = last_instr {
                 block.instructions.truncate(i + 1);
+            }
+        }
+    }
+
+    /// Clear blocks that are unreachable (not entry, not a jump target,
+    /// and only reachable via fall-through from a terminal block).
+    fn eliminate_unreachable_blocks(&mut self) {
+        let mut reachable = vec![false; self.blocks.len()];
+        reachable[0] = true;
+        // Mark blocks reachable via jump targets and exception handlers
+        for block in &self.blocks {
+            for ins in &block.instructions {
+                if ins.target != BlockIdx::NULL {
+                    reachable[ins.target.idx()] = true;
+                }
+                if let Some(eh) = &ins.except_handler {
+                    reachable[eh.handler_block.idx()] = true;
+                }
+            }
+        }
+        // Mark blocks reachable via fall-through from non-terminal blocks
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let next = self.blocks[current.idx()].next;
+            if next != BlockIdx::NULL
+                && !self.blocks[current.idx()]
+                    .instructions
+                    .last()
+                    .is_some_and(|ins| {
+                        ins.instr.is_scope_exit() || ins.instr.is_unconditional_jump()
+                    })
+            {
+                reachable[next.idx()] = true;
+            }
+            current = next;
+        }
+        for (i, block) in self.blocks.iter_mut().enumerate() {
+            if !reachable[i] {
+                block.instructions.clear();
             }
         }
     }
