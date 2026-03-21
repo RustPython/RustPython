@@ -1,6 +1,6 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 9375
+assertion_line: 9362
 expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
   1           0 RESUME               (0)
@@ -32,7 +32,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  24 GET_ITER
                  25 FOR_ITER             (71)
                  26 CACHE
-            >>   27 STORE_FAST           (0, stop_exc)
+                 27 STORE_FAST           (0, stop_exc)
 
   3         >>   28 LOAD_GLOBAL          (4, self)
                  29 CACHE
@@ -115,149 +115,140 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
 
   5             102 CLEANUP_THROW
                 103 JUMP_BACKWARD_NO_INTERRUPT(10)
-                104 SEND                 (4)
-                105 CACHE
-                106 YIELD_VALUE          (1)
-                107 RESUME               (3)
-                108 JUMP_BACKWARD_NO_INTERRUPT(5)
-                109 CLEANUP_THROW
-                110 END_SEND
-                111 POP_TOP
-                112 JUMP_FORWARD         (27)
-                113 PUSH_EXC_INFO
-                114 WITH_EXCEPT_START
-                115 GET_AWAITABLE        (2)
-                116 LOAD_CONST           (None)
-                117 SEND                 (4)
+                104 PUSH_EXC_INFO
+                105 WITH_EXCEPT_START
+                106 GET_AWAITABLE        (2)
+                107 LOAD_CONST           (None)
+                108 SEND                 (4)
+                109 CACHE
+                110 YIELD_VALUE          (1)
+                111 RESUME               (3)
+                112 JUMP_BACKWARD_NO_INTERRUPT(5)
+                113 CLEANUP_THROW
+                114 END_SEND
+                115 TO_BOOL
+                116 CACHE
+                117 CACHE
                 118 CACHE
-                119 YIELD_VALUE          (1)
-                120 RESUME               (3)
-                121 JUMP_BACKWARD_NO_INTERRUPT(5)
-                122 CLEANUP_THROW
-                123 END_SEND
-                124 TO_BOOL
-                125 CACHE
-                126 CACHE
-                127 CACHE
-                128 POP_JUMP_IF_TRUE     (2)
-                129 CACHE
-                130 NOT_TAKEN
-                131 RERAISE              (2)
-                132 POP_TOP
-                133 POP_EXCEPT
-                134 POP_TOP
-                135 POP_TOP
-                136 JUMP_FORWARD         (3)
-                137 COPY                 (3)
-                138 POP_EXCEPT
-                139 RERAISE              (1)
-                140 JUMP_FORWARD         (47)
-                141 PUSH_EXC_INFO
+                119 POP_JUMP_IF_TRUE     (2)
+                120 CACHE
+                121 NOT_TAKEN
+                122 RERAISE              (2)
+                123 POP_TOP
+                124 POP_EXCEPT
+                125 POP_TOP
+                126 POP_TOP
+                127 JUMP_FORWARD         (3)
+                128 COPY                 (3)
+                129 POP_EXCEPT
+                130 RERAISE              (1)
+                131 JUMP_FORWARD         (47)
+                132 PUSH_EXC_INFO
 
-  7             142 LOAD_GLOBAL          (12, Exception)
-                143 CACHE
+  7             133 LOAD_GLOBAL          (12, Exception)
+                134 CACHE
+                135 CACHE
+                136 CACHE
+                137 CACHE
+                138 CHECK_EXC_MATCH
+                139 POP_JUMP_IF_FALSE    (34)
+                140 CACHE
+                141 NOT_TAKEN
+                142 STORE_FAST           (1, ex)
+
+  8             143 LOAD_GLOBAL          (4, self)
                 144 CACHE
                 145 CACHE
                 146 CACHE
-                147 CHECK_EXC_MATCH
-                148 POP_JUMP_IF_FALSE    (34)
+                147 CACHE
+                148 LOAD_ATTR            (15, assertIs, method=true)
                 149 CACHE
-                150 NOT_TAKEN
-                151 STORE_FAST           (1, ex)
-
-  8             152 LOAD_GLOBAL          (4, self)
+                150 CACHE
+                151 CACHE
+                152 CACHE
                 153 CACHE
                 154 CACHE
                 155 CACHE
                 156 CACHE
-                157 LOAD_ATTR            (15, assertIs, method=true)
-                158 CACHE
-                159 CACHE
-                160 CACHE
+                157 CACHE
+                158 LOAD_FAST            (1, ex)
+                159 LOAD_FAST            (0, stop_exc)
+                160 CALL                 (2)
                 161 CACHE
                 162 CACHE
                 163 CACHE
-                164 CACHE
-                165 CACHE
-                166 CACHE
-                167 LOAD_FAST            (1, ex)
-                168 LOAD_FAST            (0, stop_exc)
-                169 CALL                 (2)
-                170 CACHE
-                171 CACHE
-                172 CACHE
-                173 POP_TOP
-                174 JUMP_FORWARD         (4)
-                175 LOAD_CONST           (None)
-                176 STORE_FAST           (1, ex)
-                177 DELETE_FAST          (1, ex)
+                164 POP_TOP
+                165 JUMP_FORWARD         (4)
+                166 LOAD_CONST           (None)
+                167 STORE_FAST           (1, ex)
+                168 DELETE_FAST          (1, ex)
+                169 RERAISE              (1)
+                170 POP_EXCEPT
+                171 LOAD_CONST           (None)
+                172 STORE_FAST           (1, ex)
+                173 DELETE_FAST          (1, ex)
+                174 JUMP_FORWARD         (28)
+                175 RERAISE              (0)
+                176 COPY                 (3)
+                177 POP_EXCEPT
                 178 RERAISE              (1)
-                179 POP_EXCEPT
-                180 LOAD_CONST           (None)
-                181 STORE_FAST           (1, ex)
-                182 DELETE_FAST          (1, ex)
-                183 JUMP_FORWARD         (28)
-                184 RERAISE              (0)
-                185 COPY                 (3)
-                186 POP_EXCEPT
-                187 RERAISE              (1)
 
- 10             188 LOAD_GLOBAL          (4, self)
+ 10             179 LOAD_GLOBAL          (4, self)
+                180 CACHE
+                181 CACHE
+                182 CACHE
+                183 CACHE
+                184 LOAD_ATTR            (17, fail, method=true)
+                185 CACHE
+                186 CACHE
+                187 CACHE
+                188 CACHE
                 189 CACHE
                 190 CACHE
                 191 CACHE
                 192 CACHE
-                193 LOAD_ATTR            (17, fail, method=true)
-                194 CACHE
-                195 CACHE
-                196 CACHE
-                197 CACHE
-                198 CACHE
+                193 CACHE
+                194 LOAD_FAST_BORROW     (0, stop_exc)
+                195 FORMAT_SIMPLE
+                196 LOAD_CONST           (" was suppressed")
+                197 BUILD_STRING         (2)
+                198 CALL                 (1)
                 199 CACHE
                 200 CACHE
                 201 CACHE
-                202 CACHE
-                203 LOAD_FAST_BORROW     (0, stop_exc)
-                204 FORMAT_SIMPLE
-                205 LOAD_CONST           (" was suppressed")
-                206 BUILD_STRING         (2)
-                207 CALL                 (1)
-                208 CACHE
-                209 CACHE
-                210 CACHE
-                211 POP_TOP
-                212 NOP
+                202 POP_TOP
+                203 NOP
 
-  3             213 PUSH_NULL
-                214 LOAD_CONST           (None)
-                215 LOAD_CONST           (None)
-                216 LOAD_CONST           (None)
-                217 CALL                 (3)
-            >>  218 CACHE
+  3             204 PUSH_NULL
+                205 LOAD_CONST           (None)
+                206 LOAD_CONST           (None)
+                207 LOAD_CONST           (None)
+                208 CALL                 (3)
+            >>  209 CACHE
+                210 CACHE
+                211 CACHE
+                212 POP_TOP
+                213 JUMP_FORWARD         (18)
+                214 PUSH_EXC_INFO
+                215 WITH_EXCEPT_START
+                216 TO_BOOL
+                217 CACHE
+                218 CACHE
                 219 CACHE
-                220 CACHE
-                221 POP_TOP
-                222 JUMP_FORWARD         (18)
-                223 PUSH_EXC_INFO
-                224 WITH_EXCEPT_START
-                225 TO_BOOL
-                226 CACHE
-                227 CACHE
-                228 CACHE
-                229 POP_JUMP_IF_TRUE     (2)
-                230 CACHE
-                231 NOT_TAKEN
-                232 RERAISE              (2)
-                233 POP_TOP
-                234 POP_EXCEPT
-                235 POP_TOP
-                236 POP_TOP
-                237 JUMP_FORWARD         (3)
-                238 COPY                 (3)
-                239 POP_EXCEPT
-                240 RERAISE              (1)
-                241 JUMP_BACKWARD        (218)
-                242 CACHE
+                220 POP_JUMP_IF_TRUE     (2)
+                221 CACHE
+                222 NOT_TAKEN
+                223 RERAISE              (2)
+                224 POP_TOP
+                225 POP_EXCEPT
+                226 POP_TOP
+                227 POP_TOP
+                228 JUMP_FORWARD         (3)
+                229 COPY                 (3)
+                230 POP_EXCEPT
+                231 RERAISE              (1)
+                232 JUMP_BACKWARD        (209)
+                233 CACHE
 
               2 MAKE_FUNCTION
               3 STORE_NAME           (0, test)

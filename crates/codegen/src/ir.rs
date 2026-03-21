@@ -209,6 +209,7 @@ impl CodeInfo {
         label_exception_targets(&mut self.blocks);
         push_cold_blocks_to_end(&mut self.blocks);
         normalize_jumps(&mut self.blocks);
+        self.dce(); // re-run within-block DCE after normalize_jumps creates new instructions
         self.eliminate_unreachable_blocks();
         duplicate_end_returns(&mut self.blocks);
         self.optimize_load_global_push_null();
@@ -332,6 +333,18 @@ impl CodeInfo {
             }
 
             blocks[bi].instructions = kept;
+        }
+
+        // Final DCE: truncate instructions after terminal ops in linearized blocks.
+        // This catches dead code created by normalize_jumps after the initial DCE.
+        for block in blocks.iter_mut() {
+            if let Some(pos) = block
+                .instructions
+                .iter()
+                .position(|ins| ins.instr.is_scope_exit() || ins.instr.is_unconditional_jump())
+            {
+                block.instructions.truncate(pos + 1);
+            }
         }
 
         // Pre-compute cache_entries for real (non-pseudo) instructions
@@ -569,33 +582,45 @@ impl CodeInfo {
     fn eliminate_unreachable_blocks(&mut self) {
         let mut reachable = vec![false; self.blocks.len()];
         reachable[0] = true;
-        // Mark blocks reachable via jump targets and exception handlers
-        for block in &self.blocks {
-            for ins in &block.instructions {
-                if ins.target != BlockIdx::NULL {
-                    reachable[ins.target.idx()] = true;
+
+        // Fixpoint: only mark targets of already-reachable blocks
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for i in 0..self.blocks.len() {
+                if !reachable[i] {
+                    continue;
                 }
-                if let Some(eh) = &ins.except_handler {
-                    reachable[eh.handler_block.idx()] = true;
+                // Mark jump targets and exception handlers
+                for ins in &self.blocks[i].instructions {
+                    if ins.target != BlockIdx::NULL && !reachable[ins.target.idx()] {
+                        reachable[ins.target.idx()] = true;
+                        changed = true;
+                    }
+                    if let Some(eh) = &ins.except_handler {
+                        if !reachable[eh.handler_block.idx()] {
+                            reachable[eh.handler_block.idx()] = true;
+                            changed = true;
+                        }
+                    }
+                }
+                // Mark fall-through
+                let next = self.blocks[i].next;
+                if next != BlockIdx::NULL
+                    && !reachable[next.idx()]
+                    && !self.blocks[i]
+                        .instructions
+                        .last()
+                        .is_some_and(|ins| {
+                            ins.instr.is_scope_exit() || ins.instr.is_unconditional_jump()
+                        })
+                {
+                    reachable[next.idx()] = true;
+                    changed = true;
                 }
             }
         }
-        // Mark blocks reachable via fall-through from non-terminal blocks
-        let mut current = BlockIdx(0);
-        while current != BlockIdx::NULL {
-            let next = self.blocks[current.idx()].next;
-            if next != BlockIdx::NULL
-                && !self.blocks[current.idx()]
-                    .instructions
-                    .last()
-                    .is_some_and(|ins| {
-                        ins.instr.is_scope_exit() || ins.instr.is_unconditional_jump()
-                    })
-            {
-                reachable[next.idx()] = true;
-            }
-            current = next;
-        }
+
         for (i, block) in self.blocks.iter_mut().enumerate() {
             if !reachable[i] {
                 block.instructions.clear();
