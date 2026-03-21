@@ -6771,7 +6771,10 @@ impl Compiler {
             _ => {
                 // Fall back case which always will work!
                 self.compile_expression(expression)?;
-                emit!(self, Instruction::ToBool);
+                // Compare already produces a bool; everything else needs TO_BOOL
+                if !matches!(expression, ast::Expr::Compare(_)) {
+                    emit!(self, Instruction::ToBool);
+                }
                 if condition {
                     emit!(
                         self,
