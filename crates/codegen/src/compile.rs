@@ -7564,11 +7564,18 @@ impl Compiler {
             } else {
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                // Imported names (modules) use plain LOAD_ATTR + PUSH_NULL;
-                // other names use method call mode LOAD_ATTR
-                let is_import = matches!(value.as_ref(), ast::Expr::Name(ast::ExprName { id, .. })
-                    if self.current_symbol_table().symbols.get(id.as_str())
-                        .is_some_and(|s| s.flags.contains(SymbolFlags::IMPORTED)));
+                // Module-level imported names use plain LOAD_ATTR + PUSH_NULL;
+                // function-local imports and other names use method call mode
+                let in_function = matches!(
+                    self.current_symbol_table().typ,
+                    CompilerScope::Function
+                        | CompilerScope::AsyncFunction
+                        | CompilerScope::Lambda
+                );
+                let is_import = !in_function
+                    && matches!(value.as_ref(), ast::Expr::Name(ast::ExprName { id, .. })
+                        if self.current_symbol_table().symbols.get(id.as_str())
+                            .is_some_and(|s| s.flags.contains(SymbolFlags::IMPORTED)));
                 if is_import {
                     self.emit_load_attr(idx);
                     emit!(self, Instruction::PushNull);
