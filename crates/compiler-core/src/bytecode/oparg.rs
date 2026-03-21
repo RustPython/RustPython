@@ -385,13 +385,13 @@ bitflagset::bitflag! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     #[repr(u8)]
     pub enum MakeFunctionFlag {
-        Defaults = 0,
-        KwOnlyDefaults = 1,
-        Annotations = 2,
-        Closure = 3,
+        Closure = 0,
+        Annotations = 1,
+        KwOnlyDefaults = 2,
+        Defaults = 3,
+        TypeParams = 4,
         /// PEP 649: __annotate__ function closure (instead of __annotations__ dict)
-        Annotate = 4,
-        TypeParams = 5,
+        Annotate = 5,
     }
 }
 
