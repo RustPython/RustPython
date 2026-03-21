@@ -70,6 +70,7 @@
     "lossily",
     "mcache",
     "oparg",
+    "opargs",
     "pyc",
     "significand",
     "summands",

@@ -109,6 +109,7 @@ lineiterator
 linetable
 loadfast
 localsplus
+localspluskinds
 Lshift
 lsprof
 MAXBLOCKS

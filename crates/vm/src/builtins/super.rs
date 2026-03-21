@@ -7,6 +7,7 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    builtins::function::PyCell,
     class::PyClassImpl,
     common::lock::PyRwLock,
     function::{FuncArgs, IntoFuncArgs, OptionalArg},
@@ -86,27 +87,33 @@ impl Initializer for PySuper {
                 return Err(vm.new_runtime_error("super(): no arguments"));
             }
             // SAFETY: Frame is current and not concurrently mutated.
+            use rustpython_compiler_core::bytecode::CO_FAST_CELL;
             let obj = unsafe { frame.fastlocals() }[0]
                 .clone()
-                .or_else(|| {
-                    if let Some(cell2arg) = frame.code.cell2arg.as_deref() {
-                        cell2arg[..frame.code.cellvars.len()]
-                            .iter()
-                            .enumerate()
-                            .find(|(_, arg_idx)| **arg_idx == 0)
-                            .and_then(|(cell_idx, _)| frame.get_cell_contents(cell_idx))
+                .and_then(|val| {
+                    // If slot 0 is a merged cell (LOCAL|CELL), extract value from cell
+                    if frame
+                        .code
+                        .localspluskinds
+                        .first()
+                        .is_some_and(|&k| k & CO_FAST_CELL != 0)
+                    {
+                        val.downcast_ref::<PyCell>().and_then(|c| c.get())
                     } else {
-                        None
+                        Some(val)
                     }
                 })
                 .ok_or_else(|| vm.new_runtime_error("super(): arg[0] deleted"))?;
 
             let mut typ = None;
+            // Search for __class__ in freevars using localspluskinds
+            let nlocalsplus = frame.code.localspluskinds.len();
+            let nfrees = frame.code.freevars.len();
+            let free_start = nlocalsplus - nfrees;
             for (i, var) in frame.code.freevars.iter().enumerate() {
                 if var.as_bytes() == b"__class__" {
-                    let i = frame.code.cellvars.len() + i;
                     let class = frame
-                        .get_cell_contents(i)
+                        .get_cell_contents(free_start + i)
                         .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;
                     typ = Some(class.downcast().map_err(|o| {
                         vm.new_type_error(format!(

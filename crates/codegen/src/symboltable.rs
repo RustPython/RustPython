@@ -299,6 +299,88 @@ fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String
     }
 }
 
+/// Check if an expression contains an `await` node (shallow, not into nested scopes).
+fn expr_contains_await(expr: &ast::Expr) -> bool {
+    use ast::visitor::Visitor;
+    struct AwaitFinder(bool);
+    impl ast::visitor::Visitor<'_> for AwaitFinder {
+        fn visit_expr(&mut self, expr: &ast::Expr) {
+            if !self.0 {
+                if matches!(expr, ast::Expr::Await(_)) {
+                    self.0 = true;
+                } else {
+                    ast::visitor::walk_expr(self, expr);
+                }
+            }
+        }
+    }
+    let mut finder = AwaitFinder(false);
+    finder.visit_expr(expr);
+    finder.0
+}
+
+/// PEP 709: Merge symbols from an inlined comprehension into the parent scope.
+/// Matches symtable.c inline_comprehension().
+fn inline_comprehension(
+    parent_symbols: &mut SymbolMap,
+    comp: &SymbolTable,
+    comp_free: &mut IndexSet<String>,
+    inlined_cells: &mut IndexSet<String>,
+    parent_type: CompilerScope,
+) {
+    for (name, sub_symbol) in &comp.symbols {
+        // Skip the .0 parameter
+        if sub_symbol.flags.contains(SymbolFlags::PARAMETER) {
+            continue;
+        }
+
+        // Track inlined cells
+        if sub_symbol.scope == SymbolScope::Cell
+            || sub_symbol.flags.contains(SymbolFlags::COMP_CELL)
+        {
+            inlined_cells.insert(name.clone());
+        }
+
+        // Handle __class__ in ClassBlock
+        let scope = if sub_symbol.scope == SymbolScope::Free
+            && parent_type == CompilerScope::Class
+            && name == "__class__"
+        {
+            comp_free.swap_remove(name);
+            SymbolScope::GlobalImplicit
+        } else {
+            sub_symbol.scope
+        };
+
+        if let Some(existing) = parent_symbols.get(name) {
+            // Name exists in parent
+            if existing.is_bound() && parent_type != CompilerScope::Class {
+                // Check if the name is free in any child of the comprehension
+                let is_free_in_child = comp.sub_tables.iter().any(|child| {
+                    child
+                        .symbols
+                        .get(name)
+                        .is_some_and(|s| s.scope == SymbolScope::Free)
+                });
+                if !is_free_in_child {
+                    comp_free.swap_remove(name);
+                }
+            }
+        } else {
+            // Name doesn't exist in parent, copy from comprehension.
+            // Reset scope to Unknown so analyze_symbol will resolve it
+            // in the parent's context.
+            let mut symbol = sub_symbol.clone();
+            symbol.scope = if sub_symbol.is_bound() {
+                SymbolScope::Unknown
+            } else {
+                scope
+            };
+            parent_symbols.insert(name.clone(), symbol);
+        }
+    }
+}
+
 type SymbolMap = IndexMap<String, Symbol>;
 
 mod stack {
@@ -392,14 +474,9 @@ impl SymbolTableAnalyzer {
         let symbols = core::mem::take(&mut symbol_table.symbols);
         let sub_tables = &mut *symbol_table.sub_tables;
 
-        // Collect free variables from all child scopes
-        let mut newfree = IndexSet::default();
-
         let annotation_block = &mut symbol_table.annotation_block;
 
         // PEP 649: Determine class_entry to pass to children
-        // If current scope is a class with annotation block that can_see_class_scope,
-        // we need to pass class symbols to the annotation scope
         let is_class = symbol_table.typ == CompilerScope::Class;
 
         // Clone class symbols if needed for child scopes with can_see_class_scope
@@ -418,12 +495,16 @@ impl SymbolTableAnalyzer {
             None
         };
 
+        // Collect (child_free, is_inlined) pairs from child scopes.
+        // We need to process inlined comprehensions after the closure
+        // when we have access to symbol_table.symbols.
+        let mut child_frees: Vec<(IndexSet<String>, bool)> = Vec::new();
+        let mut annotation_free: Option<IndexSet<String>> = None;
+
         let mut info = (symbols, symbol_table.typ);
         self.tables.with_append(&mut info, |list| {
             let inner_scope = unsafe { &mut *(list as *mut _ as *mut Self) };
-            // Analyze sub scopes and collect their free variables
             for sub_table in sub_tables.iter_mut() {
-                // Pass class_entry to sub-scopes that can see the class scope
                 let child_class_entry = if sub_table.can_see_class_scope {
                     if is_class {
                         class_symbols_clone.as_ref()
@@ -434,12 +515,10 @@ impl SymbolTableAnalyzer {
                     None
                 };
                 let child_free = inner_scope.analyze_symbol_table(sub_table, child_class_entry)?;
-                // Propagate child's free variables to this scope
-                newfree.extend(child_free);
+                child_frees.push((child_free, sub_table.comp_inlined));
             }
             // PEP 649: Analyze annotation block if present
             if let Some(annotation_table) = annotation_block {
-                // Pass class symbols to annotation scope if can_see_class_scope
                 let ann_class_entry = if annotation_table.can_see_class_scope {
                     if is_class {
                         class_symbols_clone.as_ref()
@@ -451,59 +530,56 @@ impl SymbolTableAnalyzer {
                 };
                 let child_free =
                     inner_scope.analyze_symbol_table(annotation_table, ann_class_entry)?;
-                // Propagate annotation's free variables to this scope
-                newfree.extend(child_free);
+                annotation_free = Some(child_free);
             }
             Ok(())
         })?;
 
         symbol_table.symbols = info.0;
 
-        // PEP 709: Merge symbols from inlined comprehensions into parent scope
-        // Only merge symbols that are actually bound in the comprehension,
-        // not references to outer scope variables (Free symbols).
-        const BOUND_FLAGS: SymbolFlags = SymbolFlags::ASSIGNED
-            .union(SymbolFlags::PARAMETER)
-            .union(SymbolFlags::ITER)
-            .union(SymbolFlags::ASSIGNED_IN_COMPREHENSION);
-
-        for sub_table in sub_tables.iter() {
-            if sub_table.comp_inlined {
-                for (name, sub_symbol) in &sub_table.symbols {
-                    // Skip the .0 parameter - it's internal to the comprehension
-                    if name == ".0" {
-                        continue;
-                    }
-                    // Only merge symbols that are bound in the comprehension
-                    // Skip Free references to outer scope variables
-                    if !sub_symbol.flags.intersects(BOUND_FLAGS) {
-                        continue;
-                    }
-                    // If the symbol doesn't exist in parent, add it
-                    if !symbol_table.symbols.contains_key(name) {
-                        let mut symbol = sub_symbol.clone();
-                        // Mark as local in parent scope
-                        symbol.scope = SymbolScope::Local;
-                        symbol_table.symbols.insert(name.clone(), symbol);
-                    }
-                }
+        // PEP 709: Process inlined comprehensions.
+        // Merge symbols from inlined comps into parent scope without bail-out.
+        let mut inlined_cells: IndexSet<String> = IndexSet::default();
+        let mut newfree = IndexSet::default();
+        for (idx, (mut child_free, is_inlined)) in child_frees.into_iter().enumerate() {
+            if is_inlined {
+                inline_comprehension(
+                    &mut symbol_table.symbols,
+                    &sub_tables[idx],
+                    &mut child_free,
+                    &mut inlined_cells,
+                    symbol_table.typ,
+                );
             }
+            newfree.extend(child_free);
         }
+        if let Some(ann_free) = annotation_free {
+            newfree.extend(ann_free);
+        }
+
+        let sub_tables = &*symbol_table.sub_tables;
 
         // Analyze symbols in current scope
         for symbol in symbol_table.symbols.values_mut() {
             self.analyze_symbol(symbol, symbol_table.typ, sub_tables, class_entry)?;
 
             // Collect free variables from this scope
-            // These will be propagated to the parent scope
             if symbol.scope == SymbolScope::Free || symbol.flags.contains(SymbolFlags::FREE_CLASS) {
                 newfree.insert(symbol.name.clone());
             }
         }
 
+        // PEP 709: Promote LOCAL to CELL and set COMP_CELL for inlined cell vars
+        for symbol in symbol_table.symbols.values_mut() {
+            if inlined_cells.contains(&symbol.name) {
+                if symbol.scope == SymbolScope::Local {
+                    symbol.scope = SymbolScope::Cell;
+                }
+                symbol.flags.insert(SymbolFlags::COMP_CELL);
+            }
+        }
+
         // Handle class-specific implicit cells
-        // This removes __class__ and __classdict__ from newfree if present
-        // and sets the corresponding flags on the symbol table
         if symbol_table.typ == CompilerScope::Class {
             drop_class_free(symbol_table, &mut newfree);
         }
@@ -694,6 +770,11 @@ impl SymbolTableAnalyzer {
         st_typ: CompilerScope,
     ) -> Option<SymbolScope> {
         sub_tables.iter().find_map(|st| {
+            // PEP 709: For inlined comprehensions, check their children
+            // instead of the comp itself (its symbols are merged into parent).
+            if st.comp_inlined {
+                return self.found_in_inner_scope(&st.sub_tables, name, st_typ);
+            }
             let sym = st.symbols.get(name)?;
             if sym.scope == SymbolScope::Free || sym.flags.contains(SymbolFlags::FREE_CLASS) {
                 if st_typ == CompilerScope::Class && name != "__class__" {
@@ -2037,13 +2118,31 @@ impl SymbolTableBuilder {
             self.line_index_start(range),
         );
 
-        // PEP 709: inlined comprehensions are not yet implemented in the
-        // compiler (is_inlined_comprehension_context always returns false),
-        // so do NOT mark comp_inlined here.  Setting it would cause the
-        // symbol-table analyzer to merge comprehension-local symbols into
-        // the parent scope, while the compiler still emits a separate code
-        // object — leading to the merged symbols being missing from the
-        // comprehension's own symbol table lookup.
+        // PEP 709: Mark non-generator comprehensions for inlining,
+        // but only inside function-like scopes (fastlocals).
+        // Module/class scope uses STORE_NAME which is incompatible
+        // with LOAD_FAST_AND_CLEAR / STORE_FAST save/restore.
+        // Async comprehensions cannot be inlined because they need
+        // their own coroutine scope.
+        // Note: tables.last() is the comprehension scope we just pushed,
+        // so we check the second-to-last for the parent scope.
+        let element_has_await = expr_contains_await(elt1) || elt2.is_some_and(expr_contains_await);
+        if !is_generator && !has_async_gen && !element_has_await {
+            let parent = self.tables.iter().rev().nth(1);
+            let parent_is_func = parent.is_some_and(|t| {
+                matches!(
+                    t.typ,
+                    CompilerScope::Function
+                        | CompilerScope::AsyncFunction
+                        | CompilerScope::Lambda
+                        | CompilerScope::Comprehension
+                )
+            });
+            let parent_can_see_class = parent.is_some_and(|t| t.can_see_class_scope);
+            if parent_is_func && !parent_can_see_class {
+                self.tables.last_mut().unwrap().comp_inlined = true;
+            }
+        }
 
         // Register the passed argument to the generator function as the name ".0"
         self.register_name(".0", SymbolUsage::Parameter, range)?;

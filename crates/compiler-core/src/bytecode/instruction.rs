@@ -130,7 +130,7 @@ pub enum Instruction {
         namei: Arg<NameIdx>,
     } = 61,
     DeleteDeref {
-        i: Arg<NameIdx>,
+        i: Arg<oparg::VarNum>,
     } = 62,
     DeleteFast {
         var_num: Arg<oparg::VarNum>,
@@ -189,7 +189,7 @@ pub enum Instruction {
         consti: Arg<oparg::ConstIdx>,
     } = 82,
     LoadDeref {
-        i: Arg<NameIdx>,
+        i: Arg<oparg::VarNum>,
     } = 83,
     LoadFast {
         var_num: Arg<oparg::VarNum>,
@@ -210,7 +210,7 @@ pub enum Instruction {
         var_nums: Arg<oparg::VarNums>,
     } = 89,
     LoadFromDictOrDeref {
-        i: Arg<NameIdx>,
+        i: Arg<oparg::VarNum>,
     } = 90,
     LoadFromDictOrGlobals {
         i: Arg<NameIdx>,
@@ -231,7 +231,7 @@ pub enum Instruction {
         namei: Arg<LoadSuperAttr>,
     } = 96,
     MakeCell {
-        i: Arg<NameIdx>,
+        i: Arg<oparg::VarNum>,
     } = 97,
     MapAdd {
         i: Arg<u32>,
@@ -273,7 +273,7 @@ pub enum Instruction {
         namei: Arg<NameIdx>,
     } = 110,
     StoreDeref {
-        i: Arg<NameIdx>,
+        i: Arg<oparg::VarNum>,
     } = 111,
     StoreFast {
         var_num: Arg<oparg::VarNum>,
@@ -1128,7 +1128,7 @@ impl InstructionMetadata for Instruction {
 
         let varname = |var_num: oparg::VarNum| ctx.get_varname(var_num);
         let name = |i: u32| ctx.get_name(i as usize);
-        let cell_name = |i: u32| ctx.get_cell_name(i as usize);
+        let cell_name = |i: oparg::VarNum| ctx.get_localsplus_name(i);
 
         let fmt_const = |op: &str,
                          arg: OpArg,
