@@ -195,8 +195,9 @@ impl CodeInfo {
         self.remove_unused_consts();
         self.remove_nops();
 
+        // DCE always runs (removes dead code after terminal instructions)
+        self.dce();
         if opts.optimize > 0 {
-            self.dce();
             self.peephole_optimize();
         }
 
