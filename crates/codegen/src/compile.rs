@@ -4693,7 +4693,13 @@ impl Compiler {
         // Store __classdictcell__ if __classdict__ is a cell variable
         if self.current_symbol_table().needs_classdict {
             let classdict_idx = self.get_cell_var_index("__classdict__")?;
-            emit!(self, Instruction::LoadDeref { i: classdict_idx });
+            // Use LoadClosure to get the cell object itself (not the value inside)
+            emit!(
+                self,
+                PseudoInstruction::LoadClosure {
+                    i: classdict_idx
+                }
+            );
             let classdictcell = self.name("__classdictcell__");
             emit!(
                 self,
