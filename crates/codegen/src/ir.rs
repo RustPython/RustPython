@@ -617,7 +617,23 @@ impl CodeInfo {
                 };
 
                 let tuple_size = u32::from(instr.arg) as usize;
-                if tuple_size == 0 || i < tuple_size {
+                if tuple_size == 0 {
+                    // BUILD_TUPLE 0 → LOAD_CONST ()
+                    let (const_idx, _) = self.metadata.consts.insert_full(
+                        ConstantData::Tuple {
+                            elements: Vec::new(),
+                        },
+                    );
+                    block.instructions[i].instr =
+                        Instruction::LoadConst {
+                            consti: Arg::marker(),
+                        }
+                        .into();
+                    block.instructions[i].arg = OpArg::new(const_idx as u32);
+                    i += 1;
+                    continue;
+                }
+                if i < tuple_size {
                     i += 1;
                     continue;
                 }
