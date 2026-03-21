@@ -1807,7 +1807,12 @@ mod sys {
 
     #[cfg(windows)]
     #[pyclass(with(PyStructSequence))]
-    impl PyWindowsVersion {}
+    impl PyWindowsVersion {
+        #[pyslot]
+        fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error("cannot create 'sys.getwindowsversion' instances"))
+        }
+    }
 
     #[derive(Debug)]
     #[pystruct_sequence_data(try_from_object)]

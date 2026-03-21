@@ -445,6 +445,11 @@ mod _winapi {
         for (_, entry) in entries {
             out.push(entry);
         }
+        // Each entry ends with \0, so one more \0 terminates the block.
+        // For empty env, we need \0\0 as a valid empty environment block.
+        if out.is_empty() {
+            out.push_str("\0");
+        }
         out.push_str("\0");
         Ok(out.into_vec())
     }
