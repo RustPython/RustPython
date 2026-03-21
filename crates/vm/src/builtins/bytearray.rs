@@ -215,8 +215,9 @@ impl PyByteArray {
         size_of::<Self>() + self.borrow_buf().len() * size_of::<u8>()
     }
 
-    #[pymethod]
-    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pyslot]
+    fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let zelf = zelf.downcast_ref::<Self>().expect("expected bytearray");
         PyBytesInner::warn_on_str("str() on a bytearray instance", vm)?;
         let class_name = zelf.class().name();
         let repr = zelf.inner().repr_with_name(&class_name, vm)?;
