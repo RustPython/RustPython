@@ -64,7 +64,7 @@ pub struct PyFunction {
     code: PyAtomicRef<PyCode>,
     globals: PyDictRef,
     builtins: PyObjectRef,
-    closure: Option<PyRef<PyTuple<PyCellRef>>>,
+    pub(crate) closure: Option<PyRef<PyTuple<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
@@ -443,13 +443,6 @@ impl PyFunction {
             }
         }
 
-        if let Some(cell2arg) = code.cell2arg.as_deref() {
-            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
-                let x = fastlocals[*arg_idx as usize].take();
-                frame.set_cell_contents(cell_idx, x);
-            }
-        }
-
         Ok(())
     }
 
@@ -725,14 +718,6 @@ impl Py<PyFunction> {
             }
         }
 
-        if let Some(cell2arg) = code.cell2arg.as_deref() {
-            let fastlocals = unsafe { frame.fastlocals_mut() };
-            for (cell_idx, arg_idx) in cell2arg.iter().enumerate().filter(|(_, i)| **i != -1) {
-                let x = fastlocals[*arg_idx as usize].take();
-                frame.set_cell_contents(cell_idx, x);
-            }
-        }
-
         frame
     }
 
@@ -780,11 +765,7 @@ pub(crate) fn datastack_frame_size_bytes_for_code(code: &Py<PyCode>) -> Option<u
     {
         return None;
     }
-    let nlocalsplus = code
-        .varnames
-        .len()
-        .checked_add(code.cellvars.len())?
-        .checked_add(code.freevars.len())?;
+    let nlocalsplus = code.localspluskinds.len();
     let capacity = nlocalsplus.checked_add(code.max_stackdepth as usize)?;
     capacity.checked_mul(core::mem::size_of::<usize>())
 }

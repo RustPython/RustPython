@@ -427,12 +427,12 @@ impl Context {
             max_stackdepth: 2,
             obj_name: names.__init__,
             qualname: names.__init__,
-            cell2arg: None,
             constants: core::iter::empty().collect(),
             names: Vec::new().into_boxed_slice(),
             varnames: Vec::new().into_boxed_slice(),
             cellvars: Vec::new().into_boxed_slice(),
             freevars: Vec::new().into_boxed_slice(),
+            localspluskinds: Vec::new().into_boxed_slice(),
             linetable: Vec::new().into_boxed_slice(),
             exceptiontable: Vec::new().into_boxed_slice(),
         };
