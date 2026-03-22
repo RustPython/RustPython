@@ -697,19 +697,16 @@ impl Compiler {
         if let Some(sym) = self.current_symbol_table().symbols.get(name) {
             if sym.flags.contains(SymbolFlags::IMPORTED) {
                 return true;
-            }
-            if sym.scope == SymbolScope::Local {
+            } else if sym.scope == SymbolScope::Local {
                 return false;
             }
         }
-        for table in self.symbol_table_stack.iter().rev().skip(1) {
-            if let Some(sym) = table.symbols.get(name) {
-                if sym.flags.contains(SymbolFlags::IMPORTED) {
-                    return true;
-                }
-            }
-        }
-        false
+        self.symbol_table_stack.iter().rev().skip(1).any(|table| {
+            table
+                .symbols
+                .get(name)
+                .is_some_and(|sym| sym.flags.contains(SymbolFlags::IMPORTED))
+        })
     }
 
     /// Get the cell-relative index of a free variable.

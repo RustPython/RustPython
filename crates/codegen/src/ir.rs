@@ -597,23 +597,20 @@ impl CodeInfo {
                         reachable[ins.target.idx()] = true;
                         changed = true;
                     }
-                    if let Some(eh) = &ins.except_handler {
-                        if !reachable[eh.handler_block.idx()] {
-                            reachable[eh.handler_block.idx()] = true;
-                            changed = true;
-                        }
+                    if let Some(eh) = &ins.except_handler
+                        && !reachable[eh.handler_block.idx()]
+                    {
+                        reachable[eh.handler_block.idx()] = true;
+                        changed = true;
                     }
                 }
                 // Mark fall-through
                 let next = self.blocks[i].next;
                 if next != BlockIdx::NULL
                     && !reachable[next.idx()]
-                    && !self.blocks[i]
-                        .instructions
-                        .last()
-                        .is_some_and(|ins| {
-                            ins.instr.is_scope_exit() || ins.instr.is_unconditional_jump()
-                        })
+                    && !self.blocks[i].instructions.last().is_some_and(|ins| {
+                        ins.instr.is_scope_exit() || ins.instr.is_unconditional_jump()
+                    })
                 {
                     reachable[next.idx()] = true;
                     changed = true;
@@ -644,16 +641,13 @@ impl CodeInfo {
                 let tuple_size = u32::from(instr.arg) as usize;
                 if tuple_size == 0 {
                     // BUILD_TUPLE 0 → LOAD_CONST ()
-                    let (const_idx, _) = self.metadata.consts.insert_full(
-                        ConstantData::Tuple {
-                            elements: Vec::new(),
-                        },
-                    );
-                    block.instructions[i].instr =
-                        Instruction::LoadConst {
-                            consti: Arg::marker(),
-                        }
-                        .into();
+                    let (const_idx, _) = self.metadata.consts.insert_full(ConstantData::Tuple {
+                        elements: Vec::new(),
+                    });
+                    block.instructions[i].instr = Instruction::LoadConst {
+                        consti: Arg::marker(),
+                    }
+                    .into();
                     block.instructions[i].arg = OpArg::new(const_idx as u32);
                     i += 1;
                     continue;
