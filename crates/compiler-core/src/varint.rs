@@ -34,6 +34,9 @@ pub fn write_signed_varint(buf: &mut Vec<u8>, val: i32) -> usize {
 /// Write a big-endian varint (used by exception tables).
 pub fn write_varint_be(buf: &mut Vec<u8>, val: u32) -> usize {
     let start_len = buf.len();
+    if val >= 1 << 30 {
+        buf.push(0x40 | ((val >> 30) & 0x3f) as u8);
+    }
     if val >= 1 << 24 {
         buf.push(0x40 | ((val >> 24) & 0x3f) as u8);
     }
