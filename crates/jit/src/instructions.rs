@@ -624,7 +624,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
-            Instruction::ExtendedArg | Instruction::Cache => Ok(()),
+            Instruction::ExtendedArg
+            | Instruction::Cache
+            | Instruction::MakeCell { .. }
+            | Instruction::CopyFreeVars { .. } => Ok(()),
 
             Instruction::JumpBackward { .. }
             | Instruction::JumpBackwardNoInterrupt { .. }
