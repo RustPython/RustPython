@@ -8013,23 +8013,31 @@ impl Compiler {
     ) -> CompileResult<()> {
         // PEP 709: Consume the comprehension's sub_table.
         // The symbols are already merged into parent scope by analyze_symbol_table.
-        // Splice the comprehension's children into the parent so nested scopes
-        // (e.g. inner comprehensions, lambdas) can be found by the compiler.
         let current_table = self
             .symbol_table_stack
             .last_mut()
             .expect("no current symbol table");
         let comp_table = current_table.sub_tables[current_table.next_sub_table].clone();
         current_table.next_sub_table += 1;
+
+        // Compile the outermost iterator first. Its expression may reference
+        // nested scopes (e.g. lambdas) whose sub_tables sit at the current
+        // position in the parent's list. Those must be consumed before we
+        // splice in the comprehension's own children.
+        self.compile_expression(&generators[0].iter)?;
+
+        // Splice the comprehension's children (e.g. nested inlined
+        // comprehensions) into the parent so the compiler can find them.
         if !comp_table.sub_tables.is_empty() {
+            let current_table = self
+                .symbol_table_stack
+                .last_mut()
+                .expect("no current symbol table");
             let insert_pos = current_table.next_sub_table;
             for (i, st) in comp_table.sub_tables.iter().enumerate() {
                 current_table.sub_tables.insert(insert_pos + i, st.clone());
             }
         }
-
-        // Step 1: Compile the outermost iterator BEFORE tweaking scopes
-        self.compile_expression(&generators[0].iter)?;
         if has_async && generators[0].is_async {
             emit!(self, Instruction::GetAIter);
         } else {
