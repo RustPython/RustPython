@@ -692,6 +692,26 @@ impl Compiler {
             .expect("symbol_table_stack is empty! This is a compiler bug.")
     }
 
+    /// Check if a name is imported in current scope or any enclosing scope.
+    fn is_name_imported(&self, name: &str) -> bool {
+        if let Some(sym) = self.current_symbol_table().symbols.get(name) {
+            if sym.flags.contains(SymbolFlags::IMPORTED) {
+                return true;
+            }
+            if sym.scope == SymbolScope::Local {
+                return false;
+            }
+        }
+        for table in self.symbol_table_stack.iter().rev().skip(1) {
+            if let Some(sym) = table.symbols.get(name) {
+                if sym.flags.contains(SymbolFlags::IMPORTED) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Get the cell-relative index of a free variable.
     /// Returns ncells + freevar_idx. Fixed up to localsplus index during finalize.
     fn get_free_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
@@ -7551,18 +7571,11 @@ impl Compiler {
             } else {
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                // Module-level imported names use plain LOAD_ATTR + PUSH_NULL;
-                // function-local imports and other names use method call mode
-                let in_function = matches!(
-                    self.current_symbol_table().typ,
-                    CompilerScope::Function
-                        | CompilerScope::AsyncFunction
-                        | CompilerScope::Lambda
-                );
-                let is_import = !in_function
-                    && matches!(value.as_ref(), ast::Expr::Name(ast::ExprName { id, .. })
-                        if self.current_symbol_table().symbols.get(id.as_str())
-                            .is_some_and(|s| s.flags.contains(SymbolFlags::IMPORTED)));
+                // Imported names use plain LOAD_ATTR + PUSH_NULL;
+                // other names use method call mode LOAD_ATTR.
+                // Check current scope and enclosing scopes for IMPORTED flag.
+                let is_import = matches!(value.as_ref(), ast::Expr::Name(ast::ExprName { id, .. })
+                    if self.is_name_imported(id.as_str()));
                 if is_import {
                     self.emit_load_attr(idx);
                     emit!(self, Instruction::PushNull);
