@@ -524,6 +524,9 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
     refs: &mut Vec<Option<Bag::Value>>,
     typ: Type,
 ) -> Result<Bag::Value> {
+    if depth == 0 {
+        return Err(MarshalError::InvalidBytecode);
+    }
     let value = match typ {
         Type::True => bag.make_bool(true),
         Type::False => bag.make_bool(false),
