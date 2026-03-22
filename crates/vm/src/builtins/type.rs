@@ -2133,29 +2133,15 @@ impl Constructor for PyType {
             }
         }
 
-        {
-            let mut attrs = typ.attributes.write();
-            if let Some(cell) = attrs.get(identifier!(vm, __classcell__)) {
-                let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
-                    vm.new_type_error(format!(
-                        "__classcell__ must be a nonlocal cell, not {}",
-                        cell.class().name()
-                    ))
-                })?;
-                cell.set(Some(typ.clone().into()));
-                attrs.shift_remove(identifier!(vm, __classcell__));
-            }
-            if let Some(cell) = attrs.get(identifier!(vm, __classdictcell__)) {
-                let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
-                    vm.new_type_error(format!(
-                        "__classdictcell__ must be a nonlocal cell, not {}",
-                        cell.class().name()
-                    ))
-                })?;
-                cell.set(Some(dict.clone().into()));
-                attrs.shift_remove(identifier!(vm, __classdictcell__));
-            }
-        }
+        if let Some(cell) = typ.attributes.write().get(identifier!(vm, __classcell__)) {
+            let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "__classcell__ must be a nonlocal cell, not {}",
+                    cell.class().name()
+                ))
+            })?;
+            cell.set(Some(typ.clone().into()));
+        };
 
         // All *classes* should have a dict. Exceptions are *instances* of
         // classes that define __slots__ and instances of built-in classes
