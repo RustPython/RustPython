@@ -612,7 +612,6 @@ class TestTranforms(BytecodeTestCase):
                     print(i)
         self.check_jump_targets(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; 611           JUMP_BACKWARD           16
     def test_elim_jump_after_return1(self):
         # Eliminate dead code: jumps immediately after returns can't be reached
         def f(cond1, cond2):
