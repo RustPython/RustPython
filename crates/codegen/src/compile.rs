@@ -4710,6 +4710,24 @@ impl Compiler {
             );
         }
 
+        // Store __classdictcell__ if __classdict__ is a cell variable
+        if self.current_symbol_table().needs_classdict {
+            let classdict_idx = self.get_cell_var_index("__classdict__")?;
+            emit!(
+                self,
+                PseudoInstruction::LoadClosure {
+                    i: classdict_idx.as_u32()
+                }
+            );
+            let classdictcell = self.name("__classdictcell__");
+            emit!(
+                self,
+                Instruction::StoreName {
+                    namei: classdictcell
+                }
+            );
+        }
+
         if let Some(classcell_idx) = classcell_idx {
             emit!(
                 self,
