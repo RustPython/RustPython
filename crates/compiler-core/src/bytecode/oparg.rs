@@ -403,14 +403,24 @@ bitflagset::bitflagset! {
 impl TryFrom<u32> for MakeFunctionFlag {
     type Error = MarshalError;
 
+    /// Decode from CPython-compatible power-of-two value
     fn try_from(value: u32) -> Result<Self, Self::Error> {
-        Self::try_from(value as u8).map_err(|_| MarshalError::InvalidBytecode)
+        match value {
+            0x01 => Ok(Self::Defaults),
+            0x02 => Ok(Self::KwOnlyDefaults),
+            0x04 => Ok(Self::Annotations),
+            0x08 => Ok(Self::Closure),
+            0x10 => Ok(Self::Annotate),
+            0x20 => Ok(Self::TypeParams),
+            _ => Err(MarshalError::InvalidBytecode),
+        }
     }
 }
 
 impl From<MakeFunctionFlag> for u32 {
+    /// Encode as CPython-compatible power-of-two value
     fn from(flag: MakeFunctionFlag) -> Self {
-        flag as u32
+        1u32 << (flag as u32)
     }
 }
 
