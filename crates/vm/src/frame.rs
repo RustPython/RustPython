@@ -712,8 +712,7 @@ impl Frame {
             .flags
             .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
         {
-            code.first_line_number
-                .map_or(0, |line| line.get() as u32)
+            code.first_line_number.map_or(0, |line| line.get() as u32)
         } else {
             0
         };

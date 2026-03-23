@@ -1420,8 +1420,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(6)
         output.append(7)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(4, 5, [3, 5])
     async def test_jump_out_of_async_for_block_forwards(output):
         for i in [1]:
@@ -1430,8 +1428,6 @@ class JumpTestCase(unittest.TestCase):
                 output.append(4)
             output.append(5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(5, 2, [2, 4, 2, 4, 5, 6])
     async def test_jump_out_of_async_for_block_backwards(output):
         for i in [1]:
@@ -1539,8 +1535,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(2)
         output.append(3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(2, 3, [1, 3])
     async def test_jump_forwards_out_of_async_with_block(output):
         async with asynctracecontext(output, 1):
@@ -1553,8 +1547,6 @@ class JumpTestCase(unittest.TestCase):
         with tracecontext(output, 2):
             output.append(3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(3, 1, [1, 2, 1, 2, 3, -2])
     async def test_jump_backwards_out_of_async_with_block(output):
         output.append(1)
@@ -1624,8 +1616,6 @@ class JumpTestCase(unittest.TestCase):
         with tracecontext(output, 4):
             output.append(5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(2, 4, [1, 4, 5, -4])
     async def test_jump_across_async_with(output):
         output.append(1)
@@ -1643,8 +1633,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
         output.append(6)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(4, 5, [1, 3, 5, 6])
     async def test_jump_out_of_async_with_block_within_for_block(output):
         output.append(1)
@@ -1663,8 +1651,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
         output.append(6)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(4, 5, [1, 2, 3, 5, -2, 6])
     async def test_jump_out_of_async_with_block_within_with_block(output):
         output.append(1)
@@ -1684,8 +1670,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(6)
         output.append(7)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(5, 6, [2, 4, 6, 7])
     async def test_jump_out_of_async_with_block_within_finally_block(output):
         try:
@@ -1719,8 +1703,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
         output.append(5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(3, 5, [1, 2, 5])
     async def test_jump_out_of_async_with_assignment(output):
         output.append(1)
@@ -1768,8 +1750,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(7)
         output.append(8)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(1, 7, [7, 8])
     async def test_jump_over_async_for_block_before_else(output):
         output.append(1)
@@ -2053,8 +2033,6 @@ class JumpTestCase(unittest.TestCase):
         with tracecontext(output, 4):
             output.append(5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @async_jump_test(3, 5, [1, 2, 5, -2])
     async def test_jump_between_async_with_blocks(output):
         output.append(1)
