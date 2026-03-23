@@ -4,22 +4,24 @@ assertion_line: 9563
 expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pass\n\")"
 ---
   1           0 RESUME               (0)
-        >>    1 LOAD_CONST           (True)
+              1 LOAD_CONST           (True)
               2 POP_JUMP_IF_FALSE    (5)
-              3 CACHE
+        >>    3 CACHE
               4 NOT_TAKEN
         >>    5 LOAD_CONST           (False)
               6 POP_JUMP_IF_TRUE     (9)
-              7 CACHE
+        >>    7 CACHE
               8 NOT_TAKEN
         >>    9 LOAD_CONST           (False)
-             10 POP_JUMP_IF_FALSE    (5)
+             10 POP_JUMP_IF_FALSE    (7)
              11 CACHE
              12 NOT_TAKEN
              13 LOAD_CONST           (True)
-             14 POP_JUMP_IF_FALSE    (1)
+             14 POP_JUMP_IF_FALSE    (3)
              15 CACHE
              16 NOT_TAKEN
 
   2          17 LOAD_CONST           (None)
              18 RETURN_VALUE
+             19 LOAD_CONST           (None)
+             20 RETURN_VALUE

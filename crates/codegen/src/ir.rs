@@ -214,6 +214,8 @@ impl CodeInfo {
         self.dce(); // re-run within-block DCE after normalize_jumps creates new instructions
         self.eliminate_unreachable_blocks();
         duplicate_end_returns(&mut self.blocks);
+        self.dce(); // truncate after terminal in blocks that got return duplicated
+        self.eliminate_unreachable_blocks(); // remove now-unreachable last block
         self.optimize_load_global_push_null();
 
         let max_stackdepth = self.max_stackdepth()?;
@@ -2011,12 +2013,22 @@ fn duplicate_end_returns(blocks: &mut [Block]) {
         let block = &blocks[current.idx()];
         if current != last_block && block.next == last_block && !block.cold && !block.except_handler
         {
-            let has_fallthrough = block
-                .instructions
-                .last()
+            let last_ins = block.instructions.last();
+            let has_fallthrough = last_ins
                 .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
                 .unwrap_or(true);
-            if has_fallthrough {
+            // Don't duplicate if block already ends with the same return pattern
+            let already_has_return = block.instructions.len() >= 2 && {
+                let n = block.instructions.len();
+                matches!(
+                    block.instructions[n - 2].instr,
+                    AnyInstruction::Real(Instruction::LoadConst { .. })
+                ) && matches!(
+                    block.instructions[n - 1].instr,
+                    AnyInstruction::Real(Instruction::ReturnValue)
+                )
+            };
+            if has_fallthrough && !already_has_return {
                 blocks_to_fix.push(current);
             }
         }
