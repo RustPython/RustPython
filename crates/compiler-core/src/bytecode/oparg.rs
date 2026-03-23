@@ -382,6 +382,10 @@ oparg_enum!(
 );
 
 bitflagset::bitflag! {
+    /// `SET_FUNCTION_ATTRIBUTE` flags.
+    /// Bitmask: Defaults=0x01, KwOnly=0x02, Annotations=0x04,
+    /// Closure=0x08, TypeParams=0x10, Annotate=0x20.
+    /// Stored as bit position (0-5) by `bitflag!` macro.
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     #[repr(u8)]
     pub enum MakeFunctionFlag {
@@ -426,20 +430,63 @@ impl From<MakeFunctionFlag> for u32 {
 
 impl OpArgType for MakeFunctionFlag {}
 
-oparg_enum!(
-    /// The possible comparison operators.
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    pub enum ComparisonOperator {
-        // be intentional with bits so that we can do eval_ord with just a bitwise and
-        // bits: | Equal | Greater | Less |
-        Less = 0b001,
-        Greater = 0b010,
-        NotEqual = 0b011,
-        Equal = 0b100,
-        LessOrEqual = 0b101,
-        GreaterOrEqual = 0b110,
+/// `COMPARE_OP` arg is `(cmp_index << 5) | mask`.  Only the upper
+/// 3 bits identify the comparison; the lower 5 bits are an inline
+/// cache mask for adaptive specialization.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ComparisonOperator {
+    Less,
+    LessOrEqual,
+    Equal,
+    NotEqual,
+    Greater,
+    GreaterOrEqual,
+}
+
+impl TryFrom<u8> for ComparisonOperator {
+    type Error = MarshalError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::try_from(value as u32)
     }
-);
+}
+
+impl TryFrom<u32> for ComparisonOperator {
+    type Error = MarshalError;
+    /// Decode from `COMPARE_OP` arg: `(cmp_index << 5) | mask`.
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value >> 5 {
+            0 => Ok(Self::Less),
+            1 => Ok(Self::LessOrEqual),
+            2 => Ok(Self::Equal),
+            3 => Ok(Self::NotEqual),
+            4 => Ok(Self::Greater),
+            5 => Ok(Self::GreaterOrEqual),
+            _ => Err(MarshalError::InvalidBytecode),
+        }
+    }
+}
+
+impl From<ComparisonOperator> for u8 {
+    /// Encode as `cmp_index << 5` (mask bits zero).
+    fn from(value: ComparisonOperator) -> Self {
+        match value {
+            ComparisonOperator::Less => 0,
+            ComparisonOperator::LessOrEqual => 1 << 5,
+            ComparisonOperator::Equal => 2 << 5,
+            ComparisonOperator::NotEqual => 3 << 5,
+            ComparisonOperator::Greater => 4 << 5,
+            ComparisonOperator::GreaterOrEqual => 5 << 5,
+        }
+    }
+}
+
+impl From<ComparisonOperator> for u32 {
+    fn from(value: ComparisonOperator) -> Self {
+        Self::from(u8::from(value))
+    }
+}
+
+impl OpArgType for ComparisonOperator {}
 
 oparg_enum!(
     /// The possible Binary operators

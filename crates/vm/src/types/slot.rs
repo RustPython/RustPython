@@ -1865,12 +1865,14 @@ impl PyComparisonOp {
     }
 
     pub fn eval_ord(self, ord: Ordering) -> bool {
-        let bit = match ord {
-            Ordering::Less => Self::Lt,
-            Ordering::Equal => Self::Eq,
-            Ordering::Greater => Self::Gt,
-        };
-        u8::from(self.0) & u8::from(bit.0) != 0
+        match self {
+            Self::Lt => ord == Ordering::Less,
+            Self::Le => ord != Ordering::Greater,
+            Self::Eq => ord == Ordering::Equal,
+            Self::Ne => ord != Ordering::Equal,
+            Self::Gt => ord == Ordering::Greater,
+            Self::Ge => ord != Ordering::Less,
+        }
     }
 
     pub const fn swapped(self) -> Self {

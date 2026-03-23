@@ -194,6 +194,12 @@ impl From<Literal> for PyObjectRef {
     }
 }
 
+impl From<PyObjectRef> for Literal {
+    fn from(obj: PyObjectRef) -> Self {
+        Literal(obj)
+    }
+}
+
 fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
