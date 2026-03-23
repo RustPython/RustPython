@@ -705,6 +705,19 @@ impl Frame {
             }
         }
 
+        // For generators/coroutines, initialize prev_line to the def line
+        // so that preamble instructions (RETURN_GENERATOR, POP_TOP) don't
+        // fire spurious LINE events.
+        let prev_line = if code
+            .flags
+            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+        {
+            code.first_line_number
+                .map_or(0, |line| line.get() as u32)
+        } else {
+            0
+        };
+
         let iframe = InterpreterFrame {
             localsplus,
             locals: match scope.locals {
@@ -719,7 +732,7 @@ impl Frame {
             code,
             func_obj,
             lasti: Radium::new(0),
-            prev_line: 0,
+            prev_line,
             trace: PyMutex::new(vm.ctx.none()),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),

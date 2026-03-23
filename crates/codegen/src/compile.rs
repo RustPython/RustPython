@@ -4582,9 +4582,8 @@ impl Compiler {
                 ast::Stmt::Try(s) => {
                     Self::scan_store_attrs(&s.body, name, attrs);
                     for handler in &s.handlers {
-                        if let ast::ExceptHandler::ExceptHandler(h) = handler {
-                            Self::scan_store_attrs(&h.body, name, attrs);
-                        }
+                        let ast::ExceptHandler::ExceptHandler(h) = handler;
+                        Self::scan_store_attrs(&h.body, name, attrs);
                     }
                     Self::scan_store_attrs(&s.orelse, name, attrs);
                     Self::scan_store_attrs(&s.finalbody, name, attrs);

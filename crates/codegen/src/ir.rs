@@ -666,9 +666,9 @@ impl CodeInfo {
                     }
                     .into();
                     block.instructions[i].arg = OpArg::new(const_idx as u32);
-                    // Replace UNARY_NEGATIVE with NOP
-                    block.instructions[i + 1].instr = Instruction::Nop.into();
-                    i += 2;
+                    // Remove UNARY_NEGATIVE so chained negation can be folded
+                    block.instructions.remove(i + 1);
+                    // Don't increment i - re-check new LOAD_CONST with next instruction
                 } else {
                     i += 1;
                 }
