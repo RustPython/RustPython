@@ -1,4 +1,13 @@
-use syn::{Error, ItemEnum, ItemStruct, spanned::Spanned};
+use quote::quote;
+use syn::{
+    // Attribute,
+    Error,
+    // Expr,
+    Ident,
+    ItemEnum,
+    ItemStruct,
+    spanned::Spanned,
+};
 
 pub(super) fn handle_struct(item: ItemStruct) -> syn::Result<proc_macro2::TokenStream> {
     if !item.fields.is_empty() {
@@ -26,7 +35,7 @@ pub(super) fn handle_struct(item: ItemStruct) -> syn::Result<proc_macro2::TokenS
     } = item;
 
     let semi_token = semi_token.unwrap_or_default();
-    let output = quote::quote! {
+    let output = quote! {
         #(#attrs)*
         #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
         #vis #struct_token #ident(u32)#semi_token
@@ -85,22 +94,214 @@ pub(super) fn handle_struct(item: ItemStruct) -> syn::Result<proc_macro2::TokenS
     Ok(output)
 }
 
+#[derive(Clone)]
+struct VariantInfo {
+    ident: Ident,
+    discriminant: Option<syn::Expr>,
+    display: Option<String>,
+    catch_all: bool,
+}
+
 pub(super) fn handle_enum(item: ItemEnum) -> syn::Result<proc_macro2::TokenStream> {
+    if !item.generics.params.is_empty() {
+        return Err(Error::new(
+            item.span(),
+            "A new type oparg cannot be generic.",
+        ));
+    }
+
     let ItemEnum {
         attrs,
         vis,
         enum_token,
         ident,
         generics: _,
-        fields: _,
+        brace_token: _,
         variants,
-    } = item;
+    } = item.clone();
 
-    let output = quote::quote! {
+    let mut variants_info = variants
+        .iter()
+        .map(|variant| {
+            let ident = variant.ident.clone();
+            let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
+
+            let mut display = None;
+            let mut catch_all = false;
+            for attr in &variant.attrs {
+                if !attr.path().is_ident("oparg") {
+                    continue;
+                }
+
+                attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("display") {
+                        let value = meta.value()?.parse::<syn::LitStr>()?;
+                        display = Some(value.value());
+                        Ok(())
+                    } else if meta.path.is_ident("catch_all") {
+                        catch_all = true;
+                        Ok(())
+                    } else {
+                        Err(meta.error("unknown oparg attribute"))
+                    }
+                })
+                .unwrap();
+            }
+
+            VariantInfo {
+                ident,
+                discriminant,
+                display,
+                catch_all,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let catch_all = variants_info.pop_if(|info| info.catch_all);
+
+    // Ensure a no multiple `#[oparg(catch_all)]`
+    if catch_all.is_some() && variants_info.iter().any(|vinfo| vinfo.catch_all) {
+        return Err(Error::new(
+            item.span(),
+            "Cannot define more than one `#[oparg(catch_all)]`",
+        ));
+    };
+
+    match catch_all {
+        Some(vinfo) if vinfo.display.is_some() => {
+            return Err(Error::new(
+                vinfo.ident.span(),
+                r#"Cannot define both `#[oparg(catch_all)`] and `#[oparg(display = "...")]` on the same variant"#,
+            ));
+        }
+        _ => {}
+    };
+
+    // Ensure all variants has a discriminant.
+    for vinfo in &variants_info {
+        if vinfo.discriminant.is_none() {
+            return Err(Error::new(
+                vinfo.ident.span(),
+                "Is a variant without an assigned value",
+            ));
+        }
+    }
+
+    let variants_def = variants.iter().cloned().map(|mut variant| {
+        // Don't assign value. Enables more optimizations by the compiler.
+        variant.discriminant = None;
+
+        // Remove `#[oparg(...)`.
+        variant.attrs.retain(|attr| !attr.path().is_ident("oparg"));
+
+        variant
+    });
+
+    let from_u32_arms = variants_info.iter().map(|vinfo| {
+        let ident = &vinfo.ident;
+        let discriminant = &vinfo.discriminant;
+
+        quote! {
+            #discriminant => Self::#ident,
+        }
+    });
+
+    // If we have a `catch_all` we can implement `From<u32>`. Otherwise impl `TryFrom<u32>`
+    let impl_from_u32 = match catch_all {
+        Some(ref vinfo) => {
+            let vinfo_ident = &vinfo.ident;
+            quote! {
+                impl From<u32> for #ident {
+                    fn from(value: u32) -> Self {
+                        match value {
+                            #(#from_u32_arms)*
+                            _ => Self::#vinfo_ident(value)
+                        }
+                    }
+                }
+            }
+        }
+        None => quote! {
+            impl TryFrom<u32> for #ident {
+                type Error = rustpython_compiler_core::marshal::MarshalError;
+
+                fn try_from(value: u32) -> Result<Self, Self::Error> {
+                    Ok(
+                        match value {
+                            #(#from_u32_arms)*
+                            _ => return Err(Self::Error::InvalidBytecode),
+                        }
+                    )
+                }
+            }
+        },
+    };
+
+    let mut into_u32_arms = vec![];
+    let mut display_arms = vec![];
+
+    for vinfo in &variants_info {
+        let VariantInfo {
+            ident: vinfo_ident,
+            discriminant,
+            display,
+            ..
+        } = &vinfo;
+
+        into_u32_arms.push(quote! {
+            #ident::#vinfo_ident => #discriminant,
+        });
+
+        let display_arm = match display {
+            Some(v) => quote! {
+                Self::#vinfo_ident => write!(f, "{}", #v),
+            },
+            None => quote! {
+                Self::#vinfo_ident => write!(f, "{}", #discriminant),
+            },
+        };
+
+        display_arms.push(display_arm);
+    }
+
+    if let Some(ref vinfo) = catch_all {
+        let vinfo_ident = &vinfo.ident;
+
+        into_u32_arms.push(quote! {
+            #ident::#vinfo_ident(v) => v,
+        });
+
+        display_arms.push(quote! {
+            Self::#vinfo_ident(v) => write!(f, "{}", v),
+        });
+    }
+
+    let output = quote! {
         #(#attrs)*
         #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
         #vis #enum_token #ident {
+            #(#variants_def),*
         }
+
+        #impl_from_u32
+
+        impl From<#ident> for u32 {
+            fn from(value: #ident) -> Self {
+                match value {
+                    #(#into_u32_arms)*
+                }
+            }
+        }
+
+        impl ::core::fmt::Display for #ident {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                match self {
+                    #(#display_arms)*
+                }
+            }
+        }
+
+        impl rustpython_compiler_core::bytecode::OpArgType for #ident {}
     };
 
     Ok(output)

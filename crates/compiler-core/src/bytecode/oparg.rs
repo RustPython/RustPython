@@ -887,3 +887,12 @@ impl From<LoadSuperAttrBuilder> for LoadSuperAttr {
         builder.build()
     }
 }
+
+#[newtype_oparg]
+pub enum Foo {
+    A = 0,
+    #[oparg(display = "X")]
+    B = 1,
+    #[oparg(catch_all)]
+    C(u32),
+}
