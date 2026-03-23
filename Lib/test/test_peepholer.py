@@ -862,6 +862,7 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.addCleanup(sys.settrace, sys.gettrace())
         sys.settrace(None)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; no LOAD_FAST_BORROW_LOAD_FAST_BORROW superinstruction
     def test_load_fast_known_simple(self):
         def f():
             x = 1
