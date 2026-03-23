@@ -564,6 +564,28 @@ impl Compiler {
             _ => n > 4,
         };
 
+        // Fold all-constant collections (>= 3 elements) regardless of size
+        if !seen_star && pushed == 0 && n >= 3 && elts.iter().all(|e| e.is_constant()) {
+            if let Some(folded) = self.try_fold_constant_collection(elts)? {
+                match collection_type {
+                    CollectionType::Tuple => {
+                        self.emit_load_const(folded);
+                    }
+                    CollectionType::List => {
+                        emit!(self, Instruction::BuildList { count: 0 });
+                        self.emit_load_const(folded);
+                        emit!(self, Instruction::ListExtend { i: 1 });
+                    }
+                    CollectionType::Set => {
+                        emit!(self, Instruction::BuildSet { count: 0 });
+                        self.emit_load_const(folded);
+                        emit!(self, Instruction::SetUpdate { i: 1 });
+                    }
+                }
+                return Ok(());
+            }
+        }
+
         // If no stars and not too big, compile all elements and build once
         if !seen_star && !big {
             for elt in elts {
@@ -8552,6 +8574,56 @@ impl Compiler {
     fn arg_constant(&mut self, constant: ConstantData) -> oparg::ConstIdx {
         let info = self.current_code_info();
         info.metadata.consts.insert_full(constant).0.to_u32().into()
+    }
+
+    /// Try to fold a collection of constant expressions into a single ConstantData::Tuple.
+    /// Returns None if any element cannot be folded.
+    fn try_fold_constant_collection(
+        &mut self,
+        elts: &[ast::Expr],
+    ) -> CompileResult<Option<ConstantData>> {
+        let mut constants = Vec::with_capacity(elts.len());
+        for elt in elts {
+            match elt {
+                ast::Expr::NumberLiteral(num) => match &num.value {
+                    ast::Number::Int(int) => {
+                        let value = ruff_int_to_bigint(int).map_err(|e| self.error(e))?;
+                        constants.push(ConstantData::Integer { value });
+                    }
+                    ast::Number::Float(f) => {
+                        constants.push(ConstantData::Float { value: *f });
+                    }
+                    ast::Number::Complex { real, imag } => {
+                        constants.push(ConstantData::Complex {
+                            value: Complex::new(*real, *imag),
+                        });
+                    }
+                },
+                ast::Expr::StringLiteral(s) => {
+                    constants.push(ConstantData::Str {
+                        value: s.value.to_string().into(),
+                    });
+                }
+                ast::Expr::BytesLiteral(b) => {
+                    constants.push(ConstantData::Bytes {
+                        value: b.value.bytes().collect(),
+                    });
+                }
+                ast::Expr::BooleanLiteral(b) => {
+                    constants.push(ConstantData::Boolean { value: b.value });
+                }
+                ast::Expr::NoneLiteral(_) => {
+                    constants.push(ConstantData::None);
+                }
+                ast::Expr::EllipsisLiteral(_) => {
+                    constants.push(ConstantData::Ellipsis);
+                }
+                _ => return Ok(None),
+            }
+        }
+        Ok(Some(ConstantData::Tuple {
+            elements: constants,
+        }))
     }
 
     fn emit_load_const(&mut self, constant: ConstantData) {
