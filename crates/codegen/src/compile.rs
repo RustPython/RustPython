@@ -1201,8 +1201,8 @@ impl Compiler {
     /// codegen_enter_scope equivalent for RESUME emission.
     fn emit_resume_for_scope(&mut self, scope_type: CompilerScope, lineno: u32) {
         // For generators and async functions, emit RETURN_GENERATOR + POP_TOP before RESUME
-        let is_gen = scope_type == CompilerScope::AsyncFunction
-            || self.current_symbol_table().is_generator;
+        let is_gen =
+            scope_type == CompilerScope::AsyncFunction || self.current_symbol_table().is_generator;
         if is_gen {
             emit!(self, Instruction::ReturnGenerator);
             emit!(self, Instruction::PopTop);
@@ -4540,35 +4540,29 @@ impl Compiler {
                 ast::Stmt::Assign(a) => {
                     for target in &a.targets {
                         if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = target
+                            && let ast::Expr::Name(n) = value.as_ref()
+                            && n.id.as_str() == name
                         {
-                            if let ast::Expr::Name(n) = value.as_ref() {
-                                if n.id.as_str() == name {
-                                    attrs.insert(attr.to_string());
-                                }
-                            }
+                            attrs.insert(attr.to_string());
                         }
                     }
                 }
                 ast::Stmt::AnnAssign(a) => {
                     if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
                         a.target.as_ref()
+                        && let ast::Expr::Name(n) = value.as_ref()
+                        && n.id.as_str() == name
                     {
-                        if let ast::Expr::Name(n) = value.as_ref() {
-                            if n.id.as_str() == name {
-                                attrs.insert(attr.to_string());
-                            }
-                        }
+                        attrs.insert(attr.to_string());
                     }
                 }
                 ast::Stmt::AugAssign(a) => {
                     if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
                         a.target.as_ref()
+                        && let ast::Expr::Name(n) = value.as_ref()
+                        && n.id.as_str() == name
                     {
-                        if let ast::Expr::Name(n) = value.as_ref() {
-                            if n.id.as_str() == name {
-                                attrs.insert(attr.to_string());
-                            }
-                        }
+                        attrs.insert(attr.to_string());
                     }
                 }
                 ast::Stmt::If(s) => {
