@@ -3,7 +3,7 @@
 
 use crate::{
     marshal::MarshalError,
-    varint::{read_varint, read_varint_with_start, write_varint, write_varint_with_start},
+    varint::{read_varint, read_varint_with_start, write_varint_be, write_varint_with_start},
     {OneIndexed, SourceLocation},
 };
 use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeSet, fmt, string::String, vec::Vec};
@@ -71,9 +71,9 @@ pub fn encode_exception_table(entries: &[ExceptionTableEntry]) -> alloc::boxed::
         let depth_lasti = ((entry.depth as u32) << 1) | (entry.push_lasti as u32);
 
         write_varint_with_start(&mut data, entry.start);
-        write_varint(&mut data, size);
-        write_varint(&mut data, entry.target);
-        write_varint(&mut data, depth_lasti);
+        write_varint_be(&mut data, size);
+        write_varint_be(&mut data, entry.target);
+        write_varint_be(&mut data, depth_lasti);
     }
     data.into_boxed_slice()
 }
@@ -204,7 +204,7 @@ impl PyCodeLocationInfoKind {
     }
 }
 
-pub trait Constant: Sized {
+pub trait Constant: Sized + Clone {
     type Name: AsRef<str>;
 
     /// Transforms the given Constant to a BorrowedConstant
@@ -567,6 +567,14 @@ impl Deref for CodeUnits {
 }
 
 impl CodeUnits {
+    /// Disable adaptive specialization by setting all counters to unreachable.
+    /// Used for CPython-compiled bytecode where specialization may not be safe.
+    pub fn disable_specialization(&self) {
+        for counter in self.adaptive_counters.iter() {
+            counter.store(UNREACHABLE_BACKOFF, Ordering::Relaxed);
+        }
+    }
+
     /// Replace the opcode at `index` in-place without changing the arg byte.
     /// Uses atomic Release store to ensure prior cache writes are visible
     /// to threads that subsequently read the new opcode with Acquire.
