@@ -5464,8 +5464,8 @@ impl ExecutingFrame<'_> {
                     let found = dict.get_item_opt(a, vm)?.is_some();
                     self.pop_value();
                     self.pop_value();
-                    let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
-                        .unwrap_or(bytecode::Invert::No);
+                    let invert =
+                        bytecode::Invert::try_from(u32::from(arg)).unwrap_or(bytecode::Invert::No);
                     let value = match invert {
                         bytecode::Invert::No => found,
                         bytecode::Invert::Yes => !found,
@@ -5475,8 +5475,8 @@ impl ExecutingFrame<'_> {
                 } else {
                     let b = self.pop_value();
                     let a = self.pop_value();
-                    let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
-                        .unwrap_or(bytecode::Invert::No);
+                    let invert =
+                        bytecode::Invert::try_from(u32::from(arg)).unwrap_or(bytecode::Invert::No);
                     let value = match invert {
                         bytecode::Invert::No => self._in(vm, &a, &b)?,
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
@@ -5494,8 +5494,8 @@ impl ExecutingFrame<'_> {
                     let found = vm._contains(b, a)?;
                     self.pop_value();
                     self.pop_value();
-                    let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
-                        .unwrap_or(bytecode::Invert::No);
+                    let invert =
+                        bytecode::Invert::try_from(u32::from(arg)).unwrap_or(bytecode::Invert::No);
                     let value = match invert {
                         bytecode::Invert::No => found,
                         bytecode::Invert::Yes => !found,
@@ -5505,8 +5505,8 @@ impl ExecutingFrame<'_> {
                 } else {
                     let b = self.pop_value();
                     let a = self.pop_value();
-                    let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
-                        .unwrap_or(bytecode::Invert::No);
+                    let invert =
+                        bytecode::Invert::try_from(u32::from(arg)).unwrap_or(bytecode::Invert::No);
                     let value = match invert {
                         bytecode::Invert::No => self._in(vm, &a, &b)?,
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,

@@ -37,7 +37,7 @@ pub(super) fn handle_struct(item: ItemStruct) -> syn::Result<proc_macro2::TokenS
     let semi_token = semi_token.unwrap_or_default();
     let output = quote! {
         #(#attrs)*
-        #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+        #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
         #vis #struct_token #ident(u32)#semi_token
 
         impl #ident {
@@ -278,7 +278,7 @@ pub(super) fn handle_enum(item: ItemEnum) -> syn::Result<proc_macro2::TokenStrea
 
     let output = quote! {
         #(#attrs)*
-        #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+        #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
         #vis #enum_token #ident {
             #(#variants_def),*
         }

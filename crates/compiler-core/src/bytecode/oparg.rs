@@ -280,109 +280,71 @@ impl fmt::Display for ConvertValueOparg {
 }
 
 /// Resume type for the RESUME instruction
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[newtype_oparg]
 pub enum ResumeType {
-    AtFuncStart,
-    AfterYield,
-    AfterYieldFrom,
-    AfterAwait,
+    AtFuncStart = 0,
+    AfterYield = 1,
+    AfterYieldFrom = 2,
+    AfterAwait = 3,
+    #[oparg(catch_all)]
     Other(u32),
 }
-
-impl From<u32> for ResumeType {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => Self::AtFuncStart,
-            1 => Self::AfterYield,
-            2 => Self::AfterYieldFrom,
-            3 => Self::AfterAwait,
-            _ => Self::Other(value),
-        }
-    }
-}
-
-impl From<ResumeType> for u32 {
-    fn from(typ: ResumeType) -> Self {
-        match typ {
-            ResumeType::AtFuncStart => 0,
-            ResumeType::AfterYield => 1,
-            ResumeType::AfterYieldFrom => 2,
-            ResumeType::AfterAwait => 3,
-            ResumeType::Other(v) => v,
-        }
-    }
-}
-
-impl core::fmt::Display for ResumeType {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        u32::from(*self).fmt(f)
-    }
-}
-
-impl OpArgType for ResumeType {}
 
 pub type NameIdx = u32;
 
 impl OpArgType for u32 {}
 
-oparg_enum!(
-    /// The kind of Raise that occurred.
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum RaiseKind {
-        /// Bare `raise` statement with no arguments.
-        /// Gets the current exception from VM state (topmost_exception).
-        /// Maps to RAISE_VARARGS with oparg=0.
-        BareRaise = 0,
-        /// `raise exc` - exception is on the stack.
-        /// Maps to RAISE_VARARGS with oparg=1.
-        Raise = 1,
-        /// `raise exc from cause` - exception and cause are on the stack.
-        /// Maps to RAISE_VARARGS with oparg=2.
-        RaiseCause = 2,
-        /// Reraise exception from the stack top.
-        /// Used in exception handler cleanup blocks (finally, except).
-        /// Gets exception from stack, not from VM state.
-        /// Maps to the RERAISE opcode.
-        ReraiseFromStack = 3,
-    }
-);
+/// The kind of Raise that occurred.
+#[newtype_oparg]
+pub enum RaiseKind {
+    /// Bare `raise` statement with no arguments.
+    /// Gets the current exception from VM state (topmost_exception).
+    /// Maps to RAISE_VARARGS with oparg=0.
+    BareRaise = 0,
+    /// `raise exc` - exception is on the stack.
+    /// Maps to RAISE_VARARGS with oparg=1.
+    Raise = 1,
+    /// `raise exc from cause` - exception and cause are on the stack.
+    /// Maps to RAISE_VARARGS with oparg=2.
+    RaiseCause = 2,
+    /// Reraise exception from the stack top.
+    /// Used in exception handler cleanup blocks (finally, except).
+    /// Gets exception from stack, not from VM state.
+    /// Maps to the RERAISE opcode.
+    ReraiseFromStack = 3,
+}
 
-oparg_enum!(
-    /// Intrinsic function for CALL_INTRINSIC_1
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum IntrinsicFunction1 {
-        // Invalid = 0,
-        Print = 1,
-        /// Import * operation
-        ImportStar = 2,
-        /// Convert StopIteration to RuntimeError in async context
-        StopIterationError = 3,
-        AsyncGenWrap = 4,
-        UnaryPositive = 5,
-        /// Convert list to tuple
-        ListToTuple = 6,
-        /// Type parameter related
-        TypeVar = 7,
-        ParamSpec = 8,
-        TypeVarTuple = 9,
-        /// Generic subscript for PEP 695
-        SubscriptGeneric = 10,
-        TypeAlias = 11,
-    }
-);
+#[newtype_oparg]
+pub enum IntrinsicFunction1 {
+    // Invalid = 0,
+    Print = 1,
+    /// Import * operation
+    ImportStar = 2,
+    /// Convert StopIteration to RuntimeError in async context
+    StopIterationError = 3,
+    AsyncGenWrap = 4,
+    UnaryPositive = 5,
+    /// Convert list to tuple
+    ListToTuple = 6,
+    /// Type parameter related
+    TypeVar = 7,
+    ParamSpec = 8,
+    TypeVarTuple = 9,
+    /// Generic subscript for PEP 695
+    SubscriptGeneric = 10,
+    TypeAlias = 11,
+}
 
-oparg_enum!(
-    /// Intrinsic function for CALL_INTRINSIC_2
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum IntrinsicFunction2 {
-        PrepReraiseStar = 1,
-        TypeVarWithBound = 2,
-        TypeVarWithConstraint = 3,
-        SetFunctionTypeParams = 4,
-        /// Set default value for type parameter (PEP 695)
-        SetTypeparamDefault = 5,
-    }
-);
+/// Intrinsic function for CALL_INTRINSIC_2
+#[newtype_oparg]
+pub enum IntrinsicFunction2 {
+    PrepReraiseStar = 1,
+    TypeVarWithBound = 2,
+    TypeVarWithConstraint = 3,
+    SetFunctionTypeParams = 4,
+    /// Set default value for type parameter (PEP 695)
+    SetTypeparamDefault = 5,
+}
 
 bitflagset::bitflag! {
     /// `SET_FUNCTION_ATTRIBUTE` flags.
@@ -491,77 +453,102 @@ impl From<ComparisonOperator> for u32 {
 
 impl OpArgType for ComparisonOperator {}
 
-oparg_enum!(
-    /// The possible Binary operators
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, Instruction};
-    /// let (op, _) = Arg::new(BinaryOperator::Add);
-    /// let instruction = Instruction::BinaryOp { op };
-    /// ```
-    ///
-    /// See also:
-    /// - [_PyEval_BinaryOps](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Python/ceval.c#L316-L343)
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub enum BinaryOperator {
-        /// `+`
-        Add = 0,
-        /// `&`
-        And = 1,
-        /// `//`
-        FloorDivide = 2,
-        /// `<<`
-        Lshift = 3,
-        /// `@`
-        MatrixMultiply = 4,
-        /// `*`
-        Multiply = 5,
-        /// `%`
-        Remainder = 6,
-        /// `|`
-        Or = 7,
-        /// `**`
-        Power = 8,
-        /// `>>`
-        Rshift = 9,
-        /// `-`
-        Subtract = 10,
-        /// `/`
-        TrueDivide = 11,
-        /// `^`
-        Xor = 12,
-        /// `+=`
-        InplaceAdd = 13,
-        /// `&=`
-        InplaceAnd = 14,
-        /// `//=`
-        InplaceFloorDivide = 15,
-        /// `<<=`
-        InplaceLshift = 16,
-        /// `@=`
-        InplaceMatrixMultiply = 17,
-        /// `*=`
-        InplaceMultiply = 18,
-        /// `%=`
-        InplaceRemainder = 19,
-        /// `|=`
-        InplaceOr = 20,
-        /// `**=`
-        InplacePower = 21,
-        /// `>>=`
-        InplaceRshift = 22,
-        /// `-=`
-        InplaceSubtract = 23,
-        /// `/=`
-        InplaceTrueDivide = 24,
-        /// `^=`
-        InplaceXor = 25,
-        /// `[]` subscript
-        Subscr = 26,
-    }
-);
+/// The possible Binary operators
+///
+/// # Examples
+///
+/// ```rust
+/// use rustpython_compiler_core::bytecode::{Arg, BinaryOperator, Instruction};
+/// let (op, _) = Arg::new(BinaryOperator::Add);
+/// let instruction = Instruction::BinaryOp { op };
+/// ```
+///
+/// See also:
+/// - [_PyEval_BinaryOps](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Python/ceval.c#L316-L343)
+#[newtype_oparg]
+pub enum BinaryOperator {
+    /// `+`
+    #[oparg(display = "+")]
+    Add = 0,
+    /// `&`
+    #[oparg(display = "&")]
+    And = 1,
+    /// `//`
+    #[oparg(display = "//")]
+    FloorDivide = 2,
+    /// `<<`
+    #[oparg(display = "<<")]
+    Lshift = 3,
+    /// `@`
+    #[oparg(display = "@")]
+    MatrixMultiply = 4,
+    /// `*`
+    #[oparg(display = "*")]
+    Multiply = 5,
+    /// `%`
+    #[oparg(display = "%")]
+    Remainder = 6,
+    /// `|`
+    #[oparg(display = "|")]
+    Or = 7,
+    /// `**`
+    #[oparg(display = "**")]
+    Power = 8,
+    /// `>>`
+    #[oparg(display = ">>")]
+    Rshift = 9,
+    /// `-`
+    #[oparg(display = "-")]
+    Subtract = 10,
+    /// `/`
+    #[oparg(display = "/")]
+    TrueDivide = 11,
+    /// `^`
+    #[oparg(display = "^")]
+    Xor = 12,
+    /// `+=`
+    #[oparg(display = "+=")]
+    InplaceAdd = 13,
+    /// `&=`
+    #[oparg(display = "&=")]
+    InplaceAnd = 14,
+    /// `//=`
+    #[oparg(display = "//=")]
+    InplaceFloorDivide = 15,
+    /// `<<=`
+    #[oparg(display = "<<=")]
+    InplaceLshift = 16,
+    /// `@=`
+    #[oparg(display = "@=")]
+    InplaceMatrixMultiply = 17,
+    /// `*=`
+    #[oparg(display = "*=")]
+    InplaceMultiply = 18,
+    /// `%=`
+    #[oparg(display = "%=")]
+    InplaceRemainder = 19,
+    /// `|=`
+    #[oparg(display = "|=")]
+    InplaceOr = 20,
+    /// `**=`
+    #[oparg(display = "**=")]
+    InplacePower = 21,
+    /// `>>=`
+    #[oparg(display = ">>=")]
+    InplaceRshift = 22,
+    /// `-=`
+    #[oparg(display = "-=")]
+    InplaceSubtract = 23,
+    /// `/=`
+    #[oparg(display = "/=")]
+    InplaceTrueDivide = 24,
+    /// `^=`
+    #[oparg(display = "^=")]
+    InplaceXor = 25,
+    /// `[]` subscript
+    #[oparg(display = "[]")]
+    Subscr = 26,
+}
 
 impl BinaryOperator {
     /// Get the "inplace" version of the operator.
@@ -596,130 +583,70 @@ impl BinaryOperator {
     }
 }
 
-impl fmt::Display for BinaryOperator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let op = match self {
-            Self::Add => "+",
-            Self::And => "&",
-            Self::FloorDivide => "//",
-            Self::Lshift => "<<",
-            Self::MatrixMultiply => "@",
-            Self::Multiply => "*",
-            Self::Remainder => "%",
-            Self::Or => "|",
-            Self::Power => "**",
-            Self::Rshift => ">>",
-            Self::Subtract => "-",
-            Self::TrueDivide => "/",
-            Self::Xor => "^",
-            Self::InplaceAdd => "+=",
-            Self::InplaceAnd => "&=",
-            Self::InplaceFloorDivide => "//=",
-            Self::InplaceLshift => "<<=",
-            Self::InplaceMatrixMultiply => "@=",
-            Self::InplaceMultiply => "*=",
-            Self::InplaceRemainder => "%=",
-            Self::InplaceOr => "|=",
-            Self::InplacePower => "**=",
-            Self::InplaceRshift => ">>=",
-            Self::InplaceSubtract => "-=",
-            Self::InplaceTrueDivide => "/=",
-            Self::InplaceXor => "^=",
-            Self::Subscr => "[]",
-        };
-        write!(f, "{op}")
-    }
+/// Whether or not to invert the operation.
+#[newtype_oparg]
+pub enum Invert {
+    /// ```py
+    /// foo is bar
+    /// x in lst
+    /// ```
+    No = 0,
+    /// ```py
+    /// foo is not bar
+    /// x not in lst
+    /// ```
+    Yes = 1,
 }
 
-oparg_enum!(
-    /// Whether or not to invert the operation.
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    pub enum Invert {
-        /// ```py
-        /// foo is bar
-        /// x in lst
-        /// ```
-        No = 0,
-        /// ```py
-        /// foo is not bar
-        /// x not in lst
-        /// ```
-        Yes = 1,
-    }
-);
-
-oparg_enum!(
-    /// Special method for LOAD_SPECIAL opcode (context managers).
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    pub enum SpecialMethod {
-        /// `__enter__` for sync context manager
-        Enter = 0,
-        /// `__exit__` for sync context manager
-        Exit = 1,
-        /// `__aenter__` for async context manager
-        AEnter = 2,
-        /// `__aexit__` for async context manager
-        AExit = 3,
-    }
-);
-
-impl fmt::Display for SpecialMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let method_name = match self {
-            Self::Enter => "__enter__",
-            Self::Exit => "__exit__",
-            Self::AEnter => "__aenter__",
-            Self::AExit => "__aexit__",
-        };
-        write!(f, "{method_name}")
-    }
+/// Special method for LOAD_SPECIAL opcode (context managers).
+#[newtype_oparg]
+pub enum SpecialMethod {
+    /// `__enter__` for sync context manager
+    #[oparg(display = "__enter__")]
+    Enter = 0,
+    /// `__exit__` for sync context manager
+    #[oparg(display = "__exit__")]
+    Exit = 1,
+    /// `__aenter__` for async context manager
+    #[oparg(display = "__aenter__")]
+    AEnter = 2,
+    /// `__aexit__` for async context manager
+    #[oparg(display = "__aexit__")]
+    AExit = 3,
 }
 
-oparg_enum!(
-    /// Common constants for LOAD_COMMON_CONSTANT opcode.
-    /// pycore_opcode_utils.h CONSTANT_*
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    pub enum CommonConstant {
-        /// `AssertionError` exception type
-        AssertionError = 0,
-        /// `NotImplementedError` exception type
-        NotImplementedError = 1,
-        /// Built-in `tuple` type
-        BuiltinTuple = 2,
-        /// Built-in `all` function
-        BuiltinAll = 3,
-        /// Built-in `any` function
-        BuiltinAny = 4,
-    }
-);
-
-impl fmt::Display for CommonConstant {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            Self::AssertionError => "AssertionError",
-            Self::NotImplementedError => "NotImplementedError",
-            Self::BuiltinTuple => "tuple",
-            Self::BuiltinAll => "all",
-            Self::BuiltinAny => "any",
-        };
-        write!(f, "{name}")
-    }
+/// Common constants for LOAD_COMMON_CONSTANT opcode.
+/// pycore_opcode_utils.h CONSTANT_*
+#[newtype_oparg]
+pub enum CommonConstant {
+    /// `AssertionError` exception type
+    #[oparg(display = "AssertionError")]
+    AssertionError = 0,
+    /// `NotImplementedError` exception type
+    #[oparg(display = "NotImplementedError")]
+    NotImplementedError = 1,
+    /// Built-in `tuple` type
+    #[oparg(display = "tuple")]
+    BuiltinTuple = 2,
+    /// Built-in `all` function
+    #[oparg(display = "all")]
+    BuiltinAll = 3,
+    /// Built-in `any` function
+    #[oparg(display = "any")]
+    BuiltinAny = 4,
 }
 
-oparg_enum!(
-    /// Specifies if a slice is built with either 2 or 3 arguments.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub enum BuildSliceArgCount {
-        /// ```py
-        /// x[5:10]
-        /// ```
-        Two = 2,
-        /// ```py
-        /// x[5:10:2]
-        /// ```
-        Three = 3,
-    }
-);
+#[newtype_oparg]
+pub enum BuildSliceArgCount {
+    /// ```py
+    /// x[5:10]
+    /// ```
+    Two = 2,
+    /// ```py
+    /// x[5:10:2]
+    /// ```
+    Three = 3,
+}
 
 #[derive(Copy, Clone)]
 pub struct UnpackExArgs {
@@ -886,13 +813,4 @@ impl From<LoadSuperAttrBuilder> for LoadSuperAttr {
     fn from(builder: LoadSuperAttrBuilder) -> Self {
         builder.build()
     }
-}
-
-#[newtype_oparg]
-pub enum Foo {
-    A = 0,
-    #[oparg(display = "X")]
-    B = 1,
-    #[oparg(catch_all)]
-    C(u32),
 }
