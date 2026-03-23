@@ -4509,22 +4509,55 @@ impl Compiler {
     fn collect_static_attributes(body: &[ast::Stmt], attrs: Option<&mut IndexSet<String>>) {
         let Some(attrs) = attrs else { return };
         for stmt in body {
-            // Only scan def/async def at class body level
-            let (params, func_body) = match stmt {
-                ast::Stmt::FunctionDef(f) => (&f.parameters, &f.body),
+            let f = match stmt {
+                ast::Stmt::FunctionDef(f) => f,
                 _ => continue,
             };
-            // Get first parameter name (usually "self" or "cls")
-            let first_param = params
+            // Skip @staticmethod and @classmethod decorated functions
+            let dominated_by_special = f.decorator_list.iter().any(|d| {
+                matches!(&d.expression, ast::Expr::Name(n)
+                    if n.id.as_str() == "staticmethod" || n.id.as_str() == "classmethod")
+            });
+            if dominated_by_special {
+                continue;
+            }
+            let first_param = f
+                .parameters
                 .args
                 .first()
-                .or(params.posonlyargs.first())
+                .or(f.parameters.posonlyargs.first())
                 .map(|p| &p.parameter.name);
             let Some(self_name) = first_param else {
                 continue;
             };
-            // Scan function body for self.xxx = ... (STORE_ATTR on first param)
-            Self::scan_store_attrs(func_body, self_name.as_str(), attrs);
+            Self::scan_store_attrs(&f.body, self_name.as_str(), attrs);
+        }
+    }
+
+    /// Extract self.attr patterns from an assignment target expression.
+    fn scan_target_for_attrs(target: &ast::Expr, name: &str, attrs: &mut IndexSet<String>) {
+        match target {
+            ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+                if let ast::Expr::Name(n) = value.as_ref() {
+                    if n.id.as_str() == name {
+                        attrs.insert(attr.to_string());
+                    }
+                }
+            }
+            ast::Expr::Tuple(t) => {
+                for elt in &t.elts {
+                    Self::scan_target_for_attrs(elt, name, attrs);
+                }
+            }
+            ast::Expr::List(l) => {
+                for elt in &l.elts {
+                    Self::scan_target_for_attrs(elt, name, attrs);
+                }
+            }
+            ast::Expr::Starred(s) => {
+                Self::scan_target_for_attrs(&s.value, name, attrs);
+            }
+            _ => {}
         }
     }
 
@@ -4534,22 +4567,11 @@ impl Compiler {
             match stmt {
                 ast::Stmt::Assign(a) => {
                     for target in &a.targets {
-                        if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = target
-                            && let ast::Expr::Name(n) = value.as_ref()
-                            && n.id.as_str() == name
-                        {
-                            attrs.insert(attr.to_string());
-                        }
+                        Self::scan_target_for_attrs(target, name, attrs);
                     }
                 }
                 ast::Stmt::AnnAssign(a) => {
-                    if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
-                        a.target.as_ref()
-                        && let ast::Expr::Name(n) = value.as_ref()
-                        && n.id.as_str() == name
-                    {
-                        attrs.insert(attr.to_string());
-                    }
+                    Self::scan_target_for_attrs(&a.target, name, attrs);
                 }
                 ast::Stmt::AugAssign(a) => {
                     if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
