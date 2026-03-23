@@ -723,9 +723,7 @@ impl Compiler {
                 // Function-local imports use method mode (scope is Local)
                 return !matches!(
                     current.typ,
-                    CompilerScope::Function
-                        | CompilerScope::AsyncFunction
-                        | CompilerScope::Lambda
+                    CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
                 );
             }
             if sym.scope == SymbolScope::Local {
@@ -7046,10 +7044,7 @@ impl Compiler {
         let has_unpacking = items.iter().any(|item| item.key.is_none());
 
         if !has_unpacking {
-            // STACK_USE_GUIDELINE: for large dicts (16+ pairs), use
-            // BUILD_MAP 0 + MAP_ADD to avoid excessive stack usage
-            let big = items.len() * 2 > 30; // ~15 pairs threshold
-            if big {
+            if items.len() >= 16 {
                 emit!(self, Instruction::BuildMap { count: 0 });
                 for item in items {
                     self.compile_expression(item.key.as_ref().unwrap())?;
