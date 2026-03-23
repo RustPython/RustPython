@@ -1,13 +1,5 @@
 use quote::quote;
-use syn::{
-    // Attribute,
-    Error,
-    // Expr,
-    Ident,
-    ItemEnum,
-    ItemStruct,
-    spanned::Spanned,
-};
+use syn::{Error, Ident, ItemEnum, ItemStruct, spanned::Spanned};
 
 pub(super) fn handle_struct(item: ItemStruct) -> syn::Result<proc_macro2::TokenStream> {
     if !item.fields.is_empty() {
