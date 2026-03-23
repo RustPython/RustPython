@@ -5179,7 +5179,6 @@ class DictProxyTests(unittest.TestCase):
                 pass
         self.C = C
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                         'trace function introduces __local__')
     def test_iter_keys(self):
@@ -5193,7 +5192,6 @@ class DictProxyTests(unittest.TestCase):
                                 '__static_attributes__', '__weakref__',
                                 'meth'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 5 != 7
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                         'trace function introduces __local__')
     def test_iter_values(self):
@@ -5203,7 +5201,6 @@ class DictProxyTests(unittest.TestCase):
         values = list(it)
         self.assertEqual(len(values), 7)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                         'trace function introduces __local__')
     def test_iter_items(self):

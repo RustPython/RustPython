@@ -610,13 +610,13 @@ impl Compiler {
                 self.compile_expression(value)?;
                 match collection_type {
                     CollectionType::List => {
-                        emit!(self, Instruction::ListExtend { i: 0 });
+                        emit!(self, Instruction::ListExtend { i: 1 });
                     }
                     CollectionType::Set => {
-                        emit!(self, Instruction::SetUpdate { i: 0 });
+                        emit!(self, Instruction::SetUpdate { i: 1 });
                     }
                     CollectionType::Tuple => {
-                        emit!(self, Instruction::ListExtend { i: 0 });
+                        emit!(self, Instruction::ListExtend { i: 1 });
                     }
                 }
             } else {
@@ -627,13 +627,13 @@ impl Compiler {
                     // Sequence already exists, append to it
                     match collection_type {
                         CollectionType::List => {
-                            emit!(self, Instruction::ListAppend { i: 0 });
+                            emit!(self, Instruction::ListAppend { i: 1 });
                         }
                         CollectionType::Set => {
-                            emit!(self, Instruction::SetAdd { i: 0 });
+                            emit!(self, Instruction::SetAdd { i: 1 });
                         }
                         CollectionType::Tuple => {
-                            emit!(self, Instruction::ListAppend { i: 0 });
+                            emit!(self, Instruction::ListAppend { i: 1 });
                         }
                     }
                 } else {
@@ -690,6 +690,23 @@ impl Compiler {
         self.symbol_table_stack
             .last()
             .expect("symbol_table_stack is empty! This is a compiler bug.")
+    }
+
+    /// Check if a name is imported in current scope or any enclosing scope.
+    fn is_name_imported(&self, name: &str) -> bool {
+        if let Some(sym) = self.current_symbol_table().symbols.get(name) {
+            if sym.flags.contains(SymbolFlags::IMPORTED) {
+                return true;
+            } else if sym.scope == SymbolScope::Local {
+                return false;
+            }
+        }
+        self.symbol_table_stack.iter().rev().skip(1).any(|table| {
+            table
+                .symbols
+                .get(name)
+                .is_some_and(|sym| sym.flags.contains(SymbolFlags::IMPORTED))
+        })
     }
 
     /// Get the cell-relative index of a free variable.
@@ -1151,7 +1168,16 @@ impl Compiler {
             self.set_qualname();
         }
 
-        // Emit COPY_FREE_VARS and MAKE_CELL prolog before RESUME
+        // Emit MAKE_CELL for each cell variable (before RESUME)
+        {
+            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
+            for i in 0..ncells {
+                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
+                emit!(self, Instruction::MakeCell { i: i_varnum });
+            }
+        }
+
+        // Emit COPY_FREE_VARS if there are free variables (before RESUME)
         {
             let nfrees = self.code_stack.last().unwrap().metadata.freevars.len();
             if nfrees > 0 {
@@ -1161,11 +1187,6 @@ impl Compiler {
                         n: u32::try_from(nfrees).expect("too many freevars"),
                     }
                 );
-            }
-            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
-            for i in 0..ncells {
-                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
-                emit!(self, Instruction::MakeCell { i: i_varnum });
             }
         }
 
@@ -1739,7 +1760,7 @@ impl Compiler {
                 value: value.into(),
             });
             let doc = self.name("__doc__");
-            emit!(self, Instruction::StoreGlobal { namei: doc })
+            emit!(self, Instruction::StoreName { namei: doc })
         }
 
         // Handle annotations based on future_annotations flag
@@ -3424,7 +3445,7 @@ impl Compiler {
         if n == 0 {
             // Empty handlers (invalid AST) - append rest to list and proceed
             // Stack: [prev_exc, orig, list, rest]
-            emit!(self, Instruction::ListAppend { i: 0 });
+            emit!(self, Instruction::ListAppend { i: 1 });
             // Stack: [prev_exc, orig, list]
             emit!(
                 self,
@@ -3542,7 +3563,7 @@ impl Compiler {
             // After pop: [prev_exc, orig, list, new_rest, lasti] (len=5)
             // nth_value(i) = stack[len - i - 1], we need stack[2] = list
             // stack[5 - i - 1] = 2 -> i = 2
-            emit!(self, Instruction::ListAppend { i: 2 });
+            emit!(self, Instruction::ListAppend { i: 3 });
             // Stack: [prev_exc, orig, list, new_rest, lasti]
 
             // POP_TOP - pop lasti
@@ -3571,7 +3592,7 @@ impl Compiler {
                 // PEEK(1) = stack[len-1] after pop
                 // RustPython nth_value(i) = stack[len-i-1] after pop
                 // For LIST_APPEND 1: stack[len-1] = stack[len-i-1] -> i = 0
-                emit!(self, Instruction::ListAppend { i: 0 });
+                emit!(self, Instruction::ListAppend { i: 1 });
                 // Stack: [prev_exc, orig, list]
                 emit!(
                     self,
@@ -4561,9 +4582,9 @@ impl Compiler {
         // 2. Set up class namespace
         let (doc_str, body) = split_doc(body, &self.opts);
 
-        // Load (global) __name__ and store as __module__
+        // Load __name__ and store as __module__
         let dunder_name = self.name("__name__");
-        self.emit_load_global(dunder_name, false);
+        emit!(self, Instruction::LoadName { namei: dunder_name });
         let dunder_module = self.name("__module__");
         emit!(
             self,
@@ -4584,14 +4605,7 @@ impl Compiler {
             }
         );
 
-        // Store __doc__ only if there's an explicit docstring
-        if let Some(doc) = doc_str {
-            self.emit_load_const(ConstantData::Str { value: doc.into() });
-            let doc_name = self.name("__doc__");
-            emit!(self, Instruction::StoreName { namei: doc_name });
-        }
-
-        // Store __firstlineno__ (new in Python 3.12+)
+        // Store __firstlineno__ before __doc__
         self.emit_load_const(ConstantData::Integer {
             value: BigInt::from(firstlineno),
         });
@@ -4602,6 +4616,13 @@ impl Compiler {
                 namei: firstlineno_name
             }
         );
+
+        // Store __doc__ only if there's an explicit docstring
+        if let Some(doc) = doc_str {
+            self.emit_load_const(ConstantData::Str { value: doc.into() });
+            let doc_name = self.name("__doc__");
+            emit!(self, Instruction::StoreName { namei: doc_name });
+        }
 
         // Set __type_params__ if we have type parameters
         if type_params.is_some() {
@@ -4660,6 +4681,44 @@ impl Compiler {
             .cellvars
             .iter()
             .position(|var| *var == "__class__");
+
+        // Emit __static_attributes__ tuple
+        {
+            let attrs: Vec<String> = self
+                .code_stack
+                .last()
+                .unwrap()
+                .static_attributes
+                .as_ref()
+                .map(|s| s.iter().cloned().collect())
+                .unwrap_or_default();
+            self.emit_load_const(ConstantData::Tuple {
+                elements: attrs
+                    .into_iter()
+                    .map(|s| ConstantData::Str { value: s.into() })
+                    .collect(),
+            });
+            let static_attrs_name = self.name("__static_attributes__");
+            emit!(
+                self,
+                Instruction::StoreName {
+                    namei: static_attrs_name
+                }
+            );
+        }
+
+        // Store __classdictcell__ if __classdict__ is a cell variable
+        if self.current_symbol_table().needs_classdict {
+            let classdict_idx = u32::from(self.get_cell_var_index("__classdict__")?);
+            emit!(self, PseudoInstruction::LoadClosure { i: classdict_idx });
+            let classdictcell = self.name("__classdictcell__");
+            emit!(
+                self,
+                Instruction::StoreName {
+                    namei: classdictcell
+                }
+            );
+        }
 
         if let Some(classcell_idx) = classcell_idx {
             emit!(
@@ -4810,11 +4869,11 @@ impl Compiler {
                         if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = arg {
                             // Starred: compile and extend
                             self.compile_expression(value)?;
-                            emit!(self, Instruction::ListExtend { i: 0 });
+                            emit!(self, Instruction::ListExtend { i: 1 });
                         } else {
                             // Non-starred: compile and append
                             self.compile_expression(arg)?;
-                            emit!(self, Instruction::ListAppend { i: 0 });
+                            emit!(self, Instruction::ListAppend { i: 1 });
                         }
                     }
                 }
@@ -4826,7 +4885,7 @@ impl Compiler {
                         namei: dot_generic_base
                     }
                 );
-                emit!(self, Instruction::ListAppend { i: 0 });
+                emit!(self, Instruction::ListAppend { i: 1 });
 
                 // Convert list to tuple
                 emit!(
@@ -6495,7 +6554,7 @@ impl Compiler {
                         self.emit_load_const(ConstantData::Integer {
                             value: annotation_index.into(),
                         });
-                        emit!(self, Instruction::SetAdd { i: 0 });
+                        emit!(self, Instruction::SetAdd { i: 1 });
                         emit!(self, Instruction::PopTop);
                     }
                 }
@@ -6742,6 +6801,10 @@ impl Compiler {
             _ => {
                 // Fall back case which always will work!
                 self.compile_expression(expression)?;
+                // Compare already produces a bool; everything else needs TO_BOOL
+                if !matches!(expression, ast::Expr::Compare(_)) {
+                    emit!(self, Instruction::ToBool);
+                }
                 if condition {
                     emit!(
                         self,
@@ -7240,7 +7303,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::ListAppend {
-                                i: generators.len().to_u32(),
+                                i: (generators.len() + 1).to_u32(),
                             }
                         );
                         Ok(())
@@ -7266,7 +7329,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::SetAdd {
-                                i: generators.len().to_u32(),
+                                i: (generators.len() + 1).to_u32(),
                             }
                         );
                         Ok(())
@@ -7298,7 +7361,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::MapAdd {
-                                i: generators.len().to_u32(),
+                                i: (generators.len() + 1).to_u32(),
                             }
                         );
 
@@ -7516,11 +7579,19 @@ impl Compiler {
                 // CALL at .method( line (not the full expression line)
                 self.codegen_call_helper(0, args, attr.range())?;
             } else {
-                // Normal method call: compile object, then LOAD_ATTR with method flag
-                // LOAD_ATTR(method=1) pushes [method, self_or_null] on stack
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                self.emit_load_attr_method(idx);
+                // Imported names use plain LOAD_ATTR + PUSH_NULL;
+                // other names use method call mode LOAD_ATTR.
+                // Check current scope and enclosing scopes for IMPORTED flag.
+                let is_import = matches!(value.as_ref(), ast::Expr::Name(ast::ExprName { id, .. })
+                    if self.is_name_imported(id.as_str()));
+                if is_import {
+                    self.emit_load_attr(idx);
+                    emit!(self, Instruction::PushNull);
+                } else {
+                    self.emit_load_attr_method(idx);
+                }
                 self.codegen_call_helper(0, args, call_range)?;
             }
         } else {
@@ -7558,7 +7629,7 @@ impl Compiler {
             self.compile_expression(&kw.value)?;
 
             if big {
-                emit!(self, Instruction::MapAdd { i: 0 });
+                emit!(self, Instruction::MapAdd { i: 1 });
             }
         }
 
