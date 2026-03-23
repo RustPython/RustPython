@@ -292,6 +292,19 @@ fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String
         symbol_table.needs_classdict = true;
     }
 
+    // Classes with function definitions need __classdict__ for PEP 649
+    if !symbol_table.needs_classdict {
+        let has_functions = symbol_table.sub_tables.iter().any(|t| {
+            matches!(
+                t.typ,
+                CompilerScope::Function | CompilerScope::AsyncFunction
+            )
+        });
+        if has_functions {
+            symbol_table.needs_classdict = true;
+        }
+    }
+
     // Check if __conditional_annotations__ is in the free variables collected from children
     // Remove it from free set - it's handled specially in class scope
     if newfree.shift_remove("__conditional_annotations__") {

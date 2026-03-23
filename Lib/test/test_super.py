@@ -209,7 +209,6 @@ class TestSuper(unittest.TestCase):
 
         self.assertIs(test_class, A)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test___classcell___expected_behaviour(self):
         # See issue #23722
         class Meta(type):

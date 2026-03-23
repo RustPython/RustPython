@@ -118,6 +118,7 @@ declare_const_name! {
     __class__,
     __class_getitem__,
     __classcell__,
+    __classdictcell__,
     __complex__,
     __contains__,
     __copy__,

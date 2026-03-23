@@ -2623,7 +2623,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ListAppend { i } => {
                 let item = self.pop_value();
-                let obj = self.nth_value(i.get(arg));
+                let obj = self.nth_value(i.get(arg) - 1);
                 let list: &Py<PyList> = unsafe {
                     // SAFETY: trust compiler
                     obj.downcast_unchecked_ref()
@@ -2633,7 +2633,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ListExtend { i } => {
                 let iterable = self.pop_value();
-                let obj = self.nth_value(i.get(arg));
+                let obj = self.nth_value(i.get(arg) - 1);
                 let list: &Py<PyList> = unsafe {
                     // SAFETY: compiler guarantees correct type
                     obj.downcast_unchecked_ref()
@@ -2977,7 +2977,7 @@ impl ExecutingFrame<'_> {
             Instruction::MapAdd { i } => {
                 let value = self.pop_value();
                 let key = self.pop_value();
-                let obj = self.nth_value(i.get(arg));
+                let obj = self.nth_value(i.get(arg) - 1);
                 let dict: &Py<PyDict> = unsafe {
                     // SAFETY: trust compiler
                     obj.downcast_unchecked_ref()
@@ -3308,7 +3308,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::SetAdd { i } => {
                 let item = self.pop_value();
-                let obj = self.nth_value(i.get(arg));
+                let obj = self.nth_value(i.get(arg) - 1);
                 let set: &Py<PySet> = unsafe {
                     // SAFETY: trust compiler
                     obj.downcast_unchecked_ref()
@@ -3318,7 +3318,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::SetUpdate { i } => {
                 let iterable = self.pop_value();
-                let obj = self.nth_value(i.get(arg));
+                let obj = self.nth_value(i.get(arg) - 1);
                 let set: &Py<PySet> = unsafe {
                     // SAFETY: compiler guarantees correct type
                     obj.downcast_unchecked_ref()

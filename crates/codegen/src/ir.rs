@@ -195,8 +195,9 @@ impl CodeInfo {
         self.remove_unused_consts();
         self.remove_nops();
 
+        // DCE always runs (removes dead code after terminal instructions)
+        self.dce();
         if opts.optimize > 0 {
-            self.dce();
             self.peephole_optimize();
         }
 
@@ -208,6 +209,9 @@ impl CodeInfo {
         label_exception_targets(&mut self.blocks);
         push_cold_blocks_to_end(&mut self.blocks);
         normalize_jumps(&mut self.blocks);
+        self.dce(); // re-run within-block DCE after normalize_jumps creates new instructions
+        self.eliminate_unreachable_blocks();
+        duplicate_end_returns(&mut self.blocks);
         self.optimize_load_global_push_null();
 
         let max_stackdepth = self.max_stackdepth()?;
@@ -329,6 +333,18 @@ impl CodeInfo {
             }
 
             blocks[bi].instructions = kept;
+        }
+
+        // Final DCE: truncate instructions after terminal ops in linearized blocks.
+        // This catches dead code created by normalize_jumps after the initial DCE.
+        for block in blocks.iter_mut() {
+            if let Some(pos) = block
+                .instructions
+                .iter()
+                .position(|ins| ins.instr.is_scope_exit() || ins.instr.is_unconditional_jump())
+            {
+                block.instructions.truncate(pos + 1);
+            }
         }
 
         // Pre-compute cache_entries for real (non-pseudo) instructions
@@ -546,6 +562,7 @@ impl CodeInfo {
     }
 
     fn dce(&mut self) {
+        // Truncate instructions after terminal instructions within each block
         for block in &mut self.blocks {
             let mut last_instr = None;
             for (i, ins) in block.instructions.iter().enumerate() {
@@ -556,6 +573,54 @@ impl CodeInfo {
             }
             if let Some(i) = last_instr {
                 block.instructions.truncate(i + 1);
+            }
+        }
+    }
+
+    /// Clear blocks that are unreachable (not entry, not a jump target,
+    /// and only reachable via fall-through from a terminal block).
+    fn eliminate_unreachable_blocks(&mut self) {
+        let mut reachable = vec![false; self.blocks.len()];
+        reachable[0] = true;
+
+        // Fixpoint: only mark targets of already-reachable blocks
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for i in 0..self.blocks.len() {
+                if !reachable[i] {
+                    continue;
+                }
+                // Mark jump targets and exception handlers
+                for ins in &self.blocks[i].instructions {
+                    if ins.target != BlockIdx::NULL && !reachable[ins.target.idx()] {
+                        reachable[ins.target.idx()] = true;
+                        changed = true;
+                    }
+                    if let Some(eh) = &ins.except_handler
+                        && !reachable[eh.handler_block.idx()]
+                    {
+                        reachable[eh.handler_block.idx()] = true;
+                        changed = true;
+                    }
+                }
+                // Mark fall-through
+                let next = self.blocks[i].next;
+                if next != BlockIdx::NULL
+                    && !reachable[next.idx()]
+                    && !self.blocks[i].instructions.last().is_some_and(|ins| {
+                        ins.instr.is_scope_exit() || ins.instr.is_unconditional_jump()
+                    })
+                {
+                    reachable[next.idx()] = true;
+                    changed = true;
+                }
+            }
+        }
+
+        for (i, block) in self.blocks.iter_mut().enumerate() {
+            if !reachable[i] {
+                block.instructions.clear();
             }
         }
     }
@@ -574,7 +639,20 @@ impl CodeInfo {
                 };
 
                 let tuple_size = u32::from(instr.arg) as usize;
-                if tuple_size == 0 || i < tuple_size {
+                if tuple_size == 0 {
+                    // BUILD_TUPLE 0 → LOAD_CONST ()
+                    let (const_idx, _) = self.metadata.consts.insert_full(ConstantData::Tuple {
+                        elements: Vec::new(),
+                    });
+                    block.instructions[i].instr = Instruction::LoadConst {
+                        consti: Arg::marker(),
+                    }
+                    .into();
+                    block.instructions[i].arg = OpArg::new(const_idx as u32);
+                    i += 1;
+                    continue;
+                }
+                if i < tuple_size {
                     i += 1;
                     continue;
                 }
@@ -1644,6 +1722,65 @@ fn normalize_jumps(blocks: &mut [Block]) {
                 other => other,
             };
         }
+    }
+}
+
+/// Duplicate `LOAD_CONST None + RETURN_VALUE` for blocks that fall through
+/// to the final return block. Matches CPython's behavior of ensuring every
+/// code path that reaches the end of a function/module has its own explicit
+/// return instruction.
+fn duplicate_end_returns(blocks: &mut [Block]) {
+    // Walk the block chain to find the last block
+    let mut last_block = BlockIdx(0);
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        last_block = current;
+        current = blocks[current.idx()].next;
+    }
+
+    // Check if the last block ends with LOAD_CONST + RETURN_VALUE (the implicit return)
+    let last_insts = &blocks[last_block.idx()].instructions;
+    // Only apply when the last block is EXACTLY a return-None epilogue
+    let is_return_block = last_insts.len() == 2
+        && matches!(
+            last_insts[0].instr,
+            AnyInstruction::Real(Instruction::LoadConst { .. })
+        )
+        && matches!(
+            last_insts[1].instr,
+            AnyInstruction::Real(Instruction::ReturnValue)
+        );
+    if !is_return_block {
+        return;
+    }
+
+    // Get the return instructions to clone
+    let return_insts: Vec<InstructionInfo> = last_insts[last_insts.len() - 2..].to_vec();
+
+    // Find non-cold blocks that fall through to the last block
+    let mut blocks_to_fix = Vec::new();
+    current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        let block = &blocks[current.idx()];
+        if current != last_block && block.next == last_block && !block.cold && !block.except_handler
+        {
+            let has_fallthrough = block
+                .instructions
+                .last()
+                .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
+                .unwrap_or(true);
+            if has_fallthrough {
+                blocks_to_fix.push(current);
+            }
+        }
+        current = blocks[current.idx()].next;
+    }
+
+    // Duplicate the return instructions at the end of fall-through blocks
+    for block_idx in blocks_to_fix {
+        blocks[block_idx.idx()]
+            .instructions
+            .extend_from_slice(&return_insts);
     }
 }
 

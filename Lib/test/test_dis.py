@@ -1134,7 +1134,6 @@ class DisTests(DisTestBase):
         # Test that value is displayed for keyword argument names:
         self.do_disassembly_test(wrap_func_w_kwargs, dis_kw_names)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_intrinsic_1(self):
         # Test that argrepr is displayed for CALL_INTRINSIC_1
         self.do_disassembly_test("from math import *", dis_intrinsic_1_2)
