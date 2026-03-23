@@ -1987,6 +1987,7 @@ fn duplicate_end_returns(blocks: &mut [Block]) {
     // Check if the last block ends with LOAD_CONST + RETURN_VALUE (the implicit return)
     let last_insts = &blocks[last_block.idx()].instructions;
     // Only apply when the last block is EXACTLY a return-None epilogue
+    // AND the return instructions have no explicit line number (lineno <= 0)
     let is_return_block = last_insts.len() == 2
         && matches!(
             last_insts[0].instr,
