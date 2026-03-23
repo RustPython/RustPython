@@ -862,7 +862,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.addCleanup(sys.settrace, sys.gettrace())
         sys.settrace(None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; BINARY_OP                0 (+)
     def test_load_fast_known_simple(self):
         def f():
             x = 1
