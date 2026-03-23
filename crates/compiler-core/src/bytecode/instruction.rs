@@ -1020,7 +1020,7 @@ impl InstructionMetadata for Instruction {
             Self::LoadLocals => (1, 0),
             Self::LoadName { .. } => (1, 0),
             Self::LoadSmallInt { .. } => (1, 0),
-            Self::LoadSpecial { .. } => (1, 1),
+            Self::LoadSpecial { .. } => (2, 1),
             Self::LoadSuperAttr { .. } => (1 + (oparg & 1), 3),
             Self::LoadSuperAttrAttr => (1, 3),
             Self::LoadSuperAttrMethod => (2, 3),
@@ -1085,7 +1085,7 @@ impl InstructionMetadata for Instruction {
             Self::UnpackSequenceList => (oparg, 1),
             Self::UnpackSequenceTuple => (oparg, 1),
             Self::UnpackSequenceTwoTuple => (2, 1),
-            Self::WithExceptStart => (6, 5),
+            Self::WithExceptStart => (7, 6),
             Self::YieldValue { .. } => (1, 1),
         };
 

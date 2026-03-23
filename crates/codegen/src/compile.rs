@@ -1476,25 +1476,20 @@ impl Compiler {
             }
 
             FBlockType::With | FBlockType::AsyncWith => {
-                // Stack when entering: [..., __exit__, return_value (if preserve_tos)]
-                // Need to call __exit__(None, None, None)
-
+                // Stack: [..., exit_func, self_exit, return_value (if preserve_tos)]
                 emit!(self, PseudoInstruction::PopBlock);
 
-                // If preserving return value, swap it below __exit__
                 if preserve_tos {
-                    emit!(self, Instruction::Swap { i: 2 });
+                    // Rotate return value below the exit pair
+                    // [exit_func, self_exit, value] → [value, exit_func, self_exit]
+                    emit!(self, Instruction::Swap { i: 3 }); // [value, self_exit, exit_func]
+                    emit!(self, Instruction::Swap { i: 2 }); // [value, exit_func, self_exit]
                 }
-                // Stack after swap: [..., return_value, __exit__] or [..., __exit__]
 
-                // Call __exit__(None, None, None)
-                // Call protocol: [callable, self_or_null, arg1, arg2, arg3]
-                emit!(self, Instruction::PushNull);
-                // Stack: [..., __exit__, NULL]
+                // Call exit_func(self_exit, None, None, None)
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
-                // Stack: [..., __exit__, NULL, None, None, None]
                 emit!(self, Instruction::Call { argc: 3 });
 
                 // For async with, await the result
@@ -5180,16 +5175,16 @@ impl Compiler {
                 Instruction::LoadSpecial {
                     method: SpecialMethod::AExit
                 }
-            ); // [cm, bound_aexit]
-            emit!(self, Instruction::Swap { i: 2 }); // [bound_aexit, cm]
+            ); // [cm, aexit_func, self_ae]
+            emit!(self, Instruction::Swap { i: 2 }); // [cm, self_ae, aexit_func]
+            emit!(self, Instruction::Swap { i: 3 }); // [aexit_func, self_ae, cm]
             emit!(
                 self,
                 Instruction::LoadSpecial {
                     method: SpecialMethod::AEnter
                 }
-            ); // [bound_aexit, bound_aenter]
-            emit!(self, Instruction::PushNull);
-            emit!(self, Instruction::Call { argc: 0 }); // [bound_aexit, awaitable]
+            ); // [aexit_func, self_ae, aenter_func, self_an]
+            emit!(self, Instruction::Call { argc: 0 }); // [aexit_func, self_ae, awaitable]
             emit!(self, Instruction::GetAwaitable { r#where: 1 });
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true)?;
@@ -5200,16 +5195,16 @@ impl Compiler {
                 Instruction::LoadSpecial {
                     method: SpecialMethod::Exit
                 }
-            ); // [cm, bound_exit]
-            emit!(self, Instruction::Swap { i: 2 }); // [bound_exit, cm]
+            ); // [cm, exit_func, self_exit]
+            emit!(self, Instruction::Swap { i: 2 }); // [cm, self_exit, exit_func]
+            emit!(self, Instruction::Swap { i: 3 }); // [exit_func, self_exit, cm]
             emit!(
                 self,
                 Instruction::LoadSpecial {
                     method: SpecialMethod::Enter
                 }
-            ); // [bound_exit, bound_enter]
-            emit!(self, Instruction::PushNull);
-            emit!(self, Instruction::Call { argc: 0 }); // [bound_exit, enter_result]
+            ); // [exit_func, self_exit, enter_func, self_enter]
+            emit!(self, Instruction::Call { argc: 0 }); // [exit_func, self_exit, result]
         }
 
         // Stack: [..., __exit__, enter_result]
@@ -5263,10 +5258,9 @@ impl Compiler {
         });
 
         // ===== Normal exit path =====
-        // Stack: [..., bound_exit]
-        // Call bound_exit(None, None, None)
+        // Stack: [..., exit_func, self_exit]
+        // Call exit_func(self_exit, None, None, None)
         self.set_source_range(with_range);
-        emit!(self, Instruction::PushNull);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
@@ -5280,11 +5274,10 @@ impl Compiler {
         emit!(self, PseudoInstruction::Jump { delta: after_block });
 
         // ===== Exception handler path =====
-        // Stack at entry (after unwind): [..., __exit__, lasti, exc]
-        // PUSH_EXC_INFO -> [..., __exit__, lasti, prev_exc, exc]
+        // Stack at entry: [..., exit_func, self_exit, lasti, exc]
+        // PUSH_EXC_INFO -> [..., exit_func, self_exit, lasti, prev_exc, exc]
         self.switch_to_block(exc_handler_block);
 
-        // Create blocks for exception handling
         let cleanup_block = self.new_block();
         let suppress_block = self.new_block();
 
@@ -5296,12 +5289,10 @@ impl Compiler {
         );
         self.push_fblock(FBlockType::ExceptionHandler, exc_handler_block, after_block)?;
 
-        // PUSH_EXC_INFO: [exc] -> [prev_exc, exc]
         emit!(self, Instruction::PushExcInfo);
 
-        // WITH_EXCEPT_START: call __exit__(type, value, tb)
-        // Stack: [..., __exit__, lasti, prev_exc, exc]
-        // __exit__ is at TOS-3, call with exception info
+        // WITH_EXCEPT_START: call exit_func(self_exit, type, value, tb)
+        // Stack: [..., exit_func, self_exit, lasti, prev_exc, exc]
         emit!(self, Instruction::WithExceptStart);
 
         if is_async {
@@ -5310,7 +5301,6 @@ impl Compiler {
             let _ = self.compile_yield_from_sequence(true)?;
         }
 
-        // TO_BOOL + POP_JUMP_IF_TRUE: check if exception is suppressed
         emit!(self, Instruction::ToBool);
         emit!(
             self,
@@ -5319,25 +5309,19 @@ impl Compiler {
             }
         );
 
-        // Pop the nested fblock BEFORE RERAISE so that RERAISE's exception
-        // handler points to the outer handler (try-except), not cleanup_block.
-        // This is critical: when RERAISE propagates the exception, the exception
-        // table should route it to the outer try-except, not back to cleanup.
         emit!(self, PseudoInstruction::PopBlock);
         self.pop_fblock(FBlockType::ExceptionHandler);
 
-        // Not suppressed: RERAISE 2
         emit!(self, Instruction::Reraise { depth: 2 });
 
         // ===== Suppress block =====
-        // Exception was suppressed, clean up stack
-        // Stack: [..., __exit__, lasti, prev_exc, exc, True]
-        // Need to pop: True, exc, prev_exc, __exit__
+        // Stack: [..., exit_func, self_exit, lasti, prev_exc, exc, True]
         self.switch_to_block(suppress_block);
-        emit!(self, Instruction::PopTop); // pop True (TO_BOOL result)
-        emit!(self, Instruction::PopExcept); // pop exc and restore prev_exc
-        emit!(self, Instruction::PopTop); // pop __exit__
+        emit!(self, Instruction::PopTop); // pop True
+        emit!(self, Instruction::PopExcept); // pop exc, restore prev_exc
         emit!(self, Instruction::PopTop); // pop lasti
+        emit!(self, Instruction::PopTop); // pop self_exit
+        emit!(self, Instruction::PopTop); // pop exit_func
         emit!(self, PseudoInstruction::Jump { delta: after_block });
 
         // ===== Cleanup block (for nested exception during __exit__) =====
@@ -8740,10 +8724,8 @@ impl Compiler {
         for action in unwind_actions {
             match action {
                 UnwindAction::With { is_async } => {
-                    // codegen_unwind_fblock(WITH/ASYNC_WITH)
+                    // Stack: [..., exit_func, self_exit]
                     emit!(self, PseudoInstruction::PopBlock);
-                    // compiler_call_exit_with_nones
-                    emit!(self, Instruction::PushNull);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
