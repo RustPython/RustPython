@@ -189,17 +189,19 @@ impl CodeInfo {
         mut self,
         opts: &crate::compile::CompileOpts,
     ) -> crate::InternalResult<CodeObject> {
-        // Always fold tuple constants
+        // Constant folding passes
+        self.fold_unary_negative();
         self.fold_tuple_constants();
+        self.fold_list_constants();
+        self.fold_set_constants();
         self.convert_to_load_small_int();
         self.remove_unused_consts();
         self.remove_nops();
 
         // DCE always runs (removes dead code after terminal instructions)
         self.dce();
-        if opts.optimize > 0 {
-            self.peephole_optimize();
-        }
+        // Peephole optimizer creates superinstructions matching CPython
+        self.peephole_optimize();
 
         // Always apply LOAD_FAST_BORROW optimization
         self.optimize_load_fast_borrow();
@@ -625,6 +627,55 @@ impl CodeInfo {
         }
     }
 
+    /// Fold LOAD_CONST/LOAD_SMALL_INT + UNARY_NEGATIVE → LOAD_CONST (negative value)
+    fn fold_unary_negative(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i + 1 < block.instructions.len() {
+                let next = &block.instructions[i + 1];
+                let Some(Instruction::UnaryNegative) = next.instr.real() else {
+                    i += 1;
+                    continue;
+                };
+                let curr = &block.instructions[i];
+                let value = match curr.instr.real() {
+                    Some(Instruction::LoadConst { .. }) => {
+                        let idx = u32::from(curr.arg) as usize;
+                        match self.metadata.consts.get_index(idx) {
+                            Some(ConstantData::Integer { value }) => {
+                                Some(ConstantData::Integer { value: -value })
+                            }
+                            Some(ConstantData::Float { value }) => {
+                                Some(ConstantData::Float { value: -value })
+                            }
+                            _ => None,
+                        }
+                    }
+                    Some(Instruction::LoadSmallInt { .. }) => {
+                        let v = u32::from(curr.arg) as i32;
+                        Some(ConstantData::Integer {
+                            value: BigInt::from(-v),
+                        })
+                    }
+                    _ => None,
+                };
+                if let Some(neg_const) = value {
+                    let (const_idx, _) = self.metadata.consts.insert_full(neg_const);
+                    block.instructions[i].instr = Instruction::LoadConst {
+                        consti: Arg::marker(),
+                    }
+                    .into();
+                    block.instructions[i].arg = OpArg::new(const_idx as u32);
+                    // Replace UNARY_NEGATIVE with NOP
+                    block.instructions[i + 1].instr = Instruction::Nop.into();
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+        }
+    }
+
     /// Constant folding: fold LOAD_CONST/LOAD_SMALL_INT + BUILD_TUPLE into LOAD_CONST tuple
     /// fold_tuple_of_constants
     fn fold_tuple_constants(&mut self) {
@@ -717,6 +768,195 @@ impl CodeInfo {
                 }
                 .into();
                 block.instructions[i].arg = OpArg::new(const_idx as u32);
+
+                i += 1;
+            }
+        }
+    }
+
+    /// Fold constant list literals: LOAD_CONST* + BUILD_LIST N →
+    /// BUILD_LIST 0 + LOAD_CONST (tuple) + LIST_EXTEND 1
+    fn fold_list_constants(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i < block.instructions.len() {
+                let instr = &block.instructions[i];
+                let Some(Instruction::BuildList { .. }) = instr.instr.real() else {
+                    i += 1;
+                    continue;
+                };
+
+                let list_size = u32::from(instr.arg) as usize;
+                if list_size == 0 || i < list_size {
+                    i += 1;
+                    continue;
+                }
+
+                let start_idx = i - list_size;
+                let mut elements = Vec::with_capacity(list_size);
+                let mut all_const = true;
+
+                for j in start_idx..i {
+                    let load_instr = &block.instructions[j];
+                    match load_instr.instr.real() {
+                        Some(Instruction::LoadConst { .. }) => {
+                            let const_idx = u32::from(load_instr.arg) as usize;
+                            if let Some(constant) =
+                                self.metadata.consts.get_index(const_idx).cloned()
+                            {
+                                elements.push(constant);
+                            } else {
+                                all_const = false;
+                                break;
+                            }
+                        }
+                        Some(Instruction::LoadSmallInt { .. }) => {
+                            let value = u32::from(load_instr.arg) as i32;
+                            elements.push(ConstantData::Integer {
+                                value: BigInt::from(value),
+                            });
+                        }
+                        _ => {
+                            all_const = false;
+                            break;
+                        }
+                    }
+                }
+
+                if !all_const || list_size < 3 {
+                    i += 1;
+                    continue;
+                }
+
+                let tuple_const = ConstantData::Tuple { elements };
+                let (const_idx, _) = self.metadata.consts.insert_full(tuple_const);
+
+                let folded_loc = block.instructions[i].location;
+                let end_loc = block.instructions[i].end_location;
+                let eh = block.instructions[i].except_handler;
+
+                // slot[start_idx] → BUILD_LIST 0
+                block.instructions[start_idx].instr = Instruction::BuildList {
+                    count: Arg::marker(),
+                }
+                .into();
+                block.instructions[start_idx].arg = OpArg::new(0);
+                block.instructions[start_idx].location = folded_loc;
+                block.instructions[start_idx].end_location = end_loc;
+                block.instructions[start_idx].except_handler = eh;
+
+                // slot[start_idx+1] → LOAD_CONST (tuple)
+                block.instructions[start_idx + 1].instr = Instruction::LoadConst {
+                    consti: Arg::marker(),
+                }
+                .into();
+                block.instructions[start_idx + 1].arg = OpArg::new(const_idx as u32);
+                block.instructions[start_idx + 1].location = folded_loc;
+                block.instructions[start_idx + 1].end_location = end_loc;
+                block.instructions[start_idx + 1].except_handler = eh;
+
+                // NOP the rest
+                for j in (start_idx + 2)..i {
+                    block.instructions[j].instr = Instruction::Nop.into();
+                    block.instructions[j].location = folded_loc;
+                }
+
+                // slot[i] (was BUILD_LIST) → LIST_EXTEND 1
+                block.instructions[i].instr = Instruction::ListExtend { i: Arg::marker() }.into();
+                block.instructions[i].arg = OpArg::new(1);
+
+                i += 1;
+            }
+        }
+    }
+
+    /// Fold constant set literals: LOAD_CONST* + BUILD_SET N →
+    /// BUILD_SET 0 + LOAD_CONST (frozenset-as-tuple) + SET_UPDATE 1
+    fn fold_set_constants(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i < block.instructions.len() {
+                let instr = &block.instructions[i];
+                let Some(Instruction::BuildSet { .. }) = instr.instr.real() else {
+                    i += 1;
+                    continue;
+                };
+
+                let set_size = u32::from(instr.arg) as usize;
+                if set_size < 3 || i < set_size {
+                    i += 1;
+                    continue;
+                }
+
+                let start_idx = i - set_size;
+                let mut elements = Vec::with_capacity(set_size);
+                let mut all_const = true;
+
+                for j in start_idx..i {
+                    let load_instr = &block.instructions[j];
+                    match load_instr.instr.real() {
+                        Some(Instruction::LoadConst { .. }) => {
+                            let const_idx = u32::from(load_instr.arg) as usize;
+                            if let Some(constant) =
+                                self.metadata.consts.get_index(const_idx).cloned()
+                            {
+                                elements.push(constant);
+                            } else {
+                                all_const = false;
+                                break;
+                            }
+                        }
+                        Some(Instruction::LoadSmallInt { .. }) => {
+                            let value = u32::from(load_instr.arg) as i32;
+                            elements.push(ConstantData::Integer {
+                                value: BigInt::from(value),
+                            });
+                        }
+                        _ => {
+                            all_const = false;
+                            break;
+                        }
+                    }
+                }
+
+                if !all_const {
+                    i += 1;
+                    continue;
+                }
+
+                // Use FrozenSet constant (stored as Tuple for now)
+                let const_data = ConstantData::Tuple { elements };
+                let (const_idx, _) = self.metadata.consts.insert_full(const_data);
+
+                let folded_loc = block.instructions[i].location;
+                let end_loc = block.instructions[i].end_location;
+                let eh = block.instructions[i].except_handler;
+
+                block.instructions[start_idx].instr = Instruction::BuildSet {
+                    count: Arg::marker(),
+                }
+                .into();
+                block.instructions[start_idx].arg = OpArg::new(0);
+                block.instructions[start_idx].location = folded_loc;
+                block.instructions[start_idx].end_location = end_loc;
+                block.instructions[start_idx].except_handler = eh;
+
+                block.instructions[start_idx + 1].instr = Instruction::LoadConst {
+                    consti: Arg::marker(),
+                }
+                .into();
+                block.instructions[start_idx + 1].arg = OpArg::new(const_idx as u32);
+                block.instructions[start_idx + 1].location = folded_loc;
+                block.instructions[start_idx + 1].end_location = end_loc;
+                block.instructions[start_idx + 1].except_handler = eh;
+
+                for j in (start_idx + 2)..i {
+                    block.instructions[j].instr = Instruction::Nop.into();
+                    block.instructions[j].location = folded_loc;
+                }
+
+                block.instructions[i].instr = Instruction::SetUpdate { i: Arg::marker() }.into();
+                block.instructions[i].arg = OpArg::new(1);
 
                 i += 1;
             }

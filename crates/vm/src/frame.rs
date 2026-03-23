@@ -2945,7 +2945,6 @@ impl ExecutingFrame<'_> {
 
                 let bound = match vm.get_special_method(&obj, method_name)? {
                     Some(PyMethod::Function { target, func }) => {
-                        // Create bound method: PyBoundMethod(object=target, function=func)
                         crate::builtins::PyBoundMethod::new(target, func)
                             .into_ref(&vm.ctx)
                             .into()
