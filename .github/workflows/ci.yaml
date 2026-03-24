@@ -270,7 +270,7 @@ jobs:
       - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
         run: |
-          for thing in "${TESTS}"; do
+          while IFS= read -r thing; do
             for i in $(seq 1 10); do
               set +e
               target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v "${thing}"
@@ -291,9 +291,9 @@ jobs:
               fi
               exit 1
             fi
-          done
+          done <<< "$TESTS"
         env:
-          TESTS: ${{ join(matrix.env_polluting_tests, ' ') }}
+          TESTS: ${{ join(matrix.env_polluting_tests, '\n') }}
         timeout-minutes: 15
 
       - if: runner.os != 'Windows'
