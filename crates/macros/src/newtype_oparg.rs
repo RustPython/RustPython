@@ -162,21 +162,22 @@ pub(super) fn handle_enum(item: ItemEnum) -> syn::Result<proc_macro2::TokenStrea
         variants,
     } = item.clone();
 
-    let mut variants_info = variants
+    let (mut catch_all_variants, variants_info): (Vec<_>, Vec<_>) = variants
         .iter()
         .cloned()
         .map(VariantInfo::try_from)
-        .collect::<syn::Result<Vec<_>>>()?;
-
-    let catch_all = variants_info.pop_if(|info| info.catch_all);
+        .collect::<syn::Result<Vec<_>>>()?
+        .into_iter()
+        .partition(|vinfo| vinfo.catch_all);
 
     // Ensure a no multiple `#[oparg(catch_all)]`
-    if catch_all.is_some() && variants_info.iter().any(|vinfo| vinfo.catch_all) {
+    let catch_all = catch_all_variants.pop();
+    if !catch_all_variants.is_empty() {
         return Err(Error::new(
             item.span(),
             "Cannot define more than one `#[oparg(catch_all)]`",
         ));
-    };
+    }
 
     let variants_def = variants.iter().cloned().map(|mut variant| {
         // Don't assign value. Enables more optimizations by the compiler.
