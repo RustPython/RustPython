@@ -230,7 +230,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - uses: actions/setup-python@v6.2.0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -324,7 +324,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@v6.2.0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -426,9 +426,11 @@ jobs:
           wget https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz
           mkdir geckodriver
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
-      - uses: actions/setup-python@v6.2.0
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
       - uses: actions/setup-node@v6
@@ -514,7 +516,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: cargo-bins/cargo-binstall@1800853f2578f8c34492ec76154caef8e163fbca # v1.17.7
+      - uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
 
       - run: cargo binstall --no-confirm cargo-shear
 
