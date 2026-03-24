@@ -50,8 +50,7 @@ jobs:
         if: ${{ github.event_name != 'pull_request' }}
         uses: codecov/codecov-action@v5
         with:
-          files: |
-            ./codecov.lcov
+          files: ./codecov.lcov
 
   testdata:
     name: Collect regression test data
