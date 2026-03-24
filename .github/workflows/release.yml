@@ -113,7 +113,7 @@ jobs:
 
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
       - uses: mwilliamson/setup-wabt-action@v3
         with: { wabt-version: "1.0.30" }
       - name: build demo
