@@ -86,7 +86,6 @@ pub(super) fn handle_struct(item: ItemStruct) -> syn::Result<proc_macro2::TokenS
     Ok(output)
 }
 
-#[derive(Clone)]
 struct VariantInfo {
     ident: Ident,
     discriminant: Option<syn::Expr>,
@@ -112,42 +111,39 @@ pub(super) fn handle_enum(item: ItemEnum) -> syn::Result<proc_macro2::TokenStrea
         variants,
     } = item.clone();
 
-    let mut variants_info = variants
-        .iter()
-        .map(|variant| {
-            let ident = variant.ident.clone();
-            let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
+    let mut variants_info = vec![];
+    for variant in &variants {
+        let ident = variant.ident.clone();
+        let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
 
-            let mut display = None;
-            let mut catch_all = false;
-            for attr in &variant.attrs {
-                if !attr.path().is_ident("oparg") {
-                    continue;
+        let mut display = None;
+        let mut catch_all = false;
+        for attr in &variant.attrs {
+            if !attr.path().is_ident("oparg") {
+                continue;
+            }
+
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("display") {
+                    let value = meta.value()?.parse::<syn::LitStr>()?;
+                    display = Some(value.value());
+                    Ok(())
+                } else if meta.path.is_ident("catch_all") {
+                    catch_all = true;
+                    Ok(())
+                } else {
+                    Err(meta.error("unknown oparg attribute"))
                 }
+            })?
+        }
 
-                attr.parse_nested_meta(|meta| {
-                    if meta.path.is_ident("display") {
-                        let value = meta.value()?.parse::<syn::LitStr>()?;
-                        display = Some(value.value());
-                        Ok(())
-                    } else if meta.path.is_ident("catch_all") {
-                        catch_all = true;
-                        Ok(())
-                    } else {
-                        Err(meta.error("unknown oparg attribute"))
-                    }
-                })
-                .unwrap();
-            }
-
-            VariantInfo {
-                ident,
-                discriminant,
-                display,
-                catch_all,
-            }
+        variants_info.push(VariantInfo {
+            ident,
+            discriminant,
+            display,
+            catch_all,
         })
-        .collect::<Vec<_>>();
+    }
 
     let catch_all = variants_info.pop_if(|info| info.catch_all);
 
