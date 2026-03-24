@@ -93,29 +93,10 @@ struct VariantInfo {
     catch_all: bool,
 }
 
-pub(super) fn handle_enum(item: ItemEnum) -> syn::Result<proc_macro2::TokenStream> {
-    if !item.generics.params.is_empty() {
-        return Err(Error::new(
-            item.span(),
-            "A new type oparg cannot be generic.",
-        ));
-    }
+impl TryFrom<syn::Variant> for VariantInfo {
+    type Error = syn::Error;
 
-    let ItemEnum {
-        attrs,
-        vis,
-        enum_token,
-        ident,
-        generics: _,
-        brace_token: _,
-        variants,
-    } = item.clone();
-
-    let mut variants_info = vec![];
-    for variant in &variants {
-        let ident = variant.ident.clone();
-        let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
-
+    fn try_from(variant: syn::Variant) -> Result<Self, Self::Error> {
         let mut display = None;
         let mut catch_all = false;
         for attr in &variant.attrs {
@@ -137,13 +118,55 @@ pub(super) fn handle_enum(item: ItemEnum) -> syn::Result<proc_macro2::TokenStrea
             })?
         }
 
-        variants_info.push(VariantInfo {
+        let ident = variant.ident.clone();
+        let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
+
+        if catch_all && display.is_some() {
+            return Err(Error::new(
+                ident.span(),
+                r#"Cannot define both `#[oparg(catch_all)`] and `#[oparg(display = "...")]` on the same variant"#,
+            ));
+        }
+
+        if discriminant.is_none() && !catch_all {
+            return Err(Error::new(
+                ident.span(),
+                "Is a variant without an assigned value",
+            ));
+        }
+
+        Ok(Self {
             ident,
             discriminant,
             display,
             catch_all,
         })
     }
+}
+
+pub(super) fn handle_enum(item: ItemEnum) -> syn::Result<proc_macro2::TokenStream> {
+    if !item.generics.params.is_empty() {
+        return Err(Error::new(
+            item.span(),
+            "A new type oparg cannot be generic.",
+        ));
+    }
+
+    let ItemEnum {
+        attrs,
+        vis,
+        enum_token,
+        ident,
+        generics: _,
+        brace_token: _,
+        variants,
+    } = item.clone();
+
+    let mut variants_info = variants
+        .iter()
+        .cloned()
+        .map(VariantInfo::try_from)
+        .collect::<syn::Result<Vec<_>>>()?;
 
     let catch_all = variants_info.pop_if(|info| info.catch_all);
 
@@ -154,26 +177,6 @@ pub(super) fn handle_enum(item: ItemEnum) -> syn::Result<proc_macro2::TokenStrea
             "Cannot define more than one `#[oparg(catch_all)]`",
         ));
     };
-
-    match catch_all {
-        Some(vinfo) if vinfo.display.is_some() => {
-            return Err(Error::new(
-                vinfo.ident.span(),
-                r#"Cannot define both `#[oparg(catch_all)`] and `#[oparg(display = "...")]` on the same variant"#,
-            ));
-        }
-        _ => {}
-    };
-
-    // Ensure all variants has a discriminant.
-    for vinfo in &variants_info {
-        if vinfo.discriminant.is_none() {
-            return Err(Error::new(
-                vinfo.ident.span(),
-                "Is a variant without an assigned value",
-            ));
-        }
-    }
 
     let variants_def = variants.iter().cloned().map(|mut variant| {
         // Don't assign value. Enables more optimizations by the compiler.
