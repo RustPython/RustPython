@@ -270,7 +270,6 @@ jobs:
       - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
         run: |
-          while IFS= read -r thing; do
           for thing in "${{ matrix.env_polluting_tests[@] }}"; do
             for i in $(seq 1 10); do
               set +e
