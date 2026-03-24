@@ -56,6 +56,9 @@ mod interpreter;
 mod settings;
 mod shell;
 
+#[cfg(feature = "rustpython-pylib")]
+pub use rustpython_pylib as pylib;
+
 use rustpython_vm::{AsObject, PyObjectRef, PyResult, VirtualMachine, scope::Scope};
 use std::env;
 use std::io::IsTerminal;
