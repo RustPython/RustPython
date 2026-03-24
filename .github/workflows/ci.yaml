@@ -66,6 +66,9 @@ jobs:
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
 
+      - run: cargo doc --locked
+        if: runner.os == 'Linux'
+
       - name: check compilation without host_env (sandbox mode)
         run: |
           cargo check -p rustpython-vm --no-default-features --features compiler
@@ -326,8 +329,13 @@ jobs:
         run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} --features jit
 
   lint:
-    name: Lint Rust & Python code
+    name: Lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+      security-events: write # for zizmor
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -337,53 +345,41 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Check for redundant test patches
-        run: python scripts/check_redundant_patches.py
-
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
-          components: clippy
           toolchain: stable
+          components: rustfmt
 
-      - name: run clippy on wasm
-        run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
+      - uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
 
-      - name: Ensure docs generate no warnings
-        run: cargo doc --locked
-
-      - name: Ensure Lib/_opcode_metadata is updated
+      - name: cargo shear
         run: |
-          python scripts/generate_opcode_metadata.py
-          if [ -n "$(git status --porcelain)" ]; then
-            exit 1
-          fi
+          cargo binstall --no-confirm cargo-shear
+          cargo shear
 
-      - name: Install ruff
-        uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3.6.1
+      - name: actionlint
+        uses: reviewdog/action-actionlint@0d952c597ef8459f634d7145b0b044a9699e5e43 # v1.71.0
+
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
+
+      - name: Cache prek
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
-          version: "0.15.5"
-          args: "--version"
+          path: ~/.cache/prek
+          key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - run: ruff check --diff
-
-      - run: ruff format --check
-
-      - name: install prettier
-        run: |
-          yarn global add prettier
-          yarn global bin >> "$GITHUB_PATH"
-
-      - name: check wasm code with prettier
-        # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
-        run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
-      # Keep cspell check as the last step. This is optional test.
-      - name: install extra dictionaries
-        run: npm install @cspell/dict-en_us @cspell/dict-cpp @cspell/dict-python @cspell/dict-rust @cspell/dict-win32 @cspell/dict-shell
-      - name: spell checker
-        uses: streetsidesoftware/cspell-action@v8
+      - name: prek
+        uses: j178/prek-action@79f765515bd648eb4d6bb1b17277b7cb22cb6468 # v2.0.0
         with:
-          files: "**/*.rs"
-          incremental_files_only: true
+          cache: false
+
+      - name: reviewdog
+        if: failure()
+        uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # 1.24.0
+        with:
+          tool_name: prek
+          fail_level: error
 
   miri:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -425,11 +421,15 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
+          components: clippy
           toolchain: stable
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: cargo clippy
+        run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -520,29 +520,3 @@ jobs:
         run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
       - name: run cpython unittest
         run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
-
-  cargo-shear:
-    name: cargo shear
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
-
-      - run: cargo binstall --no-confirm cargo-shear
-
-      - run: cargo shear
-
-  security-lint:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Run zizmor
-        uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
