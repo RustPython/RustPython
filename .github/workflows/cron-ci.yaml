@@ -30,9 +30,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: actions/setup-python@v6.2.0
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
       - run: sudo apt-get update && sudo apt-get -y install lcov
       - name: Run cargo-llvm-cov with Rust tests.
         run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher --verbose --no-default-features --features stdlib,importlib,encodings,ssl-rustls,jit
@@ -48,7 +50,8 @@ jobs:
         if: ${{ github.event_name != 'pull_request' }}
         uses: codecov/codecov-action@v5
         with:
-          file: ./codecov.lcov
+          files: |
+            ./codecov.lcov
 
   testdata:
     name: Collect regression test data
@@ -96,9 +99,11 @@ jobs:
           persist-credentials: true
 
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v6.2.0
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
       - name: build rustpython
         run: cargo build --release --verbose
       - name: Collect what is left data
@@ -157,9 +162,11 @@ jobs:
           persist-credentials: true
 
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v6.2.0
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
       - run: cargo install cargo-criterion
       - name: build benchmarks
         run: cargo build --release --benches
