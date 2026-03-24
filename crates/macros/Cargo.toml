@@ -14,7 +14,7 @@ doctest = false
 [dependencies]
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
-syn = { workspace = true }
+syn = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true
