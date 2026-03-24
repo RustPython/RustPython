@@ -270,7 +270,7 @@ jobs:
       - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
         run: |
-          for thing in "${{ env.TESTS }}"; do
+          for thing in "${TESTS}"; do
             for i in $(seq 1 10); do
               set +e
               target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v "${thing}"
