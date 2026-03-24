@@ -74,7 +74,7 @@ jobs:
 
       - name: Setup Python
         if: steps.changed-files.outputs.modules != ''
-        uses: actions/setup-python@v6.2.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "${{ env.PYTHON_VERSION }}"
 
@@ -83,22 +83,15 @@ jobs:
         id: deps-check
         run: |
           # Run deps for all modules at once
-          python scripts/update_lib deps ${{ steps.changed-files.outputs.modules }} --depth 2 > /tmp/deps_output.txt 2>&1 || true
-
-          # Read output for GitHub Actions
-          echo "deps_output<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/deps_output.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-          # Check if there's any meaningful output
-          if [ -s /tmp/deps_output.txt ]; then
-            echo "has_output=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_output=false" >> $GITHUB_OUTPUT
-          fi
+          echo "deps_output<<EOF" >> "$GITHUB_OUTPUT"
+          output=$(python scripts/update_lib deps "${MODULES}"  --depth 2 2>&1 || true)
+          echo "$output" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+        env:
+          MODULES: ${{ steps.changed-files.outputs.modules }}
 
       - name: Post comment
-        if: steps.deps-check.outputs.has_output == 'true'
+        if: steps.deps-check.outputs.deps_output != ''
         uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: lib-deps-check
