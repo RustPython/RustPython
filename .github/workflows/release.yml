@@ -16,7 +16,6 @@ permissions:
   contents: write
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,sqlite,ssl
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
 
@@ -68,7 +67,7 @@ jobs:
           libtool: true
 
       - name: Build RustPython
-        run: cargo build --release --target=${{ matrix.target }} --verbose --features=threading ${{ env.CARGO_ARGS }},jit
+        run: cargo build --release --target=${{ matrix.target }} --verbose --no-default-features --features stdlib,importlib,encodings,sqlite,ssl-rustls,threading,jit
 
       - name: Rename Binary
         run: cp target/${{ matrix.target }}/release/rustpython target/rustpython-release-${{ runner.os }}-${{ matrix.target }}
