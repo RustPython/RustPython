@@ -116,167 +116,45 @@ impl OpArgState {
     }
 }
 
-/// Helper macro for defining oparg enums in an optimal way.
+/// Oparg values for [`Instruction::ConvertValue`].
 ///
-/// Will generate the following:
+/// ## See also
 ///
-/// - Enum which variant's aren't assigned any value (for optimizations).
-/// - impl [`TryFrom<u8>`]
-/// - impl [`TryFrom<u32>`]
-/// - impl [`Into<u8>`]
-/// - impl [`Into<u32>`]
-/// - impl [`OpArgType`]
-///
-/// # Note
-/// If an enum variant has "alternative" values (i.e. `Foo = 0 | 1`), the first value will be the
-/// result of converting to a number.
-///
-/// # Examples
-///
-/// ```ignore
-/// oparg_enum!(
-///     /// Oparg for the `X` opcode.
-///     #[derive(Clone, Copy)]
-///     pub enum MyOpArg {
-///         /// Some doc.
-///         Foo = 4,
-///         Bar = 8,
-///         Baz = 15 | 16,
-///         Qux = 23 | 42
-///     }
-/// );
-/// ```
-macro_rules! oparg_enum {
-    (
-        $(#[$enum_meta:meta])*
-        $vis:vis enum $name:ident {
-            $(
-                $(#[$variant_meta:meta])*
-                $variant:ident = $value:literal $(| $alternatives:expr)*
-            ),* $(,)?
-        }
-    ) => {
-        $(#[$enum_meta])*
-        $vis enum $name {
-            $(
-                $(#[$variant_meta])*
-                $variant, // Do assign value to variant.
-            )*
-        }
-
-        impl_oparg_enum!(
-            enum $name {
-                $(
-                    $variant = $value $(| $alternatives)*,
-                )*
-            }
-        );
-    };
-}
-
-macro_rules! impl_oparg_enum {
-    (
-        enum $name:ident {
-            $(
-                $variant:ident = $value:literal $(| $alternatives:expr)*
-            ),* $(,)?
-        }
-    ) => {
-        impl TryFrom<u8> for $name {
-            type Error = $crate::marshal::MarshalError;
-
-            fn try_from(value: u8) -> Result<Self, Self::Error> {
-                Ok(match value {
-                    $(
-                        $value $(| $alternatives)* => Self::$variant,
-                    )*
-                    _ => return Err(Self::Error::InvalidBytecode),
-                })
-            }
-        }
-
-        impl TryFrom<u32> for $name {
-            type Error = $crate::marshal::MarshalError;
-
-            fn try_from(value: u32) -> Result<Self, Self::Error> {
-                u8::try_from(value)
-                    .map_err(|_| Self::Error::InvalidBytecode)
-                    .map(TryInto::try_into)?
-            }
-        }
-
-        impl From<$name> for u8 {
-            fn from(value: $name) -> Self {
-                match value {
-                    $(
-                        $name::$variant => $value,
-                    )*
-                }
-            }
-        }
-
-        impl From<$name> for u32 {
-            fn from(value: $name) -> Self {
-                Self::from(u8::from(value))
-            }
-        }
-
-        impl OpArgType for $name {}
-    };
-}
-
-oparg_enum!(
-    /// Oparg values for [`Instruction::ConvertValue`].
+/// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
+#[newtype_oparg]
+pub enum ConvertValueOparg {
+    /// No conversion.
     ///
-    /// ## See also
+    /// ```python
+    /// f"{x}"
+    /// f"{x:4}"
+    /// ```
+    #[oparg(display = "")]
+    None = 0,
+    /// Converts by calling `str(<value>)`.
     ///
-    /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
-    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-    pub enum ConvertValueOparg {
-        /// No conversion.
-        ///
-        /// ```python
-        /// f"{x}"
-        /// f"{x:4}"
-        /// ```
-        // Ruff `ConversionFlag::None` is `-1i8`, when its converted to `u8` its value is `u8::MAX`.
-        None = 0 | 255,
-        /// Converts by calling `str(<value>)`.
-        ///
-        /// ```python
-        /// f"{x!s}"
-        /// f"{x!s:2}"
-        /// ```
-        Str = 1,
-        /// Converts by calling `repr(<value>)`.
-        ///
-        /// ```python
-        /// f"{x!r}"
-        /// f"{x!r:2}"
-        /// ```
-        Repr = 2,
-        /// Converts by calling `ascii(<value>)`.
-        ///
-        /// ```python
-        /// f"{x!a}"
-        /// f"{x!a:2}"
-        /// ```
-        Ascii = 3,
-    }
-);
-
-impl fmt::Display for ConvertValueOparg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let out = match self {
-            Self::Str => "1 (str)",
-            Self::Repr => "2 (repr)",
-            Self::Ascii => "3 (ascii)",
-            // We should never reach this. `FVC_NONE` are being handled by `Instruction::FormatSimple`
-            Self::None => "",
-        };
-
-        write!(f, "{out}")
-    }
+    /// ```python
+    /// f"{x!s}"
+    /// f"{x!s:2}"
+    /// ```
+    #[oparg(display = "1 (str)")]
+    Str = 1,
+    /// Converts by calling `repr(<value>)`.
+    ///
+    /// ```python
+    /// f"{x!r}"
+    /// f"{x!r:2}"
+    /// ```
+    #[oparg(display = "2 (repr)")]
+    Repr = 2,
+    /// Converts by calling `ascii(<value>)`.
+    ///
+    /// ```python
+    /// f"{x!a}"
+    /// f"{x!a:2}"
+    /// ```
+    #[oparg(display = "3 (ascii)")]
+    Ascii = 3,
 }
 
 /// Resume type for the RESUME instruction
