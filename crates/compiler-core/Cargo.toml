@@ -19,7 +19,7 @@ itertools = { workspace = true }
 malachite-bigint = { workspace = true }
 num-complex = { workspace = true }
 
-lz4_flex = "0.12"
+lz4_flex = "0.13"
 
 [lints]
 workspace = true
