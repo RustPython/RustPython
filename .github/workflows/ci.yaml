@@ -271,6 +271,7 @@ jobs:
         shell: bash
         run: |
           while IFS= read -r thing; do
+          for thing in "${{ matrix.env_polluting_tests[@] }}"; do
             for i in $(seq 1 10); do
               set +e
               target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v "${thing}"
@@ -291,9 +292,7 @@ jobs:
               fi
               exit 1
             fi
-          done <<< "$TESTS"
-        env:
-          TESTS: ${{ join(matrix.env_polluting_tests, '\n') }}
+          done
         timeout-minutes: 15
 
       - if: runner.os != 'Windows'
