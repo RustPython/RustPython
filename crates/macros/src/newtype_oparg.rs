@@ -97,6 +97,9 @@ impl TryFrom<syn::Variant> for VariantInfo {
     type Error = syn::Error;
 
     fn try_from(variant: syn::Variant) -> Result<Self, Self::Error> {
+        let ident = variant.ident.clone();
+        let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
+
         let mut display = None;
         let mut catch_all = false;
         for attr in &variant.attrs {
@@ -118,8 +121,14 @@ impl TryFrom<syn::Variant> for VariantInfo {
             })?
         }
 
-        let ident = variant.ident.clone();
-        let discriminant = variant.discriminant.as_ref().map(|(_, expr)| expr.clone());
+        if catch_all
+            && !matches!(&variant.fields, syn::Fields::Unnamed(fields) if fields.unnamed.len() == 1)
+        {
+            return Err(Error::new(
+                ident.span(),
+                "`#[oparg(catch_all)]` variant must have exactly one unnamed field, e.g., `Other(u32)`",
+            ));
+        }
 
         if catch_all && display.is_some() {
             return Err(Error::new(
@@ -183,7 +192,7 @@ pub(super) fn handle_enum(item: ItemEnum) -> syn::Result<proc_macro2::TokenStrea
         // Don't assign value. Enables more optimizations by the compiler.
         variant.discriminant = None;
 
-        // Remove `#[oparg(...)`.
+        // Remove `#[oparg(...)]`.
         variant.attrs.retain(|attr| !attr.path().is_ident("oparg"));
 
         variant
