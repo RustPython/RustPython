@@ -136,6 +136,7 @@ jobs:
         working-directory: ./wasm/notebook
 
       - name: Deploy demo to Github Pages
+        if: ${{ github.repository == 'RustPython/RustPython' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           deploy_key: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
