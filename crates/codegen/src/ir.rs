@@ -661,14 +661,20 @@ impl CodeInfo {
                 };
                 if let Some(neg_const) = value {
                     let (const_idx, _) = self.metadata.consts.insert_full(neg_const);
+                    // Replace LOAD_CONST/LOAD_SMALL_INT with new LOAD_CONST
+                    let load_location = block.instructions[i].location;
                     block.instructions[i].instr = Instruction::LoadConst {
                         consti: Arg::marker(),
                     }
                     .into();
                     block.instructions[i].arg = OpArg::new(const_idx as u32);
-                    // Remove UNARY_NEGATIVE so chained negation can be folded
-                    block.instructions.remove(i + 1);
-                    // Don't increment i - re-check new LOAD_CONST with next instruction
+                    // Replace UNARY_NEGATIVE with NOP, inheriting the LOAD_CONST
+                    // location so that remove_nops can clean it up
+                    block.instructions[i + 1].instr = Instruction::Nop.into();
+                    block.instructions[i + 1].location = load_location;
+                    block.instructions[i + 1].end_location = block.instructions[i].end_location;
+                    // Skip the NOP, don't re-check
+                    i += 2;
                 } else {
                     i += 1;
                 }
@@ -1048,9 +1054,11 @@ impl CodeInfo {
                     // Combine: keep first instruction's location, replace with combined instruction
                     block.instructions[i].instr = new_instr.into();
                     block.instructions[i].arg = new_arg;
-                    // Remove the second instruction
-                    block.instructions.remove(i + 1);
-                    // Don't increment i - check if we can combine again with the next instruction
+                    // Replace the second instruction with NOP
+                    let loc = block.instructions[i].location;
+                    block.instructions[i + 1].instr = Instruction::Nop.into();
+                    block.instructions[i + 1].location = loc;
+                    i += 2;
                 } else {
                     i += 1;
                 }
