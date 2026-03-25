@@ -44,6 +44,7 @@ repos:
       - id: generate-opcode-metadata
         name: Generate opcode metadata
         entry: python scripts/generate_opcode_metadata.py
+        files: '^(crates/compiler-core/src/bytecode/instruction\.rs|scripts/generate_opcode_metadata\.py)$'
         pass_filenames: false
         language: system
         require_serial: true # so rustfmt runs first
