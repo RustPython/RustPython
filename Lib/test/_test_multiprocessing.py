@@ -4814,8 +4814,6 @@ class _TestFinalize(BaseTestCase):
         self.assertEqual(result, ['a', 'b', 'd10', 'd03', 'd02', 'd01', 'e'])
 
     @support.requires_resource('cpu')
-    # TODO: RUSTPYTHON; dict iteration races with concurrent GC mutations
-    @unittest.expectedFailure
     def test_thread_safety(self):
         # bpo-24484: _run_finalizers() should be thread-safe
         def cb():

@@ -22,7 +22,7 @@ use crate::{
         self, PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
         PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned, PyWeak,
         code::PyCode,
-        dict::{PyDictItems, PyDictValues},
+        dict::{PyDictItems, PyDictKeys, PyDictValues},
         pystr::AsPyStr,
         tuple::PyTuple,
     },
@@ -1822,7 +1822,9 @@ impl VirtualMachine {
     where
         F: Fn(PyObjectRef) -> PyResult<T>,
     {
-        // Extract elements from item, if possible:
+        // Type-specific fast paths corresponding to _list_extend() in CPython
+        // Objects/listobject.c. Each branch takes an atomic snapshot to avoid
+        // race conditions from concurrent mutation (no GIL).
         let cls = value.class();
         let list_borrow;
         let slice = if cls.is(self.ctx.types.tuple_type) {
@@ -1830,8 +1832,13 @@ impl VirtualMachine {
         } else if cls.is(self.ctx.types.list_type) {
             list_borrow = value.downcast_ref::<PyList>().unwrap().borrow_vec();
             &list_borrow
+        } else if cls.is(self.ctx.types.dict_type) {
+            let keys = value.downcast_ref::<PyDict>().unwrap().keys_vec();
+            return keys.into_iter().map(func).collect();
+        } else if cls.is(self.ctx.types.dict_keys_type) {
+            let keys = value.downcast_ref::<PyDictKeys>().unwrap().dict.keys_vec();
+            return keys.into_iter().map(func).collect();
         } else if cls.is(self.ctx.types.dict_values_type) {
-            // Atomic snapshot of dict values - prevents race condition during iteration
             let values = value
                 .downcast_ref::<PyDictValues>()
                 .unwrap()
@@ -1839,7 +1846,6 @@ impl VirtualMachine {
                 .values_vec();
             return values.into_iter().map(func).collect();
         } else if cls.is(self.ctx.types.dict_items_type) {
-            // Atomic snapshot of dict items - prevents race condition during iteration
             let items = value
                 .downcast_ref::<PyDictItems>()
                 .unwrap()

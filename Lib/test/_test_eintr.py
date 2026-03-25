@@ -163,7 +163,6 @@ class OSEINTRTest(EINTRBaseTest):
             self.assertEqual(os.readinto(fd, buffer), len(expected))
             self.assertEqual(buffer, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; InterruptedError: [Errno 4] Interrupted system call
     def test_write(self):
         rd, wr = os.pipe()
         self.addCleanup(os.close, wr)

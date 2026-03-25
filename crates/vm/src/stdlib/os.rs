@@ -321,12 +321,19 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn write(
-        fd: crt_fd::Borrowed<'_>,
-        data: ArgBytesLike,
-        vm: &VirtualMachine,
-    ) -> io::Result<usize> {
-        data.with_ref(|b| vm.allow_threads(|| crt_fd::write(fd, b)))
+    fn write(fd: crt_fd::Borrowed<'_>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        data.with_ref(|b| {
+            loop {
+                match vm.allow_threads(|| crt_fd::write(fd, b)) {
+                    Ok(n) => return Ok(n),
+                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                        vm.check_signals()?;
+                        continue;
+                    }
+                    Err(e) => return Err(e.into_pyexception(vm)),
+                }
+            }
+        })
     }
 
     #[cfg(not(windows))]
