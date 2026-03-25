@@ -132,6 +132,9 @@ class OperatorTestCase:
         self.assertFalse(operator.gt(1, 2))
         self.assertFalse(operator.gt(1, 2.0))
 
+    def test_a():
+        return super().test_a()
+
     def test_abs(self):
         operator = self.module
         self.assertRaises(TypeError, operator.abs)
