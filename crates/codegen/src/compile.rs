@@ -1043,7 +1043,9 @@ impl Compiler {
 
         // Build cellvars using dictbytype (CELL scope or COMP_CELL flag, sorted)
         let mut cellvar_cache = IndexSet::default();
-        let mut cell_names: Vec<_> = ste
+        // CPython ordering: parameter cells first (in parameter order),
+        // then non-parameter cells (alphabetically sorted)
+        let cell_symbols: Vec<_> = ste
             .symbols
             .iter()
             .filter(|(_, s)| {
@@ -1051,8 +1053,22 @@ impl Compiler {
             })
             .map(|(name, _)| name.clone())
             .collect();
-        cell_names.sort();
-        for name in cell_names {
+        let mut param_cells = Vec::new();
+        let mut nonparam_cells = Vec::new();
+        for name in cell_symbols {
+            if varname_cache.contains(&name) {
+                param_cells.push(name);
+            } else {
+                nonparam_cells.push(name);
+            }
+        }
+        // param_cells are already in parameter order (from varname_cache insertion order)
+        param_cells.sort_by_key(|n| varname_cache.get_index_of(n.as_str()).unwrap_or(usize::MAX));
+        nonparam_cells.sort();
+        for name in param_cells {
+            cellvar_cache.insert(name);
+        }
+        for name in nonparam_cells {
             cellvar_cache.insert(name);
         }
 
