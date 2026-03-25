@@ -7622,23 +7622,8 @@ impl Compiler {
                 self.compile_expr_tstring(tstring)?;
             }
             ast::Expr::StringLiteral(string) => {
-                let value = string.value.to_str();
-                if value.contains(char::REPLACEMENT_CHARACTER) {
-                    let value = string
-                        .value
-                        .iter()
-                        .map(|lit| {
-                            let source = self.source_file.slice(lit.range);
-                            crate::string_parser::parse_string_literal(source, lit.flags.into())
-                        })
-                        .collect();
-                    // might have a surrogate literal; should reparse to be sure
-                    self.emit_load_const(ConstantData::Str { value });
-                } else {
-                    self.emit_load_const(ConstantData::Str {
-                        value: value.into(),
-                    });
-                }
+                let value = self.compile_string_value(string);
+                self.emit_load_const(ConstantData::Str { value });
             }
             ast::Expr::BytesLiteral(bytes) => {
                 let iter = bytes.value.iter().flat_map(|x| x.iter().copied());
@@ -8569,6 +8554,24 @@ impl Compiler {
 
     // fn block_done()
 
+    /// Convert a string literal AST node to Wtf8Buf, handling surrogates correctly.
+    fn compile_string_value(&self, string: &ast::ExprStringLiteral) -> Wtf8Buf {
+        let value = string.value.to_str();
+        if value.contains(char::REPLACEMENT_CHARACTER) {
+            // Might have a surrogate literal; reparse from source to preserve them
+            string
+                .value
+                .iter()
+                .map(|lit| {
+                    let source = self.source_file.slice(lit.range);
+                    crate::string_parser::parse_string_literal(source, lit.flags.into())
+                })
+                .collect()
+        } else {
+            value.into()
+        }
+    }
+
     fn arg_constant(&mut self, constant: ConstantData) -> oparg::ConstIdx {
         let info = self.current_code_info();
         info.metadata.consts.insert_full(constant).0.to_u32().into()
@@ -8598,9 +8601,8 @@ impl Compiler {
                     }
                 },
                 ast::Expr::StringLiteral(s) => {
-                    constants.push(ConstantData::Str {
-                        value: s.value.to_string().into(),
-                    });
+                    let value = self.compile_string_value(s);
+                    constants.push(ConstantData::Str { value });
                 }
                 ast::Expr::BytesLiteral(b) => {
                     constants.push(ConstantData::Bytes {
