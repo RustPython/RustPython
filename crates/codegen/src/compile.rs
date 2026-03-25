@@ -2775,7 +2775,7 @@ impl Compiler {
     }
 
     /// Push decorators onto the stack in source order.
-    /// For @dec1 @dec2 def foo(): stack becomes [dec1, NULL, dec2, NULL]
+    /// For @dec1 @dec2 def foo(): stack becomes [dec1, dec2]
     fn prepare_decorators(&mut self, decorator_list: &[ast::Decorator]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(&decorator.expression)?;
@@ -4547,9 +4547,9 @@ impl Compiler {
             }
             let first_param = f
                 .parameters
-                .args
+                .posonlyargs
                 .first()
-                .or(f.parameters.posonlyargs.first())
+                .or(f.parameters.args.first())
                 .map(|p| &p.parameter.name);
             let Some(self_name) = first_param else {
                 continue;
@@ -4631,6 +4631,11 @@ impl Compiler {
                 }
                 ast::Stmt::With(s) => {
                     Self::scan_store_attrs(&s.body, name, attrs);
+                }
+                ast::Stmt::Match(s) => {
+                    for case in &s.cases {
+                        Self::scan_store_attrs(&case.body, name, attrs);
+                    }
                 }
                 _ => {}
             }

@@ -191,10 +191,11 @@ impl CodeInfo {
     ) -> crate::InternalResult<CodeObject> {
         // Constant folding passes
         self.fold_unary_negative();
+        self.remove_nops(); // remove NOPs from unary folding so tuple/list/set see contiguous LOADs
         self.fold_tuple_constants();
         self.fold_list_constants();
         self.fold_set_constants();
-        self.remove_nops(); // remove NOPs from folding before iterable optimization
+        self.remove_nops(); // remove NOPs from collection folding
         self.fold_const_iterable_for_iter();
         self.convert_to_load_small_int();
         self.remove_unused_consts();
