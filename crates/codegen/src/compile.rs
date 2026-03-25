@@ -565,25 +565,28 @@ impl Compiler {
         };
 
         // Fold all-constant collections (>= 3 elements) regardless of size
-        if !seen_star && pushed == 0 && n >= 3 && elts.iter().all(|e| e.is_constant()) {
-            if let Some(folded) = self.try_fold_constant_collection(elts)? {
-                match collection_type {
-                    CollectionType::Tuple => {
-                        self.emit_load_const(folded);
-                    }
-                    CollectionType::List => {
-                        emit!(self, Instruction::BuildList { count: 0 });
-                        self.emit_load_const(folded);
-                        emit!(self, Instruction::ListExtend { i: 1 });
-                    }
-                    CollectionType::Set => {
-                        emit!(self, Instruction::BuildSet { count: 0 });
-                        self.emit_load_const(folded);
-                        emit!(self, Instruction::SetUpdate { i: 1 });
-                    }
+        if !seen_star
+            && pushed == 0
+            && n >= 3
+            && elts.iter().all(|e| e.is_constant())
+            && let Some(folded) = self.try_fold_constant_collection(elts)?
+        {
+            match collection_type {
+                CollectionType::Tuple => {
+                    self.emit_load_const(folded);
                 }
-                return Ok(());
+                CollectionType::List => {
+                    emit!(self, Instruction::BuildList { count: 0 });
+                    self.emit_load_const(folded);
+                    emit!(self, Instruction::ListExtend { i: 1 });
+                }
+                CollectionType::Set => {
+                    emit!(self, Instruction::BuildSet { count: 0 });
+                    self.emit_load_const(folded);
+                    emit!(self, Instruction::SetUpdate { i: 1 });
+                }
             }
+            return Ok(());
         }
 
         // If no stars and not too big, compile all elements and build once
@@ -4582,10 +4585,10 @@ impl Compiler {
     fn scan_target_for_attrs(target: &ast::Expr, name: &str, attrs: &mut IndexSet<String>) {
         match target {
             ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-                if let ast::Expr::Name(n) = value.as_ref() {
-                    if n.id.as_str() == name {
-                        attrs.insert(attr.to_string());
-                    }
+                if let ast::Expr::Name(n) = value.as_ref()
+                    && n.id.as_str() == name
+                {
+                    attrs.insert(attr.to_string());
                 }
             }
             ast::Expr::Tuple(t) => {
