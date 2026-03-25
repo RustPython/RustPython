@@ -1194,16 +1194,7 @@ impl Compiler {
             self.set_qualname();
         }
 
-        // Emit MAKE_CELL for each cell variable (before RESUME)
-        {
-            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
-            for i in 0..ncells {
-                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
-                emit!(self, Instruction::MakeCell { i: i_varnum });
-            }
-        }
-
-        // Emit COPY_FREE_VARS if there are free variables (before RESUME)
+        // Emit COPY_FREE_VARS first, then MAKE_CELL (CPython order)
         {
             let nfrees = self.code_stack.last().unwrap().metadata.freevars.len();
             if nfrees > 0 {
@@ -1213,6 +1204,13 @@ impl Compiler {
                         n: u32::try_from(nfrees).expect("too many freevars"),
                     }
                 );
+            }
+        }
+        {
+            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
+            for i in 0..ncells {
+                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
+                emit!(self, Instruction::MakeCell { i: i_varnum });
             }
         }
 
