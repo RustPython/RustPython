@@ -363,16 +363,24 @@ jobs:
       - name: zizmor
         uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
 
-      - name: Cache prek
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+      - name: restore prek cache
+        if: ${{ github.ref != 'refs/heads/main' }} # never restore on main
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
-          path: ~/.cache/prek
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
+          path: ~/.cache/prek
 
       - name: prek
         uses: j178/prek-action@79f765515bd648eb4d6bb1b17277b7cb22cb6468 # v2.0.0
         with:
           cache: false
+
+      - name: save prek cache
+        if: ${{ github.ref == 'refs/heads/main' }} # only save on main
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
+          path: ~/.cache/prek
 
       - name: reviewdog
         if: failure()
