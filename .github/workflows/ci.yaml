@@ -45,9 +45,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           components: clippy
+          toolchain: stable
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -148,9 +149,10 @@ jobs:
           musl-tools: ${{ matrix.dependencies.musl-tools || false }}
           gcc-aarch64-linux-gnu: ${{ matrix.dependencies.gcc-aarch64-linux-gnu || false }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           targets: ${{ join(matrix.targets, ',') }}
+          toolchain: stable
 
       - name: Setup Android NDK
         if: ${{ contains(matrix.targets, 'aarch64-linux-android') }}
@@ -188,6 +190,7 @@ jobs:
       # Tests that can be flaky when running with multiple processes `-j 2`. We will use `-j 1` for these.
       FLAKY_MP_TESTS: >-
         test_class
+        test_concurrent_futures
         test_eintr
         test_multiprocessing_fork
         test_multiprocessing_forkserver
@@ -224,13 +227,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: stable
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - uses: actions/setup-python@v6.2.0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -251,7 +256,7 @@ jobs:
         shell: bash
         run: |
           cores=$(python -c 'print(__import__("os").process_cpu_count())')
-          echo "cores=${cores}" >> $GITHUB_OUTPUT
+          echo "cores=${cores}" >> "$GITHUB_OUTPUT"
 
       - name: Run CPython tests
         run: |
@@ -270,28 +275,32 @@ jobs:
       - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
         run: |
-          for thing in ${{ join(matrix.env_polluting_tests, ' ') }}; do
+          IFS=' ' read -r -a target_array <<< "$TARGETS"
+
+          for thing in "${target_array[@]}"; do
             for i in $(seq 1 10); do
               set +e
-              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v "${thing}"
               exit_code=$?
               set -e
-              if [ ${exit_code} -eq 3 ]; then
+              if [ "${exit_code}" -eq 3 ]; then
                 echo "Test ${thing} polluted the environment on attempt ${i}."
                 break
               fi
             done
-            if [ ${exit_code} -ne 3 ]; then
+            if [ "${exit_code}" -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
               echo "Please remove ${thing} from matrix.env_polluting_tests in '.github/workflows/ci.yaml'."
               echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
-              if [ ${exit_code} -ne 0 ]; then
+              if [ "${exit_code}" -ne 0 ]; then
                 echo "Test ${thing} failed with exit code ${exit_code}."
                 echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
               fi
               exit 1
             fi
           done
+        env:
+          TARGETS: ${{ join(matrix.env_polluting_tests, ' ') }}
         timeout-minutes: 15
 
       - if: runner.os != 'Windows'
@@ -324,16 +333,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@v6.2.0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Check for redundant test patches
         run: python scripts/check_redundant_patches.py
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           components: clippy
+          toolchain: stable
 
       - name: run clippy on wasm
         run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
@@ -387,7 +397,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: ${{ env.NIGHTLY_CHANNEL }}
           components: miri
@@ -413,7 +423,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: stable
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -426,12 +438,14 @@ jobs:
           wget https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz
           mkdir geckodriver
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
-      - uses: actions/setup-python@v6.2.0
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           cache: "npm"
           cache-dependency-path: "wasm/demo/package-lock.json"
@@ -483,9 +497,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           target: wasm32-wasip1
+          toolchain: stable
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -502,9 +517,9 @@ jobs:
       - name: build rustpython
         run: cargo build --release --target wasm32-wasip1 --features freeze-stdlib,stdlib --verbose
       - name: run snippets
-        run: wasmer run --dir $(pwd) target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
+        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
       - name: run cpython unittest
-        run: wasmer run --dir $(pwd) target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
 
   cargo-shear:
     name: cargo shear
@@ -514,7 +529,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: cargo-bins/cargo-binstall@1800853f2578f8c34492ec76154caef8e163fbca # v1.17.7
+      - uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
 
       - run: cargo binstall --no-confirm cargo-shear
 
