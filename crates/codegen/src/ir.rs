@@ -194,6 +194,8 @@ impl CodeInfo {
         self.fold_tuple_constants();
         self.fold_list_constants();
         self.fold_set_constants();
+        self.remove_nops(); // remove NOPs from folding before iterable optimization
+        self.fold_const_iterable_for_iter();
         self.convert_to_load_small_int();
         self.remove_unused_consts();
         self.remove_nops();
@@ -874,6 +876,49 @@ impl CodeInfo {
                 block.instructions[i].arg = OpArg::new(1);
 
                 i += 1;
+            }
+        }
+    }
+
+    /// Convert constant list/set construction before GET_ITER to just LOAD_CONST tuple.
+    /// BUILD_LIST 0 + LOAD_CONST (tuple) + LIST_EXTEND 1 + GET_ITER
+    /// → LOAD_CONST (tuple) + GET_ITER
+    /// Also handles BUILD_SET 0 + LOAD_CONST + SET_UPDATE 1 + GET_ITER.
+    fn fold_const_iterable_for_iter(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i + 3 < block.instructions.len() {
+                let is_build = matches!(
+                    block.instructions[i].instr.real(),
+                    Some(Instruction::BuildList { .. } | Instruction::BuildSet { .. })
+                ) && u32::from(block.instructions[i].arg) == 0;
+
+                let is_const = matches!(
+                    block.instructions[i + 1].instr.real(),
+                    Some(Instruction::LoadConst { .. })
+                );
+
+                let is_extend = matches!(
+                    block.instructions[i + 2].instr.real(),
+                    Some(Instruction::ListExtend { .. } | Instruction::SetUpdate { .. })
+                ) && u32::from(block.instructions[i + 2].arg) == 1;
+
+                let is_iter = matches!(
+                    block.instructions[i + 3].instr.real(),
+                    Some(Instruction::GetIter)
+                );
+
+                if is_build && is_const && is_extend && is_iter {
+                    // Replace: BUILD_X 0 → NOP, keep LOAD_CONST, LIST_EXTEND → NOP
+                    let loc = block.instructions[i].location;
+                    block.instructions[i].instr = Instruction::Nop.into();
+                    block.instructions[i].location = loc;
+                    block.instructions[i + 2].instr = Instruction::Nop.into();
+                    block.instructions[i + 2].location = loc;
+                    i += 4;
+                } else {
+                    i += 1;
+                }
             }
         }
     }
