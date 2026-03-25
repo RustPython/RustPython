@@ -3446,11 +3446,12 @@ impl ExecutingFrame<'_> {
             Instruction::StoreFastStoreFast { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();
-                let value1 = self.pop_value();
-                let value2 = self.pop_value();
+                // pop_value_opt: allows NULL from LoadFastAndClear restore path
+                let value1 = self.pop_value_opt();
+                let value2 = self.pop_value_opt();
                 let fastlocals = self.localsplus.fastlocals_mut();
-                fastlocals[idx1] = Some(value1);
-                fastlocals[idx2] = Some(value2);
+                fastlocals[idx1] = value1;
+                fastlocals[idx2] = value2;
                 Ok(None)
             }
             Instruction::StoreGlobal { namei: idx } => {
