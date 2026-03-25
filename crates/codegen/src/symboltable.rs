@@ -54,6 +54,9 @@ pub struct SymbolTable {
     /// Whether this type param scope can see the parent class scope
     pub can_see_class_scope: bool,
 
+    /// Whether this scope contains yield/yield from (is a generator function)
+    pub is_generator: bool,
+
     /// Whether this comprehension scope should be inlined (PEP 709)
     /// True for list/set/dict comprehensions in non-generator expressions
     pub comp_inlined: bool,
@@ -89,6 +92,7 @@ impl SymbolTable {
             needs_class_closure: false,
             needs_classdict: false,
             can_see_class_scope: false,
+            is_generator: false,
             comp_inlined: false,
             annotation_block: None,
             has_conditional_annotations: false,
@@ -1823,6 +1827,7 @@ impl SymbolTableBuilder {
                 node_index: _,
                 range: _,
             }) => {
+                self.tables.last_mut().unwrap().is_generator = true;
                 if let Some(expression) = value {
                     self.scan_expression(expression, context)?;
                 }
@@ -1832,6 +1837,7 @@ impl SymbolTableBuilder {
                 node_index: _,
                 range: _,
             }) => {
+                self.tables.last_mut().unwrap().is_generator = true;
                 self.scan_expression(value, context)?;
             }
             Expr::UnaryOp(ExprUnaryOp {

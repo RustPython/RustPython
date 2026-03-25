@@ -736,6 +736,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.store_variable(var_num.get(arg), val)
             }
+            Instruction::StoreFastStoreFast { var_nums } => {
+                let oparg = var_nums.get(arg);
+                let (idx1, idx2) = oparg.indexes();
+                let val1 = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                self.store_variable(idx1, val1)?;
+                let val2 = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                self.store_variable(idx2, val2)
+            }
             Instruction::Swap { i: index } => {
                 let len = self.stack.len();
                 let i = len - 1;

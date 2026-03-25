@@ -2486,7 +2486,6 @@ class TestSourcePositions(unittest.TestCase):
 
 class TestStaticAttributes(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'C' has no attribute '__static_attributes__'
     def test_basic(self):
         class C:
             def f(self):
@@ -2518,7 +2517,6 @@ class TestStaticAttributes(unittest.TestCase):
 
         self.assertEqual(sorted(C.__static_attributes__), ['u', 'v', 'x', 'y', 'z'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'C' has no attribute '__static_attributes__'
     def test_nested_class(self):
         class C:
             def f(self):
@@ -2533,7 +2531,6 @@ class TestStaticAttributes(unittest.TestCase):
         self.assertEqual(sorted(C.__static_attributes__), ['x', 'y'])
         self.assertEqual(sorted(C.D.__static_attributes__), ['y', 'z'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'C' has no attribute '__static_attributes__'
     def test_subclass(self):
         class C:
             def f(self):
@@ -2593,7 +2590,6 @@ class TestExpressionStackSize(unittest.TestCase):
     def test_set(self):
         self.check_stack_size("{" + "x, " * self.N + "x}")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 202 not less than or equal to 7
     def test_dict(self):
         self.check_stack_size("{" + "x:x, " * self.N + "x:x}")
 
