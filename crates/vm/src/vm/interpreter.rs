@@ -10,6 +10,10 @@ use core::sync::atomic::Ordering;
 
 type InitFunc = Box<dyn FnOnce(&mut VirtualMachine)>;
 
+/// Exit code used when stdout/stderr flush fails during interpreter shutdown.
+/// Matches CPython's behavior (see cpython/Python/pylifecycle.c).
+const EXITCODE_FLUSH_FAILURE: u32 = 120;
+
 /// Configuration builder for constructing an Interpreter.
 ///
 /// This is the preferred way to configure and create an interpreter with custom modules.
@@ -445,7 +449,7 @@ impl Interpreter {
 
             // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
             if exit_code == 0 && flush_status < 0 {
-                120
+                EXITCODE_FLUSH_FAILURE
             } else {
                 exit_code
             }
