@@ -10,6 +10,10 @@ use core::sync::atomic::Ordering;
 
 type InitFunc = Box<dyn FnOnce(&mut VirtualMachine)>;
 
+/// Exit code used when stdout/stderr flush fails during interpreter shutdown.
+/// Matches CPython's behavior (see cpython/Python/pylifecycle.c).
+const EXITCODE_FLUSH_FAILURE: u32 = 120;
+
 /// Configuration builder for constructing an Interpreter.
 ///
 /// This is the preferred way to configure and create an interpreter with custom modules.
@@ -401,7 +405,7 @@ impl Interpreter {
     /// Note that calling `finalize` is not necessary by purpose though.
     pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
         self.enter(|vm| {
-            vm.flush_std();
+            let mut flush_status = vm.flush_std();
 
             // See if any exception leaked out:
             let exit_code = if let Some(exc) = exc {
@@ -439,9 +443,16 @@ impl Interpreter {
             // (while builtins is still available for __del__), then clear module dicts.
             vm.finalize_modules();
 
-            vm.flush_std();
+            if vm.flush_std() < 0 && flush_status == 0 {
+                flush_status = -1;
+            }
 
-            exit_code
+            // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
+            if exit_code == 0 && flush_status < 0 {
+                EXITCODE_FLUSH_FAILURE
+            } else {
+                exit_code
+            }
         })
     }
 }
