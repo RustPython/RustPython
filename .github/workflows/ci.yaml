@@ -251,7 +251,7 @@ jobs:
         shell: bash
         run: |
           cores=$(python -c 'print(__import__("os").process_cpu_count())')
-          echo "cores=${cores}" >> $GITHUB_OUTPUT
+          echo "cores=${cores}" >> "$GITHUB_OUTPUT"
 
       - name: Run CPython tests
         run: |
@@ -270,28 +270,32 @@ jobs:
       - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
         run: |
-          for thing in ${{ join(matrix.env_polluting_tests, ' ') }}; do
+          IFS=' ' read -r -a target_array <<< "$TARGETS"
+
+          for thing in "${target_array[@]}"; do
             for i in $(seq 1 10); do
               set +e
-              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v ${thing}
+              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v "${thing}"
               exit_code=$?
               set -e
-              if [ ${exit_code} -eq 3 ]; then
+              if [ "${exit_code}" -eq 3 ]; then
                 echo "Test ${thing} polluted the environment on attempt ${i}."
                 break
               fi
             done
-            if [ ${exit_code} -ne 3 ]; then
+            if [ "${exit_code}" -ne 3 ]; then
               echo "Test ${thing} is no longer polluting the environment after ${i} attempts!"
               echo "Please remove ${thing} from matrix.env_polluting_tests in '.github/workflows/ci.yaml'."
               echo "Please also remove the skip decorators that include the word 'POLLUTERS' in ${thing}."
-              if [ ${exit_code} -ne 0 ]; then
+              if [ "${exit_code}" -ne 0 ]; then
                 echo "Test ${thing} failed with exit code ${exit_code}."
                 echo "Please investigate which test item in ${thing} is failing and either mark it as an expected failure or a skip."
               fi
               exit 1
             fi
           done
+        env:
+          TARGETS: ${{ join(matrix.env_polluting_tests, ' ') }}
         timeout-minutes: 15
 
       - if: runner.os != 'Windows'
@@ -504,9 +508,9 @@ jobs:
       - name: build rustpython
         run: cargo build --release --target wasm32-wasip1 --features freeze-stdlib,stdlib --verbose
       - name: run snippets
-        run: wasmer run --dir $(pwd) target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
+        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
       - name: run cpython unittest
-        run: wasmer run --dir $(pwd) target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
 
   cargo-shear:
     name: cargo shear
