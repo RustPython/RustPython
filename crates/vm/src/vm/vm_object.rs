@@ -52,14 +52,31 @@ impl VirtualMachine {
         }
     }
 
-    pub(crate) fn flush_std(&self) {
+    /// Returns true if the file object's `closed` attribute is truthy.
+    fn file_is_closed(&self, file: &PyObject) -> bool {
+        file.get_attr("closed", self)
+            .ok()
+            .is_some_and(|v| v.try_to_bool(self).unwrap_or(false))
+    }
+
+    pub(crate) fn flush_std(&self) -> i32 {
         let vm = self;
-        if let Ok(stdout) = sys::get_stdout(vm) {
-            let _ = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ());
+        let mut status = 0;
+        if let Ok(stdout) = sys::get_stdout(vm)
+            && !vm.is_none(&stdout)
+            && !vm.file_is_closed(&stdout)
+            && let Err(e) = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ())
+        {
+            vm.run_unraisable(e, None, stdout);
+            status = -1;
         }
-        if let Ok(stderr) = sys::get_stderr(vm) {
+        if let Ok(stderr) = sys::get_stderr(vm)
+            && !vm.is_none(&stderr)
+            && !vm.file_is_closed(&stderr)
+        {
             let _ = vm.call_method(&stderr, identifier!(vm, flush).as_str(), ());
         }
+        status
     }
 
     #[track_caller]

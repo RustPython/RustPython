@@ -475,8 +475,6 @@ class CmdLineTest(unittest.TestCase):
         self.assertRegex(err.decode('ascii', 'ignore'), 'SyntaxError')
         self.assertEqual(b'', out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_stdout_flush_at_shutdown(self):
         # Issue #5319: if stdout.flush() fails at shutdown, an error should
         # be printed out.
