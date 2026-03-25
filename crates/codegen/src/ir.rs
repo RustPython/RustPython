@@ -1054,11 +1054,9 @@ impl CodeInfo {
                     // Combine: keep first instruction's location, replace with combined instruction
                     block.instructions[i].instr = new_instr.into();
                     block.instructions[i].arg = new_arg;
-                    // Replace the second instruction with NOP
-                    let loc = block.instructions[i].location;
-                    block.instructions[i + 1].instr = Instruction::Nop.into();
-                    block.instructions[i + 1].location = loc;
-                    i += 2;
+                    // Remove the second instruction
+                    block.instructions.remove(i + 1);
+                    // Don't increment i - check if we can combine again with the next instruction
                 } else {
                     i += 1;
                 }
