@@ -290,7 +290,7 @@ impl From<u32> for ResumeType {
     fn from(value: u32) -> Self {
         match value {
             0 => Self::AtFuncStart,
-            1 => Self::AfterYield,
+            5 => Self::AfterYield,
             2 => Self::AfterYieldFrom,
             3 => Self::AfterAwait,
             _ => Self::Other(value),
@@ -302,7 +302,7 @@ impl From<ResumeType> for u32 {
     fn from(typ: ResumeType) -> Self {
         match typ {
             ResumeType::AtFuncStart => 0,
-            ResumeType::AfterYield => 1,
+            ResumeType::AfterYield => 5,
             ResumeType::AfterYieldFrom => 2,
             ResumeType::AfterAwait => 3,
             ResumeType::Other(v) => v,

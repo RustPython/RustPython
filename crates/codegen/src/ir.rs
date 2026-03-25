@@ -191,9 +191,12 @@ impl CodeInfo {
     ) -> crate::InternalResult<CodeObject> {
         // Constant folding passes
         self.fold_unary_negative();
+        self.remove_nops(); // remove NOPs from unary folding so tuple/list/set see contiguous LOADs
         self.fold_tuple_constants();
         self.fold_list_constants();
         self.fold_set_constants();
+        self.remove_nops(); // remove NOPs from collection folding
+        self.fold_const_iterable_for_iter();
         self.convert_to_load_small_int();
         self.remove_unused_consts();
         self.remove_nops();
@@ -214,6 +217,8 @@ impl CodeInfo {
         self.dce(); // re-run within-block DCE after normalize_jumps creates new instructions
         self.eliminate_unreachable_blocks();
         duplicate_end_returns(&mut self.blocks);
+        self.dce(); // truncate after terminal in blocks that got return duplicated
+        self.eliminate_unreachable_blocks(); // remove now-unreachable last block
         self.optimize_load_global_push_null();
 
         let max_stackdepth = self.max_stackdepth()?;
@@ -872,6 +877,49 @@ impl CodeInfo {
                 block.instructions[i].arg = OpArg::new(1);
 
                 i += 1;
+            }
+        }
+    }
+
+    /// Convert constant list/set construction before GET_ITER to just LOAD_CONST tuple.
+    /// BUILD_LIST 0 + LOAD_CONST (tuple) + LIST_EXTEND 1 + GET_ITER
+    /// → LOAD_CONST (tuple) + GET_ITER
+    /// Also handles BUILD_SET 0 + LOAD_CONST + SET_UPDATE 1 + GET_ITER.
+    fn fold_const_iterable_for_iter(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i + 3 < block.instructions.len() {
+                let is_build = matches!(
+                    block.instructions[i].instr.real(),
+                    Some(Instruction::BuildList { .. } | Instruction::BuildSet { .. })
+                ) && u32::from(block.instructions[i].arg) == 0;
+
+                let is_const = matches!(
+                    block.instructions[i + 1].instr.real(),
+                    Some(Instruction::LoadConst { .. })
+                );
+
+                let is_extend = matches!(
+                    block.instructions[i + 2].instr.real(),
+                    Some(Instruction::ListExtend { .. } | Instruction::SetUpdate { .. })
+                ) && u32::from(block.instructions[i + 2].arg) == 1;
+
+                let is_iter = matches!(
+                    block.instructions[i + 3].instr.real(),
+                    Some(Instruction::GetIter)
+                );
+
+                if is_build && is_const && is_extend && is_iter {
+                    // Replace: BUILD_X 0 → NOP, keep LOAD_CONST, LIST_EXTEND → NOP
+                    let loc = block.instructions[i].location;
+                    block.instructions[i].instr = Instruction::Nop.into();
+                    block.instructions[i].location = loc;
+                    block.instructions[i + 2].instr = Instruction::Nop.into();
+                    block.instructions[i + 2].location = loc;
+                    i += 4;
+                } else {
+                    i += 1;
+                }
             }
         }
     }
@@ -1987,6 +2035,7 @@ fn duplicate_end_returns(blocks: &mut [Block]) {
     // Check if the last block ends with LOAD_CONST + RETURN_VALUE (the implicit return)
     let last_insts = &blocks[last_block.idx()].instructions;
     // Only apply when the last block is EXACTLY a return-None epilogue
+    // AND the return instructions have no explicit line number (lineno <= 0)
     let is_return_block = last_insts.len() == 2
         && matches!(
             last_insts[0].instr,
@@ -2010,12 +2059,22 @@ fn duplicate_end_returns(blocks: &mut [Block]) {
         let block = &blocks[current.idx()];
         if current != last_block && block.next == last_block && !block.cold && !block.except_handler
         {
-            let has_fallthrough = block
-                .instructions
-                .last()
+            let last_ins = block.instructions.last();
+            let has_fallthrough = last_ins
                 .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
                 .unwrap_or(true);
-            if has_fallthrough {
+            // Don't duplicate if block already ends with the same return pattern
+            let already_has_return = block.instructions.len() >= 2 && {
+                let n = block.instructions.len();
+                matches!(
+                    block.instructions[n - 2].instr,
+                    AnyInstruction::Real(Instruction::LoadConst { .. })
+                ) && matches!(
+                    block.instructions[n - 1].instr,
+                    AnyInstruction::Real(Instruction::ReturnValue)
+                )
+            };
+            if has_fallthrough && !already_has_return {
                 blocks_to_fix.push(current);
             }
         }

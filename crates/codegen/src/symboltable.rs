@@ -2136,6 +2136,8 @@ impl SymbolTableBuilder {
             CompilerScope::Comprehension,
             self.line_index_start(range),
         );
+        // Generator expressions need the is_generator flag
+        self.tables.last_mut().unwrap().is_generator = is_generator;
 
         // PEP 709: Mark non-generator comprehensions for inlining,
         // but only inside function-like scopes (fastlocals).
