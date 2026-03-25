@@ -694,13 +694,23 @@ impl Compiler {
 
     /// Check if a name is imported in current scope or any enclosing scope.
     fn is_name_imported(&self, name: &str) -> bool {
-        if let Some(sym) = self.current_symbol_table().symbols.get(name) {
+        let current = self.current_symbol_table();
+        if let Some(sym) = current.symbols.get(name) {
             if sym.flags.contains(SymbolFlags::IMPORTED) {
-                return true;
-            } else if sym.scope == SymbolScope::Local {
+                // Module/class scope imports use plain LOAD_ATTR
+                // Function-local imports use method mode (scope is Local)
+                return !matches!(
+                    current.typ,
+                    CompilerScope::Function
+                        | CompilerScope::AsyncFunction
+                        | CompilerScope::Lambda
+                );
+            }
+            if sym.scope == SymbolScope::Local {
                 return false;
             }
         }
+        // Check enclosing scopes for module-level imports accessed as globals
         self.symbol_table_stack.iter().rev().skip(1).any(|table| {
             table
                 .symbols
