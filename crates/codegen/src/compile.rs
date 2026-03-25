@@ -564,6 +564,31 @@ impl Compiler {
             _ => n > 4,
         };
 
+        // Fold all-constant collections (>= 3 elements) regardless of size
+        if !seen_star
+            && pushed == 0
+            && n >= 3
+            && elts.iter().all(|e| e.is_constant())
+            && let Some(folded) = self.try_fold_constant_collection(elts)?
+        {
+            match collection_type {
+                CollectionType::Tuple => {
+                    self.emit_load_const(folded);
+                }
+                CollectionType::List => {
+                    emit!(self, Instruction::BuildList { count: 0 });
+                    self.emit_load_const(folded);
+                    emit!(self, Instruction::ListExtend { i: 1 });
+                }
+                CollectionType::Set => {
+                    emit!(self, Instruction::BuildSet { count: 0 });
+                    self.emit_load_const(folded);
+                    emit!(self, Instruction::SetUpdate { i: 1 });
+                }
+            }
+            return Ok(());
+        }
+
         // If no stars and not too big, compile all elements and build once
         if !seen_star && !big {
             for elt in elts {
@@ -694,13 +719,21 @@ impl Compiler {
 
     /// Check if a name is imported in current scope or any enclosing scope.
     fn is_name_imported(&self, name: &str) -> bool {
-        if let Some(sym) = self.current_symbol_table().symbols.get(name) {
+        let current = self.current_symbol_table();
+        if let Some(sym) = current.symbols.get(name) {
             if sym.flags.contains(SymbolFlags::IMPORTED) {
-                return true;
-            } else if sym.scope == SymbolScope::Local {
+                // Module/class scope imports use plain LOAD_ATTR
+                // Function-local imports use method mode (scope is Local)
+                return !matches!(
+                    current.typ,
+                    CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
+                );
+            }
+            if sym.scope == SymbolScope::Local {
                 return false;
             }
         }
+        // Check enclosing scopes for module-level imports accessed as globals
         self.symbol_table_stack.iter().rev().skip(1).any(|table| {
             table
                 .symbols
@@ -1033,7 +1066,9 @@ impl Compiler {
 
         // Build cellvars using dictbytype (CELL scope or COMP_CELL flag, sorted)
         let mut cellvar_cache = IndexSet::default();
-        let mut cell_names: Vec<_> = ste
+        // CPython ordering: parameter cells first (in parameter order),
+        // then non-parameter cells (alphabetically sorted)
+        let cell_symbols: Vec<_> = ste
             .symbols
             .iter()
             .filter(|(_, s)| {
@@ -1041,8 +1076,22 @@ impl Compiler {
             })
             .map(|(name, _)| name.clone())
             .collect();
-        cell_names.sort();
-        for name in cell_names {
+        let mut param_cells = Vec::new();
+        let mut nonparam_cells = Vec::new();
+        for name in cell_symbols {
+            if varname_cache.contains(&name) {
+                param_cells.push(name);
+            } else {
+                nonparam_cells.push(name);
+            }
+        }
+        // param_cells are already in parameter order (from varname_cache insertion order)
+        param_cells.sort_by_key(|n| varname_cache.get_index_of(n.as_str()).unwrap_or(usize::MAX));
+        nonparam_cells.sort();
+        for name in param_cells {
+            cellvar_cache.insert(name);
+        }
+        for name in nonparam_cells {
             cellvar_cache.insert(name);
         }
 
@@ -1168,16 +1217,7 @@ impl Compiler {
             self.set_qualname();
         }
 
-        // Emit MAKE_CELL for each cell variable (before RESUME)
-        {
-            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
-            for i in 0..ncells {
-                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
-                emit!(self, Instruction::MakeCell { i: i_varnum });
-            }
-        }
-
-        // Emit COPY_FREE_VARS if there are free variables (before RESUME)
+        // Emit COPY_FREE_VARS first, then MAKE_CELL (CPython order)
         {
             let nfrees = self.code_stack.last().unwrap().metadata.freevars.len();
             if nfrees > 0 {
@@ -1187,6 +1227,13 @@ impl Compiler {
                         n: u32::try_from(nfrees).expect("too many freevars"),
                     }
                 );
+            }
+        }
+        {
+            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
+            for i in 0..ncells {
+                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
+                emit!(self, Instruction::MakeCell { i: i_varnum });
             }
         }
 
@@ -1476,25 +1523,20 @@ impl Compiler {
             }
 
             FBlockType::With | FBlockType::AsyncWith => {
-                // Stack when entering: [..., __exit__, return_value (if preserve_tos)]
-                // Need to call __exit__(None, None, None)
-
+                // Stack: [..., exit_func, self_exit, return_value (if preserve_tos)]
                 emit!(self, PseudoInstruction::PopBlock);
 
-                // If preserving return value, swap it below __exit__
                 if preserve_tos {
-                    emit!(self, Instruction::Swap { i: 2 });
+                    // Rotate return value below the exit pair
+                    // [exit_func, self_exit, value] → [value, exit_func, self_exit]
+                    emit!(self, Instruction::Swap { i: 3 }); // [value, self_exit, exit_func]
+                    emit!(self, Instruction::Swap { i: 2 }); // [value, exit_func, self_exit]
                 }
-                // Stack after swap: [..., return_value, __exit__] or [..., __exit__]
 
-                // Call __exit__(None, None, None)
-                // Call protocol: [callable, self_or_null, arg1, arg2, arg3]
-                emit!(self, Instruction::PushNull);
-                // Stack: [..., __exit__, NULL]
+                // Call exit_func(self_exit, None, None, None)
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
-                // Stack: [..., __exit__, NULL, None, None, None]
                 emit!(self, Instruction::Call { argc: 3 });
 
                 // For async with, await the result
@@ -2756,7 +2798,7 @@ impl Compiler {
     }
 
     /// Push decorators onto the stack in source order.
-    /// For @dec1 @dec2 def foo(): stack becomes [dec1, NULL, dec2, NULL]
+    /// For @dec1 @dec2 def foo(): stack becomes [dec1, dec2]
     fn prepare_decorators(&mut self, decorator_list: &[ast::Decorator]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(&decorator.expression)?;
@@ -4514,22 +4556,55 @@ impl Compiler {
     fn collect_static_attributes(body: &[ast::Stmt], attrs: Option<&mut IndexSet<String>>) {
         let Some(attrs) = attrs else { return };
         for stmt in body {
-            // Only scan def/async def at class body level
-            let (params, func_body) = match stmt {
-                ast::Stmt::FunctionDef(f) => (&f.parameters, &f.body),
+            let f = match stmt {
+                ast::Stmt::FunctionDef(f) => f,
                 _ => continue,
             };
-            // Get first parameter name (usually "self" or "cls")
-            let first_param = params
-                .args
+            // Skip @staticmethod and @classmethod decorated functions
+            let dominated_by_special = f.decorator_list.iter().any(|d| {
+                matches!(&d.expression, ast::Expr::Name(n)
+                    if n.id.as_str() == "staticmethod" || n.id.as_str() == "classmethod")
+            });
+            if dominated_by_special {
+                continue;
+            }
+            let first_param = f
+                .parameters
+                .posonlyargs
                 .first()
-                .or(params.posonlyargs.first())
+                .or(f.parameters.args.first())
                 .map(|p| &p.parameter.name);
             let Some(self_name) = first_param else {
                 continue;
             };
-            // Scan function body for self.xxx = ... (STORE_ATTR on first param)
-            Self::scan_store_attrs(func_body, self_name.as_str(), attrs);
+            Self::scan_store_attrs(&f.body, self_name.as_str(), attrs);
+        }
+    }
+
+    /// Extract self.attr patterns from an assignment target expression.
+    fn scan_target_for_attrs(target: &ast::Expr, name: &str, attrs: &mut IndexSet<String>) {
+        match target {
+            ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+                if let ast::Expr::Name(n) = value.as_ref()
+                    && n.id.as_str() == name
+                {
+                    attrs.insert(attr.to_string());
+                }
+            }
+            ast::Expr::Tuple(t) => {
+                for elt in &t.elts {
+                    Self::scan_target_for_attrs(elt, name, attrs);
+                }
+            }
+            ast::Expr::List(l) => {
+                for elt in &l.elts {
+                    Self::scan_target_for_attrs(elt, name, attrs);
+                }
+            }
+            ast::Expr::Starred(s) => {
+                Self::scan_target_for_attrs(&s.value, name, attrs);
+            }
+            _ => {}
         }
     }
 
@@ -4539,22 +4614,11 @@ impl Compiler {
             match stmt {
                 ast::Stmt::Assign(a) => {
                     for target in &a.targets {
-                        if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = target
-                            && let ast::Expr::Name(n) = value.as_ref()
-                            && n.id.as_str() == name
-                        {
-                            attrs.insert(attr.to_string());
-                        }
+                        Self::scan_target_for_attrs(target, name, attrs);
                     }
                 }
                 ast::Stmt::AnnAssign(a) => {
-                    if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
-                        a.target.as_ref()
-                        && let ast::Expr::Name(n) = value.as_ref()
-                        && n.id.as_str() == name
-                    {
-                        attrs.insert(attr.to_string());
-                    }
+                    Self::scan_target_for_attrs(&a.target, name, attrs);
                 }
                 ast::Stmt::AugAssign(a) => {
                     if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
@@ -4590,6 +4654,11 @@ impl Compiler {
                 }
                 ast::Stmt::With(s) => {
                     Self::scan_store_attrs(&s.body, name, attrs);
+                }
+                ast::Stmt::Match(s) => {
+                    for case in &s.cases {
+                        Self::scan_store_attrs(&case.body, name, attrs);
+                    }
                 }
                 _ => {}
             }
@@ -5180,16 +5249,16 @@ impl Compiler {
                 Instruction::LoadSpecial {
                     method: SpecialMethod::AExit
                 }
-            ); // [cm, bound_aexit]
-            emit!(self, Instruction::Swap { i: 2 }); // [bound_aexit, cm]
+            ); // [cm, aexit_func, self_ae]
+            emit!(self, Instruction::Swap { i: 2 }); // [cm, self_ae, aexit_func]
+            emit!(self, Instruction::Swap { i: 3 }); // [aexit_func, self_ae, cm]
             emit!(
                 self,
                 Instruction::LoadSpecial {
                     method: SpecialMethod::AEnter
                 }
-            ); // [bound_aexit, bound_aenter]
-            emit!(self, Instruction::PushNull);
-            emit!(self, Instruction::Call { argc: 0 }); // [bound_aexit, awaitable]
+            ); // [aexit_func, self_ae, aenter_func, self_an]
+            emit!(self, Instruction::Call { argc: 0 }); // [aexit_func, self_ae, awaitable]
             emit!(self, Instruction::GetAwaitable { r#where: 1 });
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true)?;
@@ -5200,16 +5269,16 @@ impl Compiler {
                 Instruction::LoadSpecial {
                     method: SpecialMethod::Exit
                 }
-            ); // [cm, bound_exit]
-            emit!(self, Instruction::Swap { i: 2 }); // [bound_exit, cm]
+            ); // [cm, exit_func, self_exit]
+            emit!(self, Instruction::Swap { i: 2 }); // [cm, self_exit, exit_func]
+            emit!(self, Instruction::Swap { i: 3 }); // [exit_func, self_exit, cm]
             emit!(
                 self,
                 Instruction::LoadSpecial {
                     method: SpecialMethod::Enter
                 }
-            ); // [bound_exit, bound_enter]
-            emit!(self, Instruction::PushNull);
-            emit!(self, Instruction::Call { argc: 0 }); // [bound_exit, enter_result]
+            ); // [exit_func, self_exit, enter_func, self_enter]
+            emit!(self, Instruction::Call { argc: 0 }); // [exit_func, self_exit, result]
         }
 
         // Stack: [..., __exit__, enter_result]
@@ -5263,10 +5332,9 @@ impl Compiler {
         });
 
         // ===== Normal exit path =====
-        // Stack: [..., bound_exit]
-        // Call bound_exit(None, None, None)
+        // Stack: [..., exit_func, self_exit]
+        // Call exit_func(self_exit, None, None, None)
         self.set_source_range(with_range);
-        emit!(self, Instruction::PushNull);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
@@ -5280,11 +5348,10 @@ impl Compiler {
         emit!(self, PseudoInstruction::Jump { delta: after_block });
 
         // ===== Exception handler path =====
-        // Stack at entry (after unwind): [..., __exit__, lasti, exc]
-        // PUSH_EXC_INFO -> [..., __exit__, lasti, prev_exc, exc]
+        // Stack at entry: [..., exit_func, self_exit, lasti, exc]
+        // PUSH_EXC_INFO -> [..., exit_func, self_exit, lasti, prev_exc, exc]
         self.switch_to_block(exc_handler_block);
 
-        // Create blocks for exception handling
         let cleanup_block = self.new_block();
         let suppress_block = self.new_block();
 
@@ -5296,12 +5363,10 @@ impl Compiler {
         );
         self.push_fblock(FBlockType::ExceptionHandler, exc_handler_block, after_block)?;
 
-        // PUSH_EXC_INFO: [exc] -> [prev_exc, exc]
         emit!(self, Instruction::PushExcInfo);
 
-        // WITH_EXCEPT_START: call __exit__(type, value, tb)
-        // Stack: [..., __exit__, lasti, prev_exc, exc]
-        // __exit__ is at TOS-3, call with exception info
+        // WITH_EXCEPT_START: call exit_func(self_exit, type, value, tb)
+        // Stack: [..., exit_func, self_exit, lasti, prev_exc, exc]
         emit!(self, Instruction::WithExceptStart);
 
         if is_async {
@@ -5310,7 +5375,6 @@ impl Compiler {
             let _ = self.compile_yield_from_sequence(true)?;
         }
 
-        // TO_BOOL + POP_JUMP_IF_TRUE: check if exception is suppressed
         emit!(self, Instruction::ToBool);
         emit!(
             self,
@@ -5319,25 +5383,19 @@ impl Compiler {
             }
         );
 
-        // Pop the nested fblock BEFORE RERAISE so that RERAISE's exception
-        // handler points to the outer handler (try-except), not cleanup_block.
-        // This is critical: when RERAISE propagates the exception, the exception
-        // table should route it to the outer try-except, not back to cleanup.
         emit!(self, PseudoInstruction::PopBlock);
         self.pop_fblock(FBlockType::ExceptionHandler);
 
-        // Not suppressed: RERAISE 2
         emit!(self, Instruction::Reraise { depth: 2 });
 
         // ===== Suppress block =====
-        // Exception was suppressed, clean up stack
-        // Stack: [..., __exit__, lasti, prev_exc, exc, True]
-        // Need to pop: True, exc, prev_exc, __exit__
+        // Stack: [..., exit_func, self_exit, lasti, prev_exc, exc, True]
         self.switch_to_block(suppress_block);
-        emit!(self, Instruction::PopTop); // pop True (TO_BOOL result)
-        emit!(self, Instruction::PopExcept); // pop exc and restore prev_exc
-        emit!(self, Instruction::PopTop); // pop __exit__
+        emit!(self, Instruction::PopTop); // pop True
+        emit!(self, Instruction::PopExcept); // pop exc, restore prev_exc
         emit!(self, Instruction::PopTop); // pop lasti
+        emit!(self, Instruction::PopTop); // pop self_exit
+        emit!(self, Instruction::PopTop); // pop exit_func
         emit!(self, PseudoInstruction::Jump { delta: after_block });
 
         // ===== Cleanup block (for nested exception during __exit__) =====
@@ -6989,10 +7047,7 @@ impl Compiler {
         let has_unpacking = items.iter().any(|item| item.key.is_none());
 
         if !has_unpacking {
-            // STACK_USE_GUIDELINE: for large dicts (16+ pairs), use
-            // BUILD_MAP 0 + MAP_ADD to avoid excessive stack usage
-            let big = items.len() * 2 > 30; // ~15 pairs threshold
-            if big {
+            if items.len() >= 16 {
                 emit!(self, Instruction::BuildMap { count: 0 });
                 for item in items {
                     self.compile_expression(item.key.as_ref().unwrap())?;
@@ -7567,23 +7622,8 @@ impl Compiler {
                 self.compile_expr_tstring(tstring)?;
             }
             ast::Expr::StringLiteral(string) => {
-                let value = string.value.to_str();
-                if value.contains(char::REPLACEMENT_CHARACTER) {
-                    let value = string
-                        .value
-                        .iter()
-                        .map(|lit| {
-                            let source = self.source_file.slice(lit.range);
-                            crate::string_parser::parse_string_literal(source, lit.flags.into())
-                        })
-                        .collect();
-                    // might have a surrogate literal; should reparse to be sure
-                    self.emit_load_const(ConstantData::Str { value });
-                } else {
-                    self.emit_load_const(ConstantData::Str {
-                        value: value.into(),
-                    });
-                }
+                let value = self.compile_string_value(string);
+                self.emit_load_const(ConstantData::Str { value });
             }
             ast::Expr::BytesLiteral(bytes) => {
                 let iter = bytes.value.iter().flat_map(|x| x.iter().copied());
@@ -8514,9 +8554,76 @@ impl Compiler {
 
     // fn block_done()
 
+    /// Convert a string literal AST node to Wtf8Buf, handling surrogates correctly.
+    fn compile_string_value(&self, string: &ast::ExprStringLiteral) -> Wtf8Buf {
+        let value = string.value.to_str();
+        if value.contains(char::REPLACEMENT_CHARACTER) {
+            // Might have a surrogate literal; reparse from source to preserve them
+            string
+                .value
+                .iter()
+                .map(|lit| {
+                    let source = self.source_file.slice(lit.range);
+                    crate::string_parser::parse_string_literal(source, lit.flags.into())
+                })
+                .collect()
+        } else {
+            value.into()
+        }
+    }
+
     fn arg_constant(&mut self, constant: ConstantData) -> oparg::ConstIdx {
         let info = self.current_code_info();
         info.metadata.consts.insert_full(constant).0.to_u32().into()
+    }
+
+    /// Try to fold a collection of constant expressions into a single ConstantData::Tuple.
+    /// Returns None if any element cannot be folded.
+    fn try_fold_constant_collection(
+        &mut self,
+        elts: &[ast::Expr],
+    ) -> CompileResult<Option<ConstantData>> {
+        let mut constants = Vec::with_capacity(elts.len());
+        for elt in elts {
+            match elt {
+                ast::Expr::NumberLiteral(num) => match &num.value {
+                    ast::Number::Int(int) => {
+                        let value = ruff_int_to_bigint(int).map_err(|e| self.error(e))?;
+                        constants.push(ConstantData::Integer { value });
+                    }
+                    ast::Number::Float(f) => {
+                        constants.push(ConstantData::Float { value: *f });
+                    }
+                    ast::Number::Complex { real, imag } => {
+                        constants.push(ConstantData::Complex {
+                            value: Complex::new(*real, *imag),
+                        });
+                    }
+                },
+                ast::Expr::StringLiteral(s) => {
+                    let value = self.compile_string_value(s);
+                    constants.push(ConstantData::Str { value });
+                }
+                ast::Expr::BytesLiteral(b) => {
+                    constants.push(ConstantData::Bytes {
+                        value: b.value.bytes().collect(),
+                    });
+                }
+                ast::Expr::BooleanLiteral(b) => {
+                    constants.push(ConstantData::Boolean { value: b.value });
+                }
+                ast::Expr::NoneLiteral(_) => {
+                    constants.push(ConstantData::None);
+                }
+                ast::Expr::EllipsisLiteral(_) => {
+                    constants.push(ConstantData::Ellipsis);
+                }
+                _ => return Ok(None),
+            }
+        }
+        Ok(Some(ConstantData::Tuple {
+            elements: constants,
+        }))
     }
 
     fn emit_load_const(&mut self, constant: ConstantData) {
@@ -8740,10 +8847,8 @@ impl Compiler {
         for action in unwind_actions {
             match action {
                 UnwindAction::With { is_async } => {
-                    // codegen_unwind_fblock(WITH/ASYNC_WITH)
+                    // Stack: [..., exit_func, self_exit]
                     emit!(self, PseudoInstruction::PopBlock);
-                    // compiler_call_exit_with_nones
-                    emit!(self, Instruction::PushNull);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);

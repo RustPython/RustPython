@@ -2946,22 +2946,23 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadSpecial { method } => {
-                // Stack effect: 0 (replaces TOS with bound method)
-                // Input: [..., obj]
-                // Output: [..., bound_method]
+                // Pops obj, pushes (callable, self_or_null) for CALL convention.
+                // Push order: callable first (deeper), self_or_null on top.
                 use crate::vm::PyMethod;
 
                 let obj = self.pop_value();
                 let oparg = method.get(arg);
                 let method_name = get_special_method_name(oparg, vm);
 
-                let bound = match vm.get_special_method(&obj, method_name)? {
+                match vm.get_special_method(&obj, method_name)? {
                     Some(PyMethod::Function { target, func }) => {
-                        crate::builtins::PyBoundMethod::new(target, func)
-                            .into_ref(&vm.ctx)
-                            .into()
+                        self.push_value(func); // callable (deeper)
+                        self.push_value(target); // self (TOS)
                     }
-                    Some(PyMethod::Attribute(bound)) => bound,
+                    Some(PyMethod::Attribute(bound)) => {
+                        self.push_value(bound); // callable (deeper)
+                        self.push_null(); // NULL (TOS)
+                    }
                     None => {
                         return Err(vm.new_type_error(get_special_method_error_msg(
                             oparg,
@@ -2970,7 +2971,6 @@ impl ExecutingFrame<'_> {
                         )));
                     }
                 };
-                self.push_value(bound);
                 Ok(None)
             }
             Instruction::MakeFunction => self.execute_make_function(vm),
@@ -3522,24 +3522,28 @@ impl ExecutingFrame<'_> {
                 self.unpack_sequence(expected, vm)
             }
             Instruction::WithExceptStart => {
-                // Stack: [..., __exit__, lasti, prev_exc, exc]
-                // Call __exit__(type, value, tb) and push result
-                // __exit__ is at TOS-3 (below lasti, prev_exc, and exc)
+                // Stack: [..., exit_func, self_or_null, lasti, prev_exc, exc]
+                // exit_func at TOS-4, self_or_null at TOS-3
                 let exc = vm.current_exception();
 
                 let stack_len = self.localsplus.stack_len();
-                let exit = expect_unchecked(
-                    self.localsplus.stack_index(stack_len - 4).clone(),
-                    "WithExceptStart: __exit__ is NULL",
+                let exit_func = expect_unchecked(
+                    self.localsplus.stack_index(stack_len - 5).clone(),
+                    "WithExceptStart: exit_func is NULL",
                 );
+                let self_or_null = self.localsplus.stack_index(stack_len - 4).clone();
 
-                let args = if let Some(ref exc) = exc {
+                let (tp, val, tb) = if let Some(ref exc) = exc {
                     vm.split_exception(exc.clone())
                 } else {
                     (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
                 };
-                let exit_res = exit.call(args, vm)?;
-                // Push result on top of stack
+
+                let exit_res = if let Some(self_exit) = self_or_null {
+                    exit_func.call((self_exit.to_pyobj(), tp, val, tb), vm)?
+                } else {
+                    exit_func.call((tp, val, tb), vm)?
+                };
                 self.push_value(exit_res);
 
                 Ok(None)
