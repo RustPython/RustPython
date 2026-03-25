@@ -374,6 +374,7 @@ jobs:
         uses: j178/prek-action@79f765515bd648eb4d6bb1b17277b7cb22cb6468 # v2.0.0
         with:
           cache: false
+          show-verbose-logs: false
 
       - name: save prek cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main

@@ -24,11 +24,11 @@ repos:
   - repo: local
     hooks:
       - id: redundant-test-patches
-        name: Ensure no redundant test patches
-        entry: python scripts/check_redundant_patches.py
-        language: system
-        pass_filenames: false
-        types_or: [python]
+        name: check redundant test patches
+        entry: scripts/check_redundant_patches.py
+        files: '^Lib/test/.*\.py$'
+        language: script
+        types: [python]
         priority: 0
 
   - repo: local
@@ -42,7 +42,7 @@ repos:
         priority: 0
 
       - id: generate-opcode-metadata
-        name: Generate opcode metadata
+        name: generate opcode metadata
         entry: python scripts/generate_opcode_metadata.py
         files: '^(crates/compiler-core/src/bytecode/instruction\.rs|scripts/generate_opcode_metadata\.py)$'
         pass_filenames: false
