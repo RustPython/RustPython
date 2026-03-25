@@ -16,40 +16,39 @@ permissions:
   contents: write
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,sqlite,ssl
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
 
 jobs:
   build:
-    runs-on: ${{ matrix.platform.runner }}
+    runs-on: ${{ matrix.os }}
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     strategy:
       matrix:
-        platform:
-          - runner: ubuntu-latest
+        include:
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-#          - runner: ubuntu-latest
-#            target: i686-unknown-linux-gnu
-#          - runner: ubuntu-latest
-#            target: aarch64-unknown-linux-gnu
-#          - runner: ubuntu-latest
-#            target: armv7-unknown-linux-gnueabi
-#          - runner: ubuntu-latest
-#            target: s390x-unknown-linux-gnu
-#          - runner: ubuntu-latest
-#            target: powerpc64le-unknown-linux-gnu
-          - runner: macos-latest
+          - os: macos-latest
             target: aarch64-apple-darwin
-#          - runner: macos-latest
-#            target: x86_64-apple-darwin
-          - runner: windows-2025
+          - os: windows-2025
             target: x86_64-pc-windows-msvc
-#          - runner: windows-2025
-#            target: i686-pc-windows-msvc
-#          - runner: windows-2025
-#            target: aarch64-pc-windows-msvc
+          # - os: ubuntu-latest
+          #   target: i686-unknown-linux-gnu
+          # - os: ubuntu-latest
+          #   target: aarch64-unknown-linux-gnu
+          # - os: ubuntu-latest
+          #   target: armv7-unknown-linux-gnueabi
+          # - os: ubuntu-latest
+          #   target: s390x-unknown-linux-gnu
+          # - os: ubuntu-latest
+          #   target: powerpc64le-unknown-linux-gnu
+          # - os: macos-latest
+          #   target: x86_64-apple-darwin
+          # - os: windows-2025
+          #   target: i686-pc-windows-msvc
+          # - os: windows-2025
+          #   target: aarch64-pc-windows-msvc
       fail-fast: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -57,34 +56,32 @@ jobs:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
-      - uses: cargo-bins/cargo-binstall@main
+        with:
+          target: ${{ matrix.target }}
 
-      - name: Set up Environment
-        shell: bash
-        run: rustup target add ${{ matrix.platform.target }}
-      - name: Set up MacOS Environment
-        run: brew install autoconf automake libtool
-        if: runner.os == 'macOS'
+      - name: Install macOS dependencies
+        uses: ./.github/actions/install-macos-deps
+        with:
+          autoconf: true
+          automake: true
+          libtool: true
 
       - name: Build RustPython
-        run: cargo build --release --target=${{ matrix.platform.target }} --verbose --features=threading ${{ env.CARGO_ARGS }}
-        if: runner.os == 'macOS'
-      - name: Build RustPython
-        run: cargo build --release --target=${{ matrix.platform.target }} --verbose --features=threading ${{ env.CARGO_ARGS }},jit
-        if: runner.os != 'macOS'
+        run: cargo build --release --target=${{ matrix.target }} --verbose --no-default-features --features stdlib,stdio,importlib,encodings,sqlite,host_env,ssl-rustls,threading,jit
 
       - name: Rename Binary
-        run: cp target/${{ matrix.platform.target }}/release/rustpython target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
+        run: cp target/${{ matrix.target }}/release/rustpython target/rustpython-release-${{ runner.os }}-${{ matrix.target }}
         if: runner.os != 'Windows'
+
       - name: Rename Binary
-        run: cp target/${{ matrix.platform.target }}/release/rustpython.exe target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}.exe
+        run: cp target/${{ matrix.target }}/release/rustpython.exe target/rustpython-release-${{ runner.os }}-${{ matrix.target }}.exe
         if: runner.os == 'Windows'
 
       - name: Upload Binary Artifacts
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
-          path: target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}*
+          name: rustpython-release-${{ runner.os }}-${{ matrix.target }}
+          path: target/rustpython-release-${{ runner.os }}-${{ matrix.target }}*
 
   build-wasm:
     runs-on: ubuntu-latest
@@ -106,16 +103,21 @@ jobs:
         run: cp target/wasm32-wasip1/release/rustpython.wasm target/rustpython-release-wasm32-wasip1.wasm
 
       - name: Upload Binary Artifacts
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: rustpython-release-wasm32-wasip1
           path: target/rustpython-release-wasm32-wasip1.wasm
 
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - uses: actions/setup-node@v6
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          package-manager-cache: false
+
       - uses: mwilliamson/setup-wabt-action@v3
         with: { wabt-version: "1.0.30" }
+
       - name: build demo
         run: |
           npm install
@@ -123,6 +125,7 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/demo
+
       - name: build notebook demo
         run: |
           npm install
@@ -131,7 +134,9 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/notebook
+
       - name: Deploy demo to Github Pages
+        if: ${{ github.repository == 'RustPython/RustPython' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           deploy_key: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
@@ -150,26 +155,21 @@ jobs:
           persist-credentials: false
 
       - name: Download Binary Artifacts
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: bin
           pattern: rustpython-*
           merge-multiple: true
 
       - name: Create Lib Archive
-        run: |
-          zip -r bin/rustpython-lib.zip Lib/
+        run: zip -r bin/rustpython-lib.zip Lib/
 
       - name: List Binaries
         run: |
           ls -lah bin/
           file bin/*
+
       - name: Create Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ github.ref_name }}
-          run: ${{ github.run_number }}
-          PRE_RELEASE_INPUT: ${{ github.event.inputs.pre-release }}
         run: |
           if [[ "${PRE_RELEASE_INPUT}" == "false" ]]; then
             RELEASE_TYPE_NAME=Release
@@ -188,3 +188,8 @@ jobs:
               --generate-notes \
               $PRERELEASE_ARG \
               bin/rustpython-release-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref_name }}
+          run: ${{ github.run_number }}
+          PRE_RELEASE_INPUT: ${{ github.event.inputs.pre-release }}
