@@ -705,6 +705,18 @@ impl Frame {
             }
         }
 
+        // For generators/coroutines, initialize prev_line to the def line
+        // so that preamble instructions (RETURN_GENERATOR, POP_TOP) don't
+        // fire spurious LINE events.
+        let prev_line = if code
+            .flags
+            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
+        {
+            code.first_line_number.map_or(0, |line| line.get() as u32)
+        } else {
+            0
+        };
+
         let iframe = InterpreterFrame {
             localsplus,
             locals: match scope.locals {
@@ -719,7 +731,7 @@ impl Frame {
             code,
             func_obj,
             lasti: Radium::new(0),
-            prev_line: 0,
+            prev_line,
             trace: PyMutex::new(vm.ctx.none()),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
@@ -2945,7 +2957,6 @@ impl ExecutingFrame<'_> {
 
                 let bound = match vm.get_special_method(&obj, method_name)? {
                     Some(PyMethod::Function { target, func }) => {
-                        // Create bound method: PyBoundMethod(object=target, function=func)
                         crate::builtins::PyBoundMethod::new(target, func)
                             .into_ref(&vm.ctx)
                             .into()
@@ -3435,11 +3446,12 @@ impl ExecutingFrame<'_> {
             Instruction::StoreFastStoreFast { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();
-                let value1 = self.pop_value();
-                let value2 = self.pop_value();
+                // pop_value_opt: allows NULL from LoadFastAndClear restore path
+                let value1 = self.pop_value_opt();
+                let value2 = self.pop_value_opt();
                 let fastlocals = self.localsplus.fastlocals_mut();
-                fastlocals[idx1] = Some(value1);
-                fastlocals[idx2] = Some(value2);
+                fastlocals[idx1] = value1;
+                fastlocals[idx2] = value2;
                 Ok(None)
             }
             Instruction::StoreGlobal { namei: idx } => {

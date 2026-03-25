@@ -1200,8 +1200,10 @@ impl Compiler {
     /// Emit RESUME instruction with proper handling for async preamble and module lineno.
     /// codegen_enter_scope equivalent for RESUME emission.
     fn emit_resume_for_scope(&mut self, scope_type: CompilerScope, lineno: u32) {
-        // For async functions/coroutines, emit RETURN_GENERATOR + POP_TOP before RESUME
-        if scope_type == CompilerScope::AsyncFunction {
+        // For generators and async functions, emit RETURN_GENERATOR + POP_TOP before RESUME
+        let is_gen =
+            scope_type == CompilerScope::AsyncFunction || self.current_symbol_table().is_generator;
+        if is_gen {
             emit!(self, Instruction::ReturnGenerator);
             emit!(self, Instruction::PopTop);
         }
@@ -2758,18 +2760,15 @@ impl Compiler {
     fn prepare_decorators(&mut self, decorator_list: &[ast::Decorator]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(&decorator.expression)?;
-            emit!(self, Instruction::PushNull);
         }
         Ok(())
     }
 
-    /// Apply decorators in reverse order (LIFO from stack).
-    /// Stack [dec1, NULL, dec2, NULL, func] -> dec2(func) -> dec1(dec2(func))
-    /// The forward loop works because each Call pops from TOS, naturally
-    /// applying decorators bottom-up (innermost first).
+    /// Apply decorators: each decorator calls the function below it.
+    /// Stack: [dec1, dec2, func] → CALL 0 → [dec1, dec2(func)] → CALL 0 → [dec1(dec2(func))]
     fn apply_decorators(&mut self, decorator_list: &[ast::Decorator]) {
         for _ in decorator_list {
-            emit!(self, Instruction::Call { argc: 1 });
+            emit!(self, Instruction::Call { argc: 0 });
         }
     }
 
@@ -4510,6 +4509,93 @@ impl Compiler {
         Ok(())
     }
 
+    /// Collect attribute names assigned via `self.xxx = ...` in methods.
+    /// These are stored as __static_attributes__ in the class dict.
+    fn collect_static_attributes(body: &[ast::Stmt], attrs: Option<&mut IndexSet<String>>) {
+        let Some(attrs) = attrs else { return };
+        for stmt in body {
+            // Only scan def/async def at class body level
+            let (params, func_body) = match stmt {
+                ast::Stmt::FunctionDef(f) => (&f.parameters, &f.body),
+                _ => continue,
+            };
+            // Get first parameter name (usually "self" or "cls")
+            let first_param = params
+                .args
+                .first()
+                .or(params.posonlyargs.first())
+                .map(|p| &p.parameter.name);
+            let Some(self_name) = first_param else {
+                continue;
+            };
+            // Scan function body for self.xxx = ... (STORE_ATTR on first param)
+            Self::scan_store_attrs(func_body, self_name.as_str(), attrs);
+        }
+    }
+
+    /// Recursively scan statements for `name.attr = value` patterns.
+    fn scan_store_attrs(stmts: &[ast::Stmt], name: &str, attrs: &mut IndexSet<String>) {
+        for stmt in stmts {
+            match stmt {
+                ast::Stmt::Assign(a) => {
+                    for target in &a.targets {
+                        if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = target
+                            && let ast::Expr::Name(n) = value.as_ref()
+                            && n.id.as_str() == name
+                        {
+                            attrs.insert(attr.to_string());
+                        }
+                    }
+                }
+                ast::Stmt::AnnAssign(a) => {
+                    if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
+                        a.target.as_ref()
+                        && let ast::Expr::Name(n) = value.as_ref()
+                        && n.id.as_str() == name
+                    {
+                        attrs.insert(attr.to_string());
+                    }
+                }
+                ast::Stmt::AugAssign(a) => {
+                    if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
+                        a.target.as_ref()
+                        && let ast::Expr::Name(n) = value.as_ref()
+                        && n.id.as_str() == name
+                    {
+                        attrs.insert(attr.to_string());
+                    }
+                }
+                ast::Stmt::If(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                    for clause in &s.elif_else_clauses {
+                        Self::scan_store_attrs(&clause.body, name, attrs);
+                    }
+                }
+                ast::Stmt::For(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                    Self::scan_store_attrs(&s.orelse, name, attrs);
+                }
+                ast::Stmt::While(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                    Self::scan_store_attrs(&s.orelse, name, attrs);
+                }
+                ast::Stmt::Try(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                    for handler in &s.handlers {
+                        let ast::ExceptHandler::ExceptHandler(h) = handler;
+                        Self::scan_store_attrs(&h.body, name, attrs);
+                    }
+                    Self::scan_store_attrs(&s.orelse, name, attrs);
+                    Self::scan_store_attrs(&s.finalbody, name, attrs);
+                }
+                ast::Stmt::With(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                }
+                _ => {}
+            }
+        }
+    }
+
     // Python/compile.c find_ann
     fn find_ann(body: &[ast::Stmt]) -> bool {
         for statement in body {
@@ -4617,6 +4703,13 @@ impl Compiler {
             }
         );
 
+        // PEP 649: Initialize __classdict__ cell (before __doc__)
+        if self.current_symbol_table().needs_classdict {
+            emit!(self, Instruction::LoadLocals);
+            let classdict_idx = self.get_cell_var_index("__classdict__")?;
+            emit!(self, Instruction::StoreDeref { i: classdict_idx });
+        }
+
         // Store __doc__ only if there's an explicit docstring
         if let Some(doc) = doc_str {
             self.emit_load_const(ConstantData::Str { value: doc.into() });
@@ -4645,13 +4738,6 @@ impl Compiler {
             );
         }
 
-        // PEP 649: Initialize __classdict__ cell for class annotation scope
-        if self.current_symbol_table().needs_classdict {
-            emit!(self, Instruction::LoadLocals);
-            let classdict_idx = self.get_cell_var_index("__classdict__")?;
-            emit!(self, Instruction::StoreDeref { i: classdict_idx });
-        }
-
         // Handle class annotations based on future_annotations flag
         if Self::find_ann(body) {
             if self.future_annotations {
@@ -4669,6 +4755,16 @@ impl Compiler {
             }
         }
 
+        // Collect __static_attributes__: scan methods for self.xxx = ... patterns
+        Self::collect_static_attributes(
+            body,
+            self.code_stack
+                .last_mut()
+                .unwrap()
+                .static_attributes
+                .as_mut(),
+        );
+
         // 3. Compile the class body
         self.compile_statements(body)?;
 
@@ -4684,7 +4780,7 @@ impl Compiler {
 
         // Emit __static_attributes__ tuple
         {
-            let attrs: Vec<String> = self
+            let mut attrs: Vec<String> = self
                 .code_stack
                 .last()
                 .unwrap()
@@ -4692,6 +4788,7 @@ impl Compiler {
                 .as_ref()
                 .map(|s| s.iter().cloned().collect())
                 .unwrap_or_default();
+            attrs.sort();
             self.emit_load_const(ConstantData::Tuple {
                 elements: attrs
                     .into_iter()
@@ -5091,8 +5188,7 @@ impl Compiler {
                     method: SpecialMethod::AEnter
                 }
             ); // [bound_aexit, bound_aenter]
-            // bound_aenter is already bound, call with NULL self_or_null
-            emit!(self, Instruction::PushNull); // [bound_aexit, bound_aenter, NULL]
+            emit!(self, Instruction::PushNull);
             emit!(self, Instruction::Call { argc: 0 }); // [bound_aexit, awaitable]
             emit!(self, Instruction::GetAwaitable { r#where: 1 });
             self.emit_load_const(ConstantData::None);
@@ -5112,8 +5208,7 @@ impl Compiler {
                     method: SpecialMethod::Enter
                 }
             ); // [bound_exit, bound_enter]
-            // bound_enter is already bound, call with NULL self_or_null
-            emit!(self, Instruction::PushNull); // [bound_exit, bound_enter, NULL]
+            emit!(self, Instruction::PushNull);
             emit!(self, Instruction::Call { argc: 0 }); // [bound_exit, enter_result]
         }
 
@@ -5168,8 +5263,8 @@ impl Compiler {
         });
 
         // ===== Normal exit path =====
-        // Stack: [..., __exit__]
-        // Call __exit__(None, None, None)
+        // Stack: [..., bound_exit]
+        // Call bound_exit(None, None, None)
         self.set_source_range(with_range);
         emit!(self, Instruction::PushNull);
         self.emit_load_const(ConstantData::None);
@@ -6894,17 +6989,28 @@ impl Compiler {
         let has_unpacking = items.iter().any(|item| item.key.is_none());
 
         if !has_unpacking {
-            // Simple case: no ** unpacking, build all pairs directly
-            for item in items {
-                self.compile_expression(item.key.as_ref().unwrap())?;
-                self.compile_expression(&item.value)?;
-            }
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    count: u32::try_from(items.len()).expect("too many dict items"),
+            // STACK_USE_GUIDELINE: for large dicts (16+ pairs), use
+            // BUILD_MAP 0 + MAP_ADD to avoid excessive stack usage
+            let big = items.len() * 2 > 30; // ~15 pairs threshold
+            if big {
+                emit!(self, Instruction::BuildMap { count: 0 });
+                for item in items {
+                    self.compile_expression(item.key.as_ref().unwrap())?;
+                    self.compile_expression(&item.value)?;
+                    emit!(self, Instruction::MapAdd { i: 1 });
                 }
-            );
+            } else {
+                for item in items {
+                    self.compile_expression(item.key.as_ref().unwrap())?;
+                    self.compile_expression(&item.value)?;
+                }
+                emit!(
+                    self,
+                    Instruction::BuildMap {
+                        count: u32::try_from(items.len()).expect("too many dict items"),
+                    }
+                );
+            }
             return Ok(());
         }
 
