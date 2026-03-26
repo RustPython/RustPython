@@ -35,10 +35,9 @@ repos:
     hooks:
       - id: rustfmt
         name: rustfmt
-        entry: cargo fmt --all
+        entry: rustfmt
         language: system
         types: [rust]
-        pass_filenames: false
         priority: 0
 
       - id: generate-opcode-metadata
