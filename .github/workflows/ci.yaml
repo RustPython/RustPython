@@ -333,8 +333,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # checks: write
-      # issues: write
+      checks: write
       pull-requests: write
       security-events: write # for zizmor
     steps:
