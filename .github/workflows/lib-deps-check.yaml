@@ -7,7 +7,7 @@ on:
       - "Lib/**"
 
 concurrency:
-  group: lib-deps-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 env:

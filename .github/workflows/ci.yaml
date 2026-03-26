@@ -12,7 +12,7 @@ name: CI
 # with the same event (push/pull_request) even they are in progress.
 # This setting will help reduce the number of duplicated workflows.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 env:
