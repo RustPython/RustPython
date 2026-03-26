@@ -21,7 +21,7 @@ pub unsafe extern "C" fn eval(s: *const u8, l: usize) -> i32 {
     let result = interpreter.enter(|vm| {
         let scope = vm.new_scope_with_builtins();
         let res = match vm.run_block_expr(scope, src) {
-            Ok(val) => val,
+            	Ok(val) => val,
             Err(_) => return Err(-1), // Python execution error
         };
         let repr_str = match res.repr(vm) {
