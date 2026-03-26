@@ -1074,12 +1074,12 @@ impl Compiler {
             .filter(|(_, s)| {
                 s.scope == SymbolScope::Cell || s.flags.contains(SymbolFlags::COMP_CELL)
             })
-            .map(|(name, _)| name.clone())
+            .map(|(name, sym)| (name.clone(), sym.flags))
             .collect();
         let mut param_cells = Vec::new();
         let mut nonparam_cells = Vec::new();
-        for name in cell_symbols {
-            if varname_cache.contains(&name) {
+        for (name, flags) in cell_symbols {
+            if flags.contains(SymbolFlags::PARAMETER) {
                 param_cells.push(name);
             } else {
                 nonparam_cells.push(name);
@@ -1110,8 +1110,9 @@ impl Compiler {
         }
 
         // Handle implicit __conditional_annotations__ cell if needed
-        // Only for class scope - module scope uses NAME operations, not DEREF
-        if ste.has_conditional_annotations && scope_type == CompilerScope::Class {
+        if ste.has_conditional_annotations
+            && matches!(scope_type, CompilerScope::Class | CompilerScope::Module)
+        {
             cellvar_cache.insert("__conditional_annotations__".to_string());
         }
 
@@ -1794,7 +1795,26 @@ impl Compiler {
         let size_before = self.code_stack.len();
         // Set future_annotations from symbol table (detected during symbol table scan)
         self.future_annotations = symbol_table.future_annotations;
+
+        // Module-level __conditional_annotations__ cell
+        let has_module_cond_ann = symbol_table.has_conditional_annotations;
+        if has_module_cond_ann {
+            self.current_code_info()
+                .metadata
+                .cellvars
+                .insert("__conditional_annotations__".to_string());
+        }
+
         self.symbol_table_stack.push(symbol_table);
+
+        // Emit MAKE_CELL for module-level cells (before RESUME)
+        if has_module_cond_ann {
+            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
+            for i in 0..ncells {
+                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
+                emit!(self, Instruction::MakeCell { i: i_varnum });
+            }
+        }
 
         self.emit_resume_for_scope(CompilerScope::Module, 1);
 
@@ -5437,7 +5457,24 @@ impl Compiler {
         let mut end_async_for_target = BlockIdx::NULL;
 
         // The thing iterated:
-        self.compile_expression(iter)?;
+        // Optimize: `for x in [a, b, c]` → use tuple instead of list
+        // (list creation is wasteful for iteration)
+        // Skip optimization if any element is starred (e.g., `[a, *b, c]`)
+        if let ast::Expr::List(ast::ExprList { elts, .. }) = iter
+            && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
+        {
+            for elt in elts {
+                self.compile_expression(elt)?;
+            }
+            emit!(
+                self,
+                Instruction::BuildTuple {
+                    count: u32::try_from(elts.len()).expect("too many elements"),
+                }
+            );
+        } else {
+            self.compile_expression(iter)?;
+        }
 
         if is_async {
             if self.ctx.func != FunctionContext::AsyncFunction {
@@ -7033,6 +7070,7 @@ impl Compiler {
     /// For `And`, emits `PopJumpIfFalse`; for `Or`, emits `PopJumpIfTrue`.
     fn emit_short_circuit_test(&mut self, op: &ast::BoolOp, target: BlockIdx) {
         emit!(self, Instruction::Copy { i: 1 });
+        emit!(self, Instruction::ToBool);
         match op {
             ast::BoolOp::And => {
                 emit!(self, Instruction::PopJumpIfFalse { delta: target });
@@ -8554,11 +8592,11 @@ impl Compiler {
 
     // fn block_done()
 
-    /// Convert a string literal AST node to Wtf8Buf, handling surrogates correctly.
+    /// Convert a string literal AST node to Wtf8Buf, handling surrogate literals correctly.
     fn compile_string_value(&self, string: &ast::ExprStringLiteral) -> Wtf8Buf {
         let value = string.value.to_str();
         if value.contains(char::REPLACEMENT_CHARACTER) {
-            // Might have a surrogate literal; reparse from source to preserve them
+            // Might have a surrogate literal; reparse from source to preserve them.
             string
                 .value
                 .iter()
@@ -8601,8 +8639,9 @@ impl Compiler {
                     }
                 },
                 ast::Expr::StringLiteral(s) => {
-                    let value = self.compile_string_value(s);
-                    constants.push(ConstantData::Str { value });
+                    constants.push(ConstantData::Str {
+                        value: self.compile_string_value(s),
+                    });
                 }
                 ast::Expr::BytesLiteral(b) => {
                     constants.push(ConstantData::Bytes {
