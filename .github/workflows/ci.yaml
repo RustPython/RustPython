@@ -333,8 +333,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: write
-      issues: write
+      # checks: write
+      # issues: write
       pull-requests: write
       security-events: write # for zizmor
     steps:
@@ -392,7 +392,6 @@ jobs:
           level: warning
           fail_level: error
           cleanup: false
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
   miri:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
