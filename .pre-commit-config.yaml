@@ -46,8 +46,8 @@ repos:
         files: '^(crates/compiler-core/src/bytecode/instruction\.rs|scripts/generate_opcode_metadata\.py)$'
         pass_filenames: false
         language: system
-        require_serial: true # so rustfmt runs first
-        priority: 1
+        require_serial: true
+        priority: 1 # so rustfmt runs first
 
   - repo: https://github.com/streetsidesoftware/cspell-cli
     rev: v9.7.0
