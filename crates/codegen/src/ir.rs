@@ -363,7 +363,7 @@ impl CodeInfo {
             }
         }
 
-        let mut block_to_offset = vec![Label::new(0); blocks.len()];
+        let mut block_to_offset = vec![Label::from_u32(0); blocks.len()];
         // block_to_index: maps block idx to instruction index (for exception table)
         // This is the index into the final instructions array, including EXTENDED_ARG and CACHE
         let mut block_to_index = vec![0u32; blocks.len()];
@@ -372,7 +372,7 @@ impl CodeInfo {
         loop {
             let mut num_instructions = 0;
             for (idx, block) in iter_blocks(&blocks) {
-                block_to_offset[idx.idx()] = Label::new(num_instructions as u32);
+                block_to_offset[idx.idx()] = Label::from_u32(num_instructions as u32);
                 // block_to_index uses the same value as block_to_offset but as u32
                 // because lasti in frame.rs is the index into instructions array
                 // and instructions array index == byte offset (each instruction is 1 CodeUnit)
