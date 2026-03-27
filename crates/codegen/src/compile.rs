@@ -5460,7 +5460,8 @@ impl Compiler {
         // Optimize: `for x in [a, b, c]` → use tuple instead of list
         // (list creation is wasteful for iteration)
         // Skip optimization if any element is starred (e.g., `[a, *b, c]`)
-        if let ast::Expr::List(ast::ExprList { elts, .. }) = iter
+        if !is_async
+            && let ast::Expr::List(ast::ExprList { elts, .. }) = iter
             && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
         {
             for elt in elts {

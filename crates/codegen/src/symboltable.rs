@@ -1035,6 +1035,7 @@ impl SymbolTableBuilder {
             .and_then(|t| t.mangled_names.clone())
             .filter(|_| typ != CompilerScope::Class);
         let mut table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
+        table.future_annotations = self.future_annotations;
         table.mangled_names = inherited_mangled_names;
         self.tables.push(table);
         // Save parent's varnames and start fresh for the new scope
