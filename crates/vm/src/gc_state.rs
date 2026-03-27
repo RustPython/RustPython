@@ -457,12 +457,20 @@ impl GcState {
         }
 
         // Step 3: Subtract internal references
+        // Pre-compute referent pointers once per object so that both step 3
+        // (subtract refs) and step 4 (BFS reachability) see the same snapshot
+        // of each object's children. Without this, a dict whose write lock is
+        // held during one traversal but not the other can yield inconsistent
+        // results, causing live objects to be incorrectly collected.
+        let mut referents_map: std::collections::HashMap<GcPtr, Vec<NonNull<PyObject>>> =
+            std::collections::HashMap::new();
         for &ptr in &collecting {
             let obj = unsafe { ptr.0.as_ref() };
             if obj.strong_count() == 0 {
                 continue;
             }
             let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
+            referents_map.insert(ptr, referent_ptrs.clone());
             for child_ptr in referent_ptrs {
                 let gc_ptr = GcPtr(child_ptr);
                 if collecting.contains(&gc_ptr)
@@ -487,7 +495,13 @@ impl GcState {
         while let Some(ptr) = worklist.pop() {
             let obj = unsafe { ptr.0.as_ref() };
             if obj.is_gc_tracked() {
-                let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
+                // Reuse the pre-computed referent pointers from step 3.
+                // For objects that were skipped in step 3 (strong_count was 0),
+                // compute them now as a fallback.
+                let referent_ptrs = referents_map
+                    .get(&ptr)
+                    .cloned()
+                    .unwrap_or_else(|| unsafe { obj.gc_get_referent_ptrs() });
                 for child_ptr in referent_ptrs {
                     let gc_ptr = GcPtr(child_ptr);
                     if collecting.contains(&gc_ptr) && reachable.insert(gc_ptr) {
