@@ -27,7 +27,7 @@ pub use crate::bytecode::{
         BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,
         IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr, LoadSuperAttr,
         MakeFunctionFlag, MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgState, OpArgType,
-        RaiseKind, ResumeType, SpecialMethod, UnpackExArgs,
+        RaiseKind, SpecialMethod, UnpackExArgs,
     },
 };
 
@@ -1041,7 +1041,7 @@ impl<C: Constant> CodeObject<C> {
             }
 
             // arrow and offset
-            let arrow = if label_targets.contains(&Label::new(offset as u32)) {
+            let arrow = if label_targets.contains(&Label::from_u32(offset as u32)) {
                 ">>"
             } else {
                 "  "

@@ -1277,7 +1277,7 @@ impl Compiler {
                 context: OpArgMarker::marker(),
             }
             .into(),
-            arg: OpArg::new(u32::from(bytecode::ResumeType::AtFuncStart)),
+            arg: OpArg::new(oparg::ResumeLocation::AtFuncStart.into()),
             target: BlockIdx::NULL,
             location,
             end_location,
@@ -7200,9 +7200,9 @@ impl Compiler {
             self,
             Instruction::Resume {
                 context: if is_await {
-                    bytecode::ResumeType::AfterAwait
+                    oparg::ResumeContext::from(oparg::ResumeLocation::AfterAwait)
                 } else {
-                    bytecode::ResumeType::AfterYieldFrom
+                    oparg::ResumeContext::from(oparg::ResumeLocation::AfterYieldFrom)
                 }
             }
         );
@@ -7374,7 +7374,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::Resume {
-                        context: bytecode::ResumeType::AfterYield
+                        context: oparg::ResumeContext::from(oparg::ResumeLocation::AfterYield)
                     }
                 );
             }
@@ -7596,7 +7596,9 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::Resume {
-                                context: bytecode::ResumeType::AfterYield
+                                context: oparg::ResumeContext::from(
+                                    oparg::ResumeLocation::AfterYield
+                                )
                             }
                         );
                         emit!(compiler, Instruction::PopTop);

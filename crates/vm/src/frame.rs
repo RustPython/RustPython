@@ -2437,7 +2437,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIter { .. } => {
                 // Relative forward jump: target = lasti + caches + delta
-                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 self.adaptive(|s, ii, cb| s.specialize_for_iter(vm, u32::from(arg), ii, cb));
                 self.execute_for_iter(vm, target)?;
                 Ok(None)
@@ -3571,7 +3571,7 @@ impl ExecutingFrame<'_> {
             Instruction::Send { .. } => {
                 // (receiver, v -- receiver, retval)
                 self.adaptive(|s, ii, cb| s.specialize_send(vm, ii, cb));
-                let exit_label = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
+                let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let receiver = self.nth_value(1);
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
@@ -3609,7 +3609,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::SendGen => {
-                let exit_label = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
+                let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 // Stack: [receiver, val] — peek receiver before popping
                 let receiver = self.nth_value(1);
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
@@ -3740,7 +3740,7 @@ impl ExecutingFrame<'_> {
             }
             // Specialized LOAD_ATTR opcodes
             Instruction::LoadAttrMethodNoDict => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
@@ -3759,7 +3759,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::LoadAttrMethodLazyDict => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
@@ -3779,7 +3779,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::LoadAttrMethodWithValues => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
@@ -3814,7 +3814,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrInstanceValue => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
@@ -3836,7 +3836,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrWithHint => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
@@ -3861,7 +3861,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrModule => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
@@ -3885,7 +3885,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrNondescriptorNoDict => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
@@ -3907,7 +3907,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrNondescriptorWithValues => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
 
@@ -3945,7 +3945,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrClass => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
@@ -3968,7 +3968,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrClassWithMetaclassCheck => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
@@ -3994,7 +3994,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrGetattributeOverridden => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -4021,7 +4021,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrSlot => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
@@ -4045,7 +4045,7 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::LoadAttrProperty => {
-                let oparg = LoadAttr::new(u32::from(arg));
+                let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
 
                 let owner = self.top_value();
@@ -5247,7 +5247,7 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                let oparg = LoadSuperAttr::new(oparg);
+                let oparg = LoadSuperAttr::from_u32(oparg);
                 self.load_super_attr(vm, oparg)
             }
             Instruction::LoadSuperAttrMethod => {
@@ -5314,7 +5314,7 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                let oparg = LoadSuperAttr::new(oparg);
+                let oparg = LoadSuperAttr::from_u32(oparg);
                 self.load_super_attr(vm, oparg)
             }
             Instruction::CompareOpInt => {
@@ -5581,7 +5581,7 @@ impl ExecutingFrame<'_> {
                 self.unpack_sequence(size as u32, vm)
             }
             Instruction::ForIterRange => {
-                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
                 if let Some(range_iter) = iter.downcast_ref_if_exact::<PyRangeIterator>(vm) {
                     if let Some(value) = range_iter.fast_next() {
@@ -5596,7 +5596,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::ForIterList => {
-                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
                 if let Some(list_iter) = iter.downcast_ref_if_exact::<PyListIterator>(vm) {
                     if let Some(value) = list_iter.fast_next() {
@@ -5611,7 +5611,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::ForIterTuple => {
-                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
                 if let Some(tuple_iter) = iter.downcast_ref_if_exact::<PyTupleIterator>(vm) {
                     if let Some(value) = tuple_iter.fast_next() {
@@ -5626,7 +5626,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::ForIterGen => {
-                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let iter = self.top_value();
                 if self.specialization_eval_frame_active(vm) {
                     self.execute_for_iter(vm, target)?;
@@ -5868,7 +5868,7 @@ impl ExecutingFrame<'_> {
             Instruction::InstrumentedJumpForward => {
                 let src_offset = (self.lasti() - 1) * 2;
                 let target_idx = self.lasti() + u32::from(arg);
-                let target = bytecode::Label::new(target_idx);
+                let target = bytecode::Label::from_u32(target_idx);
                 self.jump(target);
                 if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
                     monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
@@ -5878,7 +5878,7 @@ impl ExecutingFrame<'_> {
             Instruction::InstrumentedJumpBackward => {
                 let src_offset = (self.lasti() - 1) * 2;
                 let target_idx = self.lasti() + 1 - u32::from(arg);
-                let target = bytecode::Label::new(target_idx);
+                let target = bytecode::Label::from_u32(target_idx);
                 self.jump(target);
                 if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
                     monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
@@ -5887,7 +5887,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedForIter => {
                 let src_offset = (self.lasti() - 1) * 2;
-                let target = bytecode::Label::new(self.lasti() + 1 + u32::from(arg));
+                let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let continued = self.execute_for_iter(vm, target)?;
                 if continued {
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
@@ -5937,7 +5937,7 @@ impl ExecutingFrame<'_> {
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 if value {
-                    self.jump(bytecode::Label::new(target_idx));
+                    self.jump(bytecode::Label::from_u32(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
@@ -5950,7 +5950,7 @@ impl ExecutingFrame<'_> {
                 let obj = self.pop_value();
                 let value = obj.try_to_bool(vm)?;
                 if !value {
-                    self.jump(bytecode::Label::new(target_idx));
+                    self.jump(bytecode::Label::from_u32(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
@@ -5962,7 +5962,7 @@ impl ExecutingFrame<'_> {
                 let target_idx = self.lasti() + 1 + u32::from(arg);
                 let value = self.pop_value();
                 if vm.is_none(&value) {
-                    self.jump(bytecode::Label::new(target_idx));
+                    self.jump(bytecode::Label::from_u32(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
@@ -5974,7 +5974,7 @@ impl ExecutingFrame<'_> {
                 let target_idx = self.lasti() + 1 + u32::from(arg);
                 let value = self.pop_value();
                 if !vm.is_none(&value) {
-                    self.jump(bytecode::Label::new(target_idx));
+                    self.jump(bytecode::Label::from_u32(target_idx));
                     if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
@@ -6366,7 +6366,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(exception.into());
 
                     // 4. Jump to handler
-                    self.jump(bytecode::Label::new(entry.target));
+                    self.jump(bytecode::Label::from_u32(entry.target));
 
                     Ok(None)
                 } else {
@@ -6971,7 +6971,7 @@ impl ExecutingFrame<'_> {
                 bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
             )
         {
-            return bytecode::Label::new(target.as_u32() + 1);
+            return bytecode::Label::from_u32(target.as_u32() + 1);
         }
         target
     }
@@ -8952,7 +8952,7 @@ impl ExecutingFrame<'_> {
                 unit.op,
                 bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
             ) {
-                bytecode::Label::new(target.as_u32() + 1)
+                bytecode::Label::from_u32(target.as_u32() + 1)
             } else {
                 target
             }
