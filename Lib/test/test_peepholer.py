@@ -645,7 +645,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(count_instr_recursively(containtest, 'BUILD_LIST'), 0)
         self.check_lnotab(containtest)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; no BUILD_LIST to BUILD_TUPLE optimization
     def test_iterate_literal_list(self):
         def forloop():
             for x in [a, b]:
