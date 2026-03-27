@@ -1,4 +1,5 @@
 use rustpython_wtf8::Wtf8;
+use unic_ucd_category::GeneralCategory;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StringCursor {
@@ -441,9 +442,20 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
 }
 #[inline]
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
-    // TODO: check with cpython
     char::try_from(ch)
-        .map(|x| x.is_alphanumeric())
+        .map(|c| {
+            matches!(
+                GeneralCategory::of(c),
+                GeneralCategory::UppercaseLetter
+                    | GeneralCategory::LowercaseLetter
+                    | GeneralCategory::TitlecaseLetter
+                    | GeneralCategory::ModifierLetter
+                    | GeneralCategory::OtherLetter
+                    | GeneralCategory::DecimalNumber
+                    | GeneralCategory::LetterNumber
+                    | GeneralCategory::OtherNumber
+            )
+        })
         .unwrap_or(false)
 }
 #[inline]
