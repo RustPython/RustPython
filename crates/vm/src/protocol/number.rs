@@ -200,33 +200,34 @@ impl PyNumberMethods {
     }
 }
 
+/// Matches the NB_* constants ordering from opcode.h / BinaryOperator.
 #[derive(Copy, Clone)]
 pub enum PyNumberBinaryOp {
     Add,
-    Subtract,
+    And,
+    FloorDivide,
+    Lshift,
+    MatrixMultiply,
     Multiply,
     Remainder,
-    Divmod,
-    Lshift,
-    Rshift,
-    And,
-    Xor,
     Or,
+    Rshift,
+    Subtract,
+    TrueDivide,
+    Xor,
     InplaceAdd,
-    InplaceSubtract,
+    InplaceAnd,
+    InplaceFloorDivide,
+    InplaceLshift,
+    InplaceMatrixMultiply,
     InplaceMultiply,
     InplaceRemainder,
-    InplaceLshift,
-    InplaceRshift,
-    InplaceAnd,
-    InplaceXor,
     InplaceOr,
-    FloorDivide,
-    TrueDivide,
-    InplaceFloorDivide,
+    InplaceRshift,
+    InplaceSubtract,
     InplaceTrueDivide,
-    MatrixMultiply,
-    InplaceMatrixMultiply,
+    InplaceXor,
+    Divmod,
 }
 
 impl PyNumberBinaryOp {
