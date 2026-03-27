@@ -814,8 +814,14 @@ impl ResumeContext {
     pub const DEPTH1_MASK: u32 = 0x4;
 
     #[must_use]
-    fn new(_location: ResumeLocation, _is_exception_depth1: bool) -> Self {
-        todo!()
+    pub const fn new(location: ResumeLocation, is_exception_depth1: bool) -> Self {
+        let value = if is_exception_depth1 {
+            Self::DEPTH1_MASK
+        } else {
+            0
+        };
+
+        Self::from_u32(location.as_u32() | value)
     }
 
     /// Resume location is determined by [`Self::LOCATION_MASK`].
@@ -855,6 +861,35 @@ impl TryFrom<u32> for ResumeLocation {
             3 => Self::AfterAwait,
             _ => return Err(Self::Error::InvalidBytecode),
         })
+    }
+}
+
+impl ResumeLocation {
+    #[must_use]
+    pub const fn as_u8(&self) -> u8 {
+        match self {
+            Self::AtFuncStart => 0,
+            Self::AfterYield => 1,
+            Self::AfterYieldFrom => 2,
+            Self::AfterAwait => 3,
+        }
+    }
+
+    #[must_use]
+    pub const fn as_u32(&self) -> u32 {
+        self.as_u8() as u32
+    }
+}
+
+impl From<ResumeLocation> for u8 {
+    fn from(location: ResumeLocation) -> Self {
+        location.as_u8()
+    }
+}
+
+impl From<ResumeLocation> for u32 {
+    fn from(location: ResumeLocation) -> Self {
+        location.as_u32()
     }
 }
 

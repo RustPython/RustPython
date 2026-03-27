@@ -1277,7 +1277,9 @@ impl Compiler {
                 context: OpArgMarker::marker(),
             }
             .into(),
-            arg: OpArg::new(u32::from(bytecode::ResumeType::AtFuncStart)),
+            arg: OpArg::new(
+                oparg::ResumeContext::new(oparg::ResumeLocation::AtFuncStart, false).into(),
+            ),
             target: BlockIdx::NULL,
             location,
             end_location,
@@ -7199,11 +7201,14 @@ impl Compiler {
         emit!(
             self,
             Instruction::Resume {
-                context: if is_await {
-                    bytecode::ResumeType::AfterAwait
-                } else {
-                    bytecode::ResumeType::AfterYieldFrom
-                }
+                context: oparg::ResumeContext::new(
+                    if is_await {
+                        oparg::ResumeLocation::AfterAwait
+                    } else {
+                        oparg::ResumeLocation::AfterYieldFrom
+                    },
+                    false
+                )
             }
         );
 
@@ -7374,7 +7379,10 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::Resume {
-                        context: bytecode::ResumeType::AfterYield
+                        context: oparg::ResumeContext::new(
+                            oparg::ResumeLocation::AfterYield,
+                            true, // TODO: Is this always true?
+                        )
                     }
                 );
             }
@@ -7596,7 +7604,10 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::Resume {
-                                context: bytecode::ResumeType::AfterYield
+                                context: oparg::ResumeContext::new(
+                                    oparg::ResumeLocation::AfterYield,
+                                    true, // TODO: Is this always true?
+                                )
                             }
                         );
                         emit!(compiler, Instruction::PopTop);
