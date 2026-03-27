@@ -850,6 +850,12 @@ pub enum ResumeLocation {
     AfterAwait,
 }
 
+impl From<ResumeLocation> for ResumeContext {
+    fn from(location: ResumeLocation) -> Self {
+        Self::new(location, false)
+    }
+}
+
 impl TryFrom<u32> for ResumeLocation {
     type Error = MarshalError;
 

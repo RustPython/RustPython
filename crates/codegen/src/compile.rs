@@ -1277,9 +1277,7 @@ impl Compiler {
                 context: OpArgMarker::marker(),
             }
             .into(),
-            arg: OpArg::new(
-                oparg::ResumeContext::new(oparg::ResumeLocation::AtFuncStart, false).into(),
-            ),
+            arg: OpArg::new(oparg::ResumeLocation::AtFuncStart.into()),
             target: BlockIdx::NULL,
             location,
             end_location,
@@ -7201,14 +7199,11 @@ impl Compiler {
         emit!(
             self,
             Instruction::Resume {
-                context: oparg::ResumeContext::new(
-                    if is_await {
-                        oparg::ResumeLocation::AfterAwait
-                    } else {
-                        oparg::ResumeLocation::AfterYieldFrom
-                    },
-                    false
-                )
+                context: if is_await {
+                    oparg::ResumeContext::from(oparg::ResumeLocation::AfterAwait)
+                } else {
+                    oparg::ResumeContext::from(oparg::ResumeLocation::AfterYieldFrom)
+                }
             }
         );
 
@@ -7379,10 +7374,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::Resume {
-                        context: oparg::ResumeContext::new(
-                            oparg::ResumeLocation::AfterYield,
-                            true, // TODO: Is this always true?
-                        )
+                        context: oparg::ResumeContext::from(oparg::ResumeLocation::AfterYield)
                     }
                 );
             }
@@ -7604,9 +7596,8 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::Resume {
-                                context: oparg::ResumeContext::new(
-                                    oparg::ResumeLocation::AfterYield,
-                                    true, // TODO: Is this always true?
+                                context: oparg::ResumeContext::from(
+                                    oparg::ResumeLocation::AfterYield
                                 )
                             }
                         );
