@@ -2172,11 +2172,19 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 blocks[bi].instructions[i].except_handler = handler_info;
 
                 // Track YIELD_VALUE except stack depth
-                if matches!(
-                    blocks[bi].instructions[i].instr.real(),
-                    Some(Instruction::YieldValue { .. })
-                ) {
-                    last_yield_except_depth = stack.len() as i32;
+                // Only count for direct yield (arg=0), not yield-from/await (arg=1)
+                // The yield-from's internal SETUP_FINALLY is not an external except depth
+                if let Some(Instruction::YieldValue { .. }) =
+                    blocks[bi].instructions[i].instr.real()
+                {
+                    let yield_arg = u32::from(blocks[bi].instructions[i].arg);
+                    if yield_arg == 0 {
+                        // Direct yield: count actual except depth
+                        last_yield_except_depth = stack.len() as i32;
+                    } else {
+                        // yield-from/await: subtract 1 for the internal SETUP_FINALLY
+                        last_yield_except_depth = (stack.len() as i32) - 1;
+                    }
                 }
 
                 // Set RESUME DEPTH1 flag based on last yield's except depth
