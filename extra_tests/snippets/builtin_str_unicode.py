@@ -11,6 +11,7 @@ c = ᚴ * 3
 
 assert c == "👋👋👋"
 
+import re
 import unicodedata
 
 assert unicodedata.category("a") == "Ll"
@@ -44,6 +45,4 @@ assert b"xn--pythn-mua.org.".decode("idna") == "pyth\xf6n.org."
 # not the broader Unicode Alphabetic derived property.
 assert not "\u0345".isalpha(), "isalpha should not match Mn category characters"
 assert not "\u0345".isalnum(), "isalnum should not match Mn category characters"
-
-import re
 assert not re.match(r"\w", "\u0345"), r"\w should not match U+0345 (category Mn)"
