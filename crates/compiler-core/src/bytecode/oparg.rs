@@ -799,8 +799,8 @@ newtype_oparg!(
     /// Context for [`Instruction::Resume`].
     ///
     /// The oparg consists of two parts:
-    /// 1. [`Context::location`]: Indicates where the instruction occurs.
-    /// 2. [`Context::is_exception_depth1`]: Is the instruction is at except-depth 1.
+    /// 1. [`ResumeContext::location`]: Indicates where the instruction occurs.
+    /// 2. [`ResumeContext::is_exception_depth1`]: Is the instruction is at except-depth 1.
     #[derive(Clone, Copy)]
     #[repr(transparent)]
     pub struct ResumeContext(u32)
