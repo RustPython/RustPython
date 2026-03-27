@@ -16,6 +16,7 @@ harness = false
 
 [dependencies]
 rustpython-wtf8 = { workspace = true }
+unic-ucd-category = { workspace = true }
 num_enum = { workspace = true }
 bitflags = { workspace = true }
 optional = { workspace = true }

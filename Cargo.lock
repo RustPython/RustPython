@@ -3249,6 +3249,7 @@ dependencies = [
  "num_enum",
  "optional",
  "rustpython-wtf8",
+ "unic-ucd-category",
 ]
 
 [[package]]
