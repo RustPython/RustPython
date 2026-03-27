@@ -12,7 +12,7 @@ on:
 name: Periodic checks/tasks
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,ssl-rustls,jit
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls,jit,host_env
   PYTHON_VERSION: "3.14.3"
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: sudo apt-get update && sudo apt-get -y install lcov
       - name: Run cargo-llvm-cov with Rust tests.
-        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher --verbose --no-default-features --features stdlib,importlib,encodings,ssl-rustls,jit
+        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher --verbose --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls,jit,host_env
       - name: Run cargo-llvm-cov with Python snippets.
         run: python scripts/cargo-llvm-cov.py
         continue-on-error: true
@@ -48,7 +48,7 @@ jobs:
         if: ${{ github.event_name != 'pull_request' }}
         uses: codecov/codecov-action@v5
         with:
-          file: ./codecov.lcov
+          files: ./codecov.lcov
 
   testdata:
     name: Collect regression test data
@@ -170,12 +170,12 @@ jobs:
       - name: restructure generated files
         run: |
           cd ./target/criterion/reports
-          find -type d -name cpython | xargs rm -rf
-          find -type d -name rustpython | xargs rm -rf
-          find -mindepth 2 -maxdepth 2 -name violin.svg | xargs rm -rf
-          find -type f -not -name violin.svg | xargs rm -rf
-          for file in $(find -type f -name violin.svg); do mv $file $(echo $file | sed -E "s_\./([^/]+)/([^/]+)/violin\.svg_./\1/\2.svg_"); done
-          find -mindepth 2 -maxdepth 2 -type d | xargs rm -rf
+          find . -type d -name cpython -print0 | xargs -0 rm -rf
+          find . -type d -name rustpython -print0 | xargs -0 rm -rf
+          find . -mindepth 2 -maxdepth 2 -name violin.svg -print0 | xargs -0 rm -rf
+          find . -type f -not -name violin.svg -print0 | xargs -0 rm -rf
+          find . -type f -name violin.svg -exec sh -c 'for file; do mv "$file" "$(echo "$file" | sed -E "s_\./([^/]+)/([^/]+)/violin\.svg_./\1/\2.svg_")"; done' _ {} +
+          find . -mindepth 2 -maxdepth 2 -type d -print0 | xargs -0 rm -rf
           cd ..
           mv reports/* .
           rmdir reports
