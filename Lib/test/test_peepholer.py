@@ -645,7 +645,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(count_instr_recursively(containtest, 'BUILD_LIST'), 0)
         self.check_lnotab(containtest)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; no BUILD_LIST to BUILD_TUPLE optimization
     def test_iterate_literal_list(self):
         def forloop():
             for x in [a, b]:
@@ -862,7 +861,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.addCleanup(sys.settrace, sys.gettrace())
         sys.settrace(None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; no LOAD_FAST_BORROW_LOAD_FAST_BORROW superinstruction
     def test_load_fast_known_simple(self):
         def f():
             x = 1

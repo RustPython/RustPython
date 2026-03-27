@@ -276,48 +276,6 @@ impl fmt::Display for ConvertValueOparg {
     }
 }
 
-/// Resume type for the RESUME instruction
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub enum ResumeType {
-    AtFuncStart,
-    AfterYield,
-    AfterYieldFrom,
-    AfterAwait,
-    Other(u32),
-}
-
-impl From<u32> for ResumeType {
-    fn from(value: u32) -> Self {
-        match value {
-            0 => Self::AtFuncStart,
-            1 => Self::AfterYield,
-            2 => Self::AfterYieldFrom,
-            3 => Self::AfterAwait,
-            _ => Self::Other(value),
-        }
-    }
-}
-
-impl From<ResumeType> for u32 {
-    fn from(typ: ResumeType) -> Self {
-        match typ {
-            ResumeType::AtFuncStart => 0,
-            ResumeType::AfterYield => 1,
-            ResumeType::AfterYieldFrom => 2,
-            ResumeType::AfterAwait => 3,
-            ResumeType::Other(v) => v,
-        }
-    }
-}
-
-impl core::fmt::Display for ResumeType {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        u32::from(*self).fmt(f)
-    }
-}
-
-impl OpArgType for ResumeType {}
-
 pub type NameIdx = u32;
 
 impl OpArgType for u32 {}
@@ -756,14 +714,8 @@ macro_rules! newtype_oparg {
         impl $name {
             /// Creates a new [`$name`] instance.
             #[must_use]
-            pub const fn new(value: u32) -> Self {
-                Self(value)
-            }
-
-            /// Alias to [`$name::new`].
-            #[must_use]
             pub const fn from_u32(value: u32) -> Self {
-                Self::new(value)
+                Self(value)
             }
 
             /// Returns the oparg as a `u32` value.
@@ -843,15 +795,119 @@ newtype_oparg!(
     pub struct Label(u32)
 );
 
+newtype_oparg!(
+    /// Context for [`Instruction::Resume`].
+    ///
+    /// The oparg consists of two parts:
+    /// 1. [`ResumeContext::location`]: Indicates where the instruction occurs.
+    /// 2. [`ResumeContext::is_exception_depth1`]: Is the instruction is at except-depth 1.
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
+    pub struct ResumeContext(u32)
+);
+
+impl ResumeContext {
+    /// [CPython `RESUME_OPARG_LOCATION_MASK`](https://github.com/python/cpython/blob/v3.14.3/Include/internal/pycore_opcode_utils.h#L84)
+    pub const LOCATION_MASK: u32 = 0x3;
+
+    /// [CPython `RESUME_OPARG_DEPTH1_MASK`](https://github.com/python/cpython/blob/v3.14.3/Include/internal/pycore_opcode_utils.h#L85)
+    pub const DEPTH1_MASK: u32 = 0x4;
+
+    #[must_use]
+    pub const fn new(location: ResumeLocation, is_exception_depth1: bool) -> Self {
+        let value = if is_exception_depth1 {
+            Self::DEPTH1_MASK
+        } else {
+            0
+        };
+
+        Self::from_u32(location.as_u32() | value)
+    }
+
+    /// Resume location is determined by [`Self::LOCATION_MASK`].
+    #[must_use]
+    pub fn location(&self) -> ResumeLocation {
+        // SAFETY: The mask should return a value that is in range.
+        unsafe { ResumeLocation::try_from(self.as_u32() & Self::LOCATION_MASK).unwrap_unchecked() }
+    }
+
+    /// True if the bit at [`Self::DEPTH1_MASK`] is on.
+    #[must_use]
+    pub const fn is_exception_depth1(&self) -> bool {
+        (self.as_u32() & Self::DEPTH1_MASK) != 0
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum ResumeLocation {
+    /// At the start of a function, which is neither a generator, coroutine nor an async generator.
+    AtFuncStart,
+    /// After a `yield` expression.
+    AfterYield,
+    /// After a `yield from` expression.
+    AfterYieldFrom,
+    /// After an `await` expression.
+    AfterAwait,
+}
+
+impl From<ResumeLocation> for ResumeContext {
+    fn from(location: ResumeLocation) -> Self {
+        Self::new(location, false)
+    }
+}
+
+impl TryFrom<u32> for ResumeLocation {
+    type Error = MarshalError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::AtFuncStart,
+            1 => Self::AfterYield,
+            2 => Self::AfterYieldFrom,
+            3 => Self::AfterAwait,
+            _ => return Err(Self::Error::InvalidBytecode),
+        })
+    }
+}
+
+impl ResumeLocation {
+    #[must_use]
+    pub const fn as_u8(&self) -> u8 {
+        match self {
+            Self::AtFuncStart => 0,
+            Self::AfterYield => 1,
+            Self::AfterYieldFrom => 2,
+            Self::AfterAwait => 3,
+        }
+    }
+
+    #[must_use]
+    pub const fn as_u32(&self) -> u32 {
+        self.as_u8() as u32
+    }
+}
+
+impl From<ResumeLocation> for u8 {
+    fn from(location: ResumeLocation) -> Self {
+        location.as_u8()
+    }
+}
+
+impl From<ResumeLocation> for u32 {
+    fn from(location: ResumeLocation) -> Self {
+        location.as_u32()
+    }
+}
+
 impl VarNums {
     #[must_use]
     pub const fn idx_1(self) -> VarNum {
-        VarNum::new(self.0 >> 4)
+        VarNum::from_u32(self.0 >> 4)
     }
 
     #[must_use]
     pub const fn idx_2(self) -> VarNum {
-        VarNum::new(self.0 & 15)
+        VarNum::from_u32(self.0 & 15)
     }
 
     #[must_use]
@@ -887,7 +943,7 @@ impl LoadAttrBuilder {
     #[must_use]
     pub const fn build(self) -> LoadAttr {
         let value = (self.name_idx << 1) | (self.is_method as u32);
-        LoadAttr::new(value)
+        LoadAttr::from_u32(value)
     }
 
     #[must_use]
@@ -937,7 +993,7 @@ impl LoadSuperAttrBuilder {
     pub const fn build(self) -> LoadSuperAttr {
         let value =
             (self.name_idx << 2) | ((self.has_class as u32) << 1) | (self.is_load_method as u32);
-        LoadSuperAttr::new(value)
+        LoadSuperAttr::from_u32(value)
     }
 
     #[must_use]

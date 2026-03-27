@@ -54,6 +54,9 @@ pub struct SymbolTable {
     /// Whether this type param scope can see the parent class scope
     pub can_see_class_scope: bool,
 
+    /// Whether this scope contains yield/yield from (is a generator function)
+    pub is_generator: bool,
+
     /// Whether this comprehension scope should be inlined (PEP 709)
     /// True for list/set/dict comprehensions in non-generator expressions
     pub comp_inlined: bool,
@@ -89,6 +92,7 @@ impl SymbolTable {
             needs_class_closure: false,
             needs_classdict: false,
             can_see_class_scope: false,
+            is_generator: false,
             comp_inlined: false,
             annotation_block: None,
             has_conditional_annotations: false,
@@ -293,7 +297,8 @@ fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String
     }
 
     // Classes with function definitions need __classdict__ for PEP 649
-    if !symbol_table.needs_classdict {
+    // (but not when `from __future__ import annotations` is active)
+    if !symbol_table.needs_classdict && !symbol_table.future_annotations {
         let has_functions = symbol_table.sub_tables.iter().any(|t| {
             matches!(
                 t.typ,
@@ -567,6 +572,9 @@ impl SymbolTableAnalyzer {
             newfree.extend(child_free);
         }
         if let Some(ann_free) = annotation_free {
+            // Propagate annotation-scope free names to this scope so
+            // implicit class-scope cells (__classdict__/__conditional_annotations__)
+            // can be materialized by drop_class_free when needed.
             newfree.extend(ann_free);
         }
 
@@ -754,6 +762,12 @@ impl SymbolTableAnalyzer {
         if let Some(decl_depth) = decl_depth {
             // decl_depth is the number of tables between the current one and
             // the one that declared the cell var
+            // For implicit class scope variables (__classdict__, __conditional_annotations__),
+            // only propagate free to annotation/type-param scopes, not regular functions.
+            // Regular method functions don't need these in their freevars.
+            let is_class_implicit =
+                name == "__classdict__" || name == "__conditional_annotations__";
+
             for (table, typ) in self.tables.iter_mut().rev().take(decl_depth) {
                 if let CompilerScope::Class = typ {
                     if let Some(free_class) = table.get_mut(name) {
@@ -764,10 +778,19 @@ impl SymbolTableAnalyzer {
                         symbol.scope = SymbolScope::Free;
                         table.insert(name.to_owned(), symbol);
                     }
+                } else if is_class_implicit
+                    && matches!(
+                        typ,
+                        CompilerScope::Function
+                            | CompilerScope::AsyncFunction
+                            | CompilerScope::Lambda
+                    )
+                {
+                    // Skip: don't add __classdict__/__conditional_annotations__
+                    // as free vars in regular functions — only annotation/type scopes need them
                 } else if !table.contains_key(name) {
                     let mut symbol = Symbol::new(name);
                     symbol.scope = SymbolScope::Free;
-                    // symbol.is_referenced = true;
                     table.insert(name.to_owned(), symbol);
                 }
             }
@@ -1012,6 +1035,7 @@ impl SymbolTableBuilder {
             .and_then(|t| t.mangled_names.clone())
             .filter(|_| typ != CompilerScope::Class);
         let mut table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
+        table.future_annotations = self.future_annotations;
         table.mangled_names = inherited_mangled_names;
         self.tables.push(table);
         // Save parent's varnames and start fresh for the new scope
@@ -1222,20 +1246,30 @@ impl SymbolTableBuilder {
     }
 
     fn scan_annotation(&mut self, annotation: &ast::Expr) -> SymbolTableResult {
+        self.scan_annotation_inner(annotation, false)
+    }
+
+    /// Scan an annotation from an AnnAssign statement (can be conditional)
+    fn scan_ann_assign_annotation(&mut self, annotation: &ast::Expr) -> SymbolTableResult {
+        self.scan_annotation_inner(annotation, true)
+    }
+
+    fn scan_annotation_inner(
+        &mut self,
+        annotation: &ast::Expr,
+        is_ann_assign: bool,
+    ) -> SymbolTableResult {
         let current_scope = self.tables.last().map(|t| t.typ);
 
-        // PEP 649: Check if this is a conditional annotation
-        // Module-level: always conditional (module may be partially executed)
-        // Class-level: conditional only when inside if/for/while/etc.
-        if !self.future_annotations {
+        // PEP 649: Only AnnAssign annotations can be conditional.
+        // Function parameter/return annotations are never conditional.
+        if is_ann_assign && !self.future_annotations {
             let is_conditional = matches!(current_scope, Some(CompilerScope::Module))
                 || (matches!(current_scope, Some(CompilerScope::Class))
                     && self.in_conditional_block);
 
             if is_conditional && !self.tables.last().unwrap().has_conditional_annotations {
                 self.tables.last_mut().unwrap().has_conditional_annotations = true;
-                // Register __conditional_annotations__ as both Assigned and Used so that
-                // it becomes a Cell variable in class scope (children reference it as Free)
                 self.register_name(
                     "__conditional_annotations__",
                     SymbolUsage::Assigned,
@@ -1567,7 +1601,7 @@ impl SymbolTableBuilder {
                 // sub_tables that cause mismatch in the annotation scope's sub_table index.
                 let is_simple_name = *simple && matches!(&**target, Expr::Name(_));
                 if is_simple_name {
-                    self.scan_annotation(annotation)?;
+                    self.scan_ann_assign_annotation(annotation)?;
                 } else {
                     // Still validate annotation for forbidden expressions
                     // (yield, await, named) even for non-simple targets.
@@ -1823,6 +1857,7 @@ impl SymbolTableBuilder {
                 node_index: _,
                 range: _,
             }) => {
+                self.tables.last_mut().unwrap().is_generator = true;
                 if let Some(expression) = value {
                     self.scan_expression(expression, context)?;
                 }
@@ -1832,6 +1867,7 @@ impl SymbolTableBuilder {
                 node_index: _,
                 range: _,
             }) => {
+                self.tables.last_mut().unwrap().is_generator = true;
                 self.scan_expression(value, context)?;
             }
             Expr::UnaryOp(ExprUnaryOp {
@@ -2130,6 +2166,8 @@ impl SymbolTableBuilder {
             CompilerScope::Comprehension,
             self.line_index_start(range),
         );
+        // Generator expressions need the is_generator flag
+        self.tables.last_mut().unwrap().is_generator = is_generator;
 
         // PEP 709: Mark non-generator comprehensions for inlining,
         // but only inside function-like scopes (fastlocals).

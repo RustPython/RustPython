@@ -1,4 +1,4 @@
-use rustpython_vm::{Interpreter};
+use rustpython_vm::Interpreter;
 
 unsafe extern "C" {
     fn kv_get(kp: i32, kl: i32, vp: i32, vl: i32) -> i32;
@@ -37,12 +37,7 @@ pub unsafe extern "C" fn eval(s: *const u8, l: usize) -> i32 {
 
     let msg = format!("eval result: {result}");
 
-    unsafe {
-        print(
-            msg.as_str().as_ptr() as usize as i32,
-            msg.len() as i32,
-        )
-    };
+    unsafe { print(msg.as_str().as_ptr() as usize as i32, msg.len() as i32) };
 
     0
 }

@@ -616,6 +616,78 @@ mod _winapi {
     }
 
     #[pyfunction]
+    fn CreateJobObject(
+        _security_attributes: PyObjectRef,
+        name: OptionalArg<Option<PyStrRef>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<WinHandle> {
+        let handle = unsafe {
+            match name.flatten() {
+                Some(name) => {
+                    let name_wide = name.as_wtf8().to_wide_with_nul();
+                    windows_sys::Win32::System::JobObjects::CreateJobObjectW(
+                        null(),
+                        name_wide.as_ptr(),
+                    )
+                }
+                None => windows_sys::Win32::System::JobObjects::CreateJobObjectW(null(), null()),
+            }
+        };
+        if handle.is_null() {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(WinHandle(handle))
+    }
+
+    #[pyfunction]
+    fn AssignProcessToJobObject(
+        job: WinHandle,
+        process: WinHandle,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let ret = unsafe {
+            windows_sys::Win32::System::JobObjects::AssignProcessToJobObject(job.0, process.0)
+        };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn TerminateJobObject(job: WinHandle, exit_code: u32, vm: &VirtualMachine) -> PyResult<()> {
+        let ret =
+            unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(job.0, exit_code) };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn SetJobObjectKillOnClose(job: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
+        use windows_sys::Win32::System::JobObjects::{
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { core::mem::zeroed() };
+        info.BasicLimitInformation.LimitFlags =
+            windows_sys::Win32::System::JobObjects::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let ret = unsafe {
+            SetInformationJobObject(
+                job.0,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const core::ffi::c_void,
+                core::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        };
+        if ret == 0 {
+            return Err(vm.new_last_os_error());
+        }
+        Ok(())
+    }
+
+    #[pyfunction]
     fn GetModuleFileName(handle: isize, vm: &VirtualMachine) -> PyResult<String> {
         let mut path: Vec<u16> = vec![0; MAX_PATH as usize];
 

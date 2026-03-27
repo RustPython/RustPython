@@ -564,6 +564,31 @@ impl Compiler {
             _ => n > 4,
         };
 
+        // Fold all-constant collections (>= 3 elements) regardless of size
+        if !seen_star
+            && pushed == 0
+            && n >= 3
+            && elts.iter().all(|e| e.is_constant())
+            && let Some(folded) = self.try_fold_constant_collection(elts)?
+        {
+            match collection_type {
+                CollectionType::Tuple => {
+                    self.emit_load_const(folded);
+                }
+                CollectionType::List => {
+                    emit!(self, Instruction::BuildList { count: 0 });
+                    self.emit_load_const(folded);
+                    emit!(self, Instruction::ListExtend { i: 1 });
+                }
+                CollectionType::Set => {
+                    emit!(self, Instruction::BuildSet { count: 0 });
+                    self.emit_load_const(folded);
+                    emit!(self, Instruction::SetUpdate { i: 1 });
+                }
+            }
+            return Ok(());
+        }
+
         // If no stars and not too big, compile all elements and build once
         if !seen_star && !big {
             for elt in elts {
@@ -694,13 +719,21 @@ impl Compiler {
 
     /// Check if a name is imported in current scope or any enclosing scope.
     fn is_name_imported(&self, name: &str) -> bool {
-        if let Some(sym) = self.current_symbol_table().symbols.get(name) {
+        let current = self.current_symbol_table();
+        if let Some(sym) = current.symbols.get(name) {
             if sym.flags.contains(SymbolFlags::IMPORTED) {
-                return true;
-            } else if sym.scope == SymbolScope::Local {
+                // Module/class scope imports use plain LOAD_ATTR
+                // Function-local imports use method mode (scope is Local)
+                return !matches!(
+                    current.typ,
+                    CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
+                );
+            }
+            if sym.scope == SymbolScope::Local {
                 return false;
             }
         }
+        // Check enclosing scopes for module-level imports accessed as globals
         self.symbol_table_stack.iter().rev().skip(1).any(|table| {
             table
                 .symbols
@@ -1033,16 +1066,32 @@ impl Compiler {
 
         // Build cellvars using dictbytype (CELL scope or COMP_CELL flag, sorted)
         let mut cellvar_cache = IndexSet::default();
-        let mut cell_names: Vec<_> = ste
+        // CPython ordering: parameter cells first (in parameter order),
+        // then non-parameter cells (alphabetically sorted)
+        let cell_symbols: Vec<_> = ste
             .symbols
             .iter()
             .filter(|(_, s)| {
                 s.scope == SymbolScope::Cell || s.flags.contains(SymbolFlags::COMP_CELL)
             })
-            .map(|(name, _)| name.clone())
+            .map(|(name, sym)| (name.clone(), sym.flags))
             .collect();
-        cell_names.sort();
-        for name in cell_names {
+        let mut param_cells = Vec::new();
+        let mut nonparam_cells = Vec::new();
+        for (name, flags) in cell_symbols {
+            if flags.contains(SymbolFlags::PARAMETER) {
+                param_cells.push(name);
+            } else {
+                nonparam_cells.push(name);
+            }
+        }
+        // param_cells are already in parameter order (from varname_cache insertion order)
+        param_cells.sort_by_key(|n| varname_cache.get_index_of(n.as_str()).unwrap_or(usize::MAX));
+        nonparam_cells.sort();
+        for name in param_cells {
+            cellvar_cache.insert(name);
+        }
+        for name in nonparam_cells {
             cellvar_cache.insert(name);
         }
 
@@ -1061,8 +1110,9 @@ impl Compiler {
         }
 
         // Handle implicit __conditional_annotations__ cell if needed
-        // Only for class scope - module scope uses NAME operations, not DEREF
-        if ste.has_conditional_annotations && scope_type == CompilerScope::Class {
+        if ste.has_conditional_annotations
+            && matches!(scope_type, CompilerScope::Class | CompilerScope::Module)
+        {
             cellvar_cache.insert("__conditional_annotations__".to_string());
         }
 
@@ -1168,16 +1218,7 @@ impl Compiler {
             self.set_qualname();
         }
 
-        // Emit MAKE_CELL for each cell variable (before RESUME)
-        {
-            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
-            for i in 0..ncells {
-                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
-                emit!(self, Instruction::MakeCell { i: i_varnum });
-            }
-        }
-
-        // Emit COPY_FREE_VARS if there are free variables (before RESUME)
+        // Emit COPY_FREE_VARS first, then MAKE_CELL (CPython order)
         {
             let nfrees = self.code_stack.last().unwrap().metadata.freevars.len();
             if nfrees > 0 {
@@ -1187,6 +1228,13 @@ impl Compiler {
                         n: u32::try_from(nfrees).expect("too many freevars"),
                     }
                 );
+            }
+        }
+        {
+            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
+            for i in 0..ncells {
+                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
+                emit!(self, Instruction::MakeCell { i: i_varnum });
             }
         }
 
@@ -1200,8 +1248,10 @@ impl Compiler {
     /// Emit RESUME instruction with proper handling for async preamble and module lineno.
     /// codegen_enter_scope equivalent for RESUME emission.
     fn emit_resume_for_scope(&mut self, scope_type: CompilerScope, lineno: u32) {
-        // For async functions/coroutines, emit RETURN_GENERATOR + POP_TOP before RESUME
-        if scope_type == CompilerScope::AsyncFunction {
+        // For generators and async functions, emit RETURN_GENERATOR + POP_TOP before RESUME
+        let is_gen =
+            scope_type == CompilerScope::AsyncFunction || self.current_symbol_table().is_generator;
+        if is_gen {
             emit!(self, Instruction::ReturnGenerator);
             emit!(self, Instruction::PopTop);
         }
@@ -1227,7 +1277,7 @@ impl Compiler {
                 context: OpArgMarker::marker(),
             }
             .into(),
-            arg: OpArg::new(u32::from(bytecode::ResumeType::AtFuncStart)),
+            arg: OpArg::new(oparg::ResumeLocation::AtFuncStart.into()),
             target: BlockIdx::NULL,
             location,
             end_location,
@@ -1474,25 +1524,20 @@ impl Compiler {
             }
 
             FBlockType::With | FBlockType::AsyncWith => {
-                // Stack when entering: [..., __exit__, return_value (if preserve_tos)]
-                // Need to call __exit__(None, None, None)
-
+                // Stack: [..., exit_func, self_exit, return_value (if preserve_tos)]
                 emit!(self, PseudoInstruction::PopBlock);
 
-                // If preserving return value, swap it below __exit__
                 if preserve_tos {
-                    emit!(self, Instruction::Swap { i: 2 });
+                    // Rotate return value below the exit pair
+                    // [exit_func, self_exit, value] → [value, exit_func, self_exit]
+                    emit!(self, Instruction::Swap { i: 3 }); // [value, self_exit, exit_func]
+                    emit!(self, Instruction::Swap { i: 2 }); // [value, exit_func, self_exit]
                 }
-                // Stack after swap: [..., return_value, __exit__] or [..., __exit__]
 
-                // Call __exit__(None, None, None)
-                // Call protocol: [callable, self_or_null, arg1, arg2, arg3]
-                emit!(self, Instruction::PushNull);
-                // Stack: [..., __exit__, NULL]
+                // Call exit_func(self_exit, None, None, None)
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
                 self.emit_load_const(ConstantData::None);
-                // Stack: [..., __exit__, NULL, None, None, None]
                 emit!(self, Instruction::Call { argc: 3 });
 
                 // For async with, await the result
@@ -1750,7 +1795,26 @@ impl Compiler {
         let size_before = self.code_stack.len();
         // Set future_annotations from symbol table (detected during symbol table scan)
         self.future_annotations = symbol_table.future_annotations;
+
+        // Module-level __conditional_annotations__ cell
+        let has_module_cond_ann = symbol_table.has_conditional_annotations;
+        if has_module_cond_ann {
+            self.current_code_info()
+                .metadata
+                .cellvars
+                .insert("__conditional_annotations__".to_string());
+        }
+
         self.symbol_table_stack.push(symbol_table);
+
+        // Emit MAKE_CELL for module-level cells (before RESUME)
+        if has_module_cond_ann {
+            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
+            for i in 0..ncells {
+                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
+                emit!(self, Instruction::MakeCell { i: i_varnum });
+            }
+        }
 
         self.emit_resume_for_scope(CompilerScope::Module, 1);
 
@@ -2754,22 +2818,19 @@ impl Compiler {
     }
 
     /// Push decorators onto the stack in source order.
-    /// For @dec1 @dec2 def foo(): stack becomes [dec1, NULL, dec2, NULL]
+    /// For @dec1 @dec2 def foo(): stack becomes [dec1, dec2]
     fn prepare_decorators(&mut self, decorator_list: &[ast::Decorator]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(&decorator.expression)?;
-            emit!(self, Instruction::PushNull);
         }
         Ok(())
     }
 
-    /// Apply decorators in reverse order (LIFO from stack).
-    /// Stack [dec1, NULL, dec2, NULL, func] -> dec2(func) -> dec1(dec2(func))
-    /// The forward loop works because each Call pops from TOS, naturally
-    /// applying decorators bottom-up (innermost first).
+    /// Apply decorators: each decorator calls the function below it.
+    /// Stack: [dec1, dec2, func] → CALL 0 → [dec1, dec2(func)] → CALL 0 → [dec1(dec2(func))]
     fn apply_decorators(&mut self, decorator_list: &[ast::Decorator]) {
         for _ in decorator_list {
-            emit!(self, Instruction::Call { argc: 1 });
+            emit!(self, Instruction::Call { argc: 0 });
         }
     }
 
@@ -4510,6 +4571,120 @@ impl Compiler {
         Ok(())
     }
 
+    /// Collect attribute names assigned via `self.xxx = ...` in methods.
+    /// These are stored as __static_attributes__ in the class dict.
+    fn collect_static_attributes(body: &[ast::Stmt], attrs: Option<&mut IndexSet<String>>) {
+        let Some(attrs) = attrs else { return };
+        for stmt in body {
+            let f = match stmt {
+                ast::Stmt::FunctionDef(f) => f,
+                _ => continue,
+            };
+            // Skip @staticmethod and @classmethod decorated functions
+            let dominated_by_special = f.decorator_list.iter().any(|d| {
+                matches!(&d.expression, ast::Expr::Name(n)
+                    if n.id.as_str() == "staticmethod" || n.id.as_str() == "classmethod")
+            });
+            if dominated_by_special {
+                continue;
+            }
+            let first_param = f
+                .parameters
+                .posonlyargs
+                .first()
+                .or(f.parameters.args.first())
+                .map(|p| &p.parameter.name);
+            let Some(self_name) = first_param else {
+                continue;
+            };
+            Self::scan_store_attrs(&f.body, self_name.as_str(), attrs);
+        }
+    }
+
+    /// Extract self.attr patterns from an assignment target expression.
+    fn scan_target_for_attrs(target: &ast::Expr, name: &str, attrs: &mut IndexSet<String>) {
+        match target {
+            ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+                if let ast::Expr::Name(n) = value.as_ref()
+                    && n.id.as_str() == name
+                {
+                    attrs.insert(attr.to_string());
+                }
+            }
+            ast::Expr::Tuple(t) => {
+                for elt in &t.elts {
+                    Self::scan_target_for_attrs(elt, name, attrs);
+                }
+            }
+            ast::Expr::List(l) => {
+                for elt in &l.elts {
+                    Self::scan_target_for_attrs(elt, name, attrs);
+                }
+            }
+            ast::Expr::Starred(s) => {
+                Self::scan_target_for_attrs(&s.value, name, attrs);
+            }
+            _ => {}
+        }
+    }
+
+    /// Recursively scan statements for `name.attr = value` patterns.
+    fn scan_store_attrs(stmts: &[ast::Stmt], name: &str, attrs: &mut IndexSet<String>) {
+        for stmt in stmts {
+            match stmt {
+                ast::Stmt::Assign(a) => {
+                    for target in &a.targets {
+                        Self::scan_target_for_attrs(target, name, attrs);
+                    }
+                }
+                ast::Stmt::AnnAssign(a) => {
+                    Self::scan_target_for_attrs(&a.target, name, attrs);
+                }
+                ast::Stmt::AugAssign(a) => {
+                    if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
+                        a.target.as_ref()
+                        && let ast::Expr::Name(n) = value.as_ref()
+                        && n.id.as_str() == name
+                    {
+                        attrs.insert(attr.to_string());
+                    }
+                }
+                ast::Stmt::If(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                    for clause in &s.elif_else_clauses {
+                        Self::scan_store_attrs(&clause.body, name, attrs);
+                    }
+                }
+                ast::Stmt::For(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                    Self::scan_store_attrs(&s.orelse, name, attrs);
+                }
+                ast::Stmt::While(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                    Self::scan_store_attrs(&s.orelse, name, attrs);
+                }
+                ast::Stmt::Try(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                    for handler in &s.handlers {
+                        let ast::ExceptHandler::ExceptHandler(h) = handler;
+                        Self::scan_store_attrs(&h.body, name, attrs);
+                    }
+                    Self::scan_store_attrs(&s.orelse, name, attrs);
+                    Self::scan_store_attrs(&s.finalbody, name, attrs);
+                }
+                ast::Stmt::With(s) => {
+                    Self::scan_store_attrs(&s.body, name, attrs);
+                }
+                ast::Stmt::Match(s) => {
+                    for case in &s.cases {
+                        Self::scan_store_attrs(&case.body, name, attrs);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     // Python/compile.c find_ann
     fn find_ann(body: &[ast::Stmt]) -> bool {
         for statement in body {
@@ -4617,6 +4792,13 @@ impl Compiler {
             }
         );
 
+        // PEP 649: Initialize __classdict__ cell (before __doc__)
+        if self.current_symbol_table().needs_classdict {
+            emit!(self, Instruction::LoadLocals);
+            let classdict_idx = self.get_cell_var_index("__classdict__")?;
+            emit!(self, Instruction::StoreDeref { i: classdict_idx });
+        }
+
         // Store __doc__ only if there's an explicit docstring
         if let Some(doc) = doc_str {
             self.emit_load_const(ConstantData::Str { value: doc.into() });
@@ -4645,13 +4827,6 @@ impl Compiler {
             );
         }
 
-        // PEP 649: Initialize __classdict__ cell for class annotation scope
-        if self.current_symbol_table().needs_classdict {
-            emit!(self, Instruction::LoadLocals);
-            let classdict_idx = self.get_cell_var_index("__classdict__")?;
-            emit!(self, Instruction::StoreDeref { i: classdict_idx });
-        }
-
         // Handle class annotations based on future_annotations flag
         if Self::find_ann(body) {
             if self.future_annotations {
@@ -4669,6 +4844,16 @@ impl Compiler {
             }
         }
 
+        // Collect __static_attributes__: scan methods for self.xxx = ... patterns
+        Self::collect_static_attributes(
+            body,
+            self.code_stack
+                .last_mut()
+                .unwrap()
+                .static_attributes
+                .as_mut(),
+        );
+
         // 3. Compile the class body
         self.compile_statements(body)?;
 
@@ -4684,7 +4869,7 @@ impl Compiler {
 
         // Emit __static_attributes__ tuple
         {
-            let attrs: Vec<String> = self
+            let mut attrs: Vec<String> = self
                 .code_stack
                 .last()
                 .unwrap()
@@ -4692,6 +4877,7 @@ impl Compiler {
                 .as_ref()
                 .map(|s| s.iter().cloned().collect())
                 .unwrap_or_default();
+            attrs.sort();
             self.emit_load_const(ConstantData::Tuple {
                 elements: attrs
                     .into_iter()
@@ -5083,17 +5269,16 @@ impl Compiler {
                 Instruction::LoadSpecial {
                     method: SpecialMethod::AExit
                 }
-            ); // [cm, bound_aexit]
-            emit!(self, Instruction::Swap { i: 2 }); // [bound_aexit, cm]
+            ); // [cm, aexit_func, self_ae]
+            emit!(self, Instruction::Swap { i: 2 }); // [cm, self_ae, aexit_func]
+            emit!(self, Instruction::Swap { i: 3 }); // [aexit_func, self_ae, cm]
             emit!(
                 self,
                 Instruction::LoadSpecial {
                     method: SpecialMethod::AEnter
                 }
-            ); // [bound_aexit, bound_aenter]
-            // bound_aenter is already bound, call with NULL self_or_null
-            emit!(self, Instruction::PushNull); // [bound_aexit, bound_aenter, NULL]
-            emit!(self, Instruction::Call { argc: 0 }); // [bound_aexit, awaitable]
+            ); // [aexit_func, self_ae, aenter_func, self_an]
+            emit!(self, Instruction::Call { argc: 0 }); // [aexit_func, self_ae, awaitable]
             emit!(self, Instruction::GetAwaitable { r#where: 1 });
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true)?;
@@ -5104,17 +5289,16 @@ impl Compiler {
                 Instruction::LoadSpecial {
                     method: SpecialMethod::Exit
                 }
-            ); // [cm, bound_exit]
-            emit!(self, Instruction::Swap { i: 2 }); // [bound_exit, cm]
+            ); // [cm, exit_func, self_exit]
+            emit!(self, Instruction::Swap { i: 2 }); // [cm, self_exit, exit_func]
+            emit!(self, Instruction::Swap { i: 3 }); // [exit_func, self_exit, cm]
             emit!(
                 self,
                 Instruction::LoadSpecial {
                     method: SpecialMethod::Enter
                 }
-            ); // [bound_exit, bound_enter]
-            // bound_enter is already bound, call with NULL self_or_null
-            emit!(self, Instruction::PushNull); // [bound_exit, bound_enter, NULL]
-            emit!(self, Instruction::Call { argc: 0 }); // [bound_exit, enter_result]
+            ); // [exit_func, self_exit, enter_func, self_enter]
+            emit!(self, Instruction::Call { argc: 0 }); // [exit_func, self_exit, result]
         }
 
         // Stack: [..., __exit__, enter_result]
@@ -5168,10 +5352,9 @@ impl Compiler {
         });
 
         // ===== Normal exit path =====
-        // Stack: [..., __exit__]
-        // Call __exit__(None, None, None)
+        // Stack: [..., exit_func, self_exit]
+        // Call exit_func(self_exit, None, None, None)
         self.set_source_range(with_range);
-        emit!(self, Instruction::PushNull);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
@@ -5185,11 +5368,10 @@ impl Compiler {
         emit!(self, PseudoInstruction::Jump { delta: after_block });
 
         // ===== Exception handler path =====
-        // Stack at entry (after unwind): [..., __exit__, lasti, exc]
-        // PUSH_EXC_INFO -> [..., __exit__, lasti, prev_exc, exc]
+        // Stack at entry: [..., exit_func, self_exit, lasti, exc]
+        // PUSH_EXC_INFO -> [..., exit_func, self_exit, lasti, prev_exc, exc]
         self.switch_to_block(exc_handler_block);
 
-        // Create blocks for exception handling
         let cleanup_block = self.new_block();
         let suppress_block = self.new_block();
 
@@ -5201,12 +5383,10 @@ impl Compiler {
         );
         self.push_fblock(FBlockType::ExceptionHandler, exc_handler_block, after_block)?;
 
-        // PUSH_EXC_INFO: [exc] -> [prev_exc, exc]
         emit!(self, Instruction::PushExcInfo);
 
-        // WITH_EXCEPT_START: call __exit__(type, value, tb)
-        // Stack: [..., __exit__, lasti, prev_exc, exc]
-        // __exit__ is at TOS-3, call with exception info
+        // WITH_EXCEPT_START: call exit_func(self_exit, type, value, tb)
+        // Stack: [..., exit_func, self_exit, lasti, prev_exc, exc]
         emit!(self, Instruction::WithExceptStart);
 
         if is_async {
@@ -5215,7 +5395,6 @@ impl Compiler {
             let _ = self.compile_yield_from_sequence(true)?;
         }
 
-        // TO_BOOL + POP_JUMP_IF_TRUE: check if exception is suppressed
         emit!(self, Instruction::ToBool);
         emit!(
             self,
@@ -5224,25 +5403,19 @@ impl Compiler {
             }
         );
 
-        // Pop the nested fblock BEFORE RERAISE so that RERAISE's exception
-        // handler points to the outer handler (try-except), not cleanup_block.
-        // This is critical: when RERAISE propagates the exception, the exception
-        // table should route it to the outer try-except, not back to cleanup.
         emit!(self, PseudoInstruction::PopBlock);
         self.pop_fblock(FBlockType::ExceptionHandler);
 
-        // Not suppressed: RERAISE 2
         emit!(self, Instruction::Reraise { depth: 2 });
 
         // ===== Suppress block =====
-        // Exception was suppressed, clean up stack
-        // Stack: [..., __exit__, lasti, prev_exc, exc, True]
-        // Need to pop: True, exc, prev_exc, __exit__
+        // Stack: [..., exit_func, self_exit, lasti, prev_exc, exc, True]
         self.switch_to_block(suppress_block);
-        emit!(self, Instruction::PopTop); // pop True (TO_BOOL result)
-        emit!(self, Instruction::PopExcept); // pop exc and restore prev_exc
-        emit!(self, Instruction::PopTop); // pop __exit__
+        emit!(self, Instruction::PopTop); // pop True
+        emit!(self, Instruction::PopExcept); // pop exc, restore prev_exc
         emit!(self, Instruction::PopTop); // pop lasti
+        emit!(self, Instruction::PopTop); // pop self_exit
+        emit!(self, Instruction::PopTop); // pop exit_func
         emit!(self, PseudoInstruction::Jump { delta: after_block });
 
         // ===== Cleanup block (for nested exception during __exit__) =====
@@ -5284,7 +5457,25 @@ impl Compiler {
         let mut end_async_for_target = BlockIdx::NULL;
 
         // The thing iterated:
-        self.compile_expression(iter)?;
+        // Optimize: `for x in [a, b, c]` → use tuple instead of list
+        // (list creation is wasteful for iteration)
+        // Skip optimization if any element is starred (e.g., `[a, *b, c]`)
+        if !is_async
+            && let ast::Expr::List(ast::ExprList { elts, .. }) = iter
+            && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
+        {
+            for elt in elts {
+                self.compile_expression(elt)?;
+            }
+            emit!(
+                self,
+                Instruction::BuildTuple {
+                    count: u32::try_from(elts.len()).expect("too many elements"),
+                }
+            );
+        } else {
+            self.compile_expression(iter)?;
+        }
 
         if is_async {
             if self.ctx.func != FunctionContext::AsyncFunction {
@@ -6880,6 +7071,7 @@ impl Compiler {
     /// For `And`, emits `PopJumpIfFalse`; for `Or`, emits `PopJumpIfTrue`.
     fn emit_short_circuit_test(&mut self, op: &ast::BoolOp, target: BlockIdx) {
         emit!(self, Instruction::Copy { i: 1 });
+        emit!(self, Instruction::ToBool);
         match op {
             ast::BoolOp::And => {
                 emit!(self, Instruction::PopJumpIfFalse { delta: target });
@@ -6894,17 +7086,25 @@ impl Compiler {
         let has_unpacking = items.iter().any(|item| item.key.is_none());
 
         if !has_unpacking {
-            // Simple case: no ** unpacking, build all pairs directly
-            for item in items {
-                self.compile_expression(item.key.as_ref().unwrap())?;
-                self.compile_expression(&item.value)?;
-            }
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    count: u32::try_from(items.len()).expect("too many dict items"),
+            if items.len() >= 16 {
+                emit!(self, Instruction::BuildMap { count: 0 });
+                for item in items {
+                    self.compile_expression(item.key.as_ref().unwrap())?;
+                    self.compile_expression(&item.value)?;
+                    emit!(self, Instruction::MapAdd { i: 1 });
                 }
-            );
+            } else {
+                for item in items {
+                    self.compile_expression(item.key.as_ref().unwrap())?;
+                    self.compile_expression(&item.value)?;
+                }
+                emit!(
+                    self,
+                    Instruction::BuildMap {
+                        count: u32::try_from(items.len()).expect("too many dict items"),
+                    }
+                );
+            }
             return Ok(());
         }
 
@@ -7000,9 +7200,9 @@ impl Compiler {
             self,
             Instruction::Resume {
                 context: if is_await {
-                    bytecode::ResumeType::AfterAwait
+                    oparg::ResumeContext::from(oparg::ResumeLocation::AfterAwait)
                 } else {
-                    bytecode::ResumeType::AfterYieldFrom
+                    oparg::ResumeContext::from(oparg::ResumeLocation::AfterYieldFrom)
                 }
             }
         );
@@ -7174,7 +7374,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::Resume {
-                        context: bytecode::ResumeType::AfterYield
+                        context: oparg::ResumeContext::from(oparg::ResumeLocation::AfterYield)
                     }
                 );
             }
@@ -7396,7 +7596,9 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::Resume {
-                                context: bytecode::ResumeType::AfterYield
+                                context: oparg::ResumeContext::from(
+                                    oparg::ResumeLocation::AfterYield
+                                )
                             }
                         );
                         emit!(compiler, Instruction::PopTop);
@@ -7461,23 +7663,8 @@ impl Compiler {
                 self.compile_expr_tstring(tstring)?;
             }
             ast::Expr::StringLiteral(string) => {
-                let value = string.value.to_str();
-                if value.contains(char::REPLACEMENT_CHARACTER) {
-                    let value = string
-                        .value
-                        .iter()
-                        .map(|lit| {
-                            let source = self.source_file.slice(lit.range);
-                            crate::string_parser::parse_string_literal(source, lit.flags.into())
-                        })
-                        .collect();
-                    // might have a surrogate literal; should reparse to be sure
-                    self.emit_load_const(ConstantData::Str { value });
-                } else {
-                    self.emit_load_const(ConstantData::Str {
-                        value: value.into(),
-                    });
-                }
+                let value = self.compile_string_value(string);
+                self.emit_load_const(ConstantData::Str { value });
             }
             ast::Expr::BytesLiteral(bytes) => {
                 let iter = bytes.value.iter().flat_map(|x| x.iter().copied());
@@ -8408,9 +8595,77 @@ impl Compiler {
 
     // fn block_done()
 
+    /// Convert a string literal AST node to Wtf8Buf, handling surrogate literals correctly.
+    fn compile_string_value(&self, string: &ast::ExprStringLiteral) -> Wtf8Buf {
+        let value = string.value.to_str();
+        if value.contains(char::REPLACEMENT_CHARACTER) {
+            // Might have a surrogate literal; reparse from source to preserve them.
+            string
+                .value
+                .iter()
+                .map(|lit| {
+                    let source = self.source_file.slice(lit.range);
+                    crate::string_parser::parse_string_literal(source, lit.flags.into())
+                })
+                .collect()
+        } else {
+            value.into()
+        }
+    }
+
     fn arg_constant(&mut self, constant: ConstantData) -> oparg::ConstIdx {
         let info = self.current_code_info();
         info.metadata.consts.insert_full(constant).0.to_u32().into()
+    }
+
+    /// Try to fold a collection of constant expressions into a single ConstantData::Tuple.
+    /// Returns None if any element cannot be folded.
+    fn try_fold_constant_collection(
+        &mut self,
+        elts: &[ast::Expr],
+    ) -> CompileResult<Option<ConstantData>> {
+        let mut constants = Vec::with_capacity(elts.len());
+        for elt in elts {
+            match elt {
+                ast::Expr::NumberLiteral(num) => match &num.value {
+                    ast::Number::Int(int) => {
+                        let value = ruff_int_to_bigint(int).map_err(|e| self.error(e))?;
+                        constants.push(ConstantData::Integer { value });
+                    }
+                    ast::Number::Float(f) => {
+                        constants.push(ConstantData::Float { value: *f });
+                    }
+                    ast::Number::Complex { real, imag } => {
+                        constants.push(ConstantData::Complex {
+                            value: Complex::new(*real, *imag),
+                        });
+                    }
+                },
+                ast::Expr::StringLiteral(s) => {
+                    constants.push(ConstantData::Str {
+                        value: self.compile_string_value(s),
+                    });
+                }
+                ast::Expr::BytesLiteral(b) => {
+                    constants.push(ConstantData::Bytes {
+                        value: b.value.bytes().collect(),
+                    });
+                }
+                ast::Expr::BooleanLiteral(b) => {
+                    constants.push(ConstantData::Boolean { value: b.value });
+                }
+                ast::Expr::NoneLiteral(_) => {
+                    constants.push(ConstantData::None);
+                }
+                ast::Expr::EllipsisLiteral(_) => {
+                    constants.push(ConstantData::Ellipsis);
+                }
+                _ => return Ok(None),
+            }
+        }
+        Ok(Some(ConstantData::Tuple {
+            elements: constants,
+        }))
     }
 
     fn emit_load_const(&mut self, constant: ConstantData) {
@@ -8634,10 +8889,8 @@ impl Compiler {
         for action in unwind_actions {
             match action {
                 UnwindAction::With { is_async } => {
-                    // codegen_unwind_fblock(WITH/ASYNC_WITH)
+                    // Stack: [..., exit_func, self_exit]
                     emit!(self, PseudoInstruction::PopBlock);
-                    // compiler_call_exit_with_nones
-                    emit!(self, Instruction::PushNull);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
