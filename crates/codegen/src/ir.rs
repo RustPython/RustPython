@@ -363,7 +363,7 @@ impl CodeInfo {
             }
         }
 
-        let mut block_to_offset = vec![Label::new(0); blocks.len()];
+        let mut block_to_offset = vec![Label::from_u32(0); blocks.len()];
         // block_to_index: maps block idx to instruction index (for exception table)
         // This is the index into the final instructions array, including EXTENDED_ARG and CACHE
         let mut block_to_index = vec![0u32; blocks.len()];
@@ -372,7 +372,7 @@ impl CodeInfo {
         loop {
             let mut num_instructions = 0;
             for (idx, block) in iter_blocks(&blocks) {
-                block_to_offset[idx.idx()] = Label::new(num_instructions as u32);
+                block_to_offset[idx.idx()] = Label::from_u32(num_instructions as u32);
                 // block_to_index uses the same value as block_to_offset but as u32
                 // because lasti in frame.rs is the index into instructions array
                 // and instructions array index == byte offset (each instruction is 1 CodeUnit)
@@ -2188,20 +2188,19 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 }
 
                 // Set RESUME DEPTH1 flag based on last yield's except depth
-                if matches!(
-                    blocks[bi].instructions[i].instr.real(),
-                    Some(Instruction::Resume { .. })
-                ) {
-                    const RESUME_AT_FUNC_START: u32 = 0;
-                    const RESUME_OPARG_LOCATION_MASK: u32 = 0x3;
-                    const RESUME_OPARG_DEPTH1_MASK: u32 = 0x4;
-
-                    if (u32::from(arg) & RESUME_OPARG_LOCATION_MASK) != RESUME_AT_FUNC_START {
-                        if last_yield_except_depth == 1 {
-                            blocks[bi].instructions[i].arg =
-                                OpArg::new(u32::from(arg) | RESUME_OPARG_DEPTH1_MASK);
+                if let Some(Instruction::Resume { context }) =
+                    blocks[bi].instructions[i].instr.real()
+                {
+                    let location = context.get(arg).location();
+                    match location {
+                        oparg::ResumeLocation::AtFuncStart => {}
+                        _ => {
+                            if last_yield_except_depth == 1 {
+                                blocks[bi].instructions[i].arg =
+                                    OpArg::new(oparg::ResumeContext::new(location, true).as_u32());
+                            }
+                            last_yield_except_depth = -1;
                         }
-                        last_yield_except_depth = -1;
                     }
                 }
 

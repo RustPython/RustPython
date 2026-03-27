@@ -162,7 +162,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let target = after
             .checked_add(u32::from(arg))
             .ok_or(JitCompileError::BadBytecode)?;
-        Ok(Label::new(target))
+        Ok(Label::from_u32(target))
     }
 
     fn jump_target_backward(
@@ -177,7 +177,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let target = after
             .checked_sub(u32::from(arg))
             .ok_or(JitCompileError::BadBytecode)?;
-        Ok(Label::new(target))
+        Ok(Label::from_u32(target))
     }
 
     fn instruction_target(
@@ -232,7 +232,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let mut in_unreachable_code = false;
 
         for (offset, &raw_instr) in clean_instructions.iter().enumerate() {
-            let label = Label::new(offset as u32);
+            let label = Label::from_u32(offset as u32);
             let (instruction, arg) = arg_state.get(raw_instr);
 
             // If this is a label that some earlier jump can target,
