@@ -2188,20 +2188,19 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 }
 
                 // Set RESUME DEPTH1 flag based on last yield's except depth
-                if matches!(
-                    blocks[bi].instructions[i].instr.real(),
-                    Some(Instruction::Resume { .. })
-                ) {
-                    const RESUME_AT_FUNC_START: u32 = 0;
-                    const RESUME_OPARG_LOCATION_MASK: u32 = 0x3;
-                    const RESUME_OPARG_DEPTH1_MASK: u32 = 0x4;
-
-                    if (u32::from(arg) & RESUME_OPARG_LOCATION_MASK) != RESUME_AT_FUNC_START {
-                        if last_yield_except_depth == 1 {
-                            blocks[bi].instructions[i].arg =
-                                OpArg::new(u32::from(arg) | RESUME_OPARG_DEPTH1_MASK);
+                if let Some(Instruction::Resume { context }) =
+                    blocks[bi].instructions[i].instr.real()
+                {
+                    let location = context.get(arg).location();
+                    match location {
+                        oparg::ResumeLocation::AtFuncStart => {}
+                        _ => {
+                            if last_yield_except_depth == 1 {
+                                blocks[bi].instructions[i].arg =
+                                    OpArg::new(oparg::ResumeContext::new(location, true).as_u32());
+                            }
+                            last_yield_except_depth = -1;
                         }
-                        last_yield_except_depth = -1;
                     }
                 }
 
