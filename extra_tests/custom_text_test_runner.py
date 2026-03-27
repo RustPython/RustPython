@@ -38,6 +38,16 @@ from functools import reduce
 from unittest.runner import registerResult, result
 
 
+def _get_method_dict(test):
+    """Get the __dict__ of the underlying function for a test method.
+
+    Works for both bound methods (__func__.__dict__) and plain functions.
+    """
+    method = getattr(test, test._testMethodName)
+    func = getattr(method, "__func__", method)
+    return func.__dict__
+
+
 class TablePrinter(object):
     # Modified from https://github.com/agramian/table-printer, same license as above
     "Print a list of dicts as a table"
@@ -325,9 +335,7 @@ class CustomTextTestResult(result.TestResult):
                 self.stream.writeln("TEST SUITE: %s" % self.suite)
                 self.stream.writeln("Description: %s" % self.getSuiteDescription(test))
         try:
-            name_override = getattr(test, test._testMethodName).__func__.__dict__[
-                "test_case_name"
-            ]
+            name_override = _get_method_dict(test)["test_case_name"]
         except:
             name_override = None
         self.case = name_override if name_override else self.case
@@ -345,7 +353,11 @@ class CustomTextTestResult(result.TestResult):
             self.results["suites"][self.suite_number] = {
                 "name": self.suite,
                 "class": test.__class__.__name__,
-                "module": re.compile(".* \((.*)\)").match(str(test)).group(1),
+                "module": (
+                    m.group(1)
+                    if (m := re.compile(r".* \((.*)\)").match(str(test)))
+                    else str(test)
+                ),
                 "description": self.getSuiteDescription(test),
                 "cases": {},
                 "used_case_names": {},
@@ -380,34 +392,22 @@ class CustomTextTestResult(result.TestResult):
             if "test_type" in getattr(
                 test, test._testMethodName
             ).__func__.__dict__ and set([s.lower() for s in self.test_types]) == set(
-                [
-                    s.lower()
-                    for s in getattr(test, test._testMethodName).__func__.__dict__[
-                        "test_type"
-                    ]
-                ]
+                [s.lower() for s in _get_method_dict(test)["test_type"]]
             ):
                 pass
             else:
-                getattr(test, test._testMethodName).__func__.__dict__[
-                    "__unittest_skip_why__"
-                ] = 'Test run specified to only run tests of type "%s"' % ",".join(
-                    self.test_types
+                _get_method_dict(test)["__unittest_skip_why__"] = (
+                    'Test run specified to only run tests of type "%s"'
+                    % ",".join(self.test_types)
                 )
-                getattr(test, test._testMethodName).__func__.__dict__[
-                    "__unittest_skip__"
-                ] = True
-        if "skip_device" in getattr(test, test._testMethodName).__func__.__dict__:
-            for device in getattr(test, test._testMethodName).__func__.__dict__[
-                "skip_device"
-            ]:
+                _get_method_dict(test)["__unittest_skip__"] = True
+        if "skip_device" in _get_method_dict(test):
+            for device in _get_method_dict(test)["skip_device"]:
                 if self.config and device.lower() in self.config["device_name"].lower():
-                    getattr(test, test._testMethodName).__func__.__dict__[
-                        "__unittest_skip_why__"
-                    ] = "Test is marked to be skipped on %s" % device
-                    getattr(test, test._testMethodName).__func__.__dict__[
-                        "__unittest_skip__"
-                    ] = True
+                    _get_method_dict(test)["__unittest_skip_why__"] = (
+                        "Test is marked to be skipped on %s" % device
+                    )
+                    _get_method_dict(test)["__unittest_skip__"] = True
                     break
 
     def stopTest(self, test):
