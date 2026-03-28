@@ -4987,7 +4987,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(Y.__qualname__, 'Y')
         self.assertEqual(Y.Inside.__qualname__, 'Y.Inside')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_qualname_dict(self):
         ns = {'__qualname__': 'some.name'}
         tp = type('Foo', (), ns)
