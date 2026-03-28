@@ -1867,15 +1867,15 @@ impl Constructor for PyType {
             (metatype, base.to_owned(), bases, base_is_type)
         };
 
-        let qualname = dict
-            .pop_item(identifier!(vm, __qualname__).as_object(), vm)?
+        let mut attributes = dict.to_attributes(vm);
+        let qualname = attributes
+            .shift_remove(identifier!(vm, __qualname__))
             .map(|obj| downcast_qualname(obj, vm))
             .transpose()?
             .unwrap_or_else(|| {
                 // If __qualname__ is not provided, we can use the name as default
                 name.clone().into_wtf8()
             });
-        let mut attributes = dict.to_attributes(vm);
 
         // Check __doc__ for surrogates - raises UnicodeEncodeError during type creation
         if let Some(doc) = attributes.get(identifier!(vm, __doc__))
