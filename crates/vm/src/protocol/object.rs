@@ -298,7 +298,9 @@ impl PyObject {
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
         let call_cmp = |obj: &Self, other: &Self, op| {
-            let cmp = obj.class().slots.richcompare.load().unwrap();
+            let Some(cmp) = obj.class().slots.richcompare.load() else {
+                return Ok(PyArithmeticValue::NotImplemented);
+            };
             let r = match cmp(obj, other, op, vm)? {
                 Either::A(obj) => PyArithmeticValue::from_object(vm, obj).map(Either::A),
                 Either::B(arithmetic) => arithmetic.map(Either::B),

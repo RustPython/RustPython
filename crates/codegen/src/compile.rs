@@ -4581,11 +4581,21 @@ impl Compiler {
                 _ => continue,
             };
             // Skip @staticmethod and @classmethod decorated functions
-            let dominated_by_special = f.decorator_list.iter().any(|d| {
+            let has_special_decorator = f.decorator_list.iter().any(|d| {
                 matches!(&d.expression, ast::Expr::Name(n)
                     if n.id.as_str() == "staticmethod" || n.id.as_str() == "classmethod")
             });
-            if dominated_by_special {
+            if has_special_decorator {
+                continue;
+            }
+            // Skip implicit classmethods (__init_subclass__, __class_getitem__)
+            let fname = f.name.as_str();
+            if fname == "__init_subclass__" || fname == "__class_getitem__" {
+                continue;
+            }
+            // For __new__, scan for "self" (not the first param "cls")
+            if fname == "__new__" {
+                Self::scan_store_attrs(&f.body, "self", attrs);
                 continue;
             }
             let first_param = f
@@ -5458,8 +5468,7 @@ impl Compiler {
 
         // The thing iterated:
         // Optimize: `for x in [a, b, c]` → use tuple instead of list
-        // (list creation is wasteful for iteration)
-        // Skip optimization if any element is starred (e.g., `[a, *b, c]`)
+        // Skip for async-for (GET_AITER expects the original type)
         if !is_async
             && let ast::Expr::List(ast::ExprList { elts, .. }) = iter
             && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
@@ -7369,6 +7378,14 @@ impl Compiler {
                     Some(expression) => self.compile_expression(expression)?,
                     Option::None => self.emit_load_const(ConstantData::None),
                 };
+                if self.ctx.func == FunctionContext::AsyncFunction {
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::AsyncGenWrap
+                        }
+                    );
+                }
                 // arg=0: direct yield (wrapped for async generators)
                 emit!(self, Instruction::YieldValue { arg: 0 });
                 emit!(
@@ -7591,6 +7608,14 @@ impl Compiler {
                         compiler.compile_comprehension_element(elt)?;
 
                         compiler.mark_generator();
+                        if compiler.ctx.func == FunctionContext::AsyncFunction {
+                            emit!(
+                                compiler,
+                                Instruction::CallIntrinsic1 {
+                                    func: bytecode::IntrinsicFunction1::AsyncGenWrap
+                                }
+                            );
+                        }
                         // arg=0: direct yield (wrapped for async generators)
                         emit!(compiler, Instruction::YieldValue { arg: 0 });
                         emit!(
@@ -7890,6 +7915,22 @@ impl Compiler {
                 // Runtime will convert to tuple and validate with function name.
                 if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = &arguments.args[0] {
                     self.compile_expression(value)?;
+                }
+            } else if !has_starred {
+                for arg in &arguments.args {
+                    self.compile_expression(arg)?;
+                }
+                self.set_source_range(call_range);
+                let positional_count = additional_positional + nelts.to_u32();
+                if positional_count == 0 {
+                    self.emit_load_const(ConstantData::Tuple { elements: vec![] });
+                } else {
+                    emit!(
+                        self,
+                        Instruction::BuildTuple {
+                            count: positional_count
+                        }
+                    );
                 }
             } else {
                 // Use starunpack_helper to build a list, then convert to tuple
@@ -8236,7 +8277,6 @@ impl Compiler {
 
         // Create comprehension function with closure
         self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
-        emit!(self, Instruction::PushNull);
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;
@@ -8250,7 +8290,7 @@ impl Compiler {
         };
 
         // Call just created <listcomp> function:
-        emit!(self, Instruction::Call { argc: 1 });
+        emit!(self, Instruction::Call { argc: 0 });
         if is_async_list_set_dict_comprehension {
             emit!(self, Instruction::GetAwaitable { r#where: 0 });
             self.emit_load_const(ConstantData::None);

@@ -10,7 +10,6 @@ use crate::{
         PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine, PyDict, PyDictRef,
         PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty,
         PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
-        asyncgenerator::PyAsyncGenWrappedValue,
         builtin_func::PyNativeFunction,
         descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
@@ -3548,7 +3547,7 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            Instruction::YieldValue { arg: oparg } => {
+            Instruction::YieldValue { .. } => {
                 debug_assert!(
                     self.localsplus
                         .stack_as_slice()
@@ -3557,16 +3556,7 @@ impl ExecutingFrame<'_> {
                         .all(|sr| !sr.is_borrowed()),
                     "borrowed refs on stack at yield point"
                 );
-                let value = self.pop_value();
-                // arg=0: direct yield (wrapped for async generators)
-                // arg=1: yield from await/yield-from (NOT wrapped)
-                let wrap = oparg.get(arg) == 0;
-                let value = if wrap && self.code.flags.contains(bytecode::CodeFlags::COROUTINE) {
-                    PyAsyncGenWrappedValue(value).into_pyobject(vm)
-                } else {
-                    value
-                };
-                Ok(Some(ExecutionResult::Yield(value)))
+                Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::Send { .. } => {
                 // (receiver, v -- receiver, retval)
@@ -5800,13 +5790,6 @@ impl ExecutingFrame<'_> {
                     let offset = (self.lasti() - 1) * 2;
                     monitoring::fire_py_yield(vm, self.code, offset, &value)?;
                 }
-                let oparg = u32::from(arg);
-                let wrap = oparg == 0;
-                let value = if wrap && self.code.flags.contains(bytecode::CodeFlags::COROUTINE) {
-                    PyAsyncGenWrappedValue(value).into_pyobject(vm)
-                } else {
-                    value
-                };
                 Ok(Some(ExecutionResult::Yield(value)))
             }
             Instruction::InstrumentedCall => {

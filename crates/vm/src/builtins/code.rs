@@ -1290,22 +1290,34 @@ impl PyCode {
         let idx = usize::try_from(opcode).map_err(|_| idx_err(vm))?;
 
         let varnames_len = self.code.varnames.len();
-        let cellvars_len = self.code.cellvars.len();
+        // Non-parameter cells: cellvars that are NOT also in varnames
+        let nonparam_cellvars: Vec<_> = self
+            .code
+            .cellvars
+            .iter()
+            .filter(|s| {
+                let s_str: &str = s.as_ref();
+                !self.code.varnames.iter().any(|v| {
+                    let v_str: &str = v.as_ref();
+                    v_str == s_str
+                })
+            })
+            .collect();
+        let nonparam_len = nonparam_cellvars.len();
 
         let name = if idx < varnames_len {
-            // Index in varnames
+            // Index in varnames (includes parameter cells)
             self.code.varnames.get(idx).ok_or_else(|| idx_err(vm))?
-        } else if idx < varnames_len + cellvars_len {
-            // Index in cellvars
-            self.code
-                .cellvars
+        } else if idx < varnames_len + nonparam_len {
+            // Index in non-parameter cellvars
+            *nonparam_cellvars
                 .get(idx - varnames_len)
                 .ok_or_else(|| idx_err(vm))?
         } else {
             // Index in freevars
             self.code
                 .freevars
-                .get(idx - varnames_len - cellvars_len)
+                .get(idx - varnames_len - nonparam_len)
                 .ok_or_else(|| idx_err(vm))?
         };
         Ok(name.to_object())
