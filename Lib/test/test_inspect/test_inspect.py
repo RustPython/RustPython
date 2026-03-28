@@ -961,7 +961,6 @@ class TestGettingSourceOfToplevelFrames(GetSourceBase):
 class TestDecorators(GetSourceBase):
     fodderModule = mod2
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; pass
     def test_wrapped_decorator(self):
         self.assertSourceEqual(mod2.wrapped, 14, 17)
 
@@ -1259,7 +1258,6 @@ class TestNoEOL(GetSourceBase):
 class TestComplexDecorator(GetSourceBase):
     fodderModule = mod2
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; return foo + bar()
     def test_parens_in_decorator(self):
         self.assertSourceEqual(self.fodderModule.complex_decorated, 273, 275)
 

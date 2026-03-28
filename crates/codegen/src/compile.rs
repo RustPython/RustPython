@@ -4246,10 +4246,18 @@ impl Compiler {
         is_async: bool,
         type_params: Option<&ast::TypeParams>,
     ) -> CompileResult<()> {
+        // Save the source range of the `def` line before compiling decorators/defaults,
+        // so that the function code object gets the correct co_firstlineno.
+        let def_source_range = self.current_source_range;
+
         self.prepare_decorators(decorator_list)?;
 
         // compile defaults and return funcflags
         let funcflags = self.compile_default_arguments(parameters)?;
+
+        // Restore the `def` line range so that enter_function → push_output → get_source_line_number()
+        // records the `def` keyword's line as co_firstlineno, not the last default-argument line.
+        self.set_source_range(def_source_range);
 
         let is_generic = type_params.is_some();
         let mut num_typeparam_args = 0;
