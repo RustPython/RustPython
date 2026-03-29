@@ -2397,6 +2397,22 @@ pub(super) mod types {
                     .downcast::<crate::builtins::PyTuple>()
             {
                 let location_tup_len = location_tuple.len();
+
+                match location_tup_len {
+                    4 | 6 => {}
+                    5 => {
+                        return Err(vm.new_type_error(
+                            "end_offset must be provided when end_lineno is provided".to_owned(),
+                        ));
+                    }
+                    _ => {
+                        return Err(vm.new_type_error(format!(
+                            "function takes exactly 4 or 6 arguments ({} given)",
+                            location_tup_len
+                        )));
+                    }
+                }
+
                 for (i, &attr) in [
                     "filename",
                     "lineno",
