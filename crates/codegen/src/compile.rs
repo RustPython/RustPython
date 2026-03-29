@@ -154,6 +154,10 @@ struct Compiler {
     /// True when compiling in "single" (interactive) mode.
     /// Expression statements at module scope emit CALL_INTRINSIC_1(Print).
     interactive: bool,
+    /// Counter for dead-code elimination during constant folding.
+    /// When > 0, the compiler walks AST (consuming sub_tables) but emits no bytecode.
+    /// Mirrors CPython's `c_do_not_emit_bytecode`.
+    do_not_emit_bytecode: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -201,6 +205,12 @@ impl CompileContext {
     fn in_func(self) -> bool {
         self.func != FunctionContext::NoFunction
     }
+}
+
+/// Segment of a parsed %-format string for optimize_format_str.
+struct FormatSegment {
+    literal: String,
+    conversion: Option<oparg::ConvertValueOparg>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -465,6 +475,7 @@ impl Compiler {
             opts,
             in_annotation: false,
             interactive: false,
+            do_not_emit_bytecode: 0,
         }
     }
 
@@ -1021,8 +1032,8 @@ impl Compiler {
     }
 
     /// Check if this is an inlined comprehension context (PEP 709).
-    /// Only inline in function-like scopes (fastlocals) — module/class
-    /// level uses STORE_NAME which is incompatible with LOAD_FAST_AND_CLEAR.
+    /// PEP 709: Inline comprehensions in function-like scopes.
+    /// TODO: Module/class scope inlining needs more work (Cell name resolution edge cases).
     /// Generator expressions are never inlined.
     fn is_inlined_comprehension_context(&self, comprehension_type: ComprehensionType) -> bool {
         if comprehension_type == ComprehensionType::Generator {
@@ -2360,43 +2371,7 @@ impl Compiler {
                 ..
             }) => {
                 self.enter_conditional_block();
-                match elif_else_clauses.as_slice() {
-                    // Only if
-                    [] => {
-                        let after_block = self.new_block();
-                        self.compile_jump_if(test, false, after_block)?;
-                        self.compile_statements(body)?;
-                        self.switch_to_block(after_block);
-                    }
-                    // If, elif*, elif/else
-                    [rest @ .., tail] => {
-                        let after_block = self.new_block();
-                        let mut next_block = self.new_block();
-
-                        self.compile_jump_if(test, false, next_block)?;
-                        self.compile_statements(body)?;
-                        emit!(self, PseudoInstruction::Jump { delta: after_block });
-
-                        for clause in rest {
-                            self.switch_to_block(next_block);
-                            next_block = self.new_block();
-                            if let Some(test) = &clause.test {
-                                self.compile_jump_if(test, false, next_block)?;
-                            } else {
-                                unreachable!() // must be elif
-                            }
-                            self.compile_statements(&clause.body)?;
-                            emit!(self, PseudoInstruction::Jump { delta: after_block });
-                        }
-
-                        self.switch_to_block(next_block);
-                        if let Some(test) = &tail.test {
-                            self.compile_jump_if(test, false, after_block)?;
-                        }
-                        self.compile_statements(&tail.body)?;
-                        self.switch_to_block(after_block);
-                    }
-                }
+                self.compile_if(test, body, elif_else_clauses)?;
                 self.leave_conditional_block();
             }
             ast::Stmt::While(ast::StmtWhile {
@@ -3899,6 +3874,23 @@ impl Compiler {
         // Set qualname
         self.set_qualname();
 
+        // PEP 479: Wrap generator/coroutine body with StopIteration handler
+        let is_gen = is_async || self.current_symbol_table().is_generator;
+        let stop_iteration_block = if is_gen {
+            let handler_block = self.new_block();
+            emit!(
+                self,
+                PseudoInstruction::SetupCleanup {
+                    delta: handler_block
+                }
+            );
+            self.set_no_location();
+            self.push_fblock(FBlockType::StopIteration, handler_block, handler_block)?;
+            Some(handler_block)
+        } else {
+            None
+        };
+
         // Handle docstring - store in co_consts[0] if present
         let (doc_str, body) = split_doc(body, &self.opts);
         if let Some(doc) = &doc_str {
@@ -3927,6 +3919,23 @@ impl Compiler {
         // Functions with no other constants should still have None in co_consts
         if self.current_code_info().metadata.consts.is_empty() {
             self.arg_constant(ConstantData::None);
+        }
+
+        // Close StopIteration handler and emit handler code
+        if let Some(handler_block) = stop_iteration_block {
+            emit!(self, PseudoInstruction::PopBlock);
+            self.set_no_location();
+            self.pop_fblock(FBlockType::StopIteration);
+            self.switch_to_block(handler_block);
+            emit!(
+                self,
+                Instruction::CallIntrinsic1 {
+                    func: oparg::IntrinsicFunction1::StopIterationError
+                }
+            );
+            self.set_no_location();
+            emit!(self, Instruction::Reraise { depth: 1u32 });
+            self.set_no_location();
         }
 
         // Exit scope and create function object
@@ -5190,6 +5199,94 @@ impl Compiler {
         self.store_name(name)
     }
 
+    /// Compile an if statement with constant condition elimination.
+    /// = compiler_if in CPython codegen.c
+    fn compile_if(
+        &mut self,
+        test: &ast::Expr,
+        body: &[ast::Stmt],
+        elif_else_clauses: &[ast::ElifElseClause],
+    ) -> CompileResult<()> {
+        let constant = Self::expr_constant(test);
+
+        // If the test is constant false, walk the body (consuming sub_tables)
+        // but don't emit bytecode
+        if constant == Some(false) {
+            self.emit_nop();
+            self.do_not_emit_bytecode += 1;
+            self.compile_statements(body)?;
+            self.do_not_emit_bytecode -= 1;
+            // Compile the elif/else chain (if any)
+            match elif_else_clauses {
+                [] => {}
+                [first, rest @ ..] => {
+                    if let Some(elif_test) = &first.test {
+                        self.compile_if(elif_test, &first.body, rest)?;
+                    } else {
+                        self.compile_statements(&first.body)?;
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // If the test is constant true, compile body directly,
+        // but walk elif/else without emitting (including elif tests to consume sub_tables)
+        if constant == Some(true) {
+            self.emit_nop();
+            self.compile_statements(body)?;
+            self.do_not_emit_bytecode += 1;
+            for clause in elif_else_clauses {
+                if let Some(elif_test) = &clause.test {
+                    self.compile_expression(elif_test)?;
+                }
+                self.compile_statements(&clause.body)?;
+            }
+            self.do_not_emit_bytecode -= 1;
+            return Ok(());
+        }
+
+        // Non-constant test: normal compilation
+        match elif_else_clauses {
+            // Only if
+            [] => {
+                let after_block = self.new_block();
+                self.compile_jump_if(test, false, after_block)?;
+                self.compile_statements(body)?;
+                self.switch_to_block(after_block);
+            }
+            // If, elif*, elif/else
+            [rest @ .., tail] => {
+                let after_block = self.new_block();
+                let mut next_block = self.new_block();
+
+                self.compile_jump_if(test, false, next_block)?;
+                self.compile_statements(body)?;
+                emit!(self, PseudoInstruction::Jump { delta: after_block });
+
+                for clause in rest {
+                    self.switch_to_block(next_block);
+                    next_block = self.new_block();
+                    if let Some(test) = &clause.test {
+                        self.compile_jump_if(test, false, next_block)?;
+                    } else {
+                        unreachable!() // must be elif
+                    }
+                    self.compile_statements(&clause.body)?;
+                    emit!(self, PseudoInstruction::Jump { delta: after_block });
+                }
+
+                self.switch_to_block(next_block);
+                if let Some(test) = &tail.test {
+                    self.compile_jump_if(test, false, after_block)?;
+                }
+                self.compile_statements(&tail.body)?;
+                self.switch_to_block(after_block);
+            }
+        }
+        Ok(())
+    }
+
     fn compile_while(
         &mut self,
         test: &ast::Expr,
@@ -5198,17 +5295,37 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.enter_conditional_block();
 
+        let constant = Self::expr_constant(test);
+
+        // while False: body → walk body (consuming sub_tables) but don't emit,
+        // then compile orelse
+        if constant == Some(false) {
+            self.emit_nop();
+            let while_block = self.new_block();
+            let after_block = self.new_block();
+            self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
+            self.do_not_emit_bytecode += 1;
+            self.compile_statements(body)?;
+            self.do_not_emit_bytecode -= 1;
+            self.pop_fblock(FBlockType::WhileLoop);
+            self.compile_statements(orelse)?;
+            self.leave_conditional_block();
+            return Ok(());
+        }
+
         let while_block = self.new_block();
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        // Note: SetupLoop is no longer emitted (break/continue use direct jumps)
         self.switch_to_block(while_block);
-
-        // Push fblock for while loop
         self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
 
-        self.compile_jump_if(test, false, else_block)?;
+        // while True: → no condition test, just NOP
+        if constant == Some(true) {
+            self.emit_nop();
+        } else {
+            self.compile_jump_if(test, false, else_block)?;
+        }
 
         let was_in_loop = self.ctx.loop_data.replace((while_block, after_block));
         self.compile_statements(body)?;
@@ -5216,9 +5333,7 @@ impl Compiler {
         emit!(self, PseudoInstruction::Jump { delta: while_block });
         self.switch_to_block(else_block);
 
-        // Pop fblock
         self.pop_fblock(FBlockType::WhileLoop);
-        // Note: PopBlock is no longer emitted for loops
         self.compile_statements(orelse)?;
         self.switch_to_block(after_block);
 
@@ -7006,6 +7121,40 @@ impl Compiler {
             }) => {
                 self.compile_jump_if(operand, !condition, target_block)?;
             }
+            // `x is None` / `x is not None` → POP_JUMP_IF_NONE / POP_JUMP_IF_NOT_NONE
+            ast::Expr::Compare(ast::ExprCompare {
+                left,
+                ops,
+                comparators,
+                ..
+            }) if ops.len() == 1
+                && matches!(ops[0], ast::CmpOp::Is | ast::CmpOp::IsNot)
+                && comparators.len() == 1
+                && matches!(&comparators[0], ast::Expr::NoneLiteral(_)) =>
+            {
+                self.compile_expression(left)?;
+                let is_not = matches!(ops[0], ast::CmpOp::IsNot);
+                // is None + jump_if_false → POP_JUMP_IF_NOT_NONE
+                // is None + jump_if_true → POP_JUMP_IF_NONE
+                // is not None + jump_if_false → POP_JUMP_IF_NONE
+                // is not None + jump_if_true → POP_JUMP_IF_NOT_NONE
+                let jump_if_none = condition != is_not;
+                if jump_if_none {
+                    emit!(
+                        self,
+                        Instruction::PopJumpIfNone {
+                            delta: target_block,
+                        }
+                    );
+                } else {
+                    emit!(
+                        self,
+                        Instruction::PopJumpIfNotNone {
+                            delta: target_block,
+                        }
+                    );
+                }
+            }
             _ => {
                 // Fall back case which always will work!
                 self.compile_expression(expression)?;
@@ -7103,14 +7252,14 @@ impl Compiler {
         let has_unpacking = items.iter().any(|item| item.key.is_none());
 
         if !has_unpacking {
-            if items.len() >= 16 {
-                emit!(self, Instruction::BuildMap { count: 0 });
-                for item in items {
-                    self.compile_expression(item.key.as_ref().unwrap())?;
-                    self.compile_expression(&item.value)?;
-                    emit!(self, Instruction::MapAdd { i: 1 });
-                }
-            } else {
+            // Match CPython's compiler_subdict chunking strategy:
+            // - n≤15: BUILD_MAP n (all pairs on stack)
+            // - n>15: BUILD_MAP 0 + MAP_ADD chunks of 17, last chunk uses
+            //   BUILD_MAP n (if ≤15) or BUILD_MAP 0 + MAP_ADD
+            const STACK_LIMIT: usize = 15;
+            const BIG_MAP_CHUNK: usize = 17;
+
+            if items.len() <= STACK_LIMIT {
                 for item in items {
                     self.compile_expression(item.key.as_ref().unwrap())?;
                     self.compile_expression(&item.value)?;
@@ -7121,6 +7270,63 @@ impl Compiler {
                         count: u32::try_from(items.len()).expect("too many dict items"),
                     }
                 );
+            } else {
+                // Split: leading full chunks of BIG_MAP_CHUNK via MAP_ADD,
+                // remainder via BUILD_MAP n or MAP_ADD depending on size
+                let n = items.len();
+                let remainder = n % BIG_MAP_CHUNK;
+                let n_big_chunks = n / BIG_MAP_CHUNK;
+                // If remainder fits on stack (≤15), use BUILD_MAP n for it.
+                // Otherwise it becomes another MAP_ADD chunk.
+                let (big_count, tail_count) = if remainder > 0 && remainder <= STACK_LIMIT {
+                    (n_big_chunks, remainder)
+                } else {
+                    // remainder is 0 or >15: all chunks are MAP_ADD chunks
+                    let total_map_add = if remainder == 0 {
+                        n_big_chunks
+                    } else {
+                        n_big_chunks + 1
+                    };
+                    (total_map_add, 0usize)
+                };
+
+                emit!(self, Instruction::BuildMap { count: 0 });
+
+                let mut idx = 0;
+                for chunk_i in 0..big_count {
+                    if chunk_i > 0 {
+                        emit!(self, Instruction::BuildMap { count: 0 });
+                    }
+                    let chunk_size = if idx + BIG_MAP_CHUNK <= n - tail_count {
+                        BIG_MAP_CHUNK
+                    } else {
+                        n - tail_count - idx
+                    };
+                    for item in &items[idx..idx + chunk_size] {
+                        self.compile_expression(item.key.as_ref().unwrap())?;
+                        self.compile_expression(&item.value)?;
+                        emit!(self, Instruction::MapAdd { i: 1 });
+                    }
+                    if chunk_i > 0 {
+                        emit!(self, Instruction::DictUpdate { i: 1 });
+                    }
+                    idx += chunk_size;
+                }
+
+                // Tail: remaining pairs via BUILD_MAP n + DICT_UPDATE
+                if tail_count > 0 {
+                    for item in &items[idx..idx + tail_count] {
+                        self.compile_expression(item.key.as_ref().unwrap())?;
+                        self.compile_expression(&item.value)?;
+                    }
+                    emit!(
+                        self,
+                        Instruction::BuildMap {
+                            count: tail_count.to_u32(),
+                        }
+                    );
+                    emit!(self, Instruction::DictUpdate { i: 1 });
+                }
             }
             return Ok(());
         }
@@ -7275,6 +7481,14 @@ impl Compiler {
             ast::Expr::BinOp(ast::ExprBinOp {
                 left, op, right, ..
             }) => {
+                // optimize_format_str: 'format' % (args,) → f-string bytecode
+                if matches!(op, ast::Operator::Mod)
+                    && let ast::Expr::StringLiteral(s) = left.as_ref()
+                    && let ast::Expr::Tuple(ast::ExprTuple { elts, .. }) = right.as_ref()
+                    && self.try_optimize_format_str(s.value.to_str(), elts, range)?
+                {
+                    return Ok(());
+                }
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
 
@@ -7879,8 +8093,10 @@ impl Compiler {
             .any(|arg| matches!(arg, ast::Expr::Starred(_)));
         let has_double_star = arguments.keywords.iter().any(|k| k.arg.is_none());
 
-        // Check if exceeds stack guideline
-        let too_big = nelts + nkwelts * 2 > 8;
+        // Check if exceeds stack guideline (STACK_USE_GUIDELINE / 2 = 15)
+        // With CALL_KW, kwargs values go on stack but keys go in a const tuple,
+        // so stack usage is: func + null + positional_args + kwarg_values + kwnames_tuple
+        let too_big = nelts + nkwelts > 15;
 
         if !has_starred && !has_double_star && !too_big {
             // Simple call path: no * or ** args
@@ -8611,6 +8827,9 @@ impl Compiler {
 
     // Low level helper functions:
     fn _emit<I: Into<AnyInstruction>>(&mut self, instr: I, arg: OpArg, target: BlockIdx) {
+        if self.do_not_emit_bytecode > 0 {
+            return;
+        }
         let range = self.current_source_range;
         let source = self.source_file.to_source_code();
         let location = source.source_location(range.start(), PositionEncoding::Utf8);
@@ -8626,6 +8845,14 @@ impl Compiler {
             lineno_override: None,
             cache_entries: 0,
         });
+    }
+
+    /// Mark the last emitted instruction as having no source location.
+    /// Prevents it from triggering LINE events in sys.monitoring.
+    fn set_no_location(&mut self) {
+        if let Some(last) = self.current_block().instructions.last_mut() {
+            last.lineno_override = Some(-1);
+        }
     }
 
     fn emit_no_arg<I: Into<AnyInstruction>>(&mut self, ins: I) {
@@ -8809,6 +9036,46 @@ impl Compiler {
         self.code_stack.last_mut().expect("no code on stack")
     }
 
+    /// Evaluate whether an expression is a compile-time constant boolean.
+    /// Returns Some(true) for truthy constants, Some(false) for falsy constants,
+    /// None for non-constant expressions.
+    /// = expr_constant in CPython compile.c
+    fn expr_constant(expr: &ast::Expr) -> Option<bool> {
+        match expr {
+            ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => Some(*value),
+            ast::Expr::NoneLiteral(_) => Some(false),
+            ast::Expr::EllipsisLiteral(_) => Some(true),
+            ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. }) => match value {
+                ast::Number::Int(i) => {
+                    let n: i64 = i.as_i64().unwrap_or(1);
+                    Some(n != 0)
+                }
+                ast::Number::Float(f) => Some(*f != 0.0),
+                ast::Number::Complex { real, imag, .. } => Some(*real != 0.0 || *imag != 0.0),
+            },
+            ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
+                Some(!value.to_str().is_empty())
+            }
+            ast::Expr::BytesLiteral(ast::ExprBytesLiteral { value, .. }) => {
+                Some(value.bytes().next().is_some())
+            }
+            ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
+                if elts.is_empty() {
+                    Some(false)
+                } else if elts.iter().all(|e| Self::expr_constant(e).is_some()) {
+                    Some(true)
+                } else {
+                    None // non-constant elements may have side effects
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn emit_nop(&mut self) {
+        emit!(self, Instruction::Nop);
+    }
+
     /// Enter a conditional block (if/for/while/match/try/with)
     /// PEP 649: Track conditional annotation context
     fn enter_conditional_block(&mut self) {
@@ -8830,6 +9097,35 @@ impl Compiler {
         range: ruff_text_size::TextRange,
         is_break: bool,
     ) -> CompileResult<()> {
+        if self.do_not_emit_bytecode > 0 {
+            // Still validate that we're inside a loop even in dead code
+            let code = self.current_code_info();
+            let mut found_loop = false;
+            for i in (0..code.fblock.len()).rev() {
+                match code.fblock[i].fb_type {
+                    FBlockType::WhileLoop | FBlockType::ForLoop => {
+                        found_loop = true;
+                        break;
+                    }
+                    FBlockType::ExceptionGroupHandler => {
+                        return Err(self.error_ranged(
+                            CodegenErrorType::BreakContinueReturnInExceptStar,
+                            range,
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            if !found_loop {
+                if is_break {
+                    return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
+                } else {
+                    return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
+                }
+            }
+            return Ok(());
+        }
+
         // unwind_fblock_stack
         // We need to unwind fblocks and compile cleanup code. For FinallyTry blocks,
         // we need to compile the finally body inline, but we must temporarily pop
@@ -9159,6 +9455,125 @@ impl Compiler {
         self.compile_fstring_elements(fstring.flags, &fstring.elements)
     }
 
+    /// Optimize `'format_str' % (args,)` into f-string bytecode.
+    /// Returns true if optimization was applied, false to fall back to normal BINARY_OP %.
+    /// Matches CPython's codegen.c `compiler_formatted_value` optimization.
+    fn try_optimize_format_str(
+        &mut self,
+        format_str: &str,
+        args: &[ast::Expr],
+        range: ruff_text_size::TextRange,
+    ) -> CompileResult<bool> {
+        // Parse format string into segments
+        let Some(segments) = Self::parse_percent_format(format_str) else {
+            return Ok(false);
+        };
+
+        // Verify arg count matches specifier count
+        let spec_count = segments.iter().filter(|s| s.conversion.is_some()).count();
+        if spec_count != args.len() {
+            return Ok(false);
+        }
+
+        self.set_source_range(range);
+
+        // Special case: no specifiers, just %% escaping → constant fold
+        if spec_count == 0 {
+            let folded: String = segments.iter().map(|s| s.literal.as_str()).collect();
+            self.emit_load_const(ConstantData::Str {
+                value: folded.into(),
+            });
+            return Ok(true);
+        }
+
+        // Emit f-string style bytecode
+        let mut part_count: u32 = 0;
+        let mut arg_idx = 0;
+
+        for seg in &segments {
+            if !seg.literal.is_empty() {
+                self.emit_load_const(ConstantData::Str {
+                    value: seg.literal.clone().into(),
+                });
+                part_count += 1;
+            }
+            if let Some(conv) = seg.conversion {
+                self.compile_expression(&args[arg_idx])?;
+                self.set_source_range(range);
+                emit!(self, Instruction::ConvertValue { oparg: conv });
+                emit!(self, Instruction::FormatSimple);
+                part_count += 1;
+                arg_idx += 1;
+            }
+        }
+
+        if part_count == 0 {
+            self.emit_load_const(ConstantData::Str {
+                value: String::new().into(),
+            });
+        } else if part_count > 1 {
+            emit!(self, Instruction::BuildString { count: part_count });
+        }
+
+        Ok(true)
+    }
+
+    /// Parse a %-format string into segments of (literal_prefix, optional conversion).
+    /// Returns None if the format string contains unsupported specifiers.
+    fn parse_percent_format(format_str: &str) -> Option<Vec<FormatSegment>> {
+        let mut segments = Vec::new();
+        let mut chars = format_str.chars().peekable();
+        let mut current_literal = String::new();
+
+        while let Some(ch) = chars.next() {
+            if ch == '%' {
+                match chars.peek() {
+                    Some('%') => {
+                        chars.next();
+                        current_literal.push('%');
+                    }
+                    Some('s') => {
+                        chars.next();
+                        segments.push(FormatSegment {
+                            literal: core::mem::take(&mut current_literal),
+                            conversion: Some(oparg::ConvertValueOparg::Str),
+                        });
+                    }
+                    Some('r') => {
+                        chars.next();
+                        segments.push(FormatSegment {
+                            literal: core::mem::take(&mut current_literal),
+                            conversion: Some(oparg::ConvertValueOparg::Repr),
+                        });
+                    }
+                    Some('a') => {
+                        chars.next();
+                        segments.push(FormatSegment {
+                            literal: core::mem::take(&mut current_literal),
+                            conversion: Some(oparg::ConvertValueOparg::Ascii),
+                        });
+                    }
+                    _ => {
+                        // Unsupported: %d, %f, %(name)s, %10s, etc.
+                        return None;
+                    }
+                }
+            } else {
+                current_literal.push(ch);
+            }
+        }
+
+        // Trailing literal
+        if !current_literal.is_empty() {
+            segments.push(FormatSegment {
+                literal: current_literal,
+                conversion: None,
+            });
+        }
+
+        Some(segments)
+    }
+
     fn compile_fstring_elements(
         &mut self,
         flags: ast::FStringFlags,
@@ -9419,32 +9834,34 @@ impl EmitArg<bytecode::Label> for BlockIdx {
 // = _PyCompile_CleanDoc
 fn clean_doc(doc: &str) -> String {
     let doc = expandtabs(doc, 8);
-    // First pass: find minimum indentation of any non-blank lines
-    // after first line.
+    // First pass: find minimum indentation of non-blank lines AFTER the first line.
+    // A "blank line" is one containing only spaces (or empty).
     let margin = doc
-        .lines()
-        // Find the non-blank lines
-        .filter(|line| !line.trim().is_empty())
-        // get the one with the least indentation
-        .map(|line| line.chars().take_while(|c| c == &' ').count())
-        .min();
-    if let Some(margin) = margin {
-        let mut cleaned = String::with_capacity(doc.len());
-        // copy first line without leading whitespace
-        if let Some(first_line) = doc.lines().next() {
-            cleaned.push_str(first_line.trim_start());
-        }
-        // copy subsequent lines without margin.
-        for line in doc.split('\n').skip(1) {
-            cleaned.push('\n');
-            let cleaned_line = line.chars().skip(margin).collect::<String>();
-            cleaned.push_str(&cleaned_line);
-        }
+        .split('\n')
+        .skip(1) // skip first line
+        .filter(|line| line.chars().any(|c| c != ' ')) // non-blank lines only
+        .map(|line| line.chars().take_while(|c| *c == ' ').count())
+        .min()
+        .unwrap_or(0);
 
-        cleaned
-    } else {
-        doc.to_owned()
+    let mut cleaned = String::with_capacity(doc.len());
+    // Strip all leading spaces from the first line
+    if let Some(first_line) = doc.split('\n').next() {
+        let trimmed = first_line.trim_start();
+        // Early exit: no leading spaces on first line AND margin == 0
+        if trimmed.len() == first_line.len() && margin == 0 {
+            return doc.to_owned();
+        }
+        cleaned.push_str(trimmed);
     }
+    // Subsequent lines: skip up to `margin` leading spaces
+    for line in doc.split('\n').skip(1) {
+        cleaned.push('\n');
+        let skip = line.chars().take(margin).take_while(|c| *c == ' ').count();
+        cleaned.push_str(&line[skip..]);
+    }
+
+    cleaned
 }
 
 // copied from rustpython_common::str, so we don't have to depend on it just for this function
