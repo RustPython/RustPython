@@ -3,7 +3,7 @@ use core::ops;
 
 use crate::{IndexMap, IndexSet, error::InternalError};
 use malachite_bigint::BigInt;
-use num_traits::ToPrimitive;
+use num_traits::{ToPrimitive, Zero};
 
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
@@ -190,8 +190,11 @@ impl CodeInfo {
         opts: &crate::compile::CompileOpts,
     ) -> crate::InternalResult<CodeObject> {
         // Constant folding passes
+        self.fold_binop_constants();
+        self.remove_nops();
         self.fold_unary_negative();
-        self.remove_nops(); // remove NOPs from unary folding so tuple/list/set see contiguous LOADs
+        self.fold_binop_constants(); // re-run after unary folding: -1 + 2 → 1
+        self.remove_nops(); // remove NOPs so tuple/list/set see contiguous LOADs
         self.fold_tuple_constants();
         self.fold_list_constants();
         self.fold_set_constants();
@@ -206,7 +209,10 @@ impl CodeInfo {
         // Peephole optimizer creates superinstructions matching CPython
         self.peephole_optimize();
 
-        // Always apply LOAD_FAST_BORROW optimization
+        // insert_superinstructions (flowgraph.c): must run BEFORE optimize_load_fast
+        self.combine_store_fast_load_fast();
+
+        // optimize_load_fast (flowgraph.c): LOAD_FAST → LOAD_FAST_BORROW
         self.optimize_load_fast_borrow();
 
         // Post-codegen CFG analysis passes (flowgraph.c pipeline)
@@ -455,8 +461,9 @@ impl CodeInfo {
 
                     let cache_count = info.cache_entries as usize;
                     let (extras, lo_arg) = info.arg.split();
+                    let loc_pair = (info.location, info.end_location);
                     locations.extend(core::iter::repeat_n(
-                        (info.location, info.end_location),
+                        loc_pair,
                         info.arg.instr_size() + cache_count,
                     ));
                     // Collect linetable locations with lineno_override support
@@ -684,6 +691,233 @@ impl CodeInfo {
                     i += 1;
                 }
             }
+        }
+    }
+
+    /// Constant folding: fold LOAD_CONST/LOAD_SMALL_INT + LOAD_CONST/LOAD_SMALL_INT + BINARY_OP
+    /// into a single LOAD_CONST when the result is computable at compile time.
+    /// = fold_binops_on_constants in CPython flowgraph.c
+    fn fold_binop_constants(&mut self) {
+        use oparg::BinaryOperator as BinOp;
+
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i + 2 < block.instructions.len() {
+                // Check pattern: LOAD_CONST/LOAD_SMALL_INT, LOAD_CONST/LOAD_SMALL_INT, BINARY_OP
+                let Some(Instruction::BinaryOp { .. }) = block.instructions[i + 2].instr.real()
+                else {
+                    i += 1;
+                    continue;
+                };
+
+                let op_raw = u32::from(block.instructions[i + 2].arg);
+                let Ok(op) = BinOp::try_from(op_raw) else {
+                    i += 1;
+                    continue;
+                };
+
+                let left = Self::get_const_value_from(&self.metadata, &block.instructions[i]);
+                let right = Self::get_const_value_from(&self.metadata, &block.instructions[i + 1]);
+
+                let (Some(left_val), Some(right_val)) = (left, right) else {
+                    i += 1;
+                    continue;
+                };
+
+                let result = Self::eval_binop(&left_val, &right_val, op);
+
+                if let Some(result_const) = result {
+                    // Check result size limit (CPython limits to 4096 bytes)
+                    if Self::const_too_big(&result_const) {
+                        i += 1;
+                        continue;
+                    }
+                    let (const_idx, _) = self.metadata.consts.insert_full(result_const);
+                    // Replace first instruction with LOAD_CONST result
+                    block.instructions[i].instr = Instruction::LoadConst {
+                        consti: Arg::marker(),
+                    }
+                    .into();
+                    block.instructions[i].arg = OpArg::new(const_idx as u32);
+                    // NOP out the second and third instructions
+                    let loc = block.instructions[i].location;
+                    let end_loc = block.instructions[i].end_location;
+                    block.instructions[i + 1].instr = Instruction::Nop.into();
+                    block.instructions[i + 1].location = loc;
+                    block.instructions[i + 1].end_location = end_loc;
+                    block.instructions[i + 2].instr = Instruction::Nop.into();
+                    block.instructions[i + 2].location = loc;
+                    block.instructions[i + 2].end_location = end_loc;
+                    // Don't advance - check if the result can be folded again
+                    // (e.g., 2 ** 31 - 1)
+                    i = i.saturating_sub(1); // re-check with previous instruction
+                } else {
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    fn get_const_value_from(
+        metadata: &CodeUnitMetadata,
+        info: &InstructionInfo,
+    ) -> Option<ConstantData> {
+        match info.instr.real() {
+            Some(Instruction::LoadConst { .. }) => {
+                let idx = u32::from(info.arg) as usize;
+                metadata.consts.get_index(idx).cloned()
+            }
+            Some(Instruction::LoadSmallInt { .. }) => {
+                let v = u32::from(info.arg) as i32;
+                Some(ConstantData::Integer {
+                    value: BigInt::from(v),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn eval_binop(
+        left: &ConstantData,
+        right: &ConstantData,
+        op: oparg::BinaryOperator,
+    ) -> Option<ConstantData> {
+        use oparg::BinaryOperator as BinOp;
+        match (left, right) {
+            (ConstantData::Integer { value: l }, ConstantData::Integer { value: r }) => {
+                let result = match op {
+                    BinOp::Add => l + r,
+                    BinOp::Subtract => l - r,
+                    BinOp::Multiply => l * r,
+                    BinOp::FloorDivide => {
+                        if r.is_zero() {
+                            return None;
+                        }
+                        // Python floor division: round towards negative infinity
+                        let (q, rem) = (l.clone() / r.clone(), l.clone() % r.clone());
+                        if !rem.is_zero() && (rem < BigInt::from(0)) != (*r < BigInt::from(0)) {
+                            q - 1
+                        } else {
+                            q
+                        }
+                    }
+                    BinOp::Remainder => {
+                        if r.is_zero() {
+                            return None;
+                        }
+                        // Python modulo: result has same sign as divisor
+                        let rem = l.clone() % r.clone();
+                        if !rem.is_zero() && (rem < BigInt::from(0)) != (*r < BigInt::from(0)) {
+                            rem + r
+                        } else {
+                            rem
+                        }
+                    }
+                    BinOp::Power => {
+                        let exp: u32 = r.try_into().ok()?;
+                        if exp > 128 {
+                            return None;
+                        } // prevent huge results
+                        num_traits::pow::pow(l.clone(), exp as usize)
+                    }
+                    BinOp::Lshift => {
+                        let shift: u32 = r.try_into().ok()?;
+                        if shift > 128 {
+                            return None;
+                        }
+                        l << (shift as usize)
+                    }
+                    BinOp::Rshift => {
+                        let shift: u32 = r.try_into().ok()?;
+                        l >> (shift as usize)
+                    }
+                    BinOp::And => l & r,
+                    BinOp::Or => l | r,
+                    BinOp::Xor => l ^ r,
+                    _ => return None,
+                };
+                Some(ConstantData::Integer { value: result })
+            }
+            (ConstantData::Float { value: l }, ConstantData::Float { value: r }) => {
+                let result = match op {
+                    BinOp::Add => l + r,
+                    BinOp::Subtract => l - r,
+                    BinOp::Multiply => l * r,
+                    BinOp::TrueDivide => {
+                        if *r == 0.0 {
+                            return None;
+                        }
+                        l / r
+                    }
+                    BinOp::FloorDivide => {
+                        if *r == 0.0 {
+                            return None;
+                        }
+                        (l / r).floor()
+                    }
+                    BinOp::Remainder => {
+                        if *r == 0.0 {
+                            return None;
+                        }
+                        // Python float modulo: a - b * floor(a/b)
+                        l - r * (l / r).floor()
+                    }
+                    BinOp::Power => l.powf(*r),
+                    _ => return None,
+                };
+                if !result.is_finite() {
+                    return None;
+                }
+                Some(ConstantData::Float { value: result })
+            }
+            // Int op Float or Float op Int → Float
+            (ConstantData::Integer { value: l }, ConstantData::Float { value: r }) => {
+                let l_f = l.to_f64()?;
+                Self::eval_binop(
+                    &ConstantData::Float { value: l_f },
+                    &ConstantData::Float { value: *r },
+                    op,
+                )
+            }
+            (ConstantData::Float { value: l }, ConstantData::Integer { value: r }) => {
+                let r_f = r.to_f64()?;
+                Self::eval_binop(
+                    &ConstantData::Float { value: *l },
+                    &ConstantData::Float { value: r_f },
+                    op,
+                )
+            }
+            // String concatenation and repetition
+            (ConstantData::Str { value: l }, ConstantData::Str { value: r })
+                if matches!(op, BinOp::Add) =>
+            {
+                let mut result = l.to_string();
+                result.push_str(&r.to_string());
+                Some(ConstantData::Str {
+                    value: result.into(),
+                })
+            }
+            (ConstantData::Str { value: s }, ConstantData::Integer { value: n })
+                if matches!(op, BinOp::Multiply) =>
+            {
+                let n: usize = n.try_into().ok()?;
+                if n > 4096 {
+                    return None;
+                }
+                let result = s.to_string().repeat(n);
+                Some(ConstantData::Str {
+                    value: result.into(),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn const_too_big(c: &ConstantData) -> bool {
+        match c {
+            ConstantData::Integer { value } => value.bits() > 4096 * 8,
+            ConstantData::Str { value } => value.len() > 4096,
+            _ => false,
         }
     }
 
@@ -1067,6 +1301,9 @@ impl CodeInfo {
                                 None
                             }
                         }
+                        // Note: StoreFast + LoadFast → StoreFastLoadFast is done in a
+                        // separate pass AFTER optimize_load_fast_borrow, because CPython
+                        // only combines STORE_FAST + LOAD_FAST (not LOAD_FAST_BORROW).
                         (Instruction::LoadConst { consti }, Instruction::ToBool) => {
                             let consti = consti.get(curr.arg);
                             let constant = &self.metadata.consts[consti.as_usize()];
@@ -1253,10 +1490,39 @@ impl CodeInfo {
 
     /// Optimize LOAD_FAST to LOAD_FAST_BORROW where safe.
     ///
-    /// A LOAD_FAST can be converted to LOAD_FAST_BORROW if its value is
-    /// consumed within the same basic block (not passed to another block).
-    /// This is a reference counting optimization in CPython; in RustPython
-    /// we implement it for bytecode compatibility.
+    /// insert_superinstructions (flowgraph.c): Combine STORE_FAST + LOAD_FAST →
+    /// STORE_FAST_LOAD_FAST. Must run BEFORE optimize_load_fast_borrow so that
+    /// the borrow pass sees the combined instruction (matching flowgraph.c order).
+    fn combine_store_fast_load_fast(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i + 1 < block.instructions.len() {
+                let curr = &block.instructions[i];
+                let next = &block.instructions[i + 1];
+                let (Some(Instruction::StoreFast { .. }), Some(Instruction::LoadFast { .. })) =
+                    (curr.instr.real(), next.instr.real())
+                else {
+                    i += 1;
+                    continue;
+                };
+                let idx1 = u32::from(curr.arg);
+                let idx2 = u32::from(next.arg);
+                if idx1 < 16 && idx2 < 16 {
+                    let packed = (idx1 << 4) | idx2;
+                    block.instructions[i].instr = Instruction::StoreFastLoadFast {
+                        var_nums: Arg::marker(),
+                    }
+                    .into();
+                    block.instructions[i].arg = OpArg::new(packed);
+                    block.instructions.remove(i + 1);
+                    // Don't advance — check if next pair can also be combined
+                } else {
+                    i += 1;
+                }
+            }
+        }
+    }
+
     fn optimize_load_fast_borrow(&mut self) {
         // NOT_LOCAL marker: instruction didn't come from a LOAD_FAST
         const NOT_LOCAL: usize = usize::MAX;
@@ -1972,6 +2238,42 @@ fn normalize_jumps(blocks: &mut [Block]) {
         }
     }
 
+    // Replace JUMP → LOAD_CONST + RETURN_VALUE with inline return.
+    // This matches CPython's optimize_basic_block: "Replace JUMP to a RETURN".
+    for &block_idx in &visit_order {
+        let idx = block_idx.idx();
+        let mut replacements: Vec<(usize, Vec<InstructionInfo>)> = Vec::new();
+        for (i, ins) in blocks[idx].instructions.iter().enumerate() {
+            if !ins.instr.is_unconditional_jump() || ins.target == BlockIdx::NULL {
+                continue;
+            }
+            let target_block = &blocks[ins.target.idx()];
+            // Target must be exactly LOAD_CONST + RETURN_VALUE (2 instructions)
+            if target_block.instructions.len() >= 2 {
+                let t0 = &target_block.instructions[0];
+                let t1 = &target_block.instructions[1];
+                if matches!(t0.instr.real(), Some(Instruction::LoadConst { .. }))
+                    && matches!(t1.instr.real(), Some(Instruction::ReturnValue))
+                {
+                    let mut load = *t0;
+                    let mut ret = *t1;
+                    // Use the jump's location for the inlined return
+                    load.location = ins.location;
+                    load.end_location = ins.end_location;
+                    load.except_handler = ins.except_handler;
+                    ret.location = ins.location;
+                    ret.end_location = ins.end_location;
+                    ret.except_handler = ins.except_handler;
+                    replacements.push((i, vec![load, ret]));
+                }
+            }
+        }
+        // Apply replacements in reverse order
+        for (i, new_insts) in replacements.into_iter().rev() {
+            blocks[idx].instructions.splice(i..i + 1, new_insts);
+        }
+    }
+
     // Resolve JUMP/JUMP_NO_INTERRUPT pseudo instructions before offset fixpoint.
     let mut block_order = vec![0u32; blocks.len()];
     for (pos, &block_idx) in visit_order.iter().enumerate() {
@@ -2172,19 +2474,15 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 blocks[bi].instructions[i].except_handler = handler_info;
 
                 // Track YIELD_VALUE except stack depth
-                // Only count for direct yield (arg=0), not yield-from/await (arg=1)
-                // The yield-from's internal SETUP_FINALLY is not an external except depth
+                // Record the except stack depth at the point of yield.
+                // With the StopIteration wrapper, depth is naturally correct:
+                // - plain yield outside try: depth=1 → DEPTH1 set
+                // - yield inside try: depth=2+ → no DEPTH1
+                // - yield-from/await: has internal SETUP_FINALLY → depth=2+ → no DEPTH1
                 if let Some(Instruction::YieldValue { .. }) =
                     blocks[bi].instructions[i].instr.real()
                 {
-                    let yield_arg = u32::from(blocks[bi].instructions[i].arg);
-                    if yield_arg == 0 {
-                        // Direct yield: count actual except depth
-                        last_yield_except_depth = stack.len() as i32;
-                    } else {
-                        // yield-from/await: subtract 1 for the internal SETUP_FINALLY
-                        last_yield_except_depth = (stack.len() as i32) - 1;
-                    }
+                    last_yield_except_depth = stack.len() as i32;
                 }
 
                 // Set RESUME DEPTH1 flag based on last yield's except depth

@@ -1,6 +1,6 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 9780
+assertion_line: 9962
 expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
   1           0 RESUME               (0)
@@ -249,6 +249,9 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 231 RERAISE              (1)
                 232 JUMP_BACKWARD        (209)
                 233 CACHE
+
+  2             234 CALL_INTRINSIC_1     (StopIterationError)
+                235 RERAISE              (1)
 
               2 MAKE_FUNCTION
               3 STORE_NAME           (0, test)
