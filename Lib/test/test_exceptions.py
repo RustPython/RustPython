@@ -2519,7 +2519,6 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(error, the_exception.text)
         self.assertEqual("bad bad", the_exception.msg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_incorrect_constructor(self):
         args = ("bad.py", 1, 2)
         self.assertRaises(TypeError, SyntaxError, "bad bad", args)
