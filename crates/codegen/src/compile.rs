@@ -8407,6 +8407,24 @@ impl Compiler {
         let arg0 = self.varname(".0")?;
 
         let return_none = init_collection.is_none();
+
+        // PEP 479: Wrap generator/coroutine body with StopIteration handler
+        let is_gen_scope = self.current_symbol_table().is_generator || is_async;
+        let stop_iteration_block = if is_gen_scope {
+            let handler_block = self.new_block();
+            emit!(
+                self,
+                PseudoInstruction::SetupCleanup {
+                    delta: handler_block
+                }
+            );
+            self.set_no_location();
+            self.push_fblock(FBlockType::StopIteration, handler_block, handler_block)?;
+            Some(handler_block)
+        } else {
+            None
+        };
+
         // Create empty object of proper type:
         if let Some(init_collection) = init_collection {
             self._emit(init_collection, OpArg::new(0), BlockIdx::NULL)
@@ -8495,6 +8513,23 @@ impl Compiler {
         }
 
         self.emit_return_value();
+
+        // Close StopIteration handler and emit handler code
+        if let Some(handler_block) = stop_iteration_block {
+            emit!(self, PseudoInstruction::PopBlock);
+            self.set_no_location();
+            self.pop_fblock(FBlockType::StopIteration);
+            self.switch_to_block(handler_block);
+            emit!(
+                self,
+                Instruction::CallIntrinsic1 {
+                    func: oparg::IntrinsicFunction1::StopIterationError
+                }
+            );
+            self.set_no_location();
+            emit!(self, Instruction::Reraise { depth: 1u32 });
+            self.set_no_location();
+        }
 
         let code = self.exit_scope();
 

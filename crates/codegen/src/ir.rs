@@ -210,8 +210,14 @@ impl CodeInfo {
         self.peephole_optimize();
 
         // Phase 1: _PyCfg_OptimizeCodeUnit (flowgraph.c)
+        // Split blocks so each block has at most one branch as its last instruction
+        split_blocks_at_jumps(&mut self.blocks);
         mark_except_handlers(&mut self.blocks);
         label_exception_targets(&mut self.blocks);
+        // optimize_cfg: jump threading (before push_cold_blocks_to_end)
+        jump_threading(&mut self.blocks);
+        self.eliminate_unreachable_blocks();
+        self.remove_nops();
         // TODO: insert_superinstructions disabled pending StoreFastLoadFast VM fix
         push_cold_blocks_to_end(&mut self.blocks);
 
@@ -2169,6 +2175,84 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
     }
 }
 
+/// Split blocks at branch points so each block has at most one branch
+/// (conditional/unconditional jump) as its last instruction.
+/// This matches CPython's CFG structure where each basic block has one exit.
+fn split_blocks_at_jumps(blocks: &mut Vec<Block>) {
+    let mut bi = 0;
+    while bi < blocks.len() {
+        // Find the first jump/branch instruction in the block
+        let split_at = {
+            let block = &blocks[bi];
+            let mut found = None;
+            for (i, ins) in block.instructions.iter().enumerate() {
+                if is_conditional_jump(&ins.instr)
+                    || ins.instr.is_unconditional_jump()
+                    || ins.instr.is_scope_exit()
+                {
+                    if i + 1 < block.instructions.len() {
+                        found = Some(i + 1);
+                    }
+                    break;
+                }
+            }
+            found
+        };
+        if let Some(pos) = split_at {
+            let new_block_idx = BlockIdx(blocks.len() as u32);
+            let tail: Vec<InstructionInfo> = blocks[bi].instructions.drain(pos..).collect();
+            let old_next = blocks[bi].next;
+            let cold = blocks[bi].cold;
+            blocks[bi].next = new_block_idx;
+            blocks.push(Block {
+                instructions: tail,
+                next: old_next,
+                cold,
+                ..Block::default()
+            });
+            // Don't increment bi - re-check current block (it might still have issues)
+        } else {
+            bi += 1;
+        }
+    }
+}
+
+/// Jump threading: when a block's last jump targets a block whose first
+/// instruction is an unconditional jump, redirect to the final target.
+/// flowgraph.c optimize_basic_block + jump_thread
+fn jump_threading(blocks: &mut [Block]) {
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for bi in 0..blocks.len() {
+            let last_idx = match blocks[bi].instructions.len().checked_sub(1) {
+                Some(i) => i,
+                None => continue,
+            };
+            let ins = &blocks[bi].instructions[last_idx];
+            let target = ins.target;
+            if target == BlockIdx::NULL {
+                continue;
+            }
+            if !ins.instr.is_unconditional_jump() && !is_conditional_jump(&ins.instr) {
+                continue;
+            }
+            // Check if target block's first instruction is an unconditional jump
+            let target_block = &blocks[target.idx()];
+            if let Some(target_ins) = target_block.instructions.first() {
+                if target_ins.instr.is_unconditional_jump()
+                    && target_ins.target != BlockIdx::NULL
+                    && target_ins.target != target
+                {
+                    let final_target = target_ins.target;
+                    blocks[bi].instructions[last_idx].target = final_target;
+                    changed = true;
+                }
+            }
+        }
+    }
+}
+
 fn is_conditional_jump(instr: &AnyInstruction) -> bool {
     matches!(
         instr.real(),
@@ -2181,8 +2265,31 @@ fn is_conditional_jump(instr: &AnyInstruction) -> bool {
     )
 }
 
+/// Invert a conditional jump opcode.
+fn reversed_conditional(instr: &AnyInstruction) -> Option<AnyInstruction> {
+    Some(match instr.real()? {
+        Instruction::PopJumpIfFalse { .. } => Instruction::PopJumpIfTrue {
+            delta: Arg::marker(),
+        }
+        .into(),
+        Instruction::PopJumpIfTrue { .. } => Instruction::PopJumpIfFalse {
+            delta: Arg::marker(),
+        }
+        .into(),
+        Instruction::PopJumpIfNone { .. } => Instruction::PopJumpIfNotNone {
+            delta: Arg::marker(),
+        }
+        .into(),
+        Instruction::PopJumpIfNotNone { .. } => Instruction::PopJumpIfNone {
+            delta: Arg::marker(),
+        }
+        .into(),
+        _ => return None,
+    })
+}
+
 /// flowgraph.c normalize_jumps + remove_redundant_jumps
-fn normalize_jumps(blocks: &mut [Block]) {
+fn normalize_jumps(blocks: &mut Vec<Block>) {
     let mut visit_order = Vec::new();
     let mut visited = vec![false; blocks.len()];
     let mut current = BlockIdx(0);
@@ -2194,7 +2301,8 @@ fn normalize_jumps(blocks: &mut [Block]) {
 
     visited.fill(false);
 
-    for &block_idx in &visit_order {
+    for vi in 0..visit_order.len() {
+        let block_idx = visit_order[vi];
         let idx = block_idx.idx();
         visited[idx] = true;
 
@@ -2213,32 +2321,89 @@ fn normalize_jumps(blocks: &mut [Block]) {
             }
         }
 
-        // Insert NOT_TAKEN after forward conditional jumps
-        let mut insert_positions: Vec<(usize, InstructionInfo)> = Vec::new();
-        for (i, ins) in blocks[idx].instructions.iter().enumerate() {
-            if is_conditional_jump(&ins.instr)
-                && ins.target != BlockIdx::NULL
-                && !visited[ins.target.idx()]
-            {
-                insert_positions.push((
-                    i + 1,
-                    InstructionInfo {
+        // Normalize conditional jumps: forward gets NOT_TAKEN, backward gets inverted
+        let last = blocks[idx].instructions.last();
+        if let Some(last_ins) = last {
+            if is_conditional_jump(&last_ins.instr) && last_ins.target != BlockIdx::NULL {
+                let target = last_ins.target;
+                let is_forward = !visited[target.idx()];
+
+                if is_forward {
+                    // Insert NOT_TAKEN after forward conditional jump
+                    let not_taken = InstructionInfo {
                         instr: Instruction::NotTaken.into(),
                         arg: OpArg::new(0),
                         target: BlockIdx::NULL,
-                        location: ins.location,
-                        end_location: ins.end_location,
-                        except_handler: ins.except_handler,
+                        location: last_ins.location,
+                        end_location: last_ins.end_location,
+                        except_handler: last_ins.except_handler,
                         lineno_override: None,
                         cache_entries: 0,
-                    },
-                ));
+                    };
+                    blocks[idx].instructions.push(not_taken);
+                } else {
+                    // Backward conditional jump: invert and create new block
+                    // Transform: `cond_jump T` (backward)
+                    // Into: `reversed_cond_jump b_next` + new block [NOT_TAKEN, JUMP T]
+                    let loc = last_ins.location;
+                    let end_loc = last_ins.end_location;
+                    let exc_handler = last_ins.except_handler;
+
+                    if let Some(reversed) = reversed_conditional(&last_ins.instr) {
+                        let old_next = blocks[idx].next;
+                        let is_cold = blocks[idx].cold;
+
+                        // Create new block with NOT_TAKEN + JUMP to original backward target
+                        let new_block_idx = BlockIdx(blocks.len() as u32);
+                        let mut new_block = Block {
+                            cold: is_cold,
+                            ..Block::default()
+                        };
+                        new_block.instructions.push(InstructionInfo {
+                            instr: Instruction::NotTaken.into(),
+                            arg: OpArg::new(0),
+                            target: BlockIdx::NULL,
+                            location: loc,
+                            end_location: end_loc,
+                            except_handler: exc_handler,
+                            lineno_override: None,
+                            cache_entries: 0,
+                        });
+                        new_block.instructions.push(InstructionInfo {
+                            instr: PseudoInstruction::Jump { delta: Arg::marker() }.into(),
+                            arg: OpArg::new(0),
+                            target,
+                            location: loc,
+                            end_location: end_loc,
+                            except_handler: exc_handler,
+                            lineno_override: None,
+                            cache_entries: 0,
+                        });
+                        new_block.next = old_next;
+
+                        // Update the conditional jump: invert opcode, target = old next block
+                        let last_mut = blocks[idx].instructions.last_mut().unwrap();
+                        last_mut.instr = reversed;
+                        last_mut.target = old_next;
+
+                        // Splice new block between current and old next
+                        blocks[idx].next = new_block_idx;
+                        blocks.push(new_block);
+
+                        // Extend visited array and update visit order
+                        visited.push(true);
+                    }
+                }
             }
         }
+    }
 
-        for (pos, info) in insert_positions.into_iter().rev() {
-            blocks[idx].instructions.insert(pos, info);
-        }
+    // Rebuild visit_order since backward normalization may have added new blocks
+    let mut visit_order = Vec::new();
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        visit_order.push(current);
+        current = blocks[current.idx()].next;
     }
 
     // Replace JUMP → LOAD_CONST + RETURN_VALUE with inline return.
@@ -2250,8 +2415,15 @@ fn normalize_jumps(blocks: &mut [Block]) {
             if !ins.instr.is_unconditional_jump() || ins.target == BlockIdx::NULL {
                 continue;
             }
-            let target_block = &blocks[ins.target.idx()];
-            // Target must be exactly LOAD_CONST + RETURN_VALUE (2 instructions)
+            // Follow through empty blocks (next_nonempty_block)
+            let mut target_idx = ins.target.idx();
+            while blocks[target_idx].instructions.is_empty()
+                && blocks[target_idx].next != BlockIdx::NULL
+            {
+                target_idx = blocks[target_idx].next.idx();
+            }
+            let target_block = &blocks[target_idx];
+            // Target must start with LOAD_CONST + RETURN_VALUE
             if target_block.instructions.len() >= 2 {
                 let t0 = &target_block.instructions[0];
                 let t1 = &target_block.instructions[1];
