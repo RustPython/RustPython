@@ -839,3 +839,13 @@ assert id(b) != id(b * 0)
 assert id(b) != id(b * 1)
 assert id(b) != id(1 * b)
 assert id(b) != id(b * 2)
+
+
+# Regression tests for isalpha/isalnum Unicode General Category correctness.
+# These characters are in letter categories (Ll/Lo) and should return True,
+# but were missed in older Unicode tables used by unic-ucd-category.
+# See: https://github.com/RustPython/RustPython/pull/7520#issuecomment-4148322294
+for _cp in [1376, 1416, 1519, 2160, 2161, 2162, 2163, 2164, 2165, 2166]:
+    _c = chr(_cp)
+    assert _c.isalpha(), f"U+{_cp:04X} should be isalpha"
+    assert _c.isalnum(), f"U+{_cp:04X} should be isalnum"

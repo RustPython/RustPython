@@ -443,18 +443,17 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
 #[inline]
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
     char::try_from(ch)
-        .map(|c| {
-            matches!(
-                GeneralCategory::of(c),
-                GeneralCategory::UppercaseLetter
-                    | GeneralCategory::LowercaseLetter
-                    | GeneralCategory::TitlecaseLetter
-                    | GeneralCategory::ModifierLetter
-                    | GeneralCategory::OtherLetter
-                    | GeneralCategory::DecimalNumber
-                    | GeneralCategory::LetterNumber
-                    | GeneralCategory::OtherNumber
-            )
+        .map(|c| match GeneralCategory::of(c) {
+            GeneralCategory::UppercaseLetter
+            | GeneralCategory::LowercaseLetter
+            | GeneralCategory::TitlecaseLetter
+            | GeneralCategory::ModifierLetter
+            | GeneralCategory::OtherLetter
+            | GeneralCategory::DecimalNumber
+            | GeneralCategory::LetterNumber
+            | GeneralCategory::OtherNumber => true,
+            GeneralCategory::Unassigned => c.is_alphanumeric(),
+            _ => false,
         })
         .unwrap_or(false)
 }

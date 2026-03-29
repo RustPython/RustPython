@@ -946,18 +946,17 @@ impl PyStr {
     #[pymethod]
     fn isalnum(&self) -> bool {
         !self.data.is_empty()
-            && self.char_all(|c| {
-                matches!(
-                    GeneralCategory::of(c),
-                    GeneralCategory::UppercaseLetter
-                        | GeneralCategory::LowercaseLetter
-                        | GeneralCategory::TitlecaseLetter
-                        | GeneralCategory::ModifierLetter
-                        | GeneralCategory::OtherLetter
-                        | GeneralCategory::DecimalNumber
-                        | GeneralCategory::LetterNumber
-                        | GeneralCategory::OtherNumber
-                )
+            && self.char_all(|c| match GeneralCategory::of(c) {
+                GeneralCategory::UppercaseLetter
+                | GeneralCategory::LowercaseLetter
+                | GeneralCategory::TitlecaseLetter
+                | GeneralCategory::ModifierLetter
+                | GeneralCategory::OtherLetter
+                | GeneralCategory::DecimalNumber
+                | GeneralCategory::LetterNumber
+                | GeneralCategory::OtherNumber => true,
+                GeneralCategory::Unassigned => c.is_alphanumeric(),
+                _ => false,
             })
     }
 
@@ -1070,15 +1069,14 @@ impl PyStr {
     #[pymethod]
     fn isalpha(&self) -> bool {
         !self.data.is_empty()
-            && self.char_all(|c| {
-                matches!(
-                    GeneralCategory::of(c),
-                    GeneralCategory::UppercaseLetter
-                        | GeneralCategory::LowercaseLetter
-                        | GeneralCategory::TitlecaseLetter
-                        | GeneralCategory::ModifierLetter
-                        | GeneralCategory::OtherLetter
-                )
+            && self.char_all(|c| match GeneralCategory::of(c) {
+                GeneralCategory::UppercaseLetter
+                | GeneralCategory::LowercaseLetter
+                | GeneralCategory::TitlecaseLetter
+                | GeneralCategory::ModifierLetter
+                | GeneralCategory::OtherLetter => true,
+                GeneralCategory::Unassigned => c.is_alphabetic(),
+                _ => false,
             })
     }
 
