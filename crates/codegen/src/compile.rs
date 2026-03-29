@@ -7485,6 +7485,7 @@ impl Compiler {
                 if matches!(op, ast::Operator::Mod)
                     && let ast::Expr::StringLiteral(s) = left.as_ref()
                     && let ast::Expr::Tuple(ast::ExprTuple { elts, .. }) = right.as_ref()
+                    && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
                     && self.try_optimize_format_str(s.value.to_str(), elts, range)?
                 {
                     return Ok(());
@@ -9062,10 +9063,8 @@ impl Compiler {
             ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
                 if elts.is_empty() {
                     Some(false)
-                } else if elts.iter().all(|e| Self::expr_constant(e).is_some()) {
-                    Some(true)
                 } else {
-                    None // non-constant elements may have side effects
+                    None // non-empty tuples may have side effects in elements
                 }
             }
             _ => None,

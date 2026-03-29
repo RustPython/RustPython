@@ -174,7 +174,14 @@ mod _symtable {
                 .symtable
                 .sub_tables
                 .iter()
-                .filter(|t| !t.comp_inlined)
+                .flat_map(|t| {
+                    if t.comp_inlined {
+                        // Flatten: replace inlined comprehension tables with their children
+                        t.sub_tables.iter().collect::<Vec<_>>()
+                    } else {
+                        vec![t]
+                    }
+                })
                 .map(|t| to_py_symbol_table(t.clone()).into_pyobject(vm))
                 .collect();
             Ok(children)
