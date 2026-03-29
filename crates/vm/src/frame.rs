@@ -1755,12 +1755,6 @@ impl ExecutingFrame<'_> {
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
         self.monitoring_mask = vm.state.monitoring_events.load();
-        // Reset prev_line so that LINE monitoring events fire even if
-        // the exception handler is on the same line as the yield point.
-        // In CPython, _Py_call_instrumentation_line has a special case
-        // for RESUME: it fires LINE even when prev_line == current_line.
-        // Since gen_throw bypasses RESUME, we reset prev_line instead.
-        *self.prev_line = 0;
         if let Some(jen) = self.yield_from_target() {
             // Check if the exception is GeneratorExit (type or instance).
             // For GeneratorExit, close the sub-iterator instead of throwing.
@@ -1796,7 +1790,10 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.none());
                     vm.contextualize_exception(&err);
                     return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
-                        Ok(None) => self.run(vm),
+                        Ok(None) => {
+                            *self.prev_line = 0;
+                            self.run(vm)
+                        }
                         Ok(Some(result)) => Ok(result),
                         Err(exception) => Err(exception),
                     };
@@ -1838,7 +1835,10 @@ impl ExecutingFrame<'_> {
                         self.push_value(vm.ctx.none());
                         vm.contextualize_exception(&err);
                         match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
-                            Ok(None) => self.run(vm),
+                            Ok(None) => {
+                                *self.prev_line = 0;
+                                self.run(vm)
+                            }
                             Ok(Some(result)) => Ok(result),
                             Err(exception) => Err(exception),
                         }
@@ -1906,7 +1906,13 @@ impl ExecutingFrame<'_> {
         self.push_value(vm.ctx.none());
 
         match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
-            Ok(None) => self.run(vm),
+            Ok(None) => {
+                // Reset prev_line so that the first instruction in the handler
+                // fires a LINE event. In CPython, gen_send_ex re-enters the
+                // eval loop which reinitializes its local prev_instr tracker.
+                *self.prev_line = 0;
+                self.run(vm)
+            }
             Ok(Some(result)) => Ok(result),
             Err(exception) => {
                 // Fire PY_UNWIND: exception escapes the generator frame.
@@ -9440,20 +9446,25 @@ impl ExecutingFrame<'_> {
                 Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()).into())
             }
             bytecode::IntrinsicFunction1::StopIterationError => {
-                // Convert StopIteration to RuntimeError
-                // Used to ensure async generators don't raise StopIteration directly
-                // _PyGen_FetchStopIterationValue
-                // Use fast_isinstance to handle subclasses of StopIteration
+                // Convert StopIteration to RuntimeError (PEP 479)
+                // Returns the exception object; RERAISE will re-raise it
                 if arg.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
-                    Err(vm.new_runtime_error("coroutine raised StopIteration"))
+                    let flags = &self.code.flags;
+                    let msg = if flags
+                        .contains(bytecode::CodeFlags::COROUTINE | bytecode::CodeFlags::GENERATOR)
+                    {
+                        "async generator raised StopIteration"
+                    } else if flags.contains(bytecode::CodeFlags::COROUTINE) {
+                        "coroutine raised StopIteration"
+                    } else {
+                        "generator raised StopIteration"
+                    };
+                    let err = vm.new_runtime_error(msg);
+                    err.set___cause__(arg.downcast().ok());
+                    Ok(err.into())
                 } else {
-                    // If not StopIteration, just re-raise the original exception
-                    Err(arg.downcast().unwrap_or_else(|obj| {
-                        vm.new_runtime_error(format!(
-                            "unexpected exception type: {:?}",
-                            obj.class()
-                        ))
-                    }))
+                    // Not StopIteration, pass through for RERAISE
+                    Ok(arg)
                 }
             }
             bytecode::IntrinsicFunction1::AsyncGenWrap => {

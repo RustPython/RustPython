@@ -368,6 +368,9 @@ pub fn instrument_code(code: &PyCode, events: u32) {
         // is_line_start[i] = true if position i should have INSTRUMENTED_LINE
         let mut is_line_start = vec![false; len];
 
+        // Build NO_LOCATION mask from linetable
+        let no_loc_mask = bytecode::build_no_location_mask(&code.code.linetable, len);
+
         // First pass: mark positions where the source line changes
         let mut prev_line: Option<u32> = None;
         for (i, unit) in code
@@ -393,6 +396,10 @@ pub fn instrument_code(code: &PyCode, events: u32) {
                     | Instruction::EndAsyncFor
                     | Instruction::Cache
             ) {
+                continue;
+            }
+            // Skip NO_LOCATION instructions
+            if no_loc_mask.get(i).copied().unwrap_or(false) {
                 continue;
             }
             if let Some((loc, _)) = code.code.locations.get(i) {
@@ -445,6 +452,7 @@ pub fn instrument_code(code: &PyCode, events: u32) {
             if let Some(target_idx) = target
                 && target_idx < len
                 && !is_line_start[target_idx]
+                && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
                 let target_op = code.code.instructions[target_idx].op;
                 let target_base = target_op.to_base().map_or(target_op, |b| b);
@@ -465,7 +473,10 @@ pub fn instrument_code(code: &PyCode, events: u32) {
         // Third pass: mark exception handler targets as line starts.
         for entry in bytecode::decode_exception_table(&code.code.exceptiontable) {
             let target_idx = entry.target as usize;
-            if target_idx < len && !is_line_start[target_idx] {
+            if target_idx < len
+                && !is_line_start[target_idx]
+                && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
+            {
                 let target_op = code.code.instructions[target_idx].op;
                 let target_base = target_op.to_base().map_or(target_op, |b| b);
                 if !matches!(target_base, Instruction::PopIter)

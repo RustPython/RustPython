@@ -135,6 +135,72 @@ pub fn decode_exception_table(table: &[u8]) -> Vec<ExceptionTableEntry> {
     entries
 }
 
+/// Parse linetable to build a boolean mask indicating which code units
+/// have NO_LOCATION (line == -1). Returns a Vec<bool> of length `num_units`.
+pub fn build_no_location_mask(linetable: &[u8], num_units: usize) -> Vec<bool> {
+    let mut mask = Vec::new();
+    mask.resize(num_units, false);
+    let mut pos = 0;
+    let mut unit_idx = 0;
+
+    while pos < linetable.len() && unit_idx < num_units {
+        let header = linetable[pos];
+        pos += 1;
+        let code = (header >> 3) & 0xf;
+        let length = ((header & 7) + 1) as usize;
+
+        let is_no_location = code == PyCodeLocationInfoKind::None as u8;
+
+        // Skip payload bytes based on location kind
+        match code {
+            0..=9 => pos += 1,   // Short forms: 1 byte payload
+            10..=12 => pos += 2, // OneLine forms: 2 bytes payload
+            13 => {
+                // NoColumns: signed varint (line delta)
+                while pos < linetable.len() {
+                    let b = linetable[pos];
+                    pos += 1;
+                    if b & 0x40 == 0 {
+                        break;
+                    }
+                }
+            }
+            14 => {
+                // Long form: signed varint (line delta) + 3 unsigned varints
+                // line_delta
+                while pos < linetable.len() {
+                    let b = linetable[pos];
+                    pos += 1;
+                    if b & 0x40 == 0 {
+                        break;
+                    }
+                }
+                // end_line_delta, col+1, end_col+1
+                for _ in 0..3 {
+                    while pos < linetable.len() {
+                        let b = linetable[pos];
+                        pos += 1;
+                        if b & 0x40 == 0 {
+                            break;
+                        }
+                    }
+                }
+            }
+            15 => {} // None: no payload
+            _ => {}
+        }
+
+        for _ in 0..length {
+            if unit_idx < num_units {
+                mask[unit_idx] = is_no_location;
+                unit_idx += 1;
+            }
+        }
+    }
+
+    mask
+}
+
 /// CPython 3.11+ linetable location info codes
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u8)]

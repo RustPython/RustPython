@@ -99,8 +99,6 @@ class ContextManagerTestCase(unittest.TestCase):
                 raise ZeroDivisionError()
         self.assertEqual(state, [1, 42, 999])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_contextmanager_traceback(self):
         @contextmanager
         def f():

@@ -2169,17 +2169,15 @@ impl SymbolTableBuilder {
         // Generator expressions need the is_generator flag
         self.tables.last_mut().unwrap().is_generator = is_generator;
 
-        // PEP 709: Mark non-generator comprehensions for inlining,
-        // but only inside function-like scopes (fastlocals).
-        // Module/class scope uses STORE_NAME which is incompatible
-        // with LOAD_FAST_AND_CLEAR / STORE_FAST save/restore.
-        // Async comprehensions cannot be inlined because they need
-        // their own coroutine scope.
-        // Note: tables.last() is the comprehension scope we just pushed,
-        // so we check the second-to-last for the parent scope.
+        // PEP 709: Mark non-generator comprehensions for inlining.
+        // Only in function-like scopes for now. Module/class scope inlining
+        // needs more work (Cell name resolution, __class__ handling).
+        // Also excluded: generator expressions, async comprehensions,
+        // and annotation scopes nested in classes (can_see_class_scope).
         let element_has_await = expr_contains_await(elt1) || elt2.is_some_and(expr_contains_await);
         if !is_generator && !has_async_gen && !element_has_await {
             let parent = self.tables.iter().rev().nth(1);
+            let parent_can_see_class = parent.is_some_and(|t| t.can_see_class_scope);
             let parent_is_func = parent.is_some_and(|t| {
                 matches!(
                     t.typ,
@@ -2189,8 +2187,7 @@ impl SymbolTableBuilder {
                         | CompilerScope::Comprehension
                 )
             });
-            let parent_can_see_class = parent.is_some_and(|t| t.can_see_class_scope);
-            if parent_is_func && !parent_can_see_class {
+            if !parent_can_see_class && parent_is_func {
                 self.tables.last_mut().unwrap().comp_inlined = true;
             }
         }

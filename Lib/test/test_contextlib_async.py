@@ -252,7 +252,6 @@ class AsyncContextManagerTestCase(unittest.IsolatedAsyncioTestCase):
             raise ZeroDivisionError(999)
         self.assertEqual(state, [1, 42, 999])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     async def test_contextmanager_except_stopiter(self):
         @asynccontextmanager
         async def woohoo():
