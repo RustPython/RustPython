@@ -174,6 +174,7 @@ mod _symtable {
                 .symtable
                 .sub_tables
                 .iter()
+                .filter(|t| !t.comp_inlined)
                 .map(|t| to_py_symbol_table(t.clone()).into_pyobject(vm))
                 .collect();
             Ok(children)

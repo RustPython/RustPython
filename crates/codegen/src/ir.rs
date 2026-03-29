@@ -209,22 +209,21 @@ impl CodeInfo {
         // Peephole optimizer creates superinstructions matching CPython
         self.peephole_optimize();
 
-        // insert_superinstructions (flowgraph.c): must run BEFORE optimize_load_fast
-        self.combine_store_fast_load_fast();
-
-        // optimize_load_fast (flowgraph.c): LOAD_FAST → LOAD_FAST_BORROW
-        self.optimize_load_fast_borrow();
-
-        // Post-codegen CFG analysis passes (flowgraph.c pipeline)
+        // Phase 1: _PyCfg_OptimizeCodeUnit (flowgraph.c)
         mark_except_handlers(&mut self.blocks);
         label_exception_targets(&mut self.blocks);
+        // TODO: insert_superinstructions disabled pending StoreFastLoadFast VM fix
         push_cold_blocks_to_end(&mut self.blocks);
+
+        // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
         normalize_jumps(&mut self.blocks);
         self.dce(); // re-run within-block DCE after normalize_jumps creates new instructions
         self.eliminate_unreachable_blocks();
         duplicate_end_returns(&mut self.blocks);
         self.dce(); // truncate after terminal in blocks that got return duplicated
         self.eliminate_unreachable_blocks(); // remove now-unreachable last block
+        // optimize_load_fast: after normalize_jumps
+        self.optimize_load_fast_borrow();
         self.optimize_load_global_push_null();
 
         let max_stackdepth = self.max_stackdepth()?;
@@ -850,17 +849,12 @@ impl CodeInfo {
                         l / r
                     }
                     BinOp::FloorDivide => {
-                        if *r == 0.0 {
-                            return None;
-                        }
-                        (l / r).floor()
+                        // Float floor division uses runtime semantics; skip folding
+                        return None;
                     }
                     BinOp::Remainder => {
-                        if *r == 0.0 {
-                            return None;
-                        }
-                        // Python float modulo: a - b * floor(a/b)
-                        l - r * (l / r).floor()
+                        // Float modulo uses fmod() at runtime; Rust arithmetic differs
+                        return None;
                     }
                     BinOp::Power => l.powf(*r),
                     _ => return None,
@@ -1491,8 +1485,8 @@ impl CodeInfo {
     /// Optimize LOAD_FAST to LOAD_FAST_BORROW where safe.
     ///
     /// insert_superinstructions (flowgraph.c): Combine STORE_FAST + LOAD_FAST →
-    /// STORE_FAST_LOAD_FAST. Must run BEFORE optimize_load_fast_borrow so that
-    /// the borrow pass sees the combined instruction (matching flowgraph.c order).
+    /// STORE_FAST_LOAD_FAST. Currently disabled pending VM stack null investigation.
+    #[allow(dead_code)]
     fn combine_store_fast_load_fast(&mut self) {
         for block in &mut self.blocks {
             let mut i = 0;
@@ -1505,6 +1499,13 @@ impl CodeInfo {
                     i += 1;
                     continue;
                 };
+                // Skip if instructions are on different lines (matching make_super_instruction)
+                let line1 = curr.location.line;
+                let line2 = next.location.line;
+                if line1 != line2 {
+                    i += 1;
+                    continue;
+                }
                 let idx1 = u32::from(curr.arg);
                 let idx2 = u32::from(next.arg);
                 if idx1 < 16 && idx2 < 16 {
@@ -1514,8 +1515,10 @@ impl CodeInfo {
                     }
                     .into();
                     block.instructions[i].arg = OpArg::new(packed);
-                    block.instructions.remove(i + 1);
-                    // Don't advance — check if next pair can also be combined
+                    // Replace second instruction with NOP (CPython: INSTR_SET_OP0(inst2, NOP))
+                    block.instructions[i + 1].instr = Instruction::Nop.into();
+                    block.instructions[i + 1].arg = OpArg::new(0);
+                    i += 2; // skip the NOP
                 } else {
                     i += 1;
                 }

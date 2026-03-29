@@ -736,6 +736,20 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.store_variable(var_num.get(arg), val)
             }
+            Instruction::StoreFastLoadFast { var_nums } => {
+                let oparg = var_nums.get(arg);
+                let (store_idx, load_idx) = oparg.indexes();
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                self.store_variable(store_idx, val)?;
+                let local = self.variables[load_idx]
+                    .as_ref()
+                    .ok_or(JitCompileError::BadBytecode)?;
+                self.stack.push(JitValue::from_type_and_value(
+                    local.ty.clone(),
+                    self.builder.use_var(local.var),
+                ));
+                Ok(())
+            }
             Instruction::StoreFastStoreFast { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();

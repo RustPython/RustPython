@@ -132,7 +132,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_CONST', None)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_while_one(self):
         # Skip over:  LOAD_CONST trueconst  POP_JUMP_IF_FALSE xx
         def f():
@@ -545,7 +544,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(len(returns), 2)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; absolute jump encoding
     def test_elim_jump_to_uncond_jump(self):
         # POP_JUMP_IF_FALSE to JUMP_FORWARD --> POP_JUMP_IF_FALSE to non-jump
         def f():
