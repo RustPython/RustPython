@@ -2302,7 +2302,8 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
 
     visited.fill(false);
 
-    for &block_idx in &visit_order {
+    for vi in 0..visit_order.len() {
+        let block_idx = visit_order[vi];
         let idx = block_idx.idx();
         visited[idx] = true;
 
