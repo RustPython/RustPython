@@ -464,8 +464,9 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
         Err(MarshalError::BadType)
     }
 
-    fn make_frozenset(&self, _: impl Iterator<Item = Self::Value>) -> Result<Self::Value> {
-        Err(MarshalError::BadType)
+    fn make_frozenset(&self, it: impl Iterator<Item = Self::Value>) -> Result<Self::Value> {
+        let elements: Vec<Self::Value> = it.collect();
+        Ok(self.make_constant::<Bag::Constant>(BorrowedConstant::Frozenset { elements: &elements }))
     }
 
     fn make_dict(
@@ -710,6 +711,7 @@ impl<'a, C: Constant> From<BorrowedConstant<'a, C>> for DumpableValue<'a, C> {
             BorrowedConstant::Slice { elements } => {
                 Self::Slice(&elements[0], &elements[1], &elements[2])
             }
+            BorrowedConstant::Frozenset { elements } => Self::Frozenset(elements),
             BorrowedConstant::None => Self::None,
             BorrowedConstant::Ellipsis => Self::Ellipsis,
         }

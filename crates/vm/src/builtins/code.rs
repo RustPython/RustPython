@@ -242,6 +242,13 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
             let arr = Box::leak(Box::new([Literal(start), Literal(stop), Literal(step)]));
             BorrowedConstant::Slice { elements: arr }
         }
+        ref fs @ super::set::PyFrozenSet => {
+            // Box::leak the elements so they outlive the borrow. Leak is acceptable since
+            // constant pool objects live for the program's lifetime.
+            let elems: Vec<Literal> = fs.elements().into_iter().map(Literal).collect();
+            let elements = Box::leak(elems.into_boxed_slice());
+            BorrowedConstant::Frozenset { elements }
+        }
         _ => panic!("unexpected payload for constant python value"),
     })
 }
@@ -308,6 +315,14 @@ impl ConstantBag for PyObjBag<'_> {
                 }
                 .into_ref(ctx)
                 .into()
+            }
+            BorrowedConstant::Frozenset { elements: _ } => {
+                // Creating a frozenset requires VirtualMachine for element hashing.
+                // PyObjBag only has Context, so we cannot construct PyFrozenSet here.
+                // Frozenset constants from .pyc are handled by PyMarshalBag which has VM access.
+                unimplemented!(
+                    "frozenset constant in PyObjBag::make_constant requires VirtualMachine"
+                )
             }
             BorrowedConstant::None => ctx.none(),
             BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
