@@ -435,6 +435,16 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
         self.make_tuple(elements)
     }
 
+    fn make_slice(
+        &self,
+        start: Self::Value,
+        stop: Self::Value,
+        step: Self::Value,
+    ) -> Result<Self::Value> {
+        let elements = [start, stop, step];
+        Ok(self.make_constant::<Bag::Constant>(BorrowedConstant::Slice { elements: &elements }))
+    }
+
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
@@ -697,6 +707,9 @@ impl<'a, C: Constant> From<BorrowedConstant<'a, C>> for DumpableValue<'a, C> {
             BorrowedConstant::Bytes { value } => Self::Bytes(value),
             BorrowedConstant::Code { code } => Self::Code(code),
             BorrowedConstant::Tuple { elements } => Self::Tuple(elements),
+            BorrowedConstant::Slice { elements } => {
+                Self::Slice(&elements[0], &elements[1], &elements[2])
+            }
             BorrowedConstant::None => Self::None,
             BorrowedConstant::Ellipsis => Self::Ellipsis,
         }

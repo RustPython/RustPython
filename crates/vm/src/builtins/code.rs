@@ -232,6 +232,16 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
         }
         super::singletons::PyNone => BorrowedConstant::None,
         super::slice::PyEllipsis => BorrowedConstant::Ellipsis,
+        ref s @ super::slice::PySlice => {
+            // Constant pool slices always store Some() for start/step (even for None).
+            // Box::leak the array so it outlives the borrow. Leak is acceptable since
+            // constant pool objects live for the program's lifetime.
+            let start = s.start.clone().unwrap();
+            let stop = s.stop.clone();
+            let step = s.step.clone().unwrap();
+            let arr = Box::leak(Box::new([Literal(start), Literal(stop), Literal(step)]));
+            BorrowedConstant::Slice { elements: arr }
+        }
         _ => panic!("unexpected payload for constant python value"),
     })
 }
@@ -282,6 +292,22 @@ impl ConstantBag for PyObjBag<'_> {
                     .map(|constant| self.make_constant(constant.borrow_constant()).0)
                     .collect();
                 ctx.new_tuple(elements).into()
+            }
+            BorrowedConstant::Slice { elements } => {
+                let [start, stop, step] = elements;
+                let start_obj = self.make_constant(start.borrow_constant()).0;
+                let stop_obj = self.make_constant(stop.borrow_constant()).0;
+                let step_obj = self.make_constant(step.borrow_constant()).0;
+                // Store as PySlice with Some() for all fields (even None values)
+                // so borrow_obj_constant can reference them.
+                use crate::builtins::PySlice;
+                PySlice {
+                    start: Some(start_obj),
+                    stop: stop_obj,
+                    step: Some(step_obj),
+                }
+                .into_ref(ctx)
+                .into()
             }
             BorrowedConstant::None => ctx.none(),
             BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),

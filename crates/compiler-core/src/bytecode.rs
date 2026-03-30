@@ -292,6 +292,7 @@ impl Constant for ConstantData {
             Self::Bytes { value } => Bytes { value },
             Self::Code { code } => Code { code },
             Self::Tuple { elements } => Tuple { elements },
+            Self::Slice { elements } => Slice { elements },
             Self::None => None,
             Self::Ellipsis => Ellipsis,
         }
@@ -857,6 +858,8 @@ pub enum ConstantData {
     Str { value: Wtf8Buf },
     Bytes { value: Vec<u8> },
     Code { code: Box<CodeObject> },
+    /// Constant slice(start, stop, step)
+    Slice { elements: Box<[ConstantData; 3]> },
     None,
     Ellipsis,
 }
@@ -878,6 +881,7 @@ impl PartialEq for ConstantData {
             (Bytes { value: a }, Bytes { value: b }) => a == b,
             (Code { code: a }, Code { code: b }) => core::ptr::eq(a.as_ref(), b.as_ref()),
             (Tuple { elements: a }, Tuple { elements: b }) => a == b,
+            (Slice { elements: a }, Slice { elements: b }) => a == b,
             (None, None) => true,
             (Ellipsis, Ellipsis) => true,
             _ => false,
@@ -904,6 +908,7 @@ impl hash::Hash for ConstantData {
             Bytes { value } => value.hash(state),
             Code { code } => core::ptr::hash(code.as_ref(), state),
             Tuple { elements } => elements.hash(state),
+            Slice { elements } => elements.hash(state),
             None => {}
             Ellipsis => {}
         }
@@ -920,6 +925,7 @@ pub enum BorrowedConstant<'a, C: Constant> {
     Bytes { value: &'a [u8] },
     Code { code: &'a CodeObject<C> },
     Tuple { elements: &'a [C] },
+    Slice { elements: &'a [C; 3] },
     None,
     Ellipsis,
 }
@@ -957,6 +963,15 @@ impl<C: Constant> BorrowedConstant<'_, C> {
                 }
                 write!(f, ")")
             }
+            BorrowedConstant::Slice { elements } => {
+                write!(f, "slice(")?;
+                elements[0].borrow_constant().fmt_display(f)?;
+                write!(f, ", ")?;
+                elements[1].borrow_constant().fmt_display(f)?;
+                write!(f, ", ")?;
+                elements[2].borrow_constant().fmt_display(f)?;
+                write!(f, ")")
+            }
             BorrowedConstant::None => write!(f, "None"),
             BorrowedConstant::Ellipsis => write!(f, "..."),
         }
@@ -986,6 +1001,9 @@ impl<C: Constant> BorrowedConstant<'_, C> {
                     .iter()
                     .map(|c| c.borrow_constant().to_owned())
                     .collect(),
+            },
+            BorrowedConstant::Slice { elements } => Slice {
+                elements: Box::new(elements.each_ref().map(|c| c.borrow_constant().to_owned())),
             },
             BorrowedConstant::None => None,
             BorrowedConstant::Ellipsis => Ellipsis,
