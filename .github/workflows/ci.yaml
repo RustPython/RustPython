@@ -114,34 +114,32 @@ jobs:
       matrix:
         include: 
         - os: ubuntu-latest
-          targets:
-            - aarch64-linux-android
-            - i686-unknown-linux-gnu
-            - i686-unknown-linux-musl
-            - wasm32-wasip2
-            - x86_64-unknown-freebsd
+          target: aarch64-linux-android
+        - os: ubuntu-latest
+          target: i686-unknown-linux-gnu
           dependencies:
             gcc-multilib: true
+        - os: ubuntu-latest
+          target: i686-unknown-linux-musl
+          dependencies:
             musl-tools: true
         - os: ubuntu-latest
-          targets:
-            - aarch64-unknown-linux-gnu
+          target: wasm32-wasip2
+        - os: ubuntu-latest
+          target: x86_64-unknown-freebsd
+        - os: ubuntu-latest
+          target: aarch64-unknown-linux-gnu
           dependencies:
-            gcc-aarch64-linux-gnu: true # conflict with `gcc-multilib`
+            gcc-aarch64-linux-gnu: true
         - os: macos-latest
-          targets:
-            - aarch64-apple-ios
-            - x86_64-apple-darwin
+          target: aarch64-apple-ios
+        - os: macos-latest
+          target: x86_64-apple-darwin
       fail-fast: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          prefix-key: v0-rust-${{ join(matrix.targets, '-') }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install dependencies
         uses: ./.github/actions/install-linux-deps
@@ -152,13 +150,28 @@ jobs:
           musl-tools: ${{ matrix.dependencies.musl-tools || false }}
           gcc-aarch64-linux-gnu: ${{ matrix.dependencies.gcc-aarch64-linux-gnu || false }}
 
+      - name: Restore cache
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        if: ${{ github.ref != 'refs/heads/main' }} # Never restore on main
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          # key won't match, will rely on restore-keys
+          key: cargo-check-${{ runner.os }}-${{ matrix.target }}
+          restore-keys: |
+            cargo-check-${{ runner.os }}-${{ matrix.target }}-
+
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
-          targets: ${{ join(matrix.targets, ',') }}
+          target: ${{ matrix.target }}
           toolchain: stable
 
       - name: Setup Android NDK
-        if: ${{ contains(matrix.targets, 'aarch64-linux-android') }}
+        if: ${{ matrix.target == 'aarch64-linux-android' }}
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
@@ -174,17 +187,23 @@ jobs:
       #     args: --ignore-rust-version
 
       - name: Check compilation
-        run: |
-          for target in ${{ join(matrix.targets, ' ') }}
-          do
-            echo "::group::${target}"
-            cargo check --target $target ${{ env.CARGO_ARGS_NO_SSL }}
-            echo "::endgroup::"
-          done
+        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }}
         env:
           CC_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           AR_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
           CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+
+      - name: Save cache
+        if: ${{ github.ref == 'refs/heads/main' }} # only save on main
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-check-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
