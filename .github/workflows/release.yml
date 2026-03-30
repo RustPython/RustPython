@@ -12,9 +12,6 @@ on:
         required: false
         default: true
 
-permissions:
-  contents: write
-
 env:
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
@@ -55,7 +52,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           target: ${{ matrix.target }}
 
@@ -92,7 +89,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           targets: wasm32-wasip1
 
@@ -115,8 +112,9 @@ jobs:
         with:
           package-manager-cache: false
 
-      - uses: mwilliamson/setup-wabt-action@v3
-        with: { wabt-version: "1.0.30" }
+      - uses: mwilliamson/setup-wabt-action@febe2a12b7ccb999a6e5d953a8362a3b7ffcf148 # v3.2.0
+        with:
+          wabt-version: "1.0.30"
 
       - name: build demo
         run: |
@@ -137,7 +135,7 @@ jobs:
 
       - name: Deploy demo to Github Pages
         if: ${{ github.repository == 'RustPython/RustPython' }}
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
         with:
           deploy_key: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
           publish_dir: ./wasm/demo/dist
