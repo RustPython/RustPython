@@ -27,6 +27,8 @@ env:
   PYTHON_VERSION: "3.14.3"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
 
 jobs:
   rust_tests:
