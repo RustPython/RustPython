@@ -1,6 +1,5 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 9962
 expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
   1           0 RESUME               (0)
@@ -24,7 +23,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  16 CACHE
                  17 CACHE
                  18 LOAD_CONST           ("ham")
-            >>   19 CALL                 (1)
+                 19 CALL                 (1)
                  20 CACHE
                  21 CACHE
                  22 CACHE
@@ -203,7 +202,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 186 CACHE
                 187 CACHE
                 188 CACHE
-                189 CACHE
+            >>  189 CACHE
                 190 CACHE
                 191 CACHE
                 192 CACHE
@@ -221,34 +220,34 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
 
   3             204 LOAD_CONST           (None)
                 205 LOAD_CONST           (None)
-                206 LOAD_CONST           (None)
+            >>  206 LOAD_CONST           (None)
                 207 CALL                 (3)
                 208 CACHE
-            >>  209 CACHE
+                209 CACHE
                 210 CACHE
                 211 POP_TOP
-                212 JUMP_FORWARD         (19)
-                213 PUSH_EXC_INFO
-                214 WITH_EXCEPT_START
-                215 TO_BOOL
-                216 CACHE
+                212 JUMP_BACKWARD        (189)
+                213 CACHE
+                214 PUSH_EXC_INFO
+                215 WITH_EXCEPT_START
+                216 TO_BOOL
                 217 CACHE
                 218 CACHE
-                219 POP_JUMP_IF_TRUE     (2)
-                220 CACHE
-                221 NOT_TAKEN
-                222 RERAISE              (2)
-                223 POP_TOP
-                224 POP_EXCEPT
-                225 POP_TOP
+                219 CACHE
+                220 POP_JUMP_IF_TRUE     (2)
+                221 CACHE
+                222 NOT_TAKEN
+                223 RERAISE              (2)
+                224 POP_TOP
+                225 POP_EXCEPT
                 226 POP_TOP
                 227 POP_TOP
-                228 JUMP_FORWARD         (3)
-                229 COPY                 (3)
-                230 POP_EXCEPT
-                231 RERAISE              (1)
-                232 JUMP_BACKWARD        (209)
-                233 CACHE
+                228 POP_TOP
+                229 JUMP_BACKWARD        (206)
+                230 CACHE
+                231 COPY                 (3)
+                232 POP_EXCEPT
+                233 RERAISE              (1)
 
   2             234 CALL_INTRINSIC_1     (StopIterationError)
                 235 RERAISE              (1)

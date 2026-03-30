@@ -7574,6 +7574,11 @@ impl Compiler {
             ast::Expr::Slice(ast::ExprSlice {
                 lower, upper, step, ..
             }) => {
+                // Try constant slice folding first
+                if self.try_fold_constant_slice(lower.as_deref(), upper.as_deref(), step.as_deref())
+                {
+                    return Ok(());
+                }
                 let mut compile_bound = |bound: Option<&ast::Expr>| match bound {
                     Some(exp) => self.compile_expression(exp),
                     None => {
@@ -8407,6 +8412,24 @@ impl Compiler {
         let arg0 = self.varname(".0")?;
 
         let return_none = init_collection.is_none();
+
+        // PEP 479: Wrap generator/coroutine body with StopIteration handler
+        let is_gen_scope = self.current_symbol_table().is_generator || is_async;
+        let stop_iteration_block = if is_gen_scope {
+            let handler_block = self.new_block();
+            emit!(
+                self,
+                PseudoInstruction::SetupCleanup {
+                    delta: handler_block
+                }
+            );
+            self.set_no_location();
+            self.push_fblock(FBlockType::StopIteration, handler_block, handler_block)?;
+            Some(handler_block)
+        } else {
+            None
+        };
+
         // Create empty object of proper type:
         if let Some(init_collection) = init_collection {
             self._emit(init_collection, OpArg::new(0), BlockIdx::NULL)
@@ -8495,6 +8518,23 @@ impl Compiler {
         }
 
         self.emit_return_value();
+
+        // Close StopIteration handler and emit handler code
+        if let Some(handler_block) = stop_iteration_block {
+            emit!(self, PseudoInstruction::PopBlock);
+            self.set_no_location();
+            self.pop_fblock(FBlockType::StopIteration);
+            self.switch_to_block(handler_block);
+            emit!(
+                self,
+                Instruction::CallIntrinsic1 {
+                    func: oparg::IntrinsicFunction1::StopIterationError
+                }
+            );
+            self.set_no_location();
+            emit!(self, Instruction::Reraise { depth: 1u32 });
+            self.set_no_location();
+        }
 
         let code = self.exit_scope();
 
@@ -8947,6 +8987,46 @@ impl Compiler {
     fn emit_load_const(&mut self, constant: ConstantData) {
         let idx = self.arg_constant(constant);
         self.emit_arg(idx, |consti| Instruction::LoadConst { consti })
+    }
+
+    /// Fold constant slice: if all parts are compile-time constants, emit LOAD_CONST(slice).
+    fn try_fold_constant_slice(
+        &mut self,
+        lower: Option<&ast::Expr>,
+        upper: Option<&ast::Expr>,
+        step: Option<&ast::Expr>,
+    ) -> bool {
+        fn to_const(expr: Option<&ast::Expr>) -> Option<ConstantData> {
+            match expr {
+                None | Some(ast::Expr::NoneLiteral(_)) => Some(ConstantData::None),
+                Some(ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. })) => match value
+                {
+                    ast::Number::Int(i) => Some(ConstantData::Integer {
+                        value: i.as_i64()?.into(),
+                    }),
+                    ast::Number::Float(f) => Some(ConstantData::Float { value: *f }),
+                    ast::Number::Complex { real, imag } => Some(ConstantData::Complex {
+                        value: num_complex::Complex64::new(*real, *imag),
+                    }),
+                },
+                Some(ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. })) => {
+                    Some(ConstantData::Boolean { value: *value })
+                }
+                // Only match Constant_kind nodes (no UnaryOp)
+                _ => None,
+            }
+        }
+
+        let (Some(start), Some(stop), Some(step_val)) =
+            (to_const(lower), to_const(upper), to_const(step))
+        else {
+            return false;
+        };
+
+        self.emit_load_const(ConstantData::Slice {
+            elements: Box::new([start, stop, step_val]),
+        });
+        true
     }
 
     fn emit_return_const(&mut self, constant: ConstantData) {
