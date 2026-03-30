@@ -7575,7 +7575,8 @@ impl Compiler {
                 lower, upper, step, ..
             }) => {
                 // Try constant slice folding first
-                if self.try_fold_constant_slice(lower.as_deref(), upper.as_deref(), step.as_deref()) {
+                if self.try_fold_constant_slice(lower.as_deref(), upper.as_deref(), step.as_deref())
+                {
                     return Ok(());
                 }
                 let mut compile_bound = |bound: Option<&ast::Expr>| match bound {
@@ -8998,17 +8999,16 @@ impl Compiler {
         fn to_const(expr: Option<&ast::Expr>) -> Option<ConstantData> {
             match expr {
                 None | Some(ast::Expr::NoneLiteral(_)) => Some(ConstantData::None),
-                Some(ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. })) => {
-                    match value {
-                        ast::Number::Int(i) => Some(ConstantData::Integer {
-                            value: i.as_i64()?.into(),
-                        }),
-                        ast::Number::Float(f) => Some(ConstantData::Float { value: *f }),
-                        ast::Number::Complex { real, imag } => Some(ConstantData::Complex {
-                            value: num_complex::Complex64::new(*real, *imag),
-                        }),
-                    }
-                }
+                Some(ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. })) => match value
+                {
+                    ast::Number::Int(i) => Some(ConstantData::Integer {
+                        value: i.as_i64()?.into(),
+                    }),
+                    ast::Number::Float(f) => Some(ConstantData::Float { value: *f }),
+                    ast::Number::Complex { real, imag } => Some(ConstantData::Complex {
+                        value: num_complex::Complex64::new(*real, *imag),
+                    }),
+                },
                 Some(ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. })) => {
                     Some(ConstantData::Boolean { value: *value })
                 }

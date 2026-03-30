@@ -851,17 +851,37 @@ impl CodeUnits {
 /// ```
 #[derive(Debug, Clone)]
 pub enum ConstantData {
-    Tuple { elements: Vec<ConstantData> },
-    Integer { value: BigInt },
-    Float { value: f64 },
-    Complex { value: Complex64 },
-    Boolean { value: bool },
-    Str { value: Wtf8Buf },
-    Bytes { value: Vec<u8> },
-    Code { code: Box<CodeObject> },
+    Tuple {
+        elements: Vec<ConstantData>,
+    },
+    Integer {
+        value: BigInt,
+    },
+    Float {
+        value: f64,
+    },
+    Complex {
+        value: Complex64,
+    },
+    Boolean {
+        value: bool,
+    },
+    Str {
+        value: Wtf8Buf,
+    },
+    Bytes {
+        value: Vec<u8>,
+    },
+    Code {
+        code: Box<CodeObject>,
+    },
     /// Constant slice(start, stop, step)
-    Slice { elements: Box<[ConstantData; 3]> },
-    Frozenset { elements: Vec<ConstantData> },
+    Slice {
+        elements: Box<[ConstantData; 3]>,
+    },
+    Frozenset {
+        elements: Vec<ConstantData>,
+    },
     None,
     Ellipsis,
 }

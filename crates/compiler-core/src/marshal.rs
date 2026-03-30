@@ -442,7 +442,11 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
         step: Self::Value,
     ) -> Result<Self::Value> {
         let elements = [start, stop, step];
-        Ok(self.make_constant::<Bag::Constant>(BorrowedConstant::Slice { elements: &elements }))
+        Ok(
+            self.make_constant::<Bag::Constant>(BorrowedConstant::Slice {
+                elements: &elements,
+            }),
+        )
     }
 
     fn make_code(
@@ -466,7 +470,11 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
 
     fn make_frozenset(&self, it: impl Iterator<Item = Self::Value>) -> Result<Self::Value> {
         let elements: Vec<Self::Value> = it.collect();
-        Ok(self.make_constant::<Bag::Constant>(BorrowedConstant::Frozenset { elements: &elements }))
+        Ok(
+            self.make_constant::<Bag::Constant>(BorrowedConstant::Frozenset {
+                elements: &elements,
+            }),
+        )
     }
 
     fn make_dict(
