@@ -214,7 +214,7 @@ rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.1", features = ["event"] }
 rustyline = "17.0.1"
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
-schannel = "0.1.28"
+schannel = "0.1.29"
 scoped-tls = "1"
 scopeguard = "1"
 static_assertions = "1.1"
