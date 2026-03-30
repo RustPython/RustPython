@@ -361,7 +361,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-        run: rustup component add rustfmt --toolchain=stable
+      - run: rustup component add rustfmt --toolchain=stable
 
       - uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
 
