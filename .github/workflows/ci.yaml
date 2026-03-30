@@ -8,6 +8,8 @@ on:
 
 name: CI
 
+permissions: {}
+
 # Cancel previous workflows if they are the same workflow on same ref (branch/tags)
 # with the same event (push/pull_request) even they are in progress.
 # This setting will help reduce the number of duplicated workflows.
