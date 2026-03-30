@@ -108,7 +108,7 @@ jobs:
 
   cargo_check:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
-    name: Ensure compilation on various targets
+    name: cargo check
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
