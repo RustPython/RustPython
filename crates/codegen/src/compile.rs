@@ -9041,20 +9041,14 @@ impl Compiler {
     /// Emit LOAD_ATTR for attribute access (method=false).
     /// Encodes: (name_idx << 1) | 0
     fn emit_load_attr(&mut self, name_idx: u32) {
-        let encoded = LoadAttr::builder()
-            .name_idx(name_idx)
-            .is_method(false)
-            .build();
+        let encoded = LoadAttr::new(name_idx, false);
         self.emit_arg(encoded, |namei| Instruction::LoadAttr { namei })
     }
 
     /// Emit LOAD_ATTR with method flag set (for method calls).
     /// Encodes: (name_idx << 1) | 1
     fn emit_load_attr_method(&mut self, name_idx: u32) {
-        let encoded = LoadAttr::builder()
-            .name_idx(name_idx)
-            .is_method(true)
-            .build();
+        let encoded = LoadAttr::new(name_idx, true);
         self.emit_arg(encoded, |namei| Instruction::LoadAttr { namei })
     }
 
@@ -9068,44 +9062,28 @@ impl Compiler {
     /// Emit LOAD_SUPER_ATTR for 2-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b10 (method=0, class=1)
     fn emit_load_super_attr(&mut self, name_idx: u32) {
-        let encoded = LoadSuperAttr::builder()
-            .name_idx(name_idx)
-            .is_load_method(false)
-            .has_class(true)
-            .build();
+        let encoded = LoadSuperAttr::new(name_idx, false, true);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b11 (method=1, class=1)
     fn emit_load_super_method(&mut self, name_idx: u32) {
-        let encoded = LoadSuperAttr::builder()
-            .name_idx(name_idx)
-            .is_load_method(true)
-            .has_class(true)
-            .build();
+        let encoded = LoadSuperAttr::new(name_idx, true, true);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b00 (method=0, class=0)
     fn emit_load_zero_super_attr(&mut self, name_idx: u32) {
-        let encoded = LoadSuperAttr::builder()
-            .name_idx(name_idx)
-            .is_load_method(false)
-            .has_class(false)
-            .build();
+        let encoded = LoadSuperAttr::new(name_idx, false, false);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b01 (method=1, class=0)
     fn emit_load_zero_super_method(&mut self, name_idx: u32) {
-        let encoded = LoadSuperAttr::builder()
-            .name_idx(name_idx)
-            .is_load_method(true)
-            .has_class(false)
-            .build();
+        let encoded = LoadSuperAttr::new(name_idx, true, false);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 

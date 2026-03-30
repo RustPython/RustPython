@@ -918,8 +918,8 @@ impl VarNums {
 
 impl LoadAttr {
     #[must_use]
-    pub fn builder() -> LoadAttrBuilder {
-        LoadAttrBuilder::default()
+    pub const fn new(name_idx: u32, is_method: bool) -> Self {
+        Self::from_u32((name_idx << 1) | (is_method as u32))
     }
 
     #[must_use]
@@ -933,36 +933,10 @@ impl LoadAttr {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-pub struct LoadAttrBuilder {
-    name_idx: u32,
-    is_method: bool,
-}
-
-impl LoadAttrBuilder {
-    #[must_use]
-    pub const fn build(self) -> LoadAttr {
-        let value = (self.name_idx << 1) | (self.is_method as u32);
-        LoadAttr::from_u32(value)
-    }
-
-    #[must_use]
-    pub const fn name_idx(mut self, value: u32) -> Self {
-        self.name_idx = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn is_method(mut self, value: bool) -> Self {
-        self.is_method = value;
-        self
-    }
-}
-
 impl LoadSuperAttr {
     #[must_use]
-    pub fn builder() -> LoadSuperAttrBuilder {
-        LoadSuperAttrBuilder::default()
+    pub const fn new(name_idx: u32, is_load_method: bool, has_class: bool) -> Self {
+        Self::from_u32((name_idx << 2) | (is_load_method as u32) | ((has_class as u32) << 1))
     }
 
     #[must_use]
@@ -978,45 +952,5 @@ impl LoadSuperAttr {
     #[must_use]
     pub const fn has_class(self) -> bool {
         (self.0 & 2) == 2
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct LoadSuperAttrBuilder {
-    name_idx: u32,
-    is_load_method: bool,
-    has_class: bool,
-}
-
-impl LoadSuperAttrBuilder {
-    #[must_use]
-    pub const fn build(self) -> LoadSuperAttr {
-        let value =
-            (self.name_idx << 2) | ((self.has_class as u32) << 1) | (self.is_load_method as u32);
-        LoadSuperAttr::from_u32(value)
-    }
-
-    #[must_use]
-    pub const fn name_idx(mut self, value: u32) -> Self {
-        self.name_idx = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn is_load_method(mut self, value: bool) -> Self {
-        self.is_load_method = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn has_class(mut self, value: bool) -> Self {
-        self.has_class = value;
-        self
-    }
-}
-
-impl From<LoadSuperAttrBuilder> for LoadSuperAttr {
-    fn from(builder: LoadSuperAttrBuilder) -> Self {
-        builder.build()
     }
 }
