@@ -42,6 +42,7 @@ impl Function {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 enum StackValue {
     String(String),
@@ -49,6 +50,8 @@ enum StackValue {
     Map(HashMap<Wtf8Buf, StackValue>),
     Code(Box<CodeObject>),
     Function(Function),
+    Slice(Box<[StackValue; 3]>),
+    Frozenset(Vec<StackValue>),
 }
 
 impl From<ConstantData> for StackValue {
@@ -59,6 +62,13 @@ impl From<ConstantData> for StackValue {
             }
             ConstantData::None => StackValue::None,
             ConstantData::Code { code } => StackValue::Code(code),
+            ConstantData::Slice { elements } => {
+                let [start, stop, step] = *elements;
+                StackValue::Slice(Box::new([start.into(), stop.into(), step.into()]))
+            }
+            ConstantData::Frozenset { elements } => {
+                StackValue::Frozenset(elements.into_iter().map(Into::into).collect())
+            }
             c => unimplemented!("constant {:?} isn't yet supported in py_function!", c),
         }
     }

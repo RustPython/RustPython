@@ -3216,20 +3216,19 @@ impl Compiler {
                 emit!(self, PseudoInstruction::PopBlock);
             }
 
-            // Create a block for normal path continuation (after handler body succeeds)
-            let handler_normal_exit = self.new_block();
-            emit!(
-                self,
-                PseudoInstruction::JumpNoInterrupt {
-                    delta: handler_normal_exit,
-                }
-            );
-
             // cleanup_end block for named handler
             // IMPORTANT: In CPython, cleanup_end is within outer SETUP_CLEANUP scope.
             // so when RERAISE is executed, it goes to the cleanup block which does POP_EXCEPT.
             // We MUST compile cleanup_end BEFORE popping ExceptionHandler so RERAISE routes to cleanup_block.
             if let Some(cleanup_end) = handler_cleanup_block {
+                let handler_normal_exit = self.new_block();
+                emit!(
+                    self,
+                    PseudoInstruction::JumpNoInterrupt {
+                        delta: handler_normal_exit,
+                    }
+                );
+
                 self.switch_to_block(cleanup_end);
                 if let Some(alias) = name {
                     // name = None; del name; before RERAISE
@@ -3242,10 +3241,10 @@ impl Compiler {
                 // This RERAISE is within ExceptionHandler scope, so it routes to cleanup_block
                 // which does COPY 3; POP_EXCEPT; RERAISE
                 emit!(self, Instruction::Reraise { depth: 1 });
-            }
 
-            // Switch to normal exit block - this is where handler body success continues
-            self.switch_to_block(handler_normal_exit);
+                // Switch to normal exit block - this is where handler body success continues
+                self.switch_to_block(handler_normal_exit);
+            }
 
             // PopBlock for outer SETUP_CLEANUP (ExceptionHandler)
             emit!(self, PseudoInstruction::PopBlock);
@@ -7144,8 +7143,11 @@ impl Compiler {
         condition: bool,
         target_block: BlockIdx,
     ) -> CompileResult<()> {
+        let prev_source_range = self.current_source_range;
+        self.set_source_range(expression.range());
+
         // Compile expression for test, and jump to label if false
-        match &expression {
+        let result = match &expression {
             ast::Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) => {
                 match op {
                     ast::BoolOp::And => {
@@ -7191,21 +7193,20 @@ impl Compiler {
                         }
                     }
                 }
+                Ok(())
             }
             ast::Expr::UnaryOp(ast::ExprUnaryOp {
                 op: ast::UnaryOp::Not,
                 operand,
                 ..
-            }) => {
-                self.compile_jump_if(operand, !condition, target_block)?;
-            }
+            }) => self.compile_jump_if(operand, !condition, target_block),
             ast::Expr::Compare(ast::ExprCompare {
                 left,
                 ops,
                 comparators,
                 ..
             }) if ops.len() > 1 => {
-                self.compile_jump_if_compare(left, ops, comparators, condition, target_block)?;
+                self.compile_jump_if_compare(left, ops, comparators, condition, target_block)
             }
             // `x is None` / `x is not None` → POP_JUMP_IF_NONE / POP_JUMP_IF_NOT_NONE
             ast::Expr::Compare(ast::ExprCompare {
@@ -7240,6 +7241,7 @@ impl Compiler {
                         }
                     );
                 }
+                Ok(())
             }
             _ => {
                 // Fall back case which always will work!
@@ -7263,9 +7265,12 @@ impl Compiler {
                         }
                     );
                 }
+                Ok(())
             }
-        }
-        Ok(())
+        };
+
+        self.set_source_range(prev_source_range);
+        result
     }
 
     /// Compile a boolean operation as an expression.
@@ -9031,6 +9036,28 @@ impl Compiler {
         }
     }
 
+    fn compile_fstring_literal_value(
+        &self,
+        string: &ast::InterpolatedStringLiteralElement,
+        flags: ast::FStringFlags,
+    ) -> Wtf8Buf {
+        if string.value.contains(char::REPLACEMENT_CHARACTER) {
+            let source = self.source_file.slice(string.range);
+            crate::string_parser::parse_fstring_literal_element(source.into(), flags.into()).into()
+        } else {
+            string.value.to_string().into()
+        }
+    }
+
+    fn compile_fstring_part_literal_value(&self, string: &ast::StringLiteral) -> Wtf8Buf {
+        if string.value.contains(char::REPLACEMENT_CHARACTER) {
+            let source = self.source_file.slice(string.range);
+            crate::string_parser::parse_string_literal(source, string.flags.into()).into()
+        } else {
+            string.value.to_string().into()
+        }
+    }
+
     fn arg_constant(&mut self, constant: ConstantData) -> oparg::ConstIdx {
         let info = self.current_code_info();
         info.metadata.consts.insert_full(constant).0.to_u32().into()
@@ -9575,45 +9602,63 @@ impl Compiler {
 
     fn compile_expr_fstring(&mut self, fstring: &ast::ExprFString) -> CompileResult<()> {
         let fstring = &fstring.value;
+        let mut element_count = 0;
+        let mut pending_literal = None;
         for part in fstring {
-            self.compile_fstring_part(part)?;
+            self.compile_fstring_part_into(part, &mut pending_literal, &mut element_count)?;
         }
-        let part_count: u32 = fstring
-            .iter()
-            .len()
-            .try_into()
-            .expect("BuildString size overflowed");
-        if part_count > 1 {
-            emit!(self, Instruction::BuildString { count: part_count });
-        }
-
-        Ok(())
+        self.finish_fstring(pending_literal, element_count)
     }
 
-    fn compile_fstring_part(&mut self, part: &ast::FStringPart) -> CompileResult<()> {
+    fn compile_fstring_part_into(
+        &mut self,
+        part: &ast::FStringPart,
+        pending_literal: &mut Option<Wtf8Buf>,
+        element_count: &mut u32,
+    ) -> CompileResult<()> {
         match part {
             ast::FStringPart::Literal(string) => {
-                if string.value.contains(char::REPLACEMENT_CHARACTER) {
-                    // might have a surrogate literal; should reparse to be sure
-                    let source = self.source_file.slice(string.range);
-                    let value =
-                        crate::string_parser::parse_string_literal(source, string.flags.into());
-                    self.emit_load_const(ConstantData::Str {
-                        value: value.into(),
-                    });
+                let value = self.compile_fstring_part_literal_value(string);
+                if let Some(pending) = pending_literal.as_mut() {
+                    pending.push_wtf8(value.as_ref());
                 } else {
-                    self.emit_load_const(ConstantData::Str {
-                        value: string.value.to_string().into(),
-                    });
+                    *pending_literal = Some(value);
                 }
                 Ok(())
             }
-            ast::FStringPart::FString(fstring) => self.compile_fstring(fstring),
+            ast::FStringPart::FString(fstring) => self.compile_fstring_elements_into(
+                fstring.flags,
+                &fstring.elements,
+                pending_literal,
+                element_count,
+            ),
         }
     }
 
-    fn compile_fstring(&mut self, fstring: &ast::FString) -> CompileResult<()> {
-        self.compile_fstring_elements(fstring.flags, &fstring.elements)
+    fn finish_fstring(
+        &mut self,
+        mut pending_literal: Option<Wtf8Buf>,
+        mut element_count: u32,
+    ) -> CompileResult<()> {
+        if let Some(value) = pending_literal.take() {
+            self.emit_load_const(ConstantData::Str { value });
+            element_count += 1;
+        }
+
+        if element_count == 0 {
+            self.emit_load_const(ConstantData::Str {
+                value: Wtf8Buf::new(),
+            });
+        } else if element_count > 1 {
+            emit!(
+                self,
+                Instruction::BuildString {
+                    count: element_count
+                }
+            );
+        }
+
+        Ok(())
     }
 
     /// Optimize `'format_str' % (args,)` into f-string bytecode.
@@ -9741,24 +9786,31 @@ impl Compiler {
         fstring_elements: &ast::InterpolatedStringElements,
     ) -> CompileResult<()> {
         let mut element_count = 0;
+        let mut pending_literal: Option<Wtf8Buf> = None;
+        self.compile_fstring_elements_into(
+            flags,
+            fstring_elements,
+            &mut pending_literal,
+            &mut element_count,
+        )?;
+        self.finish_fstring(pending_literal, element_count)
+    }
+
+    fn compile_fstring_elements_into(
+        &mut self,
+        flags: ast::FStringFlags,
+        fstring_elements: &ast::InterpolatedStringElements,
+        pending_literal: &mut Option<Wtf8Buf>,
+        element_count: &mut u32,
+    ) -> CompileResult<()> {
         for element in fstring_elements {
-            element_count += 1;
             match element {
                 ast::InterpolatedStringElement::Literal(string) => {
-                    if string.value.contains(char::REPLACEMENT_CHARACTER) {
-                        // might have a surrogate literal; should reparse to be sure
-                        let source = self.source_file.slice(string.range);
-                        let value = crate::string_parser::parse_fstring_literal_element(
-                            source.into(),
-                            flags.into(),
-                        );
-                        self.emit_load_const(ConstantData::Str {
-                            value: value.into(),
-                        });
+                    let value = self.compile_fstring_literal_value(string, flags);
+                    if let Some(pending) = pending_literal.as_mut() {
+                        pending.push_wtf8(value.as_ref());
                     } else {
-                        self.emit_load_const(ConstantData::Str {
-                            value: string.value.to_string().into(),
-                        });
+                        *pending_literal = Some(value);
                     }
                 }
                 ast::InterpolatedStringElement::Interpolation(fstring_expr) => {
@@ -9779,8 +9831,10 @@ impl Compiler {
                         ]
                         .concat();
 
-                        self.emit_load_const(ConstantData::Str { value: text.into() });
-                        element_count += 1;
+                        let text: Wtf8Buf = text.into();
+                        pending_literal
+                            .get_or_insert_with(Wtf8Buf::new)
+                            .push_wtf8(text.as_ref());
 
                         // If debug text is present, apply repr conversion when no `format_spec` specified.
                         // See action_helpers.c: fstring_find_expr_replacement
@@ -9790,6 +9844,11 @@ impl Compiler {
                         ) {
                             conversion = ConvertValueOparg::Repr;
                         }
+                    }
+
+                    if let Some(value) = pending_literal.take() {
+                        self.emit_load_const(ConstantData::Str { value });
+                        *element_count += 1;
                     }
 
                     self.compile_expression(&fstring_expr.expression)?;
@@ -9813,22 +9872,10 @@ impl Compiler {
                             emit!(self, Instruction::FormatSimple);
                         }
                     }
+
+                    *element_count += 1;
                 }
             }
-        }
-
-        if element_count == 0 {
-            // ensure to put an empty string on the stack if there aren't any fstring elements
-            self.emit_load_const(ConstantData::Str {
-                value: Wtf8Buf::new(),
-            });
-        } else if element_count > 1 {
-            emit!(
-                self,
-                Instruction::BuildString {
-                    count: element_count
-                }
-            );
         }
 
         Ok(())
@@ -10595,6 +10642,70 @@ def f(obj):
         assert!(matches!(slice[0], ConstantData::Str { .. }));
         assert!(matches!(slice[1], ConstantData::Integer { .. }));
         assert!(matches!(slice[2], ConstantData::None));
+    }
+
+    #[test]
+    fn test_exception_cleanup_jump_to_return_is_inlined() {
+        let code = compile_exec(
+            "\
+def f(names, cls):
+    try:
+        cls.attr = names
+    except:
+        pass
+    return names
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let return_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .count();
+
+        assert_eq!(return_count, 2);
+    }
+
+    #[test]
+    fn test_fstring_adjacent_literals_are_merged() {
+        let code = compile_exec(
+            "\
+def f(cls, proto):
+    raise TypeError(
+        f\"cannot pickle {cls.__name__!r} object: \"
+        f\"a class that defines __slots__ without \"
+        f\"defining __getstate__ cannot be pickled \"
+        f\"with protocol {proto}\"
+    )
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let string_consts = f
+            .instructions
+            .iter()
+            .filter_map(|unit| match unit.op {
+                Instruction::LoadConst { consti } => {
+                    Some(&f.constants[consti.get(OpArg::new(u32::from(u8::from(unit.arg))))])
+                }
+                _ => None,
+            })
+            .filter_map(|constant| match constant {
+                ConstantData::Str { value } => Some(value.to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            string_consts.iter().any(|value| {
+                value
+                    == " object: a class that defines __slots__ without defining __getstate__ cannot be pickled with protocol "
+            }),
+            "expected merged trailing f-string literal, got {string_consts:?}"
+        );
+        assert!(
+            !string_consts.iter().any(|value| value == " object: "),
+            "did not expect split trailing literal, got {string_consts:?}"
+        );
     }
 
     #[test]
