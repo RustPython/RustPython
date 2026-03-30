@@ -2481,15 +2481,10 @@ impl Compiler {
                             idx: bytecode::CommonConstant::AssertionError
                         }
                     );
-                    emit!(self, Instruction::PushNull);
-                    match msg {
-                        Some(e) => {
-                            self.compile_expression(e)?;
-                            emit!(self, Instruction::Call { argc: 1 });
-                        }
-                        None => {
-                            emit!(self, Instruction::Call { argc: 0 });
-                        }
+                    if let Some(e) = msg {
+                        emit!(self, Instruction::PushNull);
+                        self.compile_expression(e)?;
+                        emit!(self, Instruction::Call { argc: 1 });
                     }
                     emit!(
                         self,
@@ -6789,6 +6784,89 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_jump_if_compare(
+        &mut self,
+        left: &ast::Expr,
+        ops: &[ast::CmpOp],
+        comparators: &[ast::Expr],
+        condition: bool,
+        target_block: BlockIdx,
+    ) -> CompileResult<()> {
+        let compare_range = self.current_source_range;
+        let (last_op, mid_ops) = ops.split_last().unwrap();
+        let (last_comparator, mid_comparators) = comparators.split_last().unwrap();
+
+        self.compile_expression(left)?;
+
+        if mid_comparators.is_empty() {
+            self.compile_expression(last_comparator)?;
+            self.set_source_range(compare_range);
+            self.compile_addcompare(last_op);
+            if condition {
+                emit!(
+                    self,
+                    Instruction::PopJumpIfTrue {
+                        delta: target_block
+                    }
+                );
+            } else {
+                emit!(
+                    self,
+                    Instruction::PopJumpIfFalse {
+                        delta: target_block,
+                    }
+                );
+            }
+            return Ok(());
+        }
+
+        let cleanup = self.new_block();
+        let end = self.new_block();
+
+        for (op, comparator) in mid_ops.iter().zip(mid_comparators) {
+            self.compile_expression(comparator)?;
+            self.set_source_range(compare_range);
+            emit!(self, Instruction::Swap { i: 2 });
+            emit!(self, Instruction::Copy { i: 2 });
+            self.compile_addcompare(op);
+            emit!(self, Instruction::PopJumpIfFalse { delta: cleanup });
+        }
+
+        self.compile_expression(last_comparator)?;
+        self.set_source_range(compare_range);
+        self.compile_addcompare(last_op);
+        if condition {
+            emit!(
+                self,
+                Instruction::PopJumpIfTrue {
+                    delta: target_block
+                }
+            );
+        } else {
+            emit!(
+                self,
+                Instruction::PopJumpIfFalse {
+                    delta: target_block,
+                }
+            );
+        }
+        emit!(self, PseudoInstruction::Jump { delta: end });
+
+        self.switch_to_block(cleanup);
+        emit!(self, Instruction::PopTop);
+        if !condition {
+            emit!(
+                self,
+                PseudoInstruction::Jump {
+                    delta: target_block
+                }
+            );
+        }
+
+        self.switch_to_block(end);
+        Ok(())
+    }
+
     fn compile_annotation(&mut self, annotation: &ast::Expr) -> CompileResult<()> {
         if self.future_annotations {
             self.emit_load_const(ConstantData::Str {
@@ -7120,6 +7198,14 @@ impl Compiler {
                 ..
             }) => {
                 self.compile_jump_if(operand, !condition, target_block)?;
+            }
+            ast::Expr::Compare(ast::ExprCompare {
+                left,
+                ops,
+                comparators,
+                ..
+            }) if ops.len() > 1 => {
+                self.compile_jump_if_compare(left, ops, comparators, condition, target_block)?;
             }
             // `x is None` / `x is not None` → POP_JUMP_IF_NONE / POP_JUMP_IF_NOT_NONE
             ast::Expr::Compare(ast::ExprCompare {
@@ -7575,8 +7661,11 @@ impl Compiler {
                 lower, upper, step, ..
             }) => {
                 // Try constant slice folding first
-                if self.try_fold_constant_slice(lower.as_deref(), upper.as_deref(), step.as_deref())
-                {
+                if self.try_fold_constant_slice(
+                    lower.as_deref(),
+                    upper.as_deref(),
+                    step.as_deref(),
+                )? {
                     return Ok(());
                 }
                 let mut compile_bound = |bound: Option<&ast::Expr>| match bound {
@@ -7991,12 +8080,15 @@ impl Compiler {
         // Save the call expression's source range so CALL instructions use the
         // call start line, not the last argument's line.
         let call_range = self.current_source_range;
+        let uses_ex_call = self.call_uses_ex_call(args);
 
         // Method call: obj → LOAD_ATTR_METHOD → [method, self_or_null] → args → CALL
         // Regular call: func → PUSH_NULL → args → CALL
         if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = &func {
             // Check for super() method call optimization
-            if let Some(super_type) = self.can_optimize_super_call(value, attr.as_str()) {
+            if !uses_ex_call
+                && let Some(super_type) = self.can_optimize_super_call(value, attr.as_str())
+            {
                 // super().method() or super(cls, self).method() optimization
                 // Stack: [global_super, class, self] → LOAD_SUPER_METHOD → [method, self]
                 // Set source range to the super() call for LOAD_GLOBAL/LOAD_DEREF/etc.
@@ -8021,12 +8113,12 @@ impl Compiler {
             } else {
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
-                // Imported names use plain LOAD_ATTR + PUSH_NULL;
-                // other names use method call mode LOAD_ATTR.
+                // Imported names and CALL_FUNCTION_EX-style calls use plain
+                // LOAD_ATTR + PUSH_NULL; other names use method-call mode.
                 // Check current scope and enclosing scopes for IMPORTED flag.
                 let is_import = matches!(value.as_ref(), ast::Expr::Name(ast::ExprName { id, .. })
                     if self.is_name_imported(id.as_str()));
-                if is_import {
+                if is_import || uses_ex_call {
                     self.emit_load_attr(idx);
                     emit!(self, Instruction::PushNull);
                 } else {
@@ -8042,6 +8134,16 @@ impl Compiler {
             self.codegen_call_helper(0, args, call_range)?;
         }
         Ok(())
+    }
+
+    fn call_uses_ex_call(&self, arguments: &ast::Arguments) -> bool {
+        let has_starred = arguments
+            .args
+            .iter()
+            .any(|arg| matches!(arg, ast::Expr::Starred(_)));
+        let has_double_star = arguments.keywords.iter().any(|k| k.arg.is_none());
+        let too_big = arguments.args.len() + arguments.keywords.len() > 15;
+        has_starred || has_double_star || too_big
     }
 
     /// Compile subkwargs: emit key-value pairs for BUILD_MAP
@@ -8942,45 +9044,37 @@ impl Compiler {
     ) -> CompileResult<Option<ConstantData>> {
         let mut constants = Vec::with_capacity(elts.len());
         for elt in elts {
-            match elt {
-                ast::Expr::NumberLiteral(num) => match &num.value {
-                    ast::Number::Int(int) => {
-                        let value = ruff_int_to_bigint(int).map_err(|e| self.error(e))?;
-                        constants.push(ConstantData::Integer { value });
-                    }
-                    ast::Number::Float(f) => {
-                        constants.push(ConstantData::Float { value: *f });
-                    }
-                    ast::Number::Complex { real, imag } => {
-                        constants.push(ConstantData::Complex {
-                            value: Complex::new(*real, *imag),
-                        });
-                    }
-                },
-                ast::Expr::StringLiteral(s) => {
-                    constants.push(ConstantData::Str {
-                        value: self.compile_string_value(s),
-                    });
-                }
-                ast::Expr::BytesLiteral(b) => {
-                    constants.push(ConstantData::Bytes {
-                        value: b.value.bytes().collect(),
-                    });
-                }
-                ast::Expr::BooleanLiteral(b) => {
-                    constants.push(ConstantData::Boolean { value: b.value });
-                }
-                ast::Expr::NoneLiteral(_) => {
-                    constants.push(ConstantData::None);
-                }
-                ast::Expr::EllipsisLiteral(_) => {
-                    constants.push(ConstantData::Ellipsis);
-                }
-                _ => return Ok(None),
-            }
+            let Some(constant) = self.try_fold_constant_expr(elt)? else {
+                return Ok(None);
+            };
+            constants.push(constant);
         }
         Ok(Some(ConstantData::Tuple {
             elements: constants,
+        }))
+    }
+
+    fn try_fold_constant_expr(&mut self, expr: &ast::Expr) -> CompileResult<Option<ConstantData>> {
+        Ok(Some(match expr {
+            ast::Expr::NumberLiteral(num) => match &num.value {
+                ast::Number::Int(int) => ConstantData::Integer {
+                    value: ruff_int_to_bigint(int).map_err(|e| self.error(e))?,
+                },
+                ast::Number::Float(f) => ConstantData::Float { value: *f },
+                ast::Number::Complex { real, imag } => ConstantData::Complex {
+                    value: Complex::new(*real, *imag),
+                },
+            },
+            ast::Expr::StringLiteral(s) => ConstantData::Str {
+                value: self.compile_string_value(s),
+            },
+            ast::Expr::BytesLiteral(b) => ConstantData::Bytes {
+                value: b.value.bytes().collect(),
+            },
+            ast::Expr::BooleanLiteral(b) => ConstantData::Boolean { value: b.value },
+            ast::Expr::NoneLiteral(_) => ConstantData::None,
+            ast::Expr::EllipsisLiteral(_) => ConstantData::Ellipsis,
+            _ => return Ok(None),
         }))
     }
 
@@ -8995,38 +9089,26 @@ impl Compiler {
         lower: Option<&ast::Expr>,
         upper: Option<&ast::Expr>,
         step: Option<&ast::Expr>,
-    ) -> bool {
-        fn to_const(expr: Option<&ast::Expr>) -> Option<ConstantData> {
+    ) -> CompileResult<bool> {
+        let to_const = |expr: Option<&ast::Expr>, this: &mut Self| -> CompileResult<_> {
             match expr {
-                None | Some(ast::Expr::NoneLiteral(_)) => Some(ConstantData::None),
-                Some(ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. })) => match value
-                {
-                    ast::Number::Int(i) => Some(ConstantData::Integer {
-                        value: i.as_i64()?.into(),
-                    }),
-                    ast::Number::Float(f) => Some(ConstantData::Float { value: *f }),
-                    ast::Number::Complex { real, imag } => Some(ConstantData::Complex {
-                        value: num_complex::Complex64::new(*real, *imag),
-                    }),
-                },
-                Some(ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. })) => {
-                    Some(ConstantData::Boolean { value: *value })
-                }
-                // Only match Constant_kind nodes (no UnaryOp)
-                _ => None,
+                None => Ok(Some(ConstantData::None)),
+                Some(expr) => this.try_fold_constant_expr(expr),
             }
-        }
+        };
 
-        let (Some(start), Some(stop), Some(step_val)) =
-            (to_const(lower), to_const(upper), to_const(step))
-        else {
-            return false;
+        let (Some(start), Some(stop), Some(step_val)) = (
+            to_const(lower, self)?,
+            to_const(upper, self)?,
+            to_const(step, self)?,
+        ) else {
+            return Ok(false);
         };
 
         self.emit_load_const(ConstantData::Slice {
             elements: Box::new([start, stop, step_val]),
         });
-        true
+        Ok(true)
     }
 
     fn emit_return_const(&mut self, constant: ConstantData) {
@@ -10195,7 +10277,28 @@ mod ruff_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustpython_compiler_core::SourceFileBuilder;
+    use rustpython_compiler_core::{SourceFileBuilder, bytecode::OpArg};
+
+    fn assert_scope_exit_locations(code: &CodeObject) {
+        for (instr, (location, _)) in code.instructions.iter().zip(code.locations.iter()) {
+            if matches!(
+                instr.op,
+                Instruction::ReturnValue
+                    | Instruction::RaiseVarargs { .. }
+                    | Instruction::Reraise { .. }
+            ) {
+                assert!(
+                    location.line.get() > 0,
+                    "scope-exit instruction {instr:?} is missing a line number"
+                );
+            }
+        }
+        for constant in code.constants.iter() {
+            if let ConstantData::Code { code } = constant {
+                assert_scope_exit_locations(code);
+            }
+        }
+    }
 
     fn compile_exec(source: &str) -> CodeObject {
         let opts = CompileOpts::default();
@@ -10228,6 +10331,19 @@ mod tests {
         let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
         compiler.compile_program(&ast, symbol_table).unwrap();
         compiler.exit_scope()
+    }
+
+    fn find_code<'a>(code: &'a CodeObject, name: &str) -> Option<&'a CodeObject> {
+        if code.obj_name == name {
+            return Some(code);
+        }
+        code.constants.iter().find_map(|constant| {
+            if let ConstantData::Code { code } = constant {
+                find_code(code, name)
+            } else {
+                None
+            }
+        })
     }
 
     macro_rules! assert_dis_snapshot {
@@ -10304,6 +10420,181 @@ async def test():
                 self.fail(f'{stop_exc} was suppressed')
 "
         ));
+    }
+
+    #[test]
+    fn test_scope_exit_instructions_keep_line_numbers() {
+        let code = compile_exec(
+            "\
+async def test():
+    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
+        with self.subTest(type=type(stop_exc)):
+            try:
+                async with egg():
+                    raise stop_exc
+            except Exception as ex:
+                self.assertIs(ex, stop_exc)
+            else:
+                self.fail(f'{stop_exc} was suppressed')
+",
+        );
+        assert_scope_exit_locations(&code);
+    }
+
+    #[test]
+    fn test_attribute_ex_call_uses_plain_load_attr() {
+        let code = compile_exec(
+            "\
+def f(cls, args, kwargs):
+    cls.__new__(cls, *args)
+    cls.__new__(cls, *args, **kwargs)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        let ex_call_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::CallFunctionEx))
+            .count();
+        let load_attr_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::LoadAttr { .. }))
+            .count();
+
+        assert_eq!(ex_call_count, 2);
+        assert_eq!(load_attr_count, 2);
+
+        for unit in f.instructions.iter() {
+            if let Instruction::LoadAttr { namei } = unit.op {
+                let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                assert!(
+                    !load_attr.is_method(),
+                    "CALL_FUNCTION_EX should use plain LOAD_ATTR"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_simple_attribute_call_keeps_method_load() {
+        let code = compile_exec(
+            "\
+def f(obj, arg):
+    return obj.method(arg)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let load_attr = f
+            .instructions
+            .iter()
+            .find_map(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    Some(namei.get(OpArg::new(u32::from(u8::from(unit.arg)))))
+                }
+                _ => None,
+            })
+            .expect("missing LOAD_ATTR");
+
+        assert!(
+            load_attr.is_method(),
+            "simple method calls should stay optimized"
+        );
+    }
+
+    #[test]
+    fn test_conditional_return_epilogue_is_duplicated() {
+        let code = compile_exec(
+            "\
+def f(base, cls, state):
+    if base is object:
+        obj = object.__new__(cls)
+    else:
+        obj = base.__new__(cls, state)
+    return obj
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let return_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .count();
+
+        assert_eq!(return_count, 2);
+    }
+
+    #[test]
+    fn test_assert_without_message_raises_class_directly() {
+        let code = compile_exec(
+            "\
+def f(x):
+    assert x
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let call_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::Call { .. }))
+            .count();
+        let push_null_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::PushNull))
+            .count();
+
+        assert_eq!(call_count, 0);
+        assert_eq!(push_null_count, 0);
+    }
+
+    #[test]
+    fn test_chained_compare_jump_uses_single_cleanup_copy() {
+        let code = compile_exec(
+            "\
+def f(code):
+    if not 1 <= code <= 2147483647:
+        raise ValueError('x')
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let copy_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::Copy { .. }))
+            .count();
+        let pop_top_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::PopTop))
+            .count();
+
+        assert_eq!(copy_count, 1);
+        assert_eq!(pop_top_count, 1);
+    }
+
+    #[test]
+    fn test_constant_slice_folding_handles_string_and_bigint_bounds() {
+        let code = compile_exec(
+            "\
+def f(obj):
+    return obj['a':123456789012345678901234567890]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let slice = f
+            .constants
+            .iter()
+            .find_map(|constant| match constant {
+                ConstantData::Slice { elements } => Some(elements),
+                _ => None,
+            })
+            .expect("missing folded slice constant");
+
+        assert!(matches!(slice[0], ConstantData::Str { .. }));
+        assert!(matches!(slice[1], ConstantData::Integer { .. }));
+        assert!(matches!(slice[2], ConstantData::None));
     }
 
     #[test]
