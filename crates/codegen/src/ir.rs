@@ -223,10 +223,10 @@ impl CodeInfo {
 
         // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
         normalize_jumps(&mut self.blocks);
+        inline_small_or_no_lineno_blocks(&mut self.blocks);
         self.dce(); // re-run within-block DCE after normalize_jumps creates new instructions
         self.eliminate_unreachable_blocks();
-        // TODO: duplicate_exits_without_lineno disabled pending stackdepth fix
-        // duplicate_exits_without_lineno(&mut self.blocks);
+        resolve_line_numbers(&mut self.blocks);
         duplicate_end_returns(&mut self.blocks);
         self.dce(); // truncate after terminal in blocks that got return duplicated
         self.eliminate_unreachable_blocks(); // remove now-unreachable last block
@@ -1630,21 +1630,9 @@ impl CodeInfo {
         let mut maxdepth = 0u32;
         let mut stack = Vec::with_capacity(self.blocks.len());
         let mut start_depths = vec![u32::MAX; self.blocks.len()];
-        start_depths[0] = 0;
-        stack.push(BlockIdx(0));
+        stackdepth_push(&mut stack, &mut start_depths, BlockIdx(0), 0);
         const DEBUG: bool = false;
-        // Global iteration limit as safety guard
-        // The algorithm is monotonic (depths only increase), so it should converge quickly.
-        // Max iterations = blocks * max_possible_depth_increases per block
-        let max_iterations = self.blocks.len() * 100;
-        let mut iterations = 0usize;
         'process_blocks: while let Some(block_idx) = stack.pop() {
-            iterations += 1;
-            if iterations > max_iterations {
-                // Safety guard: should never happen in valid code
-                // Return error instead of silently breaking to avoid underestimated stack depth
-                return Err(InternalError::StackOverflow);
-            }
             let idx = block_idx.idx();
             let mut depth = start_depths[idx];
             if DEBUG {
@@ -1727,6 +1715,10 @@ impl CodeInfo {
             eprintln!("DONE: {maxdepth}");
         }
 
+        for (block, &start_depth) in self.blocks.iter_mut().zip(&start_depths) {
+            block.start_depth = (start_depth != u32::MAX).then_some(start_depth);
+        }
+
         // Fix up handler stack_depth in ExceptHandlerInfo using start_depths
         // computed above: depth = start_depth - 1 - preserve_lasti
         for block in self.blocks.iter_mut() {
@@ -1789,7 +1781,6 @@ fn stackdepth_push(
     let idx = target.idx();
     let block_depth = &mut start_depths[idx];
     if depth > *block_depth || *block_depth == u32::MAX {
-        // Found a path with higher depth (or first visit): update max and queue
         *block_depth = depth;
         stack.push(target);
     }
@@ -2410,7 +2401,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
         current = blocks[current.idx()].next;
     }
 
-    // Replace JUMP → LOAD_CONST + RETURN_VALUE with inline return.
+    // Replace JUMP → value-producing-instr + RETURN_VALUE with inline return.
     // This matches CPython's optimize_basic_block: "Replace JUMP to a RETURN".
     for &block_idx in &visit_order {
         let idx = block_idx.idx();
@@ -2427,11 +2418,13 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                 target_idx = blocks[target_idx].next.idx();
             }
             let target_block = &blocks[target_idx];
-            // Target must start with LOAD_CONST + RETURN_VALUE
-            if target_block.instructions.len() >= 2 {
+            // Target must be exactly `value; RETURN_VALUE`.
+            if target_block.instructions.len() == 2 {
                 let t0 = &target_block.instructions[0];
                 let t1 = &target_block.instructions[1];
-                if matches!(t0.instr.real(), Some(Instruction::LoadConst { .. }))
+                if matches!(t0.instr, AnyInstruction::Real(_))
+                    && !t0.instr.is_scope_exit()
+                    && !t0.instr.is_unconditional_jump()
                     && matches!(t1.instr.real(), Some(Instruction::ReturnValue))
                 {
                     let mut load = *t0;
@@ -2500,13 +2493,61 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
     }
 }
 
-#[allow(dead_code)]
-fn is_simple_return_block(block: &Block) -> bool {
-    block.instructions.len() == 1
-        && matches!(
-            block.instructions[0].instr.real(),
-            Some(Instruction::ReturnValue)
-        )
+/// flowgraph.c inline_small_or_no_lineno_blocks
+fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
+    const MAX_COPY_SIZE: usize = 4;
+
+    let block_exits_scope = |block: &Block| {
+        block
+            .instructions
+            .last()
+            .is_some_and(|ins| ins.instr.is_scope_exit())
+    };
+    let block_has_no_lineno = |block: &Block| {
+        block
+            .instructions
+            .iter()
+            .all(|ins| !instruction_has_lineno(ins))
+    };
+
+    loop {
+        let mut changes = false;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let next = blocks[current.idx()].next;
+            let Some(last) = blocks[current.idx()].instructions.last().copied() else {
+                current = next;
+                continue;
+            };
+            if !last.instr.is_unconditional_jump() || last.target == BlockIdx::NULL {
+                current = next;
+                continue;
+            }
+
+            let target = last.target;
+            let small_exit_block = block_exits_scope(&blocks[target.idx()])
+                && blocks[target.idx()].instructions.len() <= MAX_COPY_SIZE;
+            let no_lineno_no_fallthrough = block_has_no_lineno(&blocks[target.idx()])
+                && !block_has_fallthrough(&blocks[target.idx()]);
+
+            if small_exit_block || no_lineno_no_fallthrough {
+                if let Some(last_instr) = blocks[current.idx()].instructions.last_mut() {
+                    last_instr.instr = Instruction::Nop.into();
+                    last_instr.arg = OpArg::new(0);
+                    last_instr.target = BlockIdx::NULL;
+                }
+                let appended = blocks[target.idx()].instructions.clone();
+                blocks[current.idx()].instructions.extend(appended);
+                changes = true;
+            }
+
+            current = next;
+        }
+
+        if !changes {
+            break;
+        }
+    }
 }
 
 /// Follow chain of empty blocks to find first non-empty block.
@@ -2520,25 +2561,79 @@ fn next_nonempty_block(blocks: &[Block], mut idx: BlockIdx) -> BlockIdx {
     idx
 }
 
-#[allow(dead_code)]
-fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) {
-    // Count predecessors for each block
+fn instruction_lineno(instr: &InstructionInfo) -> i32 {
+    instr
+        .lineno_override
+        .unwrap_or_else(|| instr.location.line.get() as i32)
+}
+
+fn instruction_has_lineno(instr: &InstructionInfo) -> bool {
+    instruction_lineno(instr) > 0
+}
+
+fn block_has_fallthrough(block: &Block) -> bool {
+    block
+        .instructions
+        .last()
+        .is_none_or(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
+}
+
+fn is_jump_instruction(instr: &InstructionInfo) -> bool {
+    instr.instr.is_unconditional_jump() || is_conditional_jump(&instr.instr)
+}
+
+fn is_exit_without_lineno(block: &Block) -> bool {
+    let Some(first) = block.instructions.first() else {
+        return false;
+    };
+    let Some(last) = block.instructions.last() else {
+        return false;
+    };
+    !instruction_has_lineno(first) && last.instr.is_scope_exit()
+}
+
+fn maybe_propagate_location(
+    instr: &mut InstructionInfo,
+    location: SourceLocation,
+    end_location: SourceLocation,
+) {
+    if !instruction_has_lineno(instr) {
+        instr.location = location;
+        instr.end_location = end_location;
+        instr.lineno_override = None;
+    }
+}
+
+fn propagate_locations_in_block(
+    block: &mut Block,
+    location: SourceLocation,
+    end_location: SourceLocation,
+) {
+    let mut prev_location = location;
+    let mut prev_end_location = end_location;
+    for instr in &mut block.instructions {
+        maybe_propagate_location(instr, prev_location, prev_end_location);
+        prev_location = instr.location;
+        prev_end_location = instr.end_location;
+    }
+}
+
+fn compute_predecessors(blocks: &[Block]) -> Vec<u32> {
     let mut predecessors = vec![0u32; blocks.len()];
+    if blocks.is_empty() {
+        return predecessors;
+    }
+
+    predecessors[0] = 1;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let block = &blocks[current.idx()];
-        // Fall-through predecessor
-        let next = next_nonempty_block(blocks, block.next);
-        if next != BlockIdx::NULL {
-            let has_fallthrough = block
-                .instructions
-                .last()
-                .is_none_or(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump());
-            if has_fallthrough {
+        if block_has_fallthrough(block) {
+            let next = next_nonempty_block(blocks, block.next);
+            if next != BlockIdx::NULL {
                 predecessors[next.idx()] += 1;
             }
         }
-        // Jump target predecessor
         for ins in &block.instructions {
             if ins.target != BlockIdx::NULL {
                 let target = next_nonempty_block(blocks, ins.target);
@@ -2549,26 +2644,23 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) {
         }
         current = block.next;
     }
+    predecessors
+}
 
-    // For each block, if its last instruction jumps to an exit block without lineno
-    // that has >1 predecessor, copy that exit block.
-    current = BlockIdx(0);
+fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>, predecessors: &mut Vec<u32>) {
+    let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let block = &blocks[current.idx()];
         let last = match block.instructions.last() {
-            Some(ins) if ins.target != BlockIdx::NULL => ins,
+            Some(ins) if ins.target != BlockIdx::NULL && is_jump_instruction(ins) => ins,
             _ => {
                 current = blocks[current.idx()].next;
                 continue;
             }
         };
-        if !last.instr.is_unconditional_jump() && !is_conditional_jump(&last.instr) {
-            current = blocks[current.idx()].next;
-            continue;
-        }
 
         let target = next_nonempty_block(blocks, last.target);
-        if target == BlockIdx::NULL || !is_simple_return_block(&blocks[target.idx()]) {
+        if target == BlockIdx::NULL || !is_exit_without_lineno(&blocks[target.idx()]) {
             current = blocks[current.idx()].next;
             continue;
         }
@@ -2580,17 +2672,9 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) {
         // Copy the exit block
         let new_idx = BlockIdx(blocks.len() as u32);
         let mut new_block = blocks[target.idx()].clone();
-        // Set location from the jump instruction
-        let jump_loc = blocks[current.idx()].instructions.last().unwrap().location;
-        let jump_end_loc = blocks[current.idx()]
-            .instructions
-            .last()
-            .unwrap()
-            .end_location;
-        if let Some(first) = new_block.instructions.first_mut() {
-            first.location = jump_loc;
-            first.end_location = jump_end_loc;
-        }
+        let jump_loc = last.location;
+        let jump_end_loc = last.end_location;
+        propagate_locations_in_block(&mut new_block, jump_loc, jump_end_loc);
         new_block.next = blocks[target.idx()].next;
         blocks.push(new_block);
 
@@ -2598,26 +2682,106 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) {
         let last_mut = blocks[current.idx()].instructions.last_mut().unwrap();
         last_mut.target = new_idx;
         predecessors[target.idx()] -= 1;
+        predecessors.push(1);
 
         current = blocks[current.idx()].next;
     }
+
+    current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        let block = &blocks[current.idx()];
+        if let Some(last) = block.instructions.last()
+            && block_has_fallthrough(block)
+        {
+            let target = next_nonempty_block(blocks, block.next);
+            if target != BlockIdx::NULL
+                && predecessors[target.idx()] == 1
+                && is_exit_without_lineno(&blocks[target.idx()])
+            {
+                let last_location = last.location;
+                let last_end_location = last.end_location;
+                propagate_locations_in_block(
+                    &mut blocks[target.idx()],
+                    last_location,
+                    last_end_location,
+                );
+            }
+        }
+        current = blocks[current.idx()].next;
+    }
+}
+
+fn propagate_line_numbers(blocks: &mut [Block], predecessors: &[u32]) {
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        let last = blocks[current.idx()].instructions.last().copied();
+        if let Some(last) = last {
+            let (next_block, has_fallthrough) = {
+                let block = &blocks[current.idx()];
+                (block.next, block_has_fallthrough(block))
+            };
+
+            {
+                let block = &mut blocks[current.idx()];
+                let mut prev_location = None;
+                for instr in &mut block.instructions {
+                    if let Some((location, end_location)) = prev_location {
+                        maybe_propagate_location(instr, location, end_location);
+                    }
+                    prev_location = Some((instr.location, instr.end_location));
+                }
+            }
+
+            if has_fallthrough {
+                let target = next_nonempty_block(blocks, next_block);
+                if target != BlockIdx::NULL && predecessors[target.idx()] == 1 {
+                    propagate_locations_in_block(
+                        &mut blocks[target.idx()],
+                        last.location,
+                        last.end_location,
+                    );
+                }
+            }
+
+            if is_jump_instruction(&last) {
+                let target = next_nonempty_block(blocks, last.target);
+                if target != BlockIdx::NULL && predecessors[target.idx()] == 1 {
+                    propagate_locations_in_block(
+                        &mut blocks[target.idx()],
+                        last.location,
+                        last.end_location,
+                    );
+                }
+            }
+        }
+        current = blocks[current.idx()].next;
+    }
+}
+
+fn resolve_line_numbers(blocks: &mut Vec<Block>) {
+    let mut predecessors = compute_predecessors(blocks);
+    duplicate_exits_without_lineno(blocks, &mut predecessors);
+    propagate_line_numbers(blocks, &predecessors);
 }
 
 /// Duplicate `LOAD_CONST None + RETURN_VALUE` for blocks that fall through
 /// to the final return block.
 fn duplicate_end_returns(blocks: &mut [Block]) {
-    // Walk the block chain to find the last block
-    let mut last_block = BlockIdx(0);
+    // Walk the block chain and keep the last non-empty block.
+    let mut last_block = BlockIdx::NULL;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
-        last_block = current;
+        if !blocks[current.idx()].instructions.is_empty() {
+            last_block = current;
+        }
         current = blocks[current.idx()].next;
     }
+    if last_block == BlockIdx::NULL {
+        return;
+    }
 
-    // Check if the last block ends with LOAD_CONST + RETURN_VALUE (the implicit return)
     let last_insts = &blocks[last_block.idx()].instructions;
     // Only apply when the last block is EXACTLY a return-None epilogue
-    // AND the return instructions have no explicit line number (lineno <= 0)
     let is_return_block = last_insts.len() == 2
         && matches!(
             last_insts[0].instr,
@@ -2639,8 +2803,8 @@ fn duplicate_end_returns(blocks: &mut [Block]) {
     current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let block = &blocks[current.idx()];
-        if current != last_block && block.next == last_block && !block.cold && !block.except_handler
-        {
+        let next = next_nonempty_block(blocks, block.next);
+        if current != last_block && next == last_block && !block.cold && !block.except_handler {
             let last_ins = block.instructions.last();
             let has_fallthrough = last_ins
                 .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
