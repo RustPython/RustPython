@@ -1261,7 +1261,6 @@ class TestLineAndInstructionEvents(CheckEvents):
             ('instruction', 'func2', 46),
             ('line', 'get_events', 11)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - instruction offsets differ from CPython
     def test_try_except(self):
 
         def func3():

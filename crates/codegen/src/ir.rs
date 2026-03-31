@@ -25,6 +25,9 @@ struct LineTableLocation {
     end_col: i32,
 }
 
+const MAX_INT_SIZE_BITS: u64 = 128;
+const MIN_CONST_SEQUENCE_SIZE: usize = 3;
+
 /// Metadata for a code unit
 // = _PyCompile_CodeUnitMetadata
 #[derive(Clone, Debug)]
@@ -795,7 +798,12 @@ impl CodeInfo {
                 let result = match op {
                     BinOp::Add => l + r,
                     BinOp::Subtract => l - r,
-                    BinOp::Multiply => l * r,
+                    BinOp::Multiply => {
+                        if !l.is_zero() && !r.is_zero() && l.bits() + r.bits() > MAX_INT_SIZE_BITS {
+                            return None;
+                        }
+                        l * r
+                    }
                     BinOp::FloorDivide => {
                         if r.is_zero() {
                             return None;
@@ -821,18 +829,22 @@ impl CodeInfo {
                         }
                     }
                     BinOp::Power => {
-                        let exp: u32 = r.try_into().ok()?;
-                        if exp > 128 {
-                            return None;
-                        } // prevent huge results
-                        num_traits::pow::pow(l.clone(), exp as usize)
-                    }
-                    BinOp::Lshift => {
-                        let shift: u32 = r.try_into().ok()?;
-                        if shift > 128 {
+                        let exp: u64 = r.try_into().ok()?;
+                        let exp_usize = usize::try_from(exp).ok()?;
+                        if !l.is_zero() && exp > 0 && l.bits() > MAX_INT_SIZE_BITS / exp {
                             return None;
                         }
-                        l << (shift as usize)
+                        num_traits::pow::pow(l.clone(), exp_usize)
+                    }
+                    BinOp::Lshift => {
+                        let shift: u64 = r.try_into().ok()?;
+                        let shift_usize = usize::try_from(shift).ok()?;
+                        if shift > MAX_INT_SIZE_BITS
+                            || (!l.is_zero() && l.bits() > MAX_INT_SIZE_BITS - shift)
+                        {
+                            return None;
+                        }
+                        l << shift_usize
                     }
                     BinOp::Rshift => {
                         let shift: u32 = r.try_into().ok()?;
@@ -1070,7 +1082,7 @@ impl CodeInfo {
                     }
                 }
 
-                if !all_const || list_size < 3 {
+                if !all_const || list_size < MIN_CONST_SEQUENCE_SIZE {
                     i += 1;
                     continue;
                 }
@@ -1117,31 +1129,42 @@ impl CodeInfo {
         }
     }
 
-    /// Convert constant list/set construction before GET_ITER to just LOAD_CONST tuple.
+    /// Convert constant list construction before GET_ITER to just LOAD_CONST tuple.
     /// BUILD_LIST 0 + LOAD_CONST (tuple) + LIST_EXTEND 1 + GET_ITER
     /// → LOAD_CONST (tuple) + GET_ITER
-    /// Also handles BUILD_SET 0 + LOAD_CONST + SET_UPDATE 1 + GET_ITER.
     fn fold_const_iterable_for_iter(&mut self) {
         for block in &mut self.blocks {
             let mut i = 0;
-            while i + 3 < block.instructions.len() {
+            while i + 1 < block.instructions.len() {
                 let is_build = matches!(
                     block.instructions[i].instr.real(),
-                    Some(Instruction::BuildList { .. } | Instruction::BuildSet { .. })
+                    Some(Instruction::BuildList { .. })
                 ) && u32::from(block.instructions[i].arg) == 0;
 
                 let is_const = matches!(
-                    block.instructions[i + 1].instr.real(),
+                    block
+                        .instructions
+                        .get(i + 1)
+                        .and_then(|instr| instr.instr.real()),
                     Some(Instruction::LoadConst { .. })
                 );
 
                 let is_extend = matches!(
-                    block.instructions[i + 2].instr.real(),
-                    Some(Instruction::ListExtend { .. } | Instruction::SetUpdate { .. })
-                ) && u32::from(block.instructions[i + 2].arg) == 1;
+                    block
+                        .instructions
+                        .get(i + 2)
+                        .and_then(|instr| instr.instr.real()),
+                    Some(Instruction::ListExtend { .. })
+                ) && block
+                    .instructions
+                    .get(i + 2)
+                    .is_some_and(|instr| u32::from(instr.arg) == 1);
 
                 let is_iter = matches!(
-                    block.instructions[i + 3].instr.real(),
+                    block
+                        .instructions
+                        .get(i + 3)
+                        .and_then(|instr| instr.instr.real()),
                     Some(Instruction::GetIter)
                 );
 
@@ -1153,6 +1176,56 @@ impl CodeInfo {
                     block.instructions[i + 2].instr = Instruction::Nop.into();
                     block.instructions[i + 2].location = loc;
                     i += 4;
+                } else if matches!(
+                    block.instructions[i].instr.real(),
+                    Some(Instruction::BuildList { .. })
+                ) && matches!(
+                    block.instructions[i + 1].instr.real(),
+                    Some(Instruction::GetIter)
+                ) {
+                    let seq_size = u32::from(block.instructions[i].arg) as usize;
+
+                    if seq_size != 0 && i >= seq_size {
+                        let start_idx = i - seq_size;
+                        let mut elements = Vec::with_capacity(seq_size);
+                        let mut all_const = true;
+
+                        for j in start_idx..i {
+                            match Self::get_const_value_from(&self.metadata, &block.instructions[j])
+                            {
+                                Some(constant) => elements.push(constant),
+                                None => {
+                                    all_const = false;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if all_const {
+                            let const_data = ConstantData::Tuple { elements };
+                            let (const_idx, _) = self.metadata.consts.insert_full(const_data);
+                            let folded_loc = block.instructions[i].location;
+
+                            for j in start_idx..i {
+                                block.instructions[j].instr = Instruction::Nop.into();
+                                block.instructions[j].location = folded_loc;
+                            }
+
+                            block.instructions[i].instr = Instruction::LoadConst {
+                                consti: Arg::marker(),
+                            }
+                            .into();
+                            block.instructions[i].arg = OpArg::new(const_idx as u32);
+                            i += 2;
+                            continue;
+                        }
+                    }
+
+                    block.instructions[i].instr = Instruction::BuildTuple {
+                        count: Arg::marker(),
+                    }
+                    .into();
+                    i += 2;
                 } else {
                     i += 1;
                 }
@@ -2669,14 +2742,16 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>, predecessors: &mut Ve
             continue;
         }
 
-        // Copy the exit block
+        // Copy the exit block and splice it into the linked list after current
         let new_idx = BlockIdx(blocks.len() as u32);
         let mut new_block = blocks[target.idx()].clone();
         let jump_loc = last.location;
         let jump_end_loc = last.end_location;
         propagate_locations_in_block(&mut new_block, jump_loc, jump_end_loc);
-        new_block.next = blocks[target.idx()].next;
+        let old_next = blocks[current.idx()].next;
+        new_block.next = old_next;
         blocks.push(new_block);
+        blocks[current.idx()].next = new_idx;
 
         // Update the jump target
         let last_mut = blocks[current.idx()].instructions.last_mut().unwrap();
@@ -2684,7 +2759,8 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>, predecessors: &mut Ve
         predecessors[target.idx()] -= 1;
         predecessors.push(1);
 
-        current = blocks[current.idx()].next;
+        // Skip past the newly inserted block
+        current = old_next;
     }
 
     current = BlockIdx(0);
