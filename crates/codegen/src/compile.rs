@@ -56,7 +56,7 @@ impl ExprExt for ast::Expr {
                 | ast::Expr::NoneLiteral(_)
                 | ast::Expr::BooleanLiteral(_)
                 | ast::Expr::EllipsisLiteral(_)
-        )
+        ) || matches!(self, ast::Expr::Tuple(ast::ExprTuple { elts, .. }) if elts.iter().all(ExprExt::is_constant))
     }
 
     fn is_constant_slice(&self) -> bool {
@@ -119,6 +119,15 @@ enum SuperCallType<'a> {
     },
     /// super() - implicit 0-argument form (uses __class__ cell)
     ZeroArg,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuiltinGeneratorCallKind {
+    Tuple,
+    List,
+    Set,
+    All,
+    Any,
 }
 
 #[derive(Debug, Clone)]
@@ -2002,6 +2011,16 @@ impl Compiler {
         symboltable::maybe_mangle_name(private, mangled_names, name)
     }
 
+    fn module_name_declared_global_in_nested_scope(table: &SymbolTable, name: &str) -> bool {
+        table.sub_tables.iter().any(|subtable| {
+            (!subtable.comp_inlined
+                && subtable
+                    .lookup(name)
+                    .is_some_and(|symbol| symbol.scope == SymbolScope::GlobalExplicit))
+                || Self::module_name_declared_global_in_nested_scope(subtable, name)
+        })
+    }
+
     // = compiler_nameop
     fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
         enum NameOp {
@@ -2088,12 +2107,20 @@ impl Compiler {
             }
         };
 
+        let module_global_from_nested_scope = {
+            let current_table = self.current_symbol_table();
+            current_table.typ == CompilerScope::Module
+                && Self::module_name_declared_global_in_nested_scope(current_table, name.as_ref())
+        };
+
         // Determine operation type based on scope
         let op_type = match actual_scope {
             SymbolScope::Free => NameOp::Deref,
             SymbolScope::Cell => NameOp::Deref,
             SymbolScope::Local => {
-                if is_function_like {
+                if module_global_from_nested_scope {
+                    NameOp::Global
+                } else if is_function_like {
                     NameOp::Fast
                 } else {
                     NameOp::Name
@@ -2111,7 +2138,13 @@ impl Compiler {
                 }
             }
             SymbolScope::GlobalExplicit => NameOp::Global,
-            SymbolScope::Unknown => NameOp::Name,
+            SymbolScope::Unknown => {
+                if module_global_from_nested_scope {
+                    NameOp::Global
+                } else {
+                    NameOp::Name
+                }
+            }
         };
 
         // Generate appropriate instructions based on operation type
@@ -2538,9 +2571,15 @@ impl Compiler {
                                 statement.range(),
                             ));
                         }
-                        self.compile_expression(v)?;
-                        // Unwind fblock stack with preserve_tos=true (preserve return value)
-                        self.unwind_fblock_stack(true, false)?;
+                        let folded_constant = self.try_fold_constant_expr(v)?;
+                        let preserve_tos = folded_constant.is_none();
+                        if preserve_tos {
+                            self.compile_expression(v)?;
+                        }
+                        self.unwind_fblock_stack(preserve_tos, false)?;
+                        if let Some(constant) = folded_constant {
+                            self.emit_load_const(constant);
+                        }
                         self.emit_return_value();
                     }
                     None => {
@@ -2987,6 +3026,10 @@ impl Compiler {
         orelse: &[ast::Stmt],
         finalbody: &[ast::Stmt],
     ) -> CompileResult<()> {
+        if finalbody.is_empty() {
+            return self.compile_try_except_no_finally(body, handlers, orelse);
+        }
+
         let handler_block = self.new_block();
         let finally_block = self.new_block();
 
@@ -3394,6 +3437,175 @@ impl Compiler {
         // Normal execution continues here after the finally block
         self.switch_to_block(end_block);
 
+        Ok(())
+    }
+
+    fn compile_try_except_no_finally(
+        &mut self,
+        body: &[ast::Stmt],
+        handlers: &[ast::ExceptHandler],
+        orelse: &[ast::Stmt],
+    ) -> CompileResult<()> {
+        let handler_block = self.new_block();
+        let cleanup_block = self.new_block();
+        let orelse_block = self.new_block();
+        let end_block = self.new_block();
+
+        emit!(self, Instruction::Nop);
+        emit!(
+            self,
+            PseudoInstruction::SetupFinally {
+                delta: handler_block
+            }
+        );
+
+        self.push_fblock(FBlockType::TryExcept, handler_block, handler_block)?;
+        self.compile_statements(body)?;
+        self.pop_fblock(FBlockType::TryExcept);
+        emit!(self, PseudoInstruction::PopBlock);
+        self.set_no_location();
+        emit!(
+            self,
+            PseudoInstruction::JumpNoInterrupt {
+                delta: orelse_block
+            }
+        );
+        self.set_no_location();
+
+        self.switch_to_block(handler_block);
+        emit!(
+            self,
+            PseudoInstruction::SetupCleanup {
+                delta: cleanup_block
+            }
+        );
+        self.set_no_location();
+        emit!(self, Instruction::PushExcInfo);
+        self.set_no_location();
+        self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
+
+        for handler in handlers {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                type_,
+                name,
+                body,
+                range: handler_range,
+                ..
+            }) = handler;
+            self.set_source_range(*handler_range);
+            let next_handler = self.new_block();
+
+            if let Some(exc_type) = type_ {
+                self.compile_expression(exc_type)?;
+                emit!(self, Instruction::CheckExcMatch);
+                emit!(
+                    self,
+                    Instruction::PopJumpIfFalse {
+                        delta: next_handler
+                    }
+                );
+            }
+
+            if let Some(alias) = name {
+                self.store_name(alias.as_str())?;
+
+                let cleanup_end = self.new_block();
+                let handler_normal_exit = self.new_block();
+                emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup_end });
+                self.push_fblock_full(
+                    FBlockType::HandlerCleanup,
+                    cleanup_end,
+                    cleanup_end,
+                    FBlockDatum::ExceptionName(alias.as_str().to_owned()),
+                )?;
+
+                self.compile_statements(body)?;
+
+                self.pop_fblock(FBlockType::HandlerCleanup);
+                emit!(self, PseudoInstruction::PopBlock);
+                self.set_no_location();
+                emit!(
+                    self,
+                    PseudoInstruction::JumpNoInterrupt {
+                        delta: handler_normal_exit
+                    }
+                );
+                self.set_no_location();
+
+                self.switch_to_block(cleanup_end);
+                self.emit_load_const(ConstantData::None);
+                self.set_no_location();
+                self.store_name(alias.as_str())?;
+                self.set_no_location();
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+                self.set_no_location();
+                emit!(self, Instruction::Reraise { depth: 1 });
+                self.set_no_location();
+
+                self.switch_to_block(handler_normal_exit);
+                emit!(self, PseudoInstruction::PopBlock);
+                self.set_no_location();
+                self.pop_fblock(FBlockType::ExceptionHandler);
+                emit!(self, Instruction::PopExcept);
+                self.set_no_location();
+
+                self.emit_load_const(ConstantData::None);
+                self.set_no_location();
+                self.store_name(alias.as_str())?;
+                self.set_no_location();
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+                self.set_no_location();
+
+                emit!(
+                    self,
+                    PseudoInstruction::JumpNoInterrupt { delta: end_block }
+                );
+                self.set_no_location();
+            } else {
+                emit!(self, Instruction::PopTop);
+                self.push_fblock(FBlockType::HandlerCleanup, end_block, end_block)?;
+
+                self.compile_statements(body)?;
+
+                self.pop_fblock(FBlockType::HandlerCleanup);
+                emit!(self, PseudoInstruction::PopBlock);
+                self.set_no_location();
+                self.pop_fblock(FBlockType::ExceptionHandler);
+                emit!(self, Instruction::PopExcept);
+                self.set_no_location();
+                emit!(
+                    self,
+                    PseudoInstruction::JumpNoInterrupt { delta: end_block }
+                );
+                self.set_no_location();
+            }
+
+            self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
+            self.switch_to_block(next_handler);
+        }
+
+        emit!(self, Instruction::Reraise { depth: 0 });
+        self.set_no_location();
+        self.pop_fblock(FBlockType::ExceptionHandler);
+
+        self.switch_to_block(cleanup_block);
+        emit!(self, Instruction::Copy { i: 3 });
+        self.set_no_location();
+        emit!(self, Instruction::PopExcept);
+        self.set_no_location();
+        emit!(self, Instruction::Reraise { depth: 1 });
+        self.set_no_location();
+
+        self.switch_to_block(orelse_block);
+        self.set_no_location();
+        self.compile_statements(orelse)?;
+        emit!(
+            self,
+            PseudoInstruction::JumpNoInterrupt { delta: end_block }
+        );
+        self.set_no_location();
+
+        self.switch_to_block(end_block);
         Ok(())
     }
 
@@ -6801,21 +7013,7 @@ impl Compiler {
             self.compile_expression(last_comparator)?;
             self.set_source_range(compare_range);
             self.compile_addcompare(last_op);
-            if condition {
-                emit!(
-                    self,
-                    Instruction::PopJumpIfTrue {
-                        delta: target_block
-                    }
-                );
-            } else {
-                emit!(
-                    self,
-                    Instruction::PopJumpIfFalse {
-                        delta: target_block,
-                    }
-                );
-            }
+            self.emit_pop_jump_by_condition(condition, target_block);
             return Ok(());
         }
 
@@ -6834,21 +7032,7 @@ impl Compiler {
         self.compile_expression(last_comparator)?;
         self.set_source_range(compare_range);
         self.compile_addcompare(last_op);
-        if condition {
-            emit!(
-                self,
-                Instruction::PopJumpIfTrue {
-                    delta: target_block
-                }
-            );
-        } else {
-            emit!(
-                self,
-                Instruction::PopJumpIfFalse {
-                    delta: target_block,
-                }
-            );
-        }
+        self.emit_pop_jump_by_condition(condition, target_block);
         emit!(self, PseudoInstruction::Jump { delta: end });
 
         self.switch_to_block(cleanup);
@@ -6864,6 +7048,24 @@ impl Compiler {
 
         self.switch_to_block(end);
         Ok(())
+    }
+
+    fn emit_pop_jump_by_condition(&mut self, condition: bool, target_block: BlockIdx) {
+        if condition {
+            emit!(
+                self,
+                Instruction::PopJumpIfTrue {
+                    delta: target_block
+                }
+            );
+        } else {
+            emit!(
+                self,
+                Instruction::PopJumpIfFalse {
+                    delta: target_block,
+                }
+            );
+        }
     }
 
     fn compile_annotation(&mut self, annotation: &ast::Expr) -> CompileResult<()> {
@@ -7554,7 +7756,26 @@ impl Compiler {
                 | ast::Expr::BooleanLiteral(_)
                 | ast::Expr::NoneLiteral(_)
                 | ast::Expr::EllipsisLiteral(_)
-        )
+        ) || matches!(expr, ast::Expr::FString(fstring) if Self::fstring_value_is_const(&fstring.value))
+    }
+
+    fn fstring_value_is_const(fstring: &ast::FStringValue) -> bool {
+        for part in fstring {
+            if !Self::fstring_part_is_const(part) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn fstring_part_is_const(part: &ast::FStringPart) -> bool {
+        match part {
+            ast::FStringPart::Literal(_) => true,
+            ast::FStringPart::FString(fstring) => fstring
+                .elements
+                .iter()
+                .all(|element| matches!(element, ast::InterpolatedStringElement::Literal(_))),
+        }
     }
 
     fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
@@ -8081,6 +8302,149 @@ impl Compiler {
         Ok(())
     }
 
+    fn detect_builtin_generator_call(
+        &self,
+        func: &ast::Expr,
+        args: &ast::Arguments,
+    ) -> Option<BuiltinGeneratorCallKind> {
+        let ast::Expr::Name(ast::ExprName { id, .. }) = func else {
+            return None;
+        };
+        if args.args.len() != 1
+            || !args.keywords.is_empty()
+            || !matches!(args.args[0], ast::Expr::Generator(_))
+        {
+            return None;
+        }
+        match id.as_str() {
+            "tuple" => Some(BuiltinGeneratorCallKind::Tuple),
+            "list" => Some(BuiltinGeneratorCallKind::List),
+            "set" => Some(BuiltinGeneratorCallKind::Set),
+            "all" => Some(BuiltinGeneratorCallKind::All),
+            "any" => Some(BuiltinGeneratorCallKind::Any),
+            _ => None,
+        }
+    }
+
+    /// Emit the optimized inline loop for builtin(genexpr) calls.
+    ///
+    /// Stack on entry: `[func, iter]` where `iter` is the already-compiled
+    /// generator iterator and `func` is the builtin candidate.
+    /// On return the compiler is positioned at the fallback block with
+    /// `[func, iter]` still on the stack (for the normal CALL path).
+    fn optimize_builtin_generator_call(
+        &mut self,
+        kind: BuiltinGeneratorCallKind,
+        end: BlockIdx,
+    ) -> CompileResult<()> {
+        let common_constant = match kind {
+            BuiltinGeneratorCallKind::Tuple => bytecode::CommonConstant::BuiltinTuple,
+            BuiltinGeneratorCallKind::List => bytecode::CommonConstant::BuiltinList,
+            BuiltinGeneratorCallKind::Set => bytecode::CommonConstant::BuiltinSet,
+            BuiltinGeneratorCallKind::All => bytecode::CommonConstant::BuiltinAll,
+            BuiltinGeneratorCallKind::Any => bytecode::CommonConstant::BuiltinAny,
+        };
+
+        let loop_block = self.new_block();
+        let cleanup = self.new_block();
+        let fallback = self.new_block();
+        let result = matches!(
+            kind,
+            BuiltinGeneratorCallKind::All | BuiltinGeneratorCallKind::Any
+        )
+        .then(|| self.new_block());
+
+        // Stack: [func, iter] — copy func (TOS1) for identity check
+        emit!(self, Instruction::Copy { i: 2 });
+        emit!(
+            self,
+            Instruction::LoadCommonConstant {
+                idx: common_constant
+            }
+        );
+        emit!(self, Instruction::IsOp { invert: Invert::No });
+        emit!(self, Instruction::PopJumpIfFalse { delta: fallback });
+        emit!(self, Instruction::NotTaken);
+        // Remove func from [func, iter] → [iter]
+        emit!(self, Instruction::Swap { i: 2 });
+        emit!(self, Instruction::PopTop);
+
+        if matches!(
+            kind,
+            BuiltinGeneratorCallKind::Tuple | BuiltinGeneratorCallKind::List
+        ) {
+            // [iter] → [iter, list] → [list, iter]
+            emit!(self, Instruction::BuildList { count: 0 });
+            emit!(self, Instruction::Swap { i: 2 });
+        } else if matches!(kind, BuiltinGeneratorCallKind::Set) {
+            // [iter] → [iter, set] → [set, iter]
+            emit!(self, Instruction::BuildSet { count: 0 });
+            emit!(self, Instruction::Swap { i: 2 });
+        }
+
+        self.switch_to_block(loop_block);
+        emit!(self, Instruction::ForIter { delta: cleanup });
+
+        match kind {
+            BuiltinGeneratorCallKind::Tuple | BuiltinGeneratorCallKind::List => {
+                emit!(self, Instruction::ListAppend { i: 2 });
+                emit!(self, PseudoInstruction::Jump { delta: loop_block });
+            }
+            BuiltinGeneratorCallKind::Set => {
+                emit!(self, Instruction::SetAdd { i: 2 });
+                emit!(self, PseudoInstruction::Jump { delta: loop_block });
+            }
+            BuiltinGeneratorCallKind::All => {
+                let result = result.expect("all() optimization should have a result block");
+                emit!(self, Instruction::ToBool);
+                emit!(self, Instruction::PopJumpIfFalse { delta: result });
+                emit!(self, Instruction::NotTaken);
+                emit!(self, PseudoInstruction::Jump { delta: loop_block });
+            }
+            BuiltinGeneratorCallKind::Any => {
+                let result = result.expect("any() optimization should have a result block");
+                emit!(self, Instruction::ToBool);
+                emit!(self, Instruction::PopJumpIfTrue { delta: result });
+                emit!(self, Instruction::NotTaken);
+                emit!(self, PseudoInstruction::Jump { delta: loop_block });
+            }
+        }
+
+        if let Some(result_block) = result {
+            self.switch_to_block(result_block);
+            emit!(self, Instruction::PopIter);
+            self.emit_load_const(ConstantData::Boolean {
+                value: matches!(kind, BuiltinGeneratorCallKind::Any),
+            });
+            emit!(self, PseudoInstruction::Jump { delta: end });
+        }
+
+        self.switch_to_block(cleanup);
+        emit!(self, Instruction::EndFor);
+        emit!(self, Instruction::PopIter);
+        match kind {
+            BuiltinGeneratorCallKind::Tuple => {
+                emit!(
+                    self,
+                    Instruction::CallIntrinsic1 {
+                        func: IntrinsicFunction1::ListToTuple
+                    }
+                );
+            }
+            BuiltinGeneratorCallKind::List | BuiltinGeneratorCallKind::Set => {}
+            BuiltinGeneratorCallKind::All => {
+                self.emit_load_const(ConstantData::Boolean { value: true });
+            }
+            BuiltinGeneratorCallKind::Any => {
+                self.emit_load_const(ConstantData::Boolean { value: false });
+            }
+        }
+        emit!(self, PseudoInstruction::Jump { delta: end });
+
+        self.switch_to_block(fallback);
+        Ok(())
+    }
+
     fn compile_call(&mut self, func: &ast::Expr, args: &ast::Arguments) -> CompileResult<()> {
         // Save the call expression's source range so CALL instructions use the
         // call start line, not the last argument's line.
@@ -8131,6 +8495,23 @@ impl Compiler {
                 }
                 self.codegen_call_helper(0, args, call_range)?;
             }
+        } else if let Some(kind) = (!uses_ex_call)
+            .then(|| self.detect_builtin_generator_call(func, args))
+            .flatten()
+        {
+            // Optimized builtin(genexpr) path: compile the genexpr only once
+            // so its code object appears exactly once in co_consts.
+            let end = self.new_block();
+            self.compile_expression(func)?;
+            self.compile_expression(&args.args[0])?;
+            // Stack: [func, iter]
+            self.optimize_builtin_generator_call(kind, end)?;
+            // Fallback block: [func, iter] → [func, null, iter] → CALL
+            emit!(self, Instruction::PushNull);
+            emit!(self, Instruction::Swap { i: 2 });
+            self.set_source_range(call_range);
+            emit!(self, Instruction::Call { argc: 1 });
+            self.switch_to_block(end);
         } else {
             // Regular call: push func, then NULL for self_or_null slot
             // Stack layout: [func, NULL, args...] - same as method call [func, self, args...]
@@ -9101,6 +9482,16 @@ impl Compiler {
             ast::Expr::BooleanLiteral(b) => ConstantData::Boolean { value: b.value },
             ast::Expr::NoneLiteral(_) => ConstantData::None,
             ast::Expr::EllipsisLiteral(_) => ConstantData::Ellipsis,
+            ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
+                let mut elements = Vec::with_capacity(elts.len());
+                for elt in elts {
+                    let Some(constant) = self.try_fold_constant_expr(elt)? else {
+                        return Ok(None);
+                    };
+                    elements.push(constant);
+                }
+                ConstantData::Tuple { elements }
+            }
             _ => return Ok(None),
         }))
     }
@@ -9640,10 +10031,8 @@ impl Compiler {
         mut pending_literal: Option<Wtf8Buf>,
         mut element_count: u32,
     ) -> CompileResult<()> {
-        if let Some(value) = pending_literal.take() {
-            self.emit_load_const(ConstantData::Str { value });
-            element_count += 1;
-        }
+        let keep_empty = element_count == 0;
+        self.emit_pending_fstring_literal(&mut pending_literal, &mut element_count, keep_empty);
 
         if element_count == 0 {
             self.emit_load_const(ConstantData::Str {
@@ -9659,6 +10048,27 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn emit_pending_fstring_literal(
+        &mut self,
+        pending_literal: &mut Option<Wtf8Buf>,
+        element_count: &mut u32,
+        keep_empty: bool,
+    ) {
+        let Some(value) = pending_literal.take() else {
+            return;
+        };
+
+        // CPython drops empty literal fragments when they are adjacent to
+        // formatted values, but still emits an empty string for a fully-empty
+        // f-string.
+        if value.is_empty() && (!keep_empty || *element_count > 0) {
+            return;
+        }
+
+        self.emit_load_const(ConstantData::Str { value });
+        *element_count += 1;
     }
 
     /// Optimize `'format_str' % (args,)` into f-string bytecode.
@@ -9846,10 +10256,7 @@ impl Compiler {
                         }
                     }
 
-                    if let Some(value) = pending_literal.take() {
-                        self.emit_load_const(ConstantData::Str { value });
-                        *element_count += 1;
-                    }
+                    self.emit_pending_fstring_literal(pending_literal, element_count, false);
 
                     self.compile_expression(&fstring_expr.expression)?;
 
@@ -10393,6 +10800,24 @@ mod tests {
         })
     }
 
+    fn has_common_constant(code: &CodeObject, expected: bytecode::CommonConstant) -> bool {
+        code.instructions.iter().any(|unit| match unit.op {
+            Instruction::LoadCommonConstant { idx } => {
+                idx.get(OpArg::new(u32::from(u8::from(unit.arg)))) == expected
+            }
+            _ => false,
+        })
+    }
+
+    fn has_intrinsic_1(code: &CodeObject, expected: IntrinsicFunction1) -> bool {
+        code.instructions.iter().any(|unit| match unit.op {
+            Instruction::CallIntrinsic1 { func } => {
+                func.get(OpArg::new(u32::from(u8::from(unit.arg)))) == expected
+            }
+            _ => false,
+        })
+    }
+
     macro_rules! assert_dis_snapshot {
         ($value:expr) => {
             insta::assert_snapshot!(
@@ -10551,6 +10976,116 @@ def f(obj, arg):
     }
 
     #[test]
+    fn test_builtin_any_genexpr_call_is_optimized() {
+        let code = compile_exec(
+            "\
+def f(xs):
+    return any(x for x in xs)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        assert!(has_common_constant(f, bytecode::CommonConstant::BuiltinAny));
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::PopJumpIfTrue { .. }))
+        );
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::NotTaken))
+        );
+        assert_eq!(
+            f.instructions
+                .iter()
+                .filter(|unit| matches!(unit.op, Instruction::PushNull))
+                .count(),
+            1,
+            "fallback call path should remain for shadowed any()"
+        );
+    }
+
+    #[test]
+    fn test_builtin_tuple_list_set_genexpr_calls_are_optimized() {
+        let code = compile_exec(
+            "\
+def tuple_f(xs):
+    return tuple(x for x in xs)
+
+def list_f(xs):
+    return list(x for x in xs)
+
+def set_f(xs):
+    return set(x for x in xs)
+",
+        );
+
+        let tuple_f = find_code(&code, "tuple_f").expect("missing tuple_f code");
+        assert!(has_common_constant(
+            tuple_f,
+            bytecode::CommonConstant::BuiltinTuple
+        ));
+        assert!(has_intrinsic_1(tuple_f, IntrinsicFunction1::ListToTuple));
+        let tuple_list_append = tuple_f
+            .instructions
+            .iter()
+            .find_map(|unit| match unit.op {
+                Instruction::ListAppend { .. } => Some(u32::from(u8::from(unit.arg))),
+                _ => None,
+            })
+            .expect("tuple(genexpr) fast path should emit LIST_APPEND");
+        assert_eq!(tuple_list_append, 2);
+
+        let list_f = find_code(&code, "list_f").expect("missing list_f code");
+        assert!(has_common_constant(
+            list_f,
+            bytecode::CommonConstant::BuiltinList
+        ));
+        assert!(
+            list_f
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::ListAppend { .. }))
+        );
+
+        let set_f = find_code(&code, "set_f").expect("missing set_f code");
+        assert!(has_common_constant(
+            set_f,
+            bytecode::CommonConstant::BuiltinSet
+        ));
+        assert!(
+            set_f
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::SetAdd { .. }))
+        );
+    }
+
+    #[test]
+    fn test_module_store_uses_store_global_when_nested_scope_declares_global() {
+        let code = compile_exec(
+            "\
+_address_fmt_re = None
+
+class C:
+    def f(self):
+        global _address_fmt_re
+        if _address_fmt_re is None:
+            _address_fmt_re = 1
+",
+        );
+
+        assert!(code.instructions.iter().any(|unit| match unit.op {
+            Instruction::StoreGlobal { namei } => {
+                let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                code.names[usize::try_from(idx).unwrap()].as_str() == "_address_fmt_re"
+            }
+            _ => false,
+        }));
+    }
+
+    #[test]
     fn test_conditional_return_epilogue_is_duplicated() {
         let code = compile_exec(
             "\
@@ -10706,6 +11241,160 @@ def f(cls, proto):
             !string_consts.iter().any(|value| value == " object: "),
             "did not expect split trailing literal, got {string_consts:?}"
         );
+    }
+
+    #[test]
+    fn test_literal_only_fstring_statement_is_optimized_away() {
+        let code = compile_exec(
+            "\
+def f():
+    f'''Not a docstring'''
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        assert!(
+            !f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::PopTop)),
+            "literal-only f-string statement should be removed"
+        );
+        assert!(
+            !f.constants.iter().any(|constant| matches!(
+                constant,
+                ConstantData::Str { value } if value.to_string() == "Not a docstring"
+            )),
+            "literal-only f-string should not survive in constants"
+        );
+    }
+
+    #[test]
+    fn test_empty_fstring_literals_are_elided_around_interpolation() {
+        let code = compile_exec(
+            "\
+def f(x):
+    if '' f'{x}':
+        return 1
+    return 2
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        let empty_string_loads = f
+            .instructions
+            .iter()
+            .filter_map(|unit| match unit.op {
+                Instruction::LoadConst { consti } => {
+                    Some(&f.constants[consti.get(OpArg::new(u32::from(u8::from(unit.arg))))])
+                }
+                _ => None,
+            })
+            .filter(|constant| {
+                matches!(
+                    constant,
+                    ConstantData::Str { value } if value.is_empty()
+                )
+            })
+            .count();
+        let build_string_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::BuildString { .. }))
+            .count();
+
+        assert_eq!(empty_string_loads, 0);
+        assert_eq!(build_string_count, 0);
+    }
+
+    #[test]
+    fn test_large_power_is_not_constant_folded() {
+        let code = compile_exec("x = 2**100\n");
+
+        assert!(code.instructions.iter().any(|unit| match unit.op {
+            Instruction::BinaryOp { op } => {
+                op.get(OpArg::new(u32::from(u8::from(unit.arg)))) == oparg::BinaryOperator::Power
+            }
+            _ => false,
+        }));
+    }
+
+    #[test]
+    fn test_list_of_constant_tuples_uses_list_extend() {
+        let code = compile_exec(
+            "\
+deprecated_cases = [('a', 'b'), ('c', 'd'), ('e', 'f'), ('g', 'h'), ('i', 'j')]
+",
+        );
+
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::ListExtend { .. })),
+            "expected constant tuple list folding"
+        );
+    }
+
+    #[test]
+    fn test_constant_list_iterable_uses_tuple() {
+        let code = compile_exec(
+            "\
+def f():
+    return {x: y for x, y in [(1, 2), ]}
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        assert!(
+            !f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BuildList { .. })),
+            "constant list iterable should avoid BUILD_LIST before GET_ITER"
+        );
+        assert!(f.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Tuple { elements }
+                if matches!(
+                    elements.as_slice(),
+                    [ConstantData::Tuple { elements: inner }]
+                        if matches!(
+                            inner.as_slice(),
+                            [
+                                ConstantData::Integer { .. },
+                                ConstantData::Integer { .. }
+                            ]
+                        )
+                )
+        )));
+    }
+
+    #[test]
+    fn test_constant_set_iterable_keeps_runtime_set_build() {
+        let code = compile_exec(
+            "\
+def f():
+    return [x for x in {1, 2, 3}]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BuildSet { .. })),
+            "constant set iterable should keep BUILD_SET before GET_ITER"
+        );
+        assert!(f.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Tuple { elements }
+                if matches!(
+                    elements.as_slice(),
+                    [
+                        ConstantData::Integer { .. },
+                        ConstantData::Integer { .. },
+                        ConstantData::Integer { .. }
+                    ]
+                )
+        )));
     }
 
     #[test]
