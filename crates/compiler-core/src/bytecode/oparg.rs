@@ -645,6 +645,10 @@ oparg_enum!(
         BuiltinAll = 3,
         /// Built-in `any` function
         BuiltinAny = 4,
+        /// Built-in `list` type
+        BuiltinList = 5,
+        /// Built-in `set` type
+        BuiltinSet = 6,
     }
 );
 
@@ -656,6 +660,8 @@ impl fmt::Display for CommonConstant {
             Self::BuiltinTuple => "tuple",
             Self::BuiltinAll => "all",
             Self::BuiltinAny => "any",
+            Self::BuiltinList => "list",
+            Self::BuiltinSet => "set",
         };
         write!(f, "{name}")
     }

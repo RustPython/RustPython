@@ -2786,8 +2786,18 @@ impl ExecutingFrame<'_> {
                         vm.ctx.exceptions.not_implemented_error.to_owned().into()
                     }
                     CommonConstant::BuiltinTuple => vm.ctx.types.tuple_type.to_owned().into(),
-                    CommonConstant::BuiltinAll => vm.builtins.get_attr("all", vm)?,
-                    CommonConstant::BuiltinAny => vm.builtins.get_attr("any", vm)?,
+                    CommonConstant::BuiltinAll => vm
+                        .callable_cache
+                        .builtin_all
+                        .clone()
+                        .expect("builtin_all not initialized"),
+                    CommonConstant::BuiltinAny => vm
+                        .callable_cache
+                        .builtin_any
+                        .clone()
+                        .expect("builtin_any not initialized"),
+                    CommonConstant::BuiltinList => vm.ctx.types.list_type.to_owned().into(),
+                    CommonConstant::BuiltinSet => vm.ctx.types.set_type.to_owned().into(),
                 };
                 self.push_value(value);
                 Ok(None)
