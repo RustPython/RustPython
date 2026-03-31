@@ -297,7 +297,6 @@ a = A(destroyed)"""
         self.assertRegex(repr(m), expected_repr_pattern)
         self.assertNotIn('from', repr(m))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_module_finalization_at_shutdown(self):
         # Module globals and builtins should still be available during shutdown
         rc, out, err = assert_python_ok("-c", "from test.test_module import final_a")
