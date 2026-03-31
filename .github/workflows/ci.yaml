@@ -170,6 +170,8 @@ jobs:
             cargo-check-${{ runner.os }}-${{ matrix.target }}-
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
 
       - name: Setup Android NDK
         if: ${{ matrix.target == 'aarch64-linux-android' }}
