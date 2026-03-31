@@ -8,6 +8,9 @@ on:
 
 name: CI
 
+permissions:
+  contents: read
+
 # Cancel previous workflows if they are the same workflow on same ref (branch/tags)
 # with the same event (push/pull_request) even they are in progress.
 # This setting will help reduce the number of duplicated workflows.
@@ -385,7 +388,7 @@ jobs:
 
       - name: prek
         id: prek
-        uses: j178/prek-action@79f765515bd648eb4d6bb1b17277b7cb22cb6468 # v2.0.0
+        uses: j178/prek-action@53276d8b0d10f8b6672aa85b4588c6921d0370cc # v2.0.1
         with:
           cache: false
           show-verbose-logs: false

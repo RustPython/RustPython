@@ -576,6 +576,8 @@ pub(crate) struct CallableCache {
     pub len: Option<PyObjectRef>,
     pub isinstance: Option<PyObjectRef>,
     pub list_append: Option<PyObjectRef>,
+    pub builtin_all: Option<PyObjectRef>,
+    pub builtin_any: Option<PyObjectRef>,
 }
 
 pub struct PyGlobalState {
@@ -641,6 +643,8 @@ impl VirtualMachine {
             .get_attr(self.ctx.intern_str("append"))
             .ok_or_else(|| self.new_runtime_error("failed to cache list.append".to_owned()))?;
         self.callable_cache.list_append = Some(list_append);
+        self.callable_cache.builtin_all = Some(self.builtins.get_attr("all", self)?);
+        self.callable_cache.builtin_any = Some(self.builtins.get_attr("any", self)?);
         Ok(())
     }
 
