@@ -5,12 +5,10 @@ rules:
         # dtolnay/rust-toolchain is a trusted action that uses lightweight branch
         # refs (@stable, @nightly, etc.) by design. Pinning to a hash would break
         # the intended usage pattern.
-		#
-		# We can remove this once https://github.com/dtolnay/rust-toolchain/issues/180 is resolved
+        # We can remove this once https://github.com/dtolnay/rust-toolchain/issues/180 is resolved
         dtolnay/rust-toolchain: any
   # dtolnay/rust-toolchain handles component installation, target addition, and
   # override configuration beyond what a bare `rustup` invocation provides.
-  #
   # See: https://github.com/zizmorcore/zizmor/issues/1817
   superfluous-actions:
     disable: true
