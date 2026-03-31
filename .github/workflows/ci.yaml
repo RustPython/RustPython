@@ -170,7 +170,10 @@ jobs:
           restore-keys: |
             cargo-check-${{ runner.os }}-${{ matrix.target }}-
 
-      - run: rustup toolchain install stable --target "${{ matrix.target }}"
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
 
       - name: Setup Android NDK
         if: ${{ matrix.target == 'aarch64-linux-android' }}
