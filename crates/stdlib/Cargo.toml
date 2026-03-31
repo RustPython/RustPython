@@ -94,8 +94,8 @@ libz-sys = { package = "libz-rs-sys", version = "0.5" }
 bzip2 = "0.6"
 
 # tkinter
-tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0", optional = true }
-tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0", optional = true }
+tk-sys = { version = "0.2.0", optional = true }
+tcl-sys = { version = "0.2.0", optional = true }
 widestring = { workspace = true, optional = true }
 chrono.workspace = true
 
