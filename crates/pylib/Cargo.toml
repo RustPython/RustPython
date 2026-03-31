@@ -2,7 +2,7 @@
 name = "rustpython-pylib"
 description = "A subset of the Python standard library for use with RustPython"
 license-file = "Lib/PSF-LICENSE"
-include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
+include = ["Cargo.toml", "build.rs", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
 authors = ["CPython Developers"]
 version.workspace = true
 edition.workspace = true
