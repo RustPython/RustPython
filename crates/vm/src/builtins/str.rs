@@ -43,9 +43,11 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk, Wtf8Concat},
 };
-use unic_ucd_bidi::BidiClass;
-use unic_ucd_category::GeneralCategory;
-use unic_ucd_ident::{is_xid_continue, is_xid_start};
+
+use icu_properties::{
+    CodePointSetData,
+    props::{BidiClass, GeneralCategory, XidContinue, XidStart},
+};
 use unicode_casing::CharExt;
 
 impl<'a> TryFromBorrowedObject<'a> for String {
@@ -1355,9 +1357,15 @@ impl PyStr {
     pub fn isidentifier(&self) -> bool {
         let Some(s) = self.to_str() else { return false };
         let mut chars = s.chars();
-        let is_identifier_start = chars.next().is_some_and(|c| c == '_' || is_xid_start(c));
+
+        let xid_start = CodePointSetData::new::<XidStart>();
+        let is_identifier_start = chars
+            .next()
+            .is_some_and(|c| c == '_' || xid_start.contains(c));
+
         // a string is not an identifier if it has whitespace or starts with a number
-        is_identifier_start && chars.all(is_xid_continue)
+        let xid_continue = CodePointSetData::new::<XidContinue>();
+        is_identifier_start && chars.all(|c| xid_continue.contains(c))
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
