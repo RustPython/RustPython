@@ -80,7 +80,7 @@ unicode_names2 = { workspace = true }
 # update version all at the same time
 icu_properties = { workspace = true }
 icu_normalizer = { workspace = true }
-#unic-ucd-age       = { workspace = true }
+unic-ucd-age       = { workspace = true }
 ucd = "0.1.1"
 unicode-bidi-mirroring = { workspace = true }
 

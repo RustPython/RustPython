@@ -40,15 +40,18 @@ mod unicodedata {
         builtins::{PyModule, PyStrRef},
         function::OptionalArg,
     };
+
+    use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
+    use icu_properties::{
+        CodePointSetData,
+        props::{
+            BidiClass, BidiMirrored, EnumeratedProperty, GeneralCategory, NamedEnumeratedProperty,
+        },
+    };
     use itertools::Itertools;
     use rustpython_common::wtf8::{CodePoint, Wtf8Buf};
     use ucd::{Codepoint, DecompositionType, EastAsianWidth, Number, NumericType};
-    use unic_char_property::EnumeratedCharProperty;
-    use unic_normal::StrNormalForm;
     use unic_ucd_age::{Age, UNICODE_VERSION, UnicodeVersion};
-    use unic_ucd_bidi::BidiClass;
-    use unic_ucd_category::GeneralCategory;
-    use unicode_bidi_mirroring::is_mirroring;
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
@@ -117,9 +120,9 @@ mod unicodedata {
                 .extract_char(character, vm)?
                 .map_or(GeneralCategory::Unassigned, |c| {
                     c.to_char()
-                        .map_or(GeneralCategory::Surrogate, GeneralCategory::of)
+                        .map_or(GeneralCategory::Surrogate, GeneralCategory::for_char)
                 })
-                .abbr_name()
+                .short_name()
                 .to_owned())
         }
 
@@ -165,8 +168,8 @@ mod unicodedata {
             let bidi = match self.extract_char(character, vm)? {
                 Some(c) => c
                     .to_char()
-                    .map_or(BidiClass::LeftToRight, BidiClass::of)
-                    .abbr_name(),
+                    .map_or(BidiClass::LeftToRight, BidiClass::for_char)
+                    .short_name(),
                 None => "",
             };
             Ok(bidi)
@@ -190,10 +193,26 @@ mod unicodedata {
         fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<Wtf8Buf> {
             let text = unistr.as_wtf8();
             let normalized_text = match form {
-                Nfc => text.map_utf8(|s| s.nfc()).collect(),
-                Nfkc => text.map_utf8(|s| s.nfkc()).collect(),
-                Nfd => text.map_utf8(|s| s.nfd()).collect(),
-                Nfkd => text.map_utf8(|s| s.nfkd()).collect(),
+                Nfc => {
+                    let normalizer = ComposingNormalizerBorrowed::new_nfc();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfkc => {
+                    let normalizer = ComposingNormalizerBorrowed::new_nfkc();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfd => {
+                    let normalizer = DecomposingNormalizerBorrowed::new_nfd();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfkd => {
+                    let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
             };
             Ok(normalized_text)
         }
@@ -202,10 +221,26 @@ mod unicodedata {
         fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<bool> {
             let text = unistr.as_wtf8();
             let normalized: Wtf8Buf = match form {
-                Nfc => text.map_utf8(|s| s.nfc()).collect(),
-                Nfkc => text.map_utf8(|s| s.nfkc()).collect(),
-                Nfd => text.map_utf8(|s| s.nfd()).collect(),
-                Nfkd => text.map_utf8(|s| s.nfkd()).collect(),
+                Nfc => {
+                    let normalizer = ComposingNormalizerBorrowed::new_nfc();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfkc => {
+                    let normalizer = ComposingNormalizerBorrowed::new_nfkc();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfd => {
+                    let normalizer = DecomposingNormalizerBorrowed::new_nfd();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfkd => {
+                    let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
             };
             Ok(text == &*normalized)
         }
@@ -216,7 +251,8 @@ mod unicodedata {
                 Some(c) => {
                     if let Some(ch) = c.to_char() {
                         // Check if the character is mirrored in bidirectional text using Unicode standard
-                        Ok(if is_mirroring(ch) { 1 } else { 0 })
+                        let bidi_mirrored = CodePointSetData::new::<BidiMirrored>();
+                        Ok(if bidi_mirrored.contains(ch) { 1 } else { 0 })
                     } else {
                         Ok(0)
                     }
