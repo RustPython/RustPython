@@ -44,9 +44,8 @@ use rustpython_common::{
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk, Wtf8Concat},
 };
 
-use icu_properties::{
-    CodePointSetData,
-    props::{BidiClass, EnumeratedProperty, GeneralCategory, XidContinue, XidStart},
+use icu_properties::props::{
+    BidiClass, BinaryProperty, EnumeratedProperty, GeneralCategory, XidContinue, XidStart,
 };
 use unicode_casing::CharExt;
 
@@ -1366,14 +1365,12 @@ impl PyStr {
         let Some(s) = self.to_str() else { return false };
         let mut chars = s.chars();
 
-        let xid_start = CodePointSetData::new::<XidStart>();
         let is_identifier_start = chars
             .next()
-            .is_some_and(|c| c == '_' || xid_start.contains(c));
+            .is_some_and(|c| c == '_' || XidStart::for_char(c));
 
         // a string is not an identifier if it has whitespace or starts with a number
-        let xid_continue = CodePointSetData::new::<XidContinue>();
-        is_identifier_start && chars.all(|c| xid_continue.contains(c))
+        is_identifier_start && chars.all(|c| XidContinue::for_char(c))
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
