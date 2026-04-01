@@ -1370,7 +1370,7 @@ impl PyStr {
             .is_some_and(|c| c == '_' || XidStart::for_char(c));
 
         // a string is not an identifier if it has whitespace or starts with a number
-        is_identifier_start && chars.all(|c| XidContinue::for_char(c))
+        is_identifier_start && chars.all(XidContinue::for_char)
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
