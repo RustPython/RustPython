@@ -46,7 +46,7 @@ use rustpython_common::{
 
 use icu_properties::{
     CodePointSetData,
-    props::{BidiClass, GeneralCategory, XidContinue, XidStart},
+    props::{BidiClass, EnumeratedProperty, GeneralCategory, XidContinue, XidStart},
 };
 use unicode_casing::CharExt;
 
@@ -968,7 +968,9 @@ impl PyStr {
     #[pymethod]
     fn isdecimal(&self) -> bool {
         !self.data.is_empty()
-            && self.char_all(|c| GeneralCategory::of(c) == GeneralCategory::DecimalNumber)
+            && self.char_all(|c| {
+                matches!(GeneralCategory::for_char(c), GeneralCategory::DecimalNumber)
+            })
     }
 
     fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
@@ -1093,11 +1095,17 @@ impl PyStr {
 
     #[pymethod]
     fn isspace(&self) -> bool {
-        use unic_ucd_bidi::bidi_class::abbr_names::*;
         !self.data.is_empty()
             && self.char_all(|c| {
-                GeneralCategory::of(c) == GeneralCategory::SpaceSeparator
-                    || matches!(BidiClass::of(c), WS | B | S)
+                matches!(
+                    GeneralCategory::for_char(c),
+                    GeneralCategory::SpaceSeparator
+                ) || matches!(
+                    BidiClass::for_char(c),
+                    BidiClass::WhiteSpace
+                        | BidiClass::ParagraphSeparator
+                        | BidiClass::SegmentSeparator
+                )
             })
     }
 
