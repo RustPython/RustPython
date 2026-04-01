@@ -3423,7 +3423,6 @@ dependencies = [
  "tk-sys",
  "ucd",
  "unic-ucd-age",
- "unicode-bidi-mirroring",
  "unicode_names2 2.0.0",
  "uuid",
  "webpki-roots",
@@ -4224,12 +4223,6 @@ checksum = "96bd2f2237fe450fcd0a1d2f5f4e91711124f7857ba2e964247776ebeeb7b0c4"
 dependencies = [
  "unic-common",
 ]
-
-[[package]]
-name = "unicode-bidi-mirroring"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5dfa6e8c60bb66d49db113e0125ee8711b7647b5579dc7f5f19c42357ed039fe"
 
 [[package]]
 name = "unicode-casing"

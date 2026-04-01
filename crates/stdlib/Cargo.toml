@@ -82,7 +82,6 @@ icu_properties = { workspace = true }
 icu_normalizer = { workspace = true }
 unic-ucd-age       = { workspace = true }
 ucd = "0.1.1"
-unicode-bidi-mirroring = { workspace = true }
 
 # compression
 adler32 = "1.2.0"

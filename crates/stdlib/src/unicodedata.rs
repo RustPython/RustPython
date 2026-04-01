@@ -45,12 +45,13 @@ mod unicodedata {
     use icu_properties::{
         CodePointSetData,
         props::{
-            BidiClass, BidiMirrored, EnumeratedProperty, GeneralCategory, NamedEnumeratedProperty,
+            BidiClass, BidiMirrored, CanonicalCombiningClass, EastAsianWidth, EnumeratedProperty,
+            GeneralCategory, NamedEnumeratedProperty,
         },
     };
     use itertools::Itertools;
     use rustpython_common::wtf8::{CodePoint, Wtf8Buf};
-    use ucd::{Codepoint, DecompositionType, EastAsianWidth, Number, NumericType};
+    use ucd::{Codepoint, DecompositionType, Number, NumericType};
     use unic_ucd_age::{Age, UNICODE_VERSION, UnicodeVersion};
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
@@ -185,8 +186,8 @@ mod unicodedata {
             Ok(self
                 .extract_char(character, vm)?
                 .and_then(|c| c.to_char())
-                .map_or(EastAsianWidth::Neutral, |c| c.east_asian_width())
-                .abbr_name())
+                .map_or(EastAsianWidth::Neutral, |c| EastAsianWidth::for_char(c))
+                .short_name())
         }
 
         #[pymethod]
@@ -262,11 +263,13 @@ mod unicodedata {
         }
 
         #[pymethod]
-        fn combining(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
+        fn combining(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<u8> {
             Ok(self
                 .extract_char(character, vm)?
                 .and_then(|c| c.to_char())
-                .map_or(0, |ch| ch.canonical_combining_class() as i32))
+                .map_or(0, |ch| {
+                    CanonicalCombiningClass::for_char(ch).to_icu4c_value()
+                }))
         }
 
         #[pymethod]
@@ -372,23 +375,6 @@ mod unicodedata {
             DecompositionType::Super => "super",
             DecompositionType::Vertical => "vertical",
             DecompositionType::Wide => "wide",
-        }
-    }
-
-    trait EastAsianWidthAbbrName {
-        fn abbr_name(&self) -> &'static str;
-    }
-
-    impl EastAsianWidthAbbrName for EastAsianWidth {
-        fn abbr_name(&self) -> &'static str {
-            match self {
-                Self::Narrow => "Na",
-                Self::Wide => "W",
-                Self::Neutral => "N",
-                Self::Ambiguous => "A",
-                Self::FullWidth => "F",
-                Self::HalfWidth => "H",
-            }
         }
     }
 
