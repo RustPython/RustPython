@@ -186,7 +186,7 @@ mod unicodedata {
             Ok(self
                 .extract_char(character, vm)?
                 .and_then(|c| c.to_char())
-                .map_or(EastAsianWidth::Neutral, |c| EastAsianWidth::for_char(c))
+                .map_or(EastAsianWidth::Neutral, EastAsianWidth::for_char)
                 .short_name())
         }
 
