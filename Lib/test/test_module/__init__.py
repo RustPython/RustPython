@@ -1,4 +1,5 @@
 # Test the module type
+import importlib.machinery
 import unittest
 import weakref
 from test.support import gc_collect
@@ -29,7 +30,7 @@ class ModuleTests(unittest.TestCase):
             self.fail("__name__ = %s" % repr(s))
         except AttributeError:
             pass
-        self.assertEqual(foo.__doc__, ModuleType.__doc__)
+        self.assertEqual(foo.__doc__, ModuleType.__doc__ or '')
 
     def test_uninitialized_missing_getattr(self):
         # Issue 8297
@@ -102,8 +103,7 @@ class ModuleTests(unittest.TestCase):
         gc_collect()
         self.assertEqual(f().__dict__["bar"], 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_clear_dict_in_ref_cycle(self):
         destroyed = []
         m = ModuleType("foo")
@@ -152,15 +152,13 @@ a = A(destroyed)"""
         if 'test.test_module.bad_getattr2' in sys.modules:
             del sys.modules['test.test_module.bad_getattr2']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_module_dir(self):
         import test.test_module.good_getattr as gga
         self.assertEqual(dir(gga), ['a', 'b', 'c'])
         del sys.modules['test.test_module.good_getattr']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_module_dir_errors(self):
         import test.test_module.bad_getattr as bga
         from test.test_module import bad_getattr2
@@ -270,11 +268,38 @@ a = A(destroyed)"""
         self.assertEqual(r[-len(ends_with):], ends_with,
                          '{!r} does not end with {!r}'.format(r, ends_with))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    def test_module_repr_with_namespace_package(self):
+        m = ModuleType('foo')
+        loader = importlib.machinery.NamespaceLoader('foo', ['bar'], 'baz')
+        spec = importlib.machinery.ModuleSpec('foo', loader)
+        m.__loader__ = loader
+        m.__spec__ = spec
+        self.assertEqual(repr(m), "<module 'foo' (namespace) from ['bar']>")
+
+    def test_module_repr_with_namespace_package_and_custom_loader(self):
+        m = ModuleType('foo')
+        loader = BareLoader()
+        spec = importlib.machinery.ModuleSpec('foo', loader)
+        m.__loader__ = loader
+        m.__spec__ = spec
+        expected_repr_pattern = r"<module 'foo' \(<.*\.BareLoader object at .+>\)>"
+        self.assertRegex(repr(m), expected_repr_pattern)
+        self.assertNotIn('from', repr(m))
+
+    def test_module_repr_with_fake_namespace_package(self):
+        m = ModuleType('foo')
+        loader = BareLoader()
+        loader._path = ['spam']
+        spec = importlib.machinery.ModuleSpec('foo', loader)
+        m.__loader__ = loader
+        m.__spec__ = spec
+        expected_repr_pattern = r"<module 'foo' \(<.*\.BareLoader object at .+>\)>"
+        self.assertRegex(repr(m), expected_repr_pattern)
+        self.assertNotIn('from', repr(m))
+
     def test_module_finalization_at_shutdown(self):
         # Module globals and builtins should still be available during shutdown
-        rc, out, err = assert_python_ok("-c", "from test import final_a")
+        rc, out, err = assert_python_ok("-c", "from test.test_module import final_a")
         self.assertFalse(err)
         lines = out.splitlines()
         self.assertEqual(set(lines), {
