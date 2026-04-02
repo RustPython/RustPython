@@ -43,9 +43,10 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk, Wtf8Concat},
 };
-use unic_ucd_bidi::BidiClass;
-use unic_ucd_category::GeneralCategory;
-use unic_ucd_ident::{is_xid_continue, is_xid_start};
+
+use icu_properties::props::{
+    BidiClass, BinaryProperty, EnumeratedProperty, GeneralCategory, XidContinue, XidStart,
+};
 use unicode_casing::CharExt;
 
 impl<'a> TryFromBorrowedObject<'a> for String {
@@ -966,7 +967,9 @@ impl PyStr {
     #[pymethod]
     fn isdecimal(&self) -> bool {
         !self.data.is_empty()
-            && self.char_all(|c| GeneralCategory::of(c) == GeneralCategory::DecimalNumber)
+            && self.char_all(|c| {
+                matches!(GeneralCategory::for_char(c), GeneralCategory::DecimalNumber)
+            })
     }
 
     fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
@@ -1091,11 +1094,17 @@ impl PyStr {
 
     #[pymethod]
     fn isspace(&self) -> bool {
-        use unic_ucd_bidi::bidi_class::abbr_names::*;
         !self.data.is_empty()
             && self.char_all(|c| {
-                GeneralCategory::of(c) == GeneralCategory::SpaceSeparator
-                    || matches!(BidiClass::of(c), WS | B | S)
+                matches!(
+                    GeneralCategory::for_char(c),
+                    GeneralCategory::SpaceSeparator
+                ) || matches!(
+                    BidiClass::for_char(c),
+                    BidiClass::WhiteSpace
+                        | BidiClass::ParagraphSeparator
+                        | BidiClass::SegmentSeparator
+                )
             })
     }
 
@@ -1355,9 +1364,13 @@ impl PyStr {
     pub fn isidentifier(&self) -> bool {
         let Some(s) = self.to_str() else { return false };
         let mut chars = s.chars();
-        let is_identifier_start = chars.next().is_some_and(|c| c == '_' || is_xid_start(c));
+
+        let is_identifier_start = chars
+            .next()
+            .is_some_and(|c| c == '_' || XidStart::for_char(c));
+
         // a string is not an identifier if it has whitespace or starts with a number
-        is_identifier_start && chars.all(is_xid_continue)
+        is_identifier_start && chars.all(XidContinue::for_char)
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate

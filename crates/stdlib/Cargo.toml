@@ -78,13 +78,10 @@ constant_time_eq = { workspace = true }
 ## unicode stuff
 unicode_names2 = { workspace = true }
 # update version all at the same time
-unic-char-property = { workspace = true }
-unic-normal        = { workspace = true }
-unic-ucd-bidi      = { workspace = true }
-unic-ucd-category  = { workspace = true }
+icu_properties = { workspace = true }
+icu_normalizer = { workspace = true }
 unic-ucd-age       = { workspace = true }
 ucd = "0.1.1"
-unicode-bidi-mirroring = { workspace = true }
 
 # compression
 adler32 = "1.2.0"

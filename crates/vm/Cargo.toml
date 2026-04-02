@@ -86,10 +86,7 @@ timsort = "0.1.2"
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = { workspace = true }
-# update version all at the same time
-unic-ucd-bidi = { workspace = true }
-unic-ucd-category = { workspace = true }
-unic-ucd-ident = { workspace = true }
+icu_properties = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }

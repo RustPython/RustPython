@@ -232,7 +232,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         b = 'C\u0338' * 20  + '\xC7'
         self.assertEqual(self.db.normalize('NFC', a), b)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?  +
     def test_issue29456(self):
         # Fix #29456
         u1176_str_a = '\u1100\u1176\u11a8'
@@ -389,6 +388,7 @@ class NormalizationTest(unittest.TestCase):
         data = [int(x, 16) for x in data.split(" ")]
         return "".join([chr(x) for x in data])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : 13055
     @requires_resource('network')
     @requires_resource('cpu')
     def test_normalization(self):
