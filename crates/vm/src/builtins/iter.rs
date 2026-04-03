@@ -184,16 +184,27 @@ impl PySequenceIterator {
     }
 
     #[pymethod]
-    fn __length_hint__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let internal = self.internal.lock();
-        if let IterStatus::Active(obj) = &internal.status {
-            let seq = obj.sequence_unchecked();
-            seq.length(vm)
-                .map(|x| PyInt::from(x).into_pyobject(vm))
-                .unwrap_or_else(|_| vm.ctx.not_implemented())
-        } else {
-            PyInt::from(0).into_pyobject(vm)
-        }
+    fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        vm.with_recursion("in __length_hint__", || {
+            let (obj, position) = {
+                let internal = self.internal.lock();
+                match &internal.status {
+                    IterStatus::Active(obj) => (Some(obj.clone()), internal.position),
+                    IterStatus::Exhausted => (None, 0),
+                }
+            };
+            if let Some(obj) = obj {
+                let seq = obj.sequence_unchecked();
+                match seq.length_opt(vm) {
+                    Some(len) => {
+                        len.map(|len| PyInt::from(len.saturating_sub(position)).into_pyobject(vm))
+                    }
+                    None => Ok(vm.ctx.not_implemented()),
+                }
+            } else {
+                Ok(PyInt::from(0).into_pyobject(vm))
+            }
+        })
     }
 
     #[pymethod]
