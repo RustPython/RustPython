@@ -94,7 +94,7 @@ pub struct VirtualMachine {
     pub initialized: bool,
     recursion_depth: Cell<usize>,
     /// C stack soft limit for detecting stack overflow (like c_stack_soft_limit)
-    #[cfg_attr(miri, allow(dead_code))]
+    #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     c_stack_soft_limit: Cell<usize>,
     /// Async generator firstiter hook (per-thread, set via sys.set_asyncgen_hooks)
     pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
@@ -1424,12 +1424,12 @@ impl VirtualMachine {
 
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// 2048 * sizeof(void*) = 16KB for 64-bit.
-    #[cfg_attr(miri, allow(dead_code))]
+    #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     const STACK_MARGIN_BYTES: usize = 2048 * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
-    #[cfg(all(not(miri), windows))]
+    #[cfg(all(not(miri), not(target_env = "musl"), windows))]
     fn get_stack_bounds() -> (usize, usize) {
         use windows_sys::Win32::System::Threading::{
             GetCurrentThreadStackLimits, SetThreadStackGuarantee,
@@ -1448,7 +1448,7 @@ impl VirtualMachine {
 
     /// Get stack boundaries on non-Windows platforms.
     /// Falls back to estimating based on current stack pointer.
-    #[cfg(all(not(miri), not(windows)))]
+    #[cfg(all(not(miri), not(target_env = "musl"), not(windows)))]
     fn get_stack_bounds() -> (usize, usize) {
         // Use pthread_attr_getstack on platforms that support it
         #[cfg(any(target_os = "linux", target_os = "android"))]
