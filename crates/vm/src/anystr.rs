@@ -396,6 +396,10 @@ pub trait AnyStr {
 
     fn py_zfill(&self, width: isize) -> Vec<u8> {
         let width = width.to_usize().unwrap_or(0);
+        let char_len = self.elements().count();
+        let width = self
+            .bytes_len()
+            .saturating_add(width.saturating_sub(char_len));
         rustpython_common::str::zfill(self.as_bytes(), width)
     }
 
