@@ -61,6 +61,9 @@ assert a.endswith(("A", "lo"))
 assert not a.endswith("on")
 assert not a.endswith(("A", "ll"))
 assert a.zfill(8) == "000Hallo"
+assert "á".zfill(4) == "000á"
+assert "🙂".zfill(5) == "0000🙂"
+assert "+あ".zfill(5) == "+000あ"
 assert a.isalnum()
 assert not a.isdigit()
 assert not a.isdecimal()
