@@ -1,0 +1,12 @@
+[package]
+name = "example_pyo3_embed"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = { path = "../../../pyo3", default-features = false, features = ["abi3-py314"] }
+rustpython-capi = { path = "../../crates/capi" }
+
+[workspace]
+
+[patch.crates-io]

@@ -1,0 +1,18 @@
+[package]
+name = "rustpython-capi"
+description = "Minimal CPython C-API compatibility exports for RustPython"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+rustpython-vm = { workspace = true }
+
+[lints]
+workspace = true
