@@ -94,7 +94,7 @@ pub struct VirtualMachine {
     pub initialized: bool,
     recursion_depth: Cell<usize>,
     /// C stack soft limit for detecting stack overflow (like c_stack_soft_limit)
-    #[cfg_attr(miri, allow(dead_code))]
+    #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     c_stack_soft_limit: Cell<usize>,
     /// Async generator firstiter hook (per-thread, set via sys.set_asyncgen_hooks)
     pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
@@ -1424,12 +1424,12 @@ impl VirtualMachine {
 
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// 2048 * sizeof(void*) = 16KB for 64-bit.
-    #[cfg_attr(miri, allow(dead_code))]
+    #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     const STACK_MARGIN_BYTES: usize = 2048 * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
-    #[cfg(all(not(miri), windows))]
+    #[cfg(all(not(miri), not(target_env = "musl"), windows))]
     fn get_stack_bounds() -> (usize, usize) {
         use windows_sys::Win32::System::Threading::{
             GetCurrentThreadStackLimits, SetThreadStackGuarantee,
@@ -1448,7 +1448,7 @@ impl VirtualMachine {
 
     /// Get stack boundaries on non-Windows platforms.
     /// Falls back to estimating based on current stack pointer.
-    #[cfg(all(not(miri), not(windows)))]
+    #[cfg(all(not(miri), not(target_env = "musl"), not(windows)))]
     fn get_stack_bounds() -> (usize, usize) {
         // Use pthread_attr_getstack on platforms that support it
         #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -1499,15 +1499,16 @@ impl VirtualMachine {
 
     /// Calculate the C stack soft limit based on actual stack boundaries.
     /// soft_limit = base + 2 * margin (for downward-growing stacks)
-    #[cfg(not(miri))]
+    #[cfg(all(not(miri), not(target_env = "musl")))]
     fn calculate_c_stack_soft_limit() -> usize {
         let (base, _top) = Self::get_stack_bounds();
-        // Soft limit is 2 margins above the base
         base + Self::STACK_MARGIN_BYTES * 2
     }
 
-    /// Miri doesn't support inline assembly, so disable C stack checking.
-    #[cfg(miri)]
+    /// Musl currently reports stack bounds in a way that trips the VM's
+    /// native stack guard during frozen stdlib bootstrap, so keep the Python
+    /// recursion limit as the only guard there.
+    #[cfg(any(miri, target_env = "musl"))]
     fn calculate_c_stack_soft_limit() -> usize {
         0
     }
@@ -1515,19 +1516,18 @@ impl VirtualMachine {
     /// Check if we're near the C stack limit (like _Py_MakeRecCheck).
     /// Returns true only when stack pointer is in the "danger zone" between
     /// soft_limit and hard_limit (soft_limit - 2*margin).
-    #[cfg(not(miri))]
+    #[cfg(all(not(miri), not(target_env = "musl")))]
     #[inline(always)]
     fn check_c_stack_overflow(&self) -> bool {
         let current_sp = psm::stack_pointer() as usize;
         let soft_limit = self.c_stack_soft_limit.get();
-        // Stack grows downward: check if we're below soft limit but above hard limit
-        // This matches CPython's _Py_MakeRecCheck behavior
         current_sp < soft_limit
             && current_sp >= soft_limit.saturating_sub(Self::STACK_MARGIN_BYTES * 2)
     }
 
-    /// Miri doesn't support inline assembly, so always return false.
-    #[cfg(miri)]
+    /// Miri does not support the native stack probe, and musl currently trips
+    /// the probe during stdlib bootstrap.
+    #[cfg(any(miri, target_env = "musl"))]
     #[inline(always)]
     fn check_c_stack_overflow(&self) -> bool {
         false
