@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pyo3 = { path = "../../../pyo3", default-features = false, features = ["abi3-py314"] }
+pyo3 = { version = "0.28.3", features = ["abi3-py314"] }
 rustpython-capi = { path = "../../crates/capi" }
 
 [workspace]
