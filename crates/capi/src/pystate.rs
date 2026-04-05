@@ -27,19 +27,22 @@ pub struct PyThreadState {
     _interp: *mut std::ffi::c_void,
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn PyGILState_Ensure() -> PyGILState_STATE {
+pub(crate) fn attach_vm_to_thread() {
     VM.with(|vm| {
         vm.borrow_mut()
             .get_or_insert_with(|| request_vm_from_interpreter());
     });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyGILState_Ensure() -> PyGILState_STATE {
+    attach_vm_to_thread();
 
     0
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyGILState_Release(_state: PyGILState_STATE) {
-}
+pub extern "C" fn PyGILState_Release(_state: PyGILState_STATE) {}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
@@ -47,5 +50,4 @@ pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyEval_RestoreThread(_tstate: *mut PyThreadState) {
-}
+pub extern "C" fn PyEval_RestoreThread(_tstate: *mut PyThreadState) {}
