@@ -1,9 +1,14 @@
-use crate::{PyThreadState, log_stub};
+use crate::log_stub;
 use core::ffi::c_int;
 use core::ptr;
 
 #[allow(non_camel_case_types)]
 type PyGILState_STATE = c_int;
+
+#[repr(C)]
+pub struct PyThreadState {
+    _interp: *mut std::ffi::c_void,
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyGILState_Ensure() -> PyGILState_STATE {
