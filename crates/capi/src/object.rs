@@ -71,7 +71,7 @@ pub static mut PyUnicode_Type: PyTypeObject = PyTypeObject::new(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C-unwind" fn _Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
+pub extern "C" fn _Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
     if op.is_null() {
         return std::ptr::null_mut();
     }
@@ -93,13 +93,13 @@ pub extern "C-unwind" fn _Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
+pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
     _Py_TYPE(op)
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C-unwind" fn PyType_GetFlags(ty: *mut PyTypeObject) -> c_ulong {
+pub extern "C" fn PyType_GetFlags(ty: *mut PyTypeObject) -> c_ulong {
     if ty.is_null() {
         panic!("PyType_GetFlags called with null type pointer");
     }
