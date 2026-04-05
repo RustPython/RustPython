@@ -70,8 +70,7 @@ pub static mut PyUnicode_Type: PyTypeObject = PyTypeObject::new(
 );
 
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn _Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
+pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
     if op.is_null() {
         return std::ptr::null_mut();
     }
@@ -90,11 +89,6 @@ pub extern "C" fn _Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
             todo!("Unsupported type: {:?}", ty.name());
         }
     }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
-    _Py_TYPE(op)
 }
 
 #[unsafe(no_mangle)]

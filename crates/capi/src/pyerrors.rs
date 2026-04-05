@@ -10,6 +10,9 @@ pub static mut PyExc_BaseException: *mut PyObject = ptr::null_mut();
 pub static mut PyExc_TypeError: *mut PyObject = ptr::null_mut();
 
 #[unsafe(no_mangle)]
+pub static mut PyExc_OverflowError: *mut PyObject = ptr::null_mut();
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
     crate::log_stub("PyErr_GetRaisedException");
     ptr::null_mut()

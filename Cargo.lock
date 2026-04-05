@@ -3108,6 +3108,7 @@ dependencies = [
 name = "rustpython-capi"
 version = "0.5.0"
 dependencies = [
+ "num-traits",
  "rustpython-vm",
 ]
 
