@@ -1,5 +1,3 @@
-use icu_properties::props::{EnumeratedProperty, GeneralCategory};
-
 /// According to python following categories aren't printable:
 /// * Cc (Other, Control)
 /// * Cf (Other, Format)
@@ -10,17 +8,5 @@ use icu_properties::props::{EnumeratedProperty, GeneralCategory};
 /// * Zp Separator, Paragraph ('\u2029', PARAGRAPH SEPARATOR)
 /// * Zs (Separator, Space) other than ASCII space('\x20').
 pub fn is_printable(c: char) -> bool {
-    let cat = GeneralCategory::for_char(c);
-
-    !matches!(
-        cat,
-        GeneralCategory::SpaceSeparator
-            | GeneralCategory::LineSeparator
-            | GeneralCategory::ParagraphSeparator
-            | GeneralCategory::Control
-            | GeneralCategory::Format
-            | GeneralCategory::Surrogate
-            | GeneralCategory::PrivateUse
-            | GeneralCategory::Unassigned
-    )
+    rustpython_unicode::classify::is_repr_printable(c as u32)
 }

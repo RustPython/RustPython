@@ -17,6 +17,17 @@ enum NormalizeForm {
     Nfkd,
 }
 
+impl From<NormalizeForm> for rustpython_unicode::NormalizeForm {
+    fn from(value: NormalizeForm) -> Self {
+        match value {
+            NormalizeForm::Nfc => Self::Nfc,
+            NormalizeForm::Nfkc => Self::Nfkc,
+            NormalizeForm::Nfd => Self::Nfd,
+            NormalizeForm::Nfkd => Self::Nfkd,
+        }
+    }
+}
+
 impl<'a> TryFromBorrowedObject<'a> for NormalizeForm {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         obj.try_value_with(
@@ -34,25 +45,15 @@ impl<'a> TryFromBorrowedObject<'a> for NormalizeForm {
 
 #[pymodule]
 mod unicodedata {
-    use super::NormalizeForm::*;
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyModule, PyStrRef},
         function::OptionalArg,
     };
 
-    use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
-    use icu_properties::{
-        CodePointSetData,
-        props::{
-            BidiClass, BidiMirrored, CanonicalCombiningClass, EastAsianWidth, EnumeratedProperty,
-            GeneralCategory, NamedEnumeratedProperty,
-        },
-    };
     use itertools::Itertools;
     use rustpython_common::wtf8::{CodePoint, Wtf8Buf};
-    use ucd::{Codepoint, DecompositionType, Number, NumericType};
-    use unic_ucd_age::{Age, UNICODE_VERSION, UnicodeVersion};
+    use rustpython_unicode::{UNICODE_VERSION, UnicodeVersion, data, normalize};
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
@@ -94,8 +95,7 @@ mod unicodedata {
         }
 
         fn check_age(&self, c: CodePoint) -> bool {
-            c.to_char()
-                .is_none_or(|c| Age::of(c).is_some_and(|age| age.actual() <= self.unic_version))
+            data::is_assigned_in_version(c.to_u32(), self.unic_version)
         }
 
         fn extract_char(
@@ -119,21 +119,19 @@ mod unicodedata {
         fn category(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
             Ok(self
                 .extract_char(character, vm)?
-                .map_or(GeneralCategory::Unassigned, |c| {
-                    c.to_char()
-                        .map_or(GeneralCategory::Surrogate, GeneralCategory::for_char)
-                })
-                .short_name()
+                .map_or("Cn", |c| data::category(c.to_u32()))
                 .to_owned())
         }
 
         #[pymethod]
         fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
             if let Some(name_str) = name.to_str()
-                && let Some(character) = unicode_names2::character(name_str)
-                && self.check_age(character.into())
+                && let Some(character) = data::lookup(name_str)
+                && self.check_age(CodePoint::from_u32(character).expect("valid Unicode code point"))
             {
-                return Ok(character.to_string());
+                return Ok(char::from_u32(character)
+                    .expect("unicode_names2 only returns Unicode scalar values")
+                    .to_string());
             }
             Err(vm.new_key_error(
                 vm.ctx
@@ -153,9 +151,9 @@ mod unicodedata {
 
             if let Some(c) = c
                 && self.check_age(c)
-                && let Some(name) = c.to_char().and_then(unicode_names2::name)
+                && let Some(name) = data::name(c.to_u32())
             {
-                return Ok(vm.ctx.new_str(name.to_string()).into());
+                return Ok(vm.ctx.new_str(name).into());
             }
             default.ok_or_else(|| vm.new_value_error("no such name"))
         }
@@ -166,14 +164,9 @@ mod unicodedata {
             character: PyStrRef,
             vm: &VirtualMachine,
         ) -> PyResult<&'static str> {
-            let bidi = match self.extract_char(character, vm)? {
-                Some(c) => c
-                    .to_char()
-                    .map_or(BidiClass::LeftToRight, BidiClass::for_char)
-                    .short_name(),
-                None => "",
-            };
-            Ok(bidi)
+            Ok(self
+                .extract_char(character, vm)?
+                .map_or("", |c| data::bidirectional(c.to_u32())))
         }
 
         /// NOTE: This function uses 9.0.0 database instead of 3.2.0
@@ -185,110 +178,38 @@ mod unicodedata {
         ) -> PyResult<&'static str> {
             Ok(self
                 .extract_char(character, vm)?
-                .and_then(|c| c.to_char())
-                .map_or(EastAsianWidth::Neutral, EastAsianWidth::for_char)
-                .short_name())
+                .map_or("N", |c| data::east_asian_width(c.to_u32())))
         }
 
         #[pymethod]
         fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<Wtf8Buf> {
-            let text = unistr.as_wtf8();
-            let normalized_text = match form {
-                Nfc => {
-                    let normalizer = ComposingNormalizerBorrowed::new_nfc();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
-                }
-                Nfkc => {
-                    let normalizer = ComposingNormalizerBorrowed::new_nfkc();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
-                }
-                Nfd => {
-                    let normalizer = DecomposingNormalizerBorrowed::new_nfd();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
-                }
-                Nfkd => {
-                    let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
-                }
-            };
-            Ok(normalized_text)
+            Ok(normalize::normalize(form.into(), unistr.as_wtf8()))
         }
 
         #[pymethod]
         fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<bool> {
-            let text = unistr.as_wtf8();
-            let normalized: Wtf8Buf = match form {
-                Nfc => {
-                    let normalizer = ComposingNormalizerBorrowed::new_nfc();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
-                }
-                Nfkc => {
-                    let normalizer = ComposingNormalizerBorrowed::new_nfkc();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
-                }
-                Nfd => {
-                    let normalizer = DecomposingNormalizerBorrowed::new_nfd();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
-                }
-                Nfkd => {
-                    let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
-                }
-            };
-            Ok(text == &*normalized)
+            Ok(normalize::is_normalized(form.into(), unistr.as_wtf8()))
         }
 
         #[pymethod]
         fn mirrored(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
-            match self.extract_char(character, vm)? {
-                Some(c) => {
-                    if let Some(ch) = c.to_char() {
-                        // Check if the character is mirrored in bidirectional text using Unicode standard
-                        let bidi_mirrored = CodePointSetData::new::<BidiMirrored>();
-                        Ok(if bidi_mirrored.contains(ch) { 1 } else { 0 })
-                    } else {
-                        Ok(0)
-                    }
-                }
-                None => Ok(0),
-            }
+            Ok(self
+                .extract_char(character, vm)?
+                .is_some_and(|c| data::mirrored(c.to_u32())) as i32)
         }
 
         #[pymethod]
         fn combining(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<u8> {
             Ok(self
                 .extract_char(character, vm)?
-                .and_then(|c| c.to_char())
-                .map_or(0, |ch| {
-                    CanonicalCombiningClass::for_char(ch).to_icu4c_value()
-                }))
+                .map_or(0, |c| data::combining(c.to_u32())))
         }
 
         #[pymethod]
         fn decomposition(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-            let ch = match self.extract_char(character, vm)?.and_then(|c| c.to_char()) {
-                Some(ch) => ch,
-                None => return Ok(String::new()),
-            };
-            let chars: Vec<char> = ch.decomposition_map().collect();
-            // If decomposition maps to just the character itself, there's no decomposition
-            if chars.len() == 1 && chars[0] == ch {
-                return Ok(String::new());
-            }
-            let hex_parts = chars.iter().map(|c| format!("{:04X}", *c as u32)).join(" ");
-            let tag = match ch.decomposition_type() {
-                Some(DecompositionType::Canonical) | None => return Ok(hex_parts),
-                Some(dt) => decomposition_type_tag(dt),
-            };
-            Ok(format!("<{tag}> {hex_parts}"))
+            Ok(self
+                .extract_char(character, vm)?
+                .map_or_else(String::new, |c| data::decomposition(c.to_u32())))
         }
 
         #[pymethod]
@@ -298,15 +219,11 @@ mod unicodedata {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let ch = self.extract_char(character, vm)?.and_then(|c| c.to_char());
-            if let Some(ch) = ch
-                && matches!(
-                    ch.numeric_type(),
-                    Some(NumericType::Decimal) | Some(NumericType::Digit)
-                )
-                && let Some(Number::Integer(n)) = ch.numeric_value()
+            if let Some(value) = self
+                .extract_char(character, vm)?
+                .and_then(|c| data::digit(c.to_u32()))
             {
-                return Ok(vm.ctx.new_int(n).into());
+                return Ok(vm.ctx.new_int(value).into());
             }
             default.ok_or_else(|| vm.new_value_error("not a digit"))
         }
@@ -318,12 +235,11 @@ mod unicodedata {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let ch = self.extract_char(character, vm)?.and_then(|c| c.to_char());
-            if let Some(ch) = ch
-                && ch.numeric_type() == Some(NumericType::Decimal)
-                && let Some(Number::Integer(n)) = ch.numeric_value()
+            if let Some(value) = self
+                .extract_char(character, vm)?
+                .and_then(|c| data::decimal(c.to_u32()))
             {
-                return Ok(vm.ctx.new_int(n).into());
+                return Ok(vm.ctx.new_int(value).into());
             }
             default.ok_or_else(|| vm.new_value_error("not a decimal"))
         }
@@ -335,17 +251,15 @@ mod unicodedata {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let ch = self.extract_char(character, vm)?.and_then(|c| c.to_char());
-            if let Some(ch) = ch {
-                match ch.numeric_value() {
-                    Some(Number::Integer(n)) => {
-                        return Ok(vm.ctx.new_float(n as f64).into());
-                    }
-                    Some(Number::Rational(num, den)) => {
-                        return Ok(vm.ctx.new_float(num as f64 / den as f64).into());
-                    }
-                    None => {}
-                }
+            if let Some(value) = self
+                .extract_char(character, vm)?
+                .and_then(|c| data::numeric(c.to_u32()))
+            {
+                let value = match value {
+                    data::NumericValue::Integer(n) => n as f64,
+                    data::NumericValue::Rational(num, den) => num as f64 / den as f64,
+                };
+                return Ok(vm.ctx.new_float(value).into());
             }
             default.ok_or_else(|| vm.new_value_error("not a numeric character"))
         }
@@ -353,28 +267,6 @@ mod unicodedata {
         #[pygetset]
         fn unidata_version(&self) -> String {
             self.unic_version.to_string()
-        }
-    }
-
-    fn decomposition_type_tag(dt: DecompositionType) -> &'static str {
-        match dt {
-            DecompositionType::Canonical => "canonical",
-            DecompositionType::Compat => "compat",
-            DecompositionType::Circle => "circle",
-            DecompositionType::Final => "final",
-            DecompositionType::Font => "font",
-            DecompositionType::Fraction => "fraction",
-            DecompositionType::Initial => "initial",
-            DecompositionType::Isolated => "isolated",
-            DecompositionType::Medial => "medial",
-            DecompositionType::Narrow => "narrow",
-            DecompositionType::Nobreak => "noBreak",
-            DecompositionType::Small => "small",
-            DecompositionType::Square => "square",
-            DecompositionType::Sub => "sub",
-            DecompositionType::Super => "super",
-            DecompositionType::Vertical => "vertical",
-            DecompositionType::Wide => "wide",
         }
     }
 

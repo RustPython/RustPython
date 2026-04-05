@@ -28,6 +28,7 @@ flame-it = ["flame"]
 [dependencies]
 # rustpython crates
 rustpython-derive = { workspace = true }
+rustpython-unicode = { workspace = true, features = ["std", "casefold"] }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
 
@@ -76,13 +77,6 @@ pbkdf2 = { version = "0.12", features = ["hmac"] }
 constant_time_eq = { workspace = true }
 
 ## unicode stuff
-unicode_names2 = { workspace = true }
-# update version all at the same time
-icu_properties = { workspace = true }
-icu_normalizer = { workspace = true }
-unic-ucd-age       = { workspace = true }
-ucd = "0.1.1"
-
 # compression
 adler32 = "1.2.0"
 crc32fast = "1.3.2"
