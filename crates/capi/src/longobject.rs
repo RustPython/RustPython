@@ -2,7 +2,7 @@ use core::ffi::{c_long, c_longlong, c_ulong, c_ulonglong};
 use core::ptr;
 
 use crate::PyObject;
-use crate::pylifecycle::with_vm;
+use crate::pystate::with_vm;
 use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyInt;
 

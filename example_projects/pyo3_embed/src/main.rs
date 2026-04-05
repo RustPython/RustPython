@@ -11,5 +11,13 @@ fn main() {
 
         let string = PyString::new(py, "Hello, World!");
         assert!(string.is_instance_of::<PyString>());
+
+        let number = number.unbind();
+        std::thread::spawn(move || {
+            Python::attach(|py| {
+                let number = number.bind(py);
+                assert!(number.is_instance_of::<PyInt>());
+            });
+        }).join().unwrap();
     });
 }

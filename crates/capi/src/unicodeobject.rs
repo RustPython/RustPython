@@ -4,7 +4,7 @@ use core::slice;
 use core::str;
 
 use crate::PyObject;
-use crate::pylifecycle::with_vm;
+use crate::pystate::with_vm;
 use rustpython_vm::PyObjectRef;
 
 #[unsafe(no_mangle)]

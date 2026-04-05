@@ -1,6 +1,23 @@
-use crate::log_stub;
+use crate::pylifecycle::request_vm_from_interpreter;
 use core::ffi::c_int;
 use core::ptr;
+use rustpython_vm::VirtualMachine;
+use rustpython_vm::vm::thread::ThreadedVirtualMachine;
+use std::cell::RefCell;
+
+thread_local! {
+    static VM: RefCell<Option<ThreadedVirtualMachine>> = const { RefCell::new(None) };
+}
+
+pub fn with_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
+    VM.with(|vm_ref| {
+        let vm = vm_ref.borrow();
+        let vm = vm
+            .as_ref()
+            .expect("Thread was not attached to an interpreter");
+        vm.run(f)
+    })
+}
 
 #[allow(non_camel_case_types)]
 type PyGILState_STATE = c_int;
@@ -12,22 +29,23 @@ pub struct PyThreadState {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyGILState_Ensure() -> PyGILState_STATE {
-    log_stub("PyGILState_Ensure");
+    VM.with(|vm| {
+        vm.borrow_mut()
+            .get_or_insert_with(|| request_vm_from_interpreter());
+    });
+
     0
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyGILState_Release(_state: PyGILState_STATE) {
-    log_stub("PyGILState_Release");
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
-    log_stub("PyEval_SaveThread");
     ptr::null_mut()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_RestoreThread(_tstate: *mut PyThreadState) {
-    log_stub("PyEval_RestoreThread");
 }
