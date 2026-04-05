@@ -9,8 +9,9 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["casefold"]
-casefold = ["dep:caseless"]
+default = ["std", "casefold"]
+std = []
+casefold = ["std", "dep:caseless"]
 
 [dependencies]
 rustpython-wtf8 = { workspace = true }

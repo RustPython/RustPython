@@ -67,7 +67,7 @@ mod unicodedata {
                 .as_wtf8()
                 .code_points()
                 .exactly_one()
-                .map_err(|_| vm.new_type_error("argument must be an unicode character, not str"))
+                .map_err(|_| vm.new_type_error("argument must be a Unicode character, not str"))
         }
     }
 
