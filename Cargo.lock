@@ -3123,9 +3123,9 @@ dependencies = [
  "rustpython-ruff_python_ast",
  "rustpython-ruff_python_parser",
  "rustpython-ruff_text_size",
+ "rustpython-unicode",
  "rustpython-wtf8",
  "thiserror 2.0.18",
- "unicode_names2 2.0.0",
 ]
 
 [[package]]
@@ -3148,9 +3148,9 @@ dependencies = [
  "parking_lot",
  "radium",
  "rustpython-literal",
+ "rustpython-unicode",
  "rustpython-wtf8",
  "siphasher",
- "unicode_names2 2.0.0",
  "widestring",
  "windows-sys 0.61.2",
 ]

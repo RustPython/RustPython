@@ -1,3 +1,4 @@
+use core::str::FromStr;
 use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
@@ -7,6 +8,20 @@ pub enum NormalizeForm {
     Nfkc,
     Nfd,
     Nfkd,
+}
+
+impl FromStr for NormalizeForm {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "NFC" => Ok(Self::Nfc),
+            "NFKC" => Ok(Self::Nfkc),
+            "NFD" => Ok(Self::Nfd),
+            "NFKD" => Ok(Self::Nfkd),
+            _ => Err(()),
+        }
+    }
 }
 
 pub fn normalize(form: NormalizeForm, text: &Wtf8) -> Wtf8Buf {

@@ -28,7 +28,7 @@ flame-it = ["flame"]
 [dependencies]
 # rustpython crates
 rustpython-derive = { workspace = true }
-rustpython-unicode = { workspace = true, features = ["std", "casefold"] }
+rustpython-unicode = { workspace = true, features = ["casefold"] }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
 

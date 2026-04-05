@@ -14,6 +14,7 @@ std = ["thiserror/std", "itertools/use_std"]
 
 [dependencies]
 rustpython-compiler-core = { workspace = true }
+rustpython-unicode = { workspace = true, default-features = false }
 rustpython-literal = {workspace = true }
 rustpython-wtf8 = { workspace = true }
 ruff_python_ast = { workspace = true }
@@ -29,7 +30,6 @@ num-traits = { workspace = true }
 thiserror = { workspace = true }
 malachite-bigint = { workspace = true }
 memchr = { workspace = true }
-unicode_names2 = { workspace = true }
 
 [dev-dependencies]
 ruff_python_parser = { workspace = true }
