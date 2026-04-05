@@ -1,47 +1,56 @@
 use std::mem::{transmute, MaybeUninit};
 use std::ptr::NonNull;
-use rustpython_vm::{PyObjectRef, VirtualMachine, Context};
+use rustpython_vm::{PyObjectRef, VirtualMachine, Context, AsObject};
 use rustpython_vm::builtins::PyType;
 use crate::{PyObject};
+use crate::object::PyTypeObject::*;
 
-type PyTypeObject = MaybeUninit<&'static PyType>;
 
-#[unsafe(no_mangle)]
-pub static mut PyType_Type: PyTypeObject = MaybeUninit::uninit();
 
-#[unsafe(no_mangle)]
-pub static mut PyLong_Type: PyTypeObject = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyTuple_Type: PyTypeObject = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyUnicode_Type: PyTypeObject = MaybeUninit::uninit();
-
-unsafe fn setup_type_pointers(ctx: &Context) {
-    let zoo = &ctx.types;
-
-    unsafe {
-        PyType_Type.write(zoo.type_type.payload());
-        PyLong_Type.write(zoo.int_type.payload());
-        PyTuple_Type.write(zoo.tuple_type.payload());
-        PyUnicode_Type.write(zoo.str_type.payload());
-    }
+pub enum PyTypeObject {
+    Type,
+    Long,
+    Tuple,
+    Unicode,
 }
 
 #[unsafe(no_mangle)]
+pub static mut PyType_Type: PyTypeObject = Type;
+
+#[unsafe(no_mangle)]
+pub static mut PyLong_Type: PyTypeObject = Long;
+
+#[unsafe(no_mangle)]
+pub static mut PyTuple_Type: PyTypeObject = Tuple;
+
+#[unsafe(no_mangle)]
+pub static mut PyUnicode_Type: PyTypeObject = Unicode;
+
+#[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn _Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
+pub extern "C-unwind" fn _Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
     if op.is_null() {
         return std::ptr::null_mut();
     }
 
-    // SAFETY: op is non-null and expected to be a valid pointer for this shim.
-    unsafe { transmute((*op).class()) }
+    let zoo = &Context::genesis().types;
+    let ty = unsafe { (*op).class()};
+
+    if ty.is(zoo.type_type) {
+        unsafe { &raw mut PyType_Type }
+    } else if ty.is(zoo.int_type){
+        unsafe { &raw mut PyLong_Type }
+    } else if ty.is(zoo.tuple_type){
+        unsafe { &raw mut PyTuple_Type }
+    } else if ty.is(zoo.str_type){
+        unsafe { &raw mut PyUnicode_Type }
+    } else {
+        todo!("Unsupported type: {:?}", ty.name());
+    }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
+pub extern "C-unwind" fn Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
     _Py_TYPE(op)
 }
 
