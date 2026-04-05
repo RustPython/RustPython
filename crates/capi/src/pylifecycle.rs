@@ -1,24 +1,26 @@
+use crate::log_stub;
 use core::ffi::c_int;
 use rustpython_vm::Interpreter;
-use rustpython_vm::VirtualMachine;
-use std::cell::RefCell;
-use std::mem::ManuallyDrop;
+use rustpython_vm::vm::thread::ThreadedVirtualMachine;
+use std::sync::{Once, OnceLock, mpsc};
 
-thread_local! {
-    pub static INTERP: RefCell<Option<ManuallyDrop<Interpreter>>> = const { RefCell::new(None) };
-}
+static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::Sender<ThreadedVirtualMachine>>> =
+    OnceLock::new();
+static INITIALIZED: Once = Once::new();
 
-pub(crate) fn with_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
-    INTERP.with(|interp_ref| {
-        let interp = interp_ref.borrow();
-        let interp = interp.as_ref().expect("VM access before Py_InitializeEx");
-        interp.enter(f)
-    })
+/// Request a vm from the main interpreter
+pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
+    let tx = VM_REQUEST_TX
+        .get()
+        .expect("VM request channel not initialized");
+    let (response_tx, response_rx) = mpsc::channel();
+    tx.send(response_tx).expect("Failed to send VM request");
+    response_rx.recv().expect("Failed to receive VM response")
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_IsInitialized() -> c_int {
-    INTERP.with(|interp| interp.borrow().is_some() as c_int)
+    INITIALIZED.is_completed() as _
 }
 
 #[unsafe(no_mangle)]
@@ -28,13 +30,25 @@ pub extern "C" fn Py_Initialize() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
-    if INTERP.with(|interp| interp.borrow().is_none()) {
-        let interp = Interpreter::with_init(Default::default(), |_vm| {});
-
-        INTERP.with(|interp_ref| {
-            *interp_ref.borrow_mut() = Some(ManuallyDrop::new(interp));
-        });
+    if INITIALIZED.is_completed() {
+        panic!("Initialize called multiple times");
     }
+
+    INITIALIZED.call_once(|| {
+        let (tx, rx) = mpsc::channel();
+        VM_REQUEST_TX.set(tx).expect("VM request channel was already initialized");
+
+        std::thread::spawn(move || {
+            let interp = Interpreter::with_init(Default::default(), |_vm| {});
+            interp.enter(|vm| {
+                while let Ok(request) = rx.recv() {
+                    request
+                        .send(vm.new_thread())
+                        .expect("Failed to send VM response");
+                }
+            })
+        });
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -44,15 +58,8 @@ pub extern "C" fn Py_Finalize() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_FinalizeEx() -> c_int {
-    INTERP.with(|interp_ref| {
-        let interp = ManuallyDrop::into_inner(
-            interp_ref
-                .borrow_mut()
-                .take()
-                .expect("Py_FinalizeEx called without an active interpreter"),
-        );
-        interp.finalize(None)
-    }) as _
+    log_stub("Py_FinalizeEx");
+    0
 }
 
 #[unsafe(no_mangle)]

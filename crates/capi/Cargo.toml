@@ -13,7 +13,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 num-traits = { workspace = true }
-rustpython-vm = { workspace = true }
+rustpython-vm = { workspace = true, features = ["threading"]}
 
 [lints]
 workspace = true
