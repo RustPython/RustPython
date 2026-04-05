@@ -4,7 +4,7 @@ use core::slice;
 use core::str;
 
 use crate::PyObject;
-use crate::pylifecycle::INTERP;
+use crate::pylifecycle::with_vm;
 use rustpython_vm::PyObjectRef;
 
 #[unsafe(no_mangle)]
@@ -21,16 +21,9 @@ pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *
         str::from_utf8(bytes).expect("PyUnicode_FromStringAndSize got non-UTF8 data")
     };
 
-    INTERP.with(|interp_ref| {
-        let interp = interp_ref.borrow();
-        let interp = interp
-            .as_ref()
-            .expect("PyUnicode_FromStringAndSize called before Py_InitializeEx");
-
-        interp.enter(|vm| {
-            let obj: PyObjectRef = vm.ctx.new_str(text).into();
-            obj.into_raw().as_ptr()
-        })
+    with_vm(|vm| {
+        let obj: PyObjectRef = vm.ctx.new_str(text).into();
+        obj.into_raw().as_ptr()
     })
 }
 

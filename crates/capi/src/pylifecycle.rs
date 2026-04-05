@@ -1,10 +1,19 @@
 use core::ffi::c_int;
 use rustpython_vm::Interpreter;
+use rustpython_vm::VirtualMachine;
 use std::cell::RefCell;
 use std::mem::ManuallyDrop;
 
 thread_local! {
     pub static INTERP: RefCell<Option<ManuallyDrop<Interpreter>>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn with_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
+    INTERP.with(|interp_ref| {
+        let interp = interp_ref.borrow();
+        let interp = interp.as_ref().expect("VM access before Py_InitializeEx");
+        interp.enter(f)
+    })
 }
 
 #[unsafe(no_mangle)]
