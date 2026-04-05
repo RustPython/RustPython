@@ -12,6 +12,7 @@ license.workspace = true
 crate-type = ["staticlib"]
 
 [dependencies]
+num-traits = { workspace = true }
 rustpython-vm = { workspace = true }
 
 [lints]
