@@ -1,6 +1,6 @@
-use std::ptr::NonNull;
+use crate::PyObject;
 use rustpython_vm::PyObjectRef;
-use crate::{PyObject};
+use std::ptr::NonNull;
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -9,9 +9,7 @@ pub extern "C" fn _Py_DecRef(op: *mut PyObject) {
         return;
     };
 
-    let owned = unsafe {
-        PyObjectRef::from_raw(ptr)
-    };
+    let owned = unsafe { PyObjectRef::from_raw(ptr) };
 
     // Dropping so we decrement the refcount
     drop(owned);
@@ -25,9 +23,7 @@ pub extern "C" fn _Py_IncRef(op: *mut PyObject) {
     }
 
     // SAFETY: op is non-null and expected to be a valid pointer for this shim.
-    let owned = unsafe {
-        (*op).to_owned()
-    };
+    let owned = unsafe { (*op).to_owned() };
 
     std::mem::forget(owned);
 }
