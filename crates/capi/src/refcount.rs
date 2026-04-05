@@ -1,8 +1,6 @@
-use alloc::boxed::Box;
 use std::ptr::NonNull;
 use rustpython_vm::PyObjectRef;
-use crate::object::PyLong_Type;
-use crate::{PyLongObject, PyObject};
+use crate::{PyObject};
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
