@@ -1,12 +1,37 @@
 use core::ffi::c_char;
 use core::ptr;
+use core::slice;
+use core::str;
 
 use crate::PyObject;
+use crate::pylifecycle::INTERP;
+use rustpython_vm::PyObjectRef;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyUnicode_FromStringAndSize(_s: *const c_char, _len: isize) -> *mut PyObject {
-    crate::log_stub("PyUnicode_FromStringAndSize");
-    ptr::null_mut()
+pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *mut PyObject {
+    let len = usize::try_from(len).expect("PyUnicode_FromStringAndSize called with negative len");
+    let text = if s.is_null() {
+        if len != 0 {
+            panic!("PyUnicode_FromStringAndSize called with null data and non-zero len");
+        }
+        ""
+    } else {
+        // SAFETY: caller passes a valid C buffer of length `len`.
+        let bytes = unsafe { slice::from_raw_parts(s.cast::<u8>(), len) };
+        str::from_utf8(bytes).expect("PyUnicode_FromStringAndSize got non-UTF8 data")
+    };
+
+    INTERP.with(|interp_ref| {
+        let interp = interp_ref.borrow();
+        let interp = interp
+            .as_ref()
+            .expect("PyUnicode_FromStringAndSize called before Py_InitializeEx");
+
+        interp.enter(|vm| {
+            let obj: PyObjectRef = vm.ctx.new_str(text).into();
+            obj.into_raw().as_ptr()
+        })
+    })
 }
 
 #[unsafe(no_mangle)]
