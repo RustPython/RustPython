@@ -345,13 +345,8 @@ pub(crate) fn is_digit(ch: u32) -> bool {
     rustpython_unicode::regex::is_digit(ch)
 }
 #[inline]
-pub(crate) fn is_loc_alnum(ch: u32) -> bool {
-    // FIXME: Ignore the locales
-    rustpython_unicode::regex::is_locale_alnum(ch)
-}
-#[inline]
 pub(crate) fn is_loc_word(ch: u32) -> bool {
-    ch == '_' as u32 || is_loc_alnum(ch)
+    rustpython_unicode::regex::is_locale_word(ch)
 }
 #[inline]
 pub(crate) const fn is_linebreak(ch: u32) -> bool {
@@ -384,12 +379,8 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
     rustpython_unicode::regex::is_unicode_linebreak(ch)
 }
 #[inline]
-pub(crate) fn is_uni_alnum(ch: u32) -> bool {
-    rustpython_unicode::regex::is_unicode_alnum(ch)
-}
-#[inline]
 pub(crate) fn is_uni_word(ch: u32) -> bool {
-    ch == '_' as u32 || is_uni_alnum(ch)
+    rustpython_unicode::regex::is_unicode_word(ch)
 }
 #[inline]
 pub fn lower_unicode(ch: u32) -> u32 {

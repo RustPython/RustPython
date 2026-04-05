@@ -46,10 +46,12 @@ pub fn is_space(cp: u32) -> bool {
     })
 }
 
+/// Python's `str.isprintable()` semantics, which treat ASCII space as printable.
 pub fn is_printable(cp: u32) -> bool {
     cp == '\u{0020}' as u32 || is_repr_printable(cp)
 }
 
+/// Repr/escape printable semantics, which exclude all Unicode space separators.
 pub fn is_repr_printable(cp: u32) -> bool {
     !matches!(
         general_category(cp),
