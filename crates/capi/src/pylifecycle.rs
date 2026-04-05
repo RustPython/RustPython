@@ -1,4 +1,5 @@
 use crate::log_stub;
+use crate::pystate::attach_vm_to_thread;
 use core::ffi::c_int;
 use rustpython_vm::Interpreter;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
@@ -36,7 +37,9 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
 
     INITIALIZED.call_once(|| {
         let (tx, rx) = mpsc::channel();
-        VM_REQUEST_TX.set(tx).expect("VM request channel was already initialized");
+        VM_REQUEST_TX
+            .set(tx)
+            .expect("VM request channel was already initialized");
 
         std::thread::spawn(move || {
             let interp = Interpreter::with_init(Default::default(), |_vm| {});
@@ -49,6 +52,8 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
             })
         });
     });
+
+    attach_vm_to_thread();
 }
 
 #[unsafe(no_mangle)]
