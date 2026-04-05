@@ -1,11 +1,13 @@
 use crate::{case, classify};
 
+const UNDERSCORE: u32 = '_' as u32;
+
 const fn is_py_ascii_whitespace(byte: u8) -> bool {
     matches!(byte, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
 
 pub fn is_word(cp: u32) -> bool {
-    cp == '_' as u32
+    cp == UNDERSCORE
         || u8::try_from(cp)
             .map(|byte| byte.is_ascii_alphanumeric())
             .unwrap_or(false)
@@ -30,7 +32,7 @@ pub fn is_locale_alnum(cp: u32) -> bool {
 }
 
 pub fn is_locale_word(cp: u32) -> bool {
-    cp == '_' as u32 || is_locale_alnum(cp)
+    cp == UNDERSCORE || is_locale_alnum(cp)
 }
 
 pub const fn is_linebreak(cp: u32) -> bool {
@@ -73,7 +75,7 @@ pub fn is_unicode_alnum(cp: u32) -> bool {
 }
 
 pub fn is_unicode_word(cp: u32) -> bool {
-    cp == '_' as u32 || is_unicode_alnum(cp)
+    cp == UNDERSCORE || is_unicode_alnum(cp)
 }
 
 pub fn lower_unicode(cp: u32) -> u32 {
