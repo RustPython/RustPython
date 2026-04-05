@@ -1,30 +1,46 @@
-use std::mem::{transmute, MaybeUninit};
-use std::ptr::NonNull;
-use rustpython_vm::{PyObjectRef, VirtualMachine, Context, AsObject};
+use std::sync::LazyLock;
+use rustpython_vm::{Context, AsObject, Py};
 use rustpython_vm::builtins::PyType;
 use crate::{PyObject};
-use crate::object::PyTypeObject::*;
 
 
 
-pub enum PyTypeObject {
-    Type,
-    Long,
-    Tuple,
-    Unicode,
+pub struct  PyTypeObject {
+    ty: LazyLock<&'static Py<PyType>>,
+}
+
+impl PyTypeObject {
+    const fn new(f: fn() -> &'static Py<PyType>) -> PyTypeObject
+    {
+        PyTypeObject {
+            ty: LazyLock::new(f),
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
-pub static mut PyType_Type: PyTypeObject = Type;
+pub static mut PyType_Type: PyTypeObject = PyTypeObject::new(|| {
+    let zoo = &Context::genesis().types;
+    zoo.type_type
+});
 
 #[unsafe(no_mangle)]
-pub static mut PyLong_Type: PyTypeObject = Long;
+pub static mut PyLong_Type: PyTypeObject = PyTypeObject::new(|| {
+    let zoo = &Context::genesis().types;
+    zoo.int_type
+});
 
 #[unsafe(no_mangle)]
-pub static mut PyTuple_Type: PyTypeObject = Tuple;
+pub static mut PyTuple_Type: PyTypeObject = PyTypeObject::new(|| {
+    let zoo = &Context::genesis().types;
+    zoo.tuple_type
+});
 
 #[unsafe(no_mangle)]
-pub static mut PyUnicode_Type: PyTypeObject = Unicode;
+pub static mut PyUnicode_Type: PyTypeObject = PyTypeObject::new(|| {
+    let zoo = &Context::genesis().types;
+    zoo.union_type
+});
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -33,20 +49,21 @@ pub extern "C-unwind" fn _Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
         return std::ptr::null_mut();
     }
 
-    let zoo = &Context::genesis().types;
-    let ty = unsafe { (*op).class()};
-
-    if ty.is(zoo.type_type) {
-        unsafe { &raw mut PyType_Type }
-    } else if ty.is(zoo.int_type){
-        unsafe { &raw mut PyLong_Type }
-    } else if ty.is(zoo.tuple_type){
-        unsafe { &raw mut PyTuple_Type }
-    } else if ty.is(zoo.str_type){
-        unsafe { &raw mut PyUnicode_Type }
-    } else {
-        todo!("Unsupported type: {:?}", ty.name());
+    unsafe {
+        let ty = (*op).class();
+        if ty.is(*PyTuple_Type.ty) {
+             &raw mut PyType_Type
+        } else if ty.is(*PyTuple_Type.ty){
+            &raw mut PyLong_Type
+        } else if ty.is(*PyTuple_Type.ty){
+            &raw mut PyTuple_Type
+        } else if ty.is(*PyTuple_Type.ty){
+            &raw mut PyUnicode_Type
+        } else {
+            todo!("Unsupported type: {:?}", ty.name());
+        }
     }
+
 }
 
 #[unsafe(no_mangle)]
