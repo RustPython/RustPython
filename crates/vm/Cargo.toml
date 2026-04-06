@@ -75,7 +75,6 @@ strum_macros = { workspace = true }
 thiserror = { workspace = true }
 memchr = { workspace = true }
 
-caseless = "0.2.2"
 flamer = { version = "0.5", optional = true }
 half = "2"
 psm = "0.1"

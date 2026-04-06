@@ -1,14 +1,10 @@
 // good luck to those that follow; here be dragons
 
-use crate::string::{
-    is_digit, is_linebreak, is_loc_word, is_space, is_uni_digit, is_uni_linebreak, is_uni_space,
-    is_uni_word, is_word, lower_ascii, lower_locate, lower_unicode, upper_locate, upper_unicode,
-};
-
 use super::{MAXREPEAT, SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor};
 use alloc::{vec, vec::Vec};
 use core::{convert::TryFrom, ptr::null};
 use optional::Optioned;
+use rustpython_unicode::regex as unicode_regex;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a, S> {
@@ -659,10 +655,10 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                         }
                         SreOpcode::IN => general_op_in!(charset),
                         SreOpcode::IN_IGNORE => {
-                            general_op_in!(|set, c| charset(set, lower_ascii(c)))
+                            general_op_in!(|set, c| charset(set, unicode_regex::lower_ascii(c)))
                         }
                         SreOpcode::IN_UNI_IGNORE => {
-                            general_op_in!(|set, c| charset(set, lower_unicode(c)))
+                            general_op_in!(|set, c| charset(set, unicode_regex::lower_unicode(c)))
                         }
                         SreOpcode::IN_LOC_IGNORE => general_op_in!(charset_loc_ignore),
                         SreOpcode::MARK => {
@@ -803,25 +799,31 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                         SreOpcode::LITERAL => general_op_literal!(|code, c| code == c),
                         SreOpcode::NOT_LITERAL => general_op_literal!(|code, c| code != c),
                         SreOpcode::LITERAL_IGNORE => {
-                            general_op_literal!(|code, c| code == lower_ascii(c))
+                            general_op_literal!(|code, c| code == unicode_regex::lower_ascii(c))
                         }
                         SreOpcode::NOT_LITERAL_IGNORE => {
-                            general_op_literal!(|code, c| code != lower_ascii(c))
+                            general_op_literal!(|code, c| code != unicode_regex::lower_ascii(c))
                         }
                         SreOpcode::LITERAL_UNI_IGNORE => {
-                            general_op_literal!(|code, c| code == lower_unicode(c))
+                            general_op_literal!(|code, c| code == unicode_regex::lower_unicode(c))
                         }
                         SreOpcode::NOT_LITERAL_UNI_IGNORE => {
-                            general_op_literal!(|code, c| code != lower_unicode(c))
+                            general_op_literal!(|code, c| code != unicode_regex::lower_unicode(c))
                         }
                         SreOpcode::LITERAL_LOC_IGNORE => general_op_literal!(char_loc_ignore),
                         SreOpcode::NOT_LITERAL_LOC_IGNORE => {
                             general_op_literal!(|code, c| !char_loc_ignore(code, c))
                         }
                         SreOpcode::GROUPREF => general_op_groupref!(|x| x),
-                        SreOpcode::GROUPREF_IGNORE => general_op_groupref!(lower_ascii),
-                        SreOpcode::GROUPREF_LOC_IGNORE => general_op_groupref!(lower_locate),
-                        SreOpcode::GROUPREF_UNI_IGNORE => general_op_groupref!(lower_unicode),
+                        SreOpcode::GROUPREF_IGNORE => {
+                            general_op_groupref!(unicode_regex::lower_ascii)
+                        }
+                        SreOpcode::GROUPREF_LOC_IGNORE => {
+                            general_op_groupref!(unicode_regex::lower_locale)
+                        }
+                        SreOpcode::GROUPREF_UNI_IGNORE => {
+                            general_op_groupref!(unicode_regex::lower_unicode)
+                        }
                         SreOpcode::GROUPREF_EXISTS => {
                             let (group_start, group_end) =
                                 state.marks.get(ctx.peek_code(req, 1) as usize);
@@ -1125,7 +1127,7 @@ impl MatchContext {
     }
 
     fn at_linebreak<S: StrDrive>(&self, req: &Request<'_, S>) -> bool {
-        !self.at_end(req) && is_linebreak(self.peek_char::<S>())
+        !self.at_end(req) && unicode_regex::is_linebreak(self.peek_char::<S>())
     }
 
     fn at_boundary<S: StrDrive, F: FnMut(u32) -> bool>(
@@ -1192,54 +1194,56 @@ impl MatchContext {
 fn at<S: StrDrive>(req: &Request<'_, S>, ctx: &MatchContext, at_code: SreAtCode) -> bool {
     match at_code {
         SreAtCode::BEGINNING | SreAtCode::BEGINNING_STRING => ctx.at_beginning(),
-        SreAtCode::BEGINNING_LINE => ctx.at_beginning() || is_linebreak(ctx.back_peek_char::<S>()),
-        SreAtCode::BOUNDARY => ctx.at_boundary(req, is_word),
-        SreAtCode::NON_BOUNDARY => ctx.at_non_boundary(req, is_word),
+        SreAtCode::BEGINNING_LINE => {
+            ctx.at_beginning() || unicode_regex::is_linebreak(ctx.back_peek_char::<S>())
+        }
+        SreAtCode::BOUNDARY => ctx.at_boundary(req, unicode_regex::is_word),
+        SreAtCode::NON_BOUNDARY => ctx.at_non_boundary(req, unicode_regex::is_word),
         SreAtCode::END => {
             (ctx.remaining_chars(req) == 1 && ctx.at_linebreak(req)) || ctx.at_end(req)
         }
         SreAtCode::END_LINE => ctx.at_linebreak(req) || ctx.at_end(req),
         SreAtCode::END_STRING => ctx.at_end(req),
-        SreAtCode::LOC_BOUNDARY => ctx.at_boundary(req, is_loc_word),
-        SreAtCode::LOC_NON_BOUNDARY => ctx.at_non_boundary(req, is_loc_word),
-        SreAtCode::UNI_BOUNDARY => ctx.at_boundary(req, is_uni_word),
-        SreAtCode::UNI_NON_BOUNDARY => ctx.at_non_boundary(req, is_uni_word),
+        SreAtCode::LOC_BOUNDARY => ctx.at_boundary(req, unicode_regex::is_locale_word),
+        SreAtCode::LOC_NON_BOUNDARY => ctx.at_non_boundary(req, unicode_regex::is_locale_word),
+        SreAtCode::UNI_BOUNDARY => ctx.at_boundary(req, unicode_regex::is_unicode_word),
+        SreAtCode::UNI_NON_BOUNDARY => ctx.at_non_boundary(req, unicode_regex::is_unicode_word),
     }
 }
 
 fn char_loc_ignore(code: u32, c: u32) -> bool {
-    code == c || code == lower_locate(c) || code == upper_locate(c)
+    code == c || code == unicode_regex::lower_locale(c) || code == unicode_regex::upper_locale(c)
 }
 
 fn charset_loc_ignore(set: &[u32], c: u32) -> bool {
-    let lo = lower_locate(c);
+    let lo = unicode_regex::lower_locale(c);
     if charset(set, c) {
         return true;
     }
-    let up = upper_locate(c);
+    let up = unicode_regex::upper_locale(c);
     up != lo && charset(set, up)
 }
 
 fn category(cat_code: SreCatCode, c: u32) -> bool {
     match cat_code {
-        SreCatCode::DIGIT => is_digit(c),
-        SreCatCode::NOT_DIGIT => !is_digit(c),
-        SreCatCode::SPACE => is_space(c),
-        SreCatCode::NOT_SPACE => !is_space(c),
-        SreCatCode::WORD => is_word(c),
-        SreCatCode::NOT_WORD => !is_word(c),
-        SreCatCode::LINEBREAK => is_linebreak(c),
-        SreCatCode::NOT_LINEBREAK => !is_linebreak(c),
-        SreCatCode::LOC_WORD => is_loc_word(c),
-        SreCatCode::LOC_NOT_WORD => !is_loc_word(c),
-        SreCatCode::UNI_DIGIT => is_uni_digit(c),
-        SreCatCode::UNI_NOT_DIGIT => !is_uni_digit(c),
-        SreCatCode::UNI_SPACE => is_uni_space(c),
-        SreCatCode::UNI_NOT_SPACE => !is_uni_space(c),
-        SreCatCode::UNI_WORD => is_uni_word(c),
-        SreCatCode::UNI_NOT_WORD => !is_uni_word(c),
-        SreCatCode::UNI_LINEBREAK => is_uni_linebreak(c),
-        SreCatCode::UNI_NOT_LINEBREAK => !is_uni_linebreak(c),
+        SreCatCode::DIGIT => unicode_regex::is_digit(c),
+        SreCatCode::NOT_DIGIT => !unicode_regex::is_digit(c),
+        SreCatCode::SPACE => unicode_regex::is_space(c),
+        SreCatCode::NOT_SPACE => !unicode_regex::is_space(c),
+        SreCatCode::WORD => unicode_regex::is_word(c),
+        SreCatCode::NOT_WORD => !unicode_regex::is_word(c),
+        SreCatCode::LINEBREAK => unicode_regex::is_linebreak(c),
+        SreCatCode::NOT_LINEBREAK => !unicode_regex::is_linebreak(c),
+        SreCatCode::LOC_WORD => unicode_regex::is_locale_word(c),
+        SreCatCode::LOC_NOT_WORD => !unicode_regex::is_locale_word(c),
+        SreCatCode::UNI_DIGIT => unicode_regex::is_unicode_digit(c),
+        SreCatCode::UNI_NOT_DIGIT => !unicode_regex::is_unicode_digit(c),
+        SreCatCode::UNI_SPACE => unicode_regex::is_unicode_space(c),
+        SreCatCode::UNI_NOT_SPACE => !unicode_regex::is_unicode_space(c),
+        SreCatCode::UNI_WORD => unicode_regex::is_unicode_word(c),
+        SreCatCode::UNI_NOT_WORD => !unicode_regex::is_unicode_word(c),
+        SreCatCode::UNI_LINEBREAK => unicode_regex::is_unicode_linebreak(c),
+        SreCatCode::UNI_NOT_LINEBREAK => !unicode_regex::is_unicode_linebreak(c),
     }
 }
 
@@ -1320,7 +1324,7 @@ fn charset(set: &[u32], ch: u32) -> bool {
                 if set[i + 1] <= ch && ch <= set[i + 2] {
                     return ok;
                 }
-                let ch = upper_unicode(ch);
+                let ch = unicode_regex::upper_unicode(ch);
                 if set[i + 1] <= ch && ch <= set[i + 2] {
                     return ok;
                 }
@@ -1368,10 +1372,14 @@ fn _count<S: StrDrive>(
             general_count_literal(req, ctx, end, |code, c| code != c);
         }
         SreOpcode::LITERAL_IGNORE => {
-            general_count_literal(req, ctx, end, |code, c| code == lower_ascii(c));
+            general_count_literal(req, ctx, end, |code, c| {
+                code == unicode_regex::lower_ascii(c)
+            });
         }
         SreOpcode::NOT_LITERAL_IGNORE => {
-            general_count_literal(req, ctx, end, |code, c| code != lower_ascii(c));
+            general_count_literal(req, ctx, end, |code, c| {
+                code != unicode_regex::lower_ascii(c)
+            });
         }
         SreOpcode::LITERAL_LOC_IGNORE => {
             general_count_literal(req, ctx, end, char_loc_ignore);
@@ -1380,10 +1388,14 @@ fn _count<S: StrDrive>(
             general_count_literal(req, ctx, end, |code, c| !char_loc_ignore(code, c));
         }
         SreOpcode::LITERAL_UNI_IGNORE => {
-            general_count_literal(req, ctx, end, |code, c| code == lower_unicode(c));
+            general_count_literal(req, ctx, end, |code, c| {
+                code == unicode_regex::lower_unicode(c)
+            });
         }
         SreOpcode::NOT_LITERAL_UNI_IGNORE => {
-            general_count_literal(req, ctx, end, |code, c| code != lower_unicode(c));
+            general_count_literal(req, ctx, end, |code, c| {
+                code != unicode_regex::lower_unicode(c)
+            });
         }
         _ => {
             /* General case */

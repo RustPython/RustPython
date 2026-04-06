@@ -3457,7 +3457,6 @@ dependencies = [
  "ascii",
  "bitflags 2.11.0",
  "bstr",
- "caseless",
  "cfg-if",
  "chrono",
  "constant_time_eq",

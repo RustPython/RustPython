@@ -21,10 +21,8 @@ mod _sre {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
-    use rustpython_sre_engine::{
-        Request, SearchIter, SreFlag, State, StrDrive,
-        string::{lower_ascii, lower_unicode, upper_unicode},
-    };
+    use rustpython_sre_engine::{Request, SearchIter, SreFlag, State, StrDrive};
+    use rustpython_unicode::regex as unicode_regex;
 
     #[pyattr]
     pub use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
@@ -42,17 +40,17 @@ mod _sre {
     #[pyfunction]
     fn unicode_iscased(ch: i32) -> bool {
         let ch = ch as u32;
-        ch != lower_unicode(ch) || ch != upper_unicode(ch)
+        ch != unicode_regex::lower_unicode(ch) || ch != unicode_regex::upper_unicode(ch)
     }
 
     #[pyfunction]
     fn ascii_tolower(ch: i32) -> i32 {
-        lower_ascii(ch as u32) as i32
+        unicode_regex::lower_ascii(ch as u32) as i32
     }
 
     #[pyfunction]
     fn unicode_tolower(ch: i32) -> i32 {
-        lower_unicode(ch as u32) as i32
+        unicode_regex::lower_unicode(ch as u32) as i32
     }
 
     trait SreStr: StrDrive {
