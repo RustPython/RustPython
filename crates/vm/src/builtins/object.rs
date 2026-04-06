@@ -554,10 +554,28 @@ impl PyBaseObject {
 }
 
 pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-    obj.dict()
-        .ok_or_else(|| vm.new_attribute_error("This object has no __dict__"))
+    if let Some(dict) = obj.dict() {
+        Ok(dict)
+    } else {
+        match obj.instance_dict() {
+            Some(d) => {
+                let dict = vm.ctx.new_dict();
+                d.set(Some(dict.clone()));
+                Ok(dict)
+            }
+            None => Err(vm.new_attribute_error("This object has no __dict__")),
+        }
+    }
 }
-pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+pub fn object_set_dict(
+    obj: PyObjectRef,
+    value: PySetterValue<PyDictRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let dict = match value {
+        PySetterValue::Assign(dict) => Some(dict),
+        PySetterValue::Delete => None,
+    };
     obj.set_dict(dict)
         .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
 }

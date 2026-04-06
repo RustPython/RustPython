@@ -934,7 +934,7 @@ impl Py<PyWeak> {
 
 #[derive(Debug)]
 pub(super) struct InstanceDict {
-    pub(super) d: PyRwLock<PyDictRef>,
+    pub(super) d: PyRwLock<Option<PyDictRef>>,
 }
 
 impl From<PyDictRef> for InstanceDict {
@@ -948,28 +948,28 @@ impl InstanceDict {
     #[inline]
     pub const fn new(d: PyDictRef) -> Self {
         Self {
-            d: PyRwLock::new(d),
+            d: PyRwLock::new(Some(d)),
         }
     }
 
     #[inline]
-    pub fn get(&self) -> PyDictRef {
+    pub fn get(&self) -> Option<PyDictRef> {
         self.d.read().clone()
     }
 
     #[inline]
-    pub fn set(&self, d: PyDictRef) {
+    pub fn set(&self, d: Option<PyDictRef>) {
         self.replace(d);
     }
 
     #[inline]
-    pub fn replace(&self, d: PyDictRef) -> PyDictRef {
+    pub fn replace(&self, d: Option<PyDictRef>) -> Option<PyDictRef> {
         core::mem::replace(&mut self.d.write(), d)
     }
 
-    /// Consume the InstanceDict and return the inner PyDictRef.
+    /// Consume the InstanceDict and return the inner Option<PyDictRef>.
     #[inline]
-    pub fn into_inner(self) -> PyDictRef {
+    pub fn into_inner(self) -> Option<PyDictRef> {
         self.d.into_inner()
     }
 }
@@ -1476,18 +1476,18 @@ impl PyObject {
     }
 
     #[inline(always)]
-    fn instance_dict(&self) -> Option<&InstanceDict> {
+    pub(crate) fn instance_dict(&self) -> Option<&InstanceDict> {
         self.0.ext_ref().and_then(|ext| ext.dict.as_ref())
     }
 
     #[inline(always)]
     pub fn dict(&self) -> Option<PyDictRef> {
-        self.instance_dict().map(|d| d.get())
+        self.instance_dict().and_then(|d| d.get())
     }
 
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
-    pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
+    pub fn set_dict(&self, dict: Option<PyDictRef>) -> Result<(), Option<PyDictRef>> {
         match self.instance_dict() {
             Some(d) => {
                 d.set(dict);
