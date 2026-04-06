@@ -369,7 +369,7 @@ jobs:
         with:
           components: rustfmt
 
-      - uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
+      - uses: cargo-bins/cargo-binstall@0b24824336e2b3800b0f89d9e08b2c08bfa3dcdd # v1.17.9
 
       - name: cargo shear
         run: |
