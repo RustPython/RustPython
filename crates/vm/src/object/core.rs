@@ -933,8 +933,8 @@ impl Py<PyWeak> {
 }
 
 #[derive(Debug)]
-pub(super) struct InstanceDict {
-    pub(super) d: PyRwLock<Option<PyDictRef>>,
+pub(crate) struct InstanceDict {
+    pub(crate) d: PyRwLock<Option<PyDictRef>>,
 }
 
 impl From<PyDictRef> for InstanceDict {
@@ -971,6 +971,17 @@ impl InstanceDict {
     #[inline]
     pub fn into_inner(self) -> Option<PyDictRef> {
         self.d.into_inner()
+    }
+
+    pub(crate) fn get_or_insert(&self, vm: &VirtualMachine) -> PyDictRef {
+        let mut d = self.d.write();
+        if let Some(existing) = d.as_ref() {
+            existing.clone()
+        } else {
+            let dict = vm.ctx.new_dict();
+            *d = Some(dict.clone());
+            dict
+        }
     }
 }
 
@@ -1801,8 +1812,9 @@ impl PyObject {
             let ext = unsafe { &mut *ext_ptr };
             if let Some(old_dict) = ext.dict.take() {
                 // Get the dict ref before dropping InstanceDict
-                let dict_ref = old_dict.into_inner();
-                result.push(dict_ref.into());
+                if let Some(dict_ref) = old_dict.into_inner() {
+                    result.push(dict_ref.into());
+                }
             }
             for slot in ext.slots.iter() {
                 if let Some(val) = slot.write().take() {

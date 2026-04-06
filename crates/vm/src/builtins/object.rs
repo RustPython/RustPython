@@ -558,11 +558,7 @@ pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict
         Ok(dict)
     } else {
         match obj.instance_dict() {
-            Some(d) => {
-                let dict = vm.ctx.new_dict();
-                d.set(Some(dict.clone()));
-                Ok(dict)
-            }
+            Some(d) => Ok(d.get_or_insert(vm)),
             None => Err(vm.new_attribute_error("This object has no __dict__")),
         }
     }
