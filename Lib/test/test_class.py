@@ -910,7 +910,7 @@ class TestInlineValues(unittest.TestCase):
         self.assertEqual(flags & Py_TPFLAGS_INLINE_VALUES, 0)
         self.assertFalse(has_inline_values(VarSizedSubclass()))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
     def test_has_inline_values(self):
         c = Plain()
         self.assertTrue(has_inline_values(c))
@@ -978,7 +978,7 @@ class TestInlineValues(unittest.TestCase):
         obj.foo = None # Aborted here
         self.assertEqual(obj.__dict__, {"foo":None})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
     def test_store_attr_deleted_dict(self):
         class Foo:
             pass
@@ -988,7 +988,7 @@ class TestInlineValues(unittest.TestCase):
         f.a = 3
         self.assertEqual(f.a, 3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON
     def test_rematerialize_object_dict(self):
         # gh-121860: rematerializing an object's managed dictionary after it
         # had been deleted caused a crash.

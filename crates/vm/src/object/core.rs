@@ -307,9 +307,13 @@ pub(super) struct ObjExt {
 }
 
 impl ObjExt {
-    fn new(dict: Option<PyDictRef>, member_count: usize) -> Self {
+    fn new(dict: Option<PyDictRef>, member_count: usize, has_dict: bool) -> Self {
         Self {
-            dict: dict.map(InstanceDict::new),
+            dict: if has_dict {
+                Some(InstanceDict::from_opt(dict))
+            } else {
+                None
+            },
             slots: core::iter::repeat_with(|| PyRwLock::new(None))
                 .take(member_count)
                 .collect_vec()
@@ -953,6 +957,13 @@ impl InstanceDict {
     }
 
     #[inline]
+    pub const fn from_opt(d: Option<PyDictRef>) -> Self {
+        Self {
+            d: PyRwLock::new(d),
+        }
+    }
+
+    #[inline]
     pub fn get(&self) -> Option<PyDictRef> {
         self.d.read().clone()
     }
@@ -974,11 +985,14 @@ impl InstanceDict {
     }
 
     pub(crate) fn get_or_insert(&self, vm: &VirtualMachine) -> PyDictRef {
+        if let Some(existing) = self.d.read().as_ref() {
+            return existing.clone();
+        }
+        let dict = vm.ctx.new_dict();
         let mut d = self.d.write();
         if let Some(existing) = d.as_ref() {
             existing.clone()
         } else {
-            let dict = vm.ctx.new_dict();
             *d = Some(dict.clone());
             dict
         }
@@ -1095,7 +1109,8 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             unsafe {
                 if let Some(offset) = ext_start {
                     let ext_ptr = alloc_ptr.add(offset) as *mut ObjExt;
-                    ext_ptr.write(ObjExt::new(dict, member_count));
+                    let has_dict = typ.slots.flags.has_feature(crate::types::PyTypeFlags::HAS_DICT);
+                    ext_ptr.write(ObjExt::new(dict, member_count, has_dict));
                 }
 
                 if let Some(offset) = weakref_start {
@@ -1810,9 +1825,8 @@ impl PyObject {
             let ext_ptr =
                 core::ptr::with_exposed_provenance_mut::<ObjExt>(self_addr.wrapping_sub(offset));
             let ext = unsafe { &mut *ext_ptr };
-            if let Some(old_dict) = ext.dict.take() {
-                // Get the dict ref before dropping InstanceDict
-                if let Some(dict_ref) = old_dict.into_inner() {
+            if let Some(instance_dict) = &ext.dict {
+                if let Some(dict_ref) = instance_dict.replace(None) {
                     result.push(dict_ref.into());
                 }
             }

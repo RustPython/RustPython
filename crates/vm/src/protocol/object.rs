@@ -199,10 +199,10 @@ impl PyObject {
             }
         }
 
-        if let Some(dict) = self.dict() {
+        if let Some(instance_dict) = self.instance_dict() {
             if let PySetterValue::Assign(value) = value {
-                dict.set_item(attr_name, value, vm)?;
-            } else {
+                instance_dict.get_or_insert(vm).set_item(attr_name, value, vm)?;
+            } else if let Some(dict) = instance_dict.get() {
                 dict.del_item(attr_name, vm).map_err(|e| {
                     if e.fast_isinstance(vm.ctx.exceptions.key_error) {
                         vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned())
@@ -210,6 +210,8 @@ impl PyObject {
                         e
                     }
                 })?;
+            } else {
+                return Err(vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned()));
             }
             Ok(())
         } else {
