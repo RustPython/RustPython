@@ -978,7 +978,6 @@ class TestInlineValues(unittest.TestCase):
         obj.foo = None # Aborted here
         self.assertEqual(obj.__dict__, {"foo":None})
 
-    # TODO: RUSTPYTHON
     def test_store_attr_deleted_dict(self):
         class Foo:
             pass
@@ -988,7 +987,6 @@ class TestInlineValues(unittest.TestCase):
         f.a = 3
         self.assertEqual(f.a, 3)
 
-    # TODO: RUSTPYTHON
     def test_rematerialize_object_dict(self):
         # gh-121860: rematerializing an object's managed dictionary after it
         # had been deleted caused a crash.
