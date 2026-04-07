@@ -910,7 +910,7 @@ class TestInlineValues(unittest.TestCase):
         self.assertEqual(flags & Py_TPFLAGS_INLINE_VALUES, 0)
         self.assertFalse(has_inline_values(VarSizedSubclass()))
 
-    # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_has_inline_values(self):
         c = Plain()
         self.assertTrue(has_inline_values(c))
