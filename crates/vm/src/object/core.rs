@@ -2497,7 +2497,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
 
             unsafe {
                 let ext_ptr = alloc_ptr as *mut ObjExt;
-                ext_ptr.write(ObjExt::new(None, 0));
+                ext_ptr.write(ObjExt::new(None, 0, true));
 
                 let weakref_ptr = alloc_ptr.add(weakref_offset) as *mut WeakRefList;
                 weakref_ptr.write(WeakRefList::new());
