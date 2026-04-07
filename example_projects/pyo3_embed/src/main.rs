@@ -1,5 +1,11 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyInt, PyString};
+use pyo3::types::{PyInt, PyNone, PyString};
+
+
+#[pyfunction]
+fn python_function(py: Python<'_>) -> Borrowed<'_, '_, PyNone> {
+    PyNone::get(py)
+}
 
 fn main() {
     Python::initialize();
@@ -24,6 +30,8 @@ fn main() {
         })
         .join()
         .unwrap();
+
+        assert!(python_function(py).is_none());
 
         PyResult::Ok(())
     })
