@@ -1,73 +1,53 @@
-use core::ffi::c_ulong;
-
 use crate::PyObject;
+use core::ffi::c_ulong;
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::{AsObject, Context, Py};
 use std::sync::LazyLock;
 
 pub struct PyTypeObject {
     ty: LazyLock<&'static Py<PyType>>,
-    flags: c_ulong,
 }
 
 impl PyTypeObject {
-    const fn new(f: fn() -> &'static Py<PyType>, flags: c_ulong) -> PyTypeObject {
+    const fn new(f: fn() -> &'static Py<PyType>) -> PyTypeObject {
         PyTypeObject {
             ty: LazyLock::new(f),
-            flags,
         }
     }
 }
 
-const PY_TPFLAGS_HAVE_STACKLESS_EXTENSION: c_ulong = 0;
-const PY_TPFLAGS_HAVE_VERSION_TAG: c_ulong = 1 << 18;
-const PY_TPFLAGS_DEFAULT: c_ulong =
-    PY_TPFLAGS_HAVE_STACKLESS_EXTENSION | PY_TPFLAGS_HAVE_VERSION_TAG;
-const PY_TPFLAGS_IMMUTABLETYPE: c_ulong = 1 << 8;
-const PY_TPFLAGS_BASETYPE: c_ulong = 1 << 10;
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
+const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
 const PY_TPFLAGS_TUPLE_SUBCLASS: c_ulong = 1 << 26;
+const PY_TPFLAGS_BYTES_SUBCLASS: c_ulong = 1 << 27;
 const PY_TPFLAGS_UNICODE_SUBCLASS: c_ulong = 1 << 28;
+const PY_TPFLAGS_DICT_SUBCLASS: c_ulong = 1 << 29;
+const PY_TPFLAGS_BASE_EXC_SUBCLASS: c_ulong = 1 << 30;
 const PY_TPFLAGS_TYPE_SUBCLASS: c_ulong = 1 << 31;
 
 #[unsafe(no_mangle)]
-pub static mut PyType_Type: PyTypeObject = PyTypeObject::new(
-    || {
-        let zoo = &Context::genesis().types;
-        zoo.type_type
-    },
-    PY_TPFLAGS_DEFAULT | PY_TPFLAGS_IMMUTABLETYPE | PY_TPFLAGS_BASETYPE | PY_TPFLAGS_TYPE_SUBCLASS,
-);
+pub static mut PyType_Type: PyTypeObject = PyTypeObject::new(|| {
+    let zoo = &Context::genesis().types;
+    zoo.type_type
+});
 
 #[unsafe(no_mangle)]
-pub static mut PyLong_Type: PyTypeObject = PyTypeObject::new(
-    || {
-        let zoo = &Context::genesis().types;
-        zoo.int_type
-    },
-    PY_TPFLAGS_DEFAULT | PY_TPFLAGS_IMMUTABLETYPE | PY_TPFLAGS_BASETYPE | PY_TPFLAGS_LONG_SUBCLASS,
-);
+pub static mut PyLong_Type: PyTypeObject = PyTypeObject::new(|| {
+    let zoo = &Context::genesis().types;
+    zoo.int_type
+});
 
 #[unsafe(no_mangle)]
-pub static mut PyTuple_Type: PyTypeObject = PyTypeObject::new(
-    || {
-        let zoo = &Context::genesis().types;
-        zoo.tuple_type
-    },
-    PY_TPFLAGS_DEFAULT | PY_TPFLAGS_IMMUTABLETYPE | PY_TPFLAGS_BASETYPE | PY_TPFLAGS_TUPLE_SUBCLASS,
-);
+pub static mut PyTuple_Type: PyTypeObject = PyTypeObject::new(|| {
+    let zoo = &Context::genesis().types;
+    zoo.tuple_type
+});
 
 #[unsafe(no_mangle)]
-pub static mut PyUnicode_Type: PyTypeObject = PyTypeObject::new(
-    || {
-        let zoo = &Context::genesis().types;
-        zoo.str_type
-    },
-    PY_TPFLAGS_DEFAULT
-        | PY_TPFLAGS_IMMUTABLETYPE
-        | PY_TPFLAGS_BASETYPE
-        | PY_TPFLAGS_UNICODE_SUBCLASS,
-);
+pub static mut PyUnicode_Type: PyTypeObject = PyTypeObject::new(|| {
+    let zoo = &Context::genesis().types;
+    zoo.str_type
+});
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *mut PyTypeObject {
@@ -98,8 +78,38 @@ pub extern "C" fn PyType_GetFlags(ty: *mut PyTypeObject) -> c_ulong {
         panic!("PyType_GetFlags called with null type pointer");
     }
 
-    // SAFETY: caller guarantees this is a valid exported type object pointer.
-    unsafe { (*ty).flags }
+    let ctx =Context::genesis();
+    let zoo = &ctx.types;
+    let exp_zoo = &ctx.exceptions;
+    let ty_inner = unsafe { *(*ty).ty };
+    let mut flags = ty_inner.slots.flags.bits();
+
+    if ty_inner.is_subtype(zoo.int_type) {
+        flags |= PY_TPFLAGS_LONG_SUBCLASS;
+    }
+    if ty_inner.is_subtype(zoo.list_type) {
+        flags |= PY_TPFLAGS_LIST_SUBCLASS
+    }
+    if ty_inner.is_subtype(zoo.tuple_type) {
+        flags |= PY_TPFLAGS_TUPLE_SUBCLASS;
+    }
+    if ty_inner.is_subtype(zoo.bytes_type) {
+        flags |= PY_TPFLAGS_BYTES_SUBCLASS;
+    }
+    if ty_inner.is_subtype(zoo.str_type) {
+        flags |= PY_TPFLAGS_UNICODE_SUBCLASS;
+    }
+    if ty_inner.is_subtype(zoo.dict_type) {
+        flags |= PY_TPFLAGS_DICT_SUBCLASS;
+    }
+    if ty_inner.is_subtype(exp_zoo.base_exception_type) {
+        flags |= PY_TPFLAGS_BASE_EXC_SUBCLASS;
+    }
+    if ty_inner.is_subtype(zoo.type_type) {
+        flags |= PY_TPFLAGS_TYPE_SUBCLASS;
+    }
+
+    flags
 }
 
 #[unsafe(no_mangle)]
