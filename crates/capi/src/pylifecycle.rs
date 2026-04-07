@@ -1,10 +1,10 @@
 use crate::log_stub;
+use crate::object::init_static_type_pointers;
 use crate::pystate::attach_vm_to_thread;
 use core::ffi::c_int;
 use rustpython_vm::Interpreter;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
 use std::sync::{Once, OnceLock, mpsc};
-use crate::object::init_static_type_pointers;
 
 static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::Sender<ThreadedVirtualMachine>>> =
     OnceLock::new();
