@@ -1,9 +1,9 @@
 use crate::log_stub;
-use crate::object::init_static_type_pointers;
+use crate::object::{PyLong_Type, PyTuple_Type, PyType_Type, PyUnicode_Type};
 use crate::pystate::attach_vm_to_thread;
 use core::ffi::c_int;
-use rustpython_vm::Interpreter;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
+use rustpython_vm::{Context, Interpreter};
 use std::sync::{Once, OnceLock, mpsc};
 
 static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::Sender<ThreadedVirtualMachine>>> =
@@ -18,6 +18,28 @@ pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
     let (response_tx, response_rx) = mpsc::channel();
     tx.send(response_tx).expect("Failed to send VM request");
     response_rx.recv().expect("Failed to receive VM response")
+}
+
+/// Initialize the static type pointers. This should be called once during interpreter initialization,
+/// and before any of the static type pointers are used.
+///
+/// Panics:
+/// Panics when the interpreter is already initialized.
+#[allow(static_mut_refs)]
+pub(crate) fn init_static_type_pointers() {
+    assert!(
+        !INITIALIZED.is_completed(),
+        "Python already initialized, we should not touch the static type pointers"
+    );
+    let context = Context::genesis();
+    let types = &context.types;
+
+    unsafe {
+        PyType_Type.write(types.type_type);
+        PyLong_Type.write(types.int_type);
+        PyTuple_Type.write(types.tuple_type);
+        PyUnicode_Type.write(types.str_type);
+    };
 }
 
 #[unsafe(no_mangle)]
