@@ -3,7 +3,8 @@ use crate::pystate::with_vm;
 use core::ffi::c_ulong;
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::convert::IntoObject;
-use rustpython_vm::{Context, Py};
+use rustpython_vm::{AsObject, Context, Py};
+use std::ffi::c_uint;
 use std::mem::MaybeUninit;
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
@@ -109,7 +110,18 @@ pub extern "C" fn PyObject_Str(_obj: *mut PyObject) -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_GetConstantBorrowed(_constant_id: core::ffi::c_uint) -> *mut PyObject {
-    crate::log_stub("Py_GetConstantBorrowed");
-    std::ptr::null_mut()
+pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
+    with_vm(|vm| {
+        let ctx = &vm.ctx;
+        match constant_id {
+            0 => ctx.none.as_object(),
+            1 => ctx.true_value.as_object(),
+            2 => ctx.true_value.as_object(),
+            3 => ctx.ellipsis.as_object(),
+            4 => ctx.not_implemented.as_object(),
+            _ => panic!("Invalid constant_id passed to Py_GetConstantBorrowed"),
+        }
+        .as_raw()
+        .cast_mut()
+    })
 }
