@@ -2,46 +2,39 @@ use core::ffi::{c_long, c_longlong, c_ulong, c_ulonglong};
 use core::ptr;
 
 use crate::PyObject;
+use crate::pyerrors::{PyErr_SetString, PyExc_OverflowError};
 use crate::pystate::with_vm;
-use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyInt;
+use rustpython_vm::convert::IntoObject;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyLong_FromLong(value: c_long) -> *mut PyObject {
-    with_vm(|vm| {
-        let obj: PyObjectRef = vm.ctx.new_int(value).into();
-        obj.into_raw().as_ptr()
-    })
+    with_vm(|vm| vm.ctx.new_int(value).into_object().into_raw().as_ptr())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyLong_FromLongLong(_value: c_longlong) -> *mut PyObject {
-    crate::log_stub("PyLong_FromLongLong");
-    ptr::null_mut()
+pub extern "C" fn PyLong_FromLongLong(value: c_longlong) -> *mut PyObject {
+    with_vm(|vm| vm.ctx.new_int(value).into_object().into_raw().as_ptr())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyLong_FromSsize_t(_value: isize) -> *mut PyObject {
-    crate::log_stub("PyLong_FromSsize_t");
-    ptr::null_mut()
+pub extern "C" fn PyLong_FromSsize_t(value: isize) -> *mut PyObject {
+    with_vm(|vm| vm.ctx.new_int(value).into_object().into_raw().as_ptr())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyLong_FromSize_t(_value: usize) -> *mut PyObject {
-    crate::log_stub("PyLong_FromSize_t");
-    ptr::null_mut()
+pub extern "C" fn PyLong_FromSize_t(value: usize) -> *mut PyObject {
+    with_vm(|vm| vm.ctx.new_int(value).into_object().into_raw().as_ptr())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyLong_FromUnsignedLong(_value: c_ulong) -> *mut PyObject {
-    crate::log_stub("PyLong_FromUnsignedLong");
-    ptr::null_mut()
+pub extern "C" fn PyLong_FromUnsignedLong(value: c_ulong) -> *mut PyObject {
+    with_vm(|vm| vm.ctx.new_int(value).into_object().into_raw().as_ptr())
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyLong_FromUnsignedLongLong(_value: c_ulonglong) -> *mut PyObject {
-    crate::log_stub("PyLong_FromUnsignedLongLong");
-    ptr::null_mut()
+pub extern "C" fn PyLong_FromUnsignedLongLong(value: c_ulonglong) -> *mut PyObject {
+    with_vm(|vm| vm.ctx.new_int(value).into_object().into_raw().as_ptr())
 }
 
 #[unsafe(no_mangle)]
@@ -57,9 +50,12 @@ pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
             .downcast_ref::<PyInt>()
             .expect("PyLong_AsLong currently only accepts int instances");
 
-        int_obj
-            .as_bigint()
-            .try_into()
-            .expect("PyLong_AsLong: value out of range for c_long")
+        int_obj.as_bigint().try_into().unwrap_or_else(|_| unsafe {
+            PyErr_SetString(
+                PyExc_OverflowError,
+                c"Python int too large to convert to C long".as_ptr(),
+            );
+            -1
+        })
     })
 }
