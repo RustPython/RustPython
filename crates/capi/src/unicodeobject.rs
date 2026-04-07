@@ -1,11 +1,11 @@
+use crate::PyObject;
+use crate::pystate::with_vm;
 use core::ffi::c_char;
 use core::ptr;
 use core::slice;
 use core::str;
-
-use crate::PyObject;
-use crate::pystate::with_vm;
 use rustpython_vm::PyObjectRef;
+use rustpython_vm::builtins::PyStr;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *mut PyObject {
@@ -28,12 +28,26 @@ pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyUnicode_AsUTF8AndSize(
-    _unicode: *mut PyObject,
-    _size: *mut isize,
-) -> *const c_char {
-    crate::log_stub("PyUnicode_AsUTF8AndSize");
-    ptr::null()
+pub extern "C" fn PyUnicode_AsUTF8AndSize(obj: *mut PyObject, size: *mut isize) -> *const c_char {
+    with_vm(|vm| {
+        let obj = unsafe {
+            obj.as_ref()
+                .expect("PyUnicode_AsUTF8AndSize called with null pointer")
+        };
+
+        let unicode = obj
+            .downcast_ref::<PyStr>()
+            .expect("PyUnicode_AsUTF8AndSize called with non-unicode object");
+
+        let str = unicode
+            .to_str()
+            .expect("only utf8 or ascii is currently supported in PyUnicode_AsUTF8AndSize");
+
+        if !size.is_null() {
+            unsafe { *size = str.len() as isize };
+        }
+        str.as_ptr() as _
+    })
 }
 
 #[unsafe(no_mangle)]
