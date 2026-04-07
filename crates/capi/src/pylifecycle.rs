@@ -4,10 +4,11 @@ use core::ffi::c_int;
 use rustpython_vm::Interpreter;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
 use std::sync::{Once, OnceLock, mpsc};
+use crate::object::init_static_type_pointers;
 
 static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::Sender<ThreadedVirtualMachine>>> =
     OnceLock::new();
-static INITIALIZED: Once = Once::new();
+pub(crate) static INITIALIZED: Once = Once::new();
 
 /// Request a vm from the main interpreter
 pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
@@ -36,6 +37,8 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
     }
 
     INITIALIZED.call_once(|| {
+        init_static_type_pointers();
+
         let (tx, rx) = mpsc::channel();
         VM_REQUEST_TX
             .set(tx)
