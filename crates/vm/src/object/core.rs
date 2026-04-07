@@ -978,11 +978,6 @@ impl InstanceDict {
         core::mem::replace(&mut self.d.write(), d)
     }
 
-    /// Consume the InstanceDict and return the inner Option<PyDictRef>.
-    #[inline]
-    pub fn into_inner(self) -> Option<PyDictRef> {
-        self.d.into_inner()
-    }
 
     pub(crate) fn get_or_insert(&self, vm: &VirtualMachine) -> PyDictRef {
         if let Some(existing) = self.d.read().as_ref() {
@@ -1825,10 +1820,8 @@ impl PyObject {
             let ext_ptr =
                 core::ptr::with_exposed_provenance_mut::<ObjExt>(self_addr.wrapping_sub(offset));
             let ext = unsafe { &mut *ext_ptr };
-            if let Some(instance_dict) = &ext.dict {
-                if let Some(dict_ref) = instance_dict.replace(None) {
-                    result.push(dict_ref.into());
-                }
+            if let Some(dict_ref) = ext.dict.as_ref().and_then(|d| d.replace(None)) {
+                result.push(dict_ref.into());
             }
             for slot in ext.slots.iter() {
                 if let Some(val) = slot.write().take() {
