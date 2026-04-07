@@ -1,5 +1,4 @@
 use core::ffi::{c_long, c_longlong, c_ulong, c_ulonglong};
-use core::ptr;
 
 use crate::PyObject;
 use crate::pyerrors::{PyErr_SetString, PyExc_OverflowError};

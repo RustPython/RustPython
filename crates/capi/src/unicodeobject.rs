@@ -29,7 +29,7 @@ pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_AsUTF8AndSize(obj: *mut PyObject, size: *mut isize) -> *const c_char {
-    with_vm(|vm| {
+    with_vm(|_vm| {
         let obj = unsafe {
             obj.as_ref()
                 .expect("PyUnicode_AsUTF8AndSize called with null pointer")

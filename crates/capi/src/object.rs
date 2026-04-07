@@ -1,5 +1,4 @@
 use crate::PyObject;
-use crate::pylifecycle::INITIALIZED;
 use crate::pystate::with_vm;
 use core::ffi::c_ulong;
 use rustpython_vm::builtins::PyType;
@@ -27,26 +26,6 @@ pub static mut PyTuple_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uni
 
 #[unsafe(no_mangle)]
 pub static mut PyUnicode_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
-
-/// Initialize the static type pointers. This should be called once during interpreter initialization,
-/// and before any of the static type pointers are used.
-///
-/// Panics:
-/// Panics when the interpreter is already initialized.
-#[allow(static_mut_refs)]
-pub(crate) fn init_static_type_pointers() {
-    assert!(
-        !INITIALIZED.is_completed(),
-        "Python already initialized, we should not touch the static type pointers"
-    );
-    let zoo = &Context::genesis().types;
-    unsafe {
-        PyType_Type.write(zoo.type_type);
-        PyLong_Type.write(zoo.int_type);
-        PyTuple_Type.write(zoo.tuple_type);
-        PyUnicode_Type.write(zoo.str_type);
-    };
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const Py<PyType> {
