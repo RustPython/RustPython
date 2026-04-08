@@ -51,7 +51,7 @@ pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
 
         int_obj.as_bigint().try_into().unwrap_or_else(|_| unsafe {
             PyErr_SetString(
-                PyExc_OverflowError,
+                PyExc_OverflowError.assume_init(),
                 c"Python int too large to convert to C long".as_ptr(),
             );
             -1

@@ -1,9 +1,10 @@
 use crate::log_stub;
 use crate::object::{PyLong_Type, PyTuple_Type, PyType_Type, PyUnicode_Type};
+use crate::pyerrors::{PyExc_BaseException, PyExc_OverflowError, PyExc_TypeError};
 use crate::pystate::attach_vm_to_thread;
 use core::ffi::c_int;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
-use rustpython_vm::{Context, Interpreter};
+use rustpython_vm::{AsObject, Context, Interpreter};
 use std::sync::{Once, OnceLock, mpsc};
 
 static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::Sender<ThreadedVirtualMachine>>> =
@@ -39,6 +40,11 @@ pub(crate) fn init_static_type_pointers() {
         PyLong_Type.write(types.int_type);
         PyTuple_Type.write(types.tuple_type);
         PyUnicode_Type.write(types.str_type);
+
+        let exc = &context.exceptions;
+        PyExc_BaseException.write(exc.base_exception_type.as_object().as_raw().cast_mut());
+        PyExc_TypeError.write(exc.type_error.as_object().as_raw().cast_mut());
+        PyExc_OverflowError.write(exc.overflow_error.as_object().as_raw().cast_mut());
     };
 }
 
