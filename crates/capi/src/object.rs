@@ -4,7 +4,7 @@ use core::ffi::c_ulong;
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::{AsObject, Context, Py};
-use std::ffi::c_uint;
+use std::ffi::{c_int, c_uint};
 use std::mem::MaybeUninit;
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
@@ -86,12 +86,6 @@ pub extern "C" fn PyType_GetQualName(ptr: *const Py<PyType>) -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_CallNoArgs(_callable: *mut PyObject) -> *mut PyObject {
-    crate::log_stub("PyObject_CallNoArgs");
-    std::ptr::null_mut()
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn PyObject_GetAttr(_obj: *mut PyObject, _name: *mut PyObject) -> *mut PyObject {
     crate::log_stub("PyObject_GetAttr");
     std::ptr::null_mut()
@@ -123,5 +117,19 @@ pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
         }
         .as_raw()
         .cast_mut()
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        obj.to_owned().is_true(vm).map_or_else(
+            |err| {
+                vm.push_exception(Some(err));
+                -1
+            },
+            |is_true| is_true.into(),
+        )
     })
 }
