@@ -39,6 +39,8 @@ fn main() {
         PyTypeError::new_err("This is a type error").restore(py);
         assert!(PyErr::take(py).is_some());
 
+        py.import("sys")?;
+
         PyResult::Ok(())
     })
     .unwrap();
