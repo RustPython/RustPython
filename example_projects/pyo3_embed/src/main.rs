@@ -19,6 +19,8 @@ fn main() {
         assert!(string.is_instance_of::<PyString>());
         assert_eq!(string.to_str()?, "Hello, World!");
 
+        assert!(string.call_method1("endswith", ("!",))?.is_truthy()?);
+
         assert_eq!(string.get_type().name()?.to_str()?, "str");
 
         let number = number.unbind();
