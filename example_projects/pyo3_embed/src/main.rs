@@ -1,6 +1,6 @@
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyInt, PyNone, PyString};
-
 
 #[pyfunction]
 fn python_function(py: Python<'_>) -> Borrowed<'_, '_, PyNone> {
@@ -35,6 +35,9 @@ fn main() {
 
         let bytes = PyBytes::new(py, b"Hello, World!");
         assert_eq!(bytes.as_bytes(), b"Hello, World!");
+
+        PyTypeError::new_err("This is a type error").restore(py);
+        assert!(PyErr::take(py).is_some());
 
         PyResult::Ok(())
     })
