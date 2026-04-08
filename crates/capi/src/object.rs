@@ -133,3 +133,40 @@ pub extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
         )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+    use pyo3::types::{PyBool, PyString};
+
+    #[test]
+    fn test_is_truthy() {
+        Python::attach(|py| {
+            assert!(!py.None().is_truthy(py).unwrap());
+        })
+    }
+
+    #[test]
+    fn test_is_none() {
+        Python::attach(|py| {
+            assert!(py.None().is_none(py));
+        })
+    }
+
+    #[test]
+    #[cfg(false)]
+    fn test_bool() {
+        Python::attach(|py| {
+            assert!(PyBool::new(py, true).extract::<bool>().unwrap());
+            assert!(!PyBool::new(py, false).extract::<bool>().unwrap());
+        })
+    }
+
+    #[test]
+    fn test_type_name() {
+        Python::attach(|py| {
+            let string = PyString::new(py, "Hello, World!");
+            assert_eq!(string.get_type().name().unwrap().to_str().unwrap(), "str");
+        })
+    }
+}

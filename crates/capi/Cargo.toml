@@ -14,5 +14,8 @@ crate-type = ["staticlib"]
 [dependencies]
 rustpython-vm = { workspace = true, features = ["threading"]}
 
+[dev-dependencies]
+pyo3 = { version = "0.28.3", features = ["auto-initialize", "abi3-py314"] }
+
 [lints]
 workspace = true

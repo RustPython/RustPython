@@ -15,3 +15,15 @@ pub extern "C" fn PyImport_Import(name: *mut PyObject) -> *mut PyObject {
         )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+
+    #[test]
+    fn test_import() {
+        Python::attach(|py| {
+            let _module = py.import("sys").unwrap();
+        })
+    }
+}

@@ -75,3 +75,23 @@ pub extern "C" fn PyObject_VectorcallMethod(
             )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+    use pyo3::types::PyString;
+
+    #[test]
+    fn test_call_method1() {
+        Python::attach(|py| {
+            let string = PyString::new(py, "Hello, World!");
+            assert!(
+                string
+                    .call_method1("endswith", ("!",))
+                    .unwrap()
+                    .is_truthy()
+                    .unwrap()
+            );
+        })
+    }
+}

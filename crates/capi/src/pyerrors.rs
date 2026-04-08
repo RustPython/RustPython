@@ -135,3 +135,17 @@ pub extern "C" fn PyException_GetTraceback(_exc: *mut PyObject) -> *mut PyObject
     crate::log_stub("PyException_GetTraceback");
     std::ptr::null_mut()
 }
+
+#[cfg(test)]
+mod tests {
+    use pyo3::exceptions::PyTypeError;
+    use pyo3::prelude::*;
+
+    #[test]
+    fn test_raised_exception() {
+        Python::attach(|py| {
+            PyTypeError::new_err("This is a type error").restore(py);
+            assert!(PyErr::take(py).is_some());
+        })
+    }
+}

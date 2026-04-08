@@ -64,3 +64,18 @@ pub extern "C" fn PyUnicode_AsEncodedString(
 pub extern "C" fn PyUnicode_InternInPlace(_string: *mut *mut PyObject) {
     crate::log_stub("PyUnicode_InternInPlace");
 }
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+    use pyo3::types::PyString;
+
+    #[test]
+    fn test_unicode() {
+        Python::attach(|py| {
+            let string = PyString::new(py, "Hello, World!");
+            assert!(string.is_instance_of::<PyString>());
+            assert_eq!(string.to_str().unwrap(), "Hello, World!");
+        })
+    }
+}
