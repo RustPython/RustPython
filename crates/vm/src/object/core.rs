@@ -1104,7 +1104,10 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             unsafe {
                 if let Some(offset) = ext_start {
                     let ext_ptr = alloc_ptr.add(offset) as *mut ObjExt;
-                    let has_dict = typ.slots.flags.has_feature(crate::types::PyTypeFlags::HAS_DICT);
+                    let has_dict = typ
+                        .slots
+                        .flags
+                        .has_feature(crate::types::PyTypeFlags::HAS_DICT);
                     ext_ptr.write(ObjExt::new(dict, member_count, has_dict));
                 }
 

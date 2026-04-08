@@ -2643,11 +2643,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 // = subtype_setdict
-fn subtype_set_dict(
-    obj: PyObjectRef,
-    value: PySetterValue,
-    vm: &VirtualMachine,
-) -> PyResult<()> {
+fn subtype_set_dict(obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
     let base = get_builtin_base_with_dict(obj.class(), vm);
 
     if let Some(base_type) = base {

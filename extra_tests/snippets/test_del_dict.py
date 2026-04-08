@@ -2,6 +2,7 @@
 class C:
     pass
 
+
 obj = C()
 obj.x = 42
 
