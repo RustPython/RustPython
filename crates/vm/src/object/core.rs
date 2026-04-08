@@ -978,7 +978,6 @@ impl InstanceDict {
         core::mem::replace(&mut self.d.write(), d)
     }
 
-
     pub(crate) fn get_or_insert(&self, vm: &VirtualMachine) -> PyDictRef {
         if let Some(existing) = self.d.read().as_ref() {
             return existing.clone();

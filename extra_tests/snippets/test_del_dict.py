@@ -21,4 +21,21 @@ try:
 except AttributeError:
     pass
 
+# Function __dict__ deletion should fail
+def f(): pass
+try:
+    del f.__dict__
+    assert False, "TypeError expected for function dict deletion"
+except TypeError:
+    pass
+
+# functools.partial __dict__ deletion should fail
+import functools
+p = functools.partial(f)
+try:
+    del p.__dict__
+    assert False, "TypeError expected for partial dict deletion"
+except TypeError:
+    pass
+
 print("OK")

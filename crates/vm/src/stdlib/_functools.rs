@@ -4,9 +4,9 @@ pub(crate) use _functools::module_def;
 mod _functools {
     use crate::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBoundMethod, PyDict, PyGenericAlias, PyTuple, PyType, PyTypeRef},
+        builtins::{PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef},
         common::lock::PyRwLock,
-        function::{FuncArgs, KwArgs, OptionalOption},
+        function::{FuncArgs, KwArgs, OptionalOption, PySetterValue},
         object::AsObject,
         protocol::PyIter,
         pyclass,
@@ -156,6 +156,32 @@ mod _functools {
         #[pygetset]
         fn keywords(&self) -> PyRef<PyDict> {
             self.inner.read().keywords.clone()
+        }
+
+        #[pygetset]
+        fn __dict__(&self, vm: &VirtualMachine) -> PyDictRef {
+            self.as_object()
+                .instance_dict()
+                .map(|d| d.get_or_insert(vm))
+                .unwrap_or_else(|| vm.ctx.new_dict())
+        }
+
+        #[pygetset(setter)]
+        fn set___dict__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+            match value {
+                PySetterValue::Assign(obj) => {
+                    let dict = obj.downcast::<PyDict>().map_err(|_| {
+                        vm.new_type_error(format!(
+                            "__dict__ must be set to a dictionary, not a '{}'",
+                            obj.class().name()
+                        ))
+                    })?;
+                    self.as_object().set_dict(Some(dict)).map_err(|_| {
+                        vm.new_attribute_error("partial object has no __dict__")
+                    })
+                }
+                PySetterValue::Delete => Err(vm.new_type_error("cannot delete __dict__")),
+            }
         }
 
         #[pymethod]
