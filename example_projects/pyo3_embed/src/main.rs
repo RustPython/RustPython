@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyInt, PyNone, PyString};
+use pyo3::types::{PyBytes, PyInt, PyNone, PyString};
 
 
 #[pyfunction]
@@ -32,6 +32,9 @@ fn main() {
         .unwrap();
 
         assert!(python_function(py).is_none());
+
+        let bytes = PyBytes::new(py, b"Hello, World!");
+        assert_eq!(bytes.as_bytes(), b"Hello, World!");
 
         PyResult::Ok(())
     })
