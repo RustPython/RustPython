@@ -955,15 +955,14 @@ impl PyFunction {
     }
 
     #[pygetset]
-    fn __dict__(&self, vm: &VirtualMachine) -> PyDictRef {
-        self.as_object()
-            .instance_dict()
+    fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
+        zelf.instance_dict()
             .map(|d| d.get_or_insert(vm))
             .unwrap_or_else(|| vm.ctx.new_dict())
     }
 
     #[pygetset(setter)]
-    fn set___dict__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+    fn set___dict__(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(obj) => {
                 let dict = obj.downcast::<PyDict>().map_err(|_| {
@@ -972,13 +971,14 @@ impl PyFunction {
                         obj.class().name()
                     ))
                 })?;
-                self.as_object().set_dict(Some(dict)).map_err(|_| {
+                zelf.set_dict(Some(dict)).map_err(|_| {
                     vm.new_attribute_error("function object has no __dict__")
                 })
             }
             PySetterValue::Delete => Err(vm.new_type_error("cannot delete __dict__")),
         }
     }
+
 
 
     #[pygetset]
