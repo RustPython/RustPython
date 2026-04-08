@@ -16,7 +16,6 @@ class seq(base_set):
         return [self.el][n]
 
 class TestContains(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_common_tests(self):
         a = base_set(1)
         b = myset(1)
