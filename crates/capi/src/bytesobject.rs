@@ -40,3 +40,17 @@ pub extern "C" fn PyBytes_AsString(bytes: *mut PyObject) -> *mut c_char {
         bytes.as_bytes().as_ptr() as _
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+    use pyo3::types::PyBytes;
+
+    #[test]
+    fn test_bytes() {
+        Python::attach(|py| {
+            let bytes = PyBytes::new(py, b"Hello, World!");
+            assert_eq!(bytes.as_bytes(), b"Hello, World!");
+        })
+    }
+}

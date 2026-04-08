@@ -51,3 +51,25 @@ pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_RestoreThread(_tstate: *mut PyThreadState) {}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+    use pyo3::types::PyInt;
+
+    #[test]
+    fn test_new_thread() {
+        Python::attach(|py| {
+            let number = PyInt::new(py, 123).unbind();
+
+            std::thread::spawn(move || {
+                Python::attach(|py| {
+                    let number = number.bind(py);
+                    assert!(number.is_instance_of::<PyInt>());
+                });
+            })
+            .join()
+            .unwrap();
+        })
+    }
+}

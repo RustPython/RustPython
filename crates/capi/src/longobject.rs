@@ -58,3 +58,18 @@ pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
         })
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+    use pyo3::types::PyInt;
+
+    #[test]
+    fn test_py_int() {
+        Python::attach(|py| {
+            let number = PyInt::new(py, 123);
+            assert!(number.is_instance_of::<PyInt>());
+            assert_eq!(number.extract::<i32>().unwrap(), 123);
+        })
+    }
+}

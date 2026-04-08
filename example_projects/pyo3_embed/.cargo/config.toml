@@ -1,2 +1,0 @@
-[env]
-PYO3_CONFIG_FILE = { value = "pyo3-rustpython.config", relative = true }

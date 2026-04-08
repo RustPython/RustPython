@@ -1,4 +1,5 @@
 use crate::PyObject;
+use crate::pystate::with_vm;
 use rustpython_vm::PyObjectRef;
 use std::ptr::NonNull;
 
@@ -26,4 +27,29 @@ pub extern "C" fn _Py_IncRef(op: *mut PyObject) {
     let owned = unsafe { (*op).to_owned() };
 
     std::mem::forget(owned);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_REFCNT(op: *mut PyObject) -> isize {
+    with_vm(|vm| unsafe { &*op }.strong_count() as _)
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::PyTypeInfo;
+    use pyo3::prelude::*;
+    use pyo3::types::PyInt;
+
+    #[test]
+    fn test_refcount() {
+        Python::attach(|py| {
+            let obj = PyInt::type_object(py);
+            unsafe { pyo3::ffi::Py_REFCNT(obj.as_ptr()) };
+            let ref_count = obj.get_refcnt();
+            let obj_clone = obj.clone();
+            assert_eq!(obj.get_refcnt(), ref_count + 1);
+            drop(obj_clone);
+            assert_eq!(obj.get_refcnt(), ref_count);
+        });
+    }
 }
