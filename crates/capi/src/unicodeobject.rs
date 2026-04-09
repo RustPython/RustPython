@@ -1,6 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use core::ffi::c_char;
+use core::ffi::{c_char, c_int};
 use core::ptr;
 use core::slice;
 use core::str;
@@ -65,6 +65,25 @@ pub extern "C" fn PyUnicode_InternInPlace(_string: *mut *mut PyObject) {
     crate::log_stub("PyUnicode_InternInPlace");
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyUnicode_EqualToUTF8AndSize(
+    unicode: *mut PyObject,
+    string: *const c_char,
+    size: isize,
+) -> c_int {
+    with_vm(|_vm| {
+        let unicode = unsafe { (&*unicode).downcast_unchecked_ref::<PyStr>() };
+        unsafe {
+            let slice = slice::from_raw_parts(string as _, size as _);
+            str::from_utf8(slice)
+        }
+        .ok()
+        .and_then(|other| Some(unicode.to_str()? == other))
+        .unwrap_or(false)
+        .into()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
@@ -76,6 +95,7 @@ mod tests {
             let string = PyString::new(py, "Hello, World!");
             assert!(string.is_instance_of::<PyString>());
             assert_eq!(string.to_str().unwrap(), "Hello, World!");
+            assert_eq!(string, "Hello, World!");
         })
     }
 }
