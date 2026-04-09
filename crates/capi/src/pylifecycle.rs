@@ -9,7 +9,7 @@ use rustpython_vm::vm::thread::ThreadedVirtualMachine;
 use rustpython_vm::{AsObject, Context, Interpreter};
 use std::sync::{Once, OnceLock, mpsc};
 
-static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::Sender<ThreadedVirtualMachine>>> =
+static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::SyncSender<ThreadedVirtualMachine>>> =
     OnceLock::new();
 pub(crate) static INITIALIZED: Once = Once::new();
 
@@ -18,7 +18,7 @@ pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
     let tx = VM_REQUEST_TX
         .get()
         .expect("VM request channel not initialized");
-    let (response_tx, response_rx) = mpsc::channel();
+    let (response_tx, response_rx) = mpsc::sync_channel(1);
     tx.send(response_tx).expect("Failed to send VM request");
     response_rx.recv().expect("Failed to receive VM response")
 }
