@@ -1,10 +1,10 @@
 use crate::pylifecycle::request_vm_from_interpreter;
 use crate::util::FfiResult;
+use core::cell::RefCell;
 use core::ffi::c_int;
 use core::ptr;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
-use std::cell::RefCell;
 
 thread_local! {
     static VM: RefCell<Option<ThreadedVirtualMachine>> = const { RefCell::new(None) };
@@ -25,13 +25,13 @@ type PyGILState_STATE = c_int;
 
 #[repr(C)]
 pub struct PyThreadState {
-    _interp: *mut std::ffi::c_void,
+    _interp: *mut core::ffi::c_void,
 }
 
 pub(crate) fn attach_vm_to_thread() {
     VM.with(|vm| {
         vm.borrow_mut()
-            .get_or_insert_with(|| request_vm_from_interpreter());
+            .get_or_insert_with(request_vm_from_interpreter);
     });
 }
 

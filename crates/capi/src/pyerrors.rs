@@ -1,8 +1,8 @@
 use crate::{PyObject, with_vm};
+use core::ffi::CStr;
 use core::ffi::{c_char, c_int};
+use core::mem::MaybeUninit;
 use rustpython_vm::builtins::{PyTuple, PyType};
-use std::ffi::CStr;
-use std::mem::MaybeUninit;
 
 #[unsafe(no_mangle)]
 pub static mut PyExc_BaseException: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
@@ -125,7 +125,7 @@ pub extern "C" fn PyErr_NewExceptionWithDoc(
 #[unsafe(no_mangle)]
 pub extern "C" fn PyException_GetTraceback(_exc: *mut PyObject) -> *mut PyObject {
     crate::log_stub("PyException_GetTraceback");
-    std::ptr::null_mut()
+    core::ptr::null_mut()
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use core::ffi::c_long;
+use core::ffi::{c_char, c_int};
 use rustpython_vm::{PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
-use std::ffi::{c_char, c_int};
 
 pub(crate) trait FfiResult {
     type Output;
@@ -33,10 +33,7 @@ where
     type Output = *mut PyObject;
 
     fn into_output(self, _vm: &VirtualMachine) -> Self::Output {
-        self.map_or_else(
-            || std::ptr::null_mut(),
-            |obj| obj.into().into_raw().as_ptr(),
-        )
+        self.map_or_else(core::ptr::null_mut, |obj| obj.into().into_raw().as_ptr())
     }
 }
 
@@ -62,7 +59,7 @@ impl FfiResult for PyResult {
         self.map_or_else(
             |err| {
                 vm.push_exception(Some(err));
-                std::ptr::null_mut()
+                core::ptr::null_mut()
             },
             |obj| obj.into_raw().as_ptr(),
         )

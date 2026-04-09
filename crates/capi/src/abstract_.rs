@@ -1,7 +1,7 @@
 use crate::with_vm;
+use alloc::slice;
 use rustpython_vm::builtins::{PyStr, PyTuple};
 use rustpython_vm::{PyObject, PyObjectRef, PyResult};
-use std::slice;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
