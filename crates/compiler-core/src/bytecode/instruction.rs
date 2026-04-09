@@ -13,6 +13,107 @@ use crate::{
     marshal::MarshalError,
 };
 
+macro_rules! define_opcodes {
+    (
+        opcode_enum: $opcode_name:ident,
+        instruction_enum: $instr_name:ident,
+        typ: $typ:ty,
+        ops: [
+            $(
+                {
+                    name: $op_name:ident,
+                    id: $op_id:expr,
+                    display: $op_display:literal
+                    $(, oparg: { name: $arg_name:ident, typ: $arg_type:ty })?
+                }
+            ),* $(,)?
+        ]
+    ) => {
+        #[derive(Clone, Copy, Debug)]
+        pub enum $opcode_name {
+            $($op_name),*
+        }
+
+        impl $opcode_name {
+            #[must_use]
+            pub const fn as_instruction(&self) -> $instr_name {
+                match self {
+                    $(
+                        Self::$op_name => $instr_name::$op_name $({ $arg_name: Arg::marker() })?,
+                    )*
+                }
+            }
+        }
+
+        impl From<$opcode_name> for $instr_name {
+            fn from(opcode: $opcode_name) -> Self {
+                opcode.as_instruction()
+            }
+        }
+
+
+        impl TryFrom<$typ> for $opcode_name {
+            type Error = $crate::marshal::MarshalError;
+
+            fn try_from(value: $typ) -> Result<Self, Self::Error> {
+                match value {
+                    $($op_id => Ok(Self::$op_name),)*
+                    _ => Err(Self::Error::InvalidBytecode),
+                }
+            }
+        }
+
+        impl From<$opcode_name> for $typ {
+            fn from(opcode: $opcode_name) -> Self {
+                match opcode {
+                    $($opcode_name::$op_name => $op_id,)*
+                }
+            }
+        }
+
+        impl ::core::fmt::Display for $opcode_name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                match self {
+                    $(Self::$op_name => write!(f, $op_display),)*
+                }
+            }
+        }
+
+        #[derive(Clone, Copy, Debug)]
+        pub enum $instr_name {
+            $(
+                $op_name $({ $arg_name: Arg<$arg_type> })?
+            ),*
+        }
+
+        impl $instr_name {
+            #[must_use]
+            pub const fn opcode(&self) -> $opcode_name {
+                match self {
+                    $(
+                        Self::$op_name $({ $arg_name: _ })? => $opcode_name::$op_name,
+                    )*
+                }
+            }
+
+        }
+
+        impl From<$instr_name> for $opcode_name {
+            fn from(instruction: $instr_name) -> Self {
+                instruction.opcode()
+            }
+        }
+
+        impl TryFrom<$typ> for $instr_name {
+            type Error = $crate::marshal::MarshalError;
+
+            fn try_from(value: $typ) -> Result<Self, Self::Error> {
+                $opcode_name::try_from(value).map(Into::into)
+            }
+        }
+    };
+}
+
 /// A Single bytecode instruction that are executed by the VM.
 ///
 /// Currently aligned with CPython 3.14.
@@ -1400,53 +1501,29 @@ impl InstructionMetadata for Instruction {
     }
 }
 
-/// Instructions used by the compiler. They are not executed by the VM.
-///
-/// CPython 3.14.2 aligned (256-266).
-#[derive(Clone, Copy, Debug)]
-#[repr(u16)]
-pub enum PseudoInstruction {
-    // CPython 3.14.2 pseudo instructions (256-266)
-    AnnotationsPlaceholder = 256,
-    Jump { delta: Arg<Label> } = 257,
-    JumpIfFalse { delta: Arg<Label> } = 258,
-    JumpIfTrue { delta: Arg<Label> } = 259,
-    JumpNoInterrupt { delta: Arg<Label> } = 260,
-    LoadClosure { i: Arg<NameIdx> } = 261,
-    PopBlock = 262,
-    SetupCleanup { delta: Arg<Label> } = 263,
-    SetupFinally { delta: Arg<Label> } = 264,
-    SetupWith { delta: Arg<Label> } = 265,
-    StoreFastMaybeNull { var_num: Arg<NameIdx> } = 266,
-}
-
-const _: () = assert!(mem::size_of::<PseudoInstruction>() == 2);
-
-impl From<PseudoInstruction> for u16 {
-    #[inline]
-    fn from(ins: PseudoInstruction) -> Self {
-        // SAFETY: there's no padding bits
-        unsafe { mem::transmute::<PseudoInstruction, Self>(ins) }
-    }
-}
-
-impl TryFrom<u16> for PseudoInstruction {
-    type Error = MarshalError;
-
-    #[inline]
-    fn try_from(value: u16) -> Result<Self, MarshalError> {
-        let start = u16::from(Self::AnnotationsPlaceholder);
-        let end = u16::from(Self::StoreFastMaybeNull {
-            var_num: Arg::marker(),
-        });
-
-        if (start..=end).contains(&value) {
-            Ok(unsafe { mem::transmute::<u16, Self>(value) })
-        } else {
-            Err(Self::Error::InvalidBytecode)
-        }
-    }
-}
+define_opcodes!(
+    opcode_enum: PseudoOpcode,
+    instruction_enum: PseudoInstruction,
+    typ: u16,
+    ops: [
+        { name: AnnotationsPlaceholder, id: 256, display: "ANNOTATIONS_PLACEHOLDER" },
+        { name: Jump, id: 257, display: "JUMP", oparg: { name: delta, typ: Label }},
+        { name: JumpIfFalse, id: 258, display: "JUMP_IF_FALSE", oparg: { name: delta, typ: Label }},
+        { name: JumpIfTrue, id: 259, display: "JUMP_IF_TRUE", oparg: { name: delta, typ: Label }},
+        { name: JumpNoInterrupt, id: 260, display: "JUMP_NO_INTERRUPT", oparg: { name: delta, typ: Label }},
+        { name: LoadClosure, id: 261, display: "LOAD_CLOSURE", oparg: { name: i, typ: NameIdx }},
+        { name: PopBlock, id: 262, display: "POP_BLOCK" },
+        { name: SetupCleanup, id: 263, display: "SETUP_CLEANUP", oparg: { name: delta, typ: Label }},
+        { name: SetupFinally, id: 264, display: "SETUP_FINALLY", oparg: { name: delta, typ: Label }},
+        { name: SetupWith, id: 265, display: "SETUP_WITH", oparg: { name: delta, typ: Label }},
+        {
+            name: StoreFastMaybeNull,
+            id: 266,
+            display: "STORE_FAST_MAYBE_NULL",
+            oparg: { name: var_num, typ: NameIdx }
+        },
+    ]
+);
 
 impl PseudoInstruction {
     /// Returns true if this is a block push pseudo instruction
