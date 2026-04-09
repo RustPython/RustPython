@@ -52,6 +52,20 @@ impl FfiResult for *const PyObject {
     }
 }
 
+impl FfiResult for PyResult<*const PyObject> {
+    type Output = *mut PyObject;
+
+    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
+        self.map_or_else(
+            |err| {
+                vm.push_exception(Some(err));
+                core::ptr::null_mut()
+            },
+            |ptr| ptr.cast_mut(),
+        )
+    }
+}
+
 impl FfiResult for PyResult {
     type Output = *mut PyObject;
 
@@ -114,12 +128,10 @@ impl FfiResult for PyResult<c_int> {
     type Output = c_int;
 
     fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.unwrap_or_else(
-            |err| {
-                vm.push_exception(Some(err));
-                -1
-            },
-        )
+        self.unwrap_or_else(|err| {
+            vm.push_exception(Some(err));
+            -1
+        })
     }
 }
 
