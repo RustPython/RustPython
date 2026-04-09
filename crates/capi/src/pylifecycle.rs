@@ -1,5 +1,5 @@
 use crate::log_stub;
-use crate::object::{PyLong_Type, PyTuple_Type, PyType_Type, PyUnicode_Type};
+use crate::object::{PyBool_Type, PyLong_Type, PyTuple_Type, PyType_Type, PyUnicode_Type};
 use crate::pyerrors::{PyExc_BaseException, PyExc_OverflowError, PyExc_TypeError};
 use crate::pystate::attach_vm_to_thread;
 use core::ffi::c_int;
@@ -40,6 +40,7 @@ pub(crate) fn init_static_type_pointers() {
         PyLong_Type.write(types.int_type);
         PyTuple_Type.write(types.tuple_type);
         PyUnicode_Type.write(types.str_type);
+        PyBool_Type.write(types.bool_type);
 
         let exc = &context.exceptions;
         PyExc_BaseException.write(exc.base_exception_type.as_object().as_raw().cast_mut());
