@@ -1,8 +1,10 @@
 use crate::{PyObject, with_vm};
 use core::ffi::{c_char, c_int};
 use core::ptr;
+use core::ptr::NonNull;
 use core::slice;
 use core::str;
+use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyStr;
 
 #[unsafe(no_mangle)]
@@ -54,8 +56,16 @@ pub extern "C" fn PyUnicode_AsEncodedString(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyUnicode_InternInPlace(_string: *mut *mut PyObject) {
-    crate::log_stub("PyUnicode_InternInPlace");
+pub extern "C" fn PyUnicode_InternInPlace(string: *mut *mut PyObject) {
+    with_vm(|vm| {
+        let old_str = unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(*string)) }
+            .downcast_exact::<PyStr>(vm)
+            .expect("PyUnicode_InternInPlace called with non-string object");
+
+        let interned: PyObjectRef = vm.ctx.intern_str(old_str).to_owned().into();
+
+        unsafe { *string = interned.into_raw().as_ptr() }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -80,6 +90,7 @@ pub extern "C" fn PyUnicode_EqualToUTF8AndSize(
 
 #[cfg(test)]
 mod tests {
+    use pyo3::intern;
     use pyo3::prelude::*;
     use pyo3::types::PyString;
 
@@ -90,6 +101,13 @@ mod tests {
             assert!(string.is_instance_of::<PyString>());
             assert_eq!(string.to_str().unwrap(), "Hello, World!");
             assert_eq!(string, "Hello, World!");
+        })
+    }
+
+    #[test]
+    fn test_intern_str() {
+        Python::attach(|py| {
+            let _string = intern!(py, "Hello, World!");
         })
     }
 }
