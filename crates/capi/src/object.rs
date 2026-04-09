@@ -29,6 +29,9 @@ pub static mut PyTuple_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uni
 pub static mut PyUnicode_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
+pub static mut PyBool_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const Py<PyType> {
     // SAFETY: The caller must guarantee that `op` is a valid pointer to a `PyObject`.
     unsafe { (*op).class() }
@@ -109,7 +112,7 @@ pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
         let ctx = &vm.ctx;
         match constant_id {
             0 => ctx.none.as_object(),
-            1 => ctx.true_value.as_object(),
+            1 => ctx.false_value.as_object(),
             2 => ctx.true_value.as_object(),
             3 => ctx.ellipsis.as_object(),
             4 => ctx.not_implemented.as_object(),
@@ -154,11 +157,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(false)]
     fn test_bool() {
         Python::attach(|py| {
-            assert!(PyBool::new(py, true).extract::<bool>().unwrap());
-            assert!(!PyBool::new(py, false).extract::<bool>().unwrap());
+            assert!(PyBool::new(py, true).is_truthy().unwrap());
+            assert!(!PyBool::new(py, false).is_truthy().unwrap());
         })
     }
 
