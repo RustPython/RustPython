@@ -1,2 +1,3 @@
-[profile.test.env]
+[env]
 PYO3_CONFIG_FILE = { value = "pyo3-rustpython.config", relative = true }
+PYO3_NO_PYTHON = { value = "1" }
