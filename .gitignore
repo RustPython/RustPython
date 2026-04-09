@@ -10,7 +10,6 @@ __pycache__/
 wasm-pack.log
 .idea/
 .envrc
-.python-version
 
 flame-graph.html
 flame.txt
