@@ -102,9 +102,12 @@ pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const Py<PyType>) -> *mut P
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_GetAttr(_obj: *mut PyObject, _name: *mut PyObject) -> *mut PyObject {
-    crate::log_stub("PyObject_GetAttr");
-    core::ptr::null_mut()
+pub extern "C" fn PyObject_GetAttr(obj: *mut PyObject, name: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        obj.get_attr(name, vm)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -210,6 +213,22 @@ mod tests {
         Python::attach(|py| {
             let number = PyInt::new(py, 42);
             assert_eq!(number.str().unwrap(), "42");
+        })
+    }
+
+    #[test]
+    fn test_get_attr() {
+        Python::attach(|py| {
+            let sys = py.import("sys").unwrap();
+            let implementation = sys
+                .getattr("implementation")
+                .unwrap()
+                .getattr("name")
+                .unwrap()
+                .str()
+                .unwrap();
+
+            assert_eq!(implementation, "rustpython");
         })
     }
 }
