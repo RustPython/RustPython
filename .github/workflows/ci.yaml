@@ -395,7 +395,6 @@ jobs:
         with:
           cache: false
           show-verbose-logs: false
-        continue-on-error: true
 
       - name: save prek cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
@@ -405,6 +404,7 @@ jobs:
           path: ~/.cache/prek
 
       - name: reviewdog
+        if: ${{ !cancelled() }}
         uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # 1.24.0
         with:
           level: warning
