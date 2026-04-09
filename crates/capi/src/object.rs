@@ -1,8 +1,6 @@
-use crate::PyObject;
-use crate::pystate::with_vm;
+use crate::{PyObject, with_vm};
 use core::ffi::c_ulong;
 use rustpython_vm::builtins::PyType;
-use rustpython_vm::convert::IntoObject;
 use rustpython_vm::{AsObject, Context, Py};
 use std::ffi::{c_int, c_uint};
 use std::mem::MaybeUninit;
@@ -79,13 +77,13 @@ pub extern "C" fn PyType_GetFlags(ptr: *const Py<PyType>) -> c_ulong {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_GetName(ptr: *const Py<PyType>) -> *mut PyObject {
     let ty = unsafe { &*ptr };
-    with_vm(move |vm| ty.__name__(vm).into_object().into_raw().as_ptr())
+    with_vm(move |vm| ty.__name__(vm))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_GetQualName(ptr: *const Py<PyType>) -> *mut PyObject {
     let ty = unsafe { &*ptr };
-    with_vm(move |vm| ty.__qualname__(vm).into_object().into_raw().as_ptr())
+    with_vm(move |vm| ty.__qualname__(vm))
 }
 
 #[unsafe(no_mangle)]
@@ -119,7 +117,6 @@ pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
             _ => panic!("Invalid constant_id passed to Py_GetConstantBorrowed"),
         }
         .as_raw()
-        .cast_mut()
     })
 }
 
@@ -127,13 +124,7 @@ pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
 pub extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        obj.to_owned().is_true(vm).map_or_else(
-            |err| {
-                vm.push_exception(Some(err));
-                -1
-            },
-            |is_true| is_true.into(),
-        )
+        obj.to_owned().is_true(vm)
     })
 }
 
