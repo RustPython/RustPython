@@ -5,27 +5,15 @@ use rustpython_vm::PyObjectRef;
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn _Py_DecRef(op: *mut PyObject) {
-    let Some(ptr) = NonNull::new(op) else {
-        return;
-    };
-
-    let owned = unsafe { PyObjectRef::from_raw(ptr) };
-
-    // Dropping so we decrement the refcount
-    drop(owned);
+    // By dropping PyObjectRef, we will decrement the reference count.
+    unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(op)) };
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn _Py_IncRef(op: *mut PyObject) {
-    if op.is_null() {
-        return;
-    }
-
-    // SAFETY: op is non-null and expected to be a valid pointer for this shim.
-    let owned = unsafe { (*op).to_owned() };
-
-    core::mem::forget(owned);
+    // Don't drop the owned value, as we just want to increment the refcount.
+    core::mem::forget(unsafe { (*op).to_owned() });
 }
 
 #[unsafe(no_mangle)]
