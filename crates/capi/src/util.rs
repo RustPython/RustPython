@@ -110,6 +110,19 @@ impl FfiResult for PyResult<bool> {
     }
 }
 
+impl FfiResult for PyResult<c_int> {
+    type Output = c_int;
+
+    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
+        self.unwrap_or_else(
+            |err| {
+                vm.push_exception(Some(err));
+                -1
+            },
+        )
+    }
+}
+
 impl FfiResult for PyResult<*mut c_char> {
     type Output = *mut c_char;
 
