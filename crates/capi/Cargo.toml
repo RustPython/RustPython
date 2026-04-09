@@ -9,7 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [lib]
-crate-type = ["staticlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 rustpython-vm = { workspace = true, features = ["threading"]}
