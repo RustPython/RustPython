@@ -1,4 +1,4 @@
-use core::{fmt, marker::PhantomData, mem};
+use core::{fmt, marker::PhantomData};
 
 use crate::{
     bytecode::{
@@ -99,8 +99,8 @@ macro_rules! define_opcodes {
         }
 
         impl From<$instr_name> for $opcode_name {
-            fn from(instruction: $instr_name) -> Self {
-                instruction.opcode()
+            fn from(instr: $instr_name) -> Self {
+                instr.opcode()
             }
         }
 
@@ -111,454 +111,248 @@ macro_rules! define_opcodes {
                 $opcode_name::try_from(value).map(Into::into)
             }
         }
+
+        impl From<$instr_name> for $typ {
+            fn from(instr: $instr_name) -> Self {
+                instr.opcode().into()
+            }
+        }
     };
 }
-
-/// A Single bytecode instruction that are executed by the VM.
-///
-/// Currently aligned with CPython 3.14.
-///
-/// ## See also
-/// - [CPython opcode IDs](https://github.com/python/cpython/blob/v3.14.2/Include/opcode_ids.h)
-#[derive(Clone, Copy, Debug)]
-#[repr(u8)]
-pub enum Instruction {
-    // No-argument instructions (opcode < HAVE_ARGUMENT=44)
-    Cache = 0,
-    BinarySlice = 1,
-    BuildTemplate = 2,
-    BinaryOpInplaceAddUnicode = 3,
-    CallFunctionEx = 4,
-    CheckEgMatch = 5,
-    CheckExcMatch = 6,
-    CleanupThrow = 7,
-    DeleteSubscr = 8,
-    EndFor = 9,
-    EndSend = 10,
-    ExitInitCheck = 11, // Placeholder
-    FormatSimple = 12,
-    FormatWithSpec = 13,
-    GetAIter = 14,
-    GetANext = 15,
-    GetIter = 16,
-    Reserved = 17,
-    GetLen = 18,
-    GetYieldFromIter = 19,
-    InterpreterExit = 20, // Placeholder
-    LoadBuildClass = 21,
-    LoadLocals = 22,
-    MakeFunction = 23,
-    MatchKeys = 24,
-    MatchMapping = 25,
-    MatchSequence = 26,
-    Nop = 27,
-    NotTaken = 28,
-    PopExcept = 29,
-    PopIter = 30,
-    PopTop = 31,
-    PushExcInfo = 32,
-    PushNull = 33,
-    ReturnGenerator = 34,
-    ReturnValue = 35,
-    SetupAnnotations = 36,
-    StoreSlice = 37,
-    StoreSubscr = 38,
-    ToBool = 39,
-    UnaryInvert = 40,
-    UnaryNegative = 41,
-    UnaryNot = 42,
-    WithExceptStart = 43,
-    // CPython 3.14 opcodes with arguments (44-120)
-    BinaryOp {
-        op: Arg<BinaryOperator>,
-    } = 44,
-    /// Build an Interpolation from value, expression string, and optional format_spec on stack.
-    ///
-    /// oparg encoding: (conversion << 2) | has_format_spec
-    /// - has_format_spec (bit 0): if 1, format_spec is on stack
-    /// - conversion (bits 2+): 0=None, 1=Str, 2=Repr, 3=Ascii
-    ///
-    /// Stack: [value, expression_str, format_spec?] -> [interpolation]
-    BuildInterpolation {
-        format: Arg<u32>,
-    } = 45,
-    BuildList {
-        count: Arg<u32>,
-    } = 46,
-    BuildMap {
-        count: Arg<u32>,
-    } = 47,
-    BuildSet {
-        count: Arg<u32>,
-    } = 48,
-    BuildSlice {
-        argc: Arg<BuildSliceArgCount>,
-    } = 49,
-    BuildString {
-        count: Arg<u32>,
-    } = 50,
-    BuildTuple {
-        count: Arg<u32>,
-    } = 51,
-    Call {
-        argc: Arg<u32>,
-    } = 52,
-    CallIntrinsic1 {
-        func: Arg<IntrinsicFunction1>,
-    } = 53,
-    CallIntrinsic2 {
-        func: Arg<IntrinsicFunction2>,
-    } = 54,
-    CallKw {
-        argc: Arg<u32>,
-    } = 55,
-    CompareOp {
-        opname: Arg<ComparisonOperator>,
-    } = 56,
-    ContainsOp {
-        invert: Arg<Invert>,
-    } = 57,
-    ConvertValue {
-        oparg: Arg<ConvertValueOparg>,
-    } = 58,
-    Copy {
-        i: Arg<u32>,
-    } = 59,
-    CopyFreeVars {
-        n: Arg<u32>,
-    } = 60,
-    DeleteAttr {
-        namei: Arg<NameIdx>,
-    } = 61,
-    DeleteDeref {
-        i: Arg<oparg::VarNum>,
-    } = 62,
-    DeleteFast {
-        var_num: Arg<oparg::VarNum>,
-    } = 63,
-    DeleteGlobal {
-        namei: Arg<NameIdx>,
-    } = 64,
-    DeleteName {
-        namei: Arg<NameIdx>,
-    } = 65,
-    DictMerge {
-        i: Arg<u32>,
-    } = 66,
-    DictUpdate {
-        i: Arg<u32>,
-    } = 67,
-    EndAsyncFor = 68,
-    ExtendedArg = 69,
-    ForIter {
-        delta: Arg<Label>,
-    } = 70,
-    GetAwaitable {
-        r#where: Arg<u32>,
-    } = 71,
-    ImportFrom {
-        namei: Arg<NameIdx>,
-    } = 72,
-    ImportName {
-        namei: Arg<NameIdx>,
-    } = 73,
-    IsOp {
-        invert: Arg<Invert>,
-    } = 74,
-    JumpBackward {
-        delta: Arg<Label>,
-    } = 75,
-    JumpBackwardNoInterrupt {
-        delta: Arg<Label>,
-    } = 76, // Placeholder
-    JumpForward {
-        delta: Arg<Label>,
-    } = 77,
-    ListAppend {
-        i: Arg<u32>,
-    } = 78,
-    ListExtend {
-        i: Arg<u32>,
-    } = 79,
-    LoadAttr {
-        namei: Arg<LoadAttr>,
-    } = 80,
-    LoadCommonConstant {
-        idx: Arg<CommonConstant>,
-    } = 81,
-    LoadConst {
-        consti: Arg<oparg::ConstIdx>,
-    } = 82,
-    LoadDeref {
-        i: Arg<oparg::VarNum>,
-    } = 83,
-    LoadFast {
-        var_num: Arg<oparg::VarNum>,
-    } = 84,
-    LoadFastAndClear {
-        var_num: Arg<oparg::VarNum>,
-    } = 85,
-    LoadFastBorrow {
-        var_num: Arg<oparg::VarNum>,
-    } = 86,
-    LoadFastBorrowLoadFastBorrow {
-        var_nums: Arg<oparg::VarNums>,
-    } = 87,
-    LoadFastCheck {
-        var_num: Arg<oparg::VarNum>,
-    } = 88,
-    LoadFastLoadFast {
-        var_nums: Arg<oparg::VarNums>,
-    } = 89,
-    LoadFromDictOrDeref {
-        i: Arg<oparg::VarNum>,
-    } = 90,
-    LoadFromDictOrGlobals {
-        i: Arg<NameIdx>,
-    } = 91,
-    LoadGlobal {
-        namei: Arg<NameIdx>,
-    } = 92,
-    LoadName {
-        namei: Arg<NameIdx>,
-    } = 93,
-    LoadSmallInt {
-        i: Arg<u32>,
-    } = 94,
-    LoadSpecial {
-        method: Arg<SpecialMethod>,
-    } = 95,
-    LoadSuperAttr {
-        namei: Arg<LoadSuperAttr>,
-    } = 96,
-    MakeCell {
-        i: Arg<oparg::VarNum>,
-    } = 97,
-    MapAdd {
-        i: Arg<u32>,
-    } = 98,
-    MatchClass {
-        count: Arg<u32>,
-    } = 99,
-    PopJumpIfFalse {
-        delta: Arg<Label>,
-    } = 100,
-    PopJumpIfNone {
-        delta: Arg<Label>,
-    } = 101,
-    PopJumpIfNotNone {
-        delta: Arg<Label>,
-    } = 102,
-    PopJumpIfTrue {
-        delta: Arg<Label>,
-    } = 103,
-    RaiseVarargs {
-        argc: Arg<RaiseKind>,
-    } = 104,
-    Reraise {
-        depth: Arg<u32>,
-    } = 105,
-    Send {
-        delta: Arg<Label>,
-    } = 106,
-    SetAdd {
-        i: Arg<u32>,
-    } = 107,
-    SetFunctionAttribute {
-        flag: Arg<MakeFunctionFlag>,
-    } = 108,
-    SetUpdate {
-        i: Arg<u32>,
-    } = 109,
-    StoreAttr {
-        namei: Arg<NameIdx>,
-    } = 110,
-    StoreDeref {
-        i: Arg<oparg::VarNum>,
-    } = 111,
-    StoreFast {
-        var_num: Arg<oparg::VarNum>,
-    } = 112,
-    StoreFastLoadFast {
-        var_nums: Arg<oparg::VarNums>,
-    } = 113,
-    StoreFastStoreFast {
-        var_nums: Arg<oparg::VarNums>,
-    } = 114,
-    StoreGlobal {
-        namei: Arg<NameIdx>,
-    } = 115,
-    StoreName {
-        namei: Arg<NameIdx>,
-    } = 116,
-    Swap {
-        i: Arg<u32>,
-    } = 117,
-    UnpackEx {
-        counts: Arg<UnpackExArgs>,
-    } = 118,
-    UnpackSequence {
-        count: Arg<u32>,
-    } = 119,
-    YieldValue {
-        arg: Arg<u32>,
-    } = 120,
-    // CPython 3.14 RESUME (128)
-    Resume {
-        context: Arg<oparg::ResumeContext>,
-    } = 128,
-    // CPython 3.14 specialized opcodes (129-211)
-    BinaryOpAddFloat = 129,                     // Placeholder
-    BinaryOpAddInt = 130,                       // Placeholder
-    BinaryOpAddUnicode = 131,                   // Placeholder
-    BinaryOpExtend = 132,                       // Placeholder
-    BinaryOpMultiplyFloat = 133,                // Placeholder
-    BinaryOpMultiplyInt = 134,                  // Placeholder
-    BinaryOpSubscrDict = 135,                   // Placeholder
-    BinaryOpSubscrGetitem = 136,                // Placeholder
-    BinaryOpSubscrListInt = 137,                // Placeholder
-    BinaryOpSubscrListSlice = 138,              // Placeholder
-    BinaryOpSubscrStrInt = 139,                 // Placeholder
-    BinaryOpSubscrTupleInt = 140,               // Placeholder
-    BinaryOpSubtractFloat = 141,                // Placeholder
-    BinaryOpSubtractInt = 142,                  // Placeholder
-    CallAllocAndEnterInit = 143,                // Placeholder
-    CallBoundMethodExactArgs = 144,             // Placeholder
-    CallBoundMethodGeneral = 145,               // Placeholder
-    CallBuiltinClass = 146,                     // Placeholder
-    CallBuiltinFast = 147,                      // Placeholder
-    CallBuiltinFastWithKeywords = 148,          // Placeholder
-    CallBuiltinO = 149,                         // Placeholder
-    CallIsinstance = 150,                       // Placeholder
-    CallKwBoundMethod = 151,                    // Placeholder
-    CallKwNonPy = 152,                          // Placeholder
-    CallKwPy = 153,                             // Placeholder
-    CallLen = 154,                              // Placeholder
-    CallListAppend = 155,                       // Placeholder
-    CallMethodDescriptorFast = 156,             // Placeholder
-    CallMethodDescriptorFastWithKeywords = 157, // Placeholder
-    CallMethodDescriptorNoargs = 158,           // Placeholder
-    CallMethodDescriptorO = 159,                // Placeholder
-    CallNonPyGeneral = 160,                     // Placeholder
-    CallPyExactArgs = 161,                      // Placeholder
-    CallPyGeneral = 162,                        // Placeholder
-    CallStr1 = 163,                             // Placeholder
-    CallTuple1 = 164,                           // Placeholder
-    CallType1 = 165,                            // Placeholder
-    CompareOpFloat = 166,                       // Placeholder
-    CompareOpInt = 167,                         // Placeholder
-    CompareOpStr = 168,                         // Placeholder
-    ContainsOpDict = 169,                       // Placeholder
-    ContainsOpSet = 170,                        // Placeholder
-    ForIterGen = 171,                           // Placeholder
-    ForIterList = 172,                          // Placeholder
-    ForIterRange = 173,                         // Placeholder
-    ForIterTuple = 174,                         // Placeholder
-    JumpBackwardJit = 175,                      // Placeholder
-    JumpBackwardNoJit = 176,                    // Placeholder
-    LoadAttrClass = 177,                        // Placeholder
-    LoadAttrClassWithMetaclassCheck = 178,      // Placeholder
-    LoadAttrGetattributeOverridden = 179,       // Placeholder
-    LoadAttrInstanceValue = 180,                // Placeholder
-    LoadAttrMethodLazyDict = 181,               // Placeholder
-    LoadAttrMethodNoDict = 182,                 // Placeholder
-    LoadAttrMethodWithValues = 183,             // Placeholder
-    LoadAttrModule = 184,                       // Placeholder
-    LoadAttrNondescriptorNoDict = 185,          // Placeholder
-    LoadAttrNondescriptorWithValues = 186,      // Placeholder
-    LoadAttrProperty = 187,                     // Placeholder
-    LoadAttrSlot = 188,                         // Placeholder
-    LoadAttrWithHint = 189,                     // Placeholder
-    LoadConstImmortal = 190,                    // Placeholder
-    LoadConstMortal = 191,                      // Placeholder
-    LoadGlobalBuiltin = 192,                    // Placeholder
-    LoadGlobalModule = 193,                     // Placeholder
-    LoadSuperAttrAttr = 194,                    // Placeholder
-    LoadSuperAttrMethod = 195,                  // Placeholder
-    ResumeCheck = 196,                          // Placeholder
-    SendGen = 197,                              // Placeholder
-    StoreAttrInstanceValue = 198,               // Placeholder
-    StoreAttrSlot = 199,                        // Placeholder
-    StoreAttrWithHint = 200,                    // Placeholder
-    StoreSubscrDict = 201,                      // Placeholder
-    StoreSubscrListInt = 202,                   // Placeholder
-    ToBoolAlwaysTrue = 203,                     // Placeholder
-    ToBoolBool = 204,                           // Placeholder
-    ToBoolInt = 205,                            // Placeholder
-    ToBoolList = 206,                           // Placeholder
-    ToBoolNone = 207,                           // Placeholder
-    ToBoolStr = 208,                            // Placeholder
-    UnpackSequenceList = 209,                   // Placeholder
-    UnpackSequenceTuple = 210,                  // Placeholder
-    UnpackSequenceTwoTuple = 211,               // Placeholder
-    // CPython 3.14 instrumented opcodes (234-254)
-    InstrumentedEndFor = 234,
-    InstrumentedPopIter = 235,
-    InstrumentedEndSend = 236,
-    InstrumentedForIter = 237,
-    InstrumentedInstruction = 238,
-    InstrumentedJumpForward = 239,
-    InstrumentedNotTaken = 240,
-    InstrumentedPopJumpIfTrue = 241,
-    InstrumentedPopJumpIfFalse = 242,
-    InstrumentedPopJumpIfNone = 243,
-    InstrumentedPopJumpIfNotNone = 244,
-    InstrumentedResume = 245,
-    InstrumentedReturnValue = 246,
-    InstrumentedYieldValue = 247,
-    InstrumentedEndAsyncFor = 248,
-    InstrumentedLoadSuperAttr = 249,
-    InstrumentedCall = 250,
-    InstrumentedCallKw = 251,
-    InstrumentedCallFunctionEx = 252,
-    InstrumentedJumpBackward = 253,
-    InstrumentedLine = 254,
-    EnterExecutor = 255, // Placeholder
-}
-
-const _: () = assert!(mem::size_of::<Instruction>() == 1);
-
-impl From<Instruction> for u8 {
-    #[inline]
-    fn from(ins: Instruction) -> Self {
-        // SAFETY: there's no padding bits
-        unsafe { mem::transmute::<Instruction, Self>(ins) }
-    }
-}
-
-impl TryFrom<u8> for Instruction {
-    type Error = MarshalError;
-
-    #[inline]
-    fn try_from(value: u8) -> Result<Self, MarshalError> {
-        // CPython-compatible opcodes (0-120)
-        let cpython_start = u8::from(Self::Cache);
-        let cpython_end = u8::from(Self::YieldValue { arg: Arg::marker() });
-
-        // Resume has a non-contiguous opcode (128)
-        let resume_id = u8::from(Self::Resume {
-            context: Arg::marker(),
-        });
-        let enter_executor_id = u8::from(Self::EnterExecutor);
-
-        let specialized_start = u8::from(Self::BinaryOpAddFloat);
-        let specialized_end = u8::from(Self::UnpackSequenceTwoTuple);
-
-        let instrumented_start = u8::from(Self::InstrumentedEndFor);
-        let instrumented_end = u8::from(Self::InstrumentedLine);
-
-        if (cpython_start..=cpython_end).contains(&value)
-            || value == resume_id
-            || value == enter_executor_id
-            || (specialized_start..=specialized_end).contains(&value)
-            || (instrumented_start..=instrumented_end).contains(&value)
-        {
-            Ok(unsafe { mem::transmute::<u8, Self>(value) })
-        } else {
-            Err(Self::Error::InvalidBytecode)
-        }
-    }
-}
+define_opcodes!(
+    opcode_enum: Opcode,
+    instruction_enum: Instruction,
+    typ: u8,
+    ops: [
+        { name: Cache, id: 0, display: "CACHE"},
+        { name: BinarySlice, id: 1, display: "BINARY_SLICE"},
+        { name: BuildTemplate, id: 2, display: "BUILD_TEMPLATE"},
+        { name: BinaryOpInplaceAddUnicode, id: 3, display: "BINARY_OP_INPLACE_ADD_UNICODE"},
+        { name: CallFunctionEx, id: 4, display: "CALL_FUNCTION_EX"},
+        { name: CheckEgMatch, id: 5, display: "CHECK_EG_MATCH"},
+        { name: CheckExcMatch, id: 6, display: "CHECK_EXC_MATCH"},
+        { name: CleanupThrow, id: 7, display: "CLEANUP_THROW"},
+        { name: DeleteSubscr, id: 8, display: "DELETE_SUBSCR"},
+        { name: EndFor, id: 9, display: "END_FOR"},
+        { name: EndSend, id: 10, display: "END_SEND"},
+        { name: ExitInitCheck, id: 11, display: "EXIT_INIT_CHECK"},
+        { name: FormatSimple, id: 12, display: "FORMAT_SIMPLE"},
+        { name: FormatWithSpec, id: 13, display: "FORMAT_WITH_SPEC"},
+        { name: GetAIter, id: 14, display: "GET_AITER"},
+        { name: GetANext, id: 15, display: "GET_ANEXT"},
+        { name: GetIter, id: 16, display: "GET_ITER"},
+        { name: Reserved, id: 17, display: "RESERVED"},
+        { name: GetLen, id: 18, display: "GET_LEN"},
+        { name: GetYieldFromIter, id: 19, display: "GET_YIELD_FROM_ITER"},
+        { name: InterpreterExit, id: 20, display: "INTERPRETER_EXIT"},
+        { name: LoadBuildClass, id: 21, display: "LOAD_BUILD_CLASS"},
+        { name: LoadLocals, id: 22, display: "LOAD_LOCALS"},
+        { name: MakeFunction, id: 23, display: "MAKE_FUNCTION"},
+        { name: MatchKeys, id: 24, display: "MATCH_KEYS"},
+        { name: MatchMapping, id: 25, display: "MATCH_MAPPING"},
+        { name: MatchSequence, id: 26, display: "MATCH_SEQUENCE"},
+        { name: Nop, id: 27, display: "NOP"},
+        { name: NotTaken, id: 28, display: "NOT_TAKEN"},
+        { name: PopExcept, id: 29, display: "POP_EXCEPT"},
+        { name: PopIter, id: 30, display: "POP_ITER"},
+        { name: PopTop, id: 31, display: "POP_TOP"},
+        { name: PushExcInfo, id: 32, display: "PUSH_EXC_INFO"},
+        { name: PushNull, id: 33, display: "PUSH_NULL"},
+        { name: ReturnGenerator, id: 34, display: "RETURN_GENERATOR"},
+        { name: ReturnValue, id: 35, display: "RETURN_VALUE"},
+        { name: SetupAnnotations, id: 36, display: "SETUP_ANNOTATIONS"},
+        { name: StoreSlice, id: 37, display: "STORE_SLICE"},
+        { name: StoreSubscr, id: 38, display: "STORE_SUBSCR"},
+        { name: ToBool, id: 39, display: "TO_BOOL"},
+        { name: UnaryInvert, id: 40, display: "UNARY_INVERT"},
+        { name: UnaryNegative, id: 41, display: "UNARY_NEGATIVE"},
+        { name: UnaryNot, id: 42, display: "UNARY_NOT"},
+        { name: WithExceptStart, id: 43, display: "WITH_EXCEPT_START"},
+        { name: BinaryOp, id: 44, display: "BINARY_OP", oparg: { name: op, typ: BinaryOperator }},
+        { name: BuildInterpolation, id: 45, display: "BUILD_INTERPOLATION", oparg: { name: format, typ: u32 }},
+        { name: BuildList, id: 46, display: "BUILD_LIST", oparg: { name: count, typ: u32 }},
+        { name: BuildMap, id: 47, display: "BUILD_MAP", oparg: { name: count, typ: u32 }},
+        { name: BuildSet, id: 48, display: "BUILD_SET", oparg: { name: count, typ: u32 }},
+        { name: BuildSlice, id: 49, display: "BUILD_SLICE", oparg: { name: argc, typ: BuildSliceArgCount }},
+        { name: BuildString, id: 50, display: "BUILD_STRING", oparg: { name: count, typ: u32 }},
+        { name: BuildTuple, id: 51, display: "BUILD_TUPLE", oparg: { name: count, typ: u32 }},
+        { name: Call, id: 52, display: "CALL", oparg: { name: argc, typ: u32 }},
+        { name: CallIntrinsic1, id: 53, display: "CALL_INTRINSIC_1", oparg: { name: func, typ: IntrinsicFunction1 }},
+        { name: CallIntrinsic2, id: 54, display: "CALL_INTRINSIC_2", oparg: { name: func, typ: IntrinsicFunction2 }},
+        { name: CallKw, id: 55, display: "CALL_KW", oparg: { name: argc, typ: u32 }},
+        { name: CompareOp, id: 56, display: "COMPARE_OP", oparg: { name: opname, typ: ComparisonOperator }},
+        { name: ContainsOp, id: 57, display: "CONTAINS_OP", oparg: { name: invert, typ: Invert }},
+        { name: ConvertValue, id: 58, display: "CONVERT_VALUE", oparg: { name: oparg, typ: ConvertValueOparg }},
+        { name: Copy, id: 59, display: "COPY", oparg: { name: i, typ: u32 }},
+        { name: CopyFreeVars, id: 60, display: "COPY_FREE_VARS", oparg: { name: n, typ: u32 }},
+        { name: DeleteAttr, id: 61, display: "DELETE_ATTR", oparg: { name: namei, typ: NameIdx }},
+        { name: DeleteDeref, id: 62, display: "DELETE_DEREF", oparg: { name: i, typ: oparg::VarNum }},
+        { name: DeleteFast, id: 63, display: "DELETE_FAST", oparg: { name: var_num, typ: oparg::VarNum }},
+        { name: DeleteGlobal, id: 64, display: "DELETE_GLOBAL", oparg: { name: namei, typ: NameIdx }},
+        { name: DeleteName, id: 65, display: "DELETE_NAME", oparg: { name: namei, typ: NameIdx }},
+        { name: DictMerge, id: 66, display: "DICT_MERGE", oparg: { name: i, typ: u32 }},
+        { name: DictUpdate, id: 67, display: "DICT_UPDATE", oparg: { name: i, typ: u32 }},
+        { name: EndAsyncFor, id: 68, display: "END_ASYNC_FOR"},
+        { name: ExtendedArg, id: 69, display: "EXTENDED_ARG"},
+        { name: ForIter, id: 70, display: "FOR_ITER", oparg: { name: delta, typ: Label }},
+        { name: GetAwaitable, id: 71, display: "GET_AWAITABLE", oparg: { name: r#where, typ: u32 }},
+        { name: ImportFrom, id: 72, display: "IMPORT_FROM", oparg: { name: namei, typ: NameIdx }},
+        { name: ImportName, id: 73, display: "IMPORT_NAME", oparg: { name: namei, typ: NameIdx }},
+        { name: IsOp, id: 74, display: "IS_OP", oparg: { name: invert, typ: Invert }},
+        { name: JumpBackward, id: 75, display: "JUMP_BACKWARD", oparg: { name: delta, typ: Label }},
+        { name: JumpBackwardNoInterrupt, id: 76, display: "JUMP_BACKWARD_NO_INTERRUPT", oparg: { name: delta, typ: Label }},
+        { name: JumpForward, id: 77, display: "JUMP_FORWARD", oparg: { name: delta, typ: Label }},
+        { name: ListAppend, id: 78, display: "LIST_APPEND", oparg: { name: i, typ: u32 }},
+        { name: ListExtend, id: 79, display: "LIST_EXTEND", oparg: { name: i, typ: u32 }},
+        { name: LoadAttr, id: 80, display: "LOAD_ATTR", oparg: { name: namei, typ: LoadAttr }},
+        { name: LoadCommonConstant, id: 81, display: "LOAD_COMMON_CONSTANT", oparg: { name: idx, typ: CommonConstant }},
+        { name: LoadConst, id: 82, display: "LOAD_CONST", oparg: { name: consti, typ: oparg::ConstIdx }},
+        { name: LoadDeref, id: 83, display: "LOAD_DEREF", oparg: { name: i, typ: oparg::VarNum }},
+        { name: LoadFast, id: 84, display: "LOAD_FAST", oparg: { name: var_num, typ: oparg::VarNum }},
+        { name: LoadFastAndClear, id: 85, display: "LOAD_FAST_AND_CLEAR", oparg: { name: var_num, typ: oparg::VarNum }},
+        { name: LoadFastBorrow, id: 86, display: "LOAD_FAST_BORROW", oparg: { name: var_num, typ: oparg::VarNum }},
+        { name: LoadFastBorrowLoadFastBorrow, id: 87, display: "LOAD_FAST_BORROW_LOAD_FAST_BORROW", oparg: { name: var_nums, typ: oparg::VarNums }},
+        { name: LoadFastCheck, id: 88, display: "LOAD_FAST_CHECK", oparg: { name: var_num, typ: oparg::VarNum }},
+        { name: LoadFastLoadFast, id: 89, display: "LOAD_FAST_LOAD_FAST", oparg: { name: var_nums, typ: oparg::VarNums }},
+        { name: LoadFromDictOrDeref, id: 90, display: "LOAD_FROM_DICT_OR_DEREF", oparg: { name: i, typ: oparg::VarNum }},
+        { name: LoadFromDictOrGlobals, id: 91, display: "LOAD_FROM_DICT_OR_GLOBALS", oparg: { name: i, typ: NameIdx }},
+        { name: LoadGlobal, id: 92, display: "LOAD_GLOBAL", oparg: { name: namei, typ: NameIdx }},
+        { name: LoadName, id: 93, display: "LOAD_NAME", oparg: { name: namei, typ: NameIdx }},
+        { name: LoadSmallInt, id: 94, display: "LOAD_SMALL_INT", oparg: { name: i, typ: u32 }},
+        { name: LoadSpecial, id: 95, display: "LOAD_SPECIAL", oparg: { name: method, typ: SpecialMethod }},
+        { name: LoadSuperAttr, id: 96, display: "LOAD_SUPER_ATTR", oparg: { name: namei, typ: LoadSuperAttr }},
+        { name: MakeCell, id: 97, display: "MAKE_CELL", oparg: { name: i, typ: oparg::VarNum }},
+        { name: MapAdd, id: 98, display: "MAP_ADD", oparg: { name: i, typ: u32 }},
+        { name: MatchClass, id: 99, display: "MATCH_CLASS", oparg: { name: count, typ: u32 }},
+        { name: PopJumpIfFalse, id: 100, display: "POP_JUMP_IF_FALSE", oparg: { name: delta, typ: Label }},
+        { name: PopJumpIfNone, id: 101, display: "POP_JUMP_IF_NONE", oparg: { name: delta, typ: Label }},
+        { name: PopJumpIfNotNone, id: 102, display: "POP_JUMP_IF_NOT_NONE", oparg: { name: delta, typ: Label }},
+        { name: PopJumpIfTrue, id: 103, display: "POP_JUMP_IF_TRUE", oparg: { name: delta, typ: Label }},
+        { name: RaiseVarargs, id: 104, display: "RAISE_VARARGS", oparg: { name: argc, typ: RaiseKind }},
+        { name: Reraise, id: 105, display: "RERAISE", oparg: { name: depth, typ: u32 }},
+        { name: Send, id: 106, display: "SEND", oparg: { name: delta, typ: Label }},
+        { name: SetAdd, id: 107, display: "SET_ADD", oparg: { name: i, typ: u32 }},
+        { name: SetFunctionAttribute, id: 108, display: "SET_FUNCTION_ATTRIBUTE", oparg: { name: flag, typ: MakeFunctionFlag }},
+        { name: SetUpdate, id: 109, display: "SET_UPDATE", oparg: { name: i, typ: u32 }},
+        { name: StoreAttr, id: 110, display: "STORE_ATTR", oparg: { name: namei, typ: NameIdx }},
+        { name: StoreDeref, id: 111, display: "STORE_DEREF", oparg: { name: i, typ: oparg::VarNum }},
+        { name: StoreFast, id: 112, display: "STORE_FAST", oparg: { name: var_num, typ: oparg::VarNum }},
+        { name: StoreFastLoadFast, id: 113, display: "STORE_FAST_LOAD_FAST", oparg: { name: var_nums, typ: oparg::VarNums }},
+        { name: StoreFastStoreFast, id: 114, display: "STORE_FAST_STORE_FAST", oparg: { name: var_nums, typ: oparg::VarNums }},
+        { name: StoreGlobal, id: 115, display: "STORE_GLOBAL", oparg: { name: namei, typ: NameIdx }},
+        { name: StoreName, id: 116, display: "STORE_NAME", oparg: { name: namei, typ: NameIdx }},
+        { name: Swap, id: 117, display: "SWAP", oparg: { name: i, typ: u32 }},
+        { name: UnpackEx, id: 118, display: "UNPACK_EX", oparg: { name: counts, typ: UnpackExArgs }},
+        { name: UnpackSequence, id: 119, display: "UNPACK_SEQUENCE", oparg: { name: count, typ: u32 }},
+        { name: YieldValue, id: 120, display: "YIELD_VALUE", oparg: { name: arg, typ: u32 }},
+        { name: Resume, id: 128, display: "RESUME", oparg: { name: context, typ: oparg::ResumeContext }},
+        { name: BinaryOpAddFloat, id: 129, display: "BINARY_OP_ADD_FLOAT"},
+        { name: BinaryOpAddInt, id: 130, display: "BINARY_OP_ADD_INT"},
+        { name: BinaryOpAddUnicode, id: 131, display: "BINARY_OP_ADD_UNICODE"},
+        { name: BinaryOpExtend, id: 132, display: "BINARY_OP_EXTEND"},
+        { name: BinaryOpMultiplyFloat, id: 133, display: "BINARY_OP_MULTIPLY_FLOAT"},
+        { name: BinaryOpMultiplyInt, id: 134, display: "BINARY_OP_MULTIPLY_INT"},
+        { name: BinaryOpSubscrDict, id: 135, display: "BINARY_OP_SUBSCR_DICT"},
+        { name: BinaryOpSubscrGetitem, id: 136, display: "BINARY_OP_SUBSCR_GETITEM"},
+        { name: BinaryOpSubscrListInt, id: 137, display: "BINARY_OP_SUBSCR_LIST_INT"},
+        { name: BinaryOpSubscrListSlice, id: 138, display: "BINARY_OP_SUBSCR_LIST_SLICE"},
+        { name: BinaryOpSubscrStrInt, id: 139, display: "BINARY_OP_SUBSCR_STR_INT"},
+        { name: BinaryOpSubscrTupleInt, id: 140, display: "BINARY_OP_SUBSCR_TUPLE_INT"},
+        { name: BinaryOpSubtractFloat, id: 141, display: "BINARY_OP_SUBTRACT_FLOAT"},
+        { name: BinaryOpSubtractInt, id: 142, display: "BINARY_OP_SUBTRACT_INT"},
+        { name: CallAllocAndEnterInit, id: 143, display: "CALL_ALLOC_AND_ENTER_INIT"},
+        { name: CallBoundMethodExactArgs, id: 144, display: "CALL_BOUND_METHOD_EXACT_ARGS"},
+        { name: CallBoundMethodGeneral, id: 145, display: "CALL_BOUND_METHOD_GENERAL"},
+        { name: CallBuiltinClass, id: 146, display: "CALL_BUILTIN_CLASS"},
+        { name: CallBuiltinFast, id: 147, display: "CALL_BUILTIN_FAST"},
+        { name: CallBuiltinFastWithKeywords, id: 148, display: "CALL_BUILTIN_FAST_WITH_KEYWORDS"},
+        { name: CallBuiltinO, id: 149, display: "CALL_BUILTIN_O"},
+        { name: CallIsinstance, id: 150, display: "CALL_ISINSTANCE"},
+        { name: CallKwBoundMethod, id: 151, display: "CALL_KW_BOUND_METHOD"},
+        { name: CallKwNonPy, id: 152, display: "CALL_KW_NON_PY"},
+        { name: CallKwPy, id: 153, display: "CALL_KW_PY"},
+        { name: CallLen, id: 154, display: "CALL_LEN"},
+        { name: CallListAppend, id: 155, display: "CALL_LIST_APPEND"},
+        { name: CallMethodDescriptorFast, id: 156, display: "CALL_METHOD_DESCRIPTOR_FAST"},
+        { name: CallMethodDescriptorFastWithKeywords, id: 157, display: "CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS"},
+        { name: CallMethodDescriptorNoargs, id: 158, display: "CALL_METHOD_DESCRIPTOR_NOARGS"},
+        { name: CallMethodDescriptorO, id: 159, display: "CALL_METHOD_DESCRIPTOR_O"},
+        { name: CallNonPyGeneral, id: 160, display: "CALL_NON_PY_GENERAL"},
+        { name: CallPyExactArgs, id: 161, display: "CALL_PY_EXACT_ARGS"},
+        { name: CallPyGeneral, id: 162, display: "CALL_PY_GENERAL"},
+        { name: CallStr1, id: 163, display: "CALL_STR_1"},
+        { name: CallTuple1, id: 164, display: "CALL_TUPLE_1"},
+        { name: CallType1, id: 165, display: "CALL_TYPE_1"},
+        { name: CompareOpFloat, id: 166, display: "COMPARE_OP_FLOAT"},
+        { name: CompareOpInt, id: 167, display: "COMPARE_OP_INT"},
+        { name: CompareOpStr, id: 168, display: "COMPARE_OP_STR"},
+        { name: ContainsOpDict, id: 169, display: "CONTAINS_OP_DICT"},
+        { name: ContainsOpSet, id: 170, display: "CONTAINS_OP_SET"},
+        { name: ForIterGen, id: 171, display: "FOR_ITER_GEN"},
+        { name: ForIterList, id: 172, display: "FOR_ITER_LIST"},
+        { name: ForIterRange, id: 173, display: "FOR_ITER_RANGE"},
+        { name: ForIterTuple, id: 174, display: "FOR_ITER_TUPLE"},
+        { name: JumpBackwardJit, id: 175, display: "JUMP_BACKWARD_JIT"},
+        { name: JumpBackwardNoJit, id: 176, display: "JUMP_BACKWARD_NO_JIT"},
+        { name: LoadAttrClass, id: 177, display: "LOAD_ATTR_CLASS"},
+        { name: LoadAttrClassWithMetaclassCheck, id: 178, display: "LOAD_ATTR_CLASS_WITH_METACLASS_CHECK"},
+        { name: LoadAttrGetattributeOverridden, id: 179, display: "LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN"},
+        { name: LoadAttrInstanceValue, id: 180, display: "LOAD_ATTR_INSTANCE_VALUE"},
+        { name: LoadAttrMethodLazyDict, id: 181, display: "LOAD_ATTR_METHOD_LAZY_DICT"},
+        { name: LoadAttrMethodNoDict, id: 182, display: "LOAD_ATTR_METHOD_NO_DICT"},
+        { name: LoadAttrMethodWithValues, id: 183, display: "LOAD_ATTR_METHOD_WITH_VALUES"},
+        { name: LoadAttrModule, id: 184, display: "LOAD_ATTR_MODULE"},
+        { name: LoadAttrNondescriptorNoDict, id: 185, display: "LOAD_ATTR_NONDESCRIPTOR_NO_DICT"},
+        { name: LoadAttrNondescriptorWithValues, id: 186, display: "LOAD_ATTR_NONDESCRIPTOR_WITH_VALUES"},
+        { name: LoadAttrProperty, id: 187, display: "LOAD_ATTR_PROPERTY"},
+        { name: LoadAttrSlot, id: 188, display: "LOAD_ATTR_SLOT"},
+        { name: LoadAttrWithHint, id: 189, display: "LOAD_ATTR_WITH_HINT"},
+        { name: LoadConstImmortal, id: 190, display: "LOAD_CONST_IMMORTAL"},
+        { name: LoadConstMortal, id: 191, display: "LOAD_CONST_MORTAL"},
+        { name: LoadGlobalBuiltin, id: 192, display: "LOAD_GLOBAL_BUILTIN"},
+        { name: LoadGlobalModule, id: 193, display: "LOAD_GLOBAL_MODULE"},
+        { name: LoadSuperAttrAttr, id: 194, display: "LOAD_SUPER_ATTR_ATTR"},
+        { name: LoadSuperAttrMethod, id: 195, display: "LOAD_SUPER_ATTR_METHOD"},
+        { name: ResumeCheck, id: 196, display: "RESUME_CHECK"},
+        { name: SendGen, id: 197, display: "SEND_GEN"},
+        { name: StoreAttrInstanceValue, id: 198, display: "STORE_ATTR_INSTANCE_VALUE"},
+        { name: StoreAttrSlot, id: 199, display: "STORE_ATTR_SLOT"},
+        { name: StoreAttrWithHint, id: 200, display: "STORE_ATTR_WITH_HINT"},
+        { name: StoreSubscrDict, id: 201, display: "STORE_SUBSCR_DICT"},
+        { name: StoreSubscrListInt, id: 202, display: "STORE_SUBSCR_LIST_INT"},
+        { name: ToBoolAlwaysTrue, id: 203, display: "TO_BOOL_ALWAYS_TRUE"},
+        { name: ToBoolBool, id: 204, display: "TO_BOOL_BOOL"},
+        { name: ToBoolInt, id: 205, display: "TO_BOOL_INT"},
+        { name: ToBoolList, id: 206, display: "TO_BOOL_LIST"},
+        { name: ToBoolNone, id: 207, display: "TO_BOOL_NONE"},
+        { name: ToBoolStr, id: 208, display: "TO_BOOL_STR"},
+        { name: UnpackSequenceList, id: 209, display: "UNPACK_SEQUENCE_LIST"},
+        { name: UnpackSequenceTuple, id: 210, display: "UNPACK_SEQUENCE_TUPLE"},
+        { name: UnpackSequenceTwoTuple, id: 211, display: "UNPACK_SEQUENCE_TWO_TUPLE"},
+        { name: InstrumentedEndFor, id: 234, display: "INSTRUMENTED_END_FOR"},
+        { name: InstrumentedPopIter, id: 235, display: "INSTRUMENTED_POP_ITER"},
+        { name: InstrumentedEndSend, id: 236, display: "INSTRUMENTED_END_SEND"},
+        { name: InstrumentedForIter, id: 237, display: "INSTRUMENTED_FOR_ITER"},
+        { name: InstrumentedInstruction, id: 238, display: "INSTRUMENTED_INSTRUCTION"},
+        { name: InstrumentedJumpForward, id: 239, display: "INSTRUMENTED_JUMP_FORWARD"},
+        { name: InstrumentedNotTaken, id: 240, display: "INSTRUMENTED_NOT_TAKEN"},
+        { name: InstrumentedPopJumpIfTrue, id: 241, display: "INSTRUMENTED_POP_JUMP_IF_TRUE"},
+        { name: InstrumentedPopJumpIfFalse, id: 242, display: "INSTRUMENTED_POP_JUMP_IF_FALSE"},
+        { name: InstrumentedPopJumpIfNone, id: 243, display: "INSTRUMENTED_POP_JUMP_IF_NONE"},
+        { name: InstrumentedPopJumpIfNotNone, id: 244, display: "INSTRUMENTED_POP_JUMP_IF_NOT_NONE"},
+        { name: InstrumentedResume, id: 245, display: "INSTRUMENTED_RESUME"},
+        { name: InstrumentedReturnValue, id: 246, display: "INSTRUMENTED_RETURN_VALUE"},
+        { name: InstrumentedYieldValue, id: 247, display: "INSTRUMENTED_YIELD_VALUE"},
+        { name: InstrumentedEndAsyncFor, id: 248, display: "INSTRUMENTED_END_ASYNC_FOR"},
+        { name: InstrumentedLoadSuperAttr, id: 249, display: "INSTRUMENTED_LOAD_SUPER_ATTR"},
+        { name: InstrumentedCall, id: 250, display: "INSTRUMENTED_CALL"},
+        { name: InstrumentedCallKw, id: 251, display: "INSTRUMENTED_CALL_KW"},
+        { name: InstrumentedCallFunctionEx, id: 252, display: "INSTRUMENTED_CALL_FUNCTION_EX"},
+        { name: InstrumentedJumpBackward, id: 253, display: "INSTRUMENTED_JUMP_BACKWARD"},
+        { name: InstrumentedLine, id: 254, display: "INSTRUMENTED_LINE"},
+        { name: EnterExecutor, id: 255, display: "ENTER_EXECUTOR"},
+    ]
+);
 
 impl Instruction {
     /// Returns `true` if this is any instrumented opcode
