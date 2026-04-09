@@ -2,7 +2,7 @@ use crate::{PyObject, with_vm};
 use core::ffi::c_ulong;
 use core::ffi::{c_int, c_uint};
 use core::mem::MaybeUninit;
-use rustpython_vm::builtins::PyType;
+use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::{AsObject, Context, Py};
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
@@ -84,6 +84,20 @@ pub extern "C" fn PyType_GetName(ptr: *const Py<PyType>) -> *mut PyObject {
 pub extern "C" fn PyType_GetQualName(ptr: *const Py<PyType>) -> *mut PyObject {
     let ty = unsafe { &*ptr };
     with_vm(move |vm| ty.__qualname__(vm))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const Py<PyType>) -> *mut PyObject {
+    let ty = unsafe { &*ptr };
+    with_vm(move |vm| {
+        let module = ty.__module__(vm).downcast::<PyStr>().unwrap();
+        let qualname = ty.__qualname__(vm).downcast::<PyStr>().unwrap();
+        let fully_qualified_name = format!(
+            "{}.{}",
+            module.to_string_lossy(),
+            qualname.to_string_lossy()
+        );
+        vm.ctx.new_str(fully_qualified_name)
+    })
 }
 
 #[unsafe(no_mangle)]

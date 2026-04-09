@@ -8,6 +8,9 @@ use rustpython_vm::builtins::{PyTuple, PyType};
 pub static mut PyExc_BaseException: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
+pub static mut PyExc_Exception: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
 pub static mut PyExc_SystemError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
@@ -128,9 +131,29 @@ pub extern "C" fn PyException_GetTraceback(_exc: *mut PyObject) -> *mut PyObject
     core::ptr::null_mut()
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_GivenExceptionMatches(given: *mut PyObject, exc: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let given = unsafe { &*given };
+        let exc = unsafe { &*exc };
+
+        if let Some(exc_type) = exc.downcast_ref::<PyType>() {
+            given.is_subclass(exc_type.as_ref(), vm)
+        } else if let Some(exc_tuple) = exc.downcast_ref::<PyTuple>() {
+            Ok(exc_tuple
+                .iter()
+                .any(|ty| given.is_subclass(ty, vm).unwrap_or_default()))
+        } else {
+            Ok(false)
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use pyo3::exceptions::PyTypeError;
+    use pyo3::PyTypeInfo;
+    use pyo3::create_exception;
+    use pyo3::exceptions::{PyException, PyTypeError};
     use pyo3::prelude::*;
 
     #[test]
@@ -138,6 +161,21 @@ mod tests {
         Python::attach(|py| {
             PyTypeError::new_err("This is a type error").restore(py);
             assert!(PyErr::take(py).is_some());
+        })
+    }
+
+    #[test]
+    fn test_new_exception_type() {
+        create_exception!(my_module, MyError, PyException, "Some description.");
+
+        Python::attach(|py| {
+            let exc = MyError::new_err("This is a new exception");
+            assert!(exc.is_instance_of::<MyError>(py));
+            let exc_type = MyError::type_object(py);
+            assert_eq!(
+                exc_type.fully_qualified_name().unwrap(),
+                "my_module.MyError"
+            );
         })
     }
 }
