@@ -1,7 +1,7 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use rustpython_vm::builtins::PyDict;
 use core::ffi::c_int;
+use rustpython_vm::builtins::PyDict;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyDict_New() -> *mut PyObject {

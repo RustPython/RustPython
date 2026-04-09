@@ -2,9 +2,9 @@ use crate::{PyObject, with_vm};
 use core::ffi::c_ulong;
 use core::ffi::{c_int, c_uint};
 use core::mem::MaybeUninit;
+use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::{AsObject, Context, Py};
-use core::ptr::NonNull;
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
 const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
