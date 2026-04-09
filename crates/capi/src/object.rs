@@ -140,7 +140,7 @@ pub extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
-    use pyo3::types::{PyBool, PyString};
+    use pyo3::types::{PyBool, PyNone, PyString};
 
     #[test]
     fn test_is_truthy() {
@@ -169,6 +169,15 @@ mod tests {
         Python::attach(|py| {
             let string = PyString::new(py, "Hello, World!");
             assert_eq!(string.get_type().name().unwrap().to_str().unwrap(), "str");
+        })
+    }
+
+    #[test]
+    #[ignore = "Instance checking on static type pointers is yet supported"]
+    fn test_static_type_pointers() {
+        Python::attach(|py| {
+            assert!(py.None().bind(py).is_instance_of::<PyNone>());
+            assert!(PyBool::new(py, true).is_instance_of::<PyBool>());
         })
     }
 }
