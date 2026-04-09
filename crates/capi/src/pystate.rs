@@ -1,4 +1,5 @@
 use crate::pylifecycle::request_vm_from_interpreter;
+use crate::util::FfiResult;
 use core::ffi::c_int;
 use core::ptr;
 use rustpython_vm::VirtualMachine;
@@ -9,13 +10,13 @@ thread_local! {
     static VM: RefCell<Option<ThreadedVirtualMachine>> = const { RefCell::new(None) };
 }
 
-pub fn with_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
+pub(crate) fn with_vm<R: FfiResult>(f: impl FnOnce(&VirtualMachine) -> R) -> R::Output {
     VM.with(|vm_ref| {
         let vm = vm_ref.borrow();
         let vm = vm
             .as_ref()
             .expect("Thread was not attached to an interpreter");
-        vm.run(f)
+        vm.run(|vm| f(vm).into_output(vm))
     })
 }
 

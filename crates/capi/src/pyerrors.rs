@@ -1,8 +1,6 @@
-use crate::PyObject;
-use crate::pystate::with_vm;
+use crate::{PyObject, with_vm};
 use core::ffi::{c_char, c_int};
 use rustpython_vm::builtins::{PyTuple, PyType};
-use rustpython_vm::convert::ToPyObject;
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
 
@@ -20,12 +18,7 @@ pub static mut PyExc_OverflowError: MaybeUninit<*mut PyObject> = MaybeUninit::un
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
-    with_vm(|vm| {
-        vm.take_raised_exception().map_or_else(
-            || std::ptr::null_mut(),
-            |exc| exc.to_pyobject(vm).into_raw().as_ptr(),
-        )
-    })
+    with_vm(|vm| vm.take_raised_exception())
 }
 
 #[unsafe(no_mangle)]
@@ -115,11 +108,7 @@ pub extern "C" fn PyErr_NewException(
             "PyErr_NewException with non-null dict is not supported yet"
         );
 
-        vm.ctx
-            .new_exception_type(module, name, bases)
-            .to_pyobject(vm)
-            .into_raw()
-            .as_ptr()
+        vm.ctx.new_exception_type(module, name, bases)
     })
 }
 

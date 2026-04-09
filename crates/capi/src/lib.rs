@@ -1,3 +1,4 @@
+use crate::pystate::with_vm;
 pub use rustpython_vm::PyObject;
 
 extern crate alloc;
@@ -14,6 +15,7 @@ pub mod refcount;
 pub mod traceback;
 pub mod tupleobject;
 pub mod unicodeobject;
+pub(crate) mod util;
 
 #[inline]
 pub(crate) fn log_stub(name: &str) {

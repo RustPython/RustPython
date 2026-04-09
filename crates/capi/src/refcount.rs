@@ -1,5 +1,4 @@
-use crate::PyObject;
-use crate::pystate::with_vm;
+use crate::{PyObject, with_vm};
 use rustpython_vm::PyObjectRef;
 use std::ptr::NonNull;
 
@@ -31,7 +30,7 @@ pub extern "C" fn _Py_IncRef(op: *mut PyObject) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_REFCNT(op: *mut PyObject) -> isize {
-    with_vm(|vm| unsafe { &*op }.strong_count() as _)
+    with_vm(|vm| unsafe { &*op }.strong_count() as isize)
 }
 
 #[cfg(test)]

@@ -1,10 +1,8 @@
-use crate::PyObject;
-use crate::pystate::with_vm;
+use crate::{PyObject, with_vm};
 use core::ffi::{c_char, c_int};
 use core::ptr;
 use core::slice;
 use core::str;
-use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyStr;
 
 #[unsafe(no_mangle)]
@@ -21,23 +19,18 @@ pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *
         str::from_utf8(bytes).expect("PyUnicode_FromStringAndSize got non-UTF8 data")
     };
 
-    with_vm(|vm| {
-        let obj: PyObjectRef = vm.ctx.new_str(text).into();
-        obj.into_raw().as_ptr()
-    })
+    with_vm(|vm| vm.ctx.new_str(text))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_AsUTF8AndSize(obj: *mut PyObject, size: *mut isize) -> *const c_char {
-    with_vm(|_vm| {
+    with_vm(|vm| {
         let obj = unsafe {
             obj.as_ref()
                 .expect("PyUnicode_AsUTF8AndSize called with null pointer")
         };
 
-        let unicode = obj
-            .downcast_ref::<PyStr>()
-            .expect("PyUnicode_AsUTF8AndSize called with non-unicode object");
+        let unicode = obj.try_downcast_ref::<PyStr>(vm)?;
 
         let str = unicode
             .to_str()
@@ -46,7 +39,7 @@ pub extern "C" fn PyUnicode_AsUTF8AndSize(obj: *mut PyObject, size: *mut isize) 
         if !size.is_null() {
             unsafe { *size = str.len() as isize };
         }
-        str.as_ptr() as _
+        Ok(str.as_ptr() as *const c_char)
     })
 }
 
@@ -71,16 +64,17 @@ pub extern "C" fn PyUnicode_EqualToUTF8AndSize(
     string: *const c_char,
     size: isize,
 ) -> c_int {
-    with_vm(|_vm| {
-        let unicode = unsafe { (&*unicode).downcast_unchecked_ref::<PyStr>() };
-        unsafe {
+    with_vm(|vm| {
+        let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
+        let result = unsafe {
             let slice = slice::from_raw_parts(string as _, size as _);
             str::from_utf8(slice)
         }
         .ok()
         .and_then(|other| Some(unicode.to_str()? == other))
-        .unwrap_or(false)
-        .into()
+        .unwrap_or(false);
+
+        Ok(result)
     })
 }
 

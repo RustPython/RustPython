@@ -1,6 +1,6 @@
-use crate::pystate::with_vm;
-use rustpython_vm::PyObject;
+use crate::with_vm;
 use rustpython_vm::builtins::{PyStr, PyTuple};
+use rustpython_vm::{PyObject, PyObjectRef, PyResult};
 use std::slice;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
@@ -9,20 +9,13 @@ const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 
 pub extern "C" fn PyObject_CallNoArgs(callable: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         if callable.is_null() {
-            vm.push_exception(Some(vm.new_system_error(
-                "PyObject_CallNoArgs called with null callable".to_owned(),
-            )));
-            return std::ptr::null_mut();
+            return Err(
+                vm.new_system_error("PyObject_CallNoArgs called with null callable".to_owned())
+            );
         }
 
         let callable = unsafe { &*callable };
-        callable.call((), vm).map_or_else(
-            |err| {
-                vm.push_exception(Some(err));
-                std::ptr::null_mut()
-            },
-            |result| result.into_raw().as_ptr(),
-        )
+        callable.call((), vm)
     })
 }
 
@@ -33,7 +26,7 @@ pub extern "C" fn PyObject_VectorcallMethod(
     nargsf: usize,
     kwnames: *mut PyObject,
 ) -> *mut PyObject {
-    with_vm(|vm| {
+    with_vm::<PyResult>(|vm| {
         let args_len = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
         let num_positional_args = args_len - 1;
 
@@ -41,38 +34,22 @@ pub extern "C" fn PyObject_VectorcallMethod(
             .split_first()
             .expect("PyObject_VectorcallMethod should always have at least one argument");
 
-        let method_name = unsafe { (&*name).downcast_unchecked_ref::<PyStr>() };
-        let callable = match unsafe {
-            (&**receiver)
-                .get_attr(method_name, vm)
-        } {
-            Ok(obj) => obj,
-            Err(err) => {
-                vm.push_exception(Some(err));
-                return std::ptr::null_mut()
-            },
-        };
+        let method_name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
+        let callable = unsafe { (&**receiver).get_attr(method_name, vm)? };
 
         let args = args
             .iter()
             .map(|arg| unsafe { &**arg }.to_owned())
             .collect::<Vec<_>>();
 
-        let kwnames = unsafe {
+        let kwnames: Option<&[PyObjectRef]> = unsafe {
             kwnames
                 .as_ref()
-                .map(|tuple| &***tuple.downcast_unchecked_ref::<PyTuple>())
+                .map(|tuple| Ok(&***tuple.try_downcast_ref::<PyTuple>(vm)?))
+                .transpose()?
         };
 
-        callable
-            .vectorcall(args, num_positional_args, kwnames, vm)
-            .map_or_else(
-                |err| {
-                    vm.push_exception(Some(err));
-                    std::ptr::null_mut()
-                },
-                |obj| obj.into_raw().as_ptr(),
-            )
+        callable.vectorcall(args, num_positional_args, kwnames, vm)
     })
 }
 
