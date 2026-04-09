@@ -33,7 +33,7 @@ jobs:
       - name: Get target CPython version
         id: cpython-version
         run: |
-          version=$(cat .python-version)
+          version=$(cat rustpython/.python-version)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Clone CPython
