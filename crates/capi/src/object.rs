@@ -4,6 +4,7 @@ use core::ffi::{c_int, c_uint};
 use core::mem::MaybeUninit;
 use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::{AsObject, Context, Py};
+use core::ptr::NonNull;
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
 const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
@@ -107,15 +108,25 @@ pub extern "C" fn PyObject_GetAttr(_obj: *mut PyObject, _name: *mut PyObject) ->
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_Repr(_obj: *mut PyObject) -> *mut PyObject {
-    crate::log_stub("PyObject_Repr");
-    core::ptr::null_mut()
+pub extern "C" fn PyObject_Repr(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let Some(obj) = NonNull::new(obj) else {
+            return Ok(vm.ctx.new_str("<NULL>"));
+        };
+
+        unsafe { obj.as_ref() }.repr(vm)
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_Str(_obj: *mut PyObject) -> *mut PyObject {
-    crate::log_stub("PyObject_Str");
-    core::ptr::null_mut()
+pub extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let Some(obj) = NonNull::new(obj) else {
+            return Ok(vm.ctx.new_str("<NULL>"));
+        };
+
+        unsafe { obj.as_ref() }.str(vm)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -145,7 +156,7 @@ pub extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
-    use pyo3::types::{PyBool, PyNone, PyString};
+    use pyo3::types::{PyBool, PyInt, PyNone, PyString};
 
     #[test]
     fn test_is_truthy() {
@@ -183,6 +194,22 @@ mod tests {
         Python::attach(|py| {
             assert!(py.None().bind(py).is_instance_of::<PyNone>());
             assert!(PyBool::new(py, true).is_instance_of::<PyBool>());
+        })
+    }
+
+    #[test]
+    fn test_repr() {
+        Python::attach(|py| {
+            let module = py.import("sys").unwrap();
+            assert_eq!(module.repr().unwrap(), "<module 'sys' (built-in)>");
+        })
+    }
+
+    #[test]
+    fn test_obj_to_str() {
+        Python::attach(|py| {
+            let number = PyInt::new(py, 42);
+            assert_eq!(number.str().unwrap(), "42");
         })
     }
 }

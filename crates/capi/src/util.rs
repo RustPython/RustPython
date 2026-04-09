@@ -80,6 +80,17 @@ impl FfiResult for PyResult {
     }
 }
 
+impl<T> FfiResult for PyResult<PyRef<T>>
+where
+    PyRef<T>: Into<PyObjectRef>,
+{
+    type Output = *mut PyObject;
+
+    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
+        self.map(Into::into).into_output(vm)
+    }
+}
+
 impl FfiResult for PyResult<c_long> {
     type Output = c_long;
 
