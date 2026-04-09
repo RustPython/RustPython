@@ -10,6 +10,9 @@ use std::mem::MaybeUninit;
 pub static mut PyExc_BaseException: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
+pub static mut PyExc_SystemError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
 pub static mut PyExc_TypeError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
