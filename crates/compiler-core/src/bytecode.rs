@@ -21,7 +21,8 @@ use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
     instruction::{
-        AnyInstruction, Arg, Instruction, InstructionMetadata, PseudoInstruction, StackEffect,
+        AnyInstruction, Arg, Instruction, InstructionMetadata, Opcode, PseudoInstruction,
+        PseudoOpcode, StackEffect,
     },
     oparg::{
         BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,

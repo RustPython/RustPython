@@ -80,9 +80,10 @@ macro_rules! define_opcodes {
         }
 
         #[derive(Clone, Copy, Debug)]
+        #[repr($typ)]
         pub enum $instr_name {
             $(
-                $op_name $({ $arg_name: Arg<$arg_type> })?
+                $op_name $({ $arg_name: Arg<$arg_type> })? = $op_id
             ),*
         }
 
@@ -1664,3 +1665,8 @@ impl<T: OpArgType> fmt::Debug for Arg<T> {
         write!(f, "Arg<{}>", core::any::type_name::<T>())
     }
 }
+
+// TODO: Can probably remove these asserts and remove the `repr($typ)` from the macro. but this
+// breaks the VM:/
+const _: () = assert!(core::mem::size_of::<Instruction>() == 1);
+const _: () = assert!(core::mem::size_of::<PseudoInstruction>() == 2);
