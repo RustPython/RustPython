@@ -1,9 +1,9 @@
 use crate::{PyObject, with_vm};
 use core::ffi::c_ulong;
+use core::ffi::{c_int, c_uint};
+use core::mem::MaybeUninit;
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::{AsObject, Context, Py};
-use std::ffi::{c_int, c_uint};
-use std::mem::MaybeUninit;
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
 const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
@@ -89,19 +89,19 @@ pub extern "C" fn PyType_GetQualName(ptr: *const Py<PyType>) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyObject_GetAttr(_obj: *mut PyObject, _name: *mut PyObject) -> *mut PyObject {
     crate::log_stub("PyObject_GetAttr");
-    std::ptr::null_mut()
+    core::ptr::null_mut()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyObject_Repr(_obj: *mut PyObject) -> *mut PyObject {
     crate::log_stub("PyObject_Repr");
-    std::ptr::null_mut()
+    core::ptr::null_mut()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyObject_Str(_obj: *mut PyObject) -> *mut PyObject {
     crate::log_stub("PyObject_Str");
-    std::ptr::null_mut()
+    core::ptr::null_mut()
 }
 
 #[unsafe(no_mangle)]
