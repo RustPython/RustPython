@@ -1,8 +1,11 @@
 use crate::{PyObject, with_vm};
+use core::convert::Infallible;
 use core::ffi::CStr;
 use core::ffi::{c_char, c_int};
 use core::mem::MaybeUninit;
+use rustpython_vm::PyResult;
 use rustpython_vm::builtins::{PyTuple, PyType};
+use rustpython_vm::convert::IntoObject;
 
 #[unsafe(no_mangle)]
 pub static mut PyExc_BaseException: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
@@ -26,31 +29,40 @@ pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
-    with_vm(|vm| {
+    with_vm::<PyResult<Infallible>>(|_vm| {
         let exception = unsafe { (&*exc).to_owned().downcast_unchecked() };
-        vm.push_exception(Some(exception));
+        Err(exception)
     });
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject) {
-    with_vm(|vm| {
+    with_vm::<PyResult<Infallible>>(|vm| {
         let exc_type = unsafe { (&*exception).to_owned() };
         let exc_val = unsafe { (&*value).to_owned() };
 
-        let normalized = vm
-            .normalize_exception(exc_type, exc_val, vm.ctx.none())
-            .unwrap_or_else(|_| {
-                vm.new_type_error("exceptions must derive from BaseException".to_owned())
-            });
+        let normalized = vm.normalize_exception(exc_type, exc_val, vm.ctx.none())?;
 
-        vm.push_exception(Some(normalized));
+        Err(normalized)
     });
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyErr_SetString(_exception: *mut PyObject, _message: *const c_char) {
-    crate::log_stub("PyErr_SetString");
+pub extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_char) {
+    with_vm::<PyResult<Infallible>>(|vm| {
+        let exc_type = unsafe { &*exception }.try_downcast_ref::<PyType>(vm)?;
+
+        let message = unsafe { CStr::from_ptr(message) }
+            .to_str()
+            .expect("Exception message is not valid UTF-8");
+
+        let exc = vm.invoke_exception(
+            exc_type.to_owned(),
+            vec![vm.ctx.new_str(message).into_object()],
+        )?;
+
+        Err(exc)
+    });
 }
 
 #[unsafe(no_mangle)]
