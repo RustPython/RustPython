@@ -18,20 +18,11 @@ import re
 import sys
 import types
 
-# Non-semantic filler instructions to skip
-SKIP_OPS = frozenset({"CACHE", "PRECALL", "EXTENDED_ARG"})
+# Raw bytecode parity mode: do not skip any instructions.
+SKIP_OPS = frozenset()
 
-# Opname normalization: map variant instructions to their base form.
-# These variants differ only in optimization hints, not semantics.
-_OPNAME_NORMALIZE = {
-    "LOAD_FAST_BORROW": "LOAD_FAST",
-    "LOAD_FAST_BORROW_LOAD_FAST_BORROW": "LOAD_FAST_LOAD_FAST",
-    "LOAD_FAST_CHECK": "LOAD_FAST",
-    "JUMP_BACKWARD_NO_INTERRUPT": "JUMP_BACKWARD",
-    "POP_ITER": "POP_TOP",
-    # Superinstruction normalization: these get decomposed in _extract_instructions
-    "STORE_FAST_LOAD_FAST_BORROW": "STORE_FAST_LOAD_FAST",
-}
+_OPNAME_NORMALIZE = {}
+_SUPER_DECOMPOSE = {}
 
 # Jump instruction names (fallback when hasjrel/hasjabs is incomplete)
 _JUMP_OPNAMES = frozenset(
@@ -188,13 +179,18 @@ def _extract_instructions(code):
     except Exception as e:
         return [["ERROR", str(e)]]
 
-    # Build filtered list and offset-to-index mapping
+    # Build filtered list and offset-to-index mapping for the normalized stream.
+    # This must use post-decomposition indices; otherwise a superinstruction that
+    # expands into multiple logical ops shifts later jump targets by 1.
     filtered = []
     offset_to_idx = {}
+    normalized_idx = 0
     for inst in raw:
         if inst.opname in SKIP_OPS:
             continue
-        offset_to_idx[inst.offset] = len(filtered)
+        opname = _OPNAME_NORMALIZE.get(inst.opname, inst.opname)
+        offset_to_idx[inst.offset] = normalized_idx
+        normalized_idx += len(_SUPER_DECOMPOSE.get(opname, (opname,)))
         filtered.append(inst)
 
     # Map offsets that land on CACHE slots to the next real instruction
@@ -204,14 +200,6 @@ def _extract_instructions(code):
                 if finst.offset >= inst.offset:
                     offset_to_idx[inst.offset] = fi
                     break
-
-    # Superinstruction decomposition: split into constituent parts
-    # so we compare individual operations regardless of combining.
-    _SUPER_DECOMPOSE = {
-        "STORE_FAST_LOAD_FAST": ("STORE_FAST", "LOAD_FAST"),
-        "STORE_FAST_STORE_FAST": ("STORE_FAST", "STORE_FAST"),
-        "LOAD_FAST_LOAD_FAST": ("LOAD_FAST", "LOAD_FAST"),
-    }
 
     result = []
     for inst in filtered:
