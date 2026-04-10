@@ -2,6 +2,7 @@ use core::convert::Infallible;
 use core::ffi::c_long;
 use core::ffi::{c_char, c_int};
 use rustpython_vm::{PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
+use std::ffi::c_double;
 
 pub(crate) trait FfiResult {
     type Output;
@@ -143,6 +144,17 @@ impl FfiResult for PyResult<c_int> {
         self.unwrap_or_else(|err| {
             vm.push_exception(Some(err));
             -1
+        })
+    }
+}
+
+impl FfiResult for PyResult<c_double> {
+    type Output = c_double;
+
+    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
+        self.unwrap_or_else(|err| {
+            vm.push_exception(Some(err));
+            -1.0
         })
     }
 }
