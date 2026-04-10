@@ -8,6 +8,7 @@ pub(crate) mod bytesobject;
 pub(crate) mod ceval;
 pub(crate) mod dictobject;
 pub(crate) mod import;
+pub(crate) mod listobject;
 pub(crate) mod longobject;
 pub(crate) mod object;
 pub(crate) mod pyerrors;

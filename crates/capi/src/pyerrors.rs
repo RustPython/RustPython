@@ -23,6 +23,9 @@ pub static mut PyExc_TypeError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit
 pub static mut PyExc_OverflowError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
+pub static mut PyExc_IndexError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
     with_vm(|vm| vm.take_raised_exception())
 }
