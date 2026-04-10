@@ -34,6 +34,9 @@ pub static mut PyBool_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::unin
 pub static mut PyDict_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
+pub static mut PyComplex_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const Py<PyType> {
     // SAFETY: The caller must guarantee that `op` is a valid pointer to a `PyObject`.
     unsafe { (*op).class() }
@@ -89,6 +92,7 @@ pub extern "C" fn PyType_GetQualName(ptr: *const Py<PyType>) -> *mut PyObject {
     let ty = unsafe { &*ptr };
     with_vm(move |vm| ty.__qualname__(vm))
 }
+
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const Py<PyType>) -> *mut PyObject {
     let ty = unsafe { &*ptr };
@@ -101,6 +105,15 @@ pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const Py<PyType>) -> *mut P
             qualname.to_string_lossy()
         );
         vm.ctx.new_str(fully_qualified_name)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyType_IsSubtype(a: *const Py<PyType>, b: *const Py<PyType>) -> c_int {
+    with_vm(move |_vm| {
+        let a = unsafe { &*a };
+        let b = unsafe { &*b };
+        Ok(a.is_subtype(b))
     })
 }
 

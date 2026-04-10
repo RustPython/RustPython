@@ -1,6 +1,7 @@
 use crate::log_stub;
 use crate::object::{
-    PyBool_Type, PyDict_Type, PyLong_Type, PyTuple_Type, PyType_Type, PyUnicode_Type,
+    PyBool_Type, PyComplex_Type, PyDict_Type, PyLong_Type, PyTuple_Type, PyType_Type,
+    PyUnicode_Type,
 };
 use crate::pyerrors::{
     PyExc_BaseException, PyExc_Exception, PyExc_IndexError, PyExc_OverflowError, PyExc_SystemError,
@@ -47,6 +48,7 @@ pub(crate) fn init_static_type_pointers() {
         PyUnicode_Type.write(types.str_type);
         PyBool_Type.write(types.bool_type);
         PyDict_Type.write(types.dict_type);
+        PyComplex_Type.write(types.complex_type);
 
         let exc = &context.exceptions;
         PyExc_BaseException.write(exc.base_exception_type.as_object().as_raw().cast_mut());
