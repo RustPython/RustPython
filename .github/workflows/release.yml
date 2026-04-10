@@ -16,11 +16,15 @@ env:
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
 
+permissions: {}
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -84,6 +88,8 @@ jobs:
     runs-on: ubuntu-latest
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -147,6 +153,8 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     needs: [build, build-wasm]
+    permissions:
+      contents: write # for creating a release
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -187,7 +195,7 @@ jobs:
               $PRERELEASE_ARG \
               bin/rustpython-release-*
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           tag: ${{ github.ref_name }}
           run: ${{ github.run_number }}
           PRE_RELEASE_INPUT: ${{ github.event.inputs.pre-release }}
