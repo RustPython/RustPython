@@ -1,3 +1,4 @@
+use core::convert::Infallible;
 use core::ffi::c_long;
 use core::ffi::{c_char, c_int};
 use rustpython_vm::{PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
@@ -162,5 +163,15 @@ impl FfiResult for PyResult<*const c_char> {
             vm.push_exception(Some(err));
             core::ptr::null_mut()
         })
+    }
+}
+
+impl FfiResult for PyResult<Infallible> {
+    type Output = ();
+
+    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
+        match self {
+            Err(err) => vm.push_exception(Some(err)),
+        }
     }
 }
