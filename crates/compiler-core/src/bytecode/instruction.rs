@@ -170,20 +170,50 @@ define_opcodes!(
         { name: UnaryNot, id: 42, display: "UNARY_NOT"},
         { name: WithExceptStart, id: 43, display: "WITH_EXCEPT_START"},
         { name: BinaryOp, id: 44, display: "BINARY_OP", oparg: { name: op, typ: BinaryOperator }},
-        { name: BuildInterpolation, id: 45, display: "BUILD_INTERPOLATION", oparg: { name: format, typ: u32 }},
+        {
+            name: BuildInterpolation,
+            id: 45,
+            display: "BUILD_INTERPOLATION",
+            oparg: { name: format, typ: u32 }
+        },
         { name: BuildList, id: 46, display: "BUILD_LIST", oparg: { name: count, typ: u32 }},
         { name: BuildMap, id: 47, display: "BUILD_MAP", oparg: { name: count, typ: u32 }},
         { name: BuildSet, id: 48, display: "BUILD_SET", oparg: { name: count, typ: u32 }},
-        { name: BuildSlice, id: 49, display: "BUILD_SLICE", oparg: { name: argc, typ: BuildSliceArgCount }},
+        {
+            name: BuildSlice,
+            id: 49,
+            display: "BUILD_SLICE",
+            oparg: { name: argc, typ: BuildSliceArgCount }
+        },
         { name: BuildString, id: 50, display: "BUILD_STRING", oparg: { name: count, typ: u32 }},
         { name: BuildTuple, id: 51, display: "BUILD_TUPLE", oparg: { name: count, typ: u32 }},
         { name: Call, id: 52, display: "CALL", oparg: { name: argc, typ: u32 }},
-        { name: CallIntrinsic1, id: 53, display: "CALL_INTRINSIC_1", oparg: { name: func, typ: IntrinsicFunction1 }},
-        { name: CallIntrinsic2, id: 54, display: "CALL_INTRINSIC_2", oparg: { name: func, typ: IntrinsicFunction2 }},
+        {
+            name: CallIntrinsic1,
+            id: 53,
+            display: "CALL_INTRINSIC_1",
+            oparg: { name: func, typ: IntrinsicFunction1 }
+        },
+        {
+            name: CallIntrinsic2,
+            id: 54,
+            display: "CALL_INTRINSIC_2",
+            oparg: { name: func, typ: IntrinsicFunction2 }
+        },
         { name: CallKw, id: 55, display: "CALL_KW", oparg: { name: argc, typ: u32 }},
-        { name: CompareOp, id: 56, display: "COMPARE_OP", oparg: { name: opname, typ: ComparisonOperator }},
+        {
+            name: CompareOp,
+            id: 56,
+            display: "COMPARE_OP",
+            oparg: { name: opname, typ: ComparisonOperator }
+        },
         { name: ContainsOp, id: 57, display: "CONTAINS_OP", oparg: { name: invert, typ: Invert }},
-        { name: ConvertValue, id: 58, display: "CONVERT_VALUE", oparg: { name: oparg, typ: ConvertValueOparg }},
+        {
+            name: ConvertValue,
+            id: 58,
+            display: "CONVERT_VALUE",
+            oparg: { name: oparg, typ: ConvertValueOparg }
+        },
         { name: Copy, id: 59, display: "COPY", oparg: { name: i, typ: u32 }},
         { name: CopyFreeVars, id: 60, display: "COPY_FREE_VARS", oparg: { name: n, typ: u32 }},
         { name: DeleteAttr, id: 61, display: "DELETE_ATTR", oparg: { name: namei, typ: NameIdx }},
@@ -201,52 +231,141 @@ define_opcodes!(
         { name: ImportName, id: 73, display: "IMPORT_NAME", oparg: { name: namei, typ: NameIdx }},
         { name: IsOp, id: 74, display: "IS_OP", oparg: { name: invert, typ: Invert }},
         { name: JumpBackward, id: 75, display: "JUMP_BACKWARD", oparg: { name: delta, typ: Label }},
-        { name: JumpBackwardNoInterrupt, id: 76, display: "JUMP_BACKWARD_NO_INTERRUPT", oparg: { name: delta, typ: Label }},
+        {
+            name: JumpBackwardNoInterrupt,
+            id: 76,
+            display: "JUMP_BACKWARD_NO_INTERRUPT",
+            oparg: { name: delta, typ: Label }
+        },
         { name: JumpForward, id: 77, display: "JUMP_FORWARD", oparg: { name: delta, typ: Label }},
         { name: ListAppend, id: 78, display: "LIST_APPEND", oparg: { name: i, typ: u32 }},
         { name: ListExtend, id: 79, display: "LIST_EXTEND", oparg: { name: i, typ: u32 }},
         { name: LoadAttr, id: 80, display: "LOAD_ATTR", oparg: { name: namei, typ: LoadAttr }},
-        { name: LoadCommonConstant, id: 81, display: "LOAD_COMMON_CONSTANT", oparg: { name: idx, typ: CommonConstant }},
-        { name: LoadConst, id: 82, display: "LOAD_CONST", oparg: { name: consti, typ: oparg::ConstIdx }},
+        {
+            name: LoadCommonConstant,
+            id: 81,
+            display: "LOAD_COMMON_CONSTANT",
+            oparg: { name: idx, typ: CommonConstant }
+        },
+        {
+            name: LoadConst,
+            id: 82,
+            display: "LOAD_CONST",
+            oparg: { name: consti, typ: oparg::ConstIdx }
+        },
         { name: LoadDeref, id: 83, display: "LOAD_DEREF", oparg: { name: i, typ: oparg::VarNum }},
-        { name: LoadFast, id: 84, display: "LOAD_FAST", oparg: { name: var_num, typ: oparg::VarNum }},
-        { name: LoadFastAndClear, id: 85, display: "LOAD_FAST_AND_CLEAR", oparg: { name: var_num, typ: oparg::VarNum }},
-        { name: LoadFastBorrow, id: 86, display: "LOAD_FAST_BORROW", oparg: { name: var_num, typ: oparg::VarNum }},
-        { name: LoadFastBorrowLoadFastBorrow, id: 87, display: "LOAD_FAST_BORROW_LOAD_FAST_BORROW", oparg: { name: var_nums, typ: oparg::VarNums }},
-        { name: LoadFastCheck, id: 88, display: "LOAD_FAST_CHECK", oparg: { name: var_num, typ: oparg::VarNum }},
-        { name: LoadFastLoadFast, id: 89, display: "LOAD_FAST_LOAD_FAST", oparg: { name: var_nums, typ: oparg::VarNums }},
-        { name: LoadFromDictOrDeref, id: 90, display: "LOAD_FROM_DICT_OR_DEREF", oparg: { name: i, typ: oparg::VarNum }},
-        { name: LoadFromDictOrGlobals, id: 91, display: "LOAD_FROM_DICT_OR_GLOBALS", oparg: { name: i, typ: NameIdx }},
+        {
+            name: LoadFast,
+            id: 84,
+            display: "LOAD_FAST",
+            oparg: { name: var_num, typ: oparg::VarNum }
+        },
+        {
+            name: LoadFastAndClear,
+            id: 85, display: "LOAD_FAST_AND_CLEAR",
+            oparg: { name: var_num, typ: oparg::VarNum }
+        },
+        {
+            name: LoadFastBorrow,
+            id: 86,
+            display: "LOAD_FAST_BORROW",
+            oparg: { name: var_num, typ: oparg::VarNum }
+        },
+        {
+            name: LoadFastBorrowLoadFastBorrow,
+            id: 87,
+            display: "LOAD_FAST_BORROW_LOAD_FAST_BORROW",
+            oparg: { name: var_nums, typ: oparg::VarNums }
+        },
+        {
+            name: LoadFastCheck,
+            id: 88,
+            display: "LOAD_FAST_CHECK",
+            oparg: { name: var_num, typ: oparg::VarNum }
+        },
+        {
+            name: LoadFastLoadFast,
+            id: 89,
+            display: "LOAD_FAST_LOAD_FAST",
+            oparg: { name: var_nums, typ: oparg::VarNums }
+        },
+        {
+            name: LoadFromDictOrDeref,
+            id: 90,
+            display: "LOAD_FROM_DICT_OR_DEREF",
+            oparg: { name: i, typ: oparg::VarNum }
+        },
+        {
+            name: LoadFromDictOrGlobals,
+            id: 91,
+            display: "LOAD_FROM_DICT_OR_GLOBALS",
+            oparg: { name: i, typ: NameIdx }
+        },
         { name: LoadGlobal, id: 92, display: "LOAD_GLOBAL", oparg: { name: namei, typ: NameIdx }},
         { name: LoadName, id: 93, display: "LOAD_NAME", oparg: { name: namei, typ: NameIdx }},
         { name: LoadSmallInt, id: 94, display: "LOAD_SMALL_INT", oparg: { name: i, typ: u32 }},
-        { name: LoadSpecial, id: 95, display: "LOAD_SPECIAL", oparg: { name: method, typ: SpecialMethod }},
-        { name: LoadSuperAttr, id: 96, display: "LOAD_SUPER_ATTR", oparg: { name: namei, typ: LoadSuperAttr }},
+        {
+            name: LoadSpecial,
+            id: 95,
+            display: "LOAD_SPECIAL",
+            oparg: { name: method, typ: SpecialMethod }
+        },
+        {
+            name: LoadSuperAttr,
+            id: 96,
+            display: "LOAD_SUPER_ATTR",
+            oparg: { name: namei, typ: LoadSuperAttr }
+        },
         { name: MakeCell, id: 97, display: "MAKE_CELL", oparg: { name: i, typ: oparg::VarNum }},
         { name: MapAdd, id: 98, display: "MAP_ADD", oparg: { name: i, typ: u32 }},
         { name: MatchClass, id: 99, display: "MATCH_CLASS", oparg: { name: count, typ: u32 }},
         { name: PopJumpIfFalse, id: 100, display: "POP_JUMP_IF_FALSE", oparg: { name: delta, typ: Label }},
         { name: PopJumpIfNone, id: 101, display: "POP_JUMP_IF_NONE", oparg: { name: delta, typ: Label }},
-        { name: PopJumpIfNotNone, id: 102, display: "POP_JUMP_IF_NOT_NONE", oparg: { name: delta, typ: Label }},
+        {
+            name: PopJumpIfNotNone,
+            id: 102,
+            display: "POP_JUMP_IF_NOT_NONE",
+            oparg: { name: delta, typ: Label }
+        },
         { name: PopJumpIfTrue, id: 103, display: "POP_JUMP_IF_TRUE", oparg: { name: delta, typ: Label }},
         { name: RaiseVarargs, id: 104, display: "RAISE_VARARGS", oparg: { name: argc, typ: RaiseKind }},
         { name: Reraise, id: 105, display: "RERAISE", oparg: { name: depth, typ: u32 }},
         { name: Send, id: 106, display: "SEND", oparg: { name: delta, typ: Label }},
         { name: SetAdd, id: 107, display: "SET_ADD", oparg: { name: i, typ: u32 }},
-        { name: SetFunctionAttribute, id: 108, display: "SET_FUNCTION_ATTRIBUTE", oparg: { name: flag, typ: MakeFunctionFlag }},
+        {
+            name: SetFunctionAttribute,
+            id: 108,
+            display: "SET_FUNCTION_ATTRIBUTE",
+            oparg: { name: flag, typ: MakeFunctionFlag }
+        },
         { name: SetUpdate, id: 109, display: "SET_UPDATE", oparg: { name: i, typ: u32 }},
         { name: StoreAttr, id: 110, display: "STORE_ATTR", oparg: { name: namei, typ: NameIdx }},
         { name: StoreDeref, id: 111, display: "STORE_DEREF", oparg: { name: i, typ: oparg::VarNum }},
         { name: StoreFast, id: 112, display: "STORE_FAST", oparg: { name: var_num, typ: oparg::VarNum }},
-        { name: StoreFastLoadFast, id: 113, display: "STORE_FAST_LOAD_FAST", oparg: { name: var_nums, typ: oparg::VarNums }},
-        { name: StoreFastStoreFast, id: 114, display: "STORE_FAST_STORE_FAST", oparg: { name: var_nums, typ: oparg::VarNums }},
+        {
+            name: StoreFastLoadFast,
+            id: 113,
+            display: "STORE_FAST_LOAD_FAST",
+            oparg: { name: var_nums, typ: oparg::VarNums }
+        },
+        {
+            name: StoreFastStoreFast,
+            id: 114,
+            display: "STORE_FAST_STORE_FAST",
+            oparg: { name: var_nums, typ: oparg::VarNums }
+        },
         { name: StoreGlobal, id: 115, display: "STORE_GLOBAL", oparg: { name: namei, typ: NameIdx }},
         { name: StoreName, id: 116, display: "STORE_NAME", oparg: { name: namei, typ: NameIdx }},
         { name: Swap, id: 117, display: "SWAP", oparg: { name: i, typ: u32 }},
         { name: UnpackEx, id: 118, display: "UNPACK_EX", oparg: { name: counts, typ: UnpackExArgs }},
         { name: UnpackSequence, id: 119, display: "UNPACK_SEQUENCE", oparg: { name: count, typ: u32 }},
         { name: YieldValue, id: 120, display: "YIELD_VALUE", oparg: { name: arg, typ: u32 }},
-        { name: Resume, id: 128, display: "RESUME", oparg: { name: context, typ: oparg::ResumeContext }},
+        {
+            name: Resume,
+            id: 128,
+            display: "RESUME",
+            oparg: { name: context, typ: oparg::ResumeContext }
+        },
         { name: BinaryOpAddFloat, id: 129, display: "BINARY_OP_ADD_FLOAT"},
         { name: BinaryOpAddInt, id: 130, display: "BINARY_OP_ADD_INT"},
         { name: BinaryOpAddUnicode, id: 131, display: "BINARY_OP_ADD_UNICODE"},
@@ -275,7 +394,11 @@ define_opcodes!(
         { name: CallLen, id: 154, display: "CALL_LEN"},
         { name: CallListAppend, id: 155, display: "CALL_LIST_APPEND"},
         { name: CallMethodDescriptorFast, id: 156, display: "CALL_METHOD_DESCRIPTOR_FAST"},
-        { name: CallMethodDescriptorFastWithKeywords, id: 157, display: "CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS"},
+        {
+            name: CallMethodDescriptorFastWithKeywords,
+            id: 157,
+            display: "CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS"
+        },
         { name: CallMethodDescriptorNoargs, id: 158, display: "CALL_METHOD_DESCRIPTOR_NOARGS"},
         { name: CallMethodDescriptorO, id: 159, display: "CALL_METHOD_DESCRIPTOR_O"},
         { name: CallNonPyGeneral, id: 160, display: "CALL_NON_PY_GENERAL"},
@@ -296,15 +419,27 @@ define_opcodes!(
         { name: JumpBackwardJit, id: 175, display: "JUMP_BACKWARD_JIT"},
         { name: JumpBackwardNoJit, id: 176, display: "JUMP_BACKWARD_NO_JIT"},
         { name: LoadAttrClass, id: 177, display: "LOAD_ATTR_CLASS"},
-        { name: LoadAttrClassWithMetaclassCheck, id: 178, display: "LOAD_ATTR_CLASS_WITH_METACLASS_CHECK"},
-        { name: LoadAttrGetattributeOverridden, id: 179, display: "LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN"},
+        {
+            name: LoadAttrClassWithMetaclassCheck,
+            id: 178,
+            display: "LOAD_ATTR_CLASS_WITH_METACLASS_CHECK"
+        },
+        {
+            name: LoadAttrGetattributeOverridden,
+            id: 179,
+            display: "LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN"
+        },
         { name: LoadAttrInstanceValue, id: 180, display: "LOAD_ATTR_INSTANCE_VALUE"},
         { name: LoadAttrMethodLazyDict, id: 181, display: "LOAD_ATTR_METHOD_LAZY_DICT"},
         { name: LoadAttrMethodNoDict, id: 182, display: "LOAD_ATTR_METHOD_NO_DICT"},
         { name: LoadAttrMethodWithValues, id: 183, display: "LOAD_ATTR_METHOD_WITH_VALUES"},
         { name: LoadAttrModule, id: 184, display: "LOAD_ATTR_MODULE"},
         { name: LoadAttrNondescriptorNoDict, id: 185, display: "LOAD_ATTR_NONDESCRIPTOR_NO_DICT"},
-        { name: LoadAttrNondescriptorWithValues, id: 186, display: "LOAD_ATTR_NONDESCRIPTOR_WITH_VALUES"},
+        {
+            name: LoadAttrNondescriptorWithValues,
+            id: 186,
+            display: "LOAD_ATTR_NONDESCRIPTOR_WITH_VALUES"
+        },
         { name: LoadAttrProperty, id: 187, display: "LOAD_ATTR_PROPERTY"},
         { name: LoadAttrSlot, id: 188, display: "LOAD_ATTR_SLOT"},
         { name: LoadAttrWithHint, id: 189, display: "LOAD_ATTR_WITH_HINT"},
@@ -340,7 +475,11 @@ define_opcodes!(
         { name: InstrumentedPopJumpIfTrue, id: 241, display: "INSTRUMENTED_POP_JUMP_IF_TRUE"},
         { name: InstrumentedPopJumpIfFalse, id: 242, display: "INSTRUMENTED_POP_JUMP_IF_FALSE"},
         { name: InstrumentedPopJumpIfNone, id: 243, display: "INSTRUMENTED_POP_JUMP_IF_NONE"},
-        { name: InstrumentedPopJumpIfNotNone, id: 244, display: "INSTRUMENTED_POP_JUMP_IF_NOT_NONE"},
+        {
+            name: InstrumentedPopJumpIfNotNone,
+            id: 244,
+            display: "INSTRUMENTED_POP_JUMP_IF_NOT_NONE"
+        },
         { name: InstrumentedResume, id: 245, display: "INSTRUMENTED_RESUME"},
         { name: InstrumentedReturnValue, id: 246, display: "INSTRUMENTED_RETURN_VALUE"},
         { name: InstrumentedYieldValue, id: 247, display: "INSTRUMENTED_YIELD_VALUE"},
@@ -1305,7 +1444,12 @@ define_opcodes!(
         { name: Jump, id: 257, display: "JUMP", oparg: { name: delta, typ: Label }},
         { name: JumpIfFalse, id: 258, display: "JUMP_IF_FALSE", oparg: { name: delta, typ: Label }},
         { name: JumpIfTrue, id: 259, display: "JUMP_IF_TRUE", oparg: { name: delta, typ: Label }},
-        { name: JumpNoInterrupt, id: 260, display: "JUMP_NO_INTERRUPT", oparg: { name: delta, typ: Label }},
+        {
+            name: JumpNoInterrupt,
+            id: 260,
+            display: "JUMP_NO_INTERRUPT",
+            oparg: { name: delta, typ: Label }
+        },
         { name: LoadClosure, id: 261, display: "LOAD_CLOSURE", oparg: { name: i, typ: NameIdx }},
         { name: PopBlock, id: 262, display: "POP_BLOCK" },
         { name: SetupCleanup, id: 263, display: "SETUP_CLEANUP", oparg: { name: delta, typ: Label }},
@@ -1315,7 +1459,7 @@ define_opcodes!(
             name: StoreFastMaybeNull,
             id: 266,
             display: "STORE_FAST_MAYBE_NULL",
-            oparg: { name: var_num, typ: NameIdx }
+            oparg: { name: var_num, typ: oparg::VarNum }
         },
     ]
 );
