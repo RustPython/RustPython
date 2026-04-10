@@ -1,6 +1,7 @@
 use crate::with_vm;
 use alloc::slice;
-use rustpython_vm::builtins::{PyStr, PyTuple};
+use core::ffi::c_int;
+use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
 use rustpython_vm::{PyObject, PyObjectRef, PyResult};
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
@@ -50,6 +51,25 @@ pub extern "C" fn PyObject_VectorcallMethod(
         };
 
         callable.vectorcall(args, num_positional_args, kwnames, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let value = unsafe { &mut *value };
+        match obj.try_sequence(vm) {
+            Ok(sequence) => sequence.contains(value, vm),
+            Err(type_err) => {
+                // TODO Dict should implement sequence protocol, but for now we can special case it
+                if let Some(dict) = obj.downcast_ref::<PyDict>() {
+                    Ok(dict.contains_key(value, vm))
+                } else {
+                    Err(type_err)
+                }
+            }
+        }
     })
 }
 

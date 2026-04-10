@@ -12,7 +12,7 @@ license.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-rustpython-vm = { workspace = true, features = ["threading"]}
+rustpython-vm = { workspace = true, features = ["threading", "compiler"]}
 
 [dev-dependencies]
 pyo3 = { git = "https://github.com/PyO3/pyo3", features = ["auto-initialize", "abi3-py314"] }
