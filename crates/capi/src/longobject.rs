@@ -35,16 +35,13 @@ pub extern "C" fn PyLong_FromUnsignedLongLong(value: c_ulonglong) -> *mut PyObje
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
-    if obj.is_null() {
-        panic!("PyLong_AsLong called with null object");
-    }
-
     with_vm::<PyResult<c_long>>(|vm| {
         // SAFETY: non-null checked above; caller promises a valid PyObject pointer.
         let obj_ref = unsafe { &*obj };
         let int_obj = obj_ref
-            .downcast_ref::<PyInt>()
-            .expect("PyLong_AsLong currently only accepts int instances");
+            .to_owned()
+            .try_downcast::<PyInt>(vm)
+            .or_else(|_| obj_ref.try_index(vm))?;
 
         int_obj
             .as_bigint()
