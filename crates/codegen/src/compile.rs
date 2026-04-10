@@ -1512,11 +1512,14 @@ impl Compiler {
             }
 
             FBlockType::ForLoop => {
-                // Pop the iterator
+                // When returning from a for-loop, CPython swaps the preserved
+                // value with the iterator and uses POP_TOP for the iterator slot.
                 if preserve_tos {
                     emit!(self, Instruction::Swap { i: 2 });
+                    emit!(self, Instruction::PopTop);
+                } else {
+                    emit!(self, Instruction::PopIter);
                 }
-                emit!(self, Instruction::PopIter);
             }
 
             FBlockType::TryExcept => {
@@ -11146,6 +11149,99 @@ def f(base, cls, state):
             .count();
 
         assert_eq!(return_count, 2);
+    }
+
+    #[test]
+    fn test_loop_store_subscr_threads_direct_backedge() {
+        let code = compile_exec(
+            "\
+def f(kwonlyargs, kwonlydefaults, arg2value):
+    missing = 0
+    for kwarg in kwonlyargs:
+        if kwarg not in arg2value:
+            if kwonlydefaults and kwarg in kwonlydefaults:
+                arg2value[kwarg] = kwonlydefaults[kwarg]
+            else:
+                missing += 1
+    return missing
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let store_subscr = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::StoreSubscr))
+            .expect("missing STORE_SUBSCR");
+        let next_op = ops
+            .get(store_subscr + 1)
+            .expect("missing jump after STORE_SUBSCR");
+        let window_start = store_subscr.saturating_sub(3);
+        let window_end = (store_subscr + 5).min(ops.len());
+        let window = &ops[window_start..window_end];
+
+        assert!(
+            matches!(next_op, Instruction::JumpBackward { .. }),
+            "expected direct loop backedge after STORE_SUBSCR, got {next_op:?}; ops={window:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_return_reorders_backedge_before_exit_cleanup() {
+        let code = compile_exec(
+            "\
+def f(obj):
+    for base in obj.__mro__:
+        if base is not object:
+            doc = base.__doc__
+            if doc is not None:
+                return doc
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let cond_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopJumpIfNotNone { .. }))
+            .expect("missing POP_JUMP_IF_NOT_NONE");
+        assert!(
+            matches!(ops.get(cond_idx + 1), Some(Instruction::NotTaken)),
+            "expected NOT_TAKEN after conditional jump, got {:?}; ops={ops:?}",
+            ops.get(cond_idx + 1)
+        );
+        assert!(
+            matches!(
+                ops.get(cond_idx + 2),
+                Some(Instruction::JumpBackward { .. })
+            ),
+            "expected loop backedge immediately after NOT_TAKEN, got {:?}; ops={ops:?}",
+            ops.get(cond_idx + 2)
+        );
+
+        let end_for_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::EndFor))
+            .expect("missing END_FOR");
+        let return_before_end = ops[..end_for_idx]
+            .iter()
+            .rposition(|op| matches!(op, Instruction::ReturnValue))
+            .expect("missing loop-body RETURN_VALUE");
+        assert!(
+            matches!(ops.get(return_before_end - 1), Some(Instruction::PopTop)),
+            "expected POP_TOP before loop-body RETURN_VALUE, got {:?}; ops={ops:?}",
+            ops.get(return_before_end.saturating_sub(1))
+        );
     }
 
     #[test]
