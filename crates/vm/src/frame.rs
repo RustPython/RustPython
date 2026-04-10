@@ -3398,22 +3398,19 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(result).into());
                 Ok(None)
             }
-            Instruction::Reraise { depth } => {
+            Instruction::Reraise { depth: _ } => {
                 // inst(RERAISE, (values[oparg], exc -- values[oparg]))
                 //
-                // Stack layout: [values..., exc] where len(values) == oparg
-                // RERAISE pops exc and oparg additional values from the stack.
-                // values[0] is lasti used to set frame->instr_ptr for traceback.
-                // We skip the lasti update since RustPython's traceback is already correct.
-                let depth_val = depth.get(arg) as usize;
-
-                // Pop exception from TOS
+                // RERAISE pops only `exc` from TOS. The `values` below it
+                // (lasti and optional prev_exc) stay on the stack — the
+                // outer exception handler's exception-table unwind will
+                // pop them down to its configured stack depth.
+                //
+                // `oparg` encodes how many values are preserved below exc
+                // (1 for simple reraise, 2 for with-block reraise where
+                // values[0]=lasti). Runtime-wise we don't need oparg since
+                // the exception table handles stack layout.
                 let exc = self.pop_value();
-
-                // Pop the depth values (lasti and possibly other items like prev_exc)
-                for _ in 0..depth_val {
-                    self.pop_value();
-                }
 
                 if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
                     Err(exc_ref.to_owned())
@@ -6769,7 +6766,6 @@ impl ExecutingFrame<'_> {
             }
             bytecode::RaiseKind::BareRaise => {
                 // RAISE_VARARGS 0: bare `raise` gets exception from VM state
-                // This is the current exception set by PUSH_EXC_INFO
                 vm.topmost_exception()
                     .ok_or_else(|| vm.new_runtime_error("No active exception to reraise"))?
             }

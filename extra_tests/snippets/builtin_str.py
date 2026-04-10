@@ -235,6 +235,8 @@ assert "유니코드".isidentifier()
 assert not "😂".isidentifier()
 assert not "123".isidentifier()
 
+assert "Σίσυφος".swapcase() == "σΊΣΥΦΟΣ"
+
 # String Formatting
 assert "{} {}".format(1, 2) == "1 2"
 assert "{0} {1}".format(2, 3) == "2 3"

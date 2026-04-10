@@ -108,7 +108,7 @@ pub struct VirtualMachine {
 }
 
 /// Non-owning frame pointer for the frames stack.
-/// The pointed-to frame is kept alive by the caller of with_frame_exc/resume_gen_frame.
+/// The pointed-to frame is kept alive by the caller of with_frame/resume_gen_frame.
 #[derive(Copy, Clone)]
 pub struct FramePtr(NonNull<Py<Frame>>);
 
@@ -124,9 +124,19 @@ impl FramePtr {
 // FrameRef is alive on the call stack. The Vec is always empty when the VM moves between threads.
 unsafe impl Send for FramePtr {}
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct ExceptionStack {
+    /// Linked list of handled-exception slots (`_PyErr_StackItem` chain).
+    /// Bottom element is the thread's base slot; generator/coroutine resume
+    /// pushes an additional slot.  Normal frame calls do **not** push/pop.
     stack: Vec<Option<PyBaseExceptionRef>>,
+}
+
+impl Default for ExceptionStack {
+    fn default() -> Self {
+        // Thread's base `_PyErr_StackItem` – always present.
+        Self { stack: vec![None] }
+    }
 }
 
 /// Stop-the-world state for fork safety. Before `fork()`, the requester
@@ -1554,17 +1564,7 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_frame_impl(frame, None, true, f)
-    }
-
-    /// Like `with_frame` but allows specifying the initial exception state.
-    pub fn with_frame_exc<R, F: FnOnce(FrameRef) -> PyResult<R>>(
-        &self,
-        frame: FrameRef,
-        exc: Option<PyBaseExceptionRef>,
-        f: F,
-    ) -> PyResult<R> {
-        self.with_frame_impl(frame, exc, true, f)
+        self.with_frame_impl(frame, true, f)
     }
 
     pub(crate) fn with_frame_untraced<R, F: FnOnce(FrameRef) -> PyResult<R>>(
@@ -1572,13 +1572,12 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_frame_impl(frame, None, false, f)
+        self.with_frame_impl(frame, false, f)
     }
 
     fn with_frame_impl<R, F: FnOnce(FrameRef) -> PyResult<R>>(
         &self,
         frame: FrameRef,
-        exc: Option<PyBaseExceptionRef>,
         traced: bool,
         f: F,
     ) -> PyResult<R> {
@@ -1597,19 +1596,22 @@ impl VirtualMachine {
                 old_frame as *mut Frame,
                 core::sync::atomic::Ordering::Relaxed,
             );
-            // Push exception context for frame isolation.
-            // For normal calls: None (clean slate).
-            // For generators: the saved exception from last yield.
-            self.push_exception(exc);
+            // Normal frame calls share the caller's exc_info slot so that
+            // callees can see the caller's handled exception via sys.exc_info().
+            // Save the current value to restore on exit — this prevents
+            // exc_info pollution from frames with unbalanced
+            // PUSH_EXC_INFO/POP_EXCEPT (e.g., exception escaping an except block
+            // whose cleanup entry is missing from the exception table).
+            let saved_exc = self.current_exception();
             let old_owner = frame.owner.swap(
                 crate::frame::FrameOwner::Thread as i8,
                 core::sync::atomic::Ordering::AcqRel,
             );
 
-            // Ensure cleanup on panic: restore owner, pop exception, frame chain, and frames Vec.
+            // Ensure cleanup on panic: restore owner, exc_info, frame chain, and frames Vec.
             scopeguard::defer! {
                 frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
-                self.pop_exception();
+                self.set_exception(saved_exc);
                 crate::vm::thread::set_current_frame(old_frame);
                 self.frames.borrow_mut().pop();
                 #[cfg(feature = "threading")]
@@ -1624,9 +1626,9 @@ impl VirtualMachine {
         })
     }
 
-    /// Lightweight frame execution for generator/coroutine resume.
-    /// Pushes to the thread frame stack and fires trace/profile events,
-    /// but skips the thread exception update for performance.
+    /// Frame execution for generator/coroutine resume.
+    /// Pushes a new exc_info slot (gi_exc_state) onto the chain,
+    /// linking the generator's saved handled-exception.
     pub fn resume_gen_frame<R, F: FnOnce(&Py<Frame>) -> PyResult<R>>(
         &self,
         frame: &FrameRef,
@@ -1649,20 +1651,20 @@ impl VirtualMachine {
             old_frame as *mut Frame,
             core::sync::atomic::Ordering::Relaxed,
         );
-        // Inline exception push without thread exception update
-        self.exceptions.borrow_mut().stack.push(exc);
+        // Push generator's exc_info slot onto the chain
+        // (gi_exc_state.previous_item = tstate->exc_info;
+        //  tstate->exc_info = &gi_exc_state;)
+        self.push_exception(exc);
         let old_owner = frame.owner.swap(
             crate::frame::FrameOwner::Thread as i8,
             core::sync::atomic::Ordering::AcqRel,
         );
 
-        // Ensure cleanup on panic: restore owner, pop exception, frame chain, frames Vec,
-        // and recursion depth.
+        // Ensure cleanup on panic: restore owner, pop exc_info slot, frame chain,
+        // frames Vec, and recursion depth.
         scopeguard::defer! {
             frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
-            self.exceptions.borrow_mut().stack
-                .pop()
-                .expect("pop_exception() without nested exc stack");
+            self.pop_exception();
             crate::vm::thread::set_current_frame(old_frame);
             self.frames.borrow_mut().pop();
             #[cfg(feature = "threading")]
@@ -2037,12 +2039,14 @@ impl VirtualMachine {
         }
     }
 
+    /// Push a new exc_info slot (for generator/coroutine resume).
     pub fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
         self.exceptions.borrow_mut().stack.push(exc);
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
     }
 
+    /// Pop the topmost exc_info slot (generator/coroutine yield/return).
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         let exc = self
             .exceptions
@@ -2059,6 +2063,7 @@ impl VirtualMachine {
         self.exceptions.borrow().stack.last().cloned().flatten()
     }
 
+    /// Set the current exc_info slot value (PUSH_EXC_INFO / POP_EXCEPT).
     pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
         // don't be holding the RefCell guard while __del__ is called
         let mut excs = self.exceptions.borrow_mut();

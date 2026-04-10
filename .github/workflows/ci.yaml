@@ -26,8 +26,6 @@ env:
   # - rustpython-compiler-source: deprecated
   # - rustpython-venvlauncher: Windows-only
   WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
-  # Python version targeted by the CI.
-  PYTHON_VERSION: "3.14.3"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
   CARGO_INCREMENTAL: 0
@@ -259,8 +257,6 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
@@ -362,14 +358,12 @@ jobs:
           persist-credentials: false
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
-      - uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
+      - uses: cargo-bins/cargo-binstall@0b24824336e2b3800b0f89d9e08b2c08bfa3dcdd # v1.17.9
 
       - name: cargo shear
         run: |
@@ -469,8 +463,6 @@ jobs:
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
