@@ -3,7 +3,8 @@ use crate::object::{
     PyBool_Type, PyDict_Type, PyLong_Type, PyTuple_Type, PyType_Type, PyUnicode_Type,
 };
 use crate::pyerrors::{
-    PyExc_BaseException, PyExc_Exception, PyExc_OverflowError, PyExc_SystemError, PyExc_TypeError,
+    PyExc_BaseException, PyExc_Exception, PyExc_IndexError, PyExc_OverflowError, PyExc_SystemError,
+    PyExc_TypeError,
 };
 use crate::pystate::attach_vm_to_thread;
 use core::ffi::c_int;
@@ -53,6 +54,7 @@ pub(crate) fn init_static_type_pointers() {
         PyExc_SystemError.write(exc.system_error.as_object().as_raw().cast_mut());
         PyExc_TypeError.write(exc.type_error.as_object().as_raw().cast_mut());
         PyExc_OverflowError.write(exc.overflow_error.as_object().as_raw().cast_mut());
+        PyExc_IndexError.write(exc.index_error.as_object().as_raw().cast_mut());
     };
 }
 
