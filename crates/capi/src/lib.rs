@@ -1,3 +1,4 @@
+#![cfg_attr(feature = "nightly", feature(c_variadic))]
 use crate::pystate::with_vm;
 pub use rustpython_vm::PyObject;
 

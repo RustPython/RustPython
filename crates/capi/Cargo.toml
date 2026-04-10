@@ -15,6 +15,10 @@ crate-type = ["cdylib"]
 num-complex.workspace = true
 rustpython-vm = { workspace = true, features = ["threading", "compiler"]}
 
+[features]
+# Enable PyObject_CallMethodObjArgs variadic function, which is only available on nightly Rust.
+nightly = []
+
 [dev-dependencies]
 pyo3 = { git = "https://github.com/PyO3/pyo3", features = ["auto-initialize", "abi3-py314"] }
 

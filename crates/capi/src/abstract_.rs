@@ -21,6 +21,29 @@ pub extern "C" fn PyObject_CallNoArgs(callable: *mut PyObject) -> *mut PyObject 
 }
 
 #[unsafe(no_mangle)]
+#[cfg(feature = "nightly")]
+pub unsafe extern "C" fn PyObject_CallMethodObjArgs(
+    receiver: *mut PyObject,
+    name: *mut PyObject,
+    mut args: ...
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let mut arguments: Vec<PyObjectRef> = vec![];
+        loop {
+            if let Some(arg) = core::ptr::NonNull::new(unsafe { args.arg::<*mut PyObject>() }) {
+                arguments.push(unsafe { arg.as_ref() }.to_owned());
+            } else {
+                break;
+            }
+        }
+
+        let method_name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
+        let callable = unsafe { (&*receiver).get_attr(method_name, vm)? };
+        callable.call(arguments, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyObject_VectorcallMethod(
     name: *mut PyObject,
     args: *const *mut PyObject,
@@ -77,6 +100,18 @@ pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) 
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyString;
+
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_call_method0() {
+        Python::attach(|py| {
+            let string = PyString::new(py, "Hello, World!");
+            assert_eq!(
+                string.call_method0("upper").unwrap().str().unwrap(),
+                "HELLO, WORLD!"
+            );
+        })
+    }
 
     #[test]
     fn test_call_method1() {
