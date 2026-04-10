@@ -144,7 +144,6 @@ class TestTranforms(BytecodeTestCase):
             self.assertInBytecode(f, elem)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pack_unpack(self):
         for line, elem in (
             ('a, = a,', 'LOAD_CONST',),
@@ -158,7 +157,7 @@ class TestTranforms(BytecodeTestCase):
                 self.assertNotInBytecode(code, 'UNPACK_SEQUENCE')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 2
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LOAD_CONST count mismatch in long-tuple branch
     def test_constant_folding_tuples_of_constants(self):
         for line, elem in (
             ('a = 1,2,3', (1, 2, 3)),
@@ -873,7 +872,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_unknown_because_del(self):
         def f():
             x = 1
@@ -928,7 +926,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_BORROW')
         self.assertNotInBytecode(f, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; L5 to L6 -> L6 [1] lasti
     def test_load_fast_unknown_after_error(self):
         def f():
             try:
@@ -940,7 +937,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         # Assert that it doesn't occur in the LOAD_FAST_CHECK branch.
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; L5 to L6 -> L6 [1] lasti
     def test_load_fast_unknown_after_error_2(self):
         def f():
             try:
