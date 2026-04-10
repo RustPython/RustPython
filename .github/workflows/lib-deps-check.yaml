@@ -10,9 +10,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-env:
-  PYTHON_VERSION: "3.14.3"
-
 jobs:
   check_deps:
     permissions:
@@ -37,9 +34,20 @@ jobs:
           # Checkout only Lib/ directory from PR head for accurate comparison
           git checkout ${{ github.event.pull_request.head.sha }} -- Lib/
 
-      - name: Checkout CPython
+      - name: Get target CPython version
+        id: cpython-version
         run: |
-          git clone --depth 1 --branch "v${{ env.PYTHON_VERSION }}" https://github.com/python/cpython.git cpython
+          version=$(cat .python-version)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout CPython
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: python/cpython
+          path: cpython
+          ref: "v${{ steps.cpython-version.outputs.version }}"
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Get changed Lib files
         id: changed-files
@@ -75,8 +83,6 @@ jobs:
       - name: Setup Python
         if: steps.changed-files.outputs.modules != ''
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "${{ env.PYTHON_VERSION }}"
 
       - name: Run deps check
         if: steps.changed-files.outputs.modules != ''
