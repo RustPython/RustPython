@@ -31,6 +31,9 @@ pub static mut PyUnicode_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::u
 pub static mut PyBool_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
+pub static mut PyDict_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const Py<PyType> {
     // SAFETY: The caller must guarantee that `op` is a valid pointer to a `PyObject`.
     unsafe { (*op).class() }
