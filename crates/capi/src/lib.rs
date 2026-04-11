@@ -6,6 +6,7 @@ extern crate alloc;
 
 pub(crate) mod abstract_;
 pub(crate) mod bytesobject;
+pub(crate) mod capsule;
 pub(crate) mod ceval;
 pub(crate) mod complexobject;
 pub(crate) mod dictobject;
