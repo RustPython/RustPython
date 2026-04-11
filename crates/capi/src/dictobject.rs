@@ -1,6 +1,7 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
 use core::ffi::c_int;
+use rustpython_vm::AsObject;
 use rustpython_vm::builtins::PyDict;
 
 #[unsafe(no_mangle)]
@@ -55,6 +56,31 @@ pub extern "C" fn PyDict_Size(dict: *mut PyObject) -> isize {
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyDict_Next(
+    dict: *mut PyObject,
+    pos: *mut isize,
+    key: *mut *mut PyObject,
+    value: *mut *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let index = unsafe { *pos } as usize;
+        let items = dict.items_vec();
+
+        if let Some((k, v)) = items.get(index) {
+            unsafe {
+                *key = k.as_object().as_raw().cast_mut();
+                *value = v.as_object().as_raw().cast_mut();
+                *pos += 1;
+            }
+            Ok(1)
+        } else {
+            Ok(0)
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
@@ -79,5 +105,17 @@ mod tests {
             Ok::<_, PyErr>(())
         })
         .unwrap()
+    }
+
+    #[test]
+    fn test_dict_iter() {
+        Python::attach(|py| {
+            let dict = [(1, 2), (3, 4)].into_py_dict(py).unwrap();
+            let values = dict
+                .into_iter()
+                .flat_map(|(k, v)| [k.extract().unwrap(), v.extract().unwrap()])
+                .collect::<Vec<u32>>();
+            assert_eq!(values, vec![1, 2, 3, 4]);
+        })
     }
 }
