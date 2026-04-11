@@ -33,6 +33,7 @@ rustpython-compiler = { workspace = true, optional = true }
 rustpython-codegen = { workspace = true, optional = true }
 rustpython-common = { workspace = true }
 rustpython-derive = { workspace = true }
+rustpython-host-env = { workspace = true }
 rustpython-jit = { workspace = true, optional = true }
 
 ruff_python_ast = { workspace = true, optional = true }

@@ -3143,7 +3143,6 @@ dependencies = [
  "malachite-base",
  "malachite-bigint",
  "malachite-q",
- "nix 0.30.1",
  "num-complex",
  "num-traits",
  "parking_lot",
@@ -3152,8 +3151,6 @@ dependencies = [
  "rustpython-wtf8",
  "siphasher",
  "unicode_names2 2.0.0",
- "widestring",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3220,6 +3217,18 @@ name = "rustpython-doc"
 version = "0.5.0"
 dependencies = [
  "phf 0.13.1",
+]
+
+[[package]]
+name = "rustpython-host-env"
+version = "0.5.0"
+dependencies = [
+ "libc",
+ "nix 0.30.1",
+ "num-traits",
+ "rustpython-wtf8",
+ "widestring",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3409,6 +3418,7 @@ dependencies = [
  "rustls-platform-verifier",
  "rustpython-common",
  "rustpython-derive",
+ "rustpython-host-env",
  "rustpython-ruff_python_ast",
  "rustpython-ruff_python_parser",
  "rustpython-ruff_source_file",
@@ -3488,6 +3498,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-compiler-core",
  "rustpython-derive",
+ "rustpython-host-env",
  "rustpython-jit",
  "rustpython-literal",
  "rustpython-ruff_python_ast",

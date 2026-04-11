@@ -18,8 +18,8 @@ mod win32 {
 #[pymodule]
 mod winsound {
     use crate::builtins::{PyBytes, PyStr};
-    use crate::common::windows::ToWideString;
     use crate::convert::{IntoPyException, TryFromBorrowedObject};
+    use crate::host_env::windows::ToWideString;
     use crate::protocol::PyBuffer;
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
 

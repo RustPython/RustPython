@@ -3,9 +3,9 @@
 use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyModule, PySet},
-    common::crt_fd,
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
+    host_env::crt_fd,
 };
 use std::{fs, io, path::Path};
 
@@ -101,7 +101,7 @@ pub(super) struct FollowSymlinks(
 
 #[cfg(not(windows))]
 fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
-    rustpython_common::os::bytes_as_os_str(b)
+    rustpython_host_env::os::bytes_as_os_str(b)
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
 }
 
@@ -152,8 +152,9 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 #[pymodule(sub)]
 pub(super) mod _os {
     use super::{DirFd, FollowSymlinks, SupportFunc};
+    use crate::host_env::fileutils::StatStruct;
     #[cfg(windows)]
-    use crate::common::windows::ToWideString;
+    use crate::host_env::windows::ToWideString;
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{
@@ -161,15 +162,11 @@ pub(super) mod _os {
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
-        common::{
-            crt_fd,
-            fileutils::StatStruct,
-            lock::{OnceCell, PyRwLock},
-            suppress_iph,
-        },
+        common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
         function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs, OptionalArg},
+        host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
@@ -179,6 +176,7 @@ pub(super) mod _os {
     use core::time::Duration;
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_host_env::suppress_iph;
     use std::{env, fs, fs::OpenOptions, io, path::PathBuf, time::SystemTime};
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -349,7 +347,7 @@ pub(super) mod _os {
         if let Some(fd) = dir_fd.raw_opt() {
             let res = unsafe { libc::mkdirat(fd, c_path.as_ptr(), mode as _) };
             return if res < 0 {
-                let err = crate::common::os::errno_io_error();
+                let err = crate::host_env::os::errno_io_error();
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -359,7 +357,7 @@ pub(super) mod _os {
         let [] = dir_fd.0;
         let res = unsafe { libc::mkdir(c_path.as_ptr(), mode as _) };
         if res < 0 {
-            let err = crate::common::os::errno_io_error();
+            let err = crate::host_env::os::errno_io_error();
             return Err(OSErrorBuilder::with_filename(&err, path, vm));
         }
         Ok(())
@@ -383,7 +381,7 @@ pub(super) mod _os {
             let c_path = path.clone().into_cstring(vm)?;
             let res = unsafe { libc::unlinkat(fd, c_path.as_ptr(), libc::AT_REMOVEDIR) };
             return if res < 0 {
-                let err = crate::common::os::errno_io_error();
+                let err = crate::host_env::os::errno_io_error();
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -437,7 +435,7 @@ pub(super) mod _os {
                 }
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
-                    use rustpython_common::os::ffi::OsStrExt;
+                    use rustpython_host_env::os::ffi::OsStrExt;
                     use std::os::unix::io::IntoRawFd;
                     let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
                     let raw_fd = new_fd.into_raw_fd();
@@ -490,7 +488,7 @@ pub(super) mod _os {
     /// Check if wide string length exceeds Windows environment variable limit.
     #[cfg(windows)]
     fn check_env_var_len(wide_len: usize, vm: &VirtualMachine) -> PyResult<()> {
-        use crate::common::windows::_MAX_ENV;
+        use crate::host_env::windows::_MAX_ENV;
         if wide_len > _MAX_ENV + 1 {
             return Err(vm.new_value_error(format!(
                 "the environment variable is longer than {_MAX_ENV} characters",
@@ -1124,7 +1122,7 @@ pub(super) mod _os {
     #[cfg(all(unix, not(target_os = "redox")))]
     impl IterNext for ScandirIteratorFd {
         fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            use rustpython_common::os::ffi::OsStrExt;
+            use rustpython_host_env::os::ffi::OsStrExt;
             let mut guard = zelf.dir.lock();
             let dir = match guard.as_mut() {
                 None => return Ok(PyIterReturn::StopIteration(None)),
@@ -1400,7 +1398,7 @@ pub(super) mod _os {
         let [] = dir_fd.0;
         match file {
             OsPathOrFd::Path(path) => crate::windows::win32_xstat(&path.path, follow_symlinks.0),
-            OsPathOrFd::Fd(fd) => crate::common::fileutils::fstat(fd),
+            OsPathOrFd::Fd(fd) => crate::host_env::fileutils::fstat(fd),
         }
         .map(Some)
     }
@@ -1414,7 +1412,7 @@ pub(super) mod _os {
         let mut stat = core::mem::MaybeUninit::uninit();
         let ret = match file {
             OsPathOrFd::Path(path) => {
-                use rustpython_common::os::ffi::OsStrExt;
+                use rustpython_host_env::os::ffi::OsStrExt;
                 let path = path.as_ref().as_os_str().as_bytes();
                 let path = match alloc::ffi::CString::new(path) {
                     Ok(x) => x,

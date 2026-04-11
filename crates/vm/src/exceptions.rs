@@ -1380,7 +1380,7 @@ impl IntoPyException for OSErrorBuilder {
 
 impl ToOSErrorBuilder for std::io::Error {
     fn to_os_error_builder(&self, vm: &VirtualMachine) -> OSErrorBuilder {
-        use crate::common::os::ErrorExt;
+        use crate::host_env::os::ErrorExt;
 
         let errno = self.posix_errno();
         #[cfg(windows)]
@@ -1937,7 +1937,7 @@ pub(super) mod types {
                         .as_ref()
                         .and_then(|w| w.downcast_ref::<crate::builtins::PyInt>())
                         .and_then(|w| w.try_to_primitive::<i32>(vm).ok())
-                        .map(crate::common::os::winerror_to_errno)
+                        .map(crate::host_env::os::winerror_to_errno)
                     {
                         let errno_obj = vm.new_pyobj(errno);
                         let _ = unsafe { exc.errno.swap(Some(errno_obj.clone())) };

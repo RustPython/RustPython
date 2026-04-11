@@ -53,7 +53,7 @@ pub mod module {
         fcntl,
         unistd::{self, Gid, Pid, Uid},
     };
-    use rustpython_common::os::ffi::OsStringExt;
+    use rustpython_host_env::os::ffi::OsStringExt;
     use std::{
         env, fs, io,
         os::fd::{AsFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
@@ -574,7 +574,7 @@ pub mod module {
             let c_path = path.clone().into_cstring(vm)?;
             let res = unsafe { libc::unlinkat(fd, c_path.as_ptr(), 0) };
             return if res < 0 {
-                let err = crate::common::os::errno_io_error();
+                let err = crate::host_env::os::errno_io_error();
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -2598,9 +2598,9 @@ pub mod module {
 
     #[pyfunction]
     fn sysconf(name: SysconfName, vm: &VirtualMachine) -> PyResult<libc::c_long> {
-        crate::common::os::set_errno(0);
+        crate::host_env::os::set_errno(0);
         let r = unsafe { libc::sysconf(name.0) };
-        if r == -1 && crate::common::os::get_errno() != 0 {
+        if r == -1 && crate::host_env::os::get_errno() != 0 {
             return Err(vm.new_last_errno_error());
         }
         Ok(r)
@@ -2626,7 +2626,7 @@ pub mod module {
     struct SendFileArgs<'fd> {
         out_fd: BorrowedFd<'fd>,
         in_fd: BorrowedFd<'fd>,
-        offset: crate::common::crt_fd::Offset,
+        offset: rustpython_host_env::crt_fd::Offset,
         count: i64,
         #[cfg(target_os = "macos")]
         #[pyarg(any, optional)]

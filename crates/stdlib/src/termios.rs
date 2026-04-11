@@ -7,9 +7,9 @@ mod termios {
     use crate::vm::{
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
-        common::os::ErrorExt,
         convert::ToPyObject,
     };
+    use rustpython_host_env::os::ErrorExt;
     use termios::Termios;
 
     // TODO: more ioctl numbers

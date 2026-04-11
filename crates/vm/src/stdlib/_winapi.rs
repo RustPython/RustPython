@@ -8,7 +8,7 @@ mod _winapi {
     use crate::{
         Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::PyStrRef,
-        common::{lock::PyMutex, windows::ToWideString},
+        common::lock::PyMutex,
         convert::{ToPyException, ToPyResult},
         function::{ArgMapping, ArgSequence, OptionalArg},
         types::Constructor,
@@ -16,6 +16,7 @@ mod _winapi {
     };
     use core::ptr::{null, null_mut};
     use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_host_env::windows::ToWideString;
     use windows_sys::Win32::Foundation::{HANDLE, MAX_PATH};
 
     #[pyattr]

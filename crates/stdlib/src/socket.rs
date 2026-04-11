@@ -14,7 +14,6 @@ mod _socket {
             PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
             PyUtf8StrRef,
         },
-        common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
@@ -23,6 +22,7 @@ mod _socket {
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
     };
+    use rustpython_host_env::os::ErrorExt;
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         #[cfg(windows)]
@@ -2270,7 +2270,7 @@ mod _socket {
                     )
                 };
                 if ret < 0 {
-                    return Err(crate::common::os::errno_io_error().into());
+                    return Err(rustpython_host_env::os::errno_io_error().into());
                 }
                 Ok(vm.ctx.new_int(flag).into())
             } else {
@@ -2291,7 +2291,7 @@ mod _socket {
                     )
                 };
                 if ret < 0 {
-                    return Err(crate::common::os::errno_io_error().into());
+                    return Err(rustpython_host_env::os::errno_io_error().into());
                 }
                 buf.truncate(buflen as usize);
                 Ok(vm.ctx.new_bytes(buf).into())
@@ -2332,7 +2332,7 @@ mod _socket {
                 }
             };
             if ret < 0 {
-                Err(crate::common::os::errno_io_error().into())
+                Err(rustpython_host_env::os::errno_io_error().into())
             } else {
                 Ok(())
             }
@@ -3084,7 +3084,7 @@ mod _socket {
     fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         let name = name.to_cstring(vm)?;
         // in case 'if_nametoindex' does not set errno
-        crate::common::os::set_errno(libc::ENODEV);
+        rustpython_host_env::os::set_errno(libc::ENODEV);
         let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
         if ret == 0 {
             Err(vm.new_last_errno_error())
@@ -3098,7 +3098,7 @@ mod _socket {
     fn if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
         let mut buf = [0; c::IF_NAMESIZE + 1];
         // in case 'if_indextoname' does not set errno
-        crate::common::os::set_errno(libc::ENXIO);
+        rustpython_host_env::os::set_errno(libc::ENXIO);
         let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
         if ret.is_null() {
             Err(vm.new_last_errno_error())

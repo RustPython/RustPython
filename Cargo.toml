@@ -145,6 +145,7 @@ rustpython-compiler-core = { path = "crates/compiler-core", version = "0.5.0" }
 rustpython-compiler = { path = "crates/compiler", version = "0.5.0" }
 rustpython-codegen = { path = "crates/codegen", version = "0.5.0" }
 rustpython-common = { path = "crates/common", version = "0.5.0" }
+rustpython-host-env = { path = "crates/host_env", version = "0.5.0" }
 rustpython-derive = { path = "crates/derive", version = "0.5.0" }
 rustpython-derive-impl = { path = "crates/derive-impl", version = "0.5.0" }
 rustpython-jit = { path = "crates/jit", version = "0.5.0" }

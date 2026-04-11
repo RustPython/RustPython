@@ -7,8 +7,8 @@ mod msvcrt {
     use crate::{
         PyRef, PyResult, VirtualMachine,
         builtins::{PyBytes, PyStrRef},
-        common::{crt_fd, suppress_iph},
         convert::IntoPyException,
+        host_env::{crt_fd, suppress_iph},
     };
     use itertools::Itertools;
     use std::os::windows::io::AsRawHandle;

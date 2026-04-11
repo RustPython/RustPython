@@ -678,7 +678,7 @@ mod decl {
             loop {
                 let mut out = vec![0u16; size];
                 let written = unsafe {
-                    rustpython_common::suppress_iph!(wcsftime(
+                    rustpython_host_env::suppress_iph!(wcsftime(
                         out.as_mut_ptr(),
                         out.len(),
                         fmt_wide.as_ptr(),
@@ -1428,7 +1428,7 @@ mod platform {
 
     pub(super) fn win_mktime(t: &StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
         let mut tm = super::decl::tm_from_struct_time(t, vm)?;
-        let timestamp = unsafe { rustpython_common::suppress_iph!(c_mktime(&mut tm)) };
+        let timestamp = unsafe { rustpython_host_env::suppress_iph!(c_mktime(&mut tm)) };
         if timestamp == -1 && tm.tm_wday == -1 {
             return Err(vm.new_overflow_error("mktime argument out of range"));
         }

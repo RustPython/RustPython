@@ -1,0 +1,32 @@
+[package]
+name = "rustpython-host-env"
+description = "Host OS API abstractions for RustPython"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+rustpython-wtf8 = { workspace = true }
+
+libc = { workspace = true }
+num-traits = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+widestring = { workspace = true }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Ioctl",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemServices",
+] }
+
+[lints]
+workspace = true

@@ -1,4 +1,4 @@
-use rustpython_common::crt_fd;
+use rustpython_host_env::crt_fd;
 
 use crate::{
     AsObject, PyObjectRef, PyResult, VirtualMachine,

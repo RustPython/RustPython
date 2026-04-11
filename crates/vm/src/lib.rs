@@ -105,6 +105,7 @@ pub use self::vm::{Context, Interpreter, InterpreterBuilder, Settings, VirtualMa
 
 pub use rustpython_common as common;
 pub use rustpython_compiler_core::{bytecode, frozen};
+pub use rustpython_host_env as host_env;
 pub use rustpython_literal as literal;
 
 #[doc(hidden)]

@@ -30,6 +30,7 @@ flame-it = ["flame"]
 rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
+rustpython-host-env = { workspace = true }
 
 ruff_python_parser = { workspace = true }
 ruff_python_ast = { workspace = true }

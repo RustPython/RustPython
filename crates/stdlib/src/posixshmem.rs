@@ -6,12 +6,10 @@ pub(crate) use _posixshmem::module_def;
 mod _posixshmem {
     use alloc::ffi::CString;
 
-    use crate::{
-        common::os::errno_io_error,
-        vm::{
-            FromArgs, PyResult, VirtualMachine, builtins::PyUtf8StrRef, convert::IntoPyException,
-        },
+    use crate::vm::{
+        FromArgs, PyResult, VirtualMachine, builtins::PyUtf8StrRef, convert::IntoPyException,
     };
+    use rustpython_host_env::os::errno_io_error;
 
     #[derive(FromArgs)]
     struct ShmOpenArgs {

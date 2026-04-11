@@ -46,7 +46,7 @@ pub(crate) mod module {
     #[cfg(target_os = "wasi")]
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> crate::builtins::PyDictRef {
-        use rustpython_common::os::ffi::OsStringExt;
+        use rustpython_host_env::os::ffi::OsStringExt;
 
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {

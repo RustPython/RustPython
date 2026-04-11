@@ -13,7 +13,7 @@ mod decl {
     use core::time::Duration;
     use parking_lot::{Condvar, Mutex};
     #[cfg(any(unix, windows))]
-    use rustpython_common::os::{get_errno, set_errno};
+    use rustpython_host_env::os::{get_errno, set_errno};
     use std::thread;
 
     /// fault_handler_t

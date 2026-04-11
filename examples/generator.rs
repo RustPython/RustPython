@@ -46,5 +46,5 @@ fn main() -> ExitCode {
     let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
     let interp = builder.add_native_modules(&defs).build();
     let result = py_main(&interp);
-    vm::common::os::exit_code(interp.run(|_vm| result))
+    vm::host_env::os::exit_code(interp.run(|_vm| result))
 }
