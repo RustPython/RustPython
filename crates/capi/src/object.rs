@@ -15,36 +15,38 @@ const PY_TPFLAGS_DICT_SUBCLASS: c_ulong = 1 << 29;
 const PY_TPFLAGS_BASE_EXC_SUBCLASS: c_ulong = 1 << 30;
 const PY_TPFLAGS_TYPE_SUBCLASS: c_ulong = 1 << 31;
 
-#[unsafe(no_mangle)]
-pub static mut PyType_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+pub type PyTypeObject = Py<PyType>;
 
 #[unsafe(no_mangle)]
-pub static mut PyLong_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+pub static mut PyType_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
-pub static mut PyTuple_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+pub static mut PyLong_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
-pub static mut PyUnicode_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+pub static mut PyTuple_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
-pub static mut PyBool_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+pub static mut PyUnicode_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
-pub static mut PyDict_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+pub static mut PyBool_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
-pub static mut PyComplex_Type: MaybeUninit<&'static Py<PyType>> = MaybeUninit::uninit();
+pub static mut PyDict_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const Py<PyType> {
+pub static mut PyComplex_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
     // SAFETY: The caller must guarantee that `op` is a valid pointer to a `PyObject`.
     unsafe { (*op).class() }
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn PyType_GetFlags(ptr: *const Py<PyType>) -> c_ulong {
+pub extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
     let ctx = Context::genesis();
     let zoo = &ctx.types;
     let exp_zoo = &ctx.exceptions;
@@ -82,19 +84,19 @@ pub extern "C" fn PyType_GetFlags(ptr: *const Py<PyType>) -> c_ulong {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyType_GetName(ptr: *const Py<PyType>) -> *mut PyObject {
+pub extern "C" fn PyType_GetName(ptr: *const PyTypeObject) -> *mut PyObject {
     let ty = unsafe { &*ptr };
     with_vm(move |vm| ty.__name__(vm))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyType_GetQualName(ptr: *const Py<PyType>) -> *mut PyObject {
+pub extern "C" fn PyType_GetQualName(ptr: *const PyTypeObject) -> *mut PyObject {
     let ty = unsafe { &*ptr };
     with_vm(move |vm| ty.__qualname__(vm))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const Py<PyType>) -> *mut PyObject {
+pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) -> *mut PyObject {
     let ty = unsafe { &*ptr };
     with_vm(move |vm| {
         let module = ty.__module__(vm).downcast::<PyStr>().unwrap();
@@ -109,7 +111,7 @@ pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const Py<PyType>) -> *mut P
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyType_IsSubtype(a: *const Py<PyType>, b: *const Py<PyType>) -> c_int {
+pub extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObject) -> c_int {
     with_vm(move |_vm| {
         let a = unsafe { &*a };
         let b = unsafe { &*b };
