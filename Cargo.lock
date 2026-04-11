@@ -3102,6 +3102,7 @@ dependencies = [
 name = "rustpython-capi"
 version = "0.5.0"
 dependencies = [
+ "bitflags 2.11.0",
  "num-complex",
  "pyo3",
  "rustpython-vm",
