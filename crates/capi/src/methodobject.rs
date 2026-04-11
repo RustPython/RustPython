@@ -64,8 +64,10 @@ fn c_function_wrapper(
         _ => panic!("Unexpected flags value: {flags:?}"),
     })?;
 
-    let ret_ptr = NonNull::new(ret_ptr)
-        .ok_or_else(|| vm.new_system_error("native method returned NULL".to_owned()))?;
+    let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("Native function returned NULL, but there was no exception set")
+    })?;
     Ok(unsafe { PyObjectRef::from_raw(ret_ptr) })
 }
 
@@ -96,7 +98,7 @@ pub extern "C" fn PyCMethod_New(
                     | PyMethodFlags::CLASS
                     | PyMethodFlags::STATIC
             ),
-            "These flags are not supported not supported yet: {:?}",
+            "These flags are not yet supported: {:?}",
             flags
         );
 
@@ -113,6 +115,7 @@ pub extern "C" fn PyCMethod_New(
 
 #[cfg(test)]
 mod tests {
+    use pyo3::exceptions::PyException;
     use pyo3::ffi::{PyLong_FromLong, PyObject};
     use pyo3::prelude::*;
     use pyo3::types::{PyCFunction, PyInt, PyString};
@@ -148,6 +151,22 @@ mod tests {
                 .extract::<u32>()
                 .unwrap();
             assert_eq!(result, 4200);
+        })
+    }
+
+    #[test]
+    fn test_closure_function_error() {
+        Python::attach(|py| {
+            let f = PyCFunction::new_closure(py, None, None, |_args, _kwargs| {
+                Err::<(), _>(PyException::new_err("Something went wrong"))
+            })
+            .unwrap();
+
+            let err = f.call0().unwrap_err();
+            assert_eq!(
+                err.value(py).repr().unwrap(),
+                "Exception('Something went wrong')"
+            );
         })
     }
 }
