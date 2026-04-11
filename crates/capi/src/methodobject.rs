@@ -1,7 +1,7 @@
 use crate::PyObject;
 use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
-use core::ffi::{CStr, c_char, c_int, c_void};
+use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use rustpython_vm::function::{FuncArgs, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyResult, VirtualMachine};
@@ -14,18 +14,25 @@ type PyCFunctionWithKeywords = unsafe extern "C" fn(
 ) -> *mut PyObject;
 
 #[repr(C)]
+#[derive(Copy, Clone)]
+pub union PyMethodPointer {
+    function: PyCFunction,
+    function_with_keywords: PyCFunctionWithKeywords,
+}
+
+#[repr(C)]
 pub struct PyMethodDef {
-    pub ml_name: *const c_char,
-    pub ml_meth: *mut c_void,
-    pub ml_flags: c_int,
-    pub ml_doc: *const c_char,
+    ml_name: *const c_char,
+    ml_meth: PyMethodPointer,
+    ml_flags: c_int,
+    ml_doc: *const c_char,
 }
 
 fn c_function_wrapper(
     vm: &VirtualMachine,
     slf: &PyObjectRef,
     mut args: FuncArgs,
-    ml_meth: usize,
+    ml_meth: PyMethodPointer,
     ml_flags: c_int,
 ) -> PyResult {
     let slf = slf.as_object().as_raw().cast_mut();
@@ -35,15 +42,15 @@ fn c_function_wrapper(
     let arg_tuple_ptr = arg_tuple.as_object().as_raw().cast_mut();
 
     let ret_ptr = if flags.contains(PyMethodFlags::KEYWORDS) {
+        let f = unsafe { ml_meth.function_with_keywords };
         let kwargs = vm.ctx.new_dict();
         for (k, v) in args.kwargs {
             kwargs.set_item(&*k, v, vm)?;
         }
         let kwargs_ptr = kwargs.as_object().as_raw().cast_mut();
-        let f = unsafe { core::mem::transmute::<usize, PyCFunctionWithKeywords>(ml_meth) };
         unsafe { f(slf, arg_tuple_ptr, kwargs_ptr) }
     } else {
-        let f = unsafe { core::mem::transmute::<usize, PyCFunction>(ml_meth) };
+        let f = unsafe { ml_meth.function };
         unsafe { f(slf, arg_tuple_ptr) }
     };
 
@@ -69,8 +76,8 @@ pub extern "C" fn PyCMethod_New(
             .to_str()
             .expect("Method doc was not valid UTF-8");
 
-        let ml_meth = ml.ml_meth as usize;
         let ml_flags = ml.ml_flags;
+        let ml_meth = ml.ml_meth;
         let slf = unsafe { &*slf }.to_owned();
         let callable = move |args: FuncArgs, vm: &VirtualMachine| {
             c_function_wrapper(vm, &slf, args, ml_meth, ml_flags)
