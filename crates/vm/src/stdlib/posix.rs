@@ -1,19 +1,8 @@
 // spell-checker:disable
 
-use std::os::fd::BorrowedFd;
-
 pub(crate) use module::module_def;
 
-pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()> {
-    use nix::fcntl;
-    let flags = fcntl::FdFlag::from_bits_truncate(fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFD)?);
-    let mut new_flags = flags;
-    new_flags.set(fcntl::FdFlag::FD_CLOEXEC, !inheritable);
-    if flags != new_flags {
-        fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFD(new_flags))?;
-    }
-    Ok(())
-}
+pub use rustpython_host_env::posix::set_inheritable;
 
 #[pymodule(name = "posix", with(
     super::os::_os,

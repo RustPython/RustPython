@@ -2787,13 +2787,13 @@ mod _socket {
         }
         #[cfg(windows)]
         {
-            use crate::select;
+            use rustpython_host_env::select as host_select;
 
             let fd = sock_fileno(sock);
 
-            let mut reads = select::FdSet::new();
-            let mut writes = select::FdSet::new();
-            let mut errs = select::FdSet::new();
+            let mut reads = host_select::FdSet::new();
+            let mut writes = host_select::FdSet::new();
+            let mut errs = host_select::FdSet::new();
 
             let fd = fd as usize;
             match kind {
@@ -2805,12 +2805,12 @@ mod _socket {
                 }
             }
 
-            let mut interval = interval.map(|dur| select::timeval {
+            let mut interval = interval.map(|dur| host_select::timeval {
                 tv_sec: dur.as_secs() as _,
                 tv_usec: dur.subsec_micros() as _,
             });
 
-            select::select(
+            host_select::select(
                 fd as i32 + 1,
                 &mut reads,
                 &mut writes,

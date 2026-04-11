@@ -16,6 +16,7 @@ mod _winapi {
     };
     use core::ptr::{null, null_mut};
     use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_host_env::winapi as host_winapi;
     use rustpython_host_env::windows::ToWideString;
     use windows_sys::Win32::Foundation::{HANDLE, MAX_PATH};
 
@@ -201,12 +202,12 @@ mod _winapi {
 
     #[pyfunction]
     fn GetACP() -> u32 {
-        unsafe { windows_sys::Win32::Globalization::GetACP() }
+        host_winapi::get_acp()
     }
 
     #[pyfunction]
     fn GetCurrentProcess() -> WinHandle {
-        WinHandle(unsafe { windows_sys::Win32::System::Threading::GetCurrentProcess() })
+        WinHandle(host_winapi::get_current_process())
     }
 
     #[pyfunction]
@@ -224,12 +225,12 @@ mod _winapi {
 
     #[pyfunction]
     fn GetLastError() -> u32 {
-        unsafe { windows_sys::Win32::Foundation::GetLastError() }
+        host_winapi::get_last_error()
     }
 
     #[pyfunction]
     fn GetVersion() -> u32 {
-        unsafe { windows_sys::Win32::System::SystemInformation::GetVersion() }
+        host_winapi::get_version()
     }
 
     #[derive(FromArgs)]

@@ -9,7 +9,7 @@ mod _posixshmem {
     use crate::vm::{
         FromArgs, PyResult, VirtualMachine, builtins::PyUtf8StrRef, convert::IntoPyException,
     };
-    use rustpython_host_env::os::errno_io_error;
+    use rustpython_host_env::shm;
 
     #[derive(FromArgs)]
     struct ShmOpenArgs {
@@ -25,26 +25,12 @@ mod _posixshmem {
     fn shm_open(args: ShmOpenArgs, vm: &VirtualMachine) -> PyResult<libc::c_int> {
         let name = CString::new(args.name.as_str()).map_err(|e| e.into_pyexception(vm))?;
         let mode: libc::c_uint = args.mode as _;
-        #[cfg(target_os = "freebsd")]
-        let mode = mode.try_into().unwrap();
-        // SAFETY: `name` is a NUL-terminated string and `shm_open` does not write through it.
-        let fd = unsafe { libc::shm_open(name.as_ptr(), args.flags, mode) };
-        if fd == -1 {
-            Err(errno_io_error().into_pyexception(vm))
-        } else {
-            Ok(fd)
-        }
+        shm::shm_open(name.as_c_str(), args.flags, mode).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn shm_unlink(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
         let name = CString::new(name.as_str()).map_err(|e| e.into_pyexception(vm))?;
-        // SAFETY: `name` is a valid NUL-terminated string and `shm_unlink` only reads it.
-        let ret = unsafe { libc::shm_unlink(name.as_ptr()) };
-        if ret == -1 {
-            Err(errno_io_error().into_pyexception(vm))
-        } else {
-            Ok(())
-        }
+        shm::shm_unlink(name.as_c_str()).map_err(|e| e.into_pyexception(vm))
     }
 }

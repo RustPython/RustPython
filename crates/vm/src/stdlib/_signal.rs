@@ -13,6 +13,8 @@ pub(crate) mod _signal {
         function::{ArgIntoFloat, OptionalArg},
     };
     use core::sync::atomic::{self, Ordering};
+    #[cfg(unix)]
+    use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
 
     #[cfg(any(unix, windows))]
     use libc::sighandler_t;
@@ -278,27 +280,6 @@ pub(crate) mod _signal {
         unsafe { libc::pause() };
         signal::check_signals(vm)?;
         Ok(())
-    }
-
-    #[cfg(unix)]
-    fn timeval_to_double(tv: &libc::timeval) -> f64 {
-        tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0)
-    }
-
-    #[cfg(unix)]
-    fn double_to_timeval(val: f64) -> libc::timeval {
-        libc::timeval {
-            tv_sec: val.trunc() as _,
-            tv_usec: ((val.fract()) * 1_000_000.0) as _,
-        }
-    }
-
-    #[cfg(unix)]
-    fn itimerval_to_tuple(it: &libc::itimerval) -> (f64, f64) {
-        (
-            timeval_to_double(&it.it_value),
-            timeval_to_double(&it.it_interval),
-        )
     }
 
     #[cfg(unix)]

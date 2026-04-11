@@ -4,15 +4,13 @@ pub(crate) use syslog::module_def;
 
 #[pymodule(name = "syslog")]
 mod syslog {
-    use crate::common::lock::PyRwLock;
     use crate::vm::{
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef},
         function::{OptionalArg, OptionalOption},
         utils::ToCString,
     };
-    use core::ffi::CStr;
-    use std::os::raw::c_char;
+    use rustpython_host_env::syslog as host_syslog;
 
     #[pyattr]
     use libc::{
@@ -41,28 +39,6 @@ mod syslog {
         None
     }
 
-    #[derive(Debug)]
-    enum GlobalIdent {
-        Explicit(Box<CStr>),
-        Implicit,
-    }
-
-    impl GlobalIdent {
-        fn as_ptr(&self) -> *const c_char {
-            match self {
-                Self::Explicit(cstr) => cstr.as_ptr(),
-                Self::Implicit => core::ptr::null(),
-            }
-        }
-    }
-
-    fn global_ident() -> &'static PyRwLock<Option<GlobalIdent>> {
-        rustpython_common::static_cell! {
-            static IDENT: PyRwLock<Option<GlobalIdent>>;
-        };
-        IDENT.get_or_init(|| PyRwLock::new(None))
-    }
-
     #[derive(Default, FromArgs)]
     struct OpenLogArgs {
         #[pyarg(any, optional)]
@@ -83,16 +59,7 @@ mod syslog {
         }
         .map(|ident| ident.into_boxed_c_str());
 
-        let ident = match ident {
-            Some(ident) => GlobalIdent::Explicit(ident),
-            None => GlobalIdent::Implicit,
-        };
-
-        {
-            let mut locked_ident = global_ident().write();
-            unsafe { libc::openlog(ident.as_ptr(), logoption, facility) };
-            *locked_ident = Some(ident);
-        }
+        host_syslog::openlog(ident, logoption, facility);
         Ok(())
     }
 
@@ -111,38 +78,34 @@ mod syslog {
             None => (LOG_INFO, args.priority.try_into_value(vm)?),
         };
 
-        if global_ident().read().is_none() {
+        if !host_syslog::is_open() {
             openlog(OpenLogArgs::default(), vm)?;
         }
 
-        let (cformat, cmsg) = ("%s".to_cstring(vm)?, msg.to_cstring(vm)?);
-        unsafe { libc::syslog(priority, cformat.as_ptr(), cmsg.as_ptr()) };
+        let cmsg = msg.to_cstring(vm)?;
+        host_syslog::syslog(priority, cmsg.as_c_str());
         Ok(())
     }
 
     #[pyfunction]
     fn closelog() {
-        if global_ident().read().is_some() {
-            let mut locked_ident = global_ident().write();
-            unsafe { libc::closelog() };
-            *locked_ident = None;
-        }
+        host_syslog::closelog();
     }
 
     #[pyfunction]
     fn setlogmask(maskpri: i32) -> i32 {
-        unsafe { libc::setlogmask(maskpri) }
+        host_syslog::setlogmask(maskpri)
     }
 
     #[inline]
     #[pyfunction(name = "LOG_MASK")]
     const fn log_mask(pri: i32) -> i32 {
-        pri << 1
+        host_syslog::log_mask(pri)
     }
 
     #[inline]
     #[pyfunction(name = "LOG_UPTO")]
     const fn log_upto(pri: i32) -> i32 {
-        (1 << (pri + 1)) - 1
+        host_syslog::log_upto(pri)
     }
 }

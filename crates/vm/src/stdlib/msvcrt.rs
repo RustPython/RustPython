@@ -8,9 +8,10 @@ mod msvcrt {
         PyRef, PyResult, VirtualMachine,
         builtins::{PyBytes, PyStrRef},
         convert::IntoPyException,
-        host_env::{crt_fd, suppress_iph},
+        host_env::crt_fd,
     };
     use itertools::Itertools;
+    use rustpython_host_env::msvcrt as host_msvcrt;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::System::Diagnostics::Debug;
 
@@ -21,54 +22,36 @@ mod msvcrt {
     };
 
     pub fn setmode_binary(fd: crt_fd::Borrowed<'_>) {
-        unsafe { suppress_iph!(_setmode(fd, libc::O_BINARY)) };
-    }
-
-    unsafe extern "C" {
-        fn _getch() -> i32;
-        fn _getwch() -> u32;
-        fn _getche() -> i32;
-        fn _getwche() -> u32;
-        fn _putch(c: u32) -> i32;
-        fn _putwch(c: u16) -> u32;
-        fn _ungetch(c: i32) -> i32;
-        fn _ungetwch(c: u32) -> u32;
-        fn _locking(fd: i32, mode: i32, nbytes: i64) -> i32;
-        fn _heapmin() -> i32;
-        fn _kbhit() -> i32;
+        host_msvcrt::setmode_binary(fd);
     }
 
     // Locking mode constants
     #[pyattr]
-    const LK_UNLCK: i32 = 0; // Unlock
+    const LK_UNLCK: i32 = host_msvcrt::LK_UNLCK; // Unlock
     #[pyattr]
-    const LK_LOCK: i32 = 1; // Lock (blocking)
+    const LK_LOCK: i32 = host_msvcrt::LK_LOCK; // Lock (blocking)
     #[pyattr]
-    const LK_NBLCK: i32 = 2; // Non-blocking lock
+    const LK_NBLCK: i32 = host_msvcrt::LK_NBLCK; // Non-blocking lock
     #[pyattr]
-    const LK_RLCK: i32 = 3; // Lock for reading (same as LK_LOCK)
+    const LK_RLCK: i32 = host_msvcrt::LK_RLCK; // Lock for reading (same as LK_LOCK)
     #[pyattr]
-    const LK_NBRLCK: i32 = 4; // Non-blocking lock for reading (same as LK_NBLCK)
+    const LK_NBRLCK: i32 = host_msvcrt::LK_NBRLCK; // Non-blocking lock for reading (same as LK_NBLCK)
 
     #[pyfunction]
     fn getch() -> Vec<u8> {
-        let c = unsafe { _getch() };
-        vec![c as u8]
+        host_msvcrt::getch()
     }
     #[pyfunction]
     fn getwch() -> String {
-        let c = unsafe { _getwch() };
-        char::from_u32(c).unwrap().to_string()
+        host_msvcrt::getwch()
     }
     #[pyfunction]
     fn getche() -> Vec<u8> {
-        let c = unsafe { _getche() };
-        vec![c as u8]
+        host_msvcrt::getche()
     }
     #[pyfunction]
     fn getwche() -> String {
-        let c = unsafe { _getwche() };
-        char::from_u32(c).unwrap().to_string()
+        host_msvcrt::getwche()
     }
     #[pyfunction]
     fn putch(b: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {
@@ -76,7 +59,7 @@ mod msvcrt {
             b.as_bytes().iter().exactly_one().map_err(|_| {
                 vm.new_type_error("putch() argument must be a byte string of length 1")
             })?;
-        unsafe { suppress_iph!(_putch(c.into())) };
+        host_msvcrt::putch(c);
         Ok(())
     }
     #[pyfunction]
@@ -86,7 +69,7 @@ mod msvcrt {
             .chars()
             .exactly_one()
             .map_err(|_| vm.new_type_error("putch() argument must be a string of length 1"))?;
-        unsafe { suppress_iph!(_putwch(c as u16)) };
+        host_msvcrt::putwch(c);
         Ok(())
     }
 
@@ -95,13 +78,7 @@ mod msvcrt {
         let &c = b.as_bytes().iter().exactly_one().map_err(|_| {
             vm.new_type_error("ungetch() argument must be a byte string of length 1")
         })?;
-        let ret = unsafe { suppress_iph!(_ungetch(c as i32)) };
-        if ret == -1 {
-            // EOF returned means the buffer is full
-            Err(vm.new_os_error(libc::ENOSPC))
-        } else {
-            Ok(())
-        }
+        host_msvcrt::ungetch(c).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -110,62 +87,32 @@ mod msvcrt {
             s.expect_str().chars().exactly_one().map_err(|_| {
                 vm.new_type_error("ungetwch() argument must be a string of length 1")
             })?;
-        let ret = unsafe { suppress_iph!(_ungetwch(c as u32)) };
-        if ret == 0xFFFF {
-            // WEOF returned means the buffer is full
-            Err(vm.new_os_error(libc::ENOSPC))
-        } else {
-            Ok(())
-        }
+        host_msvcrt::ungetwch(c).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn kbhit() -> i32 {
-        unsafe { _kbhit() }
+        host_msvcrt::kbhit()
     }
 
     #[pyfunction]
     fn locking(fd: i32, mode: i32, nbytes: i64, vm: &VirtualMachine) -> PyResult<()> {
-        let ret = unsafe { suppress_iph!(_locking(fd, mode, nbytes)) };
-        if ret == -1 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(())
-        }
+        host_msvcrt::locking(fd, mode, nbytes).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn heapmin(vm: &VirtualMachine) -> PyResult<()> {
-        let ret = unsafe { suppress_iph!(_heapmin()) };
-        if ret == -1 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(())
-        }
-    }
-
-    unsafe extern "C" {
-        fn _setmode(fd: crt_fd::Borrowed<'_>, flags: i32) -> i32;
+        host_msvcrt::heapmin().map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn setmode(fd: crt_fd::Borrowed<'_>, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        let flags = unsafe { suppress_iph!(_setmode(fd, flags)) };
-        if flags == -1 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(flags)
-        }
+        host_msvcrt::setmode(fd, flags).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn open_osfhandle(handle: isize, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        let ret = unsafe { suppress_iph!(libc::open_osfhandle(handle, flags)) };
-        if ret == -1 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(ret)
-        }
+        host_msvcrt::open_osfhandle(handle, flags).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -178,12 +125,12 @@ mod msvcrt {
     #[allow(non_snake_case)]
     #[pyfunction]
     fn GetErrorMode() -> u32 {
-        unsafe { suppress_iph!(Debug::GetErrorMode()) }
+        host_msvcrt::get_error_mode()
     }
 
     #[allow(non_snake_case)]
     #[pyfunction]
     fn SetErrorMode(mode: Debug::THREAD_ERROR_MODE, _: &VirtualMachine) -> u32 {
-        unsafe { suppress_iph!(Debug::SetErrorMode(mode)) }
+        host_msvcrt::set_error_mode(mode)
     }
 }

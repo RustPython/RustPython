@@ -14,3 +14,27 @@ pub mod fileutils;
 
 #[cfg(windows)]
 pub mod windows;
+
+#[cfg(any(unix, target_os = "wasi"))]
+pub mod fcntl;
+#[cfg(any(unix, windows, target_os = "wasi"))]
+pub mod select;
+#[cfg(unix)]
+pub mod syslog;
+#[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
+pub mod termios;
+
+#[cfg(unix)]
+pub mod posix;
+#[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
+pub mod shm;
+#[cfg(unix)]
+pub mod signal;
+pub mod time;
+
+#[cfg(windows)]
+pub mod msvcrt;
+#[cfg(windows)]
+pub mod nt;
+#[cfg(windows)]
+pub mod winapi;

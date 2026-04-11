@@ -9,8 +9,7 @@ mod termios {
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
         convert::ToPyObject,
     };
-    use rustpython_host_env::os::ErrorExt;
-    use termios::Termios;
+    use rustpython_host_env::{os::ErrorExt, termios as host_termios};
 
     // TODO: more ioctl numbers
     // NOTE: B2500000, B3000000, B3500000, B4000000, and CIBAUD
@@ -171,7 +170,7 @@ mod termios {
 
     #[pyfunction]
     fn tcgetattr(fd: i32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let termios = Termios::from_fd(fd).map_err(|e| termios_error(e, vm))?;
+        let termios = host_termios::tcgetattr(fd).map_err(|e| termios_error(e, vm))?;
         let noncanon = (termios.c_lflag & termios::ICANON) == 0;
         let cc = termios
             .c_cc
@@ -200,7 +199,7 @@ mod termios {
             <&[PyObjectRef; 7]>::try_from(&*attributes.borrow_vec())
                 .map_err(|_| vm.new_type_error("tcsetattr, arg 3: must be 7 element list"))?
                 .clone();
-        let mut termios = Termios::from_fd(fd).map_err(|e| termios_error(e, vm))?;
+        let mut termios = host_termios::tcgetattr(fd).map_err(|e| termios_error(e, vm))?;
         termios.c_iflag = iflag.try_into_value(vm)?;
         termios.c_oflag = oflag.try_into_value(vm)?;
         termios.c_cflag = cflag.try_into_value(vm)?;
@@ -231,32 +230,32 @@ mod termios {
             };
         }
 
-        termios::tcsetattr(fd, when, &termios).map_err(|e| termios_error(e, vm))?;
+        host_termios::tcsetattr(fd, when, &termios).map_err(|e| termios_error(e, vm))?;
 
         Ok(())
     }
 
     #[pyfunction]
     fn tcsendbreak(fd: i32, duration: i32, vm: &VirtualMachine) -> PyResult<()> {
-        termios::tcsendbreak(fd, duration).map_err(|e| termios_error(e, vm))?;
+        host_termios::tcsendbreak(fd, duration).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
     fn tcdrain(fd: i32, vm: &VirtualMachine) -> PyResult<()> {
-        termios::tcdrain(fd).map_err(|e| termios_error(e, vm))?;
+        host_termios::tcdrain(fd).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
     fn tcflush(fd: i32, queue: i32, vm: &VirtualMachine) -> PyResult<()> {
-        termios::tcflush(fd, queue).map_err(|e| termios_error(e, vm))?;
+        host_termios::tcflush(fd, queue).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
     fn tcflow(fd: i32, action: i32, vm: &VirtualMachine) -> PyResult<()> {
-        termios::tcflow(fd, action).map_err(|e| termios_error(e, vm))?;
+        host_termios::tcflow(fd, action).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 

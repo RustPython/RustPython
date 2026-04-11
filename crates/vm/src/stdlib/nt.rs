@@ -20,6 +20,7 @@ pub(crate) mod module {
     use core::mem::MaybeUninit;
     use libc::intptr_t;
     use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_host_env::nt as host_nt;
     use std::os::windows::io::AsRawHandle;
     use std::{env, io, os::windows::ffi::OsStringExt};
     use windows_sys::Win32::{
@@ -274,76 +275,16 @@ pub(crate) mod module {
     const S_IWRITE: u32 = 128;
 
     fn win32_hchmod(handle: Foundation::HANDLE, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        use windows_sys::Win32::Storage::FileSystem::{
-            FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
-            SetFileInformationByHandle,
-        };
-
-        // Get current file info
-        let mut info: FILE_BASIC_INFO = unsafe { core::mem::zeroed() };
-        let ret = unsafe {
-            GetFileInformationByHandleEx(
-                handle,
-                FileBasicInfo,
-                &mut info as *mut _ as *mut _,
-                core::mem::size_of::<FILE_BASIC_INFO>() as u32,
-            )
-        };
-        if ret == 0 {
-            return Err(vm.new_last_os_error());
-        }
-
-        // Modify readonly attribute based on S_IWRITE bit
-        if mode & S_IWRITE != 0 {
-            info.FileAttributes &= !FileSystem::FILE_ATTRIBUTE_READONLY;
-        } else {
-            info.FileAttributes |= FileSystem::FILE_ATTRIBUTE_READONLY;
-        }
-
-        // Set the new attributes
-        let ret = unsafe {
-            SetFileInformationByHandle(
-                handle,
-                FileBasicInfo,
-                &info as *const _ as *const _,
-                core::mem::size_of::<FILE_BASIC_INFO>() as u32,
-            )
-        };
-        if ret == 0 {
-            return Err(vm.new_last_os_error());
-        }
-
-        Ok(())
+        host_nt::win32_hchmod(handle, mode, S_IWRITE).map_err(|e| e.to_pyexception(vm))
     }
 
     fn fchmod_impl(fd: i32, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        // Get Windows HANDLE from fd
-        let borrowed = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
-        let handle = crt_fd::as_handle(borrowed).map_err(|e| e.to_pyexception(vm))?;
-        let hfile = handle.as_raw_handle() as Foundation::HANDLE;
-        win32_hchmod(hfile, mode, vm)
+        host_nt::fchmod(fd, mode, S_IWRITE).map_err(|e| e.to_pyexception(vm))
     }
 
     fn win32_lchmod(path: &OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        use windows_sys::Win32::Storage::FileSystem::{GetFileAttributesW, SetFileAttributesW};
-
-        let wide = path.to_wide_cstring(vm)?;
-        let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
-        if attr == FileSystem::INVALID_FILE_ATTRIBUTES {
-            let err = io::Error::last_os_error();
-            return Err(OSErrorBuilder::with_filename(&err, path.clone(), vm));
-        }
-        let new_attr = if mode & S_IWRITE != 0 {
-            attr & !FileSystem::FILE_ATTRIBUTE_READONLY
-        } else {
-            attr | FileSystem::FILE_ATTRIBUTE_READONLY
-        };
-        let ret = unsafe { SetFileAttributesW(wide.as_ptr(), new_attr) };
-        if ret == 0 {
-            let err = io::Error::last_os_error();
-            return Err(OSErrorBuilder::with_filename(&err, path.clone(), vm));
-        }
-        Ok(())
+        host_nt::win32_lchmod(path.path.as_os_str(), mode, S_IWRITE)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))
     }
 
     #[pyfunction]

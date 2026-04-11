@@ -17,15 +17,24 @@ num-traits = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
 
+[target.'cfg(all(unix, not(target_os = "ios"), not(target_os = "redox")))'.dependencies]
+termios = "0.3.3"
+
 [target.'cfg(windows)'.dependencies]
 widestring = { workspace = true }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Networking_WinSock",
     "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
     "Win32_System_Ioctl",
     "Win32_System_LibraryLoader",
+    "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_Time",
 ] }
 
 [lints]
