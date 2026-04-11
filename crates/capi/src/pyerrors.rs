@@ -26,6 +26,15 @@ pub static mut PyExc_OverflowError: MaybeUninit<*mut PyObject> = MaybeUninit::un
 pub static mut PyExc_IndexError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
+pub static mut PyExc_AttributeError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
+pub static mut PyExc_RuntimeError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
+pub static mut PyExc_ValueError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
     with_vm(|vm| vm.take_raised_exception())
 }
@@ -141,9 +150,32 @@ pub extern "C" fn PyErr_NewExceptionWithDoc(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyException_GetTraceback(_exc: *mut PyObject) -> *mut PyObject {
-    crate::log_stub("PyException_GetTraceback");
-    core::ptr::null_mut()
+pub extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc };
+        exc.get_attr("__traceback__", vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut PyObject) {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc };
+        let cause = unsafe { cause.as_ref() }.map(|obj| obj.to_owned());
+        if let Err(err) = exc.set_attr("__cause__", vm.unwrap_or_none(cause), vm) {
+            vm.push_exception(Some(err));
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc };
+        let traceback = unsafe { tb.as_ref() }.map(|obj| obj.to_owned());
+        exc.set_attr("__traceback__", vm.unwrap_or_none(traceback), vm)?;
+        Ok(0)
+    })
 }
 
 #[unsafe(no_mangle)]
