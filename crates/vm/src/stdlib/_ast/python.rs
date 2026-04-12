@@ -8,7 +8,9 @@ use super::{
 pub(crate) mod _ast {
     use crate::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8Str, PyUtf8StrRef},
+        builtins::{
+            PyDictRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8Str, PyUtf8StrRef,
+        },
         class::{PyClassImpl, StaticType},
         common::wtf8::Wtf8,
         function::{FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
@@ -54,9 +56,22 @@ pub(crate) mod _ast {
                 PyMethodFlags::METHOD,
                 None,
             );
+            const AST_DEEPCOPY: PyMethodDef = PyMethodDef::new_const(
+                "__deepcopy__",
+                |zelf: PyObjectRef, memo: PyObjectRef, vm: &VirtualMachine| -> PyResult {
+                    ast_deepcopy(zelf, memo, vm)
+                },
+                PyMethodFlags::METHOD,
+                None,
+            );
 
             class.set_str_attr("__reduce__", AST_REDUCE.to_proper_method(class, ctx), ctx);
             class.set_str_attr("__replace__", AST_REPLACE.to_proper_method(class, ctx), ctx);
+            class.set_str_attr(
+                "__deepcopy__",
+                AST_DEEPCOPY.to_proper_method(class, ctx),
+                ctx,
+            );
             class.slots.repr.store(Some(ast_repr));
         }
 
@@ -83,6 +98,11 @@ pub(crate) mod _ast {
         #[pymethod]
         fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             ast_replace(zelf, args, vm)
+        }
+
+        #[pymethod]
+        fn __deepcopy__(zelf: PyObjectRef, memo: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            ast_deepcopy(zelf, memo, vm)
         }
     }
 
@@ -233,6 +253,46 @@ pub(crate) mod _ast {
         Ok(result)
     }
 
+    pub(crate) fn ast_deepcopy(
+        zelf: PyObjectRef,
+        memo: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let memo_dict: PyDictRef = memo
+            .clone()
+            .downcast()
+            .map_err(|_| vm.new_type_error("__deepcopy__() memo must be a dict"))?;
+        let memo_key: PyObjectRef = vm.ctx.new_int(zelf.get_id() as i64).into();
+
+        if let Some(existing) = memo_dict.get_item_opt(&*memo_key, vm)? {
+            return Ok(existing);
+        }
+
+        let cls = zelf.class();
+        let copied_dict = if cls
+            .slots
+            .flags
+            .contains(crate::types::PyTypeFlags::HAS_DICT)
+        {
+            Some(vm.ctx.new_dict())
+        } else {
+            None
+        };
+        let copied = vm.ctx.new_base_object(cls.to_owned(), copied_dict.clone());
+
+        memo_dict.set_item(&*memo_key, copied.clone(), vm)?;
+
+        if let (Some(src_dict), Some(dst_dict)) = (zelf.as_object().dict(), copied_dict) {
+            let deepcopy = vm.import("copy", 0)?.get_attr("deepcopy", vm)?;
+            for (key, value) in src_dict.items_vec() {
+                let copied_value = deepcopy.call((value, memo.clone()), vm)?;
+                dst_dict.set_item(&*key, copied_value, vm)?;
+            }
+        }
+
+        Ok(copied)
+    }
+
     pub(crate) fn ast_repr(zelf: &crate::PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let repr = repr::repr_ast_node(vm, &zelf.to_owned(), 3)?;
         Ok(vm.ctx.new_str(repr))
@@ -242,15 +302,12 @@ pub(crate) mod _ast {
         type Args = FuncArgs;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            if args.args.is_empty()
-                && args.kwargs.is_empty()
-                && let Some(instance) = cls.get_attr(vm.ctx.intern_str("_instance"))
-            {
-                return Ok(instance);
-            }
-
-            // AST nodes accept extra arguments (unlike object.__new__)
-            // This matches CPython's behavior where AST has its own tp_new
+            // Keep _instance for parser-internal shared operator/context nodes,
+            // but match CPython's public constructor behavior by allocating a
+            // fresh object for Python-level ast.Load()/ast.Add()/... calls.
+            // Returning the cached singleton here makes user-added attributes
+            // like `parent` leak across unrelated trees and breaks deepcopy.
+            // AST nodes accept extra arguments (unlike object.__new__).
             let dict = if cls
                 .slots
                 .flags

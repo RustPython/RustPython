@@ -1187,7 +1187,6 @@ class DisTests(DisTestBase):
     def test_disassemble_instance_method(self):
         self.do_disassembly_test(_C(1).__init__, dis_c_instance_method)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_instance_method_bytes(self):
         method_bytecode = _C(1).__init__.__code__.co_code
         self.do_disassembly_test(method_bytecode, dis_c_instance_method_bytes)

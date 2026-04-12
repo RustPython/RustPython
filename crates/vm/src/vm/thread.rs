@@ -557,6 +557,10 @@ impl ThreadedVirtualMachine {
         F: FnOnce(&VirtualMachine) -> R,
     {
         let vm = &self.vm;
+        // Each spawned thread has its own native stack bounds. Recompute the
+        // soft limit here instead of inheriting the parent thread's value.
+        vm.c_stack_soft_limit
+            .set(VirtualMachine::calculate_c_stack_soft_limit());
         enter_vm(vm, || f(vm))
     }
 }

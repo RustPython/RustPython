@@ -242,6 +242,7 @@ impl CodeInfo {
         normalize_jumps(&mut self.blocks);
         reorder_conditional_exit_and_jump_blocks(&mut self.blocks);
         reorder_conditional_jump_and_exit_blocks(&mut self.blocks);
+        reorder_jump_over_exception_cleanup_blocks(&mut self.blocks);
         inline_small_or_no_lineno_blocks(&mut self.blocks);
         self.dce(); // re-run within-block DCE after normalize_jumps creates new instructions
         self.eliminate_unreachable_blocks();
@@ -256,6 +257,7 @@ impl CodeInfo {
         jump_threading_unconditional(&mut self.blocks);
         reorder_conditional_exit_and_jump_blocks(&mut self.blocks);
         reorder_conditional_jump_and_exit_blocks(&mut self.blocks);
+        reorder_jump_over_exception_cleanup_blocks(&mut self.blocks);
         self.eliminate_unreachable_blocks();
         remove_redundant_nops_and_jumps(&mut self.blocks);
         self.add_checks_for_loads_of_uninitialized_variables();
@@ -1359,32 +1361,33 @@ impl CodeInfo {
     /// - n == 2 or 3: BUILD_TUPLE → NOP, UNPACK_SEQUENCE → SWAP
     fn optimize_build_tuple_unpack(&mut self) {
         for block in &mut self.blocks {
-            let instrs = &mut block.instructions;
-            let len = instrs.len();
+            let instructions = &mut block.instructions;
+            let len = instructions.len();
             for i in 0..len.saturating_sub(1) {
-                let Some(Instruction::BuildTuple { .. }) = instrs[i].instr.real() else {
+                let Some(Instruction::BuildTuple { .. }) = instructions[i].instr.real() else {
                     continue;
                 };
-                let n = u32::from(instrs[i].arg);
-                let Some(Instruction::UnpackSequence { .. }) = instrs[i + 1].instr.real() else {
+                let n = u32::from(instructions[i].arg);
+                let Some(Instruction::UnpackSequence { .. }) = instructions[i + 1].instr.real()
+                else {
                     continue;
                 };
-                if u32::from(instrs[i + 1].arg) != n {
+                if u32::from(instructions[i + 1].arg) != n {
                     continue;
                 }
                 match n {
                     1 => {
-                        instrs[i].instr = AnyInstruction::Real(Instruction::Nop);
-                        instrs[i].arg = OpArg::new(0);
-                        instrs[i + 1].instr = AnyInstruction::Real(Instruction::Nop);
-                        instrs[i + 1].arg = OpArg::new(0);
+                        instructions[i].instr = AnyInstruction::Real(Instruction::Nop);
+                        instructions[i].arg = OpArg::new(0);
+                        instructions[i + 1].instr = AnyInstruction::Real(Instruction::Nop);
+                        instructions[i + 1].arg = OpArg::new(0);
                     }
                     2 | 3 => {
-                        instrs[i].instr = AnyInstruction::Real(Instruction::Nop);
-                        instrs[i].arg = OpArg::new(0);
-                        instrs[i + 1].instr =
+                        instructions[i].instr = AnyInstruction::Real(Instruction::Nop);
+                        instructions[i].arg = OpArg::new(0);
+                        instructions[i + 1].instr =
                             AnyInstruction::Real(Instruction::Swap { i: Arg::marker() });
-                        instrs[i + 1].arg = OpArg::new(n);
+                        instructions[i + 1].arg = OpArg::new(n);
                     }
                     _ => {}
                 }
@@ -1419,16 +1422,20 @@ impl CodeInfo {
             }
         }
 
-        /// Next swappable index after `i` in `instrs`, skipping NOPs.
+        /// Next swappable index after `i` in `instructions`, skipping NOPs.
         /// Returns None if a non-NOP non-swappable instruction blocks, or
         /// if `lineno >= 0` and a different lineno is encountered.
-        fn next_swappable(instrs: &[InstructionInfo], mut i: usize, lineno: i32) -> Option<usize> {
+        fn next_swappable(
+            instructions: &[InstructionInfo],
+            mut i: usize,
+            lineno: i32,
+        ) -> Option<usize> {
             loop {
                 i += 1;
-                if i >= instrs.len() {
+                if i >= instructions.len() {
                     return None;
                 }
-                let info = &instrs[i];
+                let info = &instructions[i];
                 let info_lineno = info.location.line.get() as i32;
                 if lineno >= 0 && info_lineno > 0 && info_lineno != lineno {
                     return None;
@@ -1444,13 +1451,15 @@ impl CodeInfo {
         }
 
         for block in &mut self.blocks {
-            let instrs = &mut block.instructions;
-            let len = instrs.len();
+            let instructions = &mut block.instructions;
+            let len = instructions.len();
             // Walk forward; for each SWAP attempt elimination.
             let mut i = 0;
             while i < len {
-                let swap_arg = match instrs[i].instr {
-                    AnyInstruction::Real(Instruction::Swap { .. }) => u32::from(instrs[i].arg),
+                let swap_arg = match instructions[i].instr {
+                    AnyInstruction::Real(Instruction::Swap { .. }) => {
+                        u32::from(instructions[i].arg)
+                    }
                     _ => {
                         i += 1;
                         continue;
@@ -1463,17 +1472,17 @@ impl CodeInfo {
                     continue;
                 }
                 // Find first swappable after SWAP (lineno = -1 initially).
-                let Some(j) = next_swappable(instrs, i, -1) else {
+                let Some(j) = next_swappable(instructions, i, -1) else {
                     i += 1;
                     continue;
                 };
-                let lineno = instrs[j].location.line.get() as i32;
+                let lineno = instructions[j].location.line.get() as i32;
                 // Walk (swap_arg - 1) more swappable instructions, with
                 // lineno constraint.
                 let mut k = j;
                 let mut ok = true;
                 for _ in 1..swap_arg {
-                    match next_swappable(instrs, k, lineno) {
+                    match next_swappable(instructions, k, lineno) {
                         Some(next) => k = next,
                         None => {
                             ok = false;
@@ -1488,14 +1497,14 @@ impl CodeInfo {
                 // Conflict check: if either j or k is a STORE_FAST, no
                 // intervening store may target the same variable, and
                 // they must not target the same variable themselves.
-                let store_j = stores_to(&instrs[j]);
-                let store_k = stores_to(&instrs[k]);
+                let store_j = stores_to(&instructions[j]);
+                let store_k = stores_to(&instructions[k]);
                 if store_j.is_some() || store_k.is_some() {
                     if store_j == store_k {
                         i += 1;
                         continue;
                     }
-                    let conflict = instrs[(j + 1)..k].iter().any(|info| {
+                    let conflict = instructions[(j + 1)..k].iter().any(|info| {
                         if let Some(store_idx) = stores_to(info) {
                             Some(store_idx) == store_j || Some(store_idx) == store_k
                         } else {
@@ -1508,9 +1517,9 @@ impl CodeInfo {
                     }
                 }
                 // Safe to reorder. SWAP -> NOP, swap j and k.
-                instrs[i].instr = AnyInstruction::Real(Instruction::Nop);
-                instrs[i].arg = OpArg::new(0);
-                instrs.swap(j, k);
+                instructions[i].instr = AnyInstruction::Real(Instruction::Nop);
+                instructions[i].arg = OpArg::new(0);
+                instructions.swap(j, k);
                 i += 1;
             }
         }
@@ -1529,13 +1538,13 @@ impl CodeInfo {
     /// store to a variable carries the final value, earlier ones are dead.
     fn eliminate_dead_stores(&mut self) {
         for block in &mut self.blocks {
-            let instrs = &mut block.instructions;
-            let len = instrs.len();
+            let instructions = &mut block.instructions;
+            let len = instructions.len();
             let mut i = 0;
             while i < len {
                 // Look for UNPACK_SEQUENCE or UNPACK_EX
                 let is_unpack = matches!(
-                    instrs[i].instr,
+                    instructions[i].instr,
                     AnyInstruction::Real(
                         Instruction::UnpackSequence { .. } | Instruction::UnpackEx { .. }
                     )
@@ -1549,7 +1558,7 @@ impl CodeInfo {
                 let mut run_end = run_start;
                 while run_end < len
                     && matches!(
-                        instrs[run_end].instr,
+                        instructions[run_end].instr,
                         AnyInstruction::Real(Instruction::StoreFast { .. })
                     )
                 {
@@ -1558,11 +1567,11 @@ impl CodeInfo {
                 if run_end - run_start >= 2 {
                     // Pass 1: find the LAST occurrence of each variable
                     let mut last_occurrence = std::collections::HashMap::new();
-                    for (j, instr) in instrs[run_start..run_end].iter().enumerate() {
+                    for (j, instr) in instructions[run_start..run_end].iter().enumerate() {
                         last_occurrence.insert(u32::from(instr.arg), j);
                     }
                     // Pass 2: non-last stores to the same variable are dead
-                    for (j, instr) in instrs[run_start..run_end].iter_mut().enumerate() {
+                    for (j, instr) in instructions[run_start..run_end].iter_mut().enumerate() {
                         let idx = u32::from(instr.arg);
                         if last_occurrence[&idx] != j {
                             instr.instr = AnyInstruction::Real(Instruction::PopTop);
@@ -1580,18 +1589,29 @@ impl CodeInfo {
         for block in &mut self.blocks {
             let mut i = 0;
             while i + 1 < block.instructions.len() {
+                let curr = &block.instructions[i];
+                let next = &block.instructions[i + 1];
+
+                // Only combine if both are real instructions (not pseudo)
+                let (Some(curr_instr), Some(next_instr)) = (curr.instr.real(), next.instr.real())
+                else {
+                    i += 1;
+                    continue;
+                };
+
+                if matches!(
+                    next_instr,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                ) && matches!(curr_instr, Instruction::CompareOp { .. })
+                {
+                    block.instructions[i].arg = OpArg::new(
+                        u32::from(block.instructions[i].arg) | oparg::COMPARE_OP_BOOL_MASK,
+                    );
+                    i += 1;
+                    continue;
+                }
+
                 let combined = {
-                    let curr = &block.instructions[i];
-                    let next = &block.instructions[i + 1];
-
-                    // Only combine if both are real instructions (not pseudo)
-                    let (Some(curr_instr), Some(next_instr)) =
-                        (curr.instr.real(), next.instr.real())
-                    else {
-                        i += 1;
-                        continue;
-                    };
-
                     match (curr_instr, next_instr) {
                         // LoadFast + LoadFast -> LoadFastLoadFast (if both indices < 16)
                         (Instruction::LoadFast { .. }, Instruction::LoadFast { .. }) => {
@@ -1651,6 +1671,14 @@ impl CodeInfo {
                             } else {
                                 None
                             }
+                        }
+                        (Instruction::CompareOp { .. }, Instruction::ToBool) => Some((
+                            curr_instr,
+                            OpArg::new(u32::from(curr.arg) | oparg::COMPARE_OP_BOOL_MASK),
+                        )),
+                        (Instruction::ContainsOp { .. }, Instruction::ToBool)
+                        | (Instruction::IsOp { .. }, Instruction::ToBool) => {
+                            Some((curr_instr, curr.arg))
                         }
                         (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
                             let constant = &self.metadata.consts[consti.get(curr.arg).as_usize()];
@@ -2724,6 +2752,56 @@ fn jump_threading_unconditional(blocks: &mut [Block]) {
     jump_threading_impl(blocks, false);
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum JumpThreadKind {
+    Plain,
+    NoInterrupt,
+}
+
+fn jump_thread_kind(instr: AnyInstruction) -> Option<JumpThreadKind> {
+    match instr {
+        AnyInstruction::Pseudo(PseudoInstruction::Jump { .. })
+        | AnyInstruction::Real(Instruction::JumpForward { .. })
+        | AnyInstruction::Real(Instruction::JumpBackward { .. }) => Some(JumpThreadKind::Plain),
+        AnyInstruction::Pseudo(PseudoInstruction::JumpNoInterrupt { .. })
+        | AnyInstruction::Real(Instruction::JumpBackwardNoInterrupt { .. }) => {
+            Some(JumpThreadKind::NoInterrupt)
+        }
+        _ => None,
+    }
+}
+
+fn threaded_jump_instr(
+    source: AnyInstruction,
+    target: AnyInstruction,
+    conditional: bool,
+) -> Option<AnyInstruction> {
+    let target_kind = jump_thread_kind(target)?;
+    if conditional {
+        return (target_kind == JumpThreadKind::Plain).then_some(source);
+    }
+
+    let source_kind = jump_thread_kind(source)?;
+    if source_kind == JumpThreadKind::NoInterrupt {
+        return Some(source);
+    }
+    Some(match source {
+        AnyInstruction::Pseudo(_) => PseudoInstruction::Jump {
+            delta: Arg::marker(),
+        }
+        .into(),
+        AnyInstruction::Real(Instruction::JumpBackwardNoInterrupt { .. }) => {
+            Instruction::JumpBackward {
+                delta: Arg::marker(),
+            }
+            .into()
+        }
+        AnyInstruction::Real(Instruction::JumpForward { .. })
+        | AnyInstruction::Real(Instruction::JumpBackward { .. }) => source,
+        _ => return None,
+    })
+}
+
 fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
     let mut changed = true;
     while changed {
@@ -2734,7 +2812,7 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                 None => continue,
             };
             let ins = blocks[bi].instructions[last_idx];
-            let target = ins.target;
+            let mut target = ins.target;
             if target == BlockIdx::NULL {
                 continue;
             }
@@ -2754,6 +2832,10 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                     continue;
                 }
             }
+            target = next_nonempty_block(blocks, target);
+            if target == BlockIdx::NULL {
+                continue;
+            }
             // Check if target block's first instruction is an unconditional jump
             let target_jump = blocks[target.idx()]
                 .instructions
@@ -2765,12 +2847,19 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                 && target_ins.target != BlockIdx::NULL
                 && target_ins.target != target
             {
+                let conditional = is_conditional_jump(&ins.instr);
+                let Some(threaded_instr) =
+                    threaded_jump_instr(ins.instr, target_ins.instr, conditional)
+                else {
+                    continue;
+                };
                 let final_target = target_ins.target;
                 if ins.target == final_target {
                     continue;
                 }
                 set_to_nop(&mut blocks[bi].instructions[last_idx]);
                 let mut threaded = ins;
+                threaded.instr = threaded_instr;
                 threaded.arg = OpArg::new(0);
                 threaded.target = final_target;
                 threaded.location = target_ins.location;
@@ -3017,6 +3106,12 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
             }
 
             let target = last.target;
+            if block_is_exceptional(&blocks[current.idx()])
+                || block_is_exceptional(&blocks[target.idx()])
+            {
+                current = next;
+                continue;
+            }
             let small_exit_block = block_exits_scope(&blocks[target.idx()])
                 && blocks[target.idx()].instructions.len() <= MAX_COPY_SIZE;
             let no_lineno_no_fallthrough = block_has_no_lineno(&blocks[target.idx()])
@@ -3214,6 +3309,21 @@ fn is_scope_exit_block(block: &Block) -> bool {
         .is_some_and(|instr| instr.instr.is_scope_exit())
 }
 
+fn is_exception_cleanup_block(block: &Block) -> bool {
+    block
+        .instructions
+        .iter()
+        .any(|instr| matches!(instr.instr.real(), Some(Instruction::PopExcept)))
+        && block
+            .instructions
+            .last()
+            .is_some_and(|instr| matches!(instr.instr.real(), Some(Instruction::Reraise { .. })))
+}
+
+fn block_is_exceptional(block: &Block) -> bool {
+    block.except_handler || block.preserve_lasti || is_exception_cleanup_block(block)
+}
+
 fn trailing_conditional_jump_index(block: &Block) -> Option<usize> {
     let last_idx = block.instructions.len().checked_sub(1)?;
     if is_conditional_jump(&block.instructions[last_idx].instr)
@@ -3264,6 +3374,10 @@ fn reorder_conditional_exit_and_jump_blocks(blocks: &mut [Block]) {
         let mut cursor = exit_start;
         let mut exit_segment_valid = true;
         while cursor != BlockIdx::NULL && cursor != jump_start {
+            if block_is_exceptional(&blocks[cursor.idx()]) {
+                exit_segment_valid = false;
+                break;
+            }
             if !blocks[cursor.idx()].instructions.is_empty() {
                 if exit_block != BlockIdx::NULL {
                     exit_segment_valid = false;
@@ -3288,6 +3402,10 @@ fn reorder_conditional_exit_and_jump_blocks(blocks: &mut [Block]) {
         let mut jump_block = BlockIdx::NULL;
         cursor = jump_start;
         while cursor != BlockIdx::NULL {
+            if block_is_exceptional(&blocks[cursor.idx()]) {
+                jump_block = BlockIdx::NULL;
+                break;
+            }
             jump_end = cursor;
             if blocks[cursor.idx()].instructions.is_empty() {
                 cursor = blocks[cursor.idx()].next;
@@ -3345,6 +3463,10 @@ fn reorder_conditional_jump_and_exit_blocks(blocks: &mut [Block]) {
         let mut cursor = jump_start;
         let mut jump_segment_valid = true;
         while cursor != BlockIdx::NULL && cursor != exit_start {
+            if block_is_exceptional(&blocks[cursor.idx()]) {
+                jump_segment_valid = false;
+                break;
+            }
             if !blocks[cursor.idx()].instructions.is_empty() {
                 if jump_block != BlockIdx::NULL || !is_jump_only_block(&blocks[cursor.idx()]) {
                     jump_segment_valid = false;
@@ -3374,6 +3496,10 @@ fn reorder_conditional_jump_and_exit_blocks(blocks: &mut [Block]) {
             if cursor == BlockIdx::NULL {
                 break BlockIdx::NULL;
             }
+            if block_is_exceptional(&blocks[cursor.idx()]) {
+                exit_block = BlockIdx::NULL;
+                break BlockIdx::NULL;
+            }
             if !blocks[cursor.idx()].instructions.is_empty() {
                 if exit_block != BlockIdx::NULL {
                     break cursor;
@@ -3401,6 +3527,92 @@ fn reorder_conditional_jump_and_exit_blocks(blocks: &mut [Block]) {
         cond_mut.target = jump_start;
 
         current = after_exit;
+    }
+}
+
+#[allow(dead_code)]
+fn reorder_jump_over_exception_cleanup_blocks(blocks: &mut [Block]) {
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        let idx = current.idx();
+        let next = blocks[idx].next;
+        let Some(last) = blocks[idx].instructions.last().copied() else {
+            current = next;
+            continue;
+        };
+        if !matches!(last.instr.real(), Some(Instruction::JumpForward { .. }))
+            || last.target == BlockIdx::NULL
+        {
+            current = next;
+            continue;
+        }
+
+        let cleanup_start = next;
+        let target_start = last.target;
+        let target = next_nonempty_block(blocks, target_start);
+        if cleanup_start == BlockIdx::NULL || target == BlockIdx::NULL || cleanup_start == target {
+            current = next;
+            continue;
+        }
+        // Keep the target anchored to the first target block. If we have to
+        // skip leading empty blocks here, reordering can leave the jump shape
+        // inconsistent in nested cleanup chains such as poplib.POP3.close().
+        if target_start != target {
+            current = next;
+            continue;
+        }
+
+        let mut cleanup_end = BlockIdx::NULL;
+        let mut saw_exceptional = false;
+        let mut cursor = cleanup_start;
+        while cursor != BlockIdx::NULL && cursor != target {
+            if blocks[cursor.idx()].instructions.is_empty() {
+                cleanup_end = cursor;
+                cursor = blocks[cursor.idx()].next;
+                continue;
+            }
+            if !block_is_exceptional(&blocks[cursor.idx()])
+                && !is_exception_cleanup_block(&blocks[cursor.idx()])
+            {
+                cleanup_end = BlockIdx::NULL;
+                break;
+            }
+            saw_exceptional = true;
+            cleanup_end = cursor;
+            cursor = blocks[cursor.idx()].next;
+        }
+        if !saw_exceptional || cleanup_end == BlockIdx::NULL || cursor != target {
+            current = next;
+            continue;
+        }
+
+        let mut target_end = BlockIdx::NULL;
+        let mut target_exit = BlockIdx::NULL;
+        cursor = target;
+        while cursor != BlockIdx::NULL {
+            if block_is_exceptional(&blocks[cursor.idx()]) {
+                break;
+            }
+            target_end = cursor;
+            if !blocks[cursor.idx()].instructions.is_empty() {
+                target_exit = cursor;
+            }
+            cursor = blocks[cursor.idx()].next;
+        }
+
+        if target_end == BlockIdx::NULL
+            || target_exit == BlockIdx::NULL
+            || !is_scope_exit_block(&blocks[target_exit.idx()])
+        {
+            current = next;
+            continue;
+        }
+
+        let after_target = blocks[target_end.idx()].next;
+        blocks[idx].next = target_start;
+        blocks[target_end.idx()].next = cleanup_start;
+        blocks[cleanup_end.idx()].next = after_target;
+        current = after_target;
     }
 }
 
@@ -3619,9 +3831,23 @@ fn resolve_line_numbers(blocks: &mut Vec<Block>) {
     propagate_line_numbers(blocks, &predecessors);
 }
 
+fn find_layout_predecessor(blocks: &[Block], target: BlockIdx) -> BlockIdx {
+    if target == BlockIdx::NULL {
+        return BlockIdx::NULL;
+    }
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        if blocks[current.idx()].next == target {
+            return current;
+        }
+        current = blocks[current.idx()].next;
+    }
+    BlockIdx::NULL
+}
+
 /// Duplicate `LOAD_CONST None + RETURN_VALUE` for blocks that fall through
 /// to the final return block.
-fn duplicate_end_returns(blocks: &mut [Block]) {
+fn duplicate_end_returns(blocks: &mut Vec<Block>) {
     // Walk the block chain and keep the last non-empty block.
     let mut last_block = BlockIdx::NULL;
     let mut current = BlockIdx(0);
@@ -3652,14 +3878,18 @@ fn duplicate_end_returns(blocks: &mut [Block]) {
 
     // Get the return instructions to clone
     let return_insts: Vec<InstructionInfo> = last_insts[last_insts.len() - 2..].to_vec();
+    let predecessors = compute_predecessors(blocks);
 
-    // Find non-cold blocks that fall through to the last block
-    let mut blocks_to_fix = Vec::new();
+    // Find non-cold blocks that reach the last return block either by
+    // fallthrough or as an unconditional jump target that should get its own
+    // cloned epilogue.
+    let mut fallthrough_blocks_to_fix = Vec::new();
+    let mut jump_targets_to_fix = Vec::new();
     current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let block = &blocks[current.idx()];
         let next = next_nonempty_block(blocks, block.next);
-        if current != last_block && next == last_block && !block.cold && !block.except_handler {
+        if current != last_block && !block.cold && !block.except_handler {
             let last_ins = block.instructions.last();
             let has_fallthrough = last_ins
                 .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
@@ -3675,18 +3905,63 @@ fn duplicate_end_returns(blocks: &mut [Block]) {
                     AnyInstruction::Real(Instruction::ReturnValue)
                 )
             };
-            if has_fallthrough && !already_has_return {
-                blocks_to_fix.push(current);
+            if next == last_block
+                && has_fallthrough
+                && trailing_conditional_jump_index(block).is_none()
+                && !already_has_return
+            {
+                fallthrough_blocks_to_fix.push(current);
+            }
+            if predecessors[last_block.idx()] > 1
+                && let Some(last) = block.instructions.last()
+                && last.instr.is_unconditional_jump()
+                && last.target != BlockIdx::NULL
+                && next_nonempty_block(blocks, last.target) == last_block
+            {
+                jump_targets_to_fix.push((current, block.instructions.len() - 1));
             }
         }
         current = blocks[current.idx()].next;
     }
 
     // Duplicate the return instructions at the end of fall-through blocks
-    for block_idx in blocks_to_fix {
+    for block_idx in fallthrough_blocks_to_fix {
         blocks[block_idx.idx()]
             .instructions
             .extend_from_slice(&return_insts);
+    }
+
+    // Clone the final return block for jump predecessors so their target layout
+    // matches CPython's duplicated exit blocks.
+    for (block_idx, instr_idx) in jump_targets_to_fix {
+        let jump = blocks[block_idx.idx()].instructions[instr_idx];
+        let mut cloned_return = return_insts.clone();
+        for instr in &mut cloned_return {
+            maybe_propagate_location(instr, jump.location, jump.end_location);
+        }
+        let new_idx = BlockIdx(blocks.len() as u32);
+        let is_conditional = is_conditional_jump(&jump.instr);
+        let new_block = Block {
+            cold: blocks[last_block.idx()].cold,
+            except_handler: blocks[last_block.idx()].except_handler,
+            instructions: cloned_return,
+            next: if is_conditional {
+                last_block
+            } else {
+                blocks[block_idx.idx()].next
+            },
+            ..Block::default()
+        };
+        blocks.push(new_block);
+        if is_conditional {
+            let layout_pred = find_layout_predecessor(blocks, last_block);
+            if layout_pred != BlockIdx::NULL {
+                blocks[layout_pred.idx()].next = new_idx;
+            }
+        } else {
+            blocks[block_idx.idx()].next = new_idx;
+        }
+        blocks[block_idx.idx()].instructions[instr_idx].target = new_idx;
     }
 }
 

@@ -1,6 +1,6 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 10960
+assertion_line: 10936
 expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
   1           0 RESUME               (0)
@@ -34,7 +34,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  26 CACHE
                  27 STORE_FAST           (0, stop_exc)
 
-  3              28 LOAD_GLOBAL          (4, self)
+  3         >>   28 LOAD_GLOBAL          (4, self)
                  29 CACHE
                  30 CACHE
                  31 CACHE
@@ -151,7 +151,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 136 CACHE
                 137 CACHE
                 138 CHECK_EXC_MATCH
-                139 POP_JUMP_IF_FALSE    (32)
+                139 POP_JUMP_IF_FALSE    (28)
                 140 CACHE
                 141 NOT_TAKEN
                 142 STORE_FAST           (1, ex)
@@ -182,11 +182,11 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 166 STORE_FAST           (1, ex)
                 167 DELETE_FAST          (1, ex)
                 168 JUMP_FORWARD         (32)
-                169 LOAD_CONST           (None)
-                170 STORE_FAST           (1, ex)
-                171 DELETE_FAST          (1, ex)
-                172 RERAISE              (1)
-                173 RERAISE              (0)
+                169 RERAISE              (0)
+                170 LOAD_CONST           (None)
+                171 STORE_FAST           (1, ex)
+                172 DELETE_FAST          (1, ex)
+                173 RERAISE              (1)
                 174 COPY                 (3)
                 175 POP_EXCEPT
                 176 RERAISE              (1)
@@ -217,8 +217,8 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 200 POP_TOP
 
   3             201 LOAD_CONST           (None)
-                202 LOAD_CONST           (None)
-            >>  203 LOAD_CONST           (None)
+            >>  202 LOAD_CONST           (None)
+                203 LOAD_CONST           (None)
                 204 CALL                 (3)
                 205 CACHE
                 206 CACHE
@@ -241,14 +241,13 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 223 POP_TOP
                 224 POP_TOP
                 225 POP_TOP
-                226 JUMP_BACKWARD        (203)
-                227 CACHE
-                228 COPY                 (3)
-                229 POP_EXCEPT
-                230 RERAISE              (1)
+                226 JUMP_BACKWARD_NO_INTERRUPT(202)
+                227 COPY                 (3)
+                228 POP_EXCEPT
+                229 RERAISE              (1)
 
-  2             231 CALL_INTRINSIC_1     (StopIterationError)
-                232 RERAISE              (1)
+  2             230 CALL_INTRINSIC_1     (StopIterationError)
+                231 RERAISE              (1)
 
               2 MAKE_FUNCTION
               3 STORE_NAME           (0, test)
