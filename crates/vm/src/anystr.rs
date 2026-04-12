@@ -4,7 +4,10 @@ use crate::{
     convert::TryFromBorrowedObject,
     function::OptionalOption,
 };
+use icu_casemap::CaseMapper;
+use icu_locale::LanguageIdentifier;
 use num_traits::{cast::ToPrimitive, sign::Signed};
+use writeable::Writeable;
 
 use core::ops::Range;
 
@@ -408,12 +411,18 @@ pub trait AnyStr {
     //  unicode_islower_impl
     fn py_islower(&self) -> bool {
         let mut lower = false;
-        for c in self.elements() {
-            if c.is_uppercase() {
+        let mut lowercased = String::with_capacity(self.bytes_len());
+        let cm = CaseMapper::new();
+        for chunk in self.as_bytes().utf8_chunks().map(|c| c.valid()) {
+            let writer = cm.lowercase(chunk, &LanguageIdentifier::UNKNOWN);
+            lowercased.clear();
+            writer
+                .write_to(&mut lowercased)
+                .expect("Writing to a buffer is infallible");
+            if chunk != lowercased {
                 return false;
-            } else if !lower && c.is_lowercase() {
-                lower = true
             }
+            lower = true;
         }
         lower
     }
@@ -423,12 +432,18 @@ pub trait AnyStr {
     //  unicode_isupper_impl
     fn py_isupper(&self) -> bool {
         let mut upper = false;
-        for c in self.elements() {
-            if c.is_lowercase() {
+        let mut uppercased = String::with_capacity(self.bytes_len());
+        let cm = CaseMapper::new();
+        for chunk in self.as_bytes().utf8_chunks().map(|c| c.valid()) {
+            let writer = cm.uppercase(chunk, &LanguageIdentifier::UNKNOWN);
+            uppercased.clear();
+            writer
+                .write_to(&mut uppercased)
+                .expect("Writing to a buffer is infallible");
+            if chunk != uppercased {
                 return false;
-            } else if !upper && c.is_uppercase() {
-                upper = true
             }
+            upper = true;
         }
         upper
     }

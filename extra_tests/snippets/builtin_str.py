@@ -69,6 +69,8 @@ assert not a.isdigit()
 assert not a.isdecimal()
 assert not a.isnumeric()
 assert a.istitle()
+assert "\u1c89".istitle()
+# assert "Ǳ".title() == "ǲ"
 assert a.isalpha()
 
 s = "1 2 3"
@@ -220,6 +222,8 @@ assert (
 assert "abc\t12345\txyz".expandtabs() == "abc     12345   xyz"
 assert "-".join(["1", "2", "3"]) == "1-2-3"
 assert "HALLO".isupper()
+assert "\u0295".islower()
+assert "\u1c89".isupper()
 assert "hello, my name is".partition("my ") == ("hello, ", "my ", "name is")
 assert "hello".partition("is") == ("hello", "", "")
 assert "hello, my name is".rpartition("is") == ("hello, my name ", "is", "")
@@ -236,6 +240,8 @@ assert not "😂".isidentifier()
 assert not "123".isidentifier()
 
 assert "Σίσυφος".swapcase() == "σΊΣΥΦΟΣ"
+assert "\u0295".swapcase() == "\u0295"
+assert "\u1c89".swapcase() == "\u1c8a"
 
 # String Formatting
 assert "{} {}".format(1, 2) == "1 2"
