@@ -388,9 +388,12 @@ impl From<MakeFunctionFlag> for u32 {
 
 impl OpArgType for MakeFunctionFlag {}
 
-/// `COMPARE_OP` arg is `(cmp_index << 5) | mask`.  Only the upper
-/// 3 bits identify the comparison; the lower 5 bits are an inline
-/// cache mask for adaptive specialization.
+/// `COMPARE_OP` arg is `(cmp_index << 5) | mask`.
+///
+/// The low four bits are the CPython comparison mask used by specialized
+/// compare opcodes, and bit 4 requests bool-conversion of the compare result.
+pub const COMPARE_OP_BOOL_MASK: u32 = 1 << 4;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ComparisonOperator {
     Less,
@@ -425,15 +428,15 @@ impl TryFrom<u32> for ComparisonOperator {
 }
 
 impl From<ComparisonOperator> for u8 {
-    /// Encode as `cmp_index << 5` (mask bits zero).
+    /// Encode using CPython's comparison mask layout.
     fn from(value: ComparisonOperator) -> Self {
         match value {
-            ComparisonOperator::Less => 0,
-            ComparisonOperator::LessOrEqual => 1 << 5,
-            ComparisonOperator::Equal => 2 << 5,
-            ComparisonOperator::NotEqual => 3 << 5,
-            ComparisonOperator::Greater => 4 << 5,
-            ComparisonOperator::GreaterOrEqual => 5 << 5,
+            ComparisonOperator::Less => 2,
+            ComparisonOperator::LessOrEqual => (1 << 5) | 2 | 8,
+            ComparisonOperator::Equal => (2 << 5) | 8,
+            ComparisonOperator::NotEqual => (3 << 5) | 1 | 2 | 4,
+            ComparisonOperator::Greater => (4 << 5) | 4,
+            ComparisonOperator::GreaterOrEqual => (5 << 5) | 4 | 8,
         }
     }
 }
@@ -445,6 +448,20 @@ impl From<ComparisonOperator> for u32 {
 }
 
 impl OpArgType for ComparisonOperator {}
+
+impl fmt::Display for ComparisonOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op = match self {
+            Self::Less => "<",
+            Self::LessOrEqual => "<=",
+            Self::Equal => "==",
+            Self::NotEqual => "!=",
+            Self::Greater => ">",
+            Self::GreaterOrEqual => ">=",
+        };
+        f.write_str(op)
+    }
+}
 
 oparg_enum!(
     /// The possible Binary operators

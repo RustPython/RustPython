@@ -1169,7 +1169,14 @@ impl InstructionMetadata for Instruction {
             Self::CheckEgMatch => w!(CHECK_EG_MATCH),
             Self::CheckExcMatch => w!(CHECK_EXC_MATCH),
             Self::CleanupThrow => w!(CLEANUP_THROW),
-            Self::CompareOp { opname } => w!(COMPARE_OP, ?opname),
+            Self::CompareOp { opname } => {
+                let op = opname.get(arg);
+                if u32::from(arg) & oparg::COMPARE_OP_BOOL_MASK != 0 {
+                    write!(f, "{:pad$}(bool({}))", "COMPARE_OP", op)
+                } else {
+                    write!(f, "{:pad$}({})", "COMPARE_OP", op)
+                }
+            }
             Self::ContainsOp { invert } => w!(CONTAINS_OP, ?invert),
             Self::ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
             Self::Copy { i } => w!(COPY, i),

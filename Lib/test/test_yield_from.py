@@ -882,7 +882,6 @@ class TestPEP380Operation(unittest.TestCase):
             yield from ()
         self.assertRaises(StopIteration, next, g())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_delegating_generators_claim_to_be_running(self):
         # Check with basic iteration
         def one():
@@ -909,7 +908,6 @@ class TestPEP380Operation(unittest.TestCase):
             pass
         self.assertEqual(res, [0, 1, 2, 3])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Lists differ: [0, 1, 2] != [0, 1, 2, 3]
     def test_delegating_generators_claim_to_be_running_with_throw(self):
         # Check with throw
         class MyErr(Exception):
