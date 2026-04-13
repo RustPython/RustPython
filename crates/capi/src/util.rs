@@ -12,7 +12,7 @@ pub(crate) trait FfiResult<Output = Self> {
 impl FfiResult for () {
     const ERR_VALUE: () = ();
 
-    fn into_output(self, _vm: &VirtualMachine) -> () {
+    fn into_output(self, _vm: &VirtualMachine) {
         self
     }
 }
@@ -37,7 +37,7 @@ where
 }
 
 impl FfiResult<*mut PyObject> for PyObjectRef {
-    const ERR_VALUE: *mut PyObject = std::ptr::null_mut();
+    const ERR_VALUE: *mut PyObject = core::ptr::null_mut();
 
     fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
         self.into_raw().as_ptr()
@@ -45,7 +45,7 @@ impl FfiResult<*mut PyObject> for PyObjectRef {
 }
 
 impl FfiResult<*mut PyObject> for *const PyObject {
-    const ERR_VALUE: *mut PyObject = std::ptr::null_mut();
+    const ERR_VALUE: *mut PyObject = core::ptr::null_mut();
 
     fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
         self.cast_mut()
@@ -53,7 +53,7 @@ impl FfiResult<*mut PyObject> for *const PyObject {
 }
 
 impl FfiResult for *mut c_void {
-    const ERR_VALUE: *mut c_void = std::ptr::null_mut();
+    const ERR_VALUE: *mut c_void = core::ptr::null_mut();
 
     fn into_output(self, _vm: &VirtualMachine) -> *mut c_void {
         self
@@ -61,7 +61,7 @@ impl FfiResult for *mut c_void {
 }
 
 impl FfiResult<*mut c_char> for *const u8 {
-    const ERR_VALUE: *mut c_char = std::ptr::null_mut();
+    const ERR_VALUE: *mut c_char = core::ptr::null_mut();
 
     fn into_output(self, _vm: &VirtualMachine) -> *mut c_char {
         self.cast_mut().cast()
@@ -103,7 +103,7 @@ impl FfiResult<c_int> for bool {
 impl FfiResult<()> for PyResult<Infallible> {
     const ERR_VALUE: () = ();
 
-    fn into_output(self, vm: &VirtualMachine) -> () {
+    fn into_output(self, vm: &VirtualMachine) {
         match self {
             Err(err) => vm.push_exception(Some(err)),
         }
