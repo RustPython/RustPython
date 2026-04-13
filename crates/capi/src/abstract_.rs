@@ -78,6 +78,40 @@ pub extern "C" fn PyObject_VectorcallMethod(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyObject_GetItem(obj: *mut PyObject, key: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let key = unsafe { &*key };
+        obj.get_item(key, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyObject_SetItem(
+    obj: *mut PyObject,
+    key: *mut PyObject,
+    value: *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let key = unsafe { &*key };
+        let value = unsafe { &*value }.to_owned();
+        obj.set_item(key, value, vm)?;
+        Ok(0)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let key = unsafe { &*key };
+        obj.del_item(key, vm)?;
+        Ok(0)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
@@ -99,7 +133,7 @@ pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) 
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
-    use pyo3::types::PyString;
+    use pyo3::types::{PyDict, PyString};
 
     #[test]
     #[cfg(feature = "nightly")]
@@ -124,6 +158,23 @@ mod tests {
                     .is_truthy()
                     .unwrap()
             );
+        })
+    }
+
+    #[test]
+    fn test_object_set_get_del_item() {
+        Python::attach(|py| {
+            let obj = PyDict::new(py).into_any();
+            obj.set_item("key", "value").unwrap();
+            assert_eq!(
+                obj.get_item("key")
+                    .unwrap()
+                    .cast_into::<PyString>()
+                    .unwrap(),
+                "value"
+            );
+            obj.del_item("key").unwrap();
+            assert!(obj.get_item("key").is_err());
         })
     }
 }
