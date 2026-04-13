@@ -4,10 +4,11 @@ use crate::{
     convert::TryFromBorrowedObject,
     function::OptionalOption,
 };
-use icu_casemap::CaseMapper;
-use icu_locale::LanguageIdentifier;
+use icu_properties::{
+    CodePointSetData,
+    props::{Alphabetic, ChangesWhenLowercased, ChangesWhenUppercased},
+};
 use num_traits::{cast::ToPrimitive, sign::Signed};
-use writeable::Writeable;
 
 use core::ops::Range;
 
@@ -133,8 +134,6 @@ where
 }
 
 pub trait AnyChar: Copy {
-    fn is_lowercase(self) -> bool;
-    fn is_uppercase(self) -> bool;
     fn bytes_len(self) -> usize;
 }
 
@@ -410,19 +409,17 @@ pub trait AnyStr {
     //  _Py_bytes_islower
     //  unicode_islower_impl
     fn py_islower(&self) -> bool {
+        let case_change = CodePointSetData::new::<ChangesWhenLowercased>();
+        let alphabetic = CodePointSetData::new::<Alphabetic>();
         let mut lower = false;
-        let mut lowercased = String::with_capacity(self.bytes_len());
-        let cm = CaseMapper::new();
         for chunk in self.as_bytes().utf8_chunks().map(|c| c.valid()) {
-            let writer = cm.lowercase(chunk, &LanguageIdentifier::UNKNOWN);
-            lowercased.clear();
-            writer
-                .write_to(&mut lowercased)
-                .expect("Writing to a buffer is infallible");
-            if chunk != lowercased {
+            if chunk.chars().any(|c| case_change.contains(c)) {
                 return false;
             }
-            lower = true;
+
+            if !lower && chunk.chars().any(|c| alphabetic.contains(c)) {
+                lower = true;
+            }
         }
         lower
     }
@@ -431,19 +428,17 @@ pub trait AnyStr {
     //   Py_bytes_isupper
     //  unicode_isupper_impl
     fn py_isupper(&self) -> bool {
+        let case_change = CodePointSetData::new::<ChangesWhenUppercased>();
+        let alphabetic = CodePointSetData::new::<Alphabetic>();
         let mut upper = false;
-        let mut uppercased = String::with_capacity(self.bytes_len());
-        let cm = CaseMapper::new();
         for chunk in self.as_bytes().utf8_chunks().map(|c| c.valid()) {
-            let writer = cm.uppercase(chunk, &LanguageIdentifier::UNKNOWN);
-            uppercased.clear();
-            writer
-                .write_to(&mut uppercased)
-                .expect("Writing to a buffer is infallible");
-            if chunk != uppercased {
+            if chunk.chars().any(|c| case_change.contains(c)) {
                 return false;
             }
-            upper = true;
+
+            if !upper && chunk.chars().any(|c| alphabetic.contains(c)) {
+                upper = true;
+            }
         }
         upper
     }

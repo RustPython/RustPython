@@ -222,6 +222,12 @@ assert (
 assert "abc\t12345\txyz".expandtabs() == "abc     12345   xyz"
 assert "-".join(["1", "2", "3"]) == "1-2-3"
 assert "HALLO".isupper()
+assert not "123".isupper()
+assert not "123".islower()
+assert not "\U0001f431".isupper()
+assert not "\U0001f431".islower()
+assert "\U0001f431 CAT".isupper()
+assert "\U0001f431 cat".islower()
 assert "\u0295".islower()
 assert "\u1c89".isupper()
 assert "hello, my name is".partition("my ") == ("hello, ", "my ", "name is")
