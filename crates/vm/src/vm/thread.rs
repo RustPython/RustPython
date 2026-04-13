@@ -109,6 +109,15 @@ fn set_current_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     })
 }
 
+pub fn try_with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R> {
+    VM_STACK.with(|vms| {
+        let vm = vms.borrow().last().copied()?;
+        // SAFETY: entries in VM_STACK either borrow a VM for the dynamic
+        // scope of a set_current_vm()/enter_vm() call or point at GILSTATE_VM.
+        Some(f(unsafe { vm.as_ref() }))
+    })
+}
+
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     // Outermost enter_vm: transition DETACHED → ATTACHED
     #[cfg(all(unix, feature = "threading"))]
