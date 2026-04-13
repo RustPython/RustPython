@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import builtins
 import dis
 import json
 import os
@@ -100,8 +101,29 @@ _IS_RUSTPYTHON = (
     hasattr(sys, "implementation") and sys.implementation.name == "rustpython"
 )
 
+if _IS_RUSTPYTHON and hasattr(dis, "_common_constants"):
+    common_constants = list(dis._common_constants)
+    while len(common_constants) < 7:
+        common_constants.append((builtins.list, builtins.set)[len(common_constants) - 5])
+    dis._common_constants = common_constants
+
 # RustPython's ComparisonOperator enum values → operator strings
 _RP_CMP_OPS = {0: "<", 1: "<=", 2: "==", 3: "!=", 4: ">", 5: ">="}
+
+
+def _resolve_localsplus_name(code, arg):
+    if not isinstance(arg, int) or arg < 0:
+        return arg
+    nlocals = len(code.co_varnames)
+    if arg < nlocals:
+        return code.co_varnames[arg]
+    varnames_set = set(code.co_varnames)
+    nonparam_cells = [v for v in code.co_cellvars if v not in varnames_set]
+    extra = nonparam_cells + list(code.co_freevars)
+    idx = arg - nlocals
+    if 0 <= idx < len(extra):
+        return extra[idx]
+    return arg
 
 
 def _resolve_arg_fallback(code, opname, arg):
@@ -113,8 +135,7 @@ def _resolve_arg_fallback(code, opname, arg):
         return arg
     try:
         if "FAST" in opname:
-            if 0 <= arg < len(code.co_varnames):
-                return code.co_varnames[arg]
+            return _resolve_localsplus_name(code, arg)
         elif opname == "LOAD_CONST":
             if 0 <= arg < len(code.co_consts):
                 return _normalize_argrepr(repr(code.co_consts[arg]))
@@ -125,18 +146,7 @@ def _resolve_arg_fallback(code, opname, arg):
             "LOAD_CLOSURE",
             "MAKE_CELL",
         ):
-            # arg is localsplus index:
-            #   0..nlocals-1 = varnames (parameter cells reuse these slots)
-            #   nlocals.. = non-parameter cells + freevars
-            nlocals = len(code.co_varnames)
-            if arg < nlocals:
-                return code.co_varnames[arg]
-            varnames_set = set(code.co_varnames)
-            nonparam_cells = [v for v in code.co_cellvars if v not in varnames_set]
-            extra = nonparam_cells + list(code.co_freevars)
-            idx = arg - nlocals
-            if 0 <= idx < len(extra):
-                return extra[idx]
+            return _resolve_localsplus_name(code, arg)
         elif opname in (
             "LOAD_NAME",
             "STORE_NAME",

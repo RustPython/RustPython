@@ -124,8 +124,6 @@ enum SuperCallType<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuiltinGeneratorCallKind {
     Tuple,
-    List,
-    Set,
     All,
     Any,
 }
@@ -213,6 +211,13 @@ enum FunctionContext {
 impl CompileContext {
     fn in_func(self) -> bool {
         self.func != FunctionContext::NoFunction
+    }
+}
+
+fn bool_literal_value(expr: &ast::Expr) -> Option<bool> {
+    match expr {
+        ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => Some(*value),
+        _ => None,
     }
 }
 
@@ -1238,25 +1243,7 @@ impl Compiler {
             self.set_qualname();
         }
 
-        // Emit COPY_FREE_VARS first, then MAKE_CELL (CPython order)
-        {
-            let nfrees = self.code_stack.last().unwrap().metadata.freevars.len();
-            if nfrees > 0 {
-                emit!(
-                    self,
-                    Instruction::CopyFreeVars {
-                        n: u32::try_from(nfrees).expect("too many freevars"),
-                    }
-                );
-            }
-        }
-        {
-            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
-            for i in 0..ncells {
-                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
-                emit!(self, Instruction::MakeCell { i: i_varnum });
-            }
-        }
+        self.emit_prefix_cell_setup();
 
         // Emit RESUME (handles async preamble and module lineno 0)
         // CPython: LOCATION(lineno, lineno, 0, 0), then loc.lineno = 0 for module
@@ -1305,6 +1292,36 @@ impl Compiler {
             lineno_override,
             cache_entries: 0,
         });
+    }
+
+    fn emit_prefix_cell_setup(&mut self) {
+        let metadata = &self.code_stack.last().unwrap().metadata;
+        let varnames = metadata.varnames.clone();
+        let cellvars = metadata.cellvars.clone();
+        let freevars = metadata.freevars.clone();
+        let ncells = cellvars.len();
+        if ncells > 0 {
+            let cellfixedoffsets = ir::build_cellfixedoffsets(&varnames, &cellvars, &freevars);
+            let mut sorted = vec![None; varnames.len() + ncells];
+            for (oldindex, fixed) in cellfixedoffsets.iter().copied().take(ncells).enumerate() {
+                sorted[fixed as usize] = Some(oldindex);
+            }
+            for oldindex in sorted.into_iter().flatten() {
+                let i_varnum: oparg::VarNum =
+                    u32::try_from(oldindex).expect("too many cellvars").into();
+                emit!(self, Instruction::MakeCell { i: i_varnum });
+            }
+        }
+
+        let nfrees = freevars.len();
+        if nfrees > 0 {
+            emit!(
+                self,
+                Instruction::CopyFreeVars {
+                    n: u32::try_from(nfrees).expect("too many freevars"),
+                }
+            );
+        }
     }
 
     fn push_output(
@@ -1828,13 +1845,10 @@ impl Compiler {
 
         self.symbol_table_stack.push(symbol_table);
 
-        // Emit MAKE_CELL for module-level cells (before RESUME)
+        // Match flowgraph.c insert_prefix_instructions() for module-level
+        // synthetic cells before RESUME.
         if has_module_cond_ann {
-            let ncells = self.code_stack.last().unwrap().metadata.cellvars.len();
-            for i in 0..ncells {
-                let i_varnum: oparg::VarNum = u32::try_from(i).expect("too many cellvars").into();
-                emit!(self, Instruction::MakeCell { i: i_varnum });
-            }
+            self.emit_prefix_cell_setup();
         }
 
         self.emit_resume_for_scope(CompilerScope::Module, 1);
@@ -2516,9 +2530,8 @@ impl Compiler {
                         }
                     );
                     if let Some(e) = msg {
-                        emit!(self, Instruction::PushNull);
                         self.compile_expression(e)?;
-                        emit!(self, Instruction::Call { argc: 1 });
+                        emit!(self, Instruction::Call { argc: 0 });
                     }
                     emit!(
                         self,
@@ -8381,8 +8394,6 @@ impl Compiler {
         }
         match id.as_str() {
             "tuple" => Some(BuiltinGeneratorCallKind::Tuple),
-            "list" => Some(BuiltinGeneratorCallKind::List),
-            "set" => Some(BuiltinGeneratorCallKind::Set),
             "all" => Some(BuiltinGeneratorCallKind::All),
             "any" => Some(BuiltinGeneratorCallKind::Any),
             _ => None,
@@ -8391,34 +8402,27 @@ impl Compiler {
 
     /// Emit the optimized inline loop for builtin(genexpr) calls.
     ///
-    /// Stack on entry: `[func, iter]` where `iter` is the already-compiled
-    /// generator iterator and `func` is the builtin candidate.
-    /// On return the compiler is positioned at the fallback block with
-    /// `[func, iter]` still on the stack (for the normal CALL path).
+    /// Stack on entry: `[func]` where `func` is the builtin candidate.
+    /// On return the compiler is positioned at the fallback block so the
+    /// normal call path can compile the original generator argument again.
     fn optimize_builtin_generator_call(
         &mut self,
         kind: BuiltinGeneratorCallKind,
+        generator_expr: &ast::Expr,
         end: BlockIdx,
     ) -> CompileResult<()> {
         let common_constant = match kind {
             BuiltinGeneratorCallKind::Tuple => bytecode::CommonConstant::BuiltinTuple,
-            BuiltinGeneratorCallKind::List => bytecode::CommonConstant::BuiltinList,
-            BuiltinGeneratorCallKind::Set => bytecode::CommonConstant::BuiltinSet,
             BuiltinGeneratorCallKind::All => bytecode::CommonConstant::BuiltinAll,
             BuiltinGeneratorCallKind::Any => bytecode::CommonConstant::BuiltinAny,
         };
 
+        let fallback = self.new_block();
         let loop_block = self.new_block();
         let cleanup = self.new_block();
-        let fallback = self.new_block();
-        let result = matches!(
-            kind,
-            BuiltinGeneratorCallKind::All | BuiltinGeneratorCallKind::Any
-        )
-        .then(|| self.new_block());
 
-        // Stack: [func, iter] — copy func (TOS1) for identity check
-        emit!(self, Instruction::Copy { i: 2 });
+        // Stack: [func] — copy function for identity check
+        emit!(self, Instruction::Copy { i: 1 });
         emit!(
             self,
             Instruction::LoadCommonConstant {
@@ -8427,59 +8431,41 @@ impl Compiler {
         );
         emit!(self, Instruction::IsOp { invert: Invert::No });
         emit!(self, Instruction::PopJumpIfFalse { delta: fallback });
-        emit!(self, Instruction::NotTaken);
-        // Remove func from [func, iter] → [iter]
-        emit!(self, Instruction::Swap { i: 2 });
         emit!(self, Instruction::PopTop);
 
-        if matches!(
-            kind,
-            BuiltinGeneratorCallKind::Tuple | BuiltinGeneratorCallKind::List
-        ) {
-            // [iter] → [iter, list] → [list, iter]
+        if matches!(kind, BuiltinGeneratorCallKind::Tuple) {
             emit!(self, Instruction::BuildList { count: 0 });
-            emit!(self, Instruction::Swap { i: 2 });
-        } else if matches!(kind, BuiltinGeneratorCallKind::Set) {
-            // [iter] → [iter, set] → [set, iter]
-            emit!(self, Instruction::BuildSet { count: 0 });
-            emit!(self, Instruction::Swap { i: 2 });
         }
 
+        let sub_table_cursor = self.symbol_table_stack.last().map(|t| t.next_sub_table);
+        self.compile_expression(generator_expr)?;
+        if let Some(cursor) = sub_table_cursor
+            && let Some(current_table) = self.symbol_table_stack.last_mut()
+        {
+            current_table.next_sub_table = cursor;
+        }
         self.switch_to_block(loop_block);
         emit!(self, Instruction::ForIter { delta: cleanup });
 
         match kind {
-            BuiltinGeneratorCallKind::Tuple | BuiltinGeneratorCallKind::List => {
+            BuiltinGeneratorCallKind::Tuple => {
                 emit!(self, Instruction::ListAppend { i: 2 });
                 emit!(self, PseudoInstruction::Jump { delta: loop_block });
             }
-            BuiltinGeneratorCallKind::Set => {
-                emit!(self, Instruction::SetAdd { i: 2 });
-                emit!(self, PseudoInstruction::Jump { delta: loop_block });
-            }
             BuiltinGeneratorCallKind::All => {
-                let result = result.expect("all() optimization should have a result block");
                 emit!(self, Instruction::ToBool);
-                emit!(self, Instruction::PopJumpIfFalse { delta: result });
-                emit!(self, Instruction::NotTaken);
-                emit!(self, PseudoInstruction::Jump { delta: loop_block });
+                emit!(self, Instruction::PopJumpIfTrue { delta: loop_block });
+                emit!(self, Instruction::PopIter);
+                self.emit_load_const(ConstantData::Boolean { value: false });
+                emit!(self, PseudoInstruction::Jump { delta: end });
             }
             BuiltinGeneratorCallKind::Any => {
-                let result = result.expect("any() optimization should have a result block");
                 emit!(self, Instruction::ToBool);
-                emit!(self, Instruction::PopJumpIfTrue { delta: result });
-                emit!(self, Instruction::NotTaken);
-                emit!(self, PseudoInstruction::Jump { delta: loop_block });
+                emit!(self, Instruction::PopJumpIfFalse { delta: loop_block });
+                emit!(self, Instruction::PopIter);
+                self.emit_load_const(ConstantData::Boolean { value: true });
+                emit!(self, PseudoInstruction::Jump { delta: end });
             }
-        }
-
-        if let Some(result_block) = result {
-            self.switch_to_block(result_block);
-            emit!(self, Instruction::PopIter);
-            self.emit_load_const(ConstantData::Boolean {
-                value: matches!(kind, BuiltinGeneratorCallKind::Any),
-            });
-            emit!(self, PseudoInstruction::Jump { delta: end });
         }
 
         self.switch_to_block(cleanup);
@@ -8494,7 +8480,6 @@ impl Compiler {
                     }
                 );
             }
-            BuiltinGeneratorCallKind::List | BuiltinGeneratorCallKind::Set => {}
             BuiltinGeneratorCallKind::All => {
                 self.emit_load_const(ConstantData::Boolean { value: true });
             }
@@ -8574,18 +8559,12 @@ impl Compiler {
             .then(|| self.detect_builtin_generator_call(func, args))
             .flatten()
         {
-            // Optimized builtin(genexpr) path: compile the genexpr only once
-            // so its code object appears exactly once in co_consts.
             let end = self.new_block();
             self.compile_expression(func)?;
-            self.compile_expression(&args.args[0])?;
-            // Stack: [func, iter]
-            self.optimize_builtin_generator_call(kind, end)?;
-            // Fallback block: [func, iter] → [func, null, iter] → CALL
-            emit!(self, Instruction::PushNull);
-            emit!(self, Instruction::Swap { i: 2 });
+            self.optimize_builtin_generator_call(kind, &args.args[0], end)?;
             self.set_source_range(call_range);
-            emit!(self, Instruction::Call { argc: 1 });
+            emit!(self, Instruction::PushNull);
+            self.codegen_call_helper(0, args, call_range)?;
             self.switch_to_block(end);
         } else {
             // Regular call: push func, then NULL for self_or_null slot
@@ -9050,7 +9029,19 @@ impl Compiler {
 
             // Now evaluate the ifs:
             for if_condition in &generator.ifs {
-                self.compile_jump_if(if_condition, false, if_cleanup_block)?
+                match bool_literal_value(if_condition) {
+                    Some(true) => {}
+                    Some(false) => {
+                        emit!(
+                            self,
+                            PseudoInstruction::Jump {
+                                delta: if_cleanup_block
+                            }
+                        );
+                        break;
+                    }
+                    None => self.compile_jump_if(if_condition, false, if_cleanup_block)?,
+                }
             }
         }
 
@@ -9326,7 +9317,19 @@ impl Compiler {
 
             // Evaluate the if conditions
             for if_condition in &generator.ifs {
-                self.compile_jump_if(if_condition, false, if_cleanup_block)?;
+                match bool_literal_value(if_condition) {
+                    Some(true) => {}
+                    Some(false) => {
+                        emit!(
+                            self,
+                            PseudoInstruction::Jump {
+                                delta: if_cleanup_block
+                            }
+                        );
+                        break;
+                    }
+                    None => self.compile_jump_if(if_condition, false, if_cleanup_block)?,
+                }
             }
         }
 
@@ -11060,7 +11063,7 @@ def f(xs):
     }
 
     #[test]
-    fn test_builtin_tuple_list_set_genexpr_calls_are_optimized() {
+    fn test_builtin_tuple_genexpr_call_is_optimized_but_list_set_are_not() {
         let code = compile_exec(
             "\
 def tuple_f(xs):
@@ -11091,27 +11094,29 @@ def set_f(xs):
         assert_eq!(tuple_list_append, 2);
 
         let list_f = find_code(&code, "list_f").expect("missing list_f code");
-        assert!(has_common_constant(
-            list_f,
-            bytecode::CommonConstant::BuiltinList
-        ));
         assert!(
             list_f
                 .instructions
                 .iter()
-                .any(|unit| matches!(unit.op, Instruction::ListAppend { .. }))
+                .any(|unit| matches!(unit.op, Instruction::Call { .. })),
+            "list(genexpr) should stay on the normal call path"
+        );
+        assert!(
+            !has_common_constant(list_f, bytecode::CommonConstant::BuiltinList),
+            "CPython 3.14.2 does not optimize list(genexpr)"
         );
 
         let set_f = find_code(&code, "set_f").expect("missing set_f code");
-        assert!(has_common_constant(
-            set_f,
-            bytecode::CommonConstant::BuiltinSet
-        ));
         assert!(
             set_f
                 .instructions
                 .iter()
-                .any(|unit| matches!(unit.op, Instruction::SetAdd { .. }))
+                .any(|unit| matches!(unit.op, Instruction::Call { .. })),
+            "set(genexpr) should stay on the normal call path"
+        );
+        assert!(
+            !has_common_constant(set_f, bytecode::CommonConstant::BuiltinSet),
+            "CPython 3.14.2 does not optimize set(genexpr)"
         );
     }
 
@@ -11479,6 +11484,243 @@ def f(x):
 
         assert_eq!(call_count, 0);
         assert_eq!(push_null_count, 0);
+    }
+
+    #[test]
+    fn test_assert_with_message_uses_common_constant_direct_call() {
+        let code = compile_exec(
+            "\
+def f(x, y):
+    assert x, y
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let load_assertion = f
+            .instructions
+            .iter()
+            .position(|unit| {
+                matches!(unit.op, Instruction::LoadCommonConstant { .. })
+                    && matches!(
+                        unit.op,
+                        Instruction::LoadCommonConstant { idx }
+                            if idx.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                                == bytecode::CommonConstant::AssertionError
+                    )
+            })
+            .expect("missing LOAD_COMMON_CONSTANT AssertionError");
+
+        assert!(
+            !matches!(
+                f.instructions.get(load_assertion + 1).map(|unit| unit.op),
+                Some(Instruction::PushNull)
+            ),
+            "assert message path should not use PUSH_NULL, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(
+                f.instructions.get(load_assertion + 2).map(|unit| unit.op),
+                Some(Instruction::Call { .. })
+            ),
+            "expected direct CALL after loading assert message, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+
+        let call_arg = f.instructions[load_assertion + 2].arg;
+        assert_eq!(u8::from(call_arg), 0);
+    }
+
+    #[test]
+    fn test_negative_constant_binop_folds_after_unary_folding() {
+        let code = compile_exec(
+            "\
+def f():
+    return -2147483647 - 1
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        assert!(
+            !f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BinaryOp { .. })),
+            "negative constant expression should fold to a single constant, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadConst { .. })),
+            "expected folded constant load, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_genexpr_filter_header_uses_store_fast_load_fast() {
+        let code = compile_exec(
+            "\
+def f(it):
+    return (x for x in it if x)
+",
+        );
+        let genexpr = find_code(&code, "<genexpr>").expect("missing <genexpr> code");
+        let store_fast_load_fast_idx = genexpr
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::StoreFastLoadFast { .. }))
+            .expect("missing STORE_FAST_LOAD_FAST in genexpr header");
+
+        assert!(
+            matches!(
+                genexpr
+                    .instructions
+                    .get(store_fast_load_fast_idx + 1)
+                    .map(|unit| unit.op),
+                Some(Instruction::ToBool)
+            ),
+            "expected TO_BOOL immediately after STORE_FAST_LOAD_FAST, got ops={:?}",
+            genexpr
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_multi_with_header_uses_store_fast_load_fast() {
+        let code = compile_exec(
+            "\
+def f(manager):
+    with manager() as x, manager():
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::StoreFastLoadFast { .. })),
+            "expected STORE_FAST_LOAD_FAST in multi-with header, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_sequential_store_then_load_uses_store_fast_load_fast() {
+        let code = compile_exec(
+            "\
+def f(self):
+    x = ''; y = \"\"; self.assertTrue(len(x) == 0 and x == y)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::StoreFastLoadFast { .. })),
+            "expected STORE_FAST_LOAD_FAST in sequential statement body, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_genexpr_true_filter_omits_bool_scaffolding() {
+        let code = compile_exec(
+            "\
+def f(it):
+    return (x for x in it if True)
+",
+        );
+        let genexpr = find_code(&code, "<genexpr>").expect("missing <genexpr> code");
+        assert!(
+            !genexpr.instructions.iter().any(|unit| {
+                matches!(unit.op, Instruction::LoadConst { .. })
+                    && matches!(
+                        genexpr.constants.get(usize::from(u8::from(unit.arg))),
+                        Some(ConstantData::Boolean { value: true })
+                    )
+            }),
+            "constant-true filter should not load True, got ops={:?}",
+            genexpr
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !genexpr
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::PopJumpIfTrue { .. })),
+            "constant-true filter should not leave POP_JUMP_IF_TRUE scaffolding, got ops={:?}",
+            genexpr
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_classdictcell_uses_load_closure_path_and_borrows_after_optimize() {
+        let code = compile_exec(
+            "\
+class C:
+    def method(self):
+        return 1
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+        let store_classdictcell = class_code
+            .instructions
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::StoreName { namei }
+                        if class_code.names
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            .as_str()
+                            == "__classdictcell__"
+                )
+            })
+            .expect("missing STORE_NAME __classdictcell__");
+
+        assert!(
+            matches!(
+                class_code
+                    .instructions
+                    .get(store_classdictcell.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "expected LOAD_FAST_BORROW before __classdictcell__ store, got ops={:?}",
+            class_code
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

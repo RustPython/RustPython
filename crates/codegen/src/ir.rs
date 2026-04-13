@@ -8,7 +8,7 @@ use num_traits::{ToPrimitive, Zero};
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
-        AnyInstruction, AnyOpcode, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
+        AnyInstruction, AnyOpcode, Arg, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
         CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
         InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg, Opcode,
         PseudoInstruction, PseudoOpcode, PyCodeLocationInfoKind, encode_exception_table, oparg,
@@ -203,6 +203,7 @@ impl CodeInfo {
         self.fold_binop_constants();
         self.remove_nops();
         self.fold_unary_negative();
+        self.remove_nops(); // remove UNARY_NEGATIVE NOPs before re-folding binops
         self.fold_binop_constants(); // re-run after unary folding: -1 + 2 → 1
         self.remove_nops(); // remove NOPs so tuple/list/set see contiguous LOADs
         self.fold_tuple_constants();
@@ -235,7 +236,7 @@ impl CodeInfo {
         jump_threading(&mut self.blocks);
         self.eliminate_unreachable_blocks();
         self.remove_nops();
-        // TODO: insert_superinstructions disabled pending StoreFastLoadFast VM fix
+        // CPython inserts superinstructions before optimize_load_fast.
         push_cold_blocks_to_end(&mut self.blocks);
 
         // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
@@ -260,10 +261,26 @@ impl CodeInfo {
         reorder_jump_over_exception_cleanup_blocks(&mut self.blocks);
         self.eliminate_unreachable_blocks();
         remove_redundant_nops_and_jumps(&mut self.blocks);
+        let cellfixedoffsets = build_cellfixedoffsets(
+            &self.metadata.varnames,
+            &self.metadata.cellvars,
+            &self.metadata.freevars,
+        );
+        // CPython lowers LOAD_CLOSURE to LOAD_FAST before optimize_load_fast, so
+        // borrow selection can see classdictcell and other merged-cell loads.
+        convert_load_closure_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
         self.add_checks_for_loads_of_uninitialized_variables();
+        self.combine_store_fast_load_fast();
+        // CPython's optimize_load_fast runs with block start depths already known.
+        // Compute them here so the abstract stack simulation can use the real
+        // CFG entry depth for each block.
+        let _ = self.max_stackdepth()?;
         // optimize_load_fast: after normalize_jumps
         self.optimize_load_fast_borrow();
+        self.deoptimize_borrow_for_handler_return_paths();
+        self.deoptimize_store_fast_store_fast_after_cleanup();
         self.optimize_load_global_push_null();
+        self.reorder_entry_prefix_cell_setup();
 
         let max_stackdepth = self.max_stackdepth()?;
 
@@ -618,6 +635,63 @@ impl CodeInfo {
                 block.instructions.truncate(i + 1);
             }
         }
+    }
+
+    fn reorder_entry_prefix_cell_setup(&mut self) {
+        let Some(entry) = self.blocks.first_mut() else {
+            return;
+        };
+        let ncells = self.metadata.cellvars.len();
+        let nfrees = self.metadata.freevars.len();
+        if ncells == 0 && nfrees == 0 {
+            return;
+        }
+
+        let prefix_len = entry
+            .instructions
+            .iter()
+            .take_while(|info| {
+                matches!(
+                    info.instr.real(),
+                    Some(Instruction::MakeCell { .. } | Instruction::CopyFreeVars { .. })
+                )
+            })
+            .count();
+        if prefix_len == 0 {
+            return;
+        }
+
+        let original_prefix = entry.instructions[..prefix_len].to_vec();
+        let anchor = original_prefix[0];
+        let rest = entry.instructions.split_off(prefix_len);
+        entry.instructions.clear();
+
+        if nfrees > 0 {
+            entry.instructions.push(InstructionInfo {
+                instr: Instruction::CopyFreeVars { n: Arg::marker() }.into(),
+                arg: OpArg::new(nfrees as u32),
+                ..anchor
+            });
+        }
+
+        let cellfixedoffsets = build_cellfixedoffsets(
+            &self.metadata.varnames,
+            &self.metadata.cellvars,
+            &self.metadata.freevars,
+        );
+        let mut sorted = vec![None; self.metadata.varnames.len() + ncells];
+        for (oldindex, fixed) in cellfixedoffsets.iter().copied().take(ncells).enumerate() {
+            sorted[fixed as usize] = Some(oldindex);
+        }
+        for oldindex in sorted.into_iter().flatten() {
+            entry.instructions.push(InstructionInfo {
+                instr: Instruction::MakeCell { i: Arg::marker() }.into(),
+                arg: OpArg::new(oldindex as u32),
+                ..anchor
+            });
+        }
+
+        entry.instructions.extend(rest);
     }
 
     /// Clear blocks that are unreachable (not entry, not a jump target,
@@ -1798,20 +1872,17 @@ impl CodeInfo {
         }
     }
 
-    /// Optimize LOAD_FAST to LOAD_FAST_BORROW where safe.
-    ///
-    /// insert_superinstructions (flowgraph.c): Combine STORE_FAST + LOAD_FAST →
-    /// STORE_FAST_LOAD_FAST. Currently disabled pending VM stack null investigation.
-    #[allow(dead_code)]
+    /// insert_superinstructions (flowgraph.c): combine a narrow subset of
+    /// STORE_FAST + LOAD_FAST patterns that CPython uses in comprehension loop
+    /// headers. Keeping this scoped avoids reintroducing earlier mismatches in
+    /// non-loop code while we continue aligning the surrounding borrow rules.
     fn combine_store_fast_load_fast(&mut self) {
         for block in &mut self.blocks {
             let mut i = 0;
             while i + 1 < block.instructions.len() {
                 let curr = &block.instructions[i];
                 let next = &block.instructions[i + 1];
-                let (Some(Instruction::StoreFast { .. }), Some(Instruction::LoadFast { .. })) =
-                    (curr.instr.real(), next.instr.real())
-                else {
+                let Some(Instruction::StoreFast { .. }) = curr.instr.real() else {
                     i += 1;
                     continue;
                 };
@@ -1822,17 +1893,54 @@ impl CodeInfo {
                     i += 1;
                     continue;
                 }
-                let idx1 = u32::from(curr.arg);
-                let idx2 = u32::from(next.arg);
-                if idx1 < 16 && idx2 < 16 {
-                    let packed = (idx1 << 4) | idx2;
-                    block.instructions[i].instr = Opcode::StoreFastLoadFast.into();
-                    block.instructions[i].arg = OpArg::new(packed);
-                    // Replace second instruction with NOP (CPython: INSTR_SET_OP0(inst2, NOP))
-                    set_to_nop(&mut block.instructions[i + 1]);
-                    i += 2; // skip the NOP
-                } else {
+
+                let store_idx = u32::from(curr.arg);
+                if store_idx >= 16 {
                     i += 1;
+                    continue;
+                }
+
+                match next.instr.real() {
+                    Some(Instruction::LoadFast { .. }) => {
+                        let load_idx = u32::from(next.arg);
+                        if load_idx >= 16 {
+                            i += 1;
+                            continue;
+                        }
+                        let packed = (store_idx << 4) | load_idx;
+                        block.instructions[i].instr = Instruction::StoreFastLoadFast {
+                            var_nums: Arg::marker(),
+                        }
+                        .into();
+                        block.instructions[i].arg = OpArg::new(packed);
+                        set_to_nop(&mut block.instructions[i + 1]);
+                        i += 2;
+                    }
+                    Some(Instruction::LoadFastLoadFast { var_nums }) => {
+                        let packed = var_nums.get(next.arg);
+                        let (first_idx, second_idx) = packed.indexes();
+                        let first_idx = u32::from(first_idx);
+                        if first_idx >= 16 {
+                            i += 1;
+                            continue;
+                        }
+
+                        let packed = (store_idx << 4) | first_idx;
+                        block.instructions[i].instr = Instruction::StoreFastLoadFast {
+                            var_nums: Arg::marker(),
+                        }
+                        .into();
+                        block.instructions[i].arg = OpArg::new(packed);
+                        block.instructions[i + 1].instr = Instruction::LoadFast {
+                            var_num: Arg::marker(),
+                        }
+                        .into();
+                        block.instructions[i + 1].arg = OpArg::new(u32::from(second_idx));
+                        i += 2;
+                    }
+                    _ => {
+                        i += 1;
+                    }
                 }
             }
         }
@@ -1841,86 +1949,442 @@ impl CodeInfo {
     fn optimize_load_fast_borrow(&mut self) {
         // NOT_LOCAL marker: instruction didn't come from a LOAD_FAST
         const NOT_LOCAL: usize = usize::MAX;
+        const DUMMY_INSTR: isize = -1;
+        const SUPPORT_KILLED: u8 = 1;
+        const STORED_AS_LOCAL: u8 = 2;
+        const REF_UNCONSUMED: u8 = 4;
 
-        for block in &mut self.blocks {
+        #[derive(Clone, Copy)]
+        struct AbstractRef {
+            instr: isize,
+            local: usize,
+        }
+
+        fn push_ref(refs: &mut Vec<AbstractRef>, instr: isize, local: usize) {
+            refs.push(AbstractRef { instr, local });
+        }
+
+        fn pop_ref(refs: &mut Vec<AbstractRef>) -> Option<AbstractRef> {
+            refs.pop()
+        }
+
+        fn at_ref(refs: &[AbstractRef], idx: usize) -> Option<AbstractRef> {
+            refs.get(idx).copied()
+        }
+
+        fn swap_top(refs: &mut [AbstractRef], depth: usize) {
+            let top = refs.len() - 1;
+            let other = refs.len() - depth;
+            refs.swap(top, other);
+        }
+
+        fn kill_local(instr_flags: &mut [u8], refs: &[AbstractRef], local: usize) {
+            for r in refs.iter().copied().filter(|r| r.local == local) {
+                debug_assert!(r.instr >= 0);
+                instr_flags[r.instr as usize] |= SUPPORT_KILLED;
+            }
+        }
+
+        fn store_local(instr_flags: &mut [u8], refs: &[AbstractRef], local: usize, r: AbstractRef) {
+            kill_local(instr_flags, refs, local);
+            if r.instr != DUMMY_INSTR {
+                instr_flags[r.instr as usize] |= STORED_AS_LOCAL;
+            }
+        }
+
+        fn decode_packed_fast_locals(arg: OpArg) -> (usize, usize) {
+            let packed = u32::from(arg);
+            (((packed >> 4) & 0xF) as usize, (packed & 0xF) as usize)
+        }
+
+        fn push_block(
+            worklist: &mut Vec<BlockIdx>,
+            visited: &mut [bool],
+            blocks: &[Block],
+            target: BlockIdx,
+            start_depth: usize,
+        ) {
+            let _ = (blocks, start_depth);
+            if !visited[target.idx()] {
+                visited[target.idx()] = true;
+                worklist.push(target);
+            }
+        }
+
+        let mut visited = vec![false; self.blocks.len()];
+        let mut worklist = vec![BlockIdx(0)];
+        visited[0] = true;
+
+        while let Some(block_idx) = worklist.pop() {
+            let block = &self.blocks[block_idx];
             if block.instructions.is_empty() {
                 continue;
             }
 
-            // Track which instructions' outputs are still on stack at block end
-            // For each instruction, we track if its pushed value(s) are unconsumed
-            let mut unconsumed = vec![false; block.instructions.len()];
-
-            // Simulate stack: each entry is the instruction index that pushed it
-            // (or NOT_LOCAL if not from LOAD_FAST/LOAD_FAST_LOAD_FAST).
-            //
-            // CPython (flowgraph.c optimize_load_fast) pre-fills the stack with
-            // dummy refs for values inherited from predecessor blocks. We take
-            // the simpler approach of aborting the optimisation for the whole
-            // block on stack underflow.
-            let mut stack: Vec<usize> = Vec::new();
-            let mut underflow = false;
+            let mut instr_flags = vec![0u8; block.instructions.len()];
+            let start_depth = block.start_depth.unwrap_or(0) as usize;
+            let mut refs = Vec::with_capacity(block.instructions.len() + start_depth + 2);
+            for _ in 0..start_depth {
+                push_ref(&mut refs, DUMMY_INSTR, NOT_LOCAL);
+            }
 
             for (i, info) in block.instructions.iter().enumerate() {
-                let Some(instr) = info.instr.real() else {
-                    continue;
-                };
+                let instr = info.instr;
+                let arg_u32 = u32::from(info.arg);
 
-                let stack_effect_info = instr.stack_effect_info(info.arg.into());
-                let (pushes, pops) = (stack_effect_info.pushed(), stack_effect_info.popped());
-
-                // Pop values from stack
-                for _ in 0..pops {
-                    if stack.pop().is_none() {
-                        // Stack underflow — block receives values from a predecessor.
-                        // Abort optimisation for the entire block.
-                        underflow = true;
-                        break;
+                match instr {
+                    AnyInstruction::Real(Instruction::DeleteFast { var_num }) => {
+                        kill_local(&mut instr_flags, &refs, usize::from(var_num.get(info.arg)));
                     }
-                }
-                if underflow {
-                    break;
-                }
-
-                // Push values to stack with source instruction index
-                let source = match instr.into() {
-                    Opcode::LoadFast | Opcode::LoadFastLoadFast => i,
-                    _ => NOT_LOCAL,
-                };
-                for _ in 0..pushes {
-                    stack.push(source);
+                    AnyInstruction::Real(Instruction::LoadFast { var_num }) => {
+                        push_ref(&mut refs, i as isize, usize::from(var_num.get(info.arg)));
+                    }
+                    AnyInstruction::Real(Instruction::LoadFastAndClear { var_num }) => {
+                        let local = usize::from(var_num.get(info.arg));
+                        kill_local(&mut instr_flags, &refs, local);
+                        push_ref(&mut refs, i as isize, local);
+                    }
+                    AnyInstruction::Real(Instruction::LoadFastLoadFast { .. }) => {
+                        let (local1, local2) = decode_packed_fast_locals(info.arg);
+                        push_ref(&mut refs, i as isize, local1);
+                        push_ref(&mut refs, i as isize, local2);
+                    }
+                    AnyInstruction::Real(Instruction::StoreFast { var_num }) => {
+                        let Some(r) = pop_ref(&mut refs) else {
+                            continue;
+                        };
+                        store_local(
+                            &mut instr_flags,
+                            &refs,
+                            usize::from(var_num.get(info.arg)),
+                            r,
+                        );
+                    }
+                    AnyInstruction::Pseudo(PseudoInstruction::StoreFastMaybeNull { var_num }) => {
+                        let Some(r) = pop_ref(&mut refs) else {
+                            continue;
+                        };
+                        store_local(&mut instr_flags, &refs, var_num.get(info.arg) as usize, r);
+                    }
+                    AnyInstruction::Real(Instruction::StoreFastLoadFast { .. }) => {
+                        let (store_local_idx, load_local_idx) = decode_packed_fast_locals(info.arg);
+                        let Some(r) = pop_ref(&mut refs) else {
+                            continue;
+                        };
+                        store_local(&mut instr_flags, &refs, store_local_idx, r);
+                        push_ref(&mut refs, i as isize, load_local_idx);
+                    }
+                    AnyInstruction::Real(Instruction::StoreFastStoreFast { .. }) => {
+                        let (local1, local2) = decode_packed_fast_locals(info.arg);
+                        let Some(r1) = pop_ref(&mut refs) else {
+                            continue;
+                        };
+                        store_local(&mut instr_flags, &refs, local1, r1);
+                        let Some(r2) = pop_ref(&mut refs) else {
+                            continue;
+                        };
+                        store_local(&mut instr_flags, &refs, local2, r2);
+                    }
+                    AnyInstruction::Real(Instruction::Copy { i: _ }) => {
+                        let depth = arg_u32 as usize;
+                        if depth == 0 || refs.len() < depth {
+                            continue;
+                        }
+                        let r = at_ref(&refs, refs.len() - depth).expect("copy index in bounds");
+                        push_ref(&mut refs, r.instr, r.local);
+                    }
+                    AnyInstruction::Real(Instruction::Swap { i: _ }) => {
+                        let depth = arg_u32 as usize;
+                        if depth < 2 || refs.len() < depth {
+                            continue;
+                        }
+                        swap_top(&mut refs, depth);
+                    }
+                    AnyInstruction::Real(
+                        Instruction::FormatSimple
+                        | Instruction::GetANext
+                        | Instruction::GetLen
+                        | Instruction::GetYieldFromIter
+                        | Instruction::ImportFrom { .. }
+                        | Instruction::MatchKeys
+                        | Instruction::MatchMapping
+                        | Instruction::MatchSequence
+                        | Instruction::WithExceptStart,
+                    ) => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        let net_pushed = effect.pushed() as isize - effect.popped() as isize;
+                        debug_assert!(net_pushed >= 0);
+                        for _ in 0..net_pushed {
+                            push_ref(&mut refs, i as isize, NOT_LOCAL);
+                        }
+                    }
+                    AnyInstruction::Real(
+                        Instruction::DictMerge { .. }
+                        | Instruction::DictUpdate { .. }
+                        | Instruction::ListAppend { .. }
+                        | Instruction::ListExtend { .. }
+                        | Instruction::MapAdd { .. }
+                        | Instruction::Reraise { .. }
+                        | Instruction::SetAdd { .. }
+                        | Instruction::SetUpdate { .. },
+                    ) => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        let net_popped = effect.popped() as isize - effect.pushed() as isize;
+                        debug_assert!(net_popped > 0);
+                        for _ in 0..net_popped {
+                            let _ = pop_ref(&mut refs);
+                        }
+                    }
+                    AnyInstruction::Real(
+                        Instruction::EndSend | Instruction::SetFunctionAttribute { .. },
+                    ) => {
+                        let Some(tos) = pop_ref(&mut refs) else {
+                            continue;
+                        };
+                        let _ = pop_ref(&mut refs);
+                        push_ref(&mut refs, tos.instr, tos.local);
+                    }
+                    AnyInstruction::Real(Instruction::CheckExcMatch) => {
+                        let _ = pop_ref(&mut refs);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL);
+                    }
+                    AnyInstruction::Real(Instruction::ForIter { .. }) => {
+                        if info.target != BlockIdx::NULL {
+                            push_block(
+                                &mut worklist,
+                                &mut visited,
+                                &self.blocks,
+                                info.target,
+                                refs.len() + 1,
+                            );
+                        }
+                        push_ref(&mut refs, i as isize, NOT_LOCAL);
+                    }
+                    AnyInstruction::Real(Instruction::LoadAttr { .. }) => {
+                        let Some(self_ref) = pop_ref(&mut refs) else {
+                            continue;
+                        };
+                        push_ref(&mut refs, i as isize, NOT_LOCAL);
+                        if arg_u32 & 1 != 0 {
+                            push_ref(&mut refs, self_ref.instr, self_ref.local);
+                        }
+                    }
+                    AnyInstruction::Real(Instruction::LoadSuperAttr { .. }) => {
+                        let _ = pop_ref(&mut refs);
+                        let _ = pop_ref(&mut refs);
+                        let Some(self_ref) = pop_ref(&mut refs) else {
+                            continue;
+                        };
+                        push_ref(&mut refs, i as isize, NOT_LOCAL);
+                        if arg_u32 & 1 != 0 {
+                            push_ref(&mut refs, self_ref.instr, self_ref.local);
+                        }
+                    }
+                    AnyInstruction::Real(
+                        Instruction::LoadSpecial { .. } | Instruction::PushExcInfo,
+                    ) => {
+                        let Some(tos) = pop_ref(&mut refs) else {
+                            continue;
+                        };
+                        push_ref(&mut refs, i as isize, NOT_LOCAL);
+                        push_ref(&mut refs, tos.instr, tos.local);
+                    }
+                    AnyInstruction::Real(Instruction::Send { .. }) => {
+                        if info.target != BlockIdx::NULL {
+                            push_block(
+                                &mut worklist,
+                                &mut visited,
+                                &self.blocks,
+                                info.target,
+                                refs.len(),
+                            );
+                        }
+                        let _ = pop_ref(&mut refs);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL);
+                    }
+                    _ => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        let num_popped = effect.popped() as usize;
+                        let num_pushed = effect.pushed() as usize;
+                        if info.target != BlockIdx::NULL {
+                            let target_depth = refs
+                                .len()
+                                .saturating_sub(num_popped)
+                                .saturating_add(num_pushed);
+                            push_block(
+                                &mut worklist,
+                                &mut visited,
+                                &self.blocks,
+                                info.target,
+                                target_depth,
+                            );
+                        }
+                        if !instr.is_block_push() {
+                            for _ in 0..num_popped {
+                                let _ = pop_ref(&mut refs);
+                            }
+                            for _ in 0..num_pushed {
+                                push_ref(&mut refs, i as isize, NOT_LOCAL);
+                            }
+                        }
+                    }
                 }
             }
 
-            if underflow {
+            if block.next != BlockIdx::NULL
+                && block.instructions.last().is_some_and(|term| {
+                    !term.instr.is_unconditional_jump() && !term.instr.is_scope_exit()
+                })
+            {
+                push_block(
+                    &mut worklist,
+                    &mut visited,
+                    &self.blocks,
+                    block.next,
+                    refs.len(),
+                );
+            }
+
+            for r in refs {
+                if r.instr != DUMMY_INSTR {
+                    instr_flags[r.instr as usize] |= REF_UNCONSUMED;
+                }
+            }
+
+            let block = &mut self.blocks[block_idx];
+            if block.except_handler || block.preserve_lasti {
                 continue;
             }
-
-            // Mark instructions whose values remain on stack at block end
-            for &src in &stack {
-                if src != NOT_LOCAL {
-                    unconsumed[src] = true;
-                }
-            }
-
-            // Convert LOAD_FAST to LOAD_FAST_BORROW where value is fully consumed
             for (i, info) in block.instructions.iter_mut().enumerate() {
-                if unconsumed[i] {
+                if instr_flags[i] != 0 {
                     continue;
                 }
-                let Some(instr) = info.instr.real() else {
-                    continue;
-                };
-                match instr.into() {
-                    Opcode::LoadFast => {
-                        info.instr = Opcode::LoadFastBorrow.into();
+                match info.instr.real() {
+                    Some(Instruction::LoadFast { .. }) => {
+                        info.instr = Instruction::LoadFastBorrow {
+                            var_num: Arg::marker(),
+                        }
+                        .into();
                     }
-                    Opcode::LoadFastLoadFast => {
-                        info.instr = Opcode::LoadFastBorrowLoadFastBorrow.into();
+                    Some(Instruction::LoadFastLoadFast { .. }) => {
+                        info.instr = Instruction::LoadFastBorrowLoadFastBorrow {
+                            var_nums: Arg::marker(),
+                        }
+                        .into();
                     }
                     _ => {}
                 }
             }
+        }
+    }
+
+    fn deoptimize_borrow_for_handler_return_paths(&mut self) {
+        for block in &mut self.blocks {
+            let len = block.instructions.len();
+            for i in 0..len {
+                let Some(Instruction::LoadFastBorrow { .. }) = block.instructions[i].instr.real()
+                else {
+                    continue;
+                };
+                let tail = &block.instructions[i + 1..];
+                if tail.len() < 3 {
+                    continue;
+                }
+                if !matches!(tail[0].instr.real(), Some(Instruction::Swap { .. })) {
+                    continue;
+                }
+                if !matches!(tail[1].instr.real(), Some(Instruction::PopExcept)) {
+                    continue;
+                }
+                if !matches!(tail[2].instr.real(), Some(Instruction::ReturnValue)) {
+                    continue;
+                }
+                block.instructions[i].instr = Instruction::LoadFast {
+                    var_num: Arg::marker(),
+                }
+                .into();
+            }
+        }
+    }
+
+    fn deoptimize_store_fast_store_fast_after_cleanup(&mut self) {
+        fn last_real_instr(block: &Block) -> Option<Instruction> {
+            block
+                .instructions
+                .iter()
+                .rev()
+                .find_map(|info| info.instr.real())
+        }
+
+        let mut predecessors = vec![Vec::new(); self.blocks.len()];
+        for (pred_idx, block) in self.blocks.iter().enumerate() {
+            if block.next != BlockIdx::NULL {
+                predecessors[block.next.idx()].push(BlockIdx(pred_idx as u32));
+            }
+            for info in &block.instructions {
+                if info.target != BlockIdx::NULL {
+                    predecessors[info.target.idx()].push(BlockIdx(pred_idx as u32));
+                }
+            }
+        }
+
+        let starts_after_cleanup: Vec<bool> = predecessors
+            .iter()
+            .map(|preds| {
+                !preds.is_empty()
+                    && preds.iter().copied().all(|pred_idx| {
+                        matches!(
+                            last_real_instr(&self.blocks[pred_idx]),
+                            Some(Instruction::PopIter) | Some(Instruction::Swap { .. })
+                        )
+                    })
+            })
+            .collect();
+
+        for (block_idx, block) in self.blocks.iter_mut().enumerate() {
+            let mut new_instructions = Vec::with_capacity(block.instructions.len());
+            for (i, info) in block.instructions.iter().copied().enumerate() {
+                let expand = matches!(
+                    info.instr.real(),
+                    Some(Instruction::StoreFastStoreFast { .. })
+                ) && (new_instructions.last().is_some_and(
+                    |prev: &InstructionInfo| {
+                        matches!(
+                            prev.instr.real(),
+                            Some(Instruction::PopIter) | Some(Instruction::Swap { .. })
+                        )
+                    },
+                ) || (i == 0 && starts_after_cleanup[block_idx]));
+
+                if expand {
+                    let Some(Instruction::StoreFastStoreFast { var_nums }) = info.instr.real()
+                    else {
+                        unreachable!();
+                    };
+                    let packed = var_nums.get(info.arg);
+                    let (idx1, idx2) = packed.indexes();
+
+                    let mut first = info;
+                    first.instr = Instruction::StoreFast {
+                        var_num: Arg::marker(),
+                    }
+                    .into();
+                    first.arg = OpArg::new(u32::from(idx1));
+                    new_instructions.push(first);
+
+                    let mut second = info;
+                    second.instr = Instruction::StoreFast {
+                        var_num: Arg::marker(),
+                    }
+                    .into();
+                    second.arg = OpArg::new(u32::from(idx2));
+                    new_instructions.push(second);
+                    continue;
+                }
+
+                new_instructions.push(info);
+            }
+            block.instructions = new_instructions;
         }
     }
 
@@ -1929,6 +2393,13 @@ impl CodeInfo {
         if nlocals == 0 {
             return;
         }
+
+        let merged_cell_local = |cell_relative: usize| {
+            self.metadata
+                .cellvars
+                .get_index(cell_relative)
+                .and_then(|name| self.metadata.varnames.get_index_of(name.as_str()))
+        };
 
         let mut nparams = self.metadata.argcount as usize + self.metadata.kwonlyargcount as usize;
         if self.flags.contains(CodeFlags::VARARGS) {
@@ -1989,6 +2460,15 @@ impl CodeInfo {
                         }
                         new_instructions.push(info);
                     }
+                    Some(Instruction::StoreDeref { i }) => {
+                        let cell_relative = usize::from(i.get(info.arg));
+                        if let Some(var_idx) = merged_cell_local(cell_relative)
+                            && var_idx < nlocals
+                        {
+                            unsafe_mask[var_idx] = false;
+                        }
+                        new_instructions.push(info);
+                    }
                     Some(Instruction::StoreFastStoreFast { var_nums }) => {
                         let packed = var_nums.get(info.arg);
                         let (idx1, idx2) = packed.indexes();
@@ -2009,7 +2489,17 @@ impl CodeInfo {
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFast { var_num }) => {
+                    Some(Instruction::DeleteDeref { i }) => {
+                        let cell_relative = usize::from(i.get(info.arg));
+                        if let Some(var_idx) = merged_cell_local(cell_relative)
+                            && var_idx < nlocals
+                        {
+                            unsafe_mask[var_idx] = true;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::LoadFast { var_num })
+                    | Some(Instruction::LoadFastBorrow { var_num }) => {
                         let var_idx = usize::from(var_num.get(info.arg));
                         if var_idx < nlocals && unsafe_mask[var_idx] {
                             info.instr = Opcode::LoadFastCheck.into();
@@ -2020,7 +2510,8 @@ impl CodeInfo {
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFastLoadFast { var_nums }) => {
+                    Some(Instruction::LoadFastLoadFast { var_nums })
+                    | Some(Instruction::LoadFastBorrowLoadFastBorrow { var_nums }) => {
                         let packed = var_nums.get(info.arg);
                         let (idx1, idx2) = packed.indexes();
                         let idx1 = usize::from(idx1);
@@ -3956,6 +4447,30 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 visited[next.idx()] = true;
                 block_stacks[next.idx()] = Some(stack);
                 todo.push(next);
+            }
+        }
+    }
+}
+
+/// Lower only LOAD_CLOSURE pseudo ops to LOAD_FAST so optimize_load_fast can
+/// make the same borrow decision CPython does for merged cell locals.
+fn convert_load_closure_pseudo_ops(blocks: &mut [Block], cellfixedoffsets: &[u32]) {
+    for block in blocks.iter_mut() {
+        for info in &mut block.instructions {
+            let Some(pseudo) = info.instr.pseudo() else {
+                continue;
+            };
+            match pseudo {
+                PseudoInstruction::LoadClosure { i } => {
+                    let cell_relative = i.get(info.arg) as usize;
+                    let new_idx = cellfixedoffsets[cell_relative];
+                    info.arg = OpArg::new(new_idx);
+                    info.instr = Instruction::LoadFast {
+                        var_num: Arg::marker(),
+                    }
+                    .into();
+                }
+                _ => {}
             }
         }
     }
