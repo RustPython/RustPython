@@ -50,7 +50,7 @@ pub extern "C" fn PyObject_VectorcallMethod(
     nargsf: usize,
     kwnames: *mut PyObject,
 ) -> *mut PyObject {
-    with_vm::<PyResult>(|vm| {
+    with_vm::<PyResult, _>(|vm| {
         let args_len = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
         let num_positional_args = args_len - 1;
 
@@ -96,8 +96,7 @@ pub extern "C" fn PyObject_SetItem(
         let obj = unsafe { &*obj };
         let key = unsafe { &*key };
         let value = unsafe { &*value }.to_owned();
-        obj.set_item(key, value, vm)?;
-        Ok(0)
+        obj.set_item(key, value, vm)
     })
 }
 
@@ -106,8 +105,7 @@ pub extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject) -> c_
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let key = unsafe { &*key };
-        obj.del_item(key, vm)?;
-        Ok(0)
+        obj.del_item(key, vm)
     })
 }
 

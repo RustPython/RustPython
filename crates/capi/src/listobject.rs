@@ -14,7 +14,7 @@ pub extern "C" fn PyList_New(size: isize) -> *mut PyObject {
 pub extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
         let list = unsafe { &*obj }.try_downcast_ref::<PyList>(vm)?;
-        Ok(list.__len__() as isize)
+        Ok(list.__len__())
     })
 }
 
@@ -40,12 +40,12 @@ pub extern "C" fn PyList_SetItem(list: *mut PyObject, index: isize, item: *mut P
         match index - list_mut.len() as isize {
             ..0 => {
                 list_mut[index as usize] = item;
-                Ok(0)
+                Ok(())
             }
             // This is somewhat a hack, we assume that we are populating a list right after PyList_New
             0 if list_mut.capacity() > index as usize => {
                 list_mut.push(item);
-                Ok(0)
+                Ok(())
             }
             0.. => Err(vm.new_index_error(format!("list assignment index out of range: {index}"))),
         }

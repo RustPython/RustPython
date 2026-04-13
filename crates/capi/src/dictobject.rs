@@ -19,8 +19,7 @@ pub extern "C" fn PyDict_SetItem(
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
         let key = unsafe { &*key };
         let value = unsafe { &*val }.to_owned();
-        dict.set_item(key, value, vm)?;
-        Ok(0)
+        dict.set_item(key, value, vm)
     })
 }
 
@@ -38,12 +37,12 @@ pub extern "C" fn PyDict_GetItemRef(
             unsafe {
                 *result = value.into_raw().as_ptr();
             }
-            Ok(1)
+            Ok(true)
         } else {
             unsafe {
                 *result = core::ptr::null_mut();
             }
-            Ok(0)
+            Ok(false)
         }
     })
 }
@@ -52,7 +51,7 @@ pub extern "C" fn PyDict_GetItemRef(
 pub extern "C" fn PyDict_Size(dict: *mut PyObject) -> isize {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        Ok(dict.__len__() as isize)
+        Ok(dict.__len__())
     })
 }
 
@@ -74,9 +73,9 @@ pub extern "C" fn PyDict_Next(
                 *value = v.as_object().as_raw().cast_mut();
                 *pos += 1;
             }
-            Ok(1)
+            Ok(true)
         } else {
-            Ok(0)
+            Ok(false)
         }
     })
 }

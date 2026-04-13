@@ -10,7 +10,7 @@ thread_local! {
     static VM: RefCell<Option<ThreadedVirtualMachine>> = const { RefCell::new(None) };
 }
 
-pub(crate) fn with_vm<R: FfiResult>(f: impl FnOnce(&VirtualMachine) -> R) -> R::Output {
+pub(crate) fn with_vm<R: FfiResult<O>, O>(f: impl FnOnce(&VirtualMachine) -> R) -> O {
     VM.with(|vm_ref| {
         let vm = vm_ref.borrow();
         let vm = vm

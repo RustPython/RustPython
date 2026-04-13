@@ -41,7 +41,7 @@ pub extern "C" fn PyUnicode_AsUTF8AndSize(obj: *mut PyObject, size: *mut isize) 
         if !size.is_null() {
             unsafe { *size = str.len() as isize };
         }
-        Ok(str.as_ptr() as *const c_char)
+        Ok(str.as_ptr())
     })
 }
 
