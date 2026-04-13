@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "remaining openssl file access has not been extracted into rustpython-host-env yet"
+)]
+
 // spell-checker:disable
 
 mod cert;

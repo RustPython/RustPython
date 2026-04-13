@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "traceback source loading still uses direct host APIs until later extraction"
+)]
+
 use self::types::{PyBaseException, PyBaseExceptionRef};
 use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};

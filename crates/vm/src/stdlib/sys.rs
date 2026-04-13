@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "sys breakpoint configuration still uses direct host APIs until later extraction"
+)]
+
 pub(crate) mod monitoring;
 
 use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};

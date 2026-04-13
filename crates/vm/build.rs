@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "build scripts cannot use rustpython-host-env"
+)]
+
 use itertools::Itertools;
 use std::{env, io::prelude::*, path::PathBuf, process::Command};
 

@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "import path shadow checks still use direct host APIs until later extraction"
+)]
+
 //! Import mechanics
 
 use crate::{

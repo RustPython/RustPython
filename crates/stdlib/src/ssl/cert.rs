@@ -1,5 +1,10 @@
 // cspell: ignore accessdescs
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "remaining certificate file access has not been extracted into rustpython-host-env yet"
+)]
+
 //! Certificate parsing, validation, and conversion utilities for SSL/TLS
 //!
 //! This module provides reusable functions for working with X.509 certificates:

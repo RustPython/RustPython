@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "remaining os host calls have not been extracted into rustpython-host-env yet"
+)]
+
 // spell-checker:disable
 
 use crate::{

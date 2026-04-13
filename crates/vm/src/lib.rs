@@ -8,6 +8,7 @@
 
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
+#![deny(clippy::disallowed_methods)]
 #![allow(clippy::module_inception)]
 // we want to mirror python naming conventions when defining python structs, so that does mean
 // uppercase acronyms, e.g. TextIOWrapper instead of TextIoWrapper

@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "remaining openssl certificate file access has not been extracted into rustpython-host-env yet"
+)]
+
 pub(super) use ssl_cert::{PySSLCertificate, cert_to_certificate, cert_to_py, obj2txt};
 
 // Certificate type for SSL module

@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "readline history file setup still uses direct host APIs until later extraction"
+)]
+
 //! Readline interface for REPLs
 //!
 //! This module provides a common interface for reading lines from the console, with support for history and completion.

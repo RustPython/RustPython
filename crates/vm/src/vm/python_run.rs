@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "script loading still uses direct host APIs until later extraction"
+)]
+
 //! Python code execution functions.
 
 use crate::{

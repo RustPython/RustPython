@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "vm initialization still uses direct host APIs until later extraction"
+)]
+
 //! Implement virtual machine to run instructions.
 //!
 //! See also:

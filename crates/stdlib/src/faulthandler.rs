@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "faulthandler fallback exits still use direct host APIs until later extraction"
+)]
+
 pub(crate) use decl::module_def;
 
 #[allow(static_mut_refs)] // TODO: group code only with static mut refs

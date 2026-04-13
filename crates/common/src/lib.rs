@@ -1,6 +1,7 @@
 //! A crate to hold types and functions common to all rustpython components.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(clippy::disallowed_methods)]
 
 extern crate alloc;
 

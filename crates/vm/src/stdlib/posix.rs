@@ -15,6 +15,11 @@ pub use rustpython_host_env::posix::set_inheritable;
     posix_sched
 ))]
 pub mod module {
+    #![allow(
+        clippy::disallowed_methods,
+        reason = "remaining posix host calls have not been extracted into rustpython-host-env yet"
+    )]
+
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyInt, PyListRef, PyTupleRef, PyUtf8Str},

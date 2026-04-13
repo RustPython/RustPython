@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "posixsubprocess exit path still uses direct host APIs until later extraction"
+)]
+
 // spell-checker:disable
 
 use crate::vm::{

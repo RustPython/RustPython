@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "pyc loading still uses direct host APIs until later extraction"
+)]
+
 //! Infamous code object. The python class `code`
 
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, set::PyFrozenSet};

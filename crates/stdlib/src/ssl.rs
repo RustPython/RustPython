@@ -1,3 +1,7 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "remaining ssl file access has not been extracted into rustpython-host-env yet"
+)]
 // spell-checker: ignore ssleof aesccm aesgcm capath getblocking setblocking ENDTLS TLSEXT
 
 //! Pure Rust SSL/TLS implementation using rustls

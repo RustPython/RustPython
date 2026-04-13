@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "path bootstrap still uses direct host APIs until later extraction"
+)]
+
 //! Path configuration for RustPython (ref: Modules/getpath.py)
 //!
 //! This module implements Python path calculation logic following getpath.py.
