@@ -85,6 +85,11 @@ impl Initializer for PyWeak {
     flags(BASETYPE)
 )]
 impl PyWeak {
+    #[pygetset]
+    fn __callback__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.unwrap_or_none(self.get_callback())
+    }
+
     #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::from_args(cls, args, vm)
