@@ -7456,12 +7456,13 @@ impl ExecutingFrame<'_> {
             .load()
             .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
         if !is_default_getattro {
-            let type_version = cls.version_for_specialization(_vm);
+            let (getattribute, type_version) =
+                cls.lookup_ref_and_version_interned(identifier!(_vm, __getattribute__), _vm);
             if type_version != 0
                 && !oparg.is_method()
                 && !self.specialization_eval_frame_active(_vm)
                 && cls.get_attr(identifier!(_vm, __getattr__)).is_none()
-                && let Some(getattribute) = cls.get_attr(identifier!(_vm, __getattribute__))
+                && let Some(getattribute) = getattribute
                 && let Some(func) = getattribute.downcast_ref_if_exact::<PyFunction>(_vm)
                 && func.can_specialize_call(2)
             {
@@ -7493,27 +7494,24 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // Get or assign type version
-        let type_version = cls.version_for_specialization(_vm);
-        if type_version == 0 {
-            // Version counter overflow — backoff to avoid re-attempting every execution
-            unsafe {
-                self.code.instructions.write_adaptive_counter(
-                    cache_base,
-                    bytecode::adaptive_counter_backoff(
-                        self.code.instructions.read_adaptive_counter(cache_base),
-                    ),
-                );
-            }
-            return;
-        }
-
         let attr_name = self.code.names[oparg.name_idx() as usize];
 
         // Match CPython: only specialize module attribute loads when the
         // current module dict has no __getattr__ override and the attribute is
         // already present.
         if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
+            let type_version = cls.version_for_specialization(_vm);
+            if type_version == 0 {
+                unsafe {
+                    self.code.instructions.write_adaptive_counter(
+                        cache_base,
+                        bytecode::adaptive_counter_backoff(
+                            self.code.instructions.read_adaptive_counter(cache_base),
+                        ),
+                    );
+                }
+                return;
+            }
             let module_dict = module.dict();
             match (
                 module_dict.get_item_opt(identifier!(_vm, __getattr__), _vm),
@@ -7540,8 +7538,18 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // Look up attr in class via MRO
-        let cls_attr = cls.get_attr(attr_name);
+        let (cls_attr, type_version) = cls.lookup_ref_and_version_interned(attr_name, _vm);
+        if type_version == 0 {
+            unsafe {
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
+            }
+            return;
+        }
         let class_has_dict = cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
 
         if oparg.is_method() {
@@ -7712,26 +7720,11 @@ impl ExecutingFrame<'_> {
     ) {
         let obj = self.top_value();
         let owner_type = obj.downcast_ref::<PyType>().unwrap();
-
-        // Get or assign type version for the type object itself
-        let type_version = owner_type.version_for_specialization(_vm);
-        if type_version == 0 {
-            unsafe {
-                self.code.instructions.write_adaptive_counter(
-                    cache_base,
-                    bytecode::adaptive_counter_backoff(
-                        self.code.instructions.read_adaptive_counter(cache_base),
-                    ),
-                );
-            }
-            return;
-        }
-
         let attr_name = self.code.names[oparg.name_idx() as usize];
 
         // Check metaclass: ensure no data descriptor on metaclass for this name
         let mcl = obj.class();
-        let mcl_attr = mcl.get_attr(attr_name);
+        let (mcl_attr, mut metaclass_version) = mcl.lookup_ref_and_version_interned(attr_name, _vm);
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
             if attr_class.slots.descr_set.load().is_some() {
@@ -7747,9 +7740,7 @@ impl ExecutingFrame<'_> {
                 return;
             }
         }
-        let mut metaclass_version = 0;
         if !mcl.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            metaclass_version = mcl.version_for_specialization(_vm);
             if metaclass_version == 0 {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
@@ -7761,10 +7752,22 @@ impl ExecutingFrame<'_> {
                 }
                 return;
             }
+        } else {
+            metaclass_version = 0;
         }
 
-        // Look up attr in the type's own MRO
-        let cls_attr = owner_type.get_attr(attr_name);
+        let (cls_attr, type_version) = owner_type.lookup_ref_and_version_interned(attr_name, _vm);
+        if type_version == 0 {
+            unsafe {
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
+            }
+            return;
+        }
         if let Some(ref descr) = cls_attr {
             let descr_class = descr.class();
             let has_descr_get = descr_class.slots.descr_get.load().is_some();
@@ -9140,8 +9143,8 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // Get or assign type version
-        let type_version = cls.version_for_specialization(vm);
+        let attr_name = self.code.names[attr_idx as usize];
+        let (cls_attr, type_version) = cls.lookup_ref_and_version_interned(attr_name, vm);
         if type_version == 0 {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
@@ -9153,10 +9156,6 @@ impl ExecutingFrame<'_> {
             }
             return;
         }
-
-        // Check for data descriptor
-        let attr_name = self.code.names[attr_idx as usize];
-        let cls_attr = cls.get_attr(attr_name);
         let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
             let descr_cls = descr.class();
             descr_cls.slots.descr_get.load().is_some() && descr_cls.slots.descr_set.load().is_some()

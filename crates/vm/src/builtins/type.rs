@@ -216,6 +216,24 @@ pub fn type_cache_clear() {
     TYPE_CACHE_CLEARING.store(false, Ordering::Release);
 }
 
+/// Repair type-cache SeqLock state in the post-fork child.
+///
+/// If fork happens while a writer holds an entry SeqLock, the child inherits
+/// the odd sequence value with no surviving writer to release it. Clear only
+/// those in-progress entries, matching CPython's `_PyTypes_AfterFork()`.
+pub unsafe fn type_cache_after_fork() {
+    for entry in TYPE_CACHE.iter() {
+        let seq = entry.sequence.load(Ordering::Relaxed);
+        if (seq & 1) == 0 {
+            continue;
+        }
+        entry.value.store(core::ptr::null_mut(), Ordering::Relaxed);
+        entry.name.store(core::ptr::null_mut(), Ordering::Relaxed);
+        entry.version.store(0, Ordering::Relaxed);
+        entry.sequence.store(0, Ordering::Relaxed);
+    }
+}
+
 unsafe impl crate::object::Traverse for PyType {
     fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
         self.base.traverse(tracer_fn);
@@ -487,10 +505,28 @@ impl PyType {
     }
 
     pub fn assign_version_tag(&self) -> u32 {
-        self.assign_version_tag_inner()
+        let version = self.tp_version_tag.load(Ordering::Acquire);
+        if version != 0 {
+            return version;
+        }
+        crate::vm::thread::try_with_current_vm(|vm| {
+            Self::with_type_lock(vm, || {
+                let version = self.tp_version_tag.load(Ordering::Acquire);
+                if version == 0 {
+                    self.assign_version_tag_inner()
+                } else {
+                    version
+                }
+            })
+        })
+        .unwrap_or_else(|| self.assign_version_tag_inner())
     }
 
     pub(crate) fn version_for_specialization(&self, vm: &VirtualMachine) -> u32 {
+        let version = self.tp_version_tag.load(Ordering::Acquire);
+        if version != 0 {
+            return version;
+        }
         Self::with_type_lock(vm, || {
             let version = self.tp_version_tag.load(Ordering::Acquire);
             if version == 0 {
@@ -503,28 +539,34 @@ impl PyType {
 
     /// Invalidate this type's version tag and cascade to all subclasses.
     fn modified_inner(&self) {
-        if let Some(ext) = self.heaptype_ext.as_ref() {
-            ext.specialization_cache.invalidate_for_type_modified();
-        }
-        // If already invalidated, all subclasses must also be invalidated
-        // (guaranteed by the MRO invariant in assign_version_tag).
         let old_version = self.tp_version_tag.load(Ordering::Acquire);
         if old_version == 0 {
             return;
         }
-        self.tp_version_tag.store(0, Ordering::SeqCst);
-        // Nullify borrowed pointers in cache entries for this version
-        // so they don't dangle after the dict is modified.
-        type_cache_clear_version(old_version);
         let subclasses = self.subclasses.read();
         for weak_ref in subclasses.iter() {
             if let Some(sub) = weak_ref.upgrade() {
                 sub.downcast_ref::<PyType>().unwrap().modified_inner();
             }
         }
+        self.tp_version_tag.store(0, Ordering::SeqCst);
+        // Nullify borrowed pointers in cache entries for this version
+        // so they don't dangle after the dict is modified.
+        type_cache_clear_version(old_version);
+        if let Some(ext) = self.heaptype_ext.as_ref() {
+            ext.specialization_cache.invalidate_for_type_modified();
+        }
     }
 
     pub fn modified(&self) {
+        if self.tp_version_tag.load(Ordering::Acquire) == 0 {
+            return;
+        }
+        if let Some(()) = crate::vm::thread::try_with_current_vm(|vm| {
+            Self::with_type_lock(vm, || self.modified_inner());
+        }) {
+            return;
+        }
         self.modified_inner();
     }
 
@@ -1050,10 +1092,10 @@ impl PyType {
                 return false;
             }
             ext.specialization_cache
+                .swap_getitem(Some(getitem), Some(vm));
+            ext.specialization_cache
                 .getitem_version
                 .store(func_version, Ordering::Release);
-            ext.specialization_cache
-                .swap_getitem(Some(getitem), Some(vm));
             true
         })
     }
@@ -1076,18 +1118,7 @@ impl PyType {
         Some((getitem, cached_version))
     }
 
-    pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        self.attributes.read().get(attr_name).cloned()
-    }
-
-    /// find_name_in_mro with method cache (MCACHE).
-    /// Looks in tp_dict of types in MRO, bypasses descriptors.
-    ///
-    /// Uses a lock-free SeqLock-style pattern:
-    ///   Read:  load sequence/version/name → load value + try_to_owned →
-    ///          validate value pointer + sequence
-    ///   Write: sequence(begin) → version=0 → swap value/name → version=assigned → sequence(end)
-    fn find_name_in_mro(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
+    fn find_name_in_mro_without_vm(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
         let version = self.tp_version_tag.load(Ordering::Acquire);
         if version != 0 {
             let idx = type_cache_hash(version, name);
@@ -1109,8 +1140,6 @@ impl PyType {
                     }
                     continue;
                 }
-                // _Py_TryIncrefCompare-style validation:
-                // safe_inc via raw pointer, then ensure source is unchanged.
                 if let Some(cloned) = unsafe { PyObject::try_to_owned_from_ptr(ptr) } {
                     let same_ptr = core::ptr::eq(entry.value.load(Ordering::Relaxed), ptr);
                     if same_ptr && entry.end_read(seq1) {
@@ -1123,20 +1152,12 @@ impl PyType {
             }
         }
 
-        // Assign version BEFORE the MRO walk so that any concurrent
-        // modified() call during the walk invalidates this version.
         let assigned = if version == 0 {
             self.assign_version_tag()
         } else {
             version
         };
-
-        // MRO walk
         let result = self.find_name_in_mro_uncached(name);
-
-        // Only cache positive results. Negative results are not cached to
-        // avoid stale entries from transient MRO walk failures during
-        // concurrent type modifications.
         if let Some(ref found) = result
             && assigned != 0
             && !TYPE_CACHE_CLEARING.load(Ordering::Acquire)
@@ -1146,18 +1167,32 @@ impl PyType {
             let entry = &TYPE_CACHE[idx];
             let name_ptr = name as *const _ as *mut _;
             entry.begin_write();
-            // Invalidate first to prevent readers from seeing partial state
             entry.version.store(0, Ordering::Release);
-            // Store borrowed pointer (no refcount increment).
             let new_ptr = &**found as *const PyObject as *mut PyObject;
             entry.value.store(new_ptr, Ordering::Relaxed);
             entry.name.store(name_ptr, Ordering::Relaxed);
-            // Activate entry — Release ensures value/name writes are visible
             entry.version.store(assigned, Ordering::Release);
             entry.end_write();
         }
-
         result
+    }
+
+    pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
+        self.attributes.read().get(attr_name).cloned()
+    }
+
+    /// find_name_in_mro with method cache (MCACHE).
+    /// Looks in tp_dict of types in MRO, bypasses descriptors.
+    ///
+    /// Uses a lock-free SeqLock-style pattern:
+    ///   Read:  load sequence/version/name → load value + try_to_owned →
+    ///          validate value pointer + sequence
+    ///   Write: sequence(begin) → version=0 → swap value/name → version=assigned → sequence(end)
+    fn find_name_in_mro(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
+        crate::vm::thread::try_with_current_vm(|vm| {
+            self.lookup_ref_and_version_interned(name, vm).0
+        })
+        .unwrap_or_else(|| self.find_name_in_mro_without_vm(name))
     }
 
     /// Raw MRO walk without cache.
@@ -1173,7 +1208,7 @@ impl PyType {
     /// _PyType_LookupRef: look up a name through the MRO without setting an exception.
     pub fn lookup_ref(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
         let interned_name = vm.ctx.interned_str(name)?;
-        self.find_name_in_mro(interned_name)
+        self.lookup_ref_and_version_interned(interned_name, vm).0
     }
 
     pub fn get_super_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {

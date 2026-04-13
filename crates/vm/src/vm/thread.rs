@@ -75,6 +75,10 @@ pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
     VM_CURRENT.with(f)
 }
 
+pub fn try_with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R> {
+    VM_CURRENT.is_set().then(|| VM_CURRENT.with(f))
+}
+
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     VM_STACK.with(|vms| {
         // Outermost enter_vm: transition DETACHED → ATTACHED
