@@ -207,9 +207,12 @@ mod _opcode {
         }
 
         let effect = match jump {
+            Some(true) => opcode.stack_effect_jump(oparg),
             Some(false) => opcode.stack_effect(oparg),
-            // jump=True or jump=None: branch-path effect
-            _ => opcode.stack_effect_jump(oparg),
+            // jump=None: max of both paths (CPython convention)
+            None => opcode
+                .stack_effect(oparg)
+                .max(opcode.stack_effect_jump(oparg)),
         };
         Ok(effect)
     }
