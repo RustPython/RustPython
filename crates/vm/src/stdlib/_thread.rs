@@ -55,7 +55,6 @@ pub(crate) mod _thread {
     // this is a value in seconds
     #[pyattr]
     const TIMEOUT_MAX: f64 = (TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000) as f64;
-
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.exceptions.runtime_error.to_owned()
@@ -551,11 +550,7 @@ pub(crate) mod _thread {
                 .map(|(k, v)| (k.as_str().to_owned(), v))
                 .collect::<KwArgs>(),
         );
-        let mut thread_builder = thread::Builder::new();
-        let stacksize = vm.state.stacksize.load();
-        if stacksize != 0 {
-            thread_builder = thread_builder.stack_size(stacksize);
-        }
+        let thread_builder = apply_thread_stack_size(thread::Builder::new(), vm);
         thread_builder
             .spawn(
                 vm.new_thread()
@@ -591,6 +586,18 @@ pub(crate) mod _thread {
         // Clean up frame tracking
         crate::vm::thread::cleanup_current_thread_frames(vm);
         vm.state.thread_count.fetch_sub(1);
+    }
+
+    fn apply_thread_stack_size(
+        thread_builder: thread::Builder,
+        vm: &VirtualMachine,
+    ) -> thread::Builder {
+        let configured = vm.state.stacksize.load();
+        if configured != 0 {
+            thread_builder.stack_size(configured)
+        } else {
+            thread_builder
+        }
     }
 
     /// Clean up thread-local data for the current thread.
@@ -893,7 +900,7 @@ pub(crate) mod _thread {
     // Guard that removes thread-local data when dropped
     struct LocalGuard {
         local: Weak<LocalData>,
-        thread_id: std::thread::ThreadId,
+        thread_id: u64,
     }
 
     impl Drop for LocalGuard {
@@ -909,7 +916,7 @@ pub(crate) mod _thread {
 
     // Shared data structure for Local
     struct LocalData {
-        data: parking_lot::Mutex<std::collections::HashMap<std::thread::ThreadId, PyDictRef>>,
+        data: parking_lot::Mutex<std::collections::HashMap<u64, PyDictRef>>,
     }
 
     impl fmt::Debug for LocalData {
@@ -928,7 +935,7 @@ pub(crate) mod _thread {
     #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
         fn l_dict(&self, vm: &VirtualMachine) -> PyDictRef {
-            let thread_id = std::thread::current().id();
+            let thread_id = current_thread_id();
 
             // Fast path: check if dict exists under lock
             if let Some(dict) = self.inner.data.lock().get(&thread_id).cloned() {
@@ -962,6 +969,11 @@ pub(crate) mod _thread {
             }
 
             dict
+        }
+
+        #[pygetset(name = "__dict__")]
+        fn dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyDictRef {
+            zelf.l_dict(vm)
         }
 
         #[pyslot]
@@ -1626,11 +1638,7 @@ pub(crate) mod _thread {
             Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
         let handle_ready_event_clone = Arc::clone(&handle_ready_event);
 
-        let mut thread_builder = thread::Builder::new();
-        let stacksize = vm.state.stacksize.load();
-        if stacksize != 0 {
-            thread_builder = thread_builder.stack_size(stacksize);
-        }
+        let thread_builder = apply_thread_stack_size(thread::Builder::new(), vm);
 
         let join_handle = thread_builder
             .spawn(vm.new_thread().make_spawn_func(move |vm| {

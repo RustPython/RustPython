@@ -186,14 +186,18 @@ mod _opcode {
             })
             .unwrap_or(Ok(0))?;
 
-        let jump = args
-            .jump
-            .map(|v| {
-                v.try_to_bool(vm).map_err(|_| {
-                    vm.new_value_error("stack_effect: jump must be False, True or None")
-                })
-            })
-            .unwrap_or(Ok(false))?;
+        let jump: Option<bool> = match args.jump {
+            Some(v) => {
+                if vm.is_none(&v) {
+                    None
+                } else {
+                    Some(v.try_to_bool(vm).map_err(|_| {
+                        vm.new_value_error("stack_effect: jump must be False, True or None")
+                    })?)
+                }
+            }
+            None => None,
+        };
 
         let opcode = Opcode::try_from_pyint(args.opcode, vm)?;
 
@@ -202,8 +206,15 @@ mod _opcode {
             return Err(vm.new_value_error("invalid opcode or oparg"));
         }
 
-        let _ = jump; // Python API accepts jump but it's not used
-        Ok(opcode.stack_effect(oparg))
+        let effect = match jump {
+            Some(true) => opcode.stack_effect_jump(oparg),
+            Some(false) => opcode.stack_effect(oparg),
+            // jump=None: max of both paths (CPython convention)
+            None => opcode
+                .stack_effect(oparg)
+                .max(opcode.stack_effect_jump(oparg)),
+        };
+        Ok(effect)
     }
 
     #[pyfunction]

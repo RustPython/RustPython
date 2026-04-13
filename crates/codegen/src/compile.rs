@@ -1512,11 +1512,12 @@ impl Compiler {
             }
 
             FBlockType::ForLoop => {
-                // Pop the iterator
+                // When returning from a for-loop, CPython swaps the preserved
+                // value with the iterator and uses POP_TOP for loop cleanup.
                 if preserve_tos {
                     emit!(self, Instruction::Swap { i: 2 });
                 }
-                emit!(self, Instruction::PopIter);
+                emit!(self, Instruction::PopTop);
             }
 
             FBlockType::TryExcept => {
@@ -3439,7 +3440,11 @@ impl Compiler {
         let handler_block = self.new_block();
         let cleanup_block = self.new_block();
         let end_block = self.new_block();
-        let orelse_block = self.new_block();
+        let orelse_block = if orelse.is_empty() {
+            end_block
+        } else {
+            self.new_block()
+        };
 
         emit!(self, Instruction::Nop);
         emit!(
@@ -3586,16 +3591,16 @@ impl Compiler {
         emit!(self, Instruction::Reraise { depth: 1 });
         self.set_no_location();
 
-        self.switch_to_block(orelse_block);
-        self.set_no_location();
         if !orelse.is_empty() {
+            self.switch_to_block(orelse_block);
+            self.set_no_location();
             self.compile_statements(orelse)?;
+            emit!(
+                self,
+                PseudoInstruction::JumpNoInterrupt { delta: end_block }
+            );
+            self.set_no_location();
         }
-        emit!(
-            self,
-            PseudoInstruction::JumpNoInterrupt { delta: end_block }
-        );
-        self.set_no_location();
 
         self.switch_to_block(end_block);
         Ok(())
@@ -5806,7 +5811,10 @@ impl Compiler {
         emit!(self, Instruction::PopTop); // pop lasti
         emit!(self, Instruction::PopTop); // pop self_exit
         emit!(self, Instruction::PopTop); // pop exit_func
-        emit!(self, PseudoInstruction::Jump { delta: after_block });
+        emit!(
+            self,
+            PseudoInstruction::JumpNoInterrupt { delta: after_block }
+        );
 
         // ===== Cleanup block (for nested exception during __exit__) =====
         // Stack: [..., __exit__, lasti, prev_exc, lasti2, exc2]
@@ -7736,6 +7744,7 @@ impl Compiler {
     ///     JUMP send
     ///   fail:
     ///     CLEANUP_THROW
+    ///     JUMP exit
     ///   exit:
     ///     END_SEND
     fn compile_yield_from_sequence(&mut self, is_await: bool) -> CompileResult<BlockIdx> {
@@ -7783,10 +7792,13 @@ impl Compiler {
         // fail: CLEANUP_THROW
         // Stack when exception: [receiver, yielded_value, exc]
         // CLEANUP_THROW: [sub_iter, last_sent_val, exc] -> [None, value]
-        // After: stack is [None, value], fall through to exit
+        // Jump back to the shared END_SEND block like CPython's fail path.
         self.switch_to_block(fail_block);
         emit!(self, Instruction::CleanupThrow);
-        // Fall through to exit block
+        emit!(
+            self,
+            PseudoInstruction::JumpNoInterrupt { delta: exit_block }
+        );
 
         // exit: END_SEND
         // Stack: [receiver, value] (from SEND) or [None, value] (from CLEANUP_THROW)
@@ -9917,9 +9929,9 @@ impl Compiler {
             }
         }
 
-        // For break in a for loop, pop the iterator
+        // CPython unwinds a for-loop break with POP_TOP rather than POP_ITER.
         if is_break && is_for_loop {
-            emit!(self, Instruction::PopIter);
+            emit!(self, Instruction::PopTop);
         }
 
         // Jump to target
@@ -11149,6 +11161,303 @@ def f(base, cls, state):
     }
 
     #[test]
+    fn test_loop_store_subscr_threads_direct_backedge() {
+        let code = compile_exec(
+            "\
+def f(kwonlyargs, kw_only_defaults, arg2value):
+    missing = 0
+    for kwarg in kwonlyargs:
+        if kwarg not in arg2value:
+            if kw_only_defaults and kwarg in kw_only_defaults:
+                arg2value[kwarg] = kw_only_defaults[kwarg]
+            else:
+                missing += 1
+    return missing
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let store_subscr = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::StoreSubscr))
+            .expect("missing STORE_SUBSCR");
+        let next_op = ops
+            .get(store_subscr + 1)
+            .expect("missing jump after STORE_SUBSCR");
+        let window_start = store_subscr.saturating_sub(3);
+        let window_end = (store_subscr + 5).min(ops.len());
+        let window = &ops[window_start..window_end];
+
+        assert!(
+            matches!(next_op, Instruction::JumpBackward { .. }),
+            "expected direct loop backedge after STORE_SUBSCR, got {next_op:?}; ops={window:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_return_reorders_backedge_before_exit_cleanup() {
+        let code = compile_exec(
+            "\
+def f(obj):
+    for base in obj.__mro__:
+        if base is not object:
+            doc = base.__doc__
+            if doc is not None:
+                return doc
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let cond_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopJumpIfNotNone { .. }))
+            .expect("missing POP_JUMP_IF_NOT_NONE");
+        assert!(
+            matches!(ops.get(cond_idx + 1), Some(Instruction::NotTaken)),
+            "expected NOT_TAKEN after conditional jump, got {:?}; ops={ops:?}",
+            ops.get(cond_idx + 1)
+        );
+        assert!(
+            matches!(
+                ops.get(cond_idx + 2),
+                Some(Instruction::JumpBackward { .. })
+            ),
+            "expected loop backedge immediately after NOT_TAKEN, got {:?}; ops={ops:?}",
+            ops.get(cond_idx + 2)
+        );
+
+        let end_for_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::EndFor))
+            .expect("missing END_FOR");
+        let return_before_end = ops[..end_for_idx]
+            .iter()
+            .rposition(|op| matches!(op, Instruction::ReturnValue))
+            .expect("missing loop-body RETURN_VALUE");
+        assert!(
+            matches!(ops.get(return_before_end - 1), Some(Instruction::PopTop)),
+            "expected POP_TOP before loop-body RETURN_VALUE, got {:?}; ops={ops:?}",
+            ops.get(return_before_end.saturating_sub(1))
+        );
+    }
+
+    #[test]
+    fn test_nested_try_finally_cleanup_reorder_does_not_invert_forward_jumps() {
+        compile_exec(include_str!("../../../Lib/poplib.py"));
+    }
+
+    #[test]
+    fn test_conditional_body_is_preserved_before_final_return() {
+        let code = compile_exec(
+            "\
+def f(x, y):
+    if x == y:
+        print('then', flush=True)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let cond_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopJumpIfFalse { .. }))
+            .expect("missing POP_JUMP_IF_FALSE");
+        let first_return_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ReturnValue))
+            .expect("missing RETURN_VALUE");
+
+        assert!(
+            ops[cond_idx..first_return_idx]
+                .iter()
+                .any(|op| matches!(op, Instruction::CallKw { .. })),
+            "expected conditional body call before final return, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_conditional_body_is_preserved_before_final_return() {
+        let code = compile_exec(
+            "\
+def outer():
+    def side():
+        print('side', flush=True)
+    def cb():
+        flag = True
+        if flag:
+            side()
+    return cb
+",
+        );
+        let cb = find_code(&code, "cb").expect("missing nested cb code");
+        let ops: Vec<_> = cb
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let cond_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopJumpIfFalse { .. }))
+            .expect("missing POP_JUMP_IF_FALSE");
+        let first_return_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ReturnValue))
+            .expect("missing RETURN_VALUE");
+
+        assert!(
+            ops[cond_idx..first_return_idx]
+                .iter()
+                .any(|op| matches!(op, Instruction::Call { .. })),
+            "expected nested conditional body call before final return, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_conditional_compare_uses_bool_compare_oparg() {
+        let code = compile_exec(
+            "\
+def f(x, y):
+    if x == y:
+        return 1
+    return 0
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let compare = f
+            .instructions
+            .iter()
+            .find(|unit| matches!(unit.op, Instruction::CompareOp { .. }))
+            .expect("missing COMPARE_OP");
+
+        assert_eq!(u8::from(compare.arg), 88);
+    }
+
+    #[test]
+    fn test_chained_conditional_compares_use_bool_compare_oparg() {
+        let code = compile_exec(
+            "\
+def f(a, b, c):
+    if a < b < c:
+        return 1
+    return 0
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let compare_args: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::CompareOp { .. }))
+            .map(|unit| u8::from(unit.arg))
+            .collect();
+
+        assert_eq!(compare_args, vec![18, 18]);
+    }
+
+    #[test]
+    fn test_shared_final_return_is_cloned_for_jump_target() {
+        let code = compile_exec(
+            "\
+def f(node):
+    if not isinstance(
+        node, (AsyncFunctionDef, FunctionDef, ClassDef, Module)
+    ) or len(node.body) < 1:
+        return None
+    node = node.body[0]
+    if not isinstance(node, Expr):
+        return None
+    node = node.value
+    if isinstance(node, Constant) and isinstance(node.value, str):
+        return node
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let return_count = ops
+            .iter()
+            .filter(|op| matches!(op, Instruction::ReturnValue))
+            .count();
+        assert!(
+            return_count >= 3,
+            "expected multiple explicit return sites for shared final return case, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_for_break_uses_poptop_cleanup() {
+        let code = compile_exec(
+            "\
+def f(parts):
+    for value in parts:
+        if value:
+            break
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let pop_iter_count = ops
+            .iter()
+            .filter(|op| matches!(op, Instruction::PopIter))
+            .count();
+        assert_eq!(
+            pop_iter_count, 1,
+            "expected only the loop-exhaustion POP_ITER, got ops={ops:?}"
+        );
+
+        let break_cleanup_idx = ops
+            .windows(3)
+            .position(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::LoadConst { .. },
+                        Instruction::ReturnValue
+                    ]
+                )
+            })
+            .expect("missing POP_TOP/LOAD_CONST/RETURN_VALUE break cleanup");
+        let end_for_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::EndFor))
+            .expect("missing END_FOR");
+        assert!(
+            break_cleanup_idx < end_for_idx,
+            "expected break cleanup before END_FOR, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_assert_without_message_raises_class_directly() {
         let code = compile_exec(
             "\
@@ -11198,6 +11507,83 @@ def f(code):
     }
 
     #[test]
+    fn test_yield_from_cleanup_jumps_to_shared_end_send() {
+        let code = compile_exec(
+            "\
+def outer():
+    def inner():
+        yield from outer_gen
+    return inner
+",
+        );
+        let inner = find_code(&code, "inner").expect("missing inner code");
+        let ops: Vec<_> = inner
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let cleanup_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::CleanupThrow))
+            .expect("missing CLEANUP_THROW");
+        assert!(
+            matches!(
+                ops.get(cleanup_idx + 1),
+                Some(Instruction::JumpBackwardNoInterrupt { .. })
+                    | Some(Instruction::JumpForward { .. })
+            ),
+            "expected CLEANUP_THROW to jump to shared END_SEND block, got ops={ops:?}"
+        );
+        assert!(
+            !matches!(ops.get(cleanup_idx + 1), Some(Instruction::EndSend)),
+            "CLEANUP_THROW should not inline END_SEND directly, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_falls_through_to_post_handler_code() {
+        let code = compile_exec(
+            "\
+def f():
+    try:
+        line = 2
+        raise KeyError
+    except:
+        line = 5
+    line = 6
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let first_pop_except = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopExcept))
+            .expect("missing POP_EXCEPT");
+        assert!(
+            !matches!(
+                ops.get(first_pop_except + 1),
+                Some(Instruction::JumpForward { .. })
+            ),
+            "expected except body to fall through to post-handler code, got ops={ops:?}"
+        );
+        assert!(
+            matches!(
+                ops.get(first_pop_except + 1),
+                Some(Instruction::LoadSmallInt { .. }) | Some(Instruction::LoadConst { .. })
+            ),
+            "expected line-after-except code immediately after POP_EXCEPT, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_constant_slice_folding_handles_string_and_bigint_bounds() {
         let code = compile_exec(
             "\
@@ -11239,7 +11625,7 @@ def f(names, cls):
             .filter(|unit| matches!(unit.op, Instruction::ReturnValue))
             .count();
 
-        assert_eq!(return_count, 2);
+        assert_eq!(return_count, 1);
     }
 
     #[test]

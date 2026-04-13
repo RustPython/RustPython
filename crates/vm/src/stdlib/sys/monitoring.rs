@@ -367,6 +367,11 @@ pub fn instrument_code(code: &PyCode, events: u32) {
     if events & EVENT_LINE != 0 {
         // is_line_start[i] = true if position i should have INSTRUMENTED_LINE
         let mut is_line_start = vec![false; len];
+        let line_locations = rustpython_compiler_core::marshal::linetable_to_locations(
+            &code.code.linetable,
+            code.code.first_line_number.map_or(-1, |x| x.get() as i32),
+            len,
+        );
 
         // Build NO_LOCATION mask from linetable
         let no_loc_mask = bytecode::build_no_location_mask(&code.code.linetable, len);
@@ -402,7 +407,7 @@ pub fn instrument_code(code: &PyCode, events: u32) {
             if no_loc_mask.get(i).copied().unwrap_or(false) {
                 continue;
             }
-            if let Some((loc, _)) = code.code.locations.get(i) {
+            if let Some((loc, _)) = line_locations.get(i) {
                 let line = loc.line.get() as u32;
                 let is_new = prev_line != Some(line);
                 prev_line = Some(line);
@@ -456,12 +461,12 @@ pub fn instrument_code(code: &PyCode, events: u32) {
             {
                 let target_op = code.code.instructions[target_idx].op;
                 let target_base = target_op.to_base().map_or(target_op, |b| b);
-                // Skip POP_ITER targets
+                // Skip synthetic cleanup targets.
                 if matches!(target_base, Instruction::PopIter) {
                     instr_idx += 1;
                     continue;
                 }
-                if let Some((loc, _)) = code.code.locations.get(target_idx)
+                if let Some((loc, _)) = line_locations.get(target_idx)
                     && loc.line.get() > 0
                 {
                     is_line_start[target_idx] = true;
@@ -480,7 +485,7 @@ pub fn instrument_code(code: &PyCode, events: u32) {
                 let target_op = code.code.instructions[target_idx].op;
                 let target_base = target_op.to_base().map_or(target_op, |b| b);
                 if !matches!(target_base, Instruction::PopIter)
-                    && let Some((loc, _)) = code.code.locations.get(target_idx)
+                    && let Some((loc, _)) = line_locations.get(target_idx)
                     && loc.line.get() > 0
                 {
                     is_line_start[target_idx] = true;

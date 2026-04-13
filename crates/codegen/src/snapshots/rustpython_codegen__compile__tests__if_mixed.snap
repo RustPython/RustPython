@@ -1,6 +1,6 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 9563
+assertion_line: 10900
 expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pass\n\")"
 ---
   1           0 RESUME               (0)
