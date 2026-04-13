@@ -21,6 +21,9 @@ pub type PyTypeObject = Py<PyType>;
 pub static mut PyType_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
+pub static mut PyBaseObject_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
+
+#[unsafe(no_mangle)]
 pub static mut PyLong_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
