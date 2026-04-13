@@ -36,7 +36,7 @@ impl PyCapsule {
     }
 
     pub fn pointer(&self) -> *mut c_void {
-        self.ptr.load(std::sync::atomic::Ordering::Relaxed)
+        self.ptr.load(core::sync::atomic::Ordering::Relaxed)
     }
 
     fn destructor(&self) -> Option<unsafe extern "C" fn(_: *mut PyObject)> {
