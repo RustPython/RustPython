@@ -104,7 +104,9 @@ _IS_RUSTPYTHON = (
 if _IS_RUSTPYTHON and hasattr(dis, "_common_constants"):
     common_constants = list(dis._common_constants)
     while len(common_constants) < 7:
-        common_constants.append((builtins.list, builtins.set)[len(common_constants) - 5])
+        common_constants.append(
+            (builtins.list, builtins.set)[len(common_constants) - 5]
+        )
     dis._common_constants = common_constants
 
 # RustPython's ComparisonOperator enum values → operator strings

@@ -776,7 +776,7 @@ pub(crate) fn compile(
     let source_file = SourceFileBuilder::new(filename, text).finish();
     let code = codegen::compile::compile_top(ast, source_file, mode, opts)
         .map_err(|err| vm.new_syntax_error(&err.into(), None))?; // FIXME source
-    Ok(vm.ctx.new_code(code).into())
+    Ok(crate::builtins::PyCode::new_ref_from_bytecode(vm, code).into())
 }
 
 #[cfg(feature = "codegen")]

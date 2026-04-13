@@ -17,10 +17,11 @@ use crate::{
     unparse::UnparseExpr,
 };
 use alloc::borrow::Cow;
+use core::mem;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex;
-use num_traits::{Num, ToPrimitive};
+use num_traits::{Num, ToPrimitive, Zero};
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use rustpython_compiler_core::{
@@ -165,6 +166,12 @@ struct Compiler {
     /// When > 0, the compiler walks AST (consuming sub_tables) but emits no bytecode.
     /// Mirrors CPython's `c_do_not_emit_bytecode`.
     do_not_emit_bytecode: u32,
+    /// Disable constant BoolOp folding in contexts where CPython preserves
+    /// short-circuit structure, such as starred unpack expressions.
+    disable_const_boolop_folding: bool,
+    /// Disable constant tuple/list/set collection folding in contexts where
+    /// CPython keeps the builder form for later assignment lowering.
+    disable_const_collection_folding: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -211,13 +218,6 @@ enum FunctionContext {
 impl CompileContext {
     fn in_func(self) -> bool {
         self.func != FunctionContext::NoFunction
-    }
-}
-
-fn bool_literal_value(expr: &ast::Expr) -> Option<bool> {
-    match expr {
-        ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => Some(*value),
-        _ => None,
     }
 }
 
@@ -444,6 +444,22 @@ enum CollectionType {
 }
 
 impl Compiler {
+    fn constant_truthiness(constant: &ConstantData) -> bool {
+        match constant {
+            ConstantData::Tuple { elements } | ConstantData::Frozenset { elements } => {
+                !elements.is_empty()
+            }
+            ConstantData::Integer { value } => !value.is_zero(),
+            ConstantData::Float { value } => *value != 0.0,
+            ConstantData::Complex { value } => value.re != 0.0 || value.im != 0.0,
+            ConstantData::Boolean { value } => *value,
+            ConstantData::Str { value } => !value.is_empty(),
+            ConstantData::Bytes { value } => !value.is_empty(),
+            ConstantData::Code { .. } | ConstantData::Slice { .. } | ConstantData::Ellipsis => true,
+            ConstantData::None => false,
+        }
+    }
+
     fn new(opts: CompileOpts, source_file: SourceFile, code_name: String) -> Self {
         let module_code = ir::CodeInfo {
             flags: bytecode::CodeFlags::NEWLOCALS,
@@ -451,6 +467,7 @@ impl Compiler {
             private: None,
             blocks: vec![ir::Block::default()],
             current_block: BlockIdx::new(0),
+            annotations_blocks: None,
             metadata: ir::CodeUnitMetadata {
                 name: code_name.clone(),
                 qualname: Some(code_name),
@@ -490,7 +507,60 @@ impl Compiler {
             in_annotation: false,
             interactive: false,
             do_not_emit_bytecode: 0,
+            disable_const_boolop_folding: false,
+            disable_const_collection_folding: false,
         }
+    }
+
+    fn compile_expression_without_const_boolop_folding(
+        &mut self,
+        expression: &ast::Expr,
+    ) -> CompileResult<()> {
+        let previous = self.disable_const_boolop_folding;
+        self.disable_const_boolop_folding = true;
+        let result = self.compile_expression(expression);
+        self.disable_const_boolop_folding = previous;
+        result.map(|_| ())
+    }
+
+    fn compile_expression_without_const_collection_folding(
+        &mut self,
+        expression: &ast::Expr,
+    ) -> CompileResult<()> {
+        let previous = self.disable_const_collection_folding;
+        self.disable_const_collection_folding = true;
+        let result = self.compile_expression(expression);
+        self.disable_const_collection_folding = previous;
+        result.map(|_| ())
+    }
+
+    fn is_unpack_assignment_target(target: &ast::Expr) -> bool {
+        matches!(target, ast::Expr::List(_) | ast::Expr::Tuple(_))
+    }
+
+    fn compile_module_annotation_setup_sequence(
+        &mut self,
+        body: &[ast::Stmt],
+    ) -> CompileResult<()> {
+        let (saved_blocks, saved_current_block) = {
+            let code = self.current_code_info();
+            (
+                mem::replace(&mut code.blocks, vec![ir::Block::default()]),
+                mem::replace(&mut code.current_block, BlockIdx::new(0)),
+            )
+        };
+
+        let result = self.compile_module_annotate(body);
+
+        let annotations_blocks = {
+            let code = self.current_code_info();
+            let annotations_blocks = mem::replace(&mut code.blocks, saved_blocks);
+            code.current_block = saved_current_block;
+            annotations_blocks
+        };
+        self.current_code_info().annotations_blocks = Some(annotations_blocks);
+
+        result.map(|_| ())
     }
 
     /// Compile just start and stop of a slice (for BINARY_SLICE/STORE_SLICE)
@@ -590,11 +660,12 @@ impl Compiler {
         };
 
         // Fold all-constant collections (>= 3 elements) regardless of size
-        if !seen_star
+        if !self.disable_const_collection_folding
+            && !seen_star
             && pushed == 0
             && n >= 3
             && elts.iter().all(|e| e.is_constant())
-            && let Some(folded) = self.try_fold_constant_collection(elts)?
+            && let Some(folded) = self.try_fold_constant_collection(elts, collection_type)?
         {
             match collection_type {
                 CollectionType::Tuple => {
@@ -657,7 +728,7 @@ impl Compiler {
                 }
 
                 // Compile the starred expression and extend
-                self.compile_expression(value)?;
+                self.compile_expression_without_const_boolop_folding(value)?;
                 match collection_type {
                     CollectionType::List => {
                         emit!(self, Instruction::ListExtend { i: 1 });
@@ -1208,6 +1279,7 @@ impl Compiler {
             private,
             blocks: vec![ir::Block::default()],
             current_block: BlockIdx::new(0),
+            annotations_blocks: None,
             metadata: ir::CodeUnitMetadata {
                 name: name.to_owned(),
                 qualname: None, // Will be set below
@@ -1852,6 +1924,7 @@ impl Compiler {
         }
 
         self.emit_resume_for_scope(CompilerScope::Module, 1);
+        emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let (doc, statements) = split_doc(&body.body, &self.opts);
         if let Some(value) = doc {
@@ -1868,10 +1941,8 @@ impl Compiler {
                 // PEP 563: Initialize __annotations__ dict
                 emit!(self, Instruction::SetupAnnotations);
             } else {
-                // PEP 649: Generate __annotate__ function FIRST (before statements)
-                self.compile_module_annotate(statements)?;
-
-                // PEP 649: Initialize __conditional_annotations__ set after __annotate__
+                // PEP 649: Initialize __conditional_annotations__ before the body.
+                // CPython generates __annotate__ after the body in codegen_body().
                 if self.current_symbol_table().has_conditional_annotations {
                     emit!(self, Instruction::BuildSet { count: 0 });
                     self.store_name("__conditional_annotations__")?;
@@ -1881,6 +1952,10 @@ impl Compiler {
 
         // Compile all statements
         self.compile_statements(statements)?;
+
+        if Self::find_ann(statements) && !self.future_annotations {
+            self.compile_module_annotation_setup_sequence(statements)?;
+        }
 
         assert_eq!(self.code_stack.len(), size_before);
 
@@ -1900,6 +1975,7 @@ impl Compiler {
         self.symbol_table_stack.push(symbol_table);
 
         self.emit_resume_for_scope(CompilerScope::Module, 1);
+        emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         // Handle annotations based on future_annotations flag
         if Self::find_ann(body) {
@@ -1907,10 +1983,8 @@ impl Compiler {
                 // PEP 563: Initialize __annotations__ dict
                 emit!(self, Instruction::SetupAnnotations);
             } else {
-                // PEP 649: Generate __annotate__ function FIRST (before statements)
-                self.compile_module_annotate(body)?;
-
-                // PEP 649: Initialize __conditional_annotations__ set after __annotate__
+                // PEP 649: Initialize __conditional_annotations__ before the body.
+                // CPython generates __annotate__ after the body in codegen_body().
                 if self.current_symbol_table().has_conditional_annotations {
                     emit!(self, Instruction::BuildSet { count: 0 });
                     self.store_name("__conditional_annotations__")?;
@@ -1953,6 +2027,10 @@ impl Compiler {
         } else {
             self.emit_load_const(ConstantData::None);
         };
+
+        if Self::find_ann(body) && !self.future_annotations {
+            self.compile_module_annotation_setup_sequence(body)?;
+        }
 
         self.emit_return_value();
         Ok(())
@@ -2393,7 +2471,7 @@ impl Compiler {
                 let dominated_by_interactive =
                     self.interactive && !self.ctx.in_func() && !self.ctx.in_class;
                 if !dominated_by_interactive && Self::is_const_expression(value) {
-                    // Skip compilation entirely - the expression has no side effects
+                    emit!(self, Instruction::Nop);
                 } else {
                     self.compile_expression(value)?;
 
@@ -2520,27 +2598,42 @@ impl Compiler {
             ast::Stmt::Assert(ast::StmtAssert { test, msg, .. }) => {
                 // if some flag, ignore all assert statements!
                 if self.opts.optimize == 0 {
-                    let after_block = self.new_block();
-                    self.compile_jump_if(test, true, after_block)?;
-
-                    emit!(
-                        self,
-                        Instruction::LoadCommonConstant {
-                            idx: bytecode::CommonConstant::AssertionError
+                    let after_block = match self.try_fold_constant_expr(test)? {
+                        Some(constant) if Self::constant_truthiness(&constant) => {
+                            self.consume_skipped_nested_scopes_in_expr(test)?;
+                            if let Some(expr) = msg {
+                                self.consume_skipped_nested_scopes_in_expr(expr)?;
+                            }
+                            emit!(self, Instruction::Nop);
+                            None
                         }
-                    );
-                    if let Some(e) = msg {
-                        self.compile_expression(e)?;
-                        emit!(self, Instruction::Call { argc: 0 });
+                        Some(_) => Some(self.new_block()),
+                        None => {
+                            let after_block = self.new_block();
+                            self.compile_jump_if(test, true, after_block)?;
+                            Some(after_block)
+                        }
+                    };
+
+                    if let Some(after_block) = after_block {
+                        emit!(
+                            self,
+                            Instruction::LoadCommonConstant {
+                                idx: bytecode::CommonConstant::AssertionError
+                            }
+                        );
+                        if let Some(e) = msg {
+                            self.compile_expression(e)?;
+                            emit!(self, Instruction::Call { argc: 0 });
+                        }
+                        emit!(
+                            self,
+                            Instruction::RaiseVarargs {
+                                argc: bytecode::RaiseKind::Raise,
+                            }
+                        );
+                        self.switch_to_block(after_block);
                     }
-                    emit!(
-                        self,
-                        Instruction::RaiseVarargs {
-                            argc: bytecode::RaiseKind::Raise,
-                        }
-                    );
-
-                    self.switch_to_block(after_block);
                 } else {
                     // Optimized-out asserts still need to consume any nested
                     // scope symbol tables they contain so later nested scopes
@@ -2606,7 +2699,11 @@ impl Compiler {
                 self.switch_to_block(dead);
             }
             ast::Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
-                self.compile_expression(value)?;
+                if targets.len() == 1 && Self::is_unpack_assignment_target(&targets[0]) {
+                    self.compile_expression_without_const_collection_folding(value)?;
+                } else {
+                    self.compile_expression(value)?;
+                }
 
                 for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
@@ -4237,18 +4334,33 @@ impl Compiler {
         parameters: &ast::Parameters,
         returns: Option<&ast::Expr>,
     ) -> CompileResult<bool> {
+        let has_signature_annotations = parameters
+            .args
+            .iter()
+            .map(|x| &x.parameter)
+            .chain(parameters.posonlyargs.iter().map(|x| &x.parameter))
+            .chain(parameters.vararg.as_deref())
+            .chain(parameters.kwonlyargs.iter().map(|x| &x.parameter))
+            .chain(parameters.kwarg.as_deref())
+            .any(|param| param.annotation.is_some())
+            || returns.is_some();
+        if !has_signature_annotations {
+            return Ok(false);
+        }
+
         // Try to enter annotation scope - returns None if no annotation_block exists
         let Some(saved_ctx) = self.enter_annotation_scope(func_name)? else {
             return Ok(false);
         };
 
         // Count annotations
-        let parameters_iter = core::iter::empty()
-            .chain(&parameters.posonlyargs)
-            .chain(&parameters.args)
-            .chain(&parameters.kwonlyargs)
+        let parameters_iter = parameters
+            .args
+            .iter()
             .map(|x| &x.parameter)
+            .chain(parameters.posonlyargs.iter().map(|x| &x.parameter))
             .chain(parameters.vararg.as_deref())
+            .chain(parameters.kwonlyargs.iter().map(|x| &x.parameter))
             .chain(parameters.kwarg.as_deref());
 
         let num_annotations: u32 =
@@ -4257,12 +4369,13 @@ impl Compiler {
                 + if returns.is_some() { 1 } else { 0 };
 
         // Compile annotations inside the annotation scope
-        let parameters_iter = core::iter::empty()
-            .chain(&parameters.posonlyargs)
-            .chain(&parameters.args)
-            .chain(&parameters.kwonlyargs)
+        let parameters_iter = parameters
+            .args
+            .iter()
             .map(|x| &x.parameter)
+            .chain(parameters.posonlyargs.iter().map(|x| &x.parameter))
             .chain(parameters.vararg.as_deref())
+            .chain(parameters.kwonlyargs.iter().map(|x| &x.parameter))
             .chain(parameters.kwarg.as_deref());
 
         for param in parameters_iter {
@@ -4413,20 +4526,13 @@ impl Compiler {
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
         self.emit_format_validation()?;
 
-        if has_conditional {
-            // PEP 649: Build dict incrementally, checking conditional annotations
-            // Start with empty dict
-            emit!(self, Instruction::BuildMap { count: 0 });
+        emit!(self, Instruction::BuildMap { count: 0 });
 
-            // Process each annotation
-            for (idx, (name, annotation)) in annotations.iter().enumerate() {
-                // Check if index is in __conditional_annotations__
-                let not_set_block = self.new_block();
+        for (idx, (name, annotation)) in annotations.iter().enumerate() {
+            let not_set_block = has_conditional.then(|| self.new_block());
 
-                // LOAD_CONST index
+            if has_conditional {
                 self.emit_load_const(ConstantData::Integer { value: idx.into() });
-                // Load __conditional_annotations__ from appropriate scope
-                // Class scope: LoadDeref (freevars), Module scope: LoadGlobal
                 if parent_scope_type == CompilerScope::Class {
                     let idx = self.get_free_var_index("__conditional_annotations__")?;
                     emit!(self, Instruction::LoadDeref { i: idx });
@@ -4434,59 +4540,33 @@ impl Compiler {
                     let cond_annotations_name = self.name("__conditional_annotations__");
                     self.emit_load_global(cond_annotations_name, false);
                 }
-                // CONTAINS_OP (in)
                 emit!(
                     self,
                     Instruction::ContainsOp {
                         invert: bytecode::Invert::No
                     }
                 );
-                // POP_JUMP_IF_FALSE not_set
                 emit!(
                     self,
                     Instruction::PopJumpIfFalse {
-                        delta: not_set_block
+                        delta: not_set_block.expect("missing not_set block")
                     }
                 );
+            }
 
-                // Annotation value
-                self.compile_annotation(annotation)?;
-                // COPY dict to TOS
-                emit!(self, Instruction::Copy { i: 2 });
-                // LOAD_CONST name
-                self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(name).into_owned().into(),
-                });
-                // STORE_SUBSCR - dict[name] = value
-                emit!(self, Instruction::StoreSubscr);
+            self.compile_annotation(annotation)?;
+            emit!(self, Instruction::Copy { i: 2 });
+            self.emit_load_const(ConstantData::Str {
+                value: self.mangle(name).into_owned().into(),
+            });
+            emit!(self, Instruction::StoreSubscr);
 
-                // not_set label
+            if let Some(not_set_block) = not_set_block {
                 self.switch_to_block(not_set_block);
             }
-
-            // Return the dict
-            emit!(self, Instruction::ReturnValue);
-        } else {
-            // No conditional annotations - use simple BuildMap
-            let num_annotations = u32::try_from(annotations.len()).expect("too many annotations");
-
-            // Compile annotations inside the annotation scope
-            for (name, annotation) in annotations {
-                self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(name).into_owned().into(),
-                });
-                self.compile_annotation(annotation)?;
-            }
-
-            // Build the map and return it
-            emit!(
-                self,
-                Instruction::BuildMap {
-                    count: num_annotations,
-                }
-            );
-            emit!(self, Instruction::ReturnValue);
         }
+
+        emit!(self, Instruction::ReturnValue);
 
         // Exit annotation scope - pop symbol table, restore to parent's annotation_block, and get code
         let annotation_table = self.pop_symbol_table();
@@ -5140,9 +5220,6 @@ impl Compiler {
                     emit!(self, Instruction::BuildSet { count: 0 });
                     self.store_name("__conditional_annotations__")?;
                 }
-
-                // PEP 649: Generate __annotate__ function for class annotations
-                self.compile_module_annotate(body)?;
             }
         }
 
@@ -5158,6 +5235,10 @@ impl Compiler {
 
         // 3. Compile the class body
         self.compile_statements(body)?;
+
+        if Self::find_ann(body) && !self.future_annotations {
+            self.compile_module_annotate(body)?;
+        }
 
         // 4. Handle __classcell__ if needed
         let classcell_idx = self
@@ -7047,6 +7128,7 @@ impl Compiler {
 
             // if comparison result is false, we break with this value; if true, try the next one.
             emit!(self, Instruction::Copy { i: 1 });
+            emit!(self, Instruction::ToBool);
             emit!(self, Instruction::PopJumpIfFalse { delta: cleanup });
             emit!(self, Instruction::PopTop);
         }
@@ -7098,12 +7180,14 @@ impl Compiler {
             emit!(self, Instruction::Swap { i: 2 });
             emit!(self, Instruction::Copy { i: 2 });
             self.compile_addcompare(op);
+            emit!(self, Instruction::ToBool);
             emit!(self, Instruction::PopJumpIfFalse { delta: cleanup });
         }
 
         self.compile_expression(last_comparator)?;
         self.set_source_range(compare_range);
         self.compile_addcompare(last_op);
+        emit!(self, Instruction::ToBool);
         self.emit_pop_jump_by_condition(condition, target_block);
         emit!(self, PseudoInstruction::Jump { delta: end });
 
@@ -7520,10 +7604,7 @@ impl Compiler {
             _ => {
                 // Fall back case which always will work!
                 self.compile_expression(expression)?;
-                // Compare already produces a bool; everything else needs TO_BOOL
-                if !matches!(expression, ast::Expr::Compare(_)) {
-                    emit!(self, Instruction::ToBool);
-                }
+                emit!(self, Instruction::ToBool);
                 if condition {
                     emit!(
                         self,
@@ -7858,6 +7939,47 @@ impl Compiler {
         trace!("Compiling {expression:?}");
         let range = expression.range();
         self.set_source_range(range);
+
+        if !self.disable_const_boolop_folding
+            && let ast::Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) = expression
+        {
+            let mut simplified_prefix = 0usize;
+            let mut last_constant = None;
+            for value in values {
+                let Some(constant) = self.try_fold_constant_expr(value)? else {
+                    break;
+                };
+                let is_truthy = Self::constant_truthiness(&constant);
+                last_constant = Some(constant);
+                match op {
+                    ast::BoolOp::Or if is_truthy => {
+                        self.emit_load_const(last_constant.expect("missing boolop constant"));
+                        return Ok(());
+                    }
+                    ast::BoolOp::And if !is_truthy => {
+                        self.emit_load_const(last_constant.expect("missing boolop constant"));
+                        return Ok(());
+                    }
+                    ast::BoolOp::Or | ast::BoolOp::And => {
+                        simplified_prefix += 1;
+                    }
+                }
+            }
+
+            if simplified_prefix == values.len() {
+                self.emit_load_const(last_constant.expect("missing folded boolop constant"));
+                return Ok(());
+            }
+            if simplified_prefix > 0 {
+                let tail = &values[simplified_prefix..];
+                if let [value] = tail {
+                    self.compile_expression(value)?;
+                } else {
+                    self.compile_bool_op(op, tail)?;
+                }
+                return Ok(());
+            }
+        }
 
         match &expression {
             ast::Expr::Call(ast::ExprCall {
@@ -8686,7 +8808,7 @@ impl Compiler {
                 // Single starred arg: pass value directly to CallFunctionEx.
                 // Runtime will convert to tuple and validate with function name.
                 if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = &arguments.args[0] {
-                    self.compile_expression(value)?;
+                    self.compile_expression_without_const_boolop_folding(value)?;
                 }
             } else if !has_starred {
                 for arg in &arguments.args {
@@ -8742,7 +8864,7 @@ impl Compiler {
                             have_dict = true;
                         }
 
-                        self.compile_expression(&keyword.value)?;
+                        self.compile_expression_without_const_boolop_folding(&keyword.value)?;
                         emit!(self, Instruction::DictMerge { i: 1 });
                     } else {
                         nseen += 1;
@@ -9027,21 +9149,14 @@ impl Compiler {
                 end_async_for_target,
             ));
 
-            // Now evaluate the ifs:
+            // CPython always lowers comprehension guards through codegen_jump_if
+            // and leaves constant-folding to later CFG optimization passes.
             for if_condition in &generator.ifs {
-                match bool_literal_value(if_condition) {
-                    Some(true) => {}
-                    Some(false) => {
-                        emit!(
-                            self,
-                            PseudoInstruction::Jump {
-                                delta: if_cleanup_block
-                            }
-                        );
-                        break;
-                    }
-                    None => self.compile_jump_if(if_condition, false, if_cleanup_block)?,
-                }
+                self.compile_jump_if(if_condition, false, if_cleanup_block)?;
+            }
+            if !generator.ifs.is_empty() {
+                let body_block = self.new_block();
+                self.switch_to_block(body_block);
             }
         }
 
@@ -9167,22 +9282,49 @@ impl Compiler {
             let ct = self.current_symbol_table();
             ct.typ == CompilerScope::Class && !self.current_code_info().in_inlined_comp
         };
-        let mut pushed_locals: Vec<String> = Vec::new();
-        for (name, sym) in &comp_table.symbols {
-            if sym.flags.contains(SymbolFlags::PARAMETER) {
-                continue; // skip .0
+        fn collect_bound_names(target: &ast::Expr, out: &mut Vec<String>) {
+            match target {
+                ast::Expr::Name(ast::ExprName { id, .. }) => out.push(id.to_string()),
+                ast::Expr::Tuple(ast::ExprTuple { elts, .. })
+                | ast::Expr::List(ast::ExprList { elts, .. }) => {
+                    for elt in elts {
+                        collect_bound_names(elt, out);
+                    }
+                }
+                ast::Expr::Starred(ast::ExprStarred { value, .. }) => {
+                    collect_bound_names(value, out);
+                }
+                _ => {}
             }
-            // Walrus operator targets (ASSIGNED_IN_COMPREHENSION without ITER)
-            // are not local to the comprehension; they leak to the outer scope.
-            let is_walrus = sym.flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
-                && !sym.flags.contains(SymbolFlags::ITER);
-            let is_local = sym
-                .flags
-                .intersects(SymbolFlags::ASSIGNED | SymbolFlags::ITER)
-                && !sym.flags.contains(SymbolFlags::NONLOCAL)
-                && !is_walrus;
-            if is_local || in_class_block {
-                pushed_locals.push(name.clone());
+        }
+        let mut source_order_bound_names = Vec::new();
+        for generator in generators {
+            collect_bound_names(&generator.target, &mut source_order_bound_names);
+        }
+        let mut pushed_locals: Vec<String> = Vec::new();
+        for name in source_order_bound_names
+            .into_iter()
+            .chain(comp_table.symbols.keys().cloned())
+        {
+            if pushed_locals.iter().any(|existing| existing == &name) {
+                continue;
+            }
+            if let Some(sym) = comp_table.symbols.get(&name) {
+                if sym.flags.contains(SymbolFlags::PARAMETER) {
+                    continue; // skip .0
+                }
+                // Walrus operator targets (ASSIGNED_IN_COMPREHENSION without ITER)
+                // are not local to the comprehension; they leak to the outer scope.
+                let is_walrus = sym.flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
+                    && !sym.flags.contains(SymbolFlags::ITER);
+                let is_local = sym
+                    .flags
+                    .intersects(SymbolFlags::ASSIGNED | SymbolFlags::ITER)
+                    && !sym.flags.contains(SymbolFlags::NONLOCAL)
+                    && !is_walrus;
+                if is_local || in_class_block {
+                    pushed_locals.push(name);
+                }
             }
         }
 
@@ -9315,21 +9457,10 @@ impl Compiler {
                 end_async_for_target,
             ));
 
-            // Evaluate the if conditions
+            // CPython always lowers comprehension guards through codegen_jump_if
+            // and leaves constant-folding to later CFG optimization passes.
             for if_condition in &generator.ifs {
-                match bool_literal_value(if_condition) {
-                    Some(true) => {}
-                    Some(false) => {
-                        emit!(
-                            self,
-                            PseudoInstruction::Jump {
-                                delta: if_cleanup_block
-                            }
-                        );
-                        break;
-                    }
-                    None => self.compile_jump_if(if_condition, false, if_cleanup_block)?,
-                }
+                self.compile_jump_if(if_condition, false, if_cleanup_block)?;
             }
         }
 
@@ -9527,6 +9658,7 @@ impl Compiler {
     fn try_fold_constant_collection(
         &mut self,
         elts: &[ast::Expr],
+        collection_type: CollectionType,
     ) -> CompileResult<Option<ConstantData>> {
         let mut constants = Vec::with_capacity(elts.len());
         for elt in elts {
@@ -9535,9 +9667,15 @@ impl Compiler {
             };
             constants.push(constant);
         }
-        Ok(Some(ConstantData::Tuple {
-            elements: constants,
-        }))
+        let constant = match collection_type {
+            CollectionType::Tuple | CollectionType::List => ConstantData::Tuple {
+                elements: constants,
+            },
+            CollectionType::Set => ConstantData::Frozenset {
+                elements: constants,
+            },
+        };
+        Ok(Some(constant))
     }
 
     fn try_fold_constant_expr(&mut self, expr: &ast::Expr) -> CompileResult<Option<ConstantData>> {
@@ -9569,6 +9707,45 @@ impl Compiler {
                     elements.push(constant);
                 }
                 ConstantData::Tuple { elements }
+            }
+            ast::Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) => {
+                let mut constants = Vec::with_capacity(values.len());
+                for value in values {
+                    let Some(constant) = self.try_fold_constant_expr(value)? else {
+                        return Ok(None);
+                    };
+                    constants.push(constant);
+                }
+                let mut iter = constants.into_iter();
+                let Some(first) = iter.next() else {
+                    return Ok(None);
+                };
+                let mut selected = first;
+                match op {
+                    ast::BoolOp::Or => {
+                        if !Self::constant_truthiness(&selected) {
+                            for constant in iter {
+                                let is_truthy = Self::constant_truthiness(&constant);
+                                selected = constant;
+                                if is_truthy {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    ast::BoolOp::And => {
+                        if Self::constant_truthiness(&selected) {
+                            for constant in iter {
+                                let is_truthy = Self::constant_truthiness(&constant);
+                                selected = constant;
+                                if !is_truthy {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                selected
             }
             _ => return Ok(None),
         }))
@@ -10933,6 +11110,127 @@ x = not True
     }
 
     #[test]
+    fn test_plain_constant_bool_op_folds_to_selected_operand() {
+        let code = compile_exec(
+            "\
+x = 1 or 2 or 3
+",
+        );
+        let ops: Vec<_> = code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let folded_small_int = code.instructions.iter().any(|unit| {
+            matches!(
+                unit.op,
+                Instruction::LoadSmallInt { i }
+                    if i.get(OpArg::new(u32::from(u8::from(unit.arg)))) == 1
+            )
+        });
+        let folded_const_one = code
+            .instructions
+            .iter()
+            .find_map(|unit| match unit.op {
+                Instruction::LoadConst { .. } => code.constants.get(usize::from(u8::from(unit.arg))),
+                _ => None,
+            })
+            .is_some_and(|constant| {
+                matches!(constant, ConstantData::Integer { value } if *value == BigInt::from(1))
+            });
+
+        assert!(
+            folded_small_int || folded_const_one,
+            "expected folded constant 1, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::Copy { .. }
+                        | Instruction::ToBool
+                        | Instruction::PopJumpIfTrue { .. }
+                        | Instruction::PopJumpIfFalse { .. }
+                )
+            }),
+            "plain constant BoolOp should not leave short-circuit scaffolding, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_starred_call_preserves_bool_op_short_circuit_shape() {
+        let code = compile_exec(
+            "\
+def f(g):
+    return g(*(() or (1,)))
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.iter().any(|op| matches!(op, Instruction::Copy { .. })),
+            "starred BoolOp should keep short-circuit COPY, got ops={ops:?}"
+        );
+        assert!(
+            ops.iter().any(|op| matches!(op, Instruction::ToBool)),
+            "starred BoolOp should keep TO_BOOL, got ops={ops:?}"
+        );
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Instruction::PopJumpIfTrue { .. })),
+            "starred BoolOp should keep POP_JUMP_IF_TRUE, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_partial_constant_bool_op_folds_prefix_in_value_context() {
+        let code = compile_exec(
+            "\
+def outer(null):
+    @False or null
+    def f(x):
+        pass
+",
+        );
+        let outer = find_code(&code, "outer").expect("missing outer code");
+        let ops: Vec<_> = outer
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. }
+                )
+            }),
+            "expected surviving decorator expression to load null directly, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::Copy { .. }
+                        | Instruction::ToBool
+                        | Instruction::PopJumpIfTrue { .. }
+                        | Instruction::PopJumpIfFalse { .. }
+                )
+            }),
+            "partial constant BoolOp should not leave short-circuit scaffolding, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_nested_double_async_with() {
         assert_dis_snapshot!(compile_exec(
             "\
@@ -12054,7 +12352,7 @@ def f():
         );
         assert!(f.constants.iter().any(|constant| matches!(
             constant,
-            ConstantData::Tuple { elements }
+            ConstantData::Frozenset { elements }
                 if matches!(
                     elements.as_slice(),
                     [
@@ -12064,6 +12362,129 @@ def f():
                     ]
                 )
         )));
+    }
+
+    #[test]
+    fn test_single_unpack_assignment_disables_constant_collection_folding() {
+        let code = compile_exec("a, b, c = 1, 2, 3\n");
+
+        assert!(
+            !code.instructions.iter().any(|unit| {
+                matches!(unit.op, Instruction::UnpackSequence { .. })
+                    || matches!(unit.op, Instruction::LoadConst { .. })
+                        && matches!(
+                            code.constants.get(usize::from(u8::from(unit.arg))),
+                            Some(ConstantData::Tuple { .. })
+                        )
+            }),
+            "single unpack assignment should keep builder form for later lowering, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            code.instructions
+                .iter()
+                .filter(|unit| matches!(unit.op, Instruction::LoadSmallInt { .. }))
+                .count()
+                >= 3,
+            "expected individual constant loads before unpack-target stores, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_chained_unpack_assignment_keeps_constant_collection_folding() {
+        let code = compile_exec("(a, b) = c = d = (1, 2)\n");
+
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadConst { .. })),
+            "chained unpack assignment should keep tuple constant, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::UnpackSequence { .. })),
+            "chained unpack assignment should still unpack the copied tuple, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_constant_true_assert_skips_message_nested_scope() {
+        let code = compile_exec("assert 1, (lambda x: x + 1)\n");
+
+        assert_eq!(
+            code.constants
+                .iter()
+                .filter(|constant| matches!(constant, ConstantData::Code { .. }))
+                .count(),
+            0,
+            "constant-true assert should not compile the skipped message lambda"
+        );
+        assert!(
+            !code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::RaiseVarargs { .. })),
+            "constant-true assert should be elided, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_constant_false_assert_raises_directly() {
+        let code = compile_exec("assert 0, (lambda x: x + 1)\n");
+
+        assert!(
+            !code.instructions.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::ToBool
+                        | Instruction::PopJumpIfTrue { .. }
+                        | Instruction::PopJumpIfFalse { .. }
+                )
+            }),
+            "constant-false assert should raise directly without a test branch, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::RaiseVarargs { .. })),
+            "constant-false assert should still raise, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            code.constants
+                .iter()
+                .filter(|constant| matches!(constant, ConstantData::Code { .. }))
+                .count(),
+            1,
+            "constant-false assert should still compile the message lambda"
+        );
     }
 
     #[test]

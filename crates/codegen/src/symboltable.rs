@@ -1595,22 +1595,7 @@ impl SymbolTableBuilder {
                         self.scan_expression(target, ExpressionContext::Store)?;
                     }
                 }
-                // Only scan annotation in annotation scope for simple name targets.
-                // Non-simple annotations (subscript, attribute, parenthesized) are
-                // never compiled into __annotate__, so scanning them would create
-                // sub_tables that cause mismatch in the annotation scope's sub_table index.
-                let is_simple_name = *simple && matches!(&**target, Expr::Name(_));
-                if is_simple_name {
-                    self.scan_ann_assign_annotation(annotation)?;
-                } else {
-                    // Still validate annotation for forbidden expressions
-                    // (yield, await, named) even for non-simple targets.
-                    let was_in_annotation = self.in_annotation;
-                    self.in_annotation = true;
-                    let result = self.scan_expression(annotation, ExpressionContext::Load);
-                    self.in_annotation = was_in_annotation;
-                    result?;
-                }
+                self.scan_ann_assign_annotation(annotation)?;
                 if let Some(value) = value {
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }

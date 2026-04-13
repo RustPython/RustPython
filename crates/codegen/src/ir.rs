@@ -170,6 +170,7 @@ pub struct CodeInfo {
 
     pub blocks: Vec<Block>,
     pub current_block: BlockIdx,
+    pub annotations_blocks: Option<Vec<Block>>,
 
     pub metadata: CodeUnitMetadata,
 
@@ -199,6 +200,7 @@ impl CodeInfo {
         mut self,
         opts: &crate::compile::CompileOpts,
     ) -> crate::InternalResult<CodeObject> {
+        self.splice_annotations_blocks();
         // Constant folding passes
         self.fold_binop_constants();
         self.remove_nops();
@@ -224,7 +226,7 @@ impl CodeInfo {
         self.eliminate_dead_stores();
         // apply_static_swaps: reorder stores to eliminate SWAPs
         self.apply_static_swaps();
-        // Peephole optimizer creates superinstructions matching CPython
+        // Peephole optimizer handles constant and compare folding.
         self.peephole_optimize();
 
         // Phase 1: _PyCfg_OptimizeCodeUnit (flowgraph.c)
@@ -236,7 +238,11 @@ impl CodeInfo {
         jump_threading(&mut self.blocks);
         self.eliminate_unreachable_blocks();
         self.remove_nops();
-        // CPython inserts superinstructions before optimize_load_fast.
+        self.add_checks_for_loads_of_uninitialized_variables();
+        // CPython inserts superinstructions in _PyCfg_OptimizeCodeUnit, before
+        // later jump normalization / block reordering can create adjacencies
+        // that never exist at this stage in flowgraph.c.
+        self.insert_superinstructions();
         push_cold_blocks_to_end(&mut self.blocks);
 
         // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
@@ -266,11 +272,11 @@ impl CodeInfo {
             &self.metadata.cellvars,
             &self.metadata.freevars,
         );
-        // CPython lowers LOAD_CLOSURE to LOAD_FAST before optimize_load_fast, so
-        // borrow selection can see classdictcell and other merged-cell loads.
+        // CPython inserts superinstructions before lowering LOAD_CLOSURE to
+        // LOAD_FAST, so merged-cell closure loads do not participate in
+        // LOAD_FAST_LOAD_FAST formation. Lower them only immediately before
+        // optimize_load_fast.
         convert_load_closure_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
-        self.add_checks_for_loads_of_uninitialized_variables();
-        self.combine_store_fast_load_fast();
         // CPython's optimize_load_fast runs with block start depths already known.
         // Compute them here so the abstract stack simulation can use the real
         // CFG entry depth for each block.
@@ -280,6 +286,7 @@ impl CodeInfo {
         self.deoptimize_borrow_for_handler_return_paths();
         self.deoptimize_store_fast_store_fast_after_cleanup();
         self.optimize_load_global_push_null();
+        self.remove_redundant_const_pop_top_pairs();
         self.reorder_entry_prefix_cell_setup();
 
         let max_stackdepth = self.max_stackdepth()?;
@@ -291,6 +298,7 @@ impl CodeInfo {
 
             mut blocks,
             current_block: _,
+            annotations_blocks: _,
             metadata,
             static_attributes: _,
             in_inlined_comp: _,
@@ -891,6 +899,18 @@ impl CodeInfo {
                         }
                         l * r
                     }
+                    BinOp::TrueDivide => {
+                        if r.is_zero() {
+                            return None;
+                        }
+                        let l_f = l.to_f64()?;
+                        let r_f = r.to_f64()?;
+                        let result = l_f / r_f;
+                        if !result.is_finite() {
+                            return None;
+                        }
+                        return Some(ConstantData::Float { value: result });
+                    }
                     BinOp::FloorDivide => {
                         if r.is_zero() {
                             return None;
@@ -1036,6 +1056,23 @@ impl CodeInfo {
                 };
 
                 let tuple_size = u32::from(instr.arg) as usize;
+                if block
+                    .instructions
+                    .get(i + 1)
+                    .and_then(|next| next.instr.real())
+                    .is_some_and(|next| {
+                        matches!(
+                            next,
+                            Instruction::UnpackSequence { .. }
+                                if usize::try_from(u32::from(block.instructions[i + 1].arg))
+                                    .ok()
+                                    == Some(tuple_size)
+                        )
+                    })
+                {
+                    i += 1;
+                    continue;
+                }
                 if tuple_size == 0 {
                     // BUILD_TUPLE 0 → LOAD_CONST ()
                     let (const_idx, _) = self.metadata.consts.insert_full(ConstantData::Tuple {
@@ -1356,8 +1393,7 @@ impl CodeInfo {
                     continue;
                 }
 
-                // Use FrozenSet constant (stored as Tuple for now)
-                let const_data = ConstantData::Tuple { elements };
+                let const_data = ConstantData::Frozenset { elements };
                 let (const_idx, _) = self.metadata.consts.insert_full(const_data);
 
                 let folded_loc = block.instructions[i].location;
@@ -1618,6 +1654,29 @@ impl CodeInfo {
 
     /// Peephole optimization: combine consecutive instructions into super-instructions
     fn peephole_optimize(&mut self) {
+        let const_truthiness =
+            |instr: Instruction, arg: OpArg, metadata: &CodeUnitMetadata| match instr {
+                Instruction::LoadConst { consti } => {
+                    let constant = &metadata.consts[consti.get(arg).as_usize()];
+                    Some(match constant {
+                        ConstantData::Tuple { elements } => !elements.is_empty(),
+                        ConstantData::Integer { value } => !value.is_zero(),
+                        ConstantData::Float { value } => *value != 0.0,
+                        ConstantData::Complex { value } => value.re != 0.0 || value.im != 0.0,
+                        ConstantData::Boolean { value } => *value,
+                        ConstantData::Str { value } => !value.is_empty(),
+                        ConstantData::Bytes { value } => !value.is_empty(),
+                        ConstantData::Code { .. } => true,
+                        ConstantData::Slice { .. } => true,
+                        ConstantData::Frozenset { elements } => !elements.is_empty(),
+                        ConstantData::None => false,
+                        ConstantData::Ellipsis => true,
+                    })
+                }
+                Instruction::LoadSmallInt { i } => Some(i.get(arg) != 0),
+                _ => None,
+            };
+
         for block in &mut self.blocks {
             let mut i = 0;
             while i + 1 < block.instructions.len() {
@@ -1631,65 +1690,72 @@ impl CodeInfo {
                     continue;
                 };
 
+                if let Some(is_true) = const_truthiness(curr_instr, curr.arg, &self.metadata) {
+                    let jump_if_true = match next_instr {
+                        Instruction::PopJumpIfTrue { .. } => Some(true),
+                        Instruction::PopJumpIfFalse { .. } => Some(false),
+                        _ => None,
+                    };
+                    if let Some(jump_if_true) = jump_if_true {
+                        let target = match next_instr {
+                            Instruction::PopJumpIfTrue { delta }
+                            | Instruction::PopJumpIfFalse { delta } => delta.get(next.arg),
+                            _ => unreachable!(),
+                        };
+                        set_to_nop(&mut block.instructions[i]);
+                        if is_true == jump_if_true {
+                            block.instructions[i + 1].instr = PseudoInstruction::Jump {
+                                delta: Arg::marker(),
+                            }
+                            .into();
+                            block.instructions[i + 1].arg = OpArg::new(u32::from(target));
+                        } else {
+                            set_to_nop(&mut block.instructions[i + 1]);
+                        }
+                        i += 1;
+                        continue;
+                    }
+                }
+
                 if matches!(
-                    next_instr.into(),
-                    Opcode::PopJumpIfFalse | Opcode::PopJumpIfTrue
-                ) && matches!(curr_instr.into(), Opcode::CompareOp)
+                    curr_instr,
+                    Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. }
+                ) && matches!(next_instr, Instruction::PopTop)
                 {
-                    block.instructions[i].arg = OpArg::new(
-                        u32::from(block.instructions[i].arg) | oparg::COMPARE_OP_BOOL_MASK,
-                    );
+                    set_to_nop(&mut block.instructions[i]);
+                    set_to_nop(&mut block.instructions[i + 1]);
+                    i += 1;
+                    continue;
+                }
+
+                if matches!(curr_instr, Instruction::Copy { i } if i.get(curr.arg) == 1)
+                    && matches!(next_instr, Instruction::PopTop)
+                {
+                    set_to_nop(&mut block.instructions[i]);
+                    set_to_nop(&mut block.instructions[i + 1]);
                     i += 1;
                     continue;
                 }
 
                 let combined = {
                     match (curr_instr, next_instr) {
-                        // LoadFast + LoadFast -> LoadFastLoadFast (if both indices < 16)
-                        (Instruction::LoadFast { .. }, Instruction::LoadFast { .. }) => {
-                            let line1 = curr.location.line.get() as i32;
-                            let line2 = next.location.line.get() as i32;
-                            if line1 > 0 && line2 > 0 && line1 != line2 {
-                                None
-                            } else {
-                                let idx1 = u32::from(curr.arg);
-                                let idx2 = u32::from(next.arg);
-                                if idx1 < 16 && idx2 < 16 {
-                                    let packed = (idx1 << 4) | idx2;
-                                    Some((Opcode::LoadFastLoadFast.into(), OpArg::new(packed)))
-                                } else {
-                                    None
-                                }
-                            }
-                        }
-                        // StoreFast + StoreFast -> StoreFastStoreFast (if both indices < 16)
-                        // Dead store elimination: if both store to the same variable,
-                        // the first store is dead. Replace it with POP_TOP (like
-                        // apply_static_swaps in CPython's flowgraph.c).
-                        (Instruction::StoreFast { .. }, Instruction::StoreFast { .. }) => {
-                            let line1 = curr.location.line.get() as i32;
-                            let line2 = next.location.line.get() as i32;
-                            if line1 > 0 && line2 > 0 && line1 != line2 {
-                                None
-                            } else {
-                                let idx1 = u32::from(curr.arg);
-                                let idx2 = u32::from(next.arg);
-                                if idx1 < 16 && idx2 < 16 {
-                                    let packed = (idx1 << 4) | idx2;
-                                    Some((Opcode::StoreFastStoreFast.into(), OpArg::new(packed)))
-                                } else {
-                                    None
-                                }
-                            }
-                        }
                         // Note: StoreFast + LoadFast → StoreFastLoadFast is done in a
-                        // separate pass AFTER optimize_load_fast_borrow, because CPython
-                        // only combines STORE_FAST + LOAD_FAST (not LOAD_FAST_BORROW).
-                        (Instruction::LoadConst { consti }, Instruction::ToBool) => {
-                            let consti = consti.get(curr.arg);
-                            let constant = &self.metadata.consts[consti.as_usize()];
-                            if let ConstantData::Boolean { .. } = constant {
-                                Some((curr_instr, OpArg::from(consti.as_u32())))
+                        // later pass aligned with CPython insert_superinstructions().
+                        (Instruction::LoadConst { .. }, Instruction::ToBool)
+                        | (Instruction::LoadSmallInt { .. }, Instruction::ToBool) => {
+                            if let Some(value) =
+                                const_truthiness(curr_instr, curr.arg, &self.metadata)
+                            {
+                                let (const_idx, _) = self
+                                    .metadata
+                                    .consts
+                                    .insert_full(ConstantData::Boolean { value });
+                                Some((
+                                    Instruction::LoadConst {
+                                        consti: Arg::marker(),
+                                    },
+                                    OpArg::new(const_idx as u32),
+                                ))
                             } else {
                                 None
                             }
@@ -1756,6 +1822,39 @@ impl CodeInfo {
 
                 block.instructions[i].arg = OpArg::new(oparg | 1);
                 block.instructions.remove(i + 1);
+            }
+        }
+    }
+
+    fn remove_redundant_const_pop_top_pairs(&mut self) {
+        for block in &mut self.blocks {
+            let mut i = 0;
+            while i + 1 < block.instructions.len() {
+                let curr = &block.instructions[i];
+                let next = &block.instructions[i + 1];
+                let Some(curr_instr) = curr.instr.real() else {
+                    i += 1;
+                    continue;
+                };
+                let Some(next_instr) = next.instr.real() else {
+                    i += 1;
+                    continue;
+                };
+
+                let redundant = matches!(
+                    (curr_instr, next_instr),
+                    (Instruction::LoadConst { .. }, Instruction::PopTop)
+                        | (Instruction::LoadSmallInt { .. }, Instruction::PopTop)
+                ) || matches!(curr_instr, Instruction::Copy { i } if i.get(curr.arg) == 1)
+                    && matches!(next_instr, Instruction::PopTop);
+
+                if redundant {
+                    set_to_nop(&mut block.instructions[i]);
+                    set_to_nop(&mut block.instructions[i + 1]);
+                    i += 2;
+                } else {
+                    i += 1;
+                }
             }
         }
     }
@@ -1876,17 +1975,13 @@ impl CodeInfo {
     /// STORE_FAST + LOAD_FAST patterns that CPython uses in comprehension loop
     /// headers. Keeping this scoped avoids reintroducing earlier mismatches in
     /// non-loop code while we continue aligning the surrounding borrow rules.
-    fn combine_store_fast_load_fast(&mut self) {
+    fn insert_superinstructions(&mut self) {
         for block in &mut self.blocks {
             let mut i = 0;
             while i + 1 < block.instructions.len() {
                 let curr = &block.instructions[i];
                 let next = &block.instructions[i + 1];
-                let Some(Instruction::StoreFast { .. }) = curr.instr.real() else {
-                    i += 1;
-                    continue;
-                };
-                // Skip if instructions are on different lines (matching make_super_instruction)
+
                 let line1 = curr.location.line;
                 let line2 = next.location.line;
                 if line1 != line2 {
@@ -1894,16 +1989,26 @@ impl CodeInfo {
                     continue;
                 }
 
-                let store_idx = u32::from(curr.arg);
-                if store_idx >= 16 {
-                    i += 1;
-                    continue;
-                }
-
-                match next.instr.real() {
-                    Some(Instruction::LoadFast { .. }) => {
+                match (curr.instr.real(), next.instr.real()) {
+                    (Some(Instruction::LoadFast { .. }), Some(Instruction::LoadFast { .. })) => {
+                        let idx1 = u32::from(curr.arg);
+                        let idx2 = u32::from(next.arg);
+                        if idx1 >= 16 || idx2 >= 16 {
+                            i += 1;
+                            continue;
+                        }
+                        let packed = (idx1 << 4) | idx2;
+                        block.instructions[i].instr = Instruction::LoadFastLoadFast {
+                            var_nums: Arg::marker(),
+                        }
+                        .into();
+                        block.instructions[i].arg = OpArg::new(packed);
+                        block.instructions.remove(i + 1);
+                    }
+                    (Some(Instruction::StoreFast { .. }), Some(Instruction::LoadFast { .. })) => {
+                        let store_idx = u32::from(curr.arg);
                         let load_idx = u32::from(next.arg);
-                        if load_idx >= 16 {
+                        if store_idx >= 16 || load_idx >= 16 {
                             i += 1;
                             continue;
                         }
@@ -1913,34 +2018,24 @@ impl CodeInfo {
                         }
                         .into();
                         block.instructions[i].arg = OpArg::new(packed);
-                        set_to_nop(&mut block.instructions[i + 1]);
-                        i += 2;
+                        block.instructions.remove(i + 1);
                     }
-                    Some(Instruction::LoadFastLoadFast { var_nums }) => {
-                        let packed = var_nums.get(next.arg);
-                        let (first_idx, second_idx) = packed.indexes();
-                        let first_idx = u32::from(first_idx);
-                        if first_idx >= 16 {
+                    (Some(Instruction::StoreFast { .. }), Some(Instruction::StoreFast { .. })) => {
+                        let idx1 = u32::from(curr.arg);
+                        let idx2 = u32::from(next.arg);
+                        if idx1 >= 16 || idx2 >= 16 {
                             i += 1;
                             continue;
                         }
-
-                        let packed = (store_idx << 4) | first_idx;
-                        block.instructions[i].instr = Instruction::StoreFastLoadFast {
+                        let packed = (idx1 << 4) | idx2;
+                        block.instructions[i].instr = Instruction::StoreFastStoreFast {
                             var_nums: Arg::marker(),
                         }
                         .into();
                         block.instructions[i].arg = OpArg::new(packed);
-                        block.instructions[i + 1].instr = Instruction::LoadFast {
-                            var_num: Arg::marker(),
-                        }
-                        .into();
-                        block.instructions[i + 1].arg = OpArg::new(u32::from(second_idx));
-                        i += 2;
+                        block.instructions.remove(i + 1);
                     }
-                    _ => {
-                        i += 1;
-                    }
+                    _ => i += 1,
                 }
             }
         }
@@ -2343,7 +2438,25 @@ impl CodeInfo {
 
         for (block_idx, block) in self.blocks.iter_mut().enumerate() {
             let mut new_instructions = Vec::with_capacity(block.instructions.len());
+            let mut in_restore_prefix = starts_after_cleanup[block_idx];
             for (i, info) in block.instructions.iter().copied().enumerate() {
+                if !in_restore_prefix
+                    && matches!(
+                        info.instr.real(),
+                        Some(
+                            Instruction::StoreFast { .. } | Instruction::StoreFastStoreFast { .. }
+                        )
+                    )
+                    && !new_instructions.is_empty()
+                    && new_instructions.iter().all(|prev: &InstructionInfo| {
+                        matches!(
+                            prev.instr.real(),
+                            Some(Instruction::Swap { .. }) | Some(Instruction::PopTop)
+                        )
+                    })
+                {
+                    in_restore_prefix = true;
+                }
                 let expand = matches!(
                     info.instr.real(),
                     Some(Instruction::StoreFastStoreFast { .. })
@@ -2354,7 +2467,8 @@ impl CodeInfo {
                             Some(Instruction::PopIter) | Some(Instruction::Swap { .. })
                         )
                     },
-                ) || (i == 0 && starts_after_cleanup[block_idx]));
+                ) || (i == 0 && starts_after_cleanup[block_idx])
+                    || in_restore_prefix);
 
                 if expand {
                     let Some(Instruction::StoreFastStoreFast { var_nums }) = info.instr.real()
@@ -2382,6 +2496,8 @@ impl CodeInfo {
                     continue;
                 }
 
+                in_restore_prefix &=
+                    matches!(info.instr.real(), Some(Instruction::StoreFast { .. }));
                 new_instructions.push(info);
             }
             block.instructions = new_instructions;
@@ -2670,6 +2786,86 @@ impl CodeInfo {
         }
 
         Ok(maxdepth)
+    }
+}
+
+impl CodeInfo {
+    fn remap_block_idx(idx: BlockIdx, base: u32) -> BlockIdx {
+        if idx == BlockIdx::NULL {
+            idx
+        } else {
+            BlockIdx::new(u32::from(idx) + base)
+        }
+    }
+
+    fn splice_annotations_blocks(&mut self) {
+        let mut placeholder = None;
+        for (block_idx, block) in self.blocks.iter().enumerate() {
+            if let Some(instr_idx) = block.instructions.iter().position(|info| {
+                matches!(
+                    info.instr.pseudo(),
+                    Some(PseudoInstruction::AnnotationsPlaceholder)
+                )
+            }) {
+                placeholder = Some((block_idx, instr_idx));
+                break;
+            }
+        }
+
+        let Some((block_idx, instr_idx)) = placeholder else {
+            return;
+        };
+
+        let Some(mut annotations_blocks) = self.annotations_blocks.take() else {
+            self.blocks[block_idx].instructions.remove(instr_idx);
+            return;
+        };
+        if annotations_blocks.is_empty() {
+            self.blocks[block_idx].instructions.remove(instr_idx);
+            return;
+        }
+
+        let base = self.blocks.len() as u32;
+        for block in &mut annotations_blocks {
+            block.next = Self::remap_block_idx(block.next, base);
+            for info in &mut block.instructions {
+                info.target = Self::remap_block_idx(info.target, base);
+                if let Some(handler) = &mut info.except_handler {
+                    handler.handler_block = Self::remap_block_idx(handler.handler_block, base);
+                }
+            }
+        }
+
+        let ann_entry = BlockIdx::new(base);
+        let ann_tail = {
+            let mut cursor = ann_entry;
+            while annotations_blocks[(u32::from(cursor) - base) as usize].next != BlockIdx::NULL {
+                cursor = annotations_blocks[(u32::from(cursor) - base) as usize].next;
+            }
+            cursor
+        };
+
+        let old_next = self.blocks[block_idx].next;
+        let suffix = self.blocks[block_idx].instructions.split_off(instr_idx + 1);
+        self.blocks[block_idx].instructions.pop();
+
+        let suffix_block = if suffix.is_empty() {
+            old_next
+        } else {
+            let suffix_idx = BlockIdx::new(base + annotations_blocks.len() as u32);
+            let block = Block {
+                instructions: suffix,
+                next: old_next,
+                ..Default::default()
+            };
+            annotations_blocks.push(block);
+            suffix_idx
+        };
+
+        self.blocks[block_idx].next = ann_entry;
+        let ann_tail_local = (u32::from(ann_tail) - base) as usize;
+        annotations_blocks[ann_tail_local].next = suffix_block;
+        self.blocks.extend(annotations_blocks);
     }
 }
 
@@ -4460,17 +4656,14 @@ fn convert_load_closure_pseudo_ops(blocks: &mut [Block], cellfixedoffsets: &[u32
             let Some(pseudo) = info.instr.pseudo() else {
                 continue;
             };
-            match pseudo {
-                PseudoInstruction::LoadClosure { i } => {
-                    let cell_relative = i.get(info.arg) as usize;
-                    let new_idx = cellfixedoffsets[cell_relative];
-                    info.arg = OpArg::new(new_idx);
-                    info.instr = Instruction::LoadFast {
-                        var_num: Arg::marker(),
-                    }
-                    .into();
+            if let PseudoInstruction::LoadClosure { i } = pseudo {
+                let cell_relative = i.get(info.arg) as usize;
+                let new_idx = cellfixedoffsets[cell_relative];
+                info.arg = OpArg::new(new_idx);
+                info.instr = Instruction::LoadFast {
+                    var_num: Arg::marker(),
                 }
-                _ => {}
+                .into();
             }
         }
     }
