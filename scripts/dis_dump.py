@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Dump normalized bytecode for Python source files as JSON.
+"""Dump bytecode for Python source files as JSON.
 
-Designed to produce comparable output across different Python implementations.
-Normalizes away implementation-specific details (byte offsets, memory addresses)
-while preserving semantic instruction content.
+Designed to compare raw bytecode streams across different Python
+implementations while normalizing only display-only details such as memory
+addresses in argument reprs.
 
 Usage:
     python dis_dump.py Lib/
@@ -18,20 +18,11 @@ import re
 import sys
 import types
 
-# Non-semantic filler instructions to skip
-SKIP_OPS = frozenset({"CACHE", "PRECALL", "EXTENDED_ARG"})
+# Raw bytecode parity mode: do not skip any instructions.
+SKIP_OPS = frozenset()
 
-# Opname normalization: map variant instructions to their base form.
-# These variants differ only in optimization hints, not semantics.
-_OPNAME_NORMALIZE = {
-    "LOAD_FAST_BORROW": "LOAD_FAST",
-    "LOAD_FAST_BORROW_LOAD_FAST_BORROW": "LOAD_FAST_LOAD_FAST",
-    "LOAD_FAST_CHECK": "LOAD_FAST",
-    "JUMP_BACKWARD_NO_INTERRUPT": "JUMP_BACKWARD",
-    "POP_ITER": "POP_TOP",
-    # Superinstruction normalization: these get decomposed in _extract_instructions
-    "STORE_FAST_LOAD_FAST_BORROW": "STORE_FAST_LOAD_FAST",
-}
+_OPNAME_NORMALIZE = {}
+_SUPER_DECOMPOSE = {}
 
 # Jump instruction names (fallback when hasjrel/hasjabs is incomplete)
 _JUMP_OPNAMES = frozenset(
@@ -52,6 +43,7 @@ _JUMP_OPNAMES = frozenset(
 )
 
 _JUMP_OPCODES = None
+_ABSOLUTE_JUMP_OPCODES = frozenset(getattr(dis, "hasjabs", ()))
 
 
 def _jump_opcodes():
@@ -83,11 +75,6 @@ def _normalize_argrepr(argrepr):
             if idx >= 0:
                 name = name[:idx]
         return "<code object %s>" % name.rstrip(">").strip()
-    # Normalize COMPARE_OP: strip bool(...) wrapper from CPython 3.14
-    # e.g. "bool(==)" -> "==", "bool(<)" -> "<"
-    m = re.match(r"^bool\((.+)\)$", argrepr)
-    if m:
-        return m.group(1)
     # Remove memory addresses from other reprs
     argrepr = re.sub(r" at 0x[0-9a-fA-F]+", "", argrepr)
     # Remove LOAD_ATTR/LOAD_SUPER_ATTR suffixes: " + NULL|self", " + NULL"
@@ -176,45 +163,58 @@ def _resolve_arg_fallback(code, opname, arg):
 
 
 def _extract_instructions(code):
-    """Extract normalized instruction list from a code object.
-
-    - Filters out CACHE/PRECALL instructions
-    - Converts jump targets from byte offsets to instruction indices
-    - Resolves argument names via fallback when argrepr is missing
-    - Normalizes argument representations
-    """
+    """Extract a raw code-unit instruction stream from a code object."""
     try:
         raw = list(dis.get_instructions(code))
     except Exception as e:
         return [["ERROR", str(e)]]
 
-    # Build filtered list and offset-to-index mapping
-    filtered = []
+    def _metadata_cache_slot_offsets(inst):
+        cache_offset = getattr(inst, "cache_offset", None)
+        end_offset = getattr(inst, "end_offset", None)
+        if (
+            isinstance(cache_offset, int)
+            and isinstance(end_offset, int)
+            and end_offset >= cache_offset
+        ):
+            return range(cache_offset, end_offset, 2)
+        cache_info = getattr(inst, "cache_info", None) or ()
+        cache_units = sum(size for _, size, _ in cache_info)
+        return range(inst.offset + 2, inst.offset + 2 + cache_units * 2, 2)
+
+    explicit_offsets = {inst.offset for inst in raw}
+    cache_counts = {}
+    stream = []
     offset_to_idx = {}
-    for inst in raw:
-        if inst.opname in SKIP_OPS:
-            continue
-        offset_to_idx[inst.offset] = len(filtered)
-        filtered.append(inst)
-
-    # Map offsets that land on CACHE slots to the next real instruction
-    for inst in raw:
-        if inst.offset not in offset_to_idx:
-            for fi, finst in enumerate(filtered):
-                if finst.offset >= inst.offset:
-                    offset_to_idx[inst.offset] = fi
-                    break
-
-    # Superinstruction decomposition: split into constituent parts
-    # so we compare individual operations regardless of combining.
-    _SUPER_DECOMPOSE = {
-        "STORE_FAST_LOAD_FAST": ("STORE_FAST", "LOAD_FAST"),
-        "STORE_FAST_STORE_FAST": ("STORE_FAST", "STORE_FAST"),
-        "LOAD_FAST_LOAD_FAST": ("LOAD_FAST", "LOAD_FAST"),
-    }
+    for i, inst in enumerate(raw):
+        explicit_cache_count = 0
+        next_offset = inst.offset + 2
+        j = i + 1
+        while (
+            j < len(raw) and raw[j].opname == "CACHE" and raw[j].offset == next_offset
+        ):
+            explicit_cache_count += 1
+            next_offset += 2
+            j += 1
+        cache_counts[inst.offset] = explicit_cache_count
+        if inst.opname not in SKIP_OPS:
+            offset_to_idx[inst.offset] = len(stream)
+            stream.append(("inst", inst))
+        if explicit_cache_count == 0:
+            for cache_offset in _metadata_cache_slot_offsets(inst):
+                if cache_offset in explicit_offsets:
+                    continue
+                cache_counts[inst.offset] += 1
+                offset_to_idx[cache_offset] = len(stream)
+                stream.append(("cache", cache_offset))
 
     result = []
-    for inst in filtered:
+    for kind, payload in stream:
+        if kind == "cache":
+            result.append(["CACHE"])
+            continue
+
+        inst = payload
         opname = _OPNAME_NORMALIZE.get(inst.opname, inst.opname)
 
         # Decompose superinstructions into individual ops
@@ -244,43 +244,29 @@ def _extract_instructions(code):
                 if is_backward:
                     # Target = current_offset + INSTR_SIZE + cache
                     #        - arg * INSTR_SIZE
-                    # Try different cache sizes (NOT_TAKEN=1 for JUMP_BACKWARD, 0 for NO_INTERRUPT)
-                    if "NO_INTERRUPT" in inst.opname:
-                        cache_order = (0, 1, 2)
-                    else:
-                        cache_order = (1, 0, 2, 3)
-                    for cache in cache_order:
-                        target_off = inst.offset + 2 + cache * 2 - inst.arg * 2
-                        if target_off >= 0 and target_off in offset_to_idx:
-                            target_idx = offset_to_idx[target_off]
-                            break
+                    cache = cache_counts.get(inst.offset, 0)
+                    target_off = inst.offset + 2 + cache * 2 - inst.arg * 2
+                    if target_off >= 0 and target_off in offset_to_idx:
+                        target_idx = offset_to_idx[target_off]
                 elif inst.arg is not None:
-                    # Forward jumps: compute target offset using cache entry count.
-                    # POP_JUMP_IF_* have 1 cache entry (NOT_TAKEN), others have 0.
-                    if "POP_JUMP_IF" in inst.opname:
-                        cache_order = (1, 0, 2)
-                    elif inst.opname == "FOR_ITER":
-                        cache_order = (0, 1, 2)
-                    elif inst.opname == "SEND":
-                        cache_order = (1, 0, 2)
+                    if inst.opcode in _ABSOLUTE_JUMP_OPCODES:
+                        target_off = inst.arg * 2
                     else:
-                        cache_order = (0, 1, 2)
-                    for extra in cache_order:
-                        target_off = inst.offset + 2 + extra * 2 + inst.arg * 2
-                        if target_off in offset_to_idx:
-                            target_idx = offset_to_idx[target_off]
-                            break
+                        cache = cache_counts.get(inst.offset, 0)
+                        target_off = inst.offset + 2 + cache * 2 + inst.arg * 2
+                    if target_off in offset_to_idx:
+                        target_idx = offset_to_idx[target_off]
             if target_idx is None:
                 target_idx = inst.argval
             result.append([opname, "->%d" % target_idx])
         elif inst.opname == "COMPARE_OP":
-            # Normalize COMPARE_OP across interpreters (different encodings)
             if _IS_RUSTPYTHON:
-                cmp_str = _RP_CMP_OPS.get(inst.arg, inst.argrepr)
+                cmp_idx = inst.arg >> 5 if isinstance(inst.arg, int) else inst.arg
+                cmp_str = _RP_CMP_OPS.get(cmp_idx, inst.argrepr)
+                if isinstance(inst.arg, int) and inst.arg & 16:
+                    cmp_str = f"bool({cmp_str})"
             else:
-                cmp_str = (
-                    _normalize_argrepr(inst.argrepr) if inst.argrepr else str(inst.arg)
-                )
+                cmp_str = inst.argrepr if inst.argrepr else str(inst.arg)
             result.append([opname, cmp_str])
         elif inst.arg is not None and inst.argrepr:
             # If argrepr is just a number, try to resolve it via fallback

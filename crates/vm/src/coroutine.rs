@@ -73,7 +73,10 @@ impl Coro {
         }
     }
 
-    fn maybe_close(&self, res: &PyResult<ExecutionResult>) {
+    fn maybe_close(&self, res: &PyResult<ExecutionResult>, entered_frame: bool) {
+        if !entered_frame {
+            return;
+        }
         match res {
             Ok(ExecutionResult::Return(_)) | Err(_) => {
                 self.closed.store(true);
@@ -82,6 +85,9 @@ impl Coro {
                     FrameOwner::FrameObject as i8,
                     core::sync::atomic::Ordering::Release,
                 );
+                // Completed generators/coroutines should not keep their locals
+                // alive while the wrapper object itself remains referenced.
+                self.frame.clear_locals_and_stack();
             }
             Ok(ExecutionResult::Yield(_)) => {}
         }
@@ -92,12 +98,15 @@ impl Coro {
         jen: &PyObject,
         vm: &VirtualMachine,
         func: F,
-    ) -> PyResult<ExecutionResult>
+    ) -> (PyResult<ExecutionResult>, bool)
     where
         F: FnOnce(&Py<Frame>) -> PyResult<ExecutionResult>,
     {
         if self.running.compare_exchange(false, true).is_err() {
-            return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
+            return (
+                Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm)))),
+                false,
+            );
         }
 
         // SAFETY: running.compare_exchange guarantees exclusive access
@@ -112,16 +121,17 @@ impl Coro {
         });
 
         self.running.store(false);
-        result
+        (result, true)
     }
 
     fn finalize_send_result(
         &self,
-        jen: &PyObject,
         result: PyResult<ExecutionResult>,
+        entered_frame: bool,
+        jen: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
-        self.maybe_close(&result);
+        self.maybe_close(&result, entered_frame);
         match result {
             Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
             Err(e) => {
@@ -147,14 +157,19 @@ impl Coro {
         if self.closed.load() {
             return Ok(PyIterReturn::StopIteration(None));
         }
-        self.frame.locals_to_fast(vm)?;
+        if self.running.load() {
+            return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
+        }
         let value = if self.frame.lasti() > 0 {
             Some(vm.ctx.none())
         } else {
             None
         };
-        let result = self.run_with_context(jen, vm, |f| f.resume(value, vm));
-        self.finalize_send_result(jen, result, vm)
+        let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
+            self.frame.locals_to_fast(vm)?;
+            f.resume(value, vm)
+        });
+        self.finalize_send_result(result, entered_frame, jen, vm)
     }
 
     pub fn send(
@@ -166,7 +181,9 @@ impl Coro {
         if self.closed.load() {
             return Ok(PyIterReturn::StopIteration(None));
         }
-        self.frame.locals_to_fast(vm)?;
+        if self.running.load() {
+            return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
+        }
         let value = if self.frame.lasti() > 0 {
             Some(value)
         } else if !vm.is_none(&value) {
@@ -177,8 +194,11 @@ impl Coro {
         } else {
             None
         };
-        let result = self.run_with_context(jen, vm, |f| f.resume(value, vm));
-        self.finalize_send_result(jen, result, vm)
+        let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
+            self.frame.locals_to_fast(vm)?;
+            f.resume(value, vm)
+        });
+        self.finalize_send_result(result, entered_frame, jen, vm)
     }
 
     pub fn throw(
@@ -203,8 +223,9 @@ impl Coro {
         // Validate exception type before entering generator context.
         // Invalid types propagate to caller without closing the generator.
         crate::exceptions::ExceptionCtor::try_from_object(vm, exc_type.clone())?;
-        let result = self.run_with_context(jen, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
-        self.maybe_close(&result);
+        let (result, entered_frame) =
+            self.run_with_context(jen, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
+        self.maybe_close(&result, entered_frame);
         Ok(result?.into_iter_return(vm))
     }
 
@@ -217,7 +238,7 @@ impl Coro {
             self.closed.store(true);
             return Ok(vm.ctx.none());
         }
-        let result = self.run_with_context(jen, vm, |f| {
+        let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
             f.gen_throw(
                 vm,
                 vm.ctx.exceptions.generator_exit.to_owned().into(),
@@ -225,6 +246,12 @@ impl Coro {
                 vm.ctx.none(),
             )
         });
+        if !entered_frame {
+            return match result {
+                Err(err) => Err(err),
+                Ok(_) => unreachable!("run_with_context preflight returned without an error"),
+            };
+        }
         self.closed.store(true);
         // Release frame locals and stack to free references held by the
         // closed generator, matching gen_send_ex2 with close_on_completion.

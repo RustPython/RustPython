@@ -1095,6 +1095,10 @@ impl InstructionMetadata for Instruction {
         StackEffect::new(pushed as u32, popped as u32)
     }
 
+    // In CPython 3.14 the metadata-based stack_effect is the same for both
+    // fallthrough and branch paths for all real instructions.
+    // Only pseudo-instructions (SETUP_*) differ — see PseudoInstruction.
+
     #[allow(clippy::too_many_arguments)]
     fn fmt_dis(
         &self,
@@ -1169,7 +1173,14 @@ impl InstructionMetadata for Instruction {
             Self::CheckEgMatch => w!(CHECK_EG_MATCH),
             Self::CheckExcMatch => w!(CHECK_EXC_MATCH),
             Self::CleanupThrow => w!(CLEANUP_THROW),
-            Self::CompareOp { opname } => w!(COMPARE_OP, ?opname),
+            Self::CompareOp { opname } => {
+                let op = opname.get(arg);
+                if u32::from(arg) & oparg::COMPARE_OP_BOOL_MASK != 0 {
+                    write!(f, "{:pad$}(bool({}))", "COMPARE_OP", op)
+                } else {
+                    write!(f, "{:pad$}({})", "COMPARE_OP", op)
+                }
+            }
             Self::ContainsOp { invert } => w!(CONTAINS_OP, ?invert),
             Self::ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
             Self::Copy { i } => w!(COPY, i),
@@ -1495,6 +1506,21 @@ impl InstructionMetadata for PseudoInstruction {
         StackEffect::new(pushed as u32, popped as u32)
     }
 
+    /// Handler entry effect for SETUP_* pseudo ops.
+    ///
+    /// Fallthrough effect is 0 (NOPs), but when the branch is taken the
+    /// handler block starts with extra values on the stack:
+    ///   SETUP_FINALLY:  +1  (exc)
+    ///   SETUP_CLEANUP:  +2  (lasti + exc)
+    ///   SETUP_WITH:     +1  (pops __enter__ result, pushes lasti + exc)
+    fn stack_effect_jump(&self, _oparg: u32) -> i32 {
+        match self {
+            Self::SetupFinally { .. } | Self::SetupWith { .. } => 1,
+            Self::SetupCleanup { .. } => 2,
+            _ => self.stack_effect(_oparg),
+        }
+    }
+
     fn is_unconditional_jump(&self) -> bool {
         matches!(self, Self::Jump { .. } | Self::JumpNoInterrupt { .. })
     }
@@ -1568,6 +1594,8 @@ impl InstructionMetadata for AnyInstruction {
     inst_either!(fn is_scope_exit(&self) -> bool);
 
     inst_either!(fn stack_effect(&self, oparg: u32) -> i32);
+
+    inst_either!(fn stack_effect_jump(&self, oparg: u32) -> i32);
 
     inst_either!(fn stack_effect_info(&self, oparg: u32) -> StackEffect);
 
@@ -1683,6 +1711,16 @@ pub trait InstructionMetadata {
     /// Stack effect of [`Self::stack_effect_info`].
     fn stack_effect(&self, oparg: u32) -> i32 {
         self.stack_effect_info(oparg).effect()
+    }
+
+    /// Stack effect when the instruction takes its branch (jump=true).
+    ///
+    /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
+    /// For most instructions this equals the fallthrough effect.
+    /// Override for instructions where branch and fallthrough differ
+    /// (e.g. `FOR_ITER`: fallthrough = +1, branch = −1).
+    fn stack_effect_jump(&self, oparg: u32) -> i32 {
+        self.stack_effect(oparg)
     }
 
     #[allow(clippy::too_many_arguments)]

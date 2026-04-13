@@ -1522,11 +1522,16 @@ impl ExecutingFrame<'_> {
                     idx: usize,
                     vm: &VirtualMachine,
                 ) -> FrameResult {
-                    let (loc, _end_loc) = frame.code.locations[idx];
-                    let next = exception.__traceback__();
-                    let new_traceback =
-                        PyTraceback::new(next, frame.object.to_owned(), idx as u32 * 2, loc.line);
-                    exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                    if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
+                        let next = exception.__traceback__();
+                        let new_traceback = PyTraceback::new(
+                            next,
+                            frame.object.to_owned(),
+                            idx as u32 * 2,
+                            loc.line,
+                        );
+                        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                    }
                     vm.contextualize_exception(&exception);
                     frame.unwind_blocks(vm, UnwindReason::Raising { exception })
                 }
@@ -1579,17 +1584,23 @@ impl ExecutingFrame<'_> {
                             // checking for duplicates. Each time an exception passes through
                             // a frame (e.g., in a loop with repeated raise statements),
                             // a new traceback entry is added.
-                            let (loc, _end_loc) = frame.code.locations[idx];
-                            let next = exception.__traceback__();
+                            if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
+                                let next = exception.__traceback__();
 
-                            let new_traceback = PyTraceback::new(
-                                next,
-                                frame.object.to_owned(),
-                                idx as u32 * 2,
-                                loc.line,
-                            );
-                            vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
-                            exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                                let new_traceback = PyTraceback::new(
+                                    next,
+                                    frame.object.to_owned(),
+                                    idx as u32 * 2,
+                                    loc.line,
+                                );
+                                vm_trace!(
+                                    "Adding to traceback: {:?} {:?}",
+                                    new_traceback,
+                                    loc.line
+                                );
+                                exception
+                                    .set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                            }
 
                             // _PyErr_SetObject sets __context__ only when the exception
                             // is first raised. When an exception propagates through frames,
@@ -2240,7 +2251,7 @@ impl ExecutingFrame<'_> {
             Instruction::CompareOp { opname: op } => {
                 let op_val = op.get(arg);
                 self.adaptive(|s, ii, cb| s.specialize_compare_op(vm, op_val, ii, cb));
-                self.execute_compare(vm, op_val)
+                self.execute_compare(vm, arg)
             }
             Instruction::ContainsOp { invert } => {
                 self.adaptive(|s, ii, cb| s.specialize_contains_op(vm, ii, cb));
@@ -5337,9 +5348,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
-                        .unwrap_or(bytecode::ComparisonOperator::Equal);
-                    self.execute_compare(vm, op)
+                    self.execute_compare(vm, arg)
                 }
             }
             Instruction::CompareOpFloat => {
@@ -5361,9 +5370,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
-                        .unwrap_or(bytecode::ComparisonOperator::Equal);
-                    self.execute_compare(vm, op)
+                    self.execute_compare(vm, arg)
                 }
             }
             Instruction::CompareOpStr => {
@@ -5375,9 +5382,7 @@ impl ExecutingFrame<'_> {
                 ) {
                     let op = self.compare_op_from_arg(arg);
                     if op != PyComparisonOp::Eq && op != PyComparisonOp::Ne {
-                        let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
-                            .unwrap_or(bytecode::ComparisonOperator::Equal);
-                        return self.execute_compare(vm, op);
+                        return self.execute_compare(vm, arg);
                     }
                     let result = op.eval_ord(a_str.as_wtf8().cmp(b_str.as_wtf8()));
                     self.pop_value();
@@ -5385,9 +5390,7 @@ impl ExecutingFrame<'_> {
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
-                        .unwrap_or(bytecode::ComparisonOperator::Equal);
-                    self.execute_compare(vm, op)
+                    self.execute_compare(vm, arg)
                 }
             }
             Instruction::ToBoolBool => {
@@ -7256,14 +7259,13 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn execute_compare(
-        &mut self,
-        vm: &VirtualMachine,
-        op: bytecode::ComparisonOperator,
-    ) -> FrameResult {
+    fn execute_compare(&mut self, vm: &VirtualMachine, arg: bytecode::OpArg) -> FrameResult {
+        let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
+            .unwrap_or(bytecode::ComparisonOperator::Equal);
         let b = self.pop_value();
         let a = self.pop_value();
         let cmp_op: PyComparisonOp = op.into();
+        let force_bool = u32::from(arg) & bytecode::oparg::COMPARE_OP_BOOL_MASK != 0;
 
         // COMPARE_OP_INT: leaf type, cannot recurse — skip rich_compare dispatch
         if let (Some(a_int), Some(b_int)) = (
@@ -7287,6 +7289,12 @@ impl ExecutingFrame<'_> {
         }
 
         let value = a.rich_compare(b, cmp_op, vm)?;
+        let value = if force_bool {
+            let bool_val = value.try_to_bool(vm)?;
+            vm.ctx.new_bool(bool_val).into()
+        } else {
+            value
+        };
         self.push_value(value);
         Ok(None)
     }
