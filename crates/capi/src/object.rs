@@ -1,6 +1,5 @@
 use crate::{PyObject, with_vm};
-use core::ffi::c_ulong;
-use core::ffi::{c_int, c_uint};
+use core::ffi::{c_int, c_uint, c_ulong, c_void};
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyStr, PyType};
@@ -191,10 +190,34 @@ pub extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyObject_GenericGetDict(
+    obj: *mut PyObject,
+    _context: *mut c_void,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        obj.get_attr("__dict__", vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyObject_GenericSetDict(
+    obj: *mut PyObject,
+    value: *mut PyObject,
+    _context: *mut c_void,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let value = unsafe { &*value }.to_owned();
+        obj.set_attr("__dict__", value, vm)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
-    use pyo3::types::{PyBool, PyInt, PyNone, PyString};
+    use pyo3::types::{PyBool, PyDict, PyInt, PyNone, PyString};
 
     #[test]
     fn test_is_truthy() {
@@ -264,6 +287,25 @@ mod tests {
                 .unwrap();
 
             assert_eq!(implementation, "rustpython");
+        })
+    }
+
+    #[test]
+    fn test_generic_get_dict() {
+        Python::attach(|py| {
+            let globals = PyDict::new(py);
+            py.run(c"class MyClass: ...", None, Some(&globals)).unwrap();
+            let my_class = globals.get_item("MyClass").unwrap().unwrap();
+            let instance = my_class.call0().unwrap();
+            instance.setattr("foo", 42).unwrap();
+            let dict = unsafe {
+                Bound::from_owned_ptr_or_err(
+                    py,
+                    pyo3::ffi::PyObject_GenericGetDict(instance.as_ptr(), std::ptr::null_mut()),
+                )
+            }
+            .unwrap();
+            assert!(dict.get_item("foo").is_ok());
         })
     }
 }
