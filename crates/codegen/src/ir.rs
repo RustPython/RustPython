@@ -2207,40 +2207,18 @@ impl CodeInfo {
                 }
                 // Process target blocks for branching instructions
                 if ins.target != BlockIdx::NULL {
-                    if instr.is_block_push() {
-                        // SETUP_* pseudo ops: target is a handler block.
-                        // Handler entry depth uses the jump-path stack effect:
-                        //   SETUP_FINALLY:  +1  (pushes exc)
-                        //   SETUP_CLEANUP:  +2  (pushes lasti + exc)
-                        //   SETUP_WITH:     +1  (pops __enter__ result, pushes lasti + exc)
-                        let handler_effect: u32 = match instr.pseudo() {
-                            Some(PseudoInstruction::SetupCleanup { .. }) => 2,
-                            _ => 1, // SetupFinally and SetupWith
-                        };
-                        let handler_depth = depth + handler_effect;
-                        if handler_depth > maxdepth {
-                            maxdepth = handler_depth;
+                    let jump_effect = instr.stack_effect_jump(ins.arg.into());
+                    let target_depth = depth.checked_add_signed(jump_effect).ok_or({
+                        if jump_effect < 0 {
+                            InternalError::StackUnderflow
+                        } else {
+                            InternalError::StackOverflow
                         }
-                        stackdepth_push(&mut stack, &mut start_depths, ins.target, handler_depth);
-                    } else {
-                        // SEND jumps to END_SEND with receiver still on stack.
-                        // END_SEND performs the receiver pop.
-                        let jump_effect = match instr.real() {
-                            Some(Instruction::Send { .. }) => 0i32,
-                            _ => effect,
-                        };
-                        let target_depth = depth.checked_add_signed(jump_effect).ok_or({
-                            if jump_effect < 0 {
-                                InternalError::StackUnderflow
-                            } else {
-                                InternalError::StackOverflow
-                            }
-                        })?;
-                        if target_depth > maxdepth {
-                            maxdepth = target_depth
-                        }
-                        stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
+                    })?;
+                    if target_depth > maxdepth {
+                        maxdepth = target_depth;
                     }
+                    stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
                 }
                 depth = new_depth;
                 if instr.is_scope_exit() || instr.is_unconditional_jump() {
