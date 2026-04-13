@@ -852,6 +852,29 @@ impl PyWeak {
         self.wr_object.load(Ordering::Acquire).is_null()
     }
 
+    /// Get the callback associated with this weak reference.
+    /// Returns `None` if there is no callback or if the referent has been
+    /// collected (at which point the callback was already consumed).
+    pub(crate) fn get_callback(&self) -> Option<PyObjectRef> {
+        let obj_ptr = self.wr_object.load(Ordering::Acquire);
+        if obj_ptr.is_null() {
+            // Dead weakref: callback was consumed during clear
+            return None;
+        }
+
+        let _lock = weakref_lock::lock(obj_ptr as usize);
+
+        // Double-check under lock (clear may have run between our check and lock)
+        let obj_ptr = self.wr_object.load(Ordering::Relaxed);
+        if obj_ptr.is_null() {
+            return None;
+        }
+
+        // Safety: we hold the stripe lock that protects the callback field
+        let callback = unsafe { &*self.callback.get() };
+        callback.clone()
+    }
+
     /// weakref_dealloc: remove from list if still linked.
     fn drop_inner(&self) {
         let obj_ptr = self.wr_object.load(Ordering::Acquire);
