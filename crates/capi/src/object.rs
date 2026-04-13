@@ -132,6 +132,20 @@ pub extern "C" fn PyObject_GetAttr(obj: *mut PyObject, name: *mut PyObject) -> *
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyObject_SetAttr(
+    obj: *mut PyObject,
+    name: *mut PyObject,
+    value: *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        let value = unsafe { &*value }.to_owned();
+        obj.set_attr(name, value, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyObject_Repr(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let Some(obj) = NonNull::new(obj) else {
