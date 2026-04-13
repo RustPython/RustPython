@@ -2598,42 +2598,25 @@ impl Compiler {
             ast::Stmt::Assert(ast::StmtAssert { test, msg, .. }) => {
                 // if some flag, ignore all assert statements!
                 if self.opts.optimize == 0 {
-                    let after_block = match self.try_fold_constant_expr(test)? {
-                        Some(constant) if Self::constant_truthiness(&constant) => {
-                            self.consume_skipped_nested_scopes_in_expr(test)?;
-                            if let Some(expr) = msg {
-                                self.consume_skipped_nested_scopes_in_expr(expr)?;
-                            }
-                            emit!(self, Instruction::Nop);
-                            None
+                    let after_block = self.new_block();
+                    self.compile_jump_if(test, true, after_block)?;
+                    emit!(
+                        self,
+                        Instruction::LoadCommonConstant {
+                            idx: bytecode::CommonConstant::AssertionError
                         }
-                        Some(_) => Some(self.new_block()),
-                        None => {
-                            let after_block = self.new_block();
-                            self.compile_jump_if(test, true, after_block)?;
-                            Some(after_block)
-                        }
-                    };
-
-                    if let Some(after_block) = after_block {
-                        emit!(
-                            self,
-                            Instruction::LoadCommonConstant {
-                                idx: bytecode::CommonConstant::AssertionError
-                            }
-                        );
-                        if let Some(e) = msg {
-                            self.compile_expression(e)?;
-                            emit!(self, Instruction::Call { argc: 0 });
-                        }
-                        emit!(
-                            self,
-                            Instruction::RaiseVarargs {
-                                argc: bytecode::RaiseKind::Raise,
-                            }
-                        );
-                        self.switch_to_block(after_block);
+                    );
+                    if let Some(e) = msg {
+                        self.compile_expression(e)?;
+                        emit!(self, Instruction::Call { argc: 0 });
                     }
+                    emit!(
+                        self,
+                        Instruction::RaiseVarargs {
+                            argc: bytecode::RaiseKind::Raise,
+                        }
+                    );
+                    self.switch_to_block(after_block);
                 } else {
                     // Optimized-out asserts still need to consume any nested
                     // scope symbol tables they contain so later nested scopes
@@ -3550,11 +3533,6 @@ impl Compiler {
         let handler_block = self.new_block();
         let cleanup_block = self.new_block();
         let end_block = self.new_block();
-        let orelse_block = if orelse.is_empty() {
-            end_block
-        } else {
-            self.new_block()
-        };
 
         emit!(self, Instruction::Nop);
         emit!(
@@ -3569,11 +3547,10 @@ impl Compiler {
         self.pop_fblock(FBlockType::TryExcept);
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
+        self.compile_statements(orelse)?;
         emit!(
             self,
-            PseudoInstruction::JumpNoInterrupt {
-                delta: orelse_block
-            }
+            PseudoInstruction::JumpNoInterrupt { delta: end_block }
         );
         self.set_no_location();
 
@@ -3615,7 +3592,6 @@ impl Compiler {
                 self.store_name(alias.as_str())?;
 
                 let cleanup_end = self.new_block();
-                let handler_normal_exit = self.new_block();
                 emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup_end });
                 self.push_fblock_full(
                     FBlockType::HandlerCleanup,
@@ -3629,25 +3605,6 @@ impl Compiler {
                 self.pop_fblock(FBlockType::HandlerCleanup);
                 emit!(self, PseudoInstruction::PopBlock);
                 self.set_no_location();
-                emit!(
-                    self,
-                    PseudoInstruction::JumpNoInterrupt {
-                        delta: handler_normal_exit
-                    }
-                );
-                self.set_no_location();
-
-                self.switch_to_block(cleanup_end);
-                self.emit_load_const(ConstantData::None);
-                self.set_no_location();
-                self.store_name(alias.as_str())?;
-                self.set_no_location();
-                self.compile_name(alias.as_str(), NameUsage::Delete)?;
-                self.set_no_location();
-                emit!(self, Instruction::Reraise { depth: 1 });
-                self.set_no_location();
-
-                self.switch_to_block(handler_normal_exit);
                 emit!(self, PseudoInstruction::PopBlock);
                 self.set_no_location();
                 self.pop_fblock(FBlockType::ExceptionHandler);
@@ -3665,6 +3622,16 @@ impl Compiler {
                     self,
                     PseudoInstruction::JumpNoInterrupt { delta: end_block }
                 );
+                self.set_no_location();
+
+                self.switch_to_block(cleanup_end);
+                self.emit_load_const(ConstantData::None);
+                self.set_no_location();
+                self.store_name(alias.as_str())?;
+                self.set_no_location();
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+                self.set_no_location();
+                emit!(self, Instruction::Reraise { depth: 1 });
                 self.set_no_location();
             } else {
                 emit!(self, Instruction::PopTop);
@@ -3700,17 +3667,6 @@ impl Compiler {
         self.set_no_location();
         emit!(self, Instruction::Reraise { depth: 1 });
         self.set_no_location();
-
-        if !orelse.is_empty() {
-            self.switch_to_block(orelse_block);
-            self.set_no_location();
-            self.compile_statements(orelse)?;
-            emit!(
-                self,
-                PseudoInstruction::JumpNoInterrupt { delta: end_block }
-            );
-            self.set_no_location();
-        }
 
         self.switch_to_block(end_block);
         Ok(())
@@ -5563,46 +5519,6 @@ impl Compiler {
         body: &[ast::Stmt],
         elif_else_clauses: &[ast::ElifElseClause],
     ) -> CompileResult<()> {
-        let constant = Self::expr_constant(test);
-
-        // If the test is constant false, walk the body (consuming sub_tables)
-        // but don't emit bytecode
-        if constant == Some(false) {
-            self.emit_nop();
-            self.do_not_emit_bytecode += 1;
-            self.compile_statements(body)?;
-            self.do_not_emit_bytecode -= 1;
-            // Compile the elif/else chain (if any)
-            match elif_else_clauses {
-                [] => {}
-                [first, rest @ ..] => {
-                    if let Some(elif_test) = &first.test {
-                        self.compile_if(elif_test, &first.body, rest)?;
-                    } else {
-                        self.compile_statements(&first.body)?;
-                    }
-                }
-            }
-            return Ok(());
-        }
-
-        // If the test is constant true, compile body directly,
-        // but walk elif/else without emitting (including elif tests to consume sub_tables)
-        if constant == Some(true) {
-            self.emit_nop();
-            self.compile_statements(body)?;
-            self.do_not_emit_bytecode += 1;
-            for clause in elif_else_clauses {
-                if let Some(elif_test) = &clause.test {
-                    self.compile_expression(elif_test)?;
-                }
-                self.compile_statements(&clause.body)?;
-            }
-            self.do_not_emit_bytecode -= 1;
-            return Ok(());
-        }
-
-        // Non-constant test: normal compilation
         match elif_else_clauses {
             // Only if
             [] => {
@@ -5651,37 +5567,13 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.enter_conditional_block();
 
-        let constant = Self::expr_constant(test);
-
-        // while False: body → walk body (consuming sub_tables) but don't emit,
-        // then compile orelse
-        if constant == Some(false) {
-            self.emit_nop();
-            let while_block = self.new_block();
-            let after_block = self.new_block();
-            self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
-            self.do_not_emit_bytecode += 1;
-            self.compile_statements(body)?;
-            self.do_not_emit_bytecode -= 1;
-            self.pop_fblock(FBlockType::WhileLoop);
-            self.compile_statements(orelse)?;
-            self.leave_conditional_block();
-            return Ok(());
-        }
-
         let while_block = self.new_block();
         let else_block = self.new_block();
         let after_block = self.new_block();
 
         self.switch_to_block(while_block);
         self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
-
-        // while True: → no condition test, just NOP
-        if constant == Some(true) {
-            self.emit_nop();
-        } else {
-            self.compile_jump_if(test, false, else_block)?;
-        }
+        self.compile_jump_if(test, false, else_block)?;
 
         let was_in_loop = self.ctx.loop_data.replace((while_block, after_block));
         self.compile_statements(body)?;
@@ -9850,44 +9742,6 @@ impl Compiler {
         self.code_stack.last_mut().expect("no code on stack")
     }
 
-    /// Evaluate whether an expression is a compile-time constant boolean.
-    /// Returns Some(true) for truthy constants, Some(false) for falsy constants,
-    /// None for non-constant expressions.
-    /// = expr_constant in CPython compile.c
-    fn expr_constant(expr: &ast::Expr) -> Option<bool> {
-        match expr {
-            ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => Some(*value),
-            ast::Expr::NoneLiteral(_) => Some(false),
-            ast::Expr::EllipsisLiteral(_) => Some(true),
-            ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. }) => match value {
-                ast::Number::Int(i) => {
-                    let n: i64 = i.as_i64().unwrap_or(1);
-                    Some(n != 0)
-                }
-                ast::Number::Float(f) => Some(*f != 0.0),
-                ast::Number::Complex { real, imag, .. } => Some(*real != 0.0 || *imag != 0.0),
-            },
-            ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
-                Some(!value.to_str().is_empty())
-            }
-            ast::Expr::BytesLiteral(ast::ExprBytesLiteral { value, .. }) => {
-                Some(value.bytes().next().is_some())
-            }
-            ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
-                if elts.is_empty() {
-                    Some(false)
-                } else {
-                    None // non-empty tuples may have side effects in elements
-                }
-            }
-            _ => None,
-        }
-    }
-
-    fn emit_nop(&mut self) {
-        emit!(self, Instruction::Nop);
-    }
-
     /// Enter a conditional block (if/for/while/match/try/with)
     /// PEP 649: Track conditional annotation context
     fn enter_conditional_block(&mut self) {
@@ -12449,11 +12303,11 @@ def f():
     }
 
     #[test]
-    fn test_constant_false_assert_raises_directly() {
+    fn test_constant_false_assert_uses_normal_assert_branch_shape() {
         let code = compile_exec("assert 0, (lambda x: x + 1)\n");
 
         assert!(
-            !code.instructions.iter().any(|unit| {
+            code.instructions.iter().any(|unit| {
                 matches!(
                     unit.op,
                     Instruction::ToBool
@@ -12461,7 +12315,7 @@ def f():
                         | Instruction::PopJumpIfFalse { .. }
                 )
             }),
-            "constant-false assert should raise directly without a test branch, got ops={:?}",
+            "constant-false assert should still use the normal assert branch shape, got ops={:?}",
             code.instructions
                 .iter()
                 .map(|unit| unit.op)
@@ -12525,6 +12379,36 @@ def f(items):
     assert (lambda x=[i for i in items]: x)()
     return [x for x in items]
 ",
+        );
+    }
+
+    #[test]
+    fn test_try_else_nested_scopes_keep_subtable_cursor_aligned() {
+        let code = compile_exec(
+            "\
+try:
+    import missing_mod
+except ImportError:
+    def fallback():
+        return 0
+else:
+    def impl():
+        return reversed('abc')
+",
+        );
+
+        assert!(find_code(&code, "fallback").is_some(), "missing fallback code");
+        let impl_code = find_code(&code, "impl").expect("missing impl code");
+        assert!(
+            impl_code.instructions.iter().any(|unit| {
+                matches!(unit.op, Instruction::LoadGlobal { .. } | Instruction::LoadName { .. })
+            }),
+            "expected impl to compile global name access, got ops={:?}",
+            impl_code
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
         );
     }
 }

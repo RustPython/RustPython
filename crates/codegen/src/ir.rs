@@ -272,11 +272,6 @@ impl CodeInfo {
             &self.metadata.cellvars,
             &self.metadata.freevars,
         );
-        // CPython inserts superinstructions before lowering LOAD_CLOSURE to
-        // LOAD_FAST, so merged-cell closure loads do not participate in
-        // LOAD_FAST_LOAD_FAST formation. Lower them only immediately before
-        // optimize_load_fast.
-        convert_load_closure_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
         // Late CFG cleanup can create or reshuffle handler entry blocks.
         // Refresh exceptional block flags before optimize_load_fast_borrow so
         // borrow loads are not introduced into exception-handler paths.
@@ -284,7 +279,10 @@ impl CodeInfo {
         // CPython's optimize_load_fast runs with block start depths already known.
         // Compute them here so the abstract stack simulation can use the real
         // CFG entry depth for each block.
-        let _ = self.max_stackdepth()?;
+        let max_stackdepth = self.max_stackdepth()?;
+        // Match CPython order: pseudo ops are lowered after stackdepth
+        // calculation but before optimize_load_fast.
+        convert_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
         // optimize_load_fast: after normalize_jumps
         self.optimize_load_fast_borrow();
         self.deoptimize_borrow_after_push_exc_info();
@@ -293,8 +291,6 @@ impl CodeInfo {
         self.optimize_load_global_push_null();
         self.remove_redundant_const_pop_top_pairs();
         self.reorder_entry_prefix_cell_setup();
-
-        let max_stackdepth = self.max_stackdepth()?;
 
         let Self {
             flags,
@@ -2102,10 +2098,24 @@ impl CodeInfo {
             worklist: &mut Vec<BlockIdx>,
             visited: &mut [bool],
             blocks: &[Block],
+            source: BlockIdx,
             target: BlockIdx,
             start_depth: usize,
         ) {
-            let _ = (blocks, start_depth);
+            if cfg!(debug_assertions) {
+                let expected = blocks[target.idx()].start_depth.map(|depth| depth as usize);
+                debug_assert!(
+                    expected == Some(start_depth),
+                    "optimize_load_fast_borrow start_depth mismatch: source={source:?} target={target:?} expected={expected:?} actual={:?} source_last={:?} target_instrs={:?}",
+                    Some(start_depth),
+                    blocks[source.idx()].instructions.last().and_then(|info| info.instr.real()),
+                    blocks[target.idx()]
+                        .instructions
+                        .iter()
+                        .map(|info| info.instr)
+                        .collect::<Vec<_>>(),
+                );
+            }
             if !visited[target.idx()] {
                 visited[target.idx()] = true;
                 worklist.push(target);
@@ -2250,12 +2260,14 @@ impl CodeInfo {
                         push_ref(&mut refs, i as isize, NOT_LOCAL);
                     }
                     AnyInstruction::Real(Instruction::ForIter { .. }) => {
-                        if info.target != BlockIdx::NULL {
+                        let target = info.target;
+                        if target != BlockIdx::NULL {
                             push_block(
                                 &mut worklist,
                                 &mut visited,
                                 &self.blocks,
-                                info.target,
+                                block_idx,
+                                target,
                                 refs.len() + 1,
                             );
                         }
@@ -2291,12 +2303,14 @@ impl CodeInfo {
                         push_ref(&mut refs, tos.instr, tos.local);
                     }
                     AnyInstruction::Real(Instruction::Send { .. }) => {
-                        if info.target != BlockIdx::NULL {
+                        let target = info.target;
+                        if target != BlockIdx::NULL {
                             push_block(
                                 &mut worklist,
                                 &mut visited,
                                 &self.blocks,
-                                info.target,
+                                block_idx,
+                                target,
                                 refs.len(),
                             );
                         }
@@ -2307,7 +2321,8 @@ impl CodeInfo {
                         let effect = instr.stack_effect_info(arg_u32);
                         let num_popped = effect.popped() as usize;
                         let num_pushed = effect.pushed() as usize;
-                        if info.target != BlockIdx::NULL {
+                        let target = info.target;
+                        if target != BlockIdx::NULL {
                             let target_depth = refs
                                 .len()
                                 .saturating_sub(num_popped)
@@ -2316,7 +2331,8 @@ impl CodeInfo {
                                 &mut worklist,
                                 &mut visited,
                                 &self.blocks,
-                                info.target,
+                                block_idx,
+                                target,
                                 target_depth,
                             );
                         }
@@ -2332,7 +2348,8 @@ impl CodeInfo {
                 }
             }
 
-            if block.next != BlockIdx::NULL
+            let next = block.next;
+            if next != BlockIdx::NULL
                 && block.instructions.last().is_some_and(|term| {
                     !term.instr.is_unconditional_jump() && !term.instr.is_scope_exit()
                 })
@@ -2341,7 +2358,8 @@ impl CodeInfo {
                     &mut worklist,
                     &mut visited,
                     &self.blocks,
-                    block.next,
+                    block_idx,
+                    next,
                     refs.len(),
                 );
             }
@@ -2781,7 +2799,10 @@ impl CodeInfo {
                     if target_depth > maxdepth {
                         maxdepth = target_depth;
                     }
-                    stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
+                    let target = next_nonempty_block(&self.blocks, ins.target);
+                    if target != BlockIdx::NULL {
+                        stackdepth_push(&mut stack, &mut start_depths, target, target_depth);
+                    }
                 }
                 depth = new_depth;
                 if instr.is_scope_exit() || instr.is_unconditional_jump() {
@@ -2789,8 +2810,9 @@ impl CodeInfo {
                 }
             }
             // Only push next block if it's not NULL
-            if block.next != BlockIdx::NULL {
-                stackdepth_push(&mut stack, &mut start_depths, block.next, depth);
+            let next = next_nonempty_block(&self.blocks, block.next);
+            if next != BlockIdx::NULL {
+                stackdepth_push(&mut stack, &mut start_depths, next, depth);
             }
         }
         if DEBUG {
@@ -3670,6 +3692,29 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
             .iter()
             .all(|ins| !instruction_has_lineno(ins))
     };
+    let is_return_epilogue_block = |block: &Block| {
+        matches!(
+            block.instructions.as_slice(),
+            [InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                ..
+            }, InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::ReturnValue),
+                ..
+            }]
+                | [InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadSmallInt { .. }),
+                    ..
+                }, InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::ReturnValue),
+                    ..
+                }]
+                | [InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::ReturnValue),
+                    ..
+                }]
+        )
+    };
 
     loop {
         let mut changes = false;
@@ -3696,6 +3741,13 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                 && blocks[target.idx()].instructions.len() <= MAX_COPY_SIZE;
             let no_lineno_no_fallthrough = block_has_no_lineno(&blocks[target.idx()])
                 && !block_has_fallthrough(&blocks[target.idx()]);
+            if small_exit_block
+                && blocks[current.idx()].cold
+                && !is_return_epilogue_block(&blocks[target.idx()])
+            {
+                current = next;
+                continue;
+            }
 
             if small_exit_block || no_lineno_no_fallthrough {
                 if let Some(last_instr) = blocks[current.idx()].instructions.last_mut() {
@@ -4200,6 +4252,7 @@ fn reorder_jump_over_exception_cleanup_blocks(blocks: &mut [Block]) {
 
         let mut target_end = BlockIdx::NULL;
         let mut target_exit = BlockIdx::NULL;
+        let mut nonempty_target_blocks = 0usize;
         cursor = target;
         while cursor != BlockIdx::NULL {
             if block_is_exceptional(&blocks[cursor.idx()]) {
@@ -4207,6 +4260,7 @@ fn reorder_jump_over_exception_cleanup_blocks(blocks: &mut [Block]) {
             }
             target_end = cursor;
             if !blocks[cursor.idx()].instructions.is_empty() {
+                nonempty_target_blocks += 1;
                 target_exit = cursor;
             }
             cursor = blocks[cursor.idx()].next;
@@ -4214,6 +4268,8 @@ fn reorder_jump_over_exception_cleanup_blocks(blocks: &mut [Block]) {
 
         if target_end == BlockIdx::NULL
             || target_exit == BlockIdx::NULL
+            || nonempty_target_blocks != 1
+            || target_exit != target_end
             || !is_scope_exit_block(&blocks[target_exit.idx()])
         {
             current = next;
@@ -4709,27 +4765,6 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 visited[next.idx()] = true;
                 block_stacks[next.idx()] = Some(stack);
                 todo.push(next);
-            }
-        }
-    }
-}
-
-/// Lower only LOAD_CLOSURE pseudo ops to LOAD_FAST so optimize_load_fast can
-/// make the same borrow decision CPython does for merged cell locals.
-fn convert_load_closure_pseudo_ops(blocks: &mut [Block], cellfixedoffsets: &[u32]) {
-    for block in blocks.iter_mut() {
-        for info in &mut block.instructions {
-            let Some(pseudo) = info.instr.pseudo() else {
-                continue;
-            };
-            if let PseudoInstruction::LoadClosure { i } = pseudo {
-                let cell_relative = i.get(info.arg) as usize;
-                let new_idx = cellfixedoffsets[cell_relative];
-                info.arg = OpArg::new(new_idx);
-                info.instr = Instruction::LoadFast {
-                    var_num: Arg::marker(),
-                }
-                .into();
             }
         }
     }

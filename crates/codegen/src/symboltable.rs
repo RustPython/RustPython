@@ -1624,6 +1624,10 @@ impl SymbolTableBuilder {
                 let saved_in_conditional_block = self.in_conditional_block;
                 self.in_conditional_block = true;
                 self.scan_statements(body)?;
+                self.scan_statements(orelse)?;
+                // Keep nested scope collection in the same order that codegen
+                // compiles try/except, since the compiler currently consumes
+                // sub_tables through a linear cursor.
                 for handler in handlers {
                     let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                         type_,
@@ -1639,7 +1643,6 @@ impl SymbolTableBuilder {
                     }
                     self.scan_statements(body)?;
                 }
-                self.scan_statements(orelse)?;
                 self.scan_statements(finalbody)?;
                 self.in_conditional_block = saved_in_conditional_block;
             }
