@@ -277,12 +277,17 @@ impl CodeInfo {
         // LOAD_FAST_LOAD_FAST formation. Lower them only immediately before
         // optimize_load_fast.
         convert_load_closure_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
+        // Late CFG cleanup can create or reshuffle handler entry blocks.
+        // Refresh exceptional block flags before optimize_load_fast_borrow so
+        // borrow loads are not introduced into exception-handler paths.
+        mark_except_handlers(&mut self.blocks);
         // CPython's optimize_load_fast runs with block start depths already known.
         // Compute them here so the abstract stack simulation can use the real
         // CFG entry depth for each block.
         let _ = self.max_stackdepth()?;
         // optimize_load_fast: after normalize_jumps
         self.optimize_load_fast_borrow();
+        self.deoptimize_borrow_after_push_exc_info();
         self.deoptimize_borrow_for_handler_return_paths();
         self.deoptimize_store_fast_store_fast_after_cleanup();
         self.optimize_load_global_push_null();
@@ -333,6 +338,7 @@ impl CodeInfo {
         // Convert pseudo ops (LoadClosure uses cellfixedoffsets) and fixup DEREF opargs
         convert_pseudo_ops(&mut blocks, &cellfixedoffsets);
         fixup_deref_opargs(&mut blocks, &cellfixedoffsets);
+        deoptimize_borrow_after_push_exc_info_in_blocks(&mut blocks);
         // Remove redundant NOPs, keeping line-marker NOPs only when
         // they are needed to preserve tracing.
         let mut block_order = Vec::new();
@@ -2347,9 +2353,6 @@ impl CodeInfo {
             }
 
             let block = &mut self.blocks[block_idx];
-            if block.except_handler || block.preserve_lasti {
-                continue;
-            }
             for (i, info) in block.instructions.iter_mut().enumerate() {
                 if instr_flags[i] != 0 {
                     continue;
@@ -2402,6 +2405,37 @@ impl CodeInfo {
         }
     }
 
+    fn deoptimize_borrow_after_push_exc_info(&mut self) {
+        for block in &mut self.blocks {
+            let mut in_exception_state = false;
+            for info in &mut block.instructions {
+                match info.instr.real() {
+                    Some(Instruction::PushExcInfo) => {
+                        in_exception_state = true;
+                    }
+                    Some(Instruction::PopExcept) | Some(Instruction::Reraise { .. }) => {
+                        in_exception_state = false;
+                    }
+                    Some(Instruction::LoadFastBorrow { .. }) if in_exception_state => {
+                        info.instr = Instruction::LoadFast {
+                            var_num: Arg::marker(),
+                        }
+                        .into();
+                    }
+                    Some(Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                        if in_exception_state =>
+                    {
+                        info.instr = Instruction::LoadFastLoadFast {
+                            var_nums: Arg::marker(),
+                        }
+                        .into();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     fn deoptimize_store_fast_store_fast_after_cleanup(&mut self) {
         fn last_real_instr(block: &Block) -> Option<Instruction> {
             block
@@ -2425,9 +2459,9 @@ impl CodeInfo {
 
         let starts_after_cleanup: Vec<bool> = predecessors
             .iter()
-            .map(|preds| {
-                !preds.is_empty()
-                    && preds.iter().copied().all(|pred_idx| {
+            .map(|predecessor_blocks| {
+                !predecessor_blocks.is_empty()
+                    && predecessor_blocks.iter().copied().all(|pred_idx| {
                         matches!(
                             last_real_instr(&self.blocks[pred_idx]),
                             Some(Instruction::PopIter) | Some(Instruction::Swap { .. })
@@ -3796,6 +3830,38 @@ fn merge_unsafe_mask(slot: &mut Option<Vec<bool>>, incoming: &[bool]) -> bool {
             *slot = Some(incoming.to_vec());
             true
         }
+    }
+}
+
+fn deoptimize_borrow_after_push_exc_info_in_blocks(blocks: &mut [Block]) {
+    let mut in_exception_state = false;
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        let block = &mut blocks[current.idx()];
+        for info in &mut block.instructions {
+            match info.instr.real() {
+                Some(Instruction::PushExcInfo) => {
+                    in_exception_state = true;
+                }
+                Some(Instruction::PopExcept) | Some(Instruction::Reraise { .. }) => {
+                    in_exception_state = false;
+                }
+                Some(Instruction::LoadFastBorrow { .. }) if in_exception_state => {
+                    info.instr = Instruction::LoadFast {
+                        var_num: Arg::marker(),
+                    }
+                    .into();
+                }
+                Some(Instruction::LoadFastBorrowLoadFastBorrow { .. }) if in_exception_state => {
+                    info.instr = Instruction::LoadFastLoadFast {
+                        var_nums: Arg::marker(),
+                    }
+                    .into();
+                }
+                _ => {}
+            }
+        }
+        current = block.next;
     }
 }
 

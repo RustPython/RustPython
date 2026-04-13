@@ -3,7 +3,7 @@ pub(crate) use decl::module_def;
 
 #[pymodule(name = "marshal")]
 mod decl {
-    use crate::builtins::code::{CodeObject, Literal, PyObjBag};
+    use crate::builtins::code::{CodeObject, Literal, PyVmBag};
     use crate::class::StaticType;
     use crate::common::wtf8::Wtf8;
     use crate::{
@@ -382,7 +382,7 @@ mod decl {
 
     impl<'a> marshal::MarshalBag for PyMarshalBag<'a> {
         type Value = PyObjectRef;
-        type ConstantBag = PyObjBag<'a>;
+        type ConstantBag = PyVmBag<'a>;
 
         fn make_bool(&self, value: bool) -> Self::Value {
             self.0.ctx.new_bool(value).into()
@@ -412,7 +412,7 @@ mod decl {
             self.0.ctx.new_tuple(elements.collect()).into()
         }
         fn make_code(&self, code: CodeObject) -> Self::Value {
-            self.0.ctx.new_code(code).into()
+            crate::builtins::PyCode::new_ref_with_bag(self.0, code).into()
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.0.ctx.exceptions.stop_iteration.to_owned().into())
@@ -472,7 +472,7 @@ mod decl {
             .into())
         }
         fn constant_bag(self) -> Self::ConstantBag {
-            PyObjBag(&self.0.ctx)
+            PyVmBag(self.0)
         }
     }
 

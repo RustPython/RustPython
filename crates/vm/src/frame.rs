@@ -3451,15 +3451,16 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::StoreFastLoadFast { var_nums } => {
-                let value = self.pop_value();
-                let locals = self.localsplus.fastlocals_mut();
+                // pop_value_opt: allows NULL from LoadFastAndClear restore paths.
+                let value = self.pop_value_opt();
                 let oparg = var_nums.get(arg);
                 let (store_idx, load_idx) = oparg.indexes();
-                locals[store_idx] = Some(value);
-                let load_value = locals[load_idx]
-                    .clone()
-                    .expect("StoreFastLoadFast: load slot should have value after store");
-                self.push_value(load_value);
+                let load_value = {
+                    let locals = self.localsplus.fastlocals_mut();
+                    locals[store_idx] = value;
+                    locals[load_idx].clone()
+                };
+                self.push_value_opt(load_value);
                 Ok(None)
             }
             Instruction::StoreFastStoreFast { var_nums } => {
