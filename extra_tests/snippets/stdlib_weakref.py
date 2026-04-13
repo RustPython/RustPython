@@ -14,7 +14,9 @@ assert callable(b)
 assert b() is a
 
 # Test __callback__ property
-assert b.__callback__ is None, "weakref without callback should have __callback__ == None"
+assert b.__callback__ is None, (
+    "weakref without callback should have __callback__ == None"
+)
 
 callback = lambda r: None
 c = ref(a, callback)
