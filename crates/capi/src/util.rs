@@ -3,197 +3,137 @@ use core::convert::Infallible;
 use core::ffi::{c_char, c_double, c_int, c_long, c_void};
 use rustpython_vm::{PyObjectRef, PyRef, PyResult, VirtualMachine};
 
-pub(crate) trait FfiResult {
-    type Output;
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output;
+pub(crate) trait FfiResult<Output = Self> {
+    const ERR_VALUE: Output;
+
+    fn into_output(self, vm: &VirtualMachine) -> Output;
 }
 
 impl FfiResult for () {
-    type Output = ();
+    const ERR_VALUE: () = ();
 
-    fn into_output(self, _vm: &VirtualMachine) -> Self::Output {
+    fn into_output(self, _vm: &VirtualMachine) -> () {
         self
     }
 }
 
-impl<T> FfiResult for PyRef<T>
+impl FfiResult<c_int> for () {
+    const ERR_VALUE: c_int = -1;
+
+    fn into_output(self, _vm: &VirtualMachine) -> c_int {
+        0
+    }
+}
+
+impl<T> FfiResult<*mut PyObject> for PyRef<T>
 where
     Self: Into<PyObjectRef>,
 {
-    type Output = *mut PyObject;
+    const ERR_VALUE: *mut PyObject = core::ptr::null_mut();
 
-    fn into_output(self, _vm: &VirtualMachine) -> Self::Output {
+    fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
         self.into().into_raw().as_ptr()
     }
 }
 
-impl<T> FfiResult for Option<PyRef<T>>
-where
-    PyRef<T>: Into<PyObjectRef>,
-{
-    type Output = *mut PyObject;
+impl FfiResult<*mut PyObject> for PyObjectRef {
+    const ERR_VALUE: *mut PyObject = std::ptr::null_mut();
 
-    fn into_output(self, _vm: &VirtualMachine) -> Self::Output {
-        self.map_or_else(core::ptr::null_mut, |obj| obj.into().into_raw().as_ptr())
-    }
-}
-
-impl FfiResult for PyObjectRef {
-    type Output = *mut PyObject;
-
-    fn into_output(self, _vm: &VirtualMachine) -> Self::Output {
+    fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
         self.into_raw().as_ptr()
     }
 }
-impl FfiResult for *const PyObject {
-    type Output = *mut PyObject;
 
-    fn into_output(self, _vm: &VirtualMachine) -> Self::Output {
+impl FfiResult<*mut PyObject> for *const PyObject {
+    const ERR_VALUE: *mut PyObject = std::ptr::null_mut();
+
+    fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
         self.cast_mut()
     }
 }
 
-impl FfiResult for PyResult<*const PyObject> {
-    type Output = *mut PyObject;
+impl FfiResult for *mut c_void {
+    const ERR_VALUE: *mut c_void = std::ptr::null_mut();
 
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.map_or_else(
-            |err| {
-                vm.push_exception(Some(err));
-                core::ptr::null_mut()
-            },
-            |ptr| ptr.cast_mut(),
-        )
-    }
-}
-
-impl FfiResult for PyResult {
-    type Output = *mut PyObject;
-
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.map_or_else(
-            |err| {
-                vm.push_exception(Some(err));
-                core::ptr::null_mut()
-            },
-            |obj| obj.into_raw().as_ptr(),
-        )
-    }
-}
-
-impl<T> FfiResult for PyResult<PyRef<T>>
-where
-    PyRef<T>: Into<PyObjectRef>,
-{
-    type Output = *mut PyObject;
-
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.map(Into::into).into_output(vm)
-    }
-}
-
-impl FfiResult for PyResult<c_long> {
-    type Output = c_long;
-
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.unwrap_or_else(|err| {
-            vm.push_exception(Some(err));
-            -1
-        })
-    }
-}
-
-impl FfiResult for isize {
-    type Output = isize;
-
-    fn into_output(self, _vm: &VirtualMachine) -> Self::Output {
+    fn into_output(self, _vm: &VirtualMachine) -> *mut c_void {
         self
     }
 }
 
-impl FfiResult for PyResult<isize> {
-    type Output = isize;
+impl FfiResult<*mut c_char> for *const u8 {
+    const ERR_VALUE: *mut c_char = std::ptr::null_mut();
 
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.unwrap_or_else(|err| {
-            vm.push_exception(Some(err));
-            -1
-        })
+    fn into_output(self, _vm: &VirtualMachine) -> *mut c_char {
+        self.cast_mut().cast()
     }
 }
 
-impl FfiResult for PyResult<bool> {
-    type Output = c_int;
+impl FfiResult<isize> for usize {
+    const ERR_VALUE: isize = -1;
 
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.map_or_else(
-            |err| {
-                vm.push_exception(Some(err));
-                -1
-            },
-            Into::into,
-        )
+    fn into_output(self, _vm: &VirtualMachine) -> isize {
+        self as isize
     }
 }
 
-impl FfiResult for PyResult<c_int> {
-    type Output = c_int;
+impl FfiResult for c_long {
+    const ERR_VALUE: c_long = -1;
 
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.unwrap_or_else(|err| {
-            vm.push_exception(Some(err));
-            -1
-        })
+    fn into_output(self, _vm: &VirtualMachine) -> c_long {
+        self
     }
 }
 
-impl FfiResult for PyResult<c_double> {
-    type Output = c_double;
+impl FfiResult for c_double {
+    const ERR_VALUE: c_double = -1.0;
 
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.unwrap_or_else(|err| {
-            vm.push_exception(Some(err));
-            -1.0
-        })
+    fn into_output(self, _vm: &VirtualMachine) -> c_double {
+        self
     }
 }
 
-impl FfiResult for PyResult<*mut c_char> {
-    type Output = *mut c_char;
+impl FfiResult<c_int> for bool {
+    const ERR_VALUE: c_int = -1;
 
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.map(|ptr| ptr.cast_const()).into_output(vm).cast_mut()
+    fn into_output(self, _vm: &VirtualMachine) -> c_int {
+        self as c_int
     }
 }
 
-impl FfiResult for PyResult<*mut c_void> {
-    type Output = *mut c_void;
+impl FfiResult<()> for PyResult<Infallible> {
+    const ERR_VALUE: () = ();
 
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.unwrap_or_else(|err| {
-            vm.push_exception(Some(err));
-            core::ptr::null_mut()
-        })
-    }
-}
-
-impl FfiResult for PyResult<*const c_char> {
-    type Output = *const c_char;
-
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
-        self.unwrap_or_else(|err| {
-            vm.push_exception(Some(err));
-            core::ptr::null_mut()
-        })
-    }
-}
-
-impl FfiResult for PyResult<Infallible> {
-    type Output = ();
-
-    fn into_output(self, vm: &VirtualMachine) -> Self::Output {
+    fn into_output(self, vm: &VirtualMachine) -> () {
         match self {
             Err(err) => vm.push_exception(Some(err)),
         }
+    }
+}
+
+impl<T> FfiResult<*mut PyObject> for Option<T>
+where
+    T: FfiResult<*mut PyObject>,
+{
+    const ERR_VALUE: *mut PyObject = T::ERR_VALUE;
+
+    fn into_output(self, vm: &VirtualMachine) -> *mut PyObject {
+        self.map_or_else(|| Self::ERR_VALUE, |obj| obj.into_output(vm))
+    }
+}
+
+impl<Output, T> FfiResult<Output> for PyResult<T>
+where
+    T: FfiResult<Output>,
+{
+    const ERR_VALUE: Output = T::ERR_VALUE;
+
+    fn into_output(self, vm: &VirtualMachine) -> Output {
+        self.map_or_else(
+            |err| {
+                vm.push_exception(Some(err));
+                T::ERR_VALUE
+            },
+            |obj| obj.into_output(vm),
+        )
     }
 }

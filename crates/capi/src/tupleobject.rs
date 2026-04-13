@@ -20,7 +20,7 @@ pub extern "C" fn PyTuple_SetItem(
     _pos: isize,
     _value: *mut PyObject,
 ) -> *mut PyObject {
-    with_vm::<PyResult>(|vm| {
+    with_vm::<PyResult, _>(|vm| {
         Err(vm.new_not_implemented_error("PyTuple_SetItem is not yet implemented"))
     })
 }
@@ -29,7 +29,7 @@ pub extern "C" fn PyTuple_SetItem(
 pub extern "C" fn PyTuple_Size(tuple: *mut PyObject) -> isize {
     with_vm(|vm| {
         let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
-        Ok(tuple.__len__() as isize)
+        Ok(tuple.__len__())
     })
 }
 

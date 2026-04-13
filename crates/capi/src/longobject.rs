@@ -35,7 +35,7 @@ pub extern "C" fn PyLong_FromUnsignedLongLong(value: c_ulonglong) -> *mut PyObje
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
-    with_vm::<PyResult<c_long>>(|vm| {
+    with_vm::<PyResult<c_long>, _>(|vm| {
         // SAFETY: non-null checked above; caller promises a valid PyObject pointer.
         let obj_ref = unsafe { &*obj };
         let int_obj = obj_ref

@@ -41,7 +41,7 @@ pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
-    with_vm::<PyResult<Infallible>>(|_vm| {
+    with_vm::<PyResult<Infallible>, _>(|_vm| {
         let exception = unsafe { (&*exc).to_owned().downcast_unchecked() };
         Err(exception)
     });
@@ -49,7 +49,7 @@ pub extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject) {
-    with_vm::<PyResult<Infallible>>(|vm| {
+    with_vm::<PyResult<Infallible>, _>(|vm| {
         let exc_type = unsafe { (&*exception).to_owned() };
         let exc_val = unsafe { (&*value).to_owned() };
 
@@ -61,7 +61,7 @@ pub extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_char) {
-    with_vm::<PyResult<Infallible>>(|vm| {
+    with_vm::<PyResult<Infallible>, _>(|vm| {
         let exc_type = unsafe { &*exception }.try_downcast_ref::<PyType>(vm)?;
 
         let message = unsafe { CStr::from_ptr(message) }
@@ -85,7 +85,7 @@ pub extern "C" fn PyErr_PrintEx(_set_sys_last_vars: c_int) {
             .expect("No exception set in PyErr_PrintEx");
 
         vm.print_exception(exception);
-    });
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -98,7 +98,7 @@ pub extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
         let object = unsafe { vm.unwrap_or_none(obj.as_ref().map(|obj| obj.to_owned())) };
 
         vm.run_unraisable(exception, None, object)
-    });
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -162,9 +162,7 @@ pub extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut PyObject)
     with_vm(|vm| {
         let exc = unsafe { &*exc };
         let cause = unsafe { cause.as_ref() }.map(|obj| obj.to_owned());
-        if let Err(err) = exc.set_attr("__cause__", vm.unwrap_or_none(cause), vm) {
-            vm.push_exception(Some(err));
-        }
+        exc.set_attr("__cause__", vm.unwrap_or_none(cause), vm)
     })
 }
 
@@ -173,8 +171,7 @@ pub extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject
     with_vm(|vm| {
         let exc = unsafe { &*exc };
         let traceback = unsafe { tb.as_ref() }.map(|obj| obj.to_owned());
-        exc.set_attr("__traceback__", vm.unwrap_or_none(traceback), vm)?;
-        Ok(0)
+        exc.set_attr("__traceback__", vm.unwrap_or_none(traceback), vm)
     })
 }
 

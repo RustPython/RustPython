@@ -19,7 +19,7 @@ pub extern "C" fn PyBytes_FromStringAndSize(bytes: *mut c_char, len: isize) -> *
 pub extern "C" fn PyBytes_Size(bytes: *mut PyObject) -> isize {
     with_vm(|vm| {
         let bytes = unsafe { &*bytes }.try_downcast_ref::<PyBytes>(vm)?;
-        Ok(bytes.as_bytes().len() as isize)
+        Ok(bytes.as_bytes().len())
     })
 }
 
@@ -27,7 +27,7 @@ pub extern "C" fn PyBytes_Size(bytes: *mut PyObject) -> isize {
 pub extern "C" fn PyBytes_AsString(bytes: *mut PyObject) -> *mut c_char {
     with_vm(|vm| {
         let bytes = unsafe { &*bytes }.try_downcast_ref::<PyBytes>(vm)?;
-        Ok(bytes.as_bytes().as_ptr() as *mut c_char)
+        Ok(bytes.as_bytes().as_ptr())
     })
 }
 
