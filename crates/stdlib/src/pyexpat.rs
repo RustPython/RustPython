@@ -71,6 +71,7 @@ mod _pyexpat {
     pub const VERSION_INFO: (u32, u32, u32) = (2, 7, 1);
 
     #[pyattr]
+    #[pyattr(name = "XMLParserType")]
     #[pyclass(name = "xmlparser", module = false, traverse)]
     #[derive(Debug, PyPayload)]
     pub struct PyExpatLikeXmlParser {
