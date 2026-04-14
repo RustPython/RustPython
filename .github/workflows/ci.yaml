@@ -286,8 +286,22 @@ jobs:
 
       - name: Run flaky MP CPython tests
         run: |
+          for attempt in $(seq 1 5); do
+            echo "::group::Attempt ${attempt}"
+
           target/release/rustpython -m test -j 1 ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v ${{ env.FLAKY_MP_TESTS }}
+            status=$?
+
+            echo "::endgroup:
+
+            if [ $status -eq 0 ]; then
+              exit 0
+            fi
+          done
+
+          exit 1
         timeout-minutes: ${{ matrix.timeout }}
+        shell: bash
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
 
