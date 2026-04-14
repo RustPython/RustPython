@@ -1,9 +1,9 @@
 use crate::{
-    PyResult, VirtualMachine,
+    PyObject, PyResult, VirtualMachine,
     builtins::{
-        PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
-        PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned,
-        PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str,
+        PyByteArray, PyBytes, PyCapsule, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
+        PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
+        PyStrInterned, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str,
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
@@ -751,6 +751,14 @@ impl Context {
     pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
         let code = code.into_code_object(self);
         PyRef::new_ref(PyCode::new(code), self.types.code_type.to_owned(), None)
+    }
+
+    pub fn new_capsule(
+        &self,
+        ptr: *mut core::ffi::c_void,
+        destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>,
+    ) -> PyRef<PyCapsule> {
+        PyCapsule::new(ptr, destructor).into_ref(self)
     }
 }
 
