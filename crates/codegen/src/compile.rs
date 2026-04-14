@@ -460,6 +460,18 @@ impl Compiler {
         }
     }
 
+    fn constant_expr_truthiness(&mut self, expr: &ast::Expr) -> CompileResult<Option<bool>> {
+        Ok(self
+            .try_fold_constant_expr(expr)?
+            .map(|constant| Self::constant_truthiness(&constant)))
+    }
+
+    fn disable_load_fast_borrow_for_block(&mut self, block: BlockIdx) {
+        if block != BlockIdx::NULL {
+            self.current_code_info().blocks[block.idx()].disable_load_fast_borrow = true;
+        }
+    }
+
     fn new(opts: CompileOpts, source_file: SourceFile, code_name: String) -> Self {
         let module_code = ir::CodeInfo {
             flags: bytecode::CodeFlags::NEWLOCALS,
@@ -5519,10 +5531,14 @@ impl Compiler {
         body: &[ast::Stmt],
         elif_else_clauses: &[ast::ElifElseClause],
     ) -> CompileResult<()> {
+        let test_truthiness = self.constant_expr_truthiness(test)?;
         match elif_else_clauses {
             // Only if
             [] => {
                 let after_block = self.new_block();
+                if matches!(test_truthiness, Some(false)) {
+                    self.disable_load_fast_borrow_for_block(after_block);
+                }
                 self.compile_jump_if(test, false, after_block)?;
                 self.compile_statements(body)?;
                 self.switch_to_block(after_block);
@@ -5532,6 +5548,9 @@ impl Compiler {
                 let after_block = self.new_block();
                 let mut next_block = self.new_block();
 
+                if matches!(test_truthiness, Some(false)) {
+                    self.disable_load_fast_borrow_for_block(next_block);
+                }
                 self.compile_jump_if(test, false, next_block)?;
                 self.compile_statements(body)?;
                 emit!(self, PseudoInstruction::Jump { delta: after_block });
@@ -5573,6 +5592,9 @@ impl Compiler {
 
         self.switch_to_block(while_block);
         self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
+        if matches!(self.constant_expr_truthiness(test)?, Some(false)) {
+            self.disable_load_fast_borrow_for_block(else_block);
+        }
         self.compile_jump_if(test, false, else_block)?;
 
         let was_in_loop = self.ctx.loop_data.replace((while_block, after_block));
@@ -12397,11 +12419,17 @@ else:
 ",
         );
 
-        assert!(find_code(&code, "fallback").is_some(), "missing fallback code");
+        assert!(
+            find_code(&code, "fallback").is_some(),
+            "missing fallback code"
+        );
         let impl_code = find_code(&code, "impl").expect("missing impl code");
         assert!(
             impl_code.instructions.iter().any(|unit| {
-                matches!(unit.op, Instruction::LoadGlobal { .. } | Instruction::LoadName { .. })
+                matches!(
+                    unit.op,
+                    Instruction::LoadGlobal { .. } | Instruction::LoadName { .. }
+                )
             }),
             "expected impl to compile global name access, got ops={:?}",
             impl_code

@@ -148,6 +148,8 @@ pub struct Block {
     pub start_depth: Option<u32>,
     /// Whether this block is only reachable via exception table (b_cold)
     pub cold: bool,
+    /// Whether LOAD_FAST borrow optimization should be suppressed for this block.
+    pub disable_load_fast_borrow: bool,
 }
 
 impl Default for Block {
@@ -159,6 +161,7 @@ impl Default for Block {
             preserve_lasti: false,
             start_depth: None,
             cold: false,
+            disable_load_fast_borrow: false,
         }
     }
 }
@@ -283,6 +286,8 @@ impl CodeInfo {
         // Match CPython order: pseudo ops are lowered after stackdepth
         // calculation but before optimize_load_fast.
         convert_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
+        self.compute_load_fast_start_depths();
+        self.propagate_disable_load_fast_borrow();
         // optimize_load_fast: after normalize_jumps
         self.optimize_load_fast_borrow();
         self.deoptimize_borrow_after_push_exc_info();
@@ -291,6 +296,7 @@ impl CodeInfo {
         self.optimize_load_global_push_null();
         self.remove_redundant_const_pop_top_pairs();
         self.reorder_entry_prefix_cell_setup();
+        self.remove_unused_consts();
 
         let Self {
             flags,
@@ -1678,7 +1684,6 @@ impl CodeInfo {
                 Instruction::LoadSmallInt { i } => Some(i.get(arg) != 0),
                 _ => None,
             };
-
         for block in &mut self.blocks {
             let mut i = 0;
             while i + 1 < block.instructions.len() {
@@ -2108,7 +2113,10 @@ impl CodeInfo {
                     expected == Some(start_depth),
                     "optimize_load_fast_borrow start_depth mismatch: source={source:?} target={target:?} expected={expected:?} actual={:?} source_last={:?} target_instrs={:?}",
                     Some(start_depth),
-                    blocks[source.idx()].instructions.last().and_then(|info| info.instr.real()),
+                    blocks[source.idx()]
+                        .instructions
+                        .last()
+                        .and_then(|info| info.instr.real()),
                     blocks[target.idx()]
                         .instructions
                         .iter()
@@ -2371,6 +2379,9 @@ impl CodeInfo {
             }
 
             let block = &mut self.blocks[block_idx];
+            if block.disable_load_fast_borrow {
+                continue;
+            }
             for (i, info) in block.instructions.iter_mut().enumerate() {
                 if instr_flags[i] != 0 {
                     continue;
@@ -2389,6 +2400,96 @@ impl CodeInfo {
                         .into();
                     }
                     _ => {}
+                }
+            }
+        }
+    }
+
+    fn compute_load_fast_start_depths(&mut self) {
+        fn stackdepth_push(
+            stack: &mut Vec<BlockIdx>,
+            start_depths: &mut [u32],
+            target: BlockIdx,
+            depth: u32,
+        ) {
+            let idx = target.idx();
+            let block_depth = &mut start_depths[idx];
+            debug_assert!(
+                *block_depth == u32::MAX || *block_depth == depth,
+                "Invalid CFG, inconsistent optimize_load_fast stackdepth for block {:?}: existing={}, new={}",
+                target,
+                *block_depth,
+                depth,
+            );
+            if *block_depth == u32::MAX {
+                *block_depth = depth;
+                stack.push(target);
+            }
+        }
+
+        let mut stack = Vec::with_capacity(self.blocks.len());
+        let mut start_depths = vec![u32::MAX; self.blocks.len()];
+        stackdepth_push(&mut stack, &mut start_depths, BlockIdx(0), 0);
+
+        'process_blocks: while let Some(block_idx) = stack.pop() {
+            let mut depth = start_depths[block_idx.idx()];
+            let block = &self.blocks[block_idx];
+            for ins in &block.instructions {
+                let instr = &ins.instr;
+                let effect = instr.stack_effect(ins.arg.into());
+                let new_depth = depth.saturating_add_signed(effect);
+                if ins.target != BlockIdx::NULL {
+                    let jump_effect = instr.stack_effect_jump(ins.arg.into());
+                    let target_depth = depth.saturating_add_signed(jump_effect);
+                    stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
+                }
+                depth = new_depth;
+                if instr.is_scope_exit() || instr.is_unconditional_jump() {
+                    continue 'process_blocks;
+                }
+            }
+            if block.next != BlockIdx::NULL {
+                stackdepth_push(&mut stack, &mut start_depths, block.next, depth);
+            }
+        }
+
+        for (block, &start_depth) in self.blocks.iter_mut().zip(&start_depths) {
+            block.start_depth = (start_depth != u32::MAX).then_some(start_depth);
+        }
+    }
+
+    fn propagate_disable_load_fast_borrow(&mut self) {
+        let mut predecessors = vec![Vec::new(); self.blocks.len()];
+        for (pred_idx, block) in iter_blocks(&self.blocks) {
+            if block.next != BlockIdx::NULL {
+                predecessors[block.next.idx()].push(pred_idx);
+            }
+            for info in &block.instructions {
+                if info.target != BlockIdx::NULL {
+                    predecessors[info.target.idx()].push(pred_idx);
+                }
+            }
+        }
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+            let block_indices: Vec<_> = iter_blocks(&self.blocks).map(|(idx, _)| idx).collect();
+            for idx in block_indices {
+                if idx == BlockIdx(0) || self.blocks[idx.idx()].disable_load_fast_borrow {
+                    continue;
+                }
+                let preds = &predecessors[idx.idx()];
+                if preds.is_empty() {
+                    continue;
+                }
+                if preds
+                    .iter()
+                    .copied()
+                    .all(|pred_idx| self.blocks[pred_idx.idx()].disable_load_fast_borrow)
+                {
+                    self.blocks[idx.idx()].disable_load_fast_borrow = true;
+                    changed = true;
                 }
             }
         }
@@ -2909,9 +3010,11 @@ impl CodeInfo {
             old_next
         } else {
             let suffix_idx = BlockIdx::new(base + annotations_blocks.len() as u32);
+            let disable_load_fast_borrow = self.blocks[block_idx].disable_load_fast_borrow;
             let block = Block {
                 instructions: suffix,
                 next: old_next,
+                disable_load_fast_borrow,
                 ..Default::default()
             };
             annotations_blocks.push(block);
@@ -3367,11 +3470,13 @@ fn split_blocks_at_jumps(blocks: &mut Vec<Block>) {
             let tail: Vec<InstructionInfo> = blocks[bi].instructions.drain(pos..).collect();
             let old_next = blocks[bi].next;
             let cold = blocks[bi].cold;
+            let disable_load_fast_borrow = blocks[bi].disable_load_fast_borrow;
             blocks[bi].next = new_block_idx;
             blocks.push(Block {
                 instructions: tail,
                 next: old_next,
                 cold,
+                disable_load_fast_borrow,
                 ..Block::default()
             });
             // Don't increment bi - re-check current block (it might still have issues)
@@ -3588,11 +3693,13 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                 if let Some(reversed) = reversed_conditional(&last_ins.instr) {
                     let old_next = blocks[idx].next;
                     let is_cold = blocks[idx].cold;
+                    let disable_load_fast_borrow = blocks[idx].disable_load_fast_borrow;
 
                     // Create new block with NOT_TAKEN + JUMP to original backward target
                     let new_block_idx = BlockIdx(blocks.len() as u32);
                     let mut new_block = Block {
                         cold: is_cold,
+                        disable_load_fast_borrow,
                         ..Block::default()
                     };
                     new_block.instructions.push(InstructionInfo {
@@ -3695,27 +3802,30 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
     let is_return_epilogue_block = |block: &Block| {
         matches!(
             block.instructions.as_slice(),
-            [InstructionInfo {
-                instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
-                ..
-            }, InstructionInfo {
+            [
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::ReturnValue),
+                    ..
+                }
+            ] | [
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadSmallInt { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::ReturnValue),
+                    ..
+                }
+            ] | [InstructionInfo {
                 instr: AnyInstruction::Real(Instruction::ReturnValue),
                 ..
             }]
-                | [InstructionInfo {
-                    instr: AnyInstruction::Real(Instruction::LoadSmallInt { .. }),
-                    ..
-                }, InstructionInfo {
-                    instr: AnyInstruction::Real(Instruction::ReturnValue),
-                    ..
-                }]
-                | [InstructionInfo {
-                    instr: AnyInstruction::Real(Instruction::ReturnValue),
-                    ..
-                }]
         )
     };
-
     loop {
         let mut changes = false;
         let mut current = BlockIdx(0);
@@ -3748,7 +3858,6 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                 current = next;
                 continue;
             }
-
             if small_exit_block || no_lineno_no_fallthrough {
                 if let Some(last_instr) = blocks[current.idx()].instructions.last_mut() {
                     set_to_nop(last_instr);
@@ -4612,6 +4721,7 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>) {
         let new_block = Block {
             cold: blocks[last_block.idx()].cold,
             except_handler: blocks[last_block.idx()].except_handler,
+            disable_load_fast_borrow: blocks[last_block.idx()].disable_load_fast_borrow,
             instructions: cloned_return,
             next: if is_conditional {
                 last_block
