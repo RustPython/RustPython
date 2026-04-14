@@ -1,0 +1,29 @@
+[package]
+name = "rustpython-unicode"
+description = "Shared Unicode semantics and data for RustPython and related Python tooling."
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[features]
+default = ["std", "casefold"]
+std = []
+casefold = ["std", "dep:caseless"]
+
+[dependencies]
+rustpython-wtf8 = { workspace = true }
+
+icu_normalizer = { workspace = true }
+icu_properties = { workspace = true }
+itertools = { workspace = true }
+unicode-casing = { workspace = true }
+unicode_names2 = { version = "2.0.0", default-features = false, features = ["no_std"] }
+unic-ucd-age = { workspace = true }
+ucd = "0.1.1"
+caseless = { version = "0.2.2", optional = true }
+
+[lints]
+workspace = true

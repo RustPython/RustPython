@@ -15,6 +15,7 @@ name = "benches"
 harness = false
 
 [dependencies]
+rustpython-unicode = { workspace = true, default-features = false }
 rustpython-wtf8 = { workspace = true }
 num_enum = { workspace = true }
 bitflags = { workspace = true }

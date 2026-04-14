@@ -204,7 +204,7 @@ impl UnicodeEscape<'_> {
             '\\' | '\t' | '\r' | '\n' => 2,
             ch if ch < ' ' || ch as u32 == 0x7f => 4, // \xHH
             ch if ch.is_ascii() => 1,
-            ch if crate::char::is_printable(ch) => {
+            ch if rustpython_unicode::classify::is_repr_printable(ch as u32) => {
                 // max = std::cmp::max(ch, max);
                 ch.len_utf8()
             }
@@ -238,7 +238,9 @@ impl UnicodeEscape<'_> {
             ch if ch.is_ascii() => {
                 write!(formatter, "\\x{:02x}", ch as u8)
             }
-            ch if crate::char::is_printable(ch) => formatter.write_char(ch),
+            ch if rustpython_unicode::classify::is_repr_printable(ch as u32) => {
+                formatter.write_char(ch)
+            }
             '\0'..='\u{ff}' => {
                 write!(formatter, "\\x{:02x}", ch as u32)
             }

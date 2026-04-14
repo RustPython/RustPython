@@ -41,12 +41,9 @@ use rustpython_common::{
     hash,
     lock::PyMutex,
     str::DeduceStrKind,
-    wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk, Wtf8Concat},
+    wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Concat},
 };
 
-use icu_properties::props::{
-    BidiClass, BinaryProperty, EnumeratedProperty, GeneralCategory, XidContinue, XidStart,
-};
 use unicode_casing::CharExt;
 
 impl<'a> TryFromBorrowedObject<'a> for String {
@@ -698,7 +695,7 @@ impl PyStr {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
             PyKindStr::Utf8(s) => s.to_lowercase().into(),
-            PyKindStr::Wtf8(w) => w.to_lowercase().into(),
+            PyKindStr::Wtf8(w) => rustpython_unicode::case::to_lowercase_wtf8(w).into(),
         }
     }
 
@@ -706,16 +703,9 @@ impl PyStr {
     #[pymethod]
     fn casefold(&self) -> Self {
         match self.as_str_kind() {
-            PyKindStr::Ascii(s) => caseless::default_case_fold_str(s.as_str()).into(),
-            PyKindStr::Utf8(s) => caseless::default_case_fold_str(s).into(),
-            PyKindStr::Wtf8(w) => w
-                .chunks()
-                .map(|c| match c {
-                    Wtf8Chunk::Utf8(s) => Wtf8Buf::from_string(caseless::default_case_fold_str(s)),
-                    Wtf8Chunk::Surrogate(c) => Wtf8Buf::from(c),
-                })
-                .collect::<Wtf8Buf>()
-                .into(),
+            PyKindStr::Ascii(s) => rustpython_unicode::case::casefold_str(s.as_str()).into(),
+            PyKindStr::Utf8(s) => rustpython_unicode::case::casefold_str(s).into(),
+            PyKindStr::Wtf8(w) => rustpython_unicode::case::casefold_wtf8(w).into(),
         }
     }
 
@@ -724,7 +714,7 @@ impl PyStr {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_uppercase().into(),
             PyKindStr::Utf8(s) => s.to_uppercase().into(),
-            PyKindStr::Wtf8(w) => w.to_uppercase().into(),
+            PyKindStr::Wtf8(w) => rustpython_unicode::case::to_uppercase_wtf8(w).into(),
         }
     }
 
@@ -967,9 +957,7 @@ impl PyStr {
     #[pymethod]
     fn isdecimal(&self) -> bool {
         !self.data.is_empty()
-            && self.char_all(|c| {
-                matches!(GeneralCategory::for_char(c), GeneralCategory::DecimalNumber)
-            })
+            && self.char_all(|c| rustpython_unicode::classify::is_decimal(c as u32))
     }
 
     fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
@@ -1089,23 +1077,12 @@ impl PyStr {
 
     #[pymethod]
     fn isprintable(&self) -> bool {
-        self.char_all(|c| c == '\u{0020}' || rustpython_literal::char::is_printable(c))
+        self.char_all(|c| rustpython_unicode::classify::is_printable(c as u32))
     }
 
     #[pymethod]
     fn isspace(&self) -> bool {
-        !self.data.is_empty()
-            && self.char_all(|c| {
-                matches!(
-                    GeneralCategory::for_char(c),
-                    GeneralCategory::SpaceSeparator
-                ) || matches!(
-                    BidiClass::for_char(c),
-                    BidiClass::WhiteSpace
-                        | BidiClass::ParagraphSeparator
-                        | BidiClass::SegmentSeparator
-                )
-            })
+        !self.data.is_empty() && self.char_all(|c| rustpython_unicode::classify::is_space(c as u32))
     }
 
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
@@ -1362,15 +1339,8 @@ impl PyStr {
 
     #[pymethod]
     pub fn isidentifier(&self) -> bool {
-        let Some(s) = self.to_str() else { return false };
-        let mut chars = s.chars();
-
-        let is_identifier_start = chars
-            .next()
-            .is_some_and(|c| c == '_' || XidStart::for_char(c));
-
-        // a string is not an identifier if it has whitespace or starts with a number
-        is_identifier_start && chars.all(XidContinue::for_char)
+        self.to_str()
+            .is_some_and(rustpython_unicode::identifier::is_python_identifier)
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate

@@ -3124,9 +3124,9 @@ dependencies = [
  "rustpython-ruff_python_ast",
  "rustpython-ruff_python_parser",
  "rustpython-ruff_text_size",
+ "rustpython-unicode",
  "rustpython-wtf8",
  "thiserror 2.0.18",
- "unicode_names2 2.0.0",
 ]
 
 [[package]]
@@ -3149,9 +3149,9 @@ dependencies = [
  "parking_lot",
  "radium",
  "rustpython-literal",
+ "rustpython-unicode",
  "rustpython-wtf8",
  "siphasher",
- "unicode_names2 2.0.0",
  "widestring",
  "windows-sys 0.61.2",
 ]
@@ -3243,11 +3243,11 @@ name = "rustpython-literal"
 version = "0.5.0"
 dependencies = [
  "hexf-parse",
- "icu_properties",
  "is-macro",
  "lexical-parse-float",
  "num-traits",
  "rand 0.9.2",
+ "rustpython-unicode",
  "rustpython-wtf8",
 ]
 
@@ -3339,6 +3339,7 @@ dependencies = [
  "criterion",
  "num_enum",
  "optional",
+ "rustpython-unicode",
  "rustpython-wtf8",
 ]
 
@@ -3369,8 +3370,6 @@ dependencies = [
  "gethostname",
  "hex",
  "hmac",
- "icu_normalizer",
- "icu_properties",
  "indexmap",
  "itertools 0.14.0",
  "libc",
@@ -3412,6 +3411,7 @@ dependencies = [
  "rustpython-ruff_python_parser",
  "rustpython-ruff_source_file",
  "rustpython-ruff_text_size",
+ "rustpython-unicode",
  "rustpython-vm",
  "schannel",
  "sha-1",
@@ -3422,9 +3422,6 @@ dependencies = [
  "tcl-sys",
  "termios",
  "tk-sys",
- "ucd",
- "unic-ucd-age",
- "unicode_names2 2.0.0",
  "uuid",
  "webpki-roots",
  "widestring",
@@ -3432,6 +3429,21 @@ dependencies = [
  "x509-cert",
  "x509-parser",
  "xml",
+]
+
+[[package]]
+name = "rustpython-unicode"
+version = "0.5.0"
+dependencies = [
+ "caseless",
+ "icu_normalizer",
+ "icu_properties",
+ "itertools 0.14.0",
+ "rustpython-wtf8",
+ "ucd",
+ "unic-ucd-age",
+ "unicode-casing",
+ "unicode_names2 2.0.0",
 ]
 
 [[package]]
@@ -3446,7 +3458,6 @@ dependencies = [
  "ascii",
  "bitflags 2.11.0",
  "bstr",
- "caseless",
  "cfg-if",
  "chrono",
  "constant_time_eq",
@@ -3459,7 +3470,6 @@ dependencies = [
  "glob",
  "half",
  "hex",
- "icu_properties",
  "indexmap",
  "is-macro",
  "itertools 0.14.0",
@@ -3493,6 +3503,7 @@ dependencies = [
  "rustpython-ruff_python_parser",
  "rustpython-ruff_text_size",
  "rustpython-sre_engine",
+ "rustpython-unicode",
  "rustyline",
  "scoped-tls",
  "scopeguard",
