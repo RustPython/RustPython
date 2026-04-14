@@ -1031,14 +1031,6 @@ impl AnyStrContainer<[u8]> for Vec<u8> {
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
 impl anystr::AnyChar for u8 {
-    fn is_lowercase(self) -> bool {
-        self.is_ascii_lowercase()
-    }
-
-    fn is_uppercase(self) -> bool {
-        self.is_ascii_uppercase()
-    }
-
     fn bytes_len(self) -> usize {
         1
     }

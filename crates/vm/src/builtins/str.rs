@@ -2228,14 +2228,6 @@ impl AnyStrContainer<str> for String {
 }
 
 impl anystr::AnyChar for char {
-    fn is_lowercase(self) -> bool {
-        self.is_lowercase()
-    }
-
-    fn is_uppercase(self) -> bool {
-        self.is_uppercase()
-    }
-
     fn bytes_len(self) -> usize {
         self.len_utf8()
     }
@@ -2341,12 +2333,6 @@ impl AnyStrContainer<Wtf8> for Wtf8Buf {
 }
 
 impl anystr::AnyChar for CodePoint {
-    fn is_lowercase(self) -> bool {
-        self.is_char_and(char::is_lowercase)
-    }
-    fn is_uppercase(self) -> bool {
-        self.is_char_and(char::is_uppercase)
-    }
     fn bytes_len(self) -> usize {
         self.len_wtf8()
     }
@@ -2459,14 +2445,6 @@ impl AnyStrContainer<AsciiStr> for AsciiString {
 }
 
 impl anystr::AnyChar for ascii::AsciiChar {
-    fn is_lowercase(self) -> bool {
-        self.is_lowercase()
-    }
-
-    fn is_uppercase(self) -> bool {
-        self.is_uppercase()
-    }
-
     fn bytes_len(self) -> usize {
         1
     }

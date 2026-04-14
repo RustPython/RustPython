@@ -4,6 +4,10 @@ use crate::{
     convert::TryFromBorrowedObject,
     function::OptionalOption,
 };
+use icu_properties::{
+    CodePointSetData,
+    props::{Alphabetic, ChangesWhenLowercased, ChangesWhenUppercased},
+};
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
 use core::ops::Range;
@@ -130,8 +134,6 @@ where
 }
 
 pub trait AnyChar: Copy {
-    fn is_lowercase(self) -> bool;
-    fn is_uppercase(self) -> bool;
     fn bytes_len(self) -> usize;
 }
 
@@ -407,12 +409,16 @@ pub trait AnyStr {
     //  _Py_bytes_islower
     //  unicode_islower_impl
     fn py_islower(&self) -> bool {
+        let case_change = CodePointSetData::new::<ChangesWhenLowercased>();
+        let alphabetic = CodePointSetData::new::<Alphabetic>();
         let mut lower = false;
-        for c in self.elements() {
-            if c.is_uppercase() {
+        for chunk in self.as_bytes().utf8_chunks().map(|c| c.valid()) {
+            if chunk.chars().any(|c| case_change.contains(c)) {
                 return false;
-            } else if !lower && c.is_lowercase() {
-                lower = true
+            }
+
+            if !lower && chunk.chars().any(|c| alphabetic.contains(c)) {
+                lower = true;
             }
         }
         lower
@@ -422,12 +428,16 @@ pub trait AnyStr {
     //   Py_bytes_isupper
     //  unicode_isupper_impl
     fn py_isupper(&self) -> bool {
+        let case_change = CodePointSetData::new::<ChangesWhenUppercased>();
+        let alphabetic = CodePointSetData::new::<Alphabetic>();
         let mut upper = false;
-        for c in self.elements() {
-            if c.is_lowercase() {
+        for chunk in self.as_bytes().utf8_chunks().map(|c| c.valid()) {
+            if chunk.chars().any(|c| case_change.contains(c)) {
                 return false;
-            } else if !upper && c.is_uppercase() {
-                upper = true
+            }
+
+            if !upper && chunk.chars().any(|c| alphabetic.contains(c)) {
+                upper = true;
             }
         }
         upper
