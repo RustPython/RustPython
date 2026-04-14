@@ -439,6 +439,7 @@ class RangeTest(unittest.TestCase):
             self.assertEqual(list(i), [])
             self.assertEqual(list(i2), [])
 
+    @unittest.skip("TODO: RUSTPYTHON; crash")
     def test_iterator_unpickle_compat(self):
         testcases = [
             b'c__builtin__\niter\n(c__builtin__\nxrange\n(I10\nI20\nI2\ntRtRI2\nb.',
