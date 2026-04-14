@@ -19,7 +19,7 @@ fn refcount_overflow() -> ! {
     #[cfg(feature = "std")]
     unsafe {
         libc::abort()
-    };
+    }
     #[cfg(not(feature = "std"))]
     core::panic!("refcount overflow");
 }
