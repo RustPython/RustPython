@@ -22,7 +22,7 @@ pub(crate) mod module {
     use rustpython_common::wtf8::Wtf8Buf;
     use rustpython_host_env::nt as host_nt;
     use std::os::windows::io::AsRawHandle;
-    use std::{env, io, os::windows::ffi::OsStringExt};
+    use std::{io, os::windows::ffi::OsStringExt};
     use windows_sys::Win32::{
         Foundation::{self, INVALID_HANDLE_VALUE},
         Storage::FileSystem,
@@ -236,7 +236,7 @@ pub(crate) mod module {
     fn environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
 
-        for (key, value) in env::vars() {
+        for (key, value) in crate::host_env::os::vars() {
             // Skip hidden Windows environment variables (e.g., =C:, =D:, =ExitCode)
             // These are internal cmd.exe bookkeeping variables that store per-drive
             // current directories and cannot be reliably modified via _wputenv().
@@ -251,7 +251,7 @@ pub(crate) mod module {
     #[pyfunction]
     fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
-        for (key, value) in env::vars() {
+        for (key, value) in crate::host_env::os::vars() {
             if key.starts_with('=') {
                 continue;
             }

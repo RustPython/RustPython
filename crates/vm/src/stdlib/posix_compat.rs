@@ -13,7 +13,7 @@ pub(crate) mod module {
         ospath::OsPath,
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
-    use std::{env, fs};
+    use std::fs;
 
     #[pyfunction]
     pub(super) fn access(_path: PyStrRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
@@ -49,7 +49,7 @@ pub(crate) mod module {
         use rustpython_host_env::os::ffi::OsStringExt;
 
         let environ = vm.ctx.new_dict();
-        for (key, value) in env::vars_os() {
+        for (key, value) in crate::host_env::os::vars_os() {
             let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
             let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
             environ.set_item(&*key, value, vm).unwrap();

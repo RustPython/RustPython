@@ -48,6 +48,10 @@ pub fn vars_os() -> env::VarsOs {
     env::vars_os()
 }
 
+pub fn vars() -> env::Vars {
+    env::vars()
+}
+
 /// # Safety
 /// The caller must ensure no other threads can concurrently read or write
 /// the process environment while this mutation is performed.

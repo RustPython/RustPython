@@ -370,6 +370,7 @@ fn get_executable_path() -> Option<PathBuf> {
 }
 
 /// Parse pyvenv.cfg and extract the 'home' key value
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
     let content = crate::host_env::fs::read_to_string(pyvenv_cfg).ok()?;
 
@@ -381,6 +382,11 @@ fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
         }
     }
 
+    None
+}
+
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+fn parse_pyvenv_home(_pyvenv_cfg: &Path) -> Option<String> {
     None
 }
 
