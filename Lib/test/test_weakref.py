@@ -993,7 +993,6 @@ class ReferencesTestCase(TestBase):
         del root
         gc.collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_callback_attribute(self):
         x = Object(1)
         callback = lambda ref: None
@@ -1003,7 +1002,6 @@ class ReferencesTestCase(TestBase):
         ref2 = weakref.ref(x)
         self.assertIsNone(ref2.__callback__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_callback_attribute_after_deletion(self):
         x = Object(1)
         ref = weakref.ref(x, self.callback)
