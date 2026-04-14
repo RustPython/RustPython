@@ -1,8 +1,3 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "sys breakpoint configuration still uses direct host APIs until later extraction"
-)]
-
 pub(crate) mod monitoring;
 
 use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
@@ -58,7 +53,7 @@ mod sys {
     use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
     use std::{
-        env::{self, VarError},
+        env,
         io::{IsTerminal, Read, Write},
     };
 
@@ -876,15 +871,18 @@ mod sys {
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let env_var = std::env::var("PYTHONBREAKPOINT")
+        #[cfg(feature = "host_env")]
+        let env_var = crate::host_env::os::var("PYTHONBREAKPOINT")
             .and_then(|env_var| {
                 if env_var.is_empty() {
-                    Err(VarError::NotPresent)
+                    Err(std::env::VarError::NotPresent)
                 } else {
                     Ok(env_var)
                 }
             })
             .unwrap_or_else(|_| "pdb.set_trace".to_owned());
+        #[cfg(not(feature = "host_env"))]
+        let env_var = "pdb.set_trace".to_owned();
 
         if env_var.eq("0") {
             return Ok(vm.ctx.none());

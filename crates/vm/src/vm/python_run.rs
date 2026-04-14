@@ -1,8 +1,3 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "script loading still uses direct host APIs until later extraction"
-)]
-
 //! Python code execution functions.
 
 use crate::{
@@ -110,7 +105,7 @@ mod file_run {
                 if path != "<stdin>" {
                     set_main_loader(module_dict, path, "SourceFileLoader", self)?;
                 }
-                match std::fs::read_to_string(path) {
+                match crate::host_env::fileutils::read_to_string(path) {
                     Ok(source) => {
                         let code_obj = self
                             .compile(&source, compiler::Mode::Exec, path.to_owned())
@@ -165,7 +160,7 @@ mod file_run {
             return Ok(false);
         }
 
-        let mut file = std::fs::File::open(path)?;
+        let mut file = crate::host_env::fileutils::open(path)?;
         let mut buf = [0u8; 2];
 
         use std::io::Read;

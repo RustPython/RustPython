@@ -1,8 +1,3 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "traceback source loading still uses direct host APIs until later extraction"
-)]
-
 use self::types::{PyBaseException, PyBaseExceptionRef};
 use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};
@@ -22,10 +17,9 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::{
-    collections::HashSet,
-    io::{self, BufRead, BufReader},
-};
+#[cfg(feature = "host_env")]
+use std::io::{BufRead, BufReader};
+use std::{collections::HashSet, io};
 
 pub use super::exception_group::exception_group;
 
@@ -371,6 +365,7 @@ impl VirtualMachine {
     }
 }
 
+#[cfg(feature = "host_env")]
 fn print_source_line<W: Write>(
     output: &mut W,
     filename: &str,
@@ -378,7 +373,7 @@ fn print_source_line<W: Write>(
 ) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
     // TODO: support different encodings
-    let file = match std::fs::File::open(filename) {
+    let file = match crate::host_env::fileutils::open(filename) {
         Ok(file) => file,
         Err(_) => return Ok(()),
     };
@@ -394,6 +389,15 @@ fn print_source_line<W: Write>(
         }
     }
 
+    Ok(())
+}
+
+#[cfg(not(feature = "host_env"))]
+fn print_source_line<W: Write>(
+    _output: &mut W,
+    _filename: &str,
+    _lineno: usize,
+) -> Result<(), W::Error> {
     Ok(())
 }
 

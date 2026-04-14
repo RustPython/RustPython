@@ -2,7 +2,13 @@
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
 use core::str::Utf8Error;
-use std::{io, process::ExitCode};
+use std::{
+    env,
+    ffi::{OsStr, OsString},
+    io,
+    path::PathBuf,
+    process::ExitCode,
+};
 
 /// Convert exit code to std::process::ExitCode
 ///
@@ -20,6 +26,46 @@ pub fn exit_code(code: u32) -> ExitCode {
         }
     }
     ExitCode::from(code as u8)
+}
+
+pub fn current_dir() -> io::Result<PathBuf> {
+    env::current_dir()
+}
+
+pub fn temp_dir() -> PathBuf {
+    env::temp_dir()
+}
+
+pub fn var(key: &str) -> Result<String, env::VarError> {
+    env::var(key)
+}
+
+pub fn var_os(key: impl AsRef<OsStr>) -> Option<OsString> {
+    env::var_os(key)
+}
+
+pub fn vars_os() -> env::VarsOs {
+    env::vars_os()
+}
+
+pub fn set_var(key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) {
+    unsafe { env::set_var(key, value) };
+}
+
+pub fn remove_var(key: impl AsRef<OsStr>) {
+    unsafe { env::remove_var(key) };
+}
+
+pub fn set_current_dir(path: impl AsRef<std::path::Path>) -> io::Result<()> {
+    env::set_current_dir(path)
+}
+
+pub fn process_id() -> u32 {
+    std::process::id()
+}
+
+pub fn exit(code: i32) -> ! {
+    std::process::exit(code)
 }
 
 pub trait ErrorExt {

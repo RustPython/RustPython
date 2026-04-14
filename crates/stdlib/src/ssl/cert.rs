@@ -1,10 +1,5 @@
 // cspell: ignore accessdescs
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "remaining certificate file access has not been extracted into rustpython-host-env yet"
-)]
-
 //! Certificate parsing, validation, and conversion utilities for SSL/TLS
 //!
 //! This module provides reusable functions for working with X.509 certificates:
@@ -644,7 +639,7 @@ impl<'a> CertLoader<'a> {
     ///
     /// Returns statistics about loaded certificates
     pub fn load_from_file(&mut self, path: &str) -> Result<CertStats, std::io::Error> {
-        let contents = std::fs::read(path)?;
+        let contents = rustpython_host_env::fileutils::read(path)?;
         self.load_from_bytes(&contents)
     }
 
@@ -653,7 +648,7 @@ impl<'a> CertLoader<'a> {
     /// Reads all files in the directory and attempts to parse them as certificates.
     /// Invalid files are silently skipped (matches OpenSSL capath behavior).
     pub fn load_from_dir(&mut self, dir_path: &str) -> Result<CertStats, std::io::Error> {
-        let entries = std::fs::read_dir(dir_path)?;
+        let entries = rustpython_host_env::fileutils::read_dir(dir_path)?;
         let mut stats = CertStats::default();
 
         for entry in entries {
@@ -663,7 +658,7 @@ impl<'a> CertLoader<'a> {
             // Skip directories and process all files
             // OpenSSL capath uses hash-based naming like "4e1295a3.0"
             if path.is_file()
-                && let Ok(contents) = std::fs::read(&path)
+                && let Ok(contents) = rustpython_host_env::fileutils::read(&path)
             {
                 // Ignore errors for individual files (some may not be certs)
                 if let Ok(file_stats) = self.load_from_bytes(&contents) {
@@ -1134,7 +1129,7 @@ pub(super) fn load_cert_chain_from_file(
     password: Option<&str>,
 ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Box<dyn core::error::Error>> {
     // Load certificate file - preserve io::Error for errno
-    let cert_contents = std::fs::read(cert_path)?;
+    let cert_contents = rustpython_host_env::fileutils::read(cert_path)?;
 
     // Parse certificates (PEM format)
     let mut cert_cursor = std::io::Cursor::new(&cert_contents);
@@ -1147,7 +1142,7 @@ pub(super) fn load_cert_chain_from_file(
     }
 
     // Load private key file - preserve io::Error for errno
-    let key_contents = std::fs::read(key_path)?;
+    let key_contents = rustpython_host_env::fileutils::read(key_path)?;
 
     // Parse private key (supports PKCS8, RSA, EC formats)
     let private_key = if let Some(pwd) = password {

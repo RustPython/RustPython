@@ -1,8 +1,3 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "vm initialization still uses direct host APIs until later extraction"
-)]
-
 //! Implement virtual machine to run instructions.
 //!
 //! See also:
@@ -541,7 +536,7 @@ impl StopTheWorldState {
 #[cfg(all(unix, feature = "threading"))]
 pub(super) fn stw_trace_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("RUSTPYTHON_STW_TRACE").is_some())
+    *ENABLED.get_or_init(|| crate::host_env::os::var_os("RUSTPYTHON_STW_TRACE").is_some())
 }
 
 #[cfg(all(unix, feature = "threading"))]
@@ -793,8 +788,8 @@ impl VirtualMachine {
     #[cfg(feature = "encodings")]
     fn import_encodings(&mut self) -> PyResult<()> {
         self.import("encodings", 0).map_err(|import_err| {
-            let rustpythonpath_env = std::env::var("RUSTPYTHONPATH").ok();
-            let pythonpath_env = std::env::var("PYTHONPATH").ok();
+            let rustpythonpath_env = crate::host_env::os::var("RUSTPYTHONPATH").ok();
+            let pythonpath_env = crate::host_env::os::var("PYTHONPATH").ok();
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
             let path_contains_env = self.state.config.paths.module_search_paths.iter().any(|s| {
                 Some(s.as_str()) == rustpythonpath_env.as_deref() || Some(s.as_str()) == pythonpath_env.as_deref()

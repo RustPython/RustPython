@@ -1,8 +1,3 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "faulthandler fallback exits still use direct host APIs until later extraction"
-)]
-
 pub(crate) use decl::module_def;
 
 #[allow(static_mut_refs)] // TODO: group code only with static mut refs
@@ -592,7 +587,7 @@ mod decl {
         }
 
         // Fallback
-        std::process::exit(1);
+        rustpython_host_env::os::exit(1);
     }
 
     // Windows vectored exception handler (faulthandler.c:417-480)
@@ -885,7 +880,7 @@ mod decl {
                 }
 
                 if exit {
-                    std::process::exit(1);
+                    rustpython_host_env::os::exit(1);
                 }
             }
 

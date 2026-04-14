@@ -1,8 +1,3 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "remaining openssl certificate file access has not been extracted into rustpython-host-env yet"
-)]
-
 pub(super) use ssl_cert::{PySSLCertificate, cert_to_certificate, cert_to_py, obj2txt};
 
 // Certificate type for SSL module
@@ -364,7 +359,7 @@ pub(crate) mod ssl_cert {
     #[pyfunction]
     pub(crate) fn _test_decode_cert(path: FsPath, vm: &VirtualMachine) -> PyResult {
         let path = path.to_path_buf(vm)?;
-        let pem = std::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
+        let pem = rustpython_host_env::fileutils::read(path).map_err(|e| e.to_pyexception(vm))?;
         let x509 = X509::from_pem(&pem).map_err(|e| convert_openssl_error(vm, e))?;
         cert_to_py(vm, &x509, false)
     }

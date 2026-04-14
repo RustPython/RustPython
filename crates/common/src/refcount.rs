@@ -13,15 +13,13 @@ const STRONG: usize = (1 << STRONG_WIDTH) - 1;
 const COUNT: usize = 1;
 const WEAK_COUNT: usize = 1 << STRONG_WIDTH;
 
-#[allow(
-    clippy::disallowed_methods,
-    reason = "refcount overflow must abort immediately under std"
-)]
 #[inline(never)]
 #[cold]
 fn refcount_overflow() -> ! {
     #[cfg(feature = "std")]
-    std::process::abort();
+    unsafe {
+        libc::abort()
+    };
     #[cfg(not(feature = "std"))]
     core::panic!("refcount overflow");
 }

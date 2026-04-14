@@ -1,18 +1,15 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "pyc loading still uses direct host APIs until later extraction"
-)]
-
 //! Infamous code object. The python class `code`
 
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, set::PyFrozenSet};
 use crate::common::lock::PyMutex;
+#[cfg(feature = "host_env")]
+use crate::convert::ToPyException;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyStrInterned,
     bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag, Instruction},
     class::{PyClassImpl, StaticType},
-    convert::{ToPyException, ToPyObject},
+    convert::ToPyObject,
     frozen,
     function::OptionalArg,
     types::{Comparable, Constructor, Hashable, Representable},
@@ -522,12 +519,13 @@ impl PyCode {
         Self::new_ref_with_bag(vm, code.decode(PyVmBag(vm)))
     }
 
+    #[cfg(feature = "host_env")]
     pub fn from_pyc_path(path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let name = match path.file_stem() {
             Some(stem) => stem.display().to_string(),
             None => "".to_owned(),
         };
-        let content = std::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
+        let content = crate::host_env::fileutils::read(path).map_err(|e| e.to_pyexception(vm))?;
         Self::from_pyc(
             &content,
             Some(&name),
@@ -535,6 +533,10 @@ impl PyCode {
             Some("<source>"),
             vm,
         )
+    }
+    #[cfg(not(feature = "host_env"))]
+    pub fn from_pyc_path(_path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Err(vm.new_runtime_error("loading a pyc file requires the `host_env` feature".to_owned()))
     }
     pub fn from_pyc(
         pyc_bytes: &[u8],

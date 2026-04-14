@@ -1,8 +1,3 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "remaining openssl file access has not been extracted into rustpython-host-env yet"
-)]
-
 // spell-checker:disable
 
 mod cert;
@@ -1885,7 +1880,7 @@ mod _ssl {
             const PEM_BUFSIZE: usize = 1024;
 
             // Read key file data
-            let key_data = std::fs::read(key_file_path)
+            let key_data = rustpython_host_env::fileutils::read(key_file_path)
                 .map_err(|e| crate::vm::convert::ToPyException::to_pyexception(&e, vm))?;
 
             let pkey = if let Some(ref pw_obj) = password {
