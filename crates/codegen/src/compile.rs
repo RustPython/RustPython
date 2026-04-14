@@ -3543,6 +3543,10 @@ impl Compiler {
         handlers: &[ast::ExceptHandler],
         orelse: &[ast::Stmt],
     ) -> CompileResult<()> {
+        let normal_exit_range = orelse
+            .last()
+            .map(ast::Stmt::range)
+            .or_else(|| body.last().map(ast::Stmt::range));
         let handler_block = self.new_block();
         let cleanup_block = self.new_block();
         let end_block = self.new_block();
@@ -3559,7 +3563,6 @@ impl Compiler {
             self.disable_load_fast_borrow_for_block(end_block);
         }
 
-        emit!(self, Instruction::Nop);
         emit!(
             self,
             PseudoInstruction::SetupFinally {
@@ -3694,6 +3697,9 @@ impl Compiler {
         self.set_no_location();
 
         self.switch_to_block(end_block);
+        if let Some(range) = normal_exit_range {
+            self.set_source_range(range);
+        }
         Ok(())
     }
 
@@ -11070,6 +11076,29 @@ mod tests {
         compiler.exit_scope()
     }
 
+    fn compile_exec_late_cfg_trace(source: &str) -> Vec<(String, String)> {
+        let opts = CompileOpts::default();
+        let source_file = SourceFileBuilder::new("source_path", source).finish();
+        let parsed = ruff_python_parser::parse(
+            source_file.source_text(),
+            ruff_python_parser::Mode::Module.into(),
+        )
+        .unwrap();
+        let ast = parsed.into_syntax();
+        let ast = match ast {
+            ruff_python_ast::Mod::Module(stmts) => stmts,
+            _ => unreachable!(),
+        };
+        let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
+            .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
+            .unwrap();
+        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        compiler.compile_program(&ast, symbol_table).unwrap();
+        let _table = compiler.pop_symbol_table();
+        let stack_top = compiler.code_stack.pop().unwrap();
+        stack_top.debug_late_cfg_trace().unwrap()
+    }
+
     fn find_code<'a>(code: &'a CodeObject, name: &str) -> Option<&'a CodeObject> {
         if code.obj_name == name {
             return Some(code);
@@ -11119,6 +11148,25 @@ if True or False or False:
     pass
 "
         ));
+    }
+
+    #[test]
+    fn test_trace_assert_true_try_pair() {
+        let trace = compile_exec_late_cfg_trace(
+            "\
+try:
+    assert True
+except AssertionError as e:
+    fail()
+try:
+    assert True, 'msg'
+except AssertionError as e:
+    fail()
+",
+        );
+        for (stage, dump) in trace {
+            eprintln!("=== {stage} ===\n{dump}");
+        }
     }
 
     #[test]
@@ -12564,11 +12612,11 @@ def f():
     }
 
     #[test]
-    fn test_constant_false_assert_uses_normal_assert_branch_shape() {
+    fn test_constant_false_assert_uses_direct_raise_shape() {
         let code = compile_exec("assert 0, (lambda x: x + 1)\n");
 
         assert!(
-            code.instructions.iter().any(|unit| {
+            !code.instructions.iter().any(|unit| {
                 matches!(
                     unit.op,
                     Instruction::ToBool
@@ -12576,7 +12624,7 @@ def f():
                         | Instruction::PopJumpIfFalse { .. }
                 )
             }),
-            "constant-false assert should still use the normal assert branch shape, got ops={:?}",
+            "constant-false assert should use direct raise shape, got ops={:?}",
             code.instructions
                 .iter()
                 .map(|unit| unit.op)

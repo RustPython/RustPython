@@ -160,7 +160,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 145 CACHE
                 146 CACHE
                 147 CACHE
-                148 LOAD_FAST_BORROW     (0, stop_exc)
+                148 LOAD_FAST            (0, stop_exc)
                 149 FORMAT_SIMPLE
                 150 LOAD_CONST           (" was suppressed")
                 151 BUILD_STRING         (2)

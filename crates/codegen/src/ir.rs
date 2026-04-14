@@ -2480,11 +2480,11 @@ impl CodeInfo {
                 if idx == BlockIdx(0) || self.blocks[idx.idx()].disable_load_fast_borrow {
                     continue;
                 }
-                let preds = &predecessors[idx.idx()];
-                if preds.is_empty() {
+                let predecessor_blocks = &predecessors[idx.idx()];
+                if predecessor_blocks.is_empty() {
                     continue;
                 }
-                if preds
+                if predecessor_blocks
                     .iter()
                     .copied()
                     .all(|pred_idx| self.blocks[pred_idx.idx()].disable_load_fast_borrow)
@@ -2944,6 +2944,112 @@ impl CodeInfo {
         }
 
         Ok(maxdepth)
+    }
+}
+
+#[cfg(test)]
+impl CodeInfo {
+    fn debug_block_dump(&self) -> String {
+        let mut out = String::new();
+        for (block_idx, block) in iter_blocks(&self.blocks) {
+            use core::fmt::Write;
+            let _ = writeln!(
+                out,
+                "block {} next={} cold={} except={} preserve_lasti={} disable_borrow={}",
+                u32::from(block_idx),
+                if block.next == BlockIdx::NULL {
+                    String::from("NULL")
+                } else {
+                    u32::from(block.next).to_string()
+                },
+                block.cold,
+                block.except_handler,
+                block.preserve_lasti,
+                block.disable_load_fast_borrow,
+            );
+            for info in &block.instructions {
+                let lineno = instruction_lineno(info);
+                let _ = writeln!(
+                    out,
+                    "  [{}] {:?} arg={} target={}",
+                    lineno,
+                    info.instr,
+                    u32::from(info.arg),
+                    if info.target == BlockIdx::NULL {
+                        String::from("NULL")
+                    } else {
+                        u32::from(info.target).to_string()
+                    }
+                );
+            }
+        }
+        out
+    }
+
+    pub(crate) fn debug_late_cfg_trace(mut self) -> crate::InternalResult<Vec<(String, String)>> {
+        let mut trace = Vec::new();
+
+        self.splice_annotations_blocks();
+        self.fold_binop_constants();
+        self.remove_nops();
+        self.fold_unary_negative();
+        self.remove_nops();
+        self.fold_binop_constants();
+        self.remove_nops();
+        self.fold_tuple_constants();
+        self.fold_list_constants();
+        self.fold_set_constants();
+        self.remove_nops();
+        self.fold_const_iterable_for_iter();
+        self.convert_to_load_small_int();
+        self.remove_unused_consts();
+        self.remove_nops();
+        self.dce();
+        self.optimize_build_tuple_unpack();
+        self.eliminate_dead_stores();
+        self.apply_static_swaps();
+        self.peephole_optimize();
+        split_blocks_at_jumps(&mut self.blocks);
+        mark_except_handlers(&mut self.blocks);
+        label_exception_targets(&mut self.blocks);
+        jump_threading(&mut self.blocks);
+        self.eliminate_unreachable_blocks();
+        self.remove_nops();
+        self.add_checks_for_loads_of_uninitialized_variables();
+        self.insert_superinstructions();
+        push_cold_blocks_to_end(&mut self.blocks);
+
+        trace.push(("after_push_cold_blocks_to_end".to_owned(), self.debug_block_dump()));
+
+        normalize_jumps(&mut self.blocks);
+        trace.push(("after_normalize_jumps".to_owned(), self.debug_block_dump()));
+
+        reorder_conditional_exit_and_jump_blocks(&mut self.blocks);
+        reorder_conditional_jump_and_exit_blocks(&mut self.blocks);
+        reorder_jump_over_exception_cleanup_blocks(&mut self.blocks);
+        trace.push(("after_reorder".to_owned(), self.debug_block_dump()));
+
+        inline_small_or_no_lineno_blocks(&mut self.blocks);
+        trace.push(("after_inline_small_or_no_lineno_blocks".to_owned(), self.debug_block_dump()));
+
+        self.dce();
+        self.eliminate_unreachable_blocks();
+        trace.push(("after_dce_unreachable".to_owned(), self.debug_block_dump()));
+
+        resolve_line_numbers(&mut self.blocks);
+        trace.push(("after_resolve_line_numbers".to_owned(), self.debug_block_dump()));
+
+        duplicate_end_returns(&mut self.blocks);
+        trace.push(("after_duplicate_end_returns".to_owned(), self.debug_block_dump()));
+
+        self.dce();
+        self.eliminate_unreachable_blocks();
+        trace.push(("after_second_dce_unreachable".to_owned(), self.debug_block_dump()));
+
+        remove_redundant_nops_and_jumps(&mut self.blocks);
+        trace.push(("after_remove_redundant_nops_and_jumps".to_owned(), self.debug_block_dump()));
+
+        Ok(trace)
     }
 }
 
@@ -3905,6 +4011,37 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
             }]
         )
     };
+    let is_return_epilogue_pair = |instructions: &[InstructionInfo]| {
+        matches!(
+            instructions,
+            [
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::ReturnValue),
+                    ..
+                }
+            ] | [
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadSmallInt { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::ReturnValue),
+                    ..
+                }
+            ] | [InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::ReturnValue),
+                ..
+            }]
+        )
+    };
+    let starts_with_return_epilogue_pair = |instructions: &[InstructionInfo]| {
+        instructions.len() >= 2 && is_return_epilogue_pair(&instructions[..2])
+            || !instructions.is_empty() && is_return_epilogue_pair(&instructions[..1])
+    };
     let mut changes = 0;
     let mut block_order = Vec::new();
     let mut current = BlockIdx(0);
@@ -3928,6 +4065,15 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
                 if lineno < 0 || prev_lineno == lineno {
                     remove = true;
                 } else if src < src_instructions.len() - 1 {
+                    if kept.last().is_some_and(|prev: &InstructionInfo| {
+                        matches!(prev.instr.real(), Some(Instruction::Nop))
+                    }) && is_return_epilogue_pair(
+                        &src_instructions[src + 1..src_instructions.len().min(src + 3)],
+                    )
+                    {
+                        src_instructions[src + 1].lineno_override = Some(lineno);
+                        remove = true;
+                    } else {
                     let next_lineno = instruction_lineno(&src_instructions[src + 1]);
                     if next_lineno == lineno {
                         remove = true;
@@ -3935,10 +4081,13 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
                         src_instructions[src + 1].lineno_override = Some(lineno);
                         remove = true;
                     }
+                    }
                 } else {
                     let next = next_nonempty_block(blocks, blocks[bi].next);
                     if next != BlockIdx::NULL {
-                        if is_return_epilogue_block(&blocks[next.idx()]) {
+                        if is_return_epilogue_block(&blocks[next.idx()])
+                            || starts_with_return_epilogue_pair(&blocks[next.idx()].instructions)
+                        {
                             let current_block_is_nop_only =
                                 kept.iter().all(|prev: &InstructionInfo| {
                                     matches!(prev.instr.real(), Some(Instruction::Nop))
