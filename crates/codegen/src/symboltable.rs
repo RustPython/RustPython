@@ -1624,10 +1624,10 @@ impl SymbolTableBuilder {
                 let saved_in_conditional_block = self.in_conditional_block;
                 self.in_conditional_block = true;
                 self.scan_statements(body)?;
-                self.scan_statements(orelse)?;
-                // Keep nested scope collection in the same order that codegen
-                // compiles try/except, since the compiler currently consumes
-                // sub_tables through a linear cursor.
+                // Preserve source-order symbol analysis so `global`/`nonlocal`
+                // semantics match CPython, but reorder child scope storage to
+                // match the codegen order for plain try/except/else.
+                let body_subtables_len = self.tables.last().unwrap().sub_tables.len();
                 for handler in handlers {
                     let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                         type_,
@@ -1642,6 +1642,22 @@ impl SymbolTableBuilder {
                         self.register_ident(name, SymbolUsage::Assigned)?;
                     }
                     self.scan_statements(body)?;
+                }
+                if finalbody.is_empty() {
+                    let handler_subtables = self
+                        .tables
+                        .last_mut()
+                        .unwrap()
+                        .sub_tables
+                        .split_off(body_subtables_len);
+                    self.scan_statements(orelse)?;
+                    self.tables
+                        .last_mut()
+                        .unwrap()
+                        .sub_tables
+                        .extend(handler_subtables);
+                } else {
+                    self.scan_statements(orelse)?;
                 }
                 self.scan_statements(finalbody)?;
                 self.in_conditional_block = saved_in_conditional_block;
@@ -2148,6 +2164,13 @@ impl SymbolTableBuilder {
             });
         }
 
+        assert!(!generators.is_empty());
+        let outermost = &generators[0];
+
+        // CPython evaluates the outermost iterator in the enclosing scope
+        // before entering the comprehension scope.
+        self.scan_expression(&outermost.iter, ExpressionContext::IterDefinitionExp)?;
+
         // Comprehensions are compiled as functions, so create a scope for them:
         self.enter_scope(
             scope_name,
@@ -2183,36 +2206,27 @@ impl SymbolTableBuilder {
         // Register the passed argument to the generator function as the name ".0"
         self.register_name(".0", SymbolUsage::Parameter, range)?;
 
-        self.scan_expression(elt1, ExpressionContext::Load)?;
-        if let Some(elt2) = elt2 {
-            self.scan_expression(elt2, ExpressionContext::Load)?;
+        self.scan_expression(&outermost.target, ExpressionContext::Iter)?;
+        for if_expr in &outermost.ifs {
+            self.scan_expression(if_expr, ExpressionContext::Load)?;
         }
 
-        let mut is_first_generator = true;
-        for generator in generators {
-            // Set flag for INNER_LOOP_CONFLICT check (only for inner loops, not the first)
-            if !is_first_generator {
-                self.in_comp_inner_loop_target = true;
-            }
+        for generator in &generators[1..] {
+            self.in_comp_inner_loop_target = true;
             self.scan_expression(&generator.target, ExpressionContext::Iter)?;
             self.in_comp_inner_loop_target = false;
-
-            if is_first_generator {
-                is_first_generator = false;
-            } else {
-                self.scan_expression(&generator.iter, ExpressionContext::IterDefinitionExp)?;
-            }
-
+            self.scan_expression(&generator.iter, ExpressionContext::IterDefinitionExp)?;
             for if_expr in &generator.ifs {
                 self.scan_expression(if_expr, ExpressionContext::Load)?;
             }
         }
 
-        self.leave_scope();
+        if let Some(elt2) = elt2 {
+            self.scan_expression(elt2, ExpressionContext::Load)?;
+        }
+        self.scan_expression(elt1, ExpressionContext::Load)?;
 
-        // The first iterable is passed as an argument into the created function:
-        assert!(!generators.is_empty());
-        self.scan_expression(&generators[0].iter, ExpressionContext::IterDefinitionExp)?;
+        self.leave_scope();
 
         Ok(())
     }

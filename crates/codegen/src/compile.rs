@@ -1132,17 +1132,18 @@ impl Compiler {
     /// PEP 709: Inline comprehensions in function-like scopes.
     /// TODO: Module/class scope inlining needs more work (Cell name resolution edge cases).
     /// Generator expressions are never inlined.
-    fn is_inlined_comprehension_context(&self, comprehension_type: ComprehensionType) -> bool {
+    fn is_inlined_comprehension_context(
+        &self,
+        comprehension_type: ComprehensionType,
+        comp_table: &SymbolTable,
+    ) -> bool {
         if comprehension_type == ComprehensionType::Generator {
             return false;
         }
         if !self.ctx.in_func() {
             return false;
         }
-        self.symbol_table_stack
-            .last()
-            .and_then(|t| t.sub_tables.get(t.next_sub_table))
-            .is_some_and(|st| st.comp_inlined)
+        comp_table.comp_inlined
     }
 
     /// Enter a new scope
@@ -3545,6 +3546,18 @@ impl Compiler {
         let handler_block = self.new_block();
         let cleanup_block = self.new_block();
         let end_block = self.new_block();
+        let has_bare_except = handlers.iter().any(|handler| {
+            matches!(
+                handler,
+                ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                    type_: None,
+                    ..
+                })
+            )
+        });
+        if has_bare_except {
+            self.disable_load_fast_borrow_for_block(end_block);
+        }
 
         emit!(self, Instruction::Nop);
         emit!(
@@ -4381,24 +4394,15 @@ impl Compiler {
         Ok(true)
     }
 
-    /// Collect simple annotations from module body in AST order (including nested blocks)
-    /// Returns list of (name, annotation_expr) pairs
-    /// This must match the order that annotations are compiled to ensure
-    /// conditional_annotation_index stays in sync with __annotate__ enumeration.
-    fn collect_simple_annotations(body: &[ast::Stmt]) -> Vec<(&str, &ast::Expr)> {
-        fn walk<'a>(stmts: &'a [ast::Stmt], out: &mut Vec<(&'a str, &'a ast::Expr)>) {
+    /// Collect annotated assignments from module/class body in AST order
+    /// (including nested conditional blocks). This preserves the same walk
+    /// order as symbol-table construction so the annotation scope's
+    /// `sub_tables` cursor stays aligned.
+    fn collect_annotations(body: &[ast::Stmt]) -> Vec<&ast::StmtAnnAssign> {
+        fn walk<'a>(stmts: &'a [ast::Stmt], out: &mut Vec<&'a ast::StmtAnnAssign>) {
             for stmt in stmts {
                 match stmt {
-                    ast::Stmt::AnnAssign(ast::StmtAnnAssign {
-                        target,
-                        annotation,
-                        simple,
-                        ..
-                    }) if *simple && matches!(target.as_ref(), ast::Expr::Name(_)) => {
-                        if let ast::Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
-                            out.push((id.as_str(), annotation.as_ref()));
-                        }
-                    }
+                    ast::Stmt::AnnAssign(stmt) => out.push(stmt),
                     ast::Stmt::If(ast::StmtIf {
                         body,
                         elif_else_clauses,
@@ -4449,10 +4453,13 @@ impl Compiler {
     /// Compile module-level __annotate__ function (PEP 649)
     /// Returns true if __annotate__ was created and stored
     fn compile_module_annotate(&mut self, body: &[ast::Stmt]) -> CompileResult<bool> {
-        // Collect simple annotations from module body first
-        let annotations = Self::collect_simple_annotations(body);
+        let annotations = Self::collect_annotations(body);
+        let simple_annotation_count = annotations
+            .iter()
+            .filter(|stmt| stmt.simple && matches!(stmt.target.as_ref(), ast::Expr::Name(_)))
+            .count();
 
-        if annotations.is_empty() {
+        if simple_annotation_count == 0 {
             return Ok(false);
         }
 
@@ -4496,11 +4503,40 @@ impl Compiler {
 
         emit!(self, Instruction::BuildMap { count: 0 });
 
-        for (idx, (name, annotation)) in annotations.iter().enumerate() {
+        let mut simple_idx = 0usize;
+        for stmt in annotations {
+            let ast::StmtAnnAssign {
+                target,
+                annotation,
+                simple,
+                ..
+            } = stmt;
+            let simple_name = if *simple {
+                match target.as_ref() {
+                    ast::Expr::Name(ast::ExprName { id, .. }) => Some(id.as_str()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            if simple_name.is_none() {
+                if !self.future_annotations {
+                    self.do_not_emit_bytecode += 1;
+                    let result = self.compile_annotation(annotation);
+                    self.do_not_emit_bytecode -= 1;
+                    result?;
+                }
+                continue;
+            }
+
             let not_set_block = has_conditional.then(|| self.new_block());
+            let name = simple_name.expect("missing simple annotation name");
 
             if has_conditional {
-                self.emit_load_const(ConstantData::Integer { value: idx.into() });
+                self.emit_load_const(ConstantData::Integer {
+                    value: simple_idx.into(),
+                });
                 if parent_scope_type == CompilerScope::Class {
                     let idx = self.get_free_var_index("__conditional_annotations__")?;
                     emit!(self, Instruction::LoadDeref { i: idx });
@@ -4528,6 +4564,7 @@ impl Compiler {
                 value: self.mangle(name).into_owned().into(),
             });
             emit!(self, Instruction::StoreSubscr);
+            simple_idx += 1;
 
             if let Some(not_set_block) = not_set_block {
                 self.switch_to_block(not_set_block);
@@ -8872,20 +8909,16 @@ impl Compiler {
                     ast::Expr::ListComp(ast::ExprListComp { generators, .. })
                     | ast::Expr::SetComp(ast::ExprSetComp { generators, .. })
                     | ast::Expr::Generator(ast::ExprGenerator { generators, .. }) => {
-                        // leave_scope runs before the first iterator is
-                        // scanned, so the comprehension scope comes first
-                        // in sub_tables, then any nested scopes from the
-                        // first iterator.
-                        self.consume_scope();
                         if let Some(first) = generators.first() {
                             self.visit_expr(&first.iter);
                         }
+                        self.consume_scope();
                     }
                     ast::Expr::DictComp(ast::ExprDictComp { generators, .. }) => {
-                        self.consume_scope();
                         if let Some(first) = generators.first() {
                             self.visit_expr(&first.iter);
                         }
+                        self.consume_scope();
                     }
                     _ => ast::visitor::walk_expr(self, expr),
                 }
@@ -8902,6 +8935,64 @@ impl Compiler {
         } else {
             Ok(())
         }
+    }
+
+    fn peek_next_sub_table_after_skipped_nested_scopes_in_expr(
+        &mut self,
+        expression: &ast::Expr,
+    ) -> CompileResult<SymbolTable> {
+        let saved_cursor = self
+            .symbol_table_stack
+            .last()
+            .expect("no current symbol table")
+            .next_sub_table;
+        let result = (|| {
+            self.consume_skipped_nested_scopes_in_expr(expression)?;
+            let current_table = self
+                .symbol_table_stack
+                .last()
+                .expect("no current symbol table");
+            if let Some(table) = current_table.sub_tables.get(current_table.next_sub_table) {
+                Ok(table.clone())
+            } else {
+                let name = current_table.name.clone();
+                let typ = current_table.typ;
+                Err(self.error(CodegenErrorType::SyntaxError(format!(
+                    "no symbol table available in {} (type: {:?})",
+                    name, typ
+                ))))
+            }
+        })();
+        self.symbol_table_stack
+            .last_mut()
+            .expect("no current symbol table")
+            .next_sub_table = saved_cursor;
+        result
+    }
+
+    fn push_output_with_symbol_table(
+        &mut self,
+        table: SymbolTable,
+        flags: bytecode::CodeFlags,
+        posonlyarg_count: u32,
+        arg_count: u32,
+        kwonlyarg_count: u32,
+        obj_name: String,
+    ) -> CompileResult<()> {
+        let scope_type = table.typ;
+        self.symbol_table_stack.push(table);
+
+        let key = self.symbol_table_stack.len() - 1;
+        let lineno = self.get_source_line_number().get();
+        self.enter_scope(&obj_name, scope_type, key, lineno.to_u32())?;
+
+        if let Some(info) = self.code_stack.last_mut() {
+            info.flags = flags | (info.flags & bytecode::CodeFlags::NESTED);
+            info.metadata.argcount = arg_count;
+            info.metadata.posonlyargcount = posonlyarg_count;
+            info.metadata.kwonlyargcount = kwonlyarg_count;
+        }
+        Ok(())
     }
 
     fn compile_comprehension(
@@ -8925,9 +9016,6 @@ impl Compiler {
             return Err(self.error(CodegenErrorType::InvalidAsyncComprehension));
         }
 
-        // Check if this comprehension should be inlined (PEP 709)
-        let is_inlined = self.is_inlined_comprehension_context(comprehension_type);
-
         // async comprehensions are allowed in various contexts:
         // - list/set/dict comprehensions in async functions (or nested within)
         // - always for generator expressions
@@ -8945,12 +9033,18 @@ impl Compiler {
 
         // We must have at least one generator:
         assert!(!generators.is_empty());
+        let outermost = &generators[0];
+        let comp_table =
+            self.peek_next_sub_table_after_skipped_nested_scopes_in_expr(&outermost.iter)?;
+
+        let is_inlined = self.is_inlined_comprehension_context(comprehension_type, &comp_table);
 
         if is_inlined && !has_an_async_gen && !element_contains_await {
             // PEP 709: Inlined comprehension - compile inline without new scope
             let was_in_inlined_comp = self.current_code_info().in_inlined_comp;
             self.current_code_info().in_inlined_comp = true;
             let result = self.compile_inlined_comprehension(
+                comp_table,
                 init_collection,
                 generators,
                 compile_element,
@@ -8981,8 +9075,12 @@ impl Compiler {
             flags
         };
 
-        // Create magnificent function <listcomp>:
-        self.push_output(flags, 1, 1, 0, name.to_owned())?;
+        // The symbol table follows CPython's symtable walk: nested scopes
+        // in the outermost iterator are recorded before the comprehension
+        // scope itself. Peek past those nested scopes so we can enter the
+        // correct comprehension table here, then let the real outermost
+        // iterator compile consume its nested scopes later in parent scope.
+        self.push_output_with_symbol_table(comp_table, flags, 1, 1, 0, name.to_owned())?;
 
         // Set qualname for comprehension
         self.set_qualname();
@@ -9127,11 +9225,15 @@ impl Compiler {
         self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
 
         // Evaluate iterated item:
-        self.compile_expression(&generators[0].iter)?;
+        self.compile_expression(&outermost.iter)?;
+        self.symbol_table_stack
+            .last_mut()
+            .expect("no current symbol table")
+            .next_sub_table += 1;
 
         // Get iterator / turn item into an iterator
         // Use is_async from the first generator, not has_an_async_gen which covers ALL generators
-        if generators[0].is_async {
+        if outermost.is_async {
             emit!(self, Instruction::GetAIter);
         } else {
             emit!(self, Instruction::GetIter);
@@ -9152,25 +9254,21 @@ impl Compiler {
     /// This generates bytecode inline without creating a new code object
     fn compile_inlined_comprehension(
         &mut self,
+        comp_table: SymbolTable,
         init_collection: Option<AnyInstruction>,
         generators: &[ast::Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
         has_async: bool,
     ) -> CompileResult<()> {
-        // PEP 709: Consume the comprehension's sub_table.
-        // The symbols are already merged into parent scope by analyze_symbol_table.
-        let current_table = self
-            .symbol_table_stack
-            .last_mut()
-            .expect("no current symbol table");
-        let comp_table = current_table.sub_tables[current_table.next_sub_table].clone();
-        current_table.next_sub_table += 1;
-
         // Compile the outermost iterator first. Its expression may reference
         // nested scopes (e.g. lambdas) whose sub_tables sit at the current
         // position in the parent's list. Those must be consumed before we
         // splice in the comprehension's own children.
         self.compile_expression(&generators[0].iter)?;
+        self.symbol_table_stack
+            .last_mut()
+            .expect("no current symbol table")
+            .next_sub_table += 1;
 
         // Splice the comprehension's children (e.g. nested inlined
         // comprehensions) into the parent so the compiler can find them.
@@ -9564,7 +9662,77 @@ impl Compiler {
 
     fn arg_constant(&mut self, constant: ConstantData) -> oparg::ConstIdx {
         let info = self.current_code_info();
+        if let ConstantData::Code { code } = &constant
+            && let Some(idx) = info.metadata.consts.iter().position(|existing| {
+                matches!(
+                    existing,
+                    ConstantData::Code {
+                        code: existing_code
+                    } if Self::code_objects_equivalent(existing_code, code)
+                )
+            })
+        {
+            return u32::try_from(idx)
+                .expect("constant table index overflow")
+                .into();
+        }
         info.metadata.consts.insert_full(constant).0.to_u32().into()
+    }
+
+    fn constants_equivalent(lhs: &ConstantData, rhs: &ConstantData) -> bool {
+        match (lhs, rhs) {
+            (ConstantData::Code { code: lhs }, ConstantData::Code { code: rhs }) => {
+                Self::code_objects_equivalent(lhs, rhs)
+            }
+            (ConstantData::Tuple { elements: lhs }, ConstantData::Tuple { elements: rhs })
+            | (
+                ConstantData::Frozenset { elements: lhs },
+                ConstantData::Frozenset { elements: rhs },
+            ) => {
+                lhs.len() == rhs.len()
+                    && lhs
+                        .iter()
+                        .zip(rhs.iter())
+                        .all(|(lhs, rhs)| Self::constants_equivalent(lhs, rhs))
+            }
+            (ConstantData::Slice { elements: lhs }, ConstantData::Slice { elements: rhs }) => lhs
+                .iter()
+                .zip(rhs.iter())
+                .all(|(lhs, rhs)| Self::constants_equivalent(lhs, rhs)),
+            _ => lhs == rhs,
+        }
+    }
+
+    fn code_objects_equivalent(lhs: &bytecode::CodeObject, rhs: &bytecode::CodeObject) -> bool {
+        lhs.instructions.len() == rhs.instructions.len()
+            && lhs
+                .instructions
+                .iter()
+                .zip(rhs.instructions.iter())
+                .all(|(lhs, rhs)| u8::from(lhs.op) == u8::from(rhs.op) && lhs.arg == rhs.arg)
+            && lhs.locations == rhs.locations
+            && lhs.flags.bits() == rhs.flags.bits()
+            && lhs.posonlyarg_count == rhs.posonlyarg_count
+            && lhs.arg_count == rhs.arg_count
+            && lhs.kwonlyarg_count == rhs.kwonlyarg_count
+            && lhs.source_path == rhs.source_path
+            && lhs.first_line_number == rhs.first_line_number
+            && lhs.max_stackdepth == rhs.max_stackdepth
+            && lhs.obj_name == rhs.obj_name
+            && lhs.qualname == rhs.qualname
+            && lhs.constants.len() == rhs.constants.len()
+            && lhs
+                .constants
+                .iter()
+                .zip(rhs.constants.iter())
+                .all(|(lhs, rhs)| Self::constants_equivalent(lhs, rhs))
+            && lhs.names == rhs.names
+            && lhs.varnames == rhs.varnames
+            && lhs.cellvars == rhs.cellvars
+            && lhs.freevars == rhs.freevars
+            && lhs.localspluskinds == rhs.localspluskinds
+            && lhs.linetable == rhs.linetable
+            && lhs.exceptiontable == rhs.exceptiontable
     }
 
     /// Try to fold a collection of constant expressions into a single ConstantData::Tuple.
@@ -10005,7 +10173,13 @@ impl Compiler {
     fn new_block(&mut self) -> BlockIdx {
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
-        code.blocks.push(ir::Block::default());
+        let inherited_disable_load_fast_borrow =
+            code.blocks[code.current_block].disable_load_fast_borrow;
+        let block = ir::Block {
+            disable_load_fast_borrow: inherited_disable_load_fast_borrow,
+            ..ir::Block::default()
+        };
+        code.blocks.push(block);
         idx
     }
 
@@ -11996,6 +12170,71 @@ def f():
                 Some(Instruction::LoadSmallInt { .. }) | Some(Instruction::LoadConst { .. })
             ),
             "expected line-after-except code immediately after POP_EXCEPT, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_bare_except_deopts_post_handler_load_fast_borrow() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        1 / 0
+    except:
+        pass
+    with self.assertRaises(SyntaxError):
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let attr_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadAttr { .. }))
+            .expect("missing LOAD_ATTR for assertRaises");
+        assert!(
+            matches!(ops.get(attr_idx - 1), Some(Instruction::LoadFast { .. })),
+            "bare except tail should deopt self to LOAD_FAST, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_typed_except_keeps_post_handler_load_fast_borrow() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        1 / 0
+    except ZeroDivisionError:
+        pass
+    with self.assertRaises(SyntaxError):
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let attr_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadAttr { .. }))
+            .expect("missing LOAD_ATTR for assertRaises");
+        assert!(
+            matches!(
+                ops.get(attr_idx - 1),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "typed except tail should keep LOAD_FAST_BORROW, got ops={ops:?}"
         );
     }
 

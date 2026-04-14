@@ -2107,8 +2107,8 @@ impl CodeInfo {
             target: BlockIdx,
             start_depth: usize,
         ) {
-            if cfg!(debug_assertions) {
-                let expected = blocks[target.idx()].start_depth.map(|depth| depth as usize);
+            let expected = blocks[target.idx()].start_depth.map(|depth| depth as usize);
+            if expected != Some(start_depth) {
                 debug_assert!(
                     expected == Some(start_depth),
                     "optimize_load_fast_borrow start_depth mismatch: source={source:?} target={target:?} expected={expected:?} actual={:?} source_last={:?} target_instrs={:?}",
@@ -2123,6 +2123,7 @@ impl CodeInfo {
                         .map(|info| info.instr)
                         .collect::<Vec<_>>(),
                 );
+                return;
             }
             if !visited[target.idx()] {
                 visited[target.idx()] = true;
@@ -3877,6 +3878,33 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
 }
 
 fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
+    let is_return_epilogue_block = |block: &Block| {
+        matches!(
+            block.instructions.as_slice(),
+            [
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::ReturnValue),
+                    ..
+                }
+            ] | [
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadSmallInt { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::ReturnValue),
+                    ..
+                }
+            ] | [InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::ReturnValue),
+                ..
+            }]
+        )
+    };
     let mut changes = 0;
     let mut block_order = Vec::new();
     let mut current = BlockIdx(0);
@@ -3910,18 +3938,41 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
                 } else {
                     let next = next_nonempty_block(blocks, blocks[bi].next);
                     if next != BlockIdx::NULL {
-                        let mut next_lineno = None;
-                        for next_instr in &blocks[next.idx()].instructions {
+                        if is_return_epilogue_block(&blocks[next.idx()]) {
+                            let current_block_is_nop_only =
+                                kept.iter().all(|prev: &InstructionInfo| {
+                                    matches!(prev.instr.real(), Some(Instruction::Nop))
+                                });
+                            let pred = find_layout_predecessor(blocks, block_idx);
+                            let pred_ends_with_nop = pred != BlockIdx::NULL
+                                && blocks[pred.idx()].instructions.last().is_some_and(|prev| {
+                                    matches!(prev.instr.real(), Some(Instruction::Nop))
+                                });
+                            if current_block_is_nop_only && pred_ends_with_nop {
+                                changes += 1;
+                                continue;
+                            }
+                        }
+                        let mut next_info = None;
+                        for (next_idx, next_instr) in
+                            blocks[next.idx()].instructions.iter().enumerate()
+                        {
                             let line = instruction_lineno(next_instr);
                             if matches!(next_instr.instr.real(), Some(Instruction::Nop)) && line < 0
                             {
                                 continue;
                             }
-                            next_lineno = Some(line);
+                            next_info = Some((next_idx, line));
                             break;
                         }
-                        if next_lineno.is_some_and(|line| line == lineno) {
-                            remove = true;
+                        if let Some((next_idx, next_lineno)) = next_info {
+                            if next_lineno == lineno {
+                                remove = true;
+                            } else if next_lineno < 0 {
+                                blocks[next.idx()].instructions[next_idx].lineno_override =
+                                    Some(lineno);
+                                remove = true;
+                            }
                         }
                     }
                 }
@@ -3958,6 +4009,7 @@ fn remove_redundant_jumps_in_blocks(blocks: &mut [Block]) -> usize {
             && let Some(last_instr) = blocks[idx].instructions.last_mut()
         {
             set_to_nop(last_instr);
+            last_instr.lineno_override = Some(-1);
             changes += 1;
         }
         current = blocks[idx].next;

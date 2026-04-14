@@ -305,11 +305,11 @@ is *not* valid syntax.)
     {'args': StarredB}
 
     >>> def f3(*args: *b, arg1: int): pass
-    >>> f3.__annotations__ # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f3.__annotations__
     {'args': StarredB, 'arg1': <class 'int'>}
 
     >>> def f4(*args: *b, arg1: int = 2): pass
-    >>> f4.__annotations__ # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> f4.__annotations__
     {'args': StarredB, 'arg1': <class 'int'>}
 
     >>> def f5(*args: *b = (1,)): pass # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE

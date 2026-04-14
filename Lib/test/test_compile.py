@@ -1103,7 +1103,6 @@ class TestSpecifics(unittest.TestCase):
             self.assertEqual('RETURN_VALUE', opcodes[-1].opname)
             self.assertEqual(None, opcodes[1].argval)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_consts_in_conditionals(self):
         def and_true(x):
             return True and x

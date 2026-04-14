@@ -863,7 +863,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
             y = x + x
         self.assertInBytecode(f, 'LOAD_FAST_BORROW_LOAD_FAST_BORROW')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_unknown_simple(self):
         def f():
             if condition():
@@ -906,7 +905,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f5, 'LOAD_FAST_BORROW')
         self.assertNotInBytecode(f5, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_known_because_already_loaded(self):
         def f():
             if condition():
