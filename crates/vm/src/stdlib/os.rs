@@ -544,7 +544,7 @@ pub(super) mod _os {
         let key = super::bytes_as_os_str(key, vm)?;
         let value = super::bytes_as_os_str(value, vm)?;
         // SAFETY: requirements forwarded from the caller
-        crate::host_env::os::set_var(key, value);
+        unsafe { crate::host_env::os::set_var(key, value) };
         Ok(())
     }
 
@@ -596,7 +596,7 @@ pub(super) mod _os {
         }
         let key = super::bytes_as_os_str(key, vm)?;
         // SAFETY: requirements forwarded from the caller
-        crate::host_env::os::remove_var(key);
+        unsafe { crate::host_env::os::remove_var(key) };
         Ok(())
     }
 

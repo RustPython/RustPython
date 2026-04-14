@@ -48,11 +48,17 @@ pub fn vars_os() -> env::VarsOs {
     env::vars_os()
 }
 
-pub fn set_var(key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) {
+/// # Safety
+/// The caller must ensure no other threads can concurrently read or write
+/// the process environment while this mutation is performed.
+pub unsafe fn set_var(key: impl AsRef<OsStr>, value: impl AsRef<OsStr>) {
     unsafe { env::set_var(key, value) };
 }
 
-pub fn remove_var(key: impl AsRef<OsStr>) {
+/// # Safety
+/// The caller must ensure no other threads can concurrently read or write
+/// the process environment while this mutation is performed.
+pub unsafe fn remove_var(key: impl AsRef<OsStr>) {
     unsafe { env::remove_var(key) };
 }
 

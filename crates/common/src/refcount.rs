@@ -17,9 +17,10 @@ const WEAK_COUNT: usize = 1 << STRONG_WIDTH;
 #[cold]
 fn refcount_overflow() -> ! {
     #[cfg(feature = "std")]
+    // SAFETY: abort terminates the process immediately and does not return.
     unsafe {
         libc::abort()
-    }
+    };
     #[cfg(not(feature = "std"))]
     core::panic!("refcount overflow");
 }
