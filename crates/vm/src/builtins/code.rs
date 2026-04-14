@@ -525,7 +525,7 @@ impl PyCode {
             Some(stem) => stem.display().to_string(),
             None => "".to_owned(),
         };
-        let content = crate::host_env::fileutils::read(path).map_err(|e| e.to_pyexception(vm))?;
+        let content = crate::host_env::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
         Self::from_pyc(
             &content,
             Some(&name),

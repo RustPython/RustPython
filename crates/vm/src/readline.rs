@@ -128,7 +128,7 @@ mod rustyline_readline {
                 if !path.exists()
                     && let Some(parent) = path.parent()
                 {
-                    crate::host_env::fileutils::create_dir_all(parent)?;
+                    crate::host_env::fs::create_dir_all(parent)?;
                 }
                 self.repl.save_history(path)?;
                 Ok(())

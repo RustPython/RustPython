@@ -472,7 +472,7 @@ pub mod module {
         )
         })?;
 
-        let metadata = match crate::host_env::fileutils::metadata(&path.path) {
+        let metadata = match crate::host_env::fs::metadata(&path.path) {
             Ok(m) => m,
             // If the file doesn't exist, return False for any access check
             Err(_) => return Ok(false),
@@ -571,7 +571,7 @@ pub mod module {
         }
         #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
-        crate::host_env::fileutils::remove_file(&path)
+        crate::host_env::fs::remove_file(&path)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 

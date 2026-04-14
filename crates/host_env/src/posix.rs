@@ -63,7 +63,7 @@ pub fn get_number_of_os_threads() -> isize {
 pub fn get_number_of_os_threads() -> isize {
     use std::io::Read as _;
 
-    let mut file = match crate::fileutils::open("/proc/self/stat") {
+    let mut file = match crate::fs::open("/proc/self/stat") {
         Ok(f) => f,
         Err(_) => return 0,
     };

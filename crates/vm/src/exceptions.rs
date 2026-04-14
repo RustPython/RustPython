@@ -373,7 +373,7 @@ fn print_source_line<W: Write>(
 ) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
     // TODO: support different encodings
-    let file = match crate::host_env::fileutils::open(filename) {
+    let file = match crate::host_env::fs::open(filename) {
         Ok(file) => file,
         Err(_) => return Ok(()),
     };

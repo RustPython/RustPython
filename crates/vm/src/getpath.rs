@@ -371,7 +371,7 @@ fn get_executable_path() -> Option<PathBuf> {
 
 /// Parse pyvenv.cfg and extract the 'home' key value
 fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
-    let content = crate::host_env::fileutils::read_to_string(pyvenv_cfg).ok()?;
+    let content = crate::host_env::fs::read_to_string(pyvenv_cfg).ok()?;
 
     for line in content.lines() {
         if let Some((key, value)) = line.split_once('=')

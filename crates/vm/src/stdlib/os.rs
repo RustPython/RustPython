@@ -14,9 +14,9 @@ pub(crate) fn fs_metadata<P: AsRef<Path>>(
     follow_symlink: bool,
 ) -> io::Result<std::fs::Metadata> {
     if follow_symlink {
-        crate::host_env::fileutils::metadata(path.as_ref())
+        crate::host_env::fs::metadata(path.as_ref())
     } else {
-        crate::host_env::fileutils::symlink_metadata(path.as_ref())
+        crate::host_env::fs::symlink_metadata(path.as_ref())
     }
 }
 
@@ -366,8 +366,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn mkdirs(path: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let os_path = vm.fsencode(&path)?;
-        crate::host_env::fileutils::create_dir_all(&*os_path)
-            .map_err(|err| err.into_pyexception(vm))
+        crate::host_env::fs::create_dir_all(&*os_path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -390,7 +389,7 @@ pub(super) mod _os {
         }
         #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
-        crate::host_env::fileutils::remove_dir(&path)
+        crate::host_env::fs::remove_dir(&path)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
@@ -398,7 +397,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn rmdir(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
-        crate::host_env::fileutils::remove_dir(&path)
+        crate::host_env::fs::remove_dir(&path)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
@@ -414,7 +413,7 @@ pub(super) mod _os {
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
-                let dir_iter = match crate::host_env::fileutils::read_dir(&path) {
+                let dir_iter = match crate::host_env::fs::read_dir(&path) {
                     Ok(iter) => iter,
                     Err(err) => {
                         return Err(OSErrorBuilder::with_filename(&err, path, vm));
@@ -1188,7 +1187,7 @@ pub(super) mod _os {
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         match path {
             OsPathOrFd::Path(path) => {
-                let entries = crate::host_env::fileutils::read_dir(&path.path)
+                let entries = crate::host_env::fs::read_dir(&path.path)
                     .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
                 Ok(ScandirIterator {
                     entries: PyRwLock::new(Some(entries)),
@@ -1502,7 +1501,7 @@ pub(super) mod _os {
             use std::os::windows::ffi::OsStrExt;
             use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
 
-            if let Ok(cwd) = env::current_dir() {
+            if let Ok(cwd) = crate::host_env::os::current_dir() {
                 let cwd_str = cwd.as_os_str();
                 let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
 
@@ -2051,7 +2050,7 @@ pub(super) mod _os {
 
         let path = OsPath::try_from_object(vm, path)?;
         // TODO: just call libc::truncate() on POSIX
-        let f = match crate::host_env::fileutils::open_write(&path) {
+        let f = match crate::host_env::fs::open_write(&path) {
             Ok(f) => f,
             Err(e) => return Err(error(vm, e, path)),
         };

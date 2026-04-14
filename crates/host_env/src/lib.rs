@@ -11,6 +11,8 @@ pub mod crt_fd;
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod fileutils;
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+pub mod fs;
 
 #[cfg(windows)]
 pub mod windows;

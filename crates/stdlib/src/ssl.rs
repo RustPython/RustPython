@@ -1766,7 +1766,7 @@ mod _ssl {
 
             // Validate that the file contains DH parameters
             // Read the file and check for DH PARAMETERS header
-            let contents = rustpython_host_env::fileutils::read_to_string(&path_str)
+            let contents = rustpython_host_env::fs::read_to_string(&path_str)
                 .map_err(|e| vm.new_os_error(e.to_string()))?;
 
             if !contents.contains("BEGIN DH PARAMETERS")
@@ -2154,7 +2154,7 @@ mod _ssl {
             path: &str,
             vm: &VirtualMachine,
         ) -> PyResult<Option<CertificateRevocationListDer<'static>>> {
-            let data = rustpython_host_env::fileutils::read(path).map_err(|e| match e.kind() {
+            let data = rustpython_host_env::fs::read(path).map_err(|e| match e.kind() {
                 std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
                     e.into_pyexception(vm)
                 }
@@ -4913,7 +4913,7 @@ mod _ssl {
     fn _test_decode_cert(path: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // Read certificate file
         let path_str = path.as_str();
-        let cert_data = rustpython_host_env::fileutils::read(path_str).map_err(|e| {
+        let cert_data = rustpython_host_env::fs::read(path_str).map_err(|e| {
             vm.new_os_error(format!(
                 "Failed to read certificate file {}: {}",
                 path_str, e

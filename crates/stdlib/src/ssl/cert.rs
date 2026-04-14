@@ -639,7 +639,7 @@ impl<'a> CertLoader<'a> {
     ///
     /// Returns statistics about loaded certificates
     pub fn load_from_file(&mut self, path: &str) -> Result<CertStats, std::io::Error> {
-        let contents = rustpython_host_env::fileutils::read(path)?;
+        let contents = rustpython_host_env::fs::read(path)?;
         self.load_from_bytes(&contents)
     }
 
@@ -648,7 +648,7 @@ impl<'a> CertLoader<'a> {
     /// Reads all files in the directory and attempts to parse them as certificates.
     /// Invalid files are silently skipped (matches OpenSSL capath behavior).
     pub fn load_from_dir(&mut self, dir_path: &str) -> Result<CertStats, std::io::Error> {
-        let entries = rustpython_host_env::fileutils::read_dir(dir_path)?;
+        let entries = rustpython_host_env::fs::read_dir(dir_path)?;
         let mut stats = CertStats::default();
 
         for entry in entries {
@@ -658,7 +658,7 @@ impl<'a> CertLoader<'a> {
             // Skip directories and process all files
             // OpenSSL capath uses hash-based naming like "4e1295a3.0"
             if path.is_file()
-                && let Ok(contents) = rustpython_host_env::fileutils::read(&path)
+                && let Ok(contents) = rustpython_host_env::fs::read(&path)
             {
                 // Ignore errors for individual files (some may not be certs)
                 if let Ok(file_stats) = self.load_from_bytes(&contents) {
@@ -1129,7 +1129,7 @@ pub(super) fn load_cert_chain_from_file(
     password: Option<&str>,
 ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Box<dyn core::error::Error>> {
     // Load certificate file - preserve io::Error for errno
-    let cert_contents = rustpython_host_env::fileutils::read(cert_path)?;
+    let cert_contents = rustpython_host_env::fs::read(cert_path)?;
 
     // Parse certificates (PEM format)
     let mut cert_cursor = std::io::Cursor::new(&cert_contents);
@@ -1142,7 +1142,7 @@ pub(super) fn load_cert_chain_from_file(
     }
 
     // Load private key file - preserve io::Error for errno
-    let key_contents = rustpython_host_env::fileutils::read(key_path)?;
+    let key_contents = rustpython_host_env::fs::read(key_path)?;
 
     // Parse private key (supports PKCS8, RSA, EC formats)
     let private_key = if let Some(pwd) = password {
