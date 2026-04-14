@@ -1,5 +1,5 @@
 use crate::{PyObject, with_vm};
-use core::ffi::{c_int, c_uint, c_ulong, c_void};
+use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyStr, PyType};
@@ -127,6 +127,22 @@ pub extern "C" fn PyObject_GetAttr(obj: *mut PyObject, name: *mut PyObject) -> *
         let obj = unsafe { &*obj };
         let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
         obj.get_attr(name, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyObject_SetAttrString(
+    obj: *mut PyObject,
+    attr_name: *const c_char,
+    value: *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { CStr::from_ptr(attr_name) }
+            .to_str()
+            .expect("attribute name must be valid UTF-8");
+        let value = unsafe { &*value }.to_owned();
+        obj.set_attr(name, value, vm)
     })
 }
 
