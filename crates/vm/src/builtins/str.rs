@@ -44,8 +44,12 @@ use rustpython_common::{
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk, Wtf8Concat},
 };
 
-use icu_properties::props::{
-    BidiClass, BinaryProperty, EnumeratedProperty, GeneralCategory, XidContinue, XidStart,
+use icu_properties::{
+    CodePointMapData,
+    props::{
+        BidiClass, BinaryProperty, CanonicalCombiningClass, EnumeratedProperty, GeneralCategory,
+        XidContinue, XidStart,
+    },
 };
 use unicode_casing::CharExt;
 
@@ -946,7 +950,11 @@ impl PyStr {
 
     #[pymethod]
     fn isalnum(&self) -> bool {
-        !self.data.is_empty() && self.char_all(char::is_alphanumeric)
+        let map = CodePointMapData::<CanonicalCombiningClass>::new();
+        !self.data.is_empty()
+            && self.char_all(|c| {
+                c.is_alphanumeric() && map.get(c) == CanonicalCombiningClass::NotReordered
+            })
     }
 
     #[pymethod]
