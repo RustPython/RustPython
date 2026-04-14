@@ -251,7 +251,7 @@ pub mod module {
     #[pyattr]
     use libc::{
         CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, O_SYNC, P_ALL,
-        P_PGID, P_PID, RTLD_NOLOAD, SCHED_FIFO, SCHED_RR,
+        P_PGID, P_PID, SCHED_FIFO, SCHED_RR,
     };
 
     #[cfg(any(
@@ -277,7 +277,8 @@ pub mod module {
     ))]
     #[pyattr]
     use libc::{
-        F_LOCK, F_TEST, F_TLOCK, F_ULOCK, O_ASYNC, O_NDELAY, O_NOCTTY, WEXITED, WNOWAIT, WSTOPPED,
+        F_LOCK, F_TEST, F_TLOCK, F_ULOCK, O_ASYNC, O_NDELAY, O_NOCTTY, RTLD_NOLOAD, WEXITED,
+        WNOWAIT, WSTOPPED,
     };
 
     #[cfg(any(
