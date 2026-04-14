@@ -16,6 +16,7 @@ pub(crate) mod longobject;
 pub(crate) mod methodobject;
 pub(crate) mod moduleobject;
 pub(crate) mod object;
+pub(crate) mod objimpl;
 pub(crate) mod pyerrors;
 pub(crate) mod pylifecycle;
 pub(crate) mod pystate;
