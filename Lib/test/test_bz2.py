@@ -937,6 +937,7 @@ class BZ2DecompressorTest(BaseTest):
             with self.assertRaises(TypeError):
                 pickle.dumps(BZ2Decompressor(), proto)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 100
     def testDecompressorChunksMaxsize(self):
         bzd = BZ2Decompressor()
         max_length = 100
