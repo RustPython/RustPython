@@ -130,6 +130,7 @@ macro_rules! define_opcodes {
 define_opcodes!(
     #[repr(u8)]
     pub enum Opcode;
+
     pub enum Instruction {
         Cache = (0, "CACHE"),
         BinarySlice = (1, "BINARY_SLICE"),
@@ -1457,6 +1458,7 @@ impl InstructionMetadata for Instruction {
 define_opcodes!(
     #[repr(u16)]
     pub enum PseudoOpcode;
+
     pub enum PseudoInstruction {
         AnnotationsPlaceholder = (256, "ANNOTATIONS_PLACEHOLDER"),
         Jump { delta: Arg<Label> } = (257, "JUMP"),
