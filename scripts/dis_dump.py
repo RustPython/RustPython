@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import ast
 import builtins
 import dis
 import json
@@ -39,6 +40,7 @@ _JUMP_OPNAMES = frozenset(
         "JUMP_IF_TRUE_OR_POP",
         "JUMP_IF_FALSE_OR_POP",
         "FOR_ITER",
+        "END_ASYNC_FOR",
         "SEND",
     }
 )
@@ -94,6 +96,14 @@ def _normalize_argrepr(argrepr):
 
     argrepr = re.sub(r"\\u([0-9a-fA-F]{4})", _unescape, argrepr)
     argrepr = re.sub(r"\\U([0-9a-fA-F]{8})", _unescape, argrepr)
+    if argrepr.startswith("frozenset({") and argrepr.endswith("})"):
+        try:
+            values = ast.literal_eval(argrepr[len("frozenset(") : -1])
+        except Exception:
+            return argrepr
+        if isinstance(values, set):
+            parts = sorted(_normalize_argrepr(repr(value)) for value in values)
+            return f"frozenset({{{', '.join(parts)}}})"
     return argrepr
 
 
@@ -249,7 +259,7 @@ def _extract_instructions(code):
             # 1. argval not in offset_to_idx (not a valid byte offset)
             # 2. argval == arg (raw arg returned as-is, not resolved to offset)
             # 3. For backward jumps: argval should be < current offset
-            is_backward = "BACKWARD" in inst.opname
+            is_backward = "BACKWARD" in inst.opname or inst.opname == "END_ASYNC_FOR"
             argval_is_raw = inst.argval == inst.arg and inst.arg is not None
             if target_idx is None or argval_is_raw:
                 target_idx = None  # force recalculation

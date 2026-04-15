@@ -1,10 +1,8 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 11049
+assertion_line: 11413
 expression: "compile_exec(\"\\\nif True and False and False:\n    pass\n\")"
 ---
   1           0 RESUME               (0)
-              1 NOP
-
-  2           2 LOAD_CONST           (None)
-              3 RETURN_VALUE
+              1 LOAD_CONST           (None)
+              2 RETURN_VALUE

@@ -1084,7 +1084,6 @@ class TestSpecifics(unittest.TestCase):
             self.assertEqual('RETURN_VALUE', opcodes[-1].opname)
             self.assertEqual(None, opcodes[-1].argval)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 3 != 8
     def test_false_while_loop(self):
         def break_in_while():
             while False:

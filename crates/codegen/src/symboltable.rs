@@ -571,10 +571,13 @@ impl SymbolTableAnalyzer {
             }
             newfree.extend(child_free);
         }
-        if let Some(ann_free) = annotation_free {
-            // Propagate annotation-scope free names to this scope so
-            // implicit class-scope cells (__classdict__/__conditional_annotations__)
-            // can be materialized by drop_class_free when needed.
+        if let Some(ann_free) = annotation_free
+            && symbol_table.typ == CompilerScope::Class
+        {
+            // Annotation-only free variables should not leak into function
+            // bodies. We only need to propagate them through class scopes so
+            // drop_class_free() can materialize implicit class cells when
+            // annotation scopes reference them.
             newfree.extend(ann_free);
         }
 
@@ -1569,26 +1572,35 @@ impl SymbolTableBuilder {
             }) => {
                 // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
                 match &**target {
-                    Expr::Name(ast::ExprName { id, .. }) if *simple => {
+                    Expr::Name(ast::ExprName { id, .. }) => {
                         let id_str = id.as_str();
 
-                        self.check_name(id_str, ExpressionContext::Store, *range)?;
+                        if *simple {
+                            self.check_name(id_str, ExpressionContext::Store, *range)?;
 
-                        self.register_name(id_str, SymbolUsage::AnnotationAssigned, *range)?;
-                        // PEP 649: Register annotate function in module/class scope
-                        let current_scope = self.tables.last().map(|t| t.typ);
-                        match current_scope {
-                            Some(CompilerScope::Module) => {
-                                self.register_name("__annotate__", SymbolUsage::Assigned, *range)?;
+                            self.register_name(id_str, SymbolUsage::AnnotationAssigned, *range)?;
+                            // PEP 649: Register annotate function in module/class scope
+                            let current_scope = self.tables.last().map(|t| t.typ);
+                            match current_scope {
+                                Some(CompilerScope::Module) => {
+                                    self.register_name(
+                                        "__annotate__",
+                                        SymbolUsage::Assigned,
+                                        *range,
+                                    )?;
+                                }
+                                Some(CompilerScope::Class) => {
+                                    self.register_name(
+                                        "__annotate_func__",
+                                        SymbolUsage::Assigned,
+                                        *range,
+                                    )?;
+                                }
+                                _ => {}
                             }
-                            Some(CompilerScope::Class) => {
-                                self.register_name(
-                                    "__annotate_func__",
-                                    SymbolUsage::Assigned,
-                                    *range,
-                                )?;
-                            }
-                            _ => {}
+                        } else if value.is_some() {
+                            self.check_name(id_str, ExpressionContext::Store, *range)?;
+                            self.register_name(id_str, SymbolUsage::Assigned, *range)?;
                         }
                     }
                     _ => {

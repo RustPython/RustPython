@@ -671,12 +671,14 @@ impl Compiler {
             _ => n > 4,
         };
 
-        // Fold all-constant collections (>= 3 elements) regardless of size
+        let can_fold_const_collection = match collection_type {
+            CollectionType::Tuple => n > 0,
+            CollectionType::List | CollectionType::Set => n >= 3,
+        };
         if !self.disable_const_collection_folding
             && !seen_star
             && pushed == 0
-            && n >= 3
-            && elts.iter().all(|e| e.is_constant())
+            && can_fold_const_collection
             && let Some(folded) = self.try_fold_constant_collection(elts, collection_type)?
         {
             match collection_type {
@@ -1374,6 +1376,7 @@ impl Compiler {
             location,
             end_location,
             except_handler,
+            folded_from_nonliteral_expr: false,
             lineno_override,
             cache_entries: 0,
         });
@@ -2510,8 +2513,9 @@ impl Compiler {
                 ..
             }) => {
                 self.enter_conditional_block();
-                self.compile_if(test, body, elif_else_clauses)?;
+                self.compile_if(test, body, elif_else_clauses, test.range())?;
                 self.leave_conditional_block();
+                self.set_source_range(statement.range());
             }
             ast::Stmt::While(ast::StmtWhile {
                 test, body, orelse, ..
@@ -5573,51 +5577,36 @@ impl Compiler {
         test: &ast::Expr,
         body: &[ast::Stmt],
         elif_else_clauses: &[ast::ElifElseClause],
+        _stmt_range: TextRange,
     ) -> CompileResult<()> {
-        let test_truthiness = self.constant_expr_truthiness(test)?;
-        match elif_else_clauses {
-            // Only if
-            [] => {
-                let after_block = self.new_block();
-                if matches!(test_truthiness, Some(false)) {
-                    self.disable_load_fast_borrow_for_block(after_block);
-                }
-                self.compile_jump_if(test, false, after_block)?;
-                self.compile_statements(body)?;
-                self.switch_to_block(after_block);
-            }
-            // If, elif*, elif/else
-            [rest @ .., tail] => {
-                let after_block = self.new_block();
-                let mut next_block = self.new_block();
+        let end_block = self.new_block();
+        let next_block = if elif_else_clauses.is_empty() {
+            end_block
+        } else {
+            self.new_block()
+        };
 
-                if matches!(test_truthiness, Some(false)) {
-                    self.disable_load_fast_borrow_for_block(next_block);
-                }
-                self.compile_jump_if(test, false, next_block)?;
-                self.compile_statements(body)?;
-                emit!(self, PseudoInstruction::Jump { delta: after_block });
-
-                for clause in rest {
-                    self.switch_to_block(next_block);
-                    next_block = self.new_block();
-                    if let Some(test) = &clause.test {
-                        self.compile_jump_if(test, false, next_block)?;
-                    } else {
-                        unreachable!() // must be elif
-                    }
-                    self.compile_statements(&clause.body)?;
-                    emit!(self, PseudoInstruction::Jump { delta: after_block });
-                }
-
-                self.switch_to_block(next_block);
-                if let Some(test) = &tail.test {
-                    self.compile_jump_if(test, false, after_block)?;
-                }
-                self.compile_statements(&tail.body)?;
-                self.switch_to_block(after_block);
-            }
+        if matches!(self.constant_expr_truthiness(test)?, Some(false)) {
+            self.disable_load_fast_borrow_for_block(next_block);
         }
+        self.compile_jump_if(test, false, next_block)?;
+        self.compile_statements(body)?;
+
+        let Some((clause, rest)) = elif_else_clauses.split_first() else {
+            self.switch_to_block(end_block);
+            return Ok(());
+        };
+
+        emit!(self, PseudoInstruction::Jump { delta: end_block });
+        self.switch_to_block(next_block);
+
+        if let Some(test) = &clause.test {
+            self.compile_if(test, &clause.body, rest, test.range())?;
+        } else {
+            debug_assert!(rest.is_empty());
+            self.compile_statements(&clause.body)?;
+        }
+        self.switch_to_block(end_block);
         Ok(())
     }
 
@@ -5637,6 +5626,7 @@ impl Compiler {
         self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
         if matches!(self.constant_expr_truthiness(test)?, Some(false)) {
             self.disable_load_fast_borrow_for_block(else_block);
+            self.disable_load_fast_borrow_for_block(after_block);
         }
         self.compile_jump_if(test, false, else_block)?;
 
@@ -5906,24 +5896,7 @@ impl Compiler {
         let mut end_async_for_target = BlockIdx::NULL;
 
         // The thing iterated:
-        // Optimize: `for x in [a, b, c]` → use tuple instead of list
-        // Skip for async-for (GET_AITER expects the original type)
-        if !is_async
-            && let ast::Expr::List(ast::ExprList { elts, .. }) = iter
-            && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
-        {
-            for elt in elts {
-                self.compile_expression(elt)?;
-            }
-            emit!(
-                self,
-                Instruction::BuildTuple {
-                    count: u32::try_from(elts.len()).expect("too many elements"),
-                }
-            );
-        } else {
-            self.compile_expression(iter)?;
-        }
+        self.compile_for_iterable_expression(iter, is_async)?;
 
         if is_async {
             if self.ctx.func != FunctionContext::AsyncFunction {
@@ -5957,6 +5930,13 @@ impl Compiler {
             self.push_fblock(FBlockType::ForLoop, for_block, after_block)?;
 
             emit!(self, Instruction::ForIter { delta: else_block });
+
+            // Match CPython codegen_for(): keep a line anchor on the target line
+            // so multiline/single-line `for ...: pass` bodies preserve tracing layout.
+            let saved_range = self.current_source_range;
+            self.set_source_range(target.range());
+            emit!(self, Instruction::Nop);
+            self.set_source_range(saved_range);
 
             // Start of loop iteration, set targets:
             self.compile_store(target)?;
@@ -5992,6 +5972,38 @@ impl Compiler {
 
         self.leave_conditional_block();
         Ok(())
+    }
+
+    fn compile_for_iterable_expression(
+        &mut self,
+        iter: &ast::Expr,
+        is_async: bool,
+    ) -> CompileResult<()> {
+        // Match CPython's iterable lowering for `for`/comprehension fronts:
+        // a non-starred list literal used only for iteration is emitted as a tuple.
+        // Skip async-for/async comprehension iteration because GET_AITER expects
+        // the original object semantics.
+        if !is_async
+            && let ast::Expr::List(ast::ExprList { elts, .. }) = iter
+            && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
+        {
+            if let Some(folded) = self.try_fold_constant_collection(elts, CollectionType::List)? {
+                self.emit_load_const(folded);
+            } else {
+                for elt in elts {
+                    self.compile_expression(elt)?;
+                }
+                emit!(
+                    self,
+                    Instruction::BuildTuple {
+                        count: u32::try_from(elts.len()).expect("too many elements"),
+                    }
+                );
+            }
+            return Ok(());
+        }
+
+        self.compile_expression(iter)
     }
 
     fn forbidden_name(&mut self, name: &str, ctx: NameUsage) -> CompileResult<bool> {
@@ -6201,9 +6213,17 @@ impl Compiler {
         // Keep the subject around for extracting elements.
         pc.on_top += 1;
         for (i, pattern) in patterns.iter().enumerate() {
-            // if pattern.is_wildcard() {
-            // continue;
-            // }
+            let is_true_wildcard = matches!(
+                pattern,
+                ast::Pattern::MatchAs(ast::PatternMatchAs {
+                    pattern: None,
+                    name: None,
+                    ..
+                })
+            );
+            if is_true_wildcard {
+                continue;
+            }
             if i == star {
                 // This must be a starred wildcard.
                 // assert!(pattern.is_star_wildcard());
@@ -6711,6 +6731,7 @@ impl Compiler {
                                 pc.stores.insert(insert_pos + j, elem);
                             }
                             // Also perform the same rotation on the evaluation stack.
+                            self.set_source_range(alt.range());
                             for _ in 0..=i_stores {
                                 self.pattern_helper_rotate(i_control + 1)?;
                             }
@@ -6719,7 +6740,9 @@ impl Compiler {
                 }
             }
             // Emit a jump to the common end label and reset any failure jump targets.
+            self.set_source_range(alt.range());
             emit!(self, PseudoInstruction::Jump { delta: end });
+            self.set_source_range(alt.range());
             self.emit_and_reset_fail_pop(pc)?;
         }
 
@@ -6731,6 +6754,7 @@ impl Compiler {
         // In Rust, old_pc is a local clone, so we need not worry about that.
 
         // No alternative matched: pop the subject and fail.
+        self.set_source_range(p.range());
         emit!(self, Instruction::PopTop);
         self.jump_to_fail_pop(pc, JumpOp::Jump)?;
 
@@ -6742,6 +6766,7 @@ impl Compiler {
         let n_rots = n_stores + 1 + pc.on_top + pc.stores.len();
         for i in 0..n_stores {
             // Rotate the capture to its proper place.
+            self.set_source_range(p.range());
             self.pattern_helper_rotate(n_rots)?;
             let name = &control.as_ref().unwrap()[i];
             // Check for duplicate binding.
@@ -6753,6 +6778,7 @@ impl Compiler {
 
         // Old context and control will be dropped automatically.
         // Finally, pop the copy of the subject.
+        self.set_source_range(p.range());
         emit!(self, Instruction::PopTop);
         Ok(())
     }
@@ -6841,7 +6867,9 @@ impl Compiler {
         p: &ast::PatternMatchValue,
         pc: &mut PatternContext,
     ) -> CompileResult<()> {
-        // TODO: ensure literal or attribute lookup
+        // Match CPython codegen_pattern_value(): compare, then normalize to bool
+        // before the fail jump. Late IR folding will collapse COMPARE_OP+TO_BOOL
+        // into COMPARE_OP bool(...) when applicable.
         self.compile_expression(&p.value)?;
         emit!(
             self,
@@ -6849,7 +6877,7 @@ impl Compiler {
                 opname: bytecode::ComparisonOperator::Equal
             }
         );
-        // emit!(self, Instruction::ToBool);
+        emit!(self, Instruction::ToBool);
         self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
         Ok(())
     }
@@ -6877,7 +6905,9 @@ impl Compiler {
         pattern_type: &ast::Pattern,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        match &pattern_type {
+        let prev_source_range = self.current_source_range;
+        self.set_source_range(pattern_type.range());
+        let result = match &pattern_type {
             ast::Pattern::MatchValue(pattern_type) => {
                 self.compile_pattern_value(pattern_type, pattern_context)
             }
@@ -6902,7 +6932,9 @@ impl Compiler {
             ast::Pattern::MatchOr(pattern_type) => {
                 self.compile_pattern_or(pattern_type, pattern_context)
             }
-        }
+        };
+        self.set_source_range(prev_source_range);
+        result
     }
 
     fn compile_match_inner(
@@ -6911,12 +6943,22 @@ impl Compiler {
         cases: &[ast::MatchCase],
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
+        fn is_trailing_wildcard_default(pattern: &ast::Pattern) -> bool {
+            match pattern {
+                ast::Pattern::MatchAs(match_as) => {
+                    match_as.pattern.is_none() && match_as.name.is_none()
+                }
+                _ => false,
+            }
+        }
+
         self.compile_expression(subject)?;
         let end = self.new_block();
 
         let num_cases = cases.len();
         assert!(num_cases > 0);
-        let has_default = cases.iter().last().unwrap().pattern.is_match_star() && num_cases > 1;
+        let has_default =
+            num_cases > 1 && is_trailing_wildcard_default(&cases.last().unwrap().pattern);
 
         let case_count = num_cases - if has_default { 1 } else { 0 };
         for (i, m) in cases.iter().enumerate().take(case_count) {
@@ -6926,36 +6968,41 @@ impl Compiler {
             }
 
             pattern_context.stores = Vec::with_capacity(1);
-            pattern_context.allow_irrefutable = m.guard.is_some() || i == case_count - 1;
+            pattern_context.allow_irrefutable = m.guard.is_some() || i == num_cases - 1;
             pattern_context.fail_pop.clear();
             pattern_context.on_top = 0;
 
             self.compile_pattern(&m.pattern, pattern_context)?;
             assert_eq!(pattern_context.on_top, 0);
 
+            self.set_source_range(m.pattern.range());
             for name in &pattern_context.stores {
                 self.compile_name(name, NameUsage::Store)?;
             }
 
             if let Some(ref guard) = m.guard {
                 self.ensure_fail_pop(pattern_context, 0)?;
-                // Compile the guard expression
-                self.compile_expression(guard)?;
-                emit!(self, Instruction::ToBool);
-                emit!(
-                    self,
-                    Instruction::PopJumpIfFalse {
-                        delta: pattern_context.fail_pop[0]
-                    }
-                );
+                self.compile_jump_if_inner(
+                    guard,
+                    false,
+                    pattern_context.fail_pop[0],
+                    Some(m.pattern.range()),
+                )?;
             }
 
             if i != case_count - 1 {
+                if let Some(first_stmt) = m.body.first() {
+                    self.set_source_range(first_stmt.range());
+                }
+                if matches!(m.pattern, ast::Pattern::MatchOr(_)) {
+                    emit!(self, Instruction::Nop);
+                }
                 emit!(self, Instruction::PopTop);
             }
 
             self.compile_statements(&m.body)?;
             emit!(self, PseudoInstruction::Jump { delta: end });
+            self.set_source_range(m.pattern.range());
             self.emit_and_reset_fail_pop(pattern_context)?;
         }
 
@@ -6963,15 +7010,11 @@ impl Compiler {
             let m = &cases[num_cases - 1];
             if num_cases == 1 {
                 emit!(self, Instruction::PopTop);
-            } else {
+            } else if m.guard.is_none() {
                 emit!(self, Instruction::Nop);
             }
             if let Some(ref guard) = m.guard {
-                // Compile guard and jump to end if false
-                self.compile_expression(guard)?;
-                emit!(self, Instruction::Copy { i: 1 });
-                emit!(self, Instruction::PopJumpIfFalse { delta: end });
-                emit!(self, Instruction::PopTop);
+                self.compile_jump_if(guard, false, end)?;
             }
             self.compile_statements(&m.body)?;
         }
@@ -7210,6 +7253,37 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_check_annotation_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
+        self.compile_expression(expression)?;
+        emit!(self, Instruction::PopTop);
+        Ok(())
+    }
+
+    fn compile_check_annotation_subscript(&mut self, expression: &ast::Expr) -> CompileResult<()> {
+        match expression {
+            ast::Expr::Slice(ast::ExprSlice {
+                lower, upper, step, ..
+            }) => {
+                if let Some(lower) = lower {
+                    self.compile_check_annotation_expression(lower)?;
+                }
+                if let Some(upper) = upper {
+                    self.compile_check_annotation_expression(upper)?;
+                }
+                if let Some(step) = step {
+                    self.compile_check_annotation_expression(step)?;
+                }
+            }
+            ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
+                for element in elts {
+                    self.compile_check_annotation_subscript(element)?;
+                }
+            }
+            _ => self.compile_check_annotation_expression(expression)?,
+        }
+        Ok(())
+    }
+
     fn compile_annotated_assign(
         &mut self,
         target: &ast::Expr,
@@ -7273,6 +7347,19 @@ impl Compiler {
                         emit!(self, Instruction::PopTop);
                     }
                 }
+            }
+        }
+
+        if value.is_none() {
+            match target {
+                ast::Expr::Attribute(ast::ExprAttribute { value, .. }) => {
+                    self.compile_check_annotation_expression(value)?;
+                }
+                ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
+                    self.compile_check_annotation_expression(value)?;
+                    self.compile_check_annotation_subscript(slice)?;
+                }
+                _ => {}
             }
         }
 
@@ -7452,14 +7539,15 @@ impl Compiler {
     ///
     /// The idea is to jump to a label if the expression is either true or false
     /// (indicated by the condition parameter).
-    fn compile_jump_if(
+    fn compile_jump_if_inner(
         &mut self,
         expression: &ast::Expr,
         condition: bool,
         target_block: BlockIdx,
+        source_range: Option<TextRange>,
     ) -> CompileResult<()> {
         let prev_source_range = self.current_source_range;
-        self.set_source_range(expression.range());
+        self.set_source_range(source_range.unwrap_or_else(|| expression.range()));
 
         // Compile expression for test, and jump to label if false
         let result = match &expression {
@@ -7473,16 +7561,26 @@ impl Compiler {
 
                             // If any of the values is false, we can short-circuit.
                             for value in values {
-                                self.compile_jump_if(value, false, end_block)?;
+                                self.compile_jump_if_inner(value, false, end_block, source_range)?;
                             }
 
                             // It depends upon the last value now: will it be true?
-                            self.compile_jump_if(last_value, true, target_block)?;
+                            self.compile_jump_if_inner(
+                                last_value,
+                                true,
+                                target_block,
+                                source_range,
+                            )?;
                             self.switch_to_block(end_block);
                         } else {
                             // If any value is false, the whole condition is false.
                             for value in values {
-                                self.compile_jump_if(value, false, target_block)?;
+                                self.compile_jump_if_inner(
+                                    value,
+                                    false,
+                                    target_block,
+                                    source_range,
+                                )?;
                             }
                         }
                     }
@@ -7490,7 +7588,12 @@ impl Compiler {
                         if condition {
                             // If any of the values is true.
                             for value in values {
-                                self.compile_jump_if(value, true, target_block)?;
+                                self.compile_jump_if_inner(
+                                    value,
+                                    true,
+                                    target_block,
+                                    source_range,
+                                )?;
                             }
                         } else {
                             // If all of the values are false.
@@ -7499,11 +7602,16 @@ impl Compiler {
 
                             // If any value is true, we can short-circuit:
                             for value in values {
-                                self.compile_jump_if(value, true, end_block)?;
+                                self.compile_jump_if_inner(value, true, end_block, source_range)?;
                             }
 
                             // It all depends upon the last value now!
-                            self.compile_jump_if(last_value, false, target_block)?;
+                            self.compile_jump_if_inner(
+                                last_value,
+                                false,
+                                target_block,
+                                source_range,
+                            )?;
                             self.switch_to_block(end_block);
                         }
                     }
@@ -7514,7 +7622,7 @@ impl Compiler {
                 op: ast::UnaryOp::Not,
                 operand,
                 ..
-            }) => self.compile_jump_if(operand, !condition, target_block),
+            }) => self.compile_jump_if_inner(operand, !condition, target_block, source_range),
             ast::Expr::Compare(ast::ExprCompare {
                 left,
                 ops,
@@ -7583,6 +7691,15 @@ impl Compiler {
 
         self.set_source_range(prev_source_range);
         result
+    }
+
+    fn compile_jump_if(
+        &mut self,
+        expression: &ast::Expr,
+        condition: bool,
+        target_block: BlockIdx,
+    ) -> CompileResult<()> {
+        self.compile_jump_if_inner(expression, condition, target_block, None)
     }
 
     /// Compile a boolean operation as an expression.
@@ -7911,10 +8028,12 @@ impl Compiler {
                 match op {
                     ast::BoolOp::Or if is_truthy => {
                         self.emit_load_const(last_constant.expect("missing boolop constant"));
+                        self.mark_last_instruction_folded_from_nonliteral_expr();
                         return Ok(());
                     }
                     ast::BoolOp::And if !is_truthy => {
                         self.emit_load_const(last_constant.expect("missing boolop constant"));
+                        self.mark_last_instruction_folded_from_nonliteral_expr();
                         return Ok(());
                     }
                     ast::BoolOp::Or | ast::BoolOp::And => {
@@ -7925,6 +8044,7 @@ impl Compiler {
 
             if simplified_prefix == values.len() {
                 self.emit_load_const(last_constant.expect("missing folded boolop constant"));
+                self.mark_last_instruction_folded_from_nonliteral_expr();
                 return Ok(());
             }
             if simplified_prefix > 0 {
@@ -9128,7 +9248,7 @@ impl Compiler {
                 emit!(self, Instruction::LoadFast { var_num: arg0 });
             } else {
                 // Evaluate iterated item:
-                self.compile_expression(&generator.iter)?;
+                self.compile_for_iterable_expression(&generator.iter, generator.is_async)?;
 
                 // Get iterator / turn item into an iterator
                 if generator.is_async {
@@ -9231,7 +9351,7 @@ impl Compiler {
         self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
 
         // Evaluate iterated item:
-        self.compile_expression(&outermost.iter)?;
+        self.compile_for_iterable_expression(&outermost.iter, outermost.is_async)?;
         self.symbol_table_stack
             .last_mut()
             .expect("no current symbol table")
@@ -9270,7 +9390,10 @@ impl Compiler {
         // nested scopes (e.g. lambdas) whose sub_tables sit at the current
         // position in the parent's list. Those must be consumed before we
         // splice in the comprehension's own children.
-        self.compile_expression(&generators[0].iter)?;
+        self.compile_for_iterable_expression(
+            &generators[0].iter,
+            has_async && generators[0].is_async,
+        )?;
         self.symbol_table_stack
             .last_mut()
             .expect("no current symbol table")
@@ -9438,7 +9561,7 @@ impl Compiler {
             let after_block = self.new_block();
 
             if i > 0 {
-                self.compile_expression(&generator.iter)?;
+                self.compile_for_iterable_expression(&generator.iter, generator.is_async)?;
                 if generator.is_async {
                     emit!(self, Instruction::GetAIter);
                 } else {
@@ -9598,9 +9721,16 @@ impl Compiler {
             location,
             end_location,
             except_handler,
+            folded_from_nonliteral_expr: false,
             lineno_override: None,
             cache_entries: 0,
         });
+    }
+
+    fn mark_last_instruction_folded_from_nonliteral_expr(&mut self) {
+        if let Some(info) = self.current_block().instructions.last_mut() {
+            info.folded_from_nonliteral_expr = true;
+        }
     }
 
     /// Mark the last emitted instruction as having no source location.
@@ -9795,6 +9925,27 @@ impl Compiler {
                     elements.push(constant);
                 }
                 ConstantData::Tuple { elements }
+            }
+            ast::Expr::UnaryOp(ast::ExprUnaryOp { op, operand, .. }) => {
+                let Some(constant) = self.try_fold_constant_expr(operand)? else {
+                    return Ok(None);
+                };
+                match (op, constant) {
+                    (ast::UnaryOp::UAdd, value) => value,
+                    (ast::UnaryOp::USub, ConstantData::Integer { value }) => {
+                        ConstantData::Integer { value: -value }
+                    }
+                    (ast::UnaryOp::USub, ConstantData::Float { value }) => {
+                        ConstantData::Float { value: -value }
+                    }
+                    (ast::UnaryOp::USub, ConstantData::Complex { value }) => {
+                        ConstantData::Complex { value: -value }
+                    }
+                    (ast::UnaryOp::Invert, ConstantData::Integer { value }) => {
+                        ConstantData::Integer { value: !value }
+                    }
+                    _ => return Ok(None),
+                }
             }
             ast::Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) => {
                 let mut constants = Vec::with_capacity(values.len());
@@ -10029,6 +10180,11 @@ impl Compiler {
 
         let loop_block = code.fblock[loop_idx].fb_block;
         let exit_block = code.fblock[loop_idx].fb_exit;
+
+        let prev_source_range = self.current_source_range;
+        self.set_source_range(range);
+        emit!(self, Instruction::Nop);
+        self.set_source_range(prev_source_range);
 
         // Collect the fblocks we need to unwind through, from top down to (but not including) the loop
         #[derive(Clone)]
@@ -11099,6 +11255,68 @@ mod tests {
         stack_top.debug_late_cfg_trace().unwrap()
     }
 
+    fn compile_single_function_late_cfg_trace(
+        source: &str,
+        function_name: &str,
+    ) -> Vec<(String, String)> {
+        let opts = CompileOpts::default();
+        let source_file = SourceFileBuilder::new("source_path", source).finish();
+        let parsed = ruff_python_parser::parse(
+            source_file.source_text(),
+            ruff_python_parser::Mode::Module.into(),
+        )
+        .unwrap();
+        let ast = parsed.into_syntax();
+        let ast = match ast {
+            ruff_python_ast::Mod::Module(stmts) => stmts,
+            _ => unreachable!(),
+        };
+        let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
+            .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
+            .unwrap();
+        let function = ast
+            .body
+            .iter()
+            .find_map(|stmt| match stmt {
+                ast::Stmt::FunctionDef(f) if f.name.as_str() == function_name => Some(f),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing function {function_name}"));
+
+        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        compiler.future_annotations = symbol_table.future_annotations;
+        compiler.symbol_table_stack.push(symbol_table);
+        compiler.set_source_range(function.range());
+        compiler
+            .enter_function(function.name.as_str(), &function.parameters)
+            .unwrap();
+        compiler
+            .current_code_info()
+            .flags
+            .set(bytecode::CodeFlags::COROUTINE, false);
+
+        let prev_ctx = compiler.ctx;
+        compiler.ctx = CompileContext {
+            loop_data: None,
+            in_class: prev_ctx.in_class,
+            func: FunctionContext::Function,
+            in_async_scope: false,
+        };
+        compiler.set_qualname();
+        compiler.compile_statements(&function.body).unwrap();
+        match function.body.last() {
+            Some(ast::Stmt::Return(_)) => {}
+            _ => compiler.emit_return_const(ConstantData::None),
+        }
+        if compiler.current_code_info().metadata.consts.is_empty() {
+            compiler.arg_constant(ConstantData::None);
+        }
+
+        let _table = compiler.pop_symbol_table();
+        let stack_top = compiler.code_stack.pop().unwrap();
+        stack_top.debug_late_cfg_trace().unwrap()
+    }
+
     fn find_code<'a>(code: &'a CodeObject, name: &str) -> Option<&'a CodeObject> {
         if code.obj_name == name {
             return Some(code);
@@ -11167,6 +11385,176 @@ except AssertionError as e:
         for (stage, dump) in trace {
             eprintln!("=== {stage} ===\n{dump}");
         }
+    }
+
+    #[test]
+    fn test_trace_for_unpack_list_literal() {
+        let trace = compile_exec_late_cfg_trace(
+            "\
+result = []
+for x, in [(1,), (2,), (3,)]:
+    result.append(x)
+",
+        );
+        for (stage, dump) in trace {
+            eprintln!("=== {stage} ===\n{dump}");
+        }
+    }
+
+    #[test]
+    fn test_trace_break_in_finally_function() {
+        let trace = compile_single_function_late_cfg_trace(
+            "\
+def f(self):
+    count = 0
+    while count < 2:
+        count += 1
+        try:
+            pass
+        finally:
+            break
+    self.assertEqual(count, 1)
+",
+            "f",
+        );
+        for (stage, dump) in trace {
+            eprintln!("=== {stage} ===\n{dump}");
+        }
+    }
+
+    #[test]
+    fn test_trace_constant_false_elif_chain() {
+        let trace = compile_exec_late_cfg_trace(
+            "\
+if 0: pass
+elif 0: pass
+elif 0: pass
+elif 0: pass
+else: pass
+",
+        );
+        for (stage, dump) in trace {
+            eprintln!("=== {stage} ===\n{dump}");
+        }
+    }
+
+    #[test]
+    fn test_trace_multi_pass_suite() {
+        let trace = compile_exec_late_cfg_trace(
+            "\
+if 1:
+    #
+    #
+    #
+    pass
+    pass
+    #
+    pass
+    #
+",
+        );
+        for (stage, dump) in trace {
+            eprintln!("=== {stage} ===\n{dump}");
+        }
+    }
+
+    #[test]
+    fn test_trace_single_compare_if() {
+        let trace = compile_exec_late_cfg_trace(
+            "\
+if 1 == 1:
+    pass
+",
+        );
+        for (stage, dump) in trace {
+            eprintln!("=== {stage} ===\n{dump}");
+        }
+    }
+
+    #[test]
+    fn test_trace_comparison_suite() {
+        let trace = compile_exec_late_cfg_trace(
+            "\
+if 1: pass
+x = (1 == 1)
+if 1 == 1: pass
+if 1 != 1: pass
+if 1 < 1: pass
+if 1 > 1: pass
+if 1 <= 1: pass
+if 1 >= 1: pass
+if x is x: pass
+if x is not x: pass
+if 1 in (): pass
+if 1 not in (): pass
+",
+        );
+        for (stage, dump) in trace {
+            eprintln!("=== {stage} ===\n{dump}");
+        }
+    }
+
+    #[test]
+    fn test_trace_if_for_except_layout() {
+        let trace = compile_exec_late_cfg_trace(
+            "\
+from sys import maxsize
+if maxsize == 2147483647:
+    for s in ('2147483648', '0o40000000000', '0x100000000', '0b10000000000000000000000000000000'):
+        try:
+            x = eval(s)
+        except OverflowError:
+            fail(\"OverflowError on huge integer literal %r\" % s)
+elif maxsize == 9223372036854775807:
+    pass
+",
+        );
+        for (stage, dump) in trace {
+            eprintln!("=== {stage} ===\n{dump}");
+        }
+    }
+
+    #[test]
+    fn test_break_in_finally_tail_loads_borrow_through_empty_fallthrough_block() {
+        let code = compile_exec(
+            "\
+def f(self):
+    count = 0
+    while count < 2:
+        count += 1
+        try:
+            pass
+        finally:
+            break
+    self.assertEqual(count, 1)
+",
+        );
+        let code = find_code(&code, "f").unwrap();
+        let ops: Vec<_> = code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::Call { .. }
+                    ]
+                )
+            }),
+            "{:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -11859,6 +12247,97 @@ def f(parts):
     }
 
     #[test]
+    fn test_for_exit_before_elif_does_not_leave_line_anchor_nop() {
+        let code = compile_exec(
+            "\
+from sys import maxsize
+if maxsize == 2147483647:
+    for s in ('2147483648', '0o40000000000', '0x100000000', '0b10000000000000000000000000000000'):
+        try:
+            x = eval(s)
+        except OverflowError:
+            fail('OverflowError on huge integer literal %r' % s)
+elif maxsize == 9223372036854775807:
+    pass
+",
+        );
+        let ops: Vec<_> = code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::LoadConst { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "expected for-exit epilogue without extra NOP, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "unexpected line-anchor NOP before for-exit epilogue, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_break_in_finally_after_return_keeps_load_fast_check_for_loop_locals() {
+        let code = compile_exec(
+            "\
+def g2(x):
+    for count in [0, 1]:
+        for count2 in [10, 20]:
+            try:
+                return count + count2
+            finally:
+                if x:
+                    break
+    return 'end', count, count2
+",
+        );
+        let g2 = find_code(&code, "g2").expect("missing g2 code");
+        let ops: Vec<_> = g2
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadFastCheck { .. },
+                        Instruction::LoadFastCheck { .. },
+                        Instruction::BuildTuple { .. },
+                    ]
+                )
+            }),
+            "expected LOAD_FAST_CHECK pair for after-return loop locals, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_assert_without_message_raises_class_directly() {
         let code = compile_exec(
             "\
@@ -11930,6 +12409,62 @@ def f(x, y):
 
         let call_arg = f.instructions[load_assertion + 2].arg;
         assert_eq!(u8::from(call_arg), 0);
+    }
+
+    #[test]
+    fn test_bare_function_annotations_check_attribute_and_subscript_expressions() {
+        assert_dis_snapshot!(compile_exec(
+            "\
+def f(one: int):
+    int.new_attr: int
+    [list][0].new_attr: [int, str]
+    my_lst = [1]
+    my_lst[one]: int
+    return my_lst
+"
+        ));
+    }
+
+    #[test]
+    fn test_non_simple_bare_name_annotation_does_not_create_local_binding() {
+        let code = compile_exec(
+            "\
+def f2bad():
+    (no_such_global): int
+    print(no_such_global)
+",
+        );
+        let f = find_code(&code, "f2bad").expect("missing f2bad code");
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadGlobal { .. })),
+            "expected LOAD_GLOBAL for non-simple bare annotated name, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFastCheck { .. })),
+            "non-simple bare annotated name should not become a local binding, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_constant_true_if_pass_keeps_line_anchor_nop() {
+        assert_dis_snapshot!(compile_exec(
+            "\
+if 1:
+    pass
+"
+        ));
     }
 
     #[test]
@@ -12040,6 +12575,175 @@ def f(self):
     }
 
     #[test]
+    fn test_match_guard_capture_uses_store_fast_load_fast() {
+        let code = compile_exec(
+            "\
+def f():
+    match 0:
+        case x if x:
+            z = 0
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::StoreFastLoadFast { .. })),
+            "expected STORE_FAST_LOAD_FAST in match guard capture path, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_match_nested_capture_uses_store_fast_store_fast() {
+        let code = compile_exec(
+            "\
+def f(x):
+    match x:
+        case ((0 as w) as z):
+            return w, z
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::StoreFastStoreFast { .. })),
+            "expected STORE_FAST_STORE_FAST in nested match capture path, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_match_value_real_zero_minus_zero_complex_folds_to_negative_zero_imag() {
+        let code = compile_exec(
+            "\
+def f(x):
+    match x:
+        case 0 - 0j:
+            return 0
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        assert!(
+            f.constants.iter().any(|constant| matches!(
+                constant,
+                ConstantData::Complex { value }
+                    if value.re == 0.0 && value.im == 0.0 && value.im.is_sign_negative()
+            )),
+            "expected folded -0j constant in match value"
+        );
+    }
+
+    #[test]
+    fn test_match_or_uses_shared_success_block() {
+        let code = compile_exec(
+            "\
+def http_error(status):
+    match status:
+        case 400:
+            return 'Bad request'
+        case 401 | 403 | 404:
+            return 'Not allowed'
+        case 418:
+            return 'I am a teapot'
+",
+        );
+        let f = find_code(&code, "http_error").expect("missing http_error code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let jump_positions: Vec<_> = ops
+            .iter()
+            .enumerate()
+            .filter_map(|(i, op)| matches!(op, Instruction::JumpForward { .. }).then_some(i))
+            .collect();
+
+        assert!(
+            jump_positions.len() >= 4,
+            "expected shared-success JumpForward ops in OR pattern, got ops={ops:?}"
+        );
+
+        let first_pop_top_pair = ops
+            .windows(2)
+            .position(|window| matches!(window, [Instruction::PopTop, Instruction::PopTop]))
+            .expect("missing POP_TOP/POP_TOP success cleanup");
+
+        assert!(
+            jump_positions
+                .iter()
+                .take(3)
+                .all(|&idx| idx < first_pop_top_pair),
+            "expected OR-alternative jumps before shared success cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_match_mapping_attribute_key_keeps_plain_load_fast() {
+        let code = compile_exec(
+            "\
+def f(self):
+    class Keys:
+        KEY = 'a'
+    x = {'a': 0, 'b': 1}
+    with self.assertRaises(ValueError):
+        match x:
+            case {Keys.KEY: y, 'a': z}:
+                w = 0
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let key_load_idx = f
+            .instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "KEY"
+                }
+                _ => false,
+            })
+            .expect("missing Keys.KEY attribute load");
+        let prev = f.instructions[key_load_idx - 1].op;
+        assert!(
+            matches!(prev, Instruction::LoadFast { .. }),
+            "expected plain LOAD_FAST before Keys.KEY mapping key, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    #[ignore = "debug trace for sequence star-wildcard pattern layout"]
+    fn test_debug_trace_match_sequence_star_wildcard_layout() {
+        let trace = compile_single_function_late_cfg_trace(
+            "\
+def f(w):
+    match w:
+        case [x, *_, y]:
+            z = 0
+    return x, y, z
+",
+            "f",
+        );
+        for (stage, dump) in trace {
+            eprintln!("=== {stage} ===\n{dump}");
+        }
+    }
+
+    #[test]
     fn test_genexpr_true_filter_omits_bool_scaffolding() {
         let code = compile_exec(
             "\
@@ -12112,6 +12816,38 @@ class C:
             ),
             "expected LOAD_FAST_BORROW before __classdictcell__ store, got ops={:?}",
             class_code
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_plain_super_call_keeps_class_freevar() {
+        let code = compile_exec(
+            "\
+class A:
+    pass
+
+class B(A):
+    def method(self):
+        return super()
+",
+        );
+        let method = find_code(&code, "method").expect("missing method code");
+        assert!(
+            method.freevars.iter().any(|name| name == "__class__"),
+            "plain super() must keep __class__ freevar, got freevars={:?}",
+            method.freevars
+        );
+        assert!(
+            method
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::CopyFreeVars { .. })),
+            "plain super() must keep COPY_FREE_VARS prelude, got ops={:?}",
+            method
                 .instructions
                 .iter()
                 .map(|unit| unit.op)
@@ -12218,6 +12954,55 @@ def f():
                 Some(Instruction::LoadSmallInt { .. }) | Some(Instruction::LoadConst { .. })
             ),
             "expected line-after-except code immediately after POP_EXCEPT, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_named_except_cleanup_keeps_jump_over_cleanup_and_next_try() {
+        let code = compile_exec(
+            r#"
+def f(self):
+    try:
+        assert 0, 'msg'
+    except AssertionError as e:
+        self.assertEqual(e.args[0], 'msg')
+    else:
+        self.fail("AssertionError not raised by assert 0")
+
+    try:
+        assert False
+    except AssertionError as e:
+        self.assertEqual(len(e.args), 0)
+    else:
+        self.fail("AssertionError not raised by 'assert False'")
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let first_pop_except = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopExcept))
+            .expect("missing POP_EXCEPT");
+        let window = &ops[first_pop_except..(first_pop_except + 6).min(ops.len())];
+        assert!(
+            matches!(
+                window,
+                [
+                    Instruction::PopExcept,
+                    Instruction::LoadConst { .. },
+                    Instruction::StoreName { .. } | Instruction::StoreFast { .. },
+                    Instruction::DeleteName { .. } | Instruction::DeleteFast { .. },
+                    Instruction::JumpForward { .. },
+                    ..
+                ]
+            ),
+            "expected named except cleanup to jump over cleanup reraise block, got ops={window:?}"
         );
     }
 
@@ -12528,6 +13313,148 @@ def f():
     }
 
     #[test]
+    fn test_starred_tuple_iterable_drops_list_to_tuple_before_get_iter() {
+        let code = compile_exec(
+            "\
+def f(a, b, c):
+    for x in *a, *b, *c:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        assert!(
+            !has_intrinsic_1(f, IntrinsicFunction1::ListToTuple),
+            "LIST_TO_TUPLE should be removed before GET_ITER in for-iterable context"
+        );
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::GetIter)),
+            "expected GET_ITER in for loop"
+        );
+    }
+
+    #[test]
+    fn test_comprehension_single_list_iterable_uses_tuple() {
+        let code = compile_exec(
+            "\
+def g():
+    [x for x in [(yield 1)]]
+",
+        );
+        let g = find_code(&code, "g").expect("missing g code");
+        let ops: Vec<_> = g
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [Instruction::BuildTuple { .. }, Instruction::GetIter]
+                )
+            }),
+            "expected BUILD_TUPLE before GET_ITER for single-item list iterable in comprehension, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_comprehension_list_iterable_uses_tuple() {
+        let code = compile_exec(
+            "\
+def f():
+    return [[y for y in [x, x + 1]] for x in [1, 3, 5]]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [Instruction::BuildTuple { .. }, Instruction::GetIter]
+                )
+            }),
+            "expected BUILD_TUPLE before GET_ITER for nested list iterable in comprehension, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_constant_comprehension_iterable_with_unary_int_uses_tuple_const() {
+        let code = compile_exec(
+            "\
+l = lambda : [2 < x for x in [-1, 3, 0]]
+",
+        );
+        let lambda = find_code(&code, "<lambda>").expect("missing lambda code");
+
+        assert!(
+            lambda.constants.iter().any(|constant| matches!(
+                constant,
+                ConstantData::Tuple { elements }
+                    if matches!(
+                        elements.as_slice(),
+                        [
+                            ConstantData::Integer { .. },
+                            ConstantData::Integer { .. },
+                            ConstantData::Integer { .. }
+                        ]
+                    )
+            )),
+            "expected folded tuple constant for comprehension iterable"
+        );
+    }
+
+    #[test]
+    fn test_constant_false_while_else_deopts_post_else_borrows() {
+        let code = compile_exec(
+            "\
+def f(self):
+    x = 0
+    while 0:
+        x = 1
+    else:
+        x = 2
+    self.assertEqual(x, 2)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let assert_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadAttr { .. }))
+            .expect("missing assertEqual call");
+        let window = &ops[assert_idx.saturating_sub(1)..(assert_idx + 3).min(ops.len())];
+        assert!(
+            matches!(
+                window,
+                [
+                    Instruction::LoadFast { .. },
+                    Instruction::LoadAttr { .. },
+                    Instruction::LoadFast { .. },
+                    ..
+                ]
+            ),
+            "expected post-else assertEqual call to use plain LOAD_FAST, got ops={window:?}"
+        );
+    }
+
+    #[test]
     fn test_single_unpack_assignment_disables_constant_collection_folding() {
         let code = compile_exec("a, b, c = 1, 2, 3\n");
 
@@ -12647,6 +13574,41 @@ def f():
                 .count(),
             1,
             "constant-false assert should still compile the message lambda"
+        );
+    }
+
+    #[test]
+    fn test_constant_unary_positive_and_invert_fold() {
+        let code = compile_exec("x = +1\nx = ~1\n");
+
+        assert!(
+            !code.instructions.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::CallIntrinsic1 { .. } | Instruction::UnaryInvert
+                )
+            }),
+            "constant unary ops should fold away, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_bool_invert_is_not_const_folded() {
+        let code = compile_exec("x = ~True\n");
+
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::UnaryInvert)),
+            "~bool should remain unfurled to match CPython, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
         );
     }
 
