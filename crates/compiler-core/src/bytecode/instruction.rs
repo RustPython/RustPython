@@ -15,19 +15,14 @@ use crate::{
 
 macro_rules! define_opcodes {
     (
-        opcode_enum: $opcode_name:ident,
-        instruction_enum: $instr_name:ident,
-        typ: $typ:ty,
-        ops: [
+        #[repr($typ:ident)]
+        enum $opcode_name:ident;
+        $(#[$instr_meta:meta])*
+        enum $instr_name:ident {
             $(
-                {
-                    name: $op_name:ident,
-                    id: $op_id:expr,
-                    display: $op_display:literal
-                    $(, oparg: { name: $arg_name:ident, typ: $arg_type:ty })?
-                }
+                $(#[$op_meta:meta])*
+                    $op_name:ident $({ $arg_name:ident: Arg<$arg_type:ty> })? = ($op_id:expr, $op_display:literal)
             ),* $(,)?
-        ]
     ) => {
         #[derive(Clone, Copy, Debug)]
         pub enum $opcode_name {
@@ -83,6 +78,7 @@ macro_rules! define_opcodes {
         #[repr($typ)]
         pub enum $instr_name {
             $(
+                $(#[$op_meta])*
                 $op_name $({ $arg_name: Arg<$arg_type> })? = $op_id
             ),*
         }
@@ -120,378 +116,391 @@ macro_rules! define_opcodes {
         }
     };
 }
+
 define_opcodes!(
-    opcode_enum: Opcode,
-    instruction_enum: Instruction,
-    typ: u8,
-    ops: [
-        { name: Cache, id: 0, display: "CACHE"},
-        { name: BinarySlice, id: 1, display: "BINARY_SLICE"},
-        { name: BuildTemplate, id: 2, display: "BUILD_TEMPLATE"},
-        { name: BinaryOpInplaceAddUnicode, id: 3, display: "BINARY_OP_INPLACE_ADD_UNICODE"},
-        { name: CallFunctionEx, id: 4, display: "CALL_FUNCTION_EX"},
-        { name: CheckEgMatch, id: 5, display: "CHECK_EG_MATCH"},
-        { name: CheckExcMatch, id: 6, display: "CHECK_EXC_MATCH"},
-        { name: CleanupThrow, id: 7, display: "CLEANUP_THROW"},
-        { name: DeleteSubscr, id: 8, display: "DELETE_SUBSCR"},
-        { name: EndFor, id: 9, display: "END_FOR"},
-        { name: EndSend, id: 10, display: "END_SEND"},
-        { name: ExitInitCheck, id: 11, display: "EXIT_INIT_CHECK"},
-        { name: FormatSimple, id: 12, display: "FORMAT_SIMPLE"},
-        { name: FormatWithSpec, id: 13, display: "FORMAT_WITH_SPEC"},
-        { name: GetAIter, id: 14, display: "GET_AITER"},
-        { name: GetANext, id: 15, display: "GET_ANEXT"},
-        { name: GetIter, id: 16, display: "GET_ITER"},
-        { name: Reserved, id: 17, display: "RESERVED"},
-        { name: GetLen, id: 18, display: "GET_LEN"},
-        { name: GetYieldFromIter, id: 19, display: "GET_YIELD_FROM_ITER"},
-        { name: InterpreterExit, id: 20, display: "INTERPRETER_EXIT"},
-        { name: LoadBuildClass, id: 21, display: "LOAD_BUILD_CLASS"},
-        { name: LoadLocals, id: 22, display: "LOAD_LOCALS"},
-        { name: MakeFunction, id: 23, display: "MAKE_FUNCTION"},
-        { name: MatchKeys, id: 24, display: "MATCH_KEYS"},
-        { name: MatchMapping, id: 25, display: "MATCH_MAPPING"},
-        { name: MatchSequence, id: 26, display: "MATCH_SEQUENCE"},
-        { name: Nop, id: 27, display: "NOP"},
-        { name: NotTaken, id: 28, display: "NOT_TAKEN"},
-        { name: PopExcept, id: 29, display: "POP_EXCEPT"},
-        { name: PopIter, id: 30, display: "POP_ITER"},
-        { name: PopTop, id: 31, display: "POP_TOP"},
-        { name: PushExcInfo, id: 32, display: "PUSH_EXC_INFO"},
-        { name: PushNull, id: 33, display: "PUSH_NULL"},
-        { name: ReturnGenerator, id: 34, display: "RETURN_GENERATOR"},
-        { name: ReturnValue, id: 35, display: "RETURN_VALUE"},
-        { name: SetupAnnotations, id: 36, display: "SETUP_ANNOTATIONS"},
-        { name: StoreSlice, id: 37, display: "STORE_SLICE"},
-        { name: StoreSubscr, id: 38, display: "STORE_SUBSCR"},
-        { name: ToBool, id: 39, display: "TO_BOOL"},
-        { name: UnaryInvert, id: 40, display: "UNARY_INVERT"},
-        { name: UnaryNegative, id: 41, display: "UNARY_NEGATIVE"},
-        { name: UnaryNot, id: 42, display: "UNARY_NOT"},
-        { name: WithExceptStart, id: 43, display: "WITH_EXCEPT_START"},
-        { name: BinaryOp, id: 44, display: "BINARY_OP", oparg: { name: op, typ: BinaryOperator }},
-        {
-            name: BuildInterpolation,
-            id: 45,
-            display: "BUILD_INTERPOLATION",
-            oparg: { name: format, typ: u32 }
-        },
-        { name: BuildList, id: 46, display: "BUILD_LIST", oparg: { name: count, typ: u32 }},
-        { name: BuildMap, id: 47, display: "BUILD_MAP", oparg: { name: count, typ: u32 }},
-        { name: BuildSet, id: 48, display: "BUILD_SET", oparg: { name: count, typ: u32 }},
-        {
-            name: BuildSlice,
-            id: 49,
-            display: "BUILD_SLICE",
-            oparg: { name: argc, typ: BuildSliceArgCount }
-        },
-        { name: BuildString, id: 50, display: "BUILD_STRING", oparg: { name: count, typ: u32 }},
-        { name: BuildTuple, id: 51, display: "BUILD_TUPLE", oparg: { name: count, typ: u32 }},
-        { name: Call, id: 52, display: "CALL", oparg: { name: argc, typ: u32 }},
-        {
-            name: CallIntrinsic1,
-            id: 53,
-            display: "CALL_INTRINSIC_1",
-            oparg: { name: func, typ: IntrinsicFunction1 }
-        },
-        {
-            name: CallIntrinsic2,
-            id: 54,
-            display: "CALL_INTRINSIC_2",
-            oparg: { name: func, typ: IntrinsicFunction2 }
-        },
-        { name: CallKw, id: 55, display: "CALL_KW", oparg: { name: argc, typ: u32 }},
-        {
-            name: CompareOp,
-            id: 56,
-            display: "COMPARE_OP",
-            oparg: { name: opname, typ: ComparisonOperator }
-        },
-        { name: ContainsOp, id: 57, display: "CONTAINS_OP", oparg: { name: invert, typ: Invert }},
-        {
-            name: ConvertValue,
-            id: 58,
-            display: "CONVERT_VALUE",
-            oparg: { name: oparg, typ: ConvertValueOparg }
-        },
-        { name: Copy, id: 59, display: "COPY", oparg: { name: i, typ: u32 }},
-        { name: CopyFreeVars, id: 60, display: "COPY_FREE_VARS", oparg: { name: n, typ: u32 }},
-        { name: DeleteAttr, id: 61, display: "DELETE_ATTR", oparg: { name: namei, typ: NameIdx }},
-        { name: DeleteDeref, id: 62, display: "DELETE_DEREF", oparg: { name: i, typ: oparg::VarNum }},
-        { name: DeleteFast, id: 63, display: "DELETE_FAST", oparg: { name: var_num, typ: oparg::VarNum }},
-        { name: DeleteGlobal, id: 64, display: "DELETE_GLOBAL", oparg: { name: namei, typ: NameIdx }},
-        { name: DeleteName, id: 65, display: "DELETE_NAME", oparg: { name: namei, typ: NameIdx }},
-        { name: DictMerge, id: 66, display: "DICT_MERGE", oparg: { name: i, typ: u32 }},
-        { name: DictUpdate, id: 67, display: "DICT_UPDATE", oparg: { name: i, typ: u32 }},
-        { name: EndAsyncFor, id: 68, display: "END_ASYNC_FOR"},
-        { name: ExtendedArg, id: 69, display: "EXTENDED_ARG"},
-        { name: ForIter, id: 70, display: "FOR_ITER", oparg: { name: delta, typ: Label }},
-        { name: GetAwaitable, id: 71, display: "GET_AWAITABLE", oparg: { name: r#where, typ: u32 }},
-        { name: ImportFrom, id: 72, display: "IMPORT_FROM", oparg: { name: namei, typ: NameIdx }},
-        { name: ImportName, id: 73, display: "IMPORT_NAME", oparg: { name: namei, typ: NameIdx }},
-        { name: IsOp, id: 74, display: "IS_OP", oparg: { name: invert, typ: Invert }},
-        { name: JumpBackward, id: 75, display: "JUMP_BACKWARD", oparg: { name: delta, typ: Label }},
-        {
-            name: JumpBackwardNoInterrupt,
-            id: 76,
-            display: "JUMP_BACKWARD_NO_INTERRUPT",
-            oparg: { name: delta, typ: Label }
-        },
-        { name: JumpForward, id: 77, display: "JUMP_FORWARD", oparg: { name: delta, typ: Label }},
-        { name: ListAppend, id: 78, display: "LIST_APPEND", oparg: { name: i, typ: u32 }},
-        { name: ListExtend, id: 79, display: "LIST_EXTEND", oparg: { name: i, typ: u32 }},
-        { name: LoadAttr, id: 80, display: "LOAD_ATTR", oparg: { name: namei, typ: LoadAttr }},
-        {
-            name: LoadCommonConstant,
-            id: 81,
-            display: "LOAD_COMMON_CONSTANT",
-            oparg: { name: idx, typ: CommonConstant }
-        },
-        {
-            name: LoadConst,
-            id: 82,
-            display: "LOAD_CONST",
-            oparg: { name: consti, typ: oparg::ConstIdx }
-        },
-        { name: LoadDeref, id: 83, display: "LOAD_DEREF", oparg: { name: i, typ: oparg::VarNum }},
-        {
-            name: LoadFast,
-            id: 84,
-            display: "LOAD_FAST",
-            oparg: { name: var_num, typ: oparg::VarNum }
-        },
-        {
-            name: LoadFastAndClear,
-            id: 85, display: "LOAD_FAST_AND_CLEAR",
-            oparg: { name: var_num, typ: oparg::VarNum }
-        },
-        {
-            name: LoadFastBorrow,
-            id: 86,
-            display: "LOAD_FAST_BORROW",
-            oparg: { name: var_num, typ: oparg::VarNum }
-        },
-        {
-            name: LoadFastBorrowLoadFastBorrow,
-            id: 87,
-            display: "LOAD_FAST_BORROW_LOAD_FAST_BORROW",
-            oparg: { name: var_nums, typ: oparg::VarNums }
-        },
-        {
-            name: LoadFastCheck,
-            id: 88,
-            display: "LOAD_FAST_CHECK",
-            oparg: { name: var_num, typ: oparg::VarNum }
-        },
-        {
-            name: LoadFastLoadFast,
-            id: 89,
-            display: "LOAD_FAST_LOAD_FAST",
-            oparg: { name: var_nums, typ: oparg::VarNums }
-        },
-        {
-            name: LoadFromDictOrDeref,
-            id: 90,
-            display: "LOAD_FROM_DICT_OR_DEREF",
-            oparg: { name: i, typ: oparg::VarNum }
-        },
-        {
-            name: LoadFromDictOrGlobals,
-            id: 91,
-            display: "LOAD_FROM_DICT_OR_GLOBALS",
-            oparg: { name: i, typ: NameIdx }
-        },
-        { name: LoadGlobal, id: 92, display: "LOAD_GLOBAL", oparg: { name: namei, typ: NameIdx }},
-        { name: LoadName, id: 93, display: "LOAD_NAME", oparg: { name: namei, typ: NameIdx }},
-        { name: LoadSmallInt, id: 94, display: "LOAD_SMALL_INT", oparg: { name: i, typ: u32 }},
-        {
-            name: LoadSpecial,
-            id: 95,
-            display: "LOAD_SPECIAL",
-            oparg: { name: method, typ: SpecialMethod }
-        },
-        {
-            name: LoadSuperAttr,
-            id: 96,
-            display: "LOAD_SUPER_ATTR",
-            oparg: { name: namei, typ: LoadSuperAttr }
-        },
-        { name: MakeCell, id: 97, display: "MAKE_CELL", oparg: { name: i, typ: oparg::VarNum }},
-        { name: MapAdd, id: 98, display: "MAP_ADD", oparg: { name: i, typ: u32 }},
-        { name: MatchClass, id: 99, display: "MATCH_CLASS", oparg: { name: count, typ: u32 }},
-        { name: PopJumpIfFalse, id: 100, display: "POP_JUMP_IF_FALSE", oparg: { name: delta, typ: Label }},
-        { name: PopJumpIfNone, id: 101, display: "POP_JUMP_IF_NONE", oparg: { name: delta, typ: Label }},
-        {
-            name: PopJumpIfNotNone,
-            id: 102,
-            display: "POP_JUMP_IF_NOT_NONE",
-            oparg: { name: delta, typ: Label }
-        },
-        { name: PopJumpIfTrue, id: 103, display: "POP_JUMP_IF_TRUE", oparg: { name: delta, typ: Label }},
-        { name: RaiseVarargs, id: 104, display: "RAISE_VARARGS", oparg: { name: argc, typ: RaiseKind }},
-        { name: Reraise, id: 105, display: "RERAISE", oparg: { name: depth, typ: u32 }},
-        { name: Send, id: 106, display: "SEND", oparg: { name: delta, typ: Label }},
-        { name: SetAdd, id: 107, display: "SET_ADD", oparg: { name: i, typ: u32 }},
-        {
-            name: SetFunctionAttribute,
-            id: 108,
-            display: "SET_FUNCTION_ATTRIBUTE",
-            oparg: { name: flag, typ: MakeFunctionFlag }
-        },
-        { name: SetUpdate, id: 109, display: "SET_UPDATE", oparg: { name: i, typ: u32 }},
-        { name: StoreAttr, id: 110, display: "STORE_ATTR", oparg: { name: namei, typ: NameIdx }},
-        { name: StoreDeref, id: 111, display: "STORE_DEREF", oparg: { name: i, typ: oparg::VarNum }},
-        { name: StoreFast, id: 112, display: "STORE_FAST", oparg: { name: var_num, typ: oparg::VarNum }},
-        {
-            name: StoreFastLoadFast,
-            id: 113,
-            display: "STORE_FAST_LOAD_FAST",
-            oparg: { name: var_nums, typ: oparg::VarNums }
-        },
-        {
-            name: StoreFastStoreFast,
-            id: 114,
-            display: "STORE_FAST_STORE_FAST",
-            oparg: { name: var_nums, typ: oparg::VarNums }
-        },
-        { name: StoreGlobal, id: 115, display: "STORE_GLOBAL", oparg: { name: namei, typ: NameIdx }},
-        { name: StoreName, id: 116, display: "STORE_NAME", oparg: { name: namei, typ: NameIdx }},
-        { name: Swap, id: 117, display: "SWAP", oparg: { name: i, typ: u32 }},
-        { name: UnpackEx, id: 118, display: "UNPACK_EX", oparg: { name: counts, typ: UnpackExArgs }},
-        { name: UnpackSequence, id: 119, display: "UNPACK_SEQUENCE", oparg: { name: count, typ: u32 }},
-        { name: YieldValue, id: 120, display: "YIELD_VALUE", oparg: { name: arg, typ: u32 }},
-        {
-            name: Resume,
-            id: 128,
-            display: "RESUME",
-            oparg: { name: context, typ: oparg::ResumeContext }
-        },
-        { name: BinaryOpAddFloat, id: 129, display: "BINARY_OP_ADD_FLOAT"},
-        { name: BinaryOpAddInt, id: 130, display: "BINARY_OP_ADD_INT"},
-        { name: BinaryOpAddUnicode, id: 131, display: "BINARY_OP_ADD_UNICODE"},
-        { name: BinaryOpExtend, id: 132, display: "BINARY_OP_EXTEND"},
-        { name: BinaryOpMultiplyFloat, id: 133, display: "BINARY_OP_MULTIPLY_FLOAT"},
-        { name: BinaryOpMultiplyInt, id: 134, display: "BINARY_OP_MULTIPLY_INT"},
-        { name: BinaryOpSubscrDict, id: 135, display: "BINARY_OP_SUBSCR_DICT"},
-        { name: BinaryOpSubscrGetitem, id: 136, display: "BINARY_OP_SUBSCR_GETITEM"},
-        { name: BinaryOpSubscrListInt, id: 137, display: "BINARY_OP_SUBSCR_LIST_INT"},
-        { name: BinaryOpSubscrListSlice, id: 138, display: "BINARY_OP_SUBSCR_LIST_SLICE"},
-        { name: BinaryOpSubscrStrInt, id: 139, display: "BINARY_OP_SUBSCR_STR_INT"},
-        { name: BinaryOpSubscrTupleInt, id: 140, display: "BINARY_OP_SUBSCR_TUPLE_INT"},
-        { name: BinaryOpSubtractFloat, id: 141, display: "BINARY_OP_SUBTRACT_FLOAT"},
-        { name: BinaryOpSubtractInt, id: 142, display: "BINARY_OP_SUBTRACT_INT"},
-        { name: CallAllocAndEnterInit, id: 143, display: "CALL_ALLOC_AND_ENTER_INIT"},
-        { name: CallBoundMethodExactArgs, id: 144, display: "CALL_BOUND_METHOD_EXACT_ARGS"},
-        { name: CallBoundMethodGeneral, id: 145, display: "CALL_BOUND_METHOD_GENERAL"},
-        { name: CallBuiltinClass, id: 146, display: "CALL_BUILTIN_CLASS"},
-        { name: CallBuiltinFast, id: 147, display: "CALL_BUILTIN_FAST"},
-        { name: CallBuiltinFastWithKeywords, id: 148, display: "CALL_BUILTIN_FAST_WITH_KEYWORDS"},
-        { name: CallBuiltinO, id: 149, display: "CALL_BUILTIN_O"},
-        { name: CallIsinstance, id: 150, display: "CALL_ISINSTANCE"},
-        { name: CallKwBoundMethod, id: 151, display: "CALL_KW_BOUND_METHOD"},
-        { name: CallKwNonPy, id: 152, display: "CALL_KW_NON_PY"},
-        { name: CallKwPy, id: 153, display: "CALL_KW_PY"},
-        { name: CallLen, id: 154, display: "CALL_LEN"},
-        { name: CallListAppend, id: 155, display: "CALL_LIST_APPEND"},
-        { name: CallMethodDescriptorFast, id: 156, display: "CALL_METHOD_DESCRIPTOR_FAST"},
-        {
-            name: CallMethodDescriptorFastWithKeywords,
-            id: 157,
-            display: "CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS"
-        },
-        { name: CallMethodDescriptorNoargs, id: 158, display: "CALL_METHOD_DESCRIPTOR_NOARGS"},
-        { name: CallMethodDescriptorO, id: 159, display: "CALL_METHOD_DESCRIPTOR_O"},
-        { name: CallNonPyGeneral, id: 160, display: "CALL_NON_PY_GENERAL"},
-        { name: CallPyExactArgs, id: 161, display: "CALL_PY_EXACT_ARGS"},
-        { name: CallPyGeneral, id: 162, display: "CALL_PY_GENERAL"},
-        { name: CallStr1, id: 163, display: "CALL_STR_1"},
-        { name: CallTuple1, id: 164, display: "CALL_TUPLE_1"},
-        { name: CallType1, id: 165, display: "CALL_TYPE_1"},
-        { name: CompareOpFloat, id: 166, display: "COMPARE_OP_FLOAT"},
-        { name: CompareOpInt, id: 167, display: "COMPARE_OP_INT"},
-        { name: CompareOpStr, id: 168, display: "COMPARE_OP_STR"},
-        { name: ContainsOpDict, id: 169, display: "CONTAINS_OP_DICT"},
-        { name: ContainsOpSet, id: 170, display: "CONTAINS_OP_SET"},
-        { name: ForIterGen, id: 171, display: "FOR_ITER_GEN"},
-        { name: ForIterList, id: 172, display: "FOR_ITER_LIST"},
-        { name: ForIterRange, id: 173, display: "FOR_ITER_RANGE"},
-        { name: ForIterTuple, id: 174, display: "FOR_ITER_TUPLE"},
-        { name: JumpBackwardJit, id: 175, display: "JUMP_BACKWARD_JIT"},
-        { name: JumpBackwardNoJit, id: 176, display: "JUMP_BACKWARD_NO_JIT"},
-        { name: LoadAttrClass, id: 177, display: "LOAD_ATTR_CLASS"},
-        {
-            name: LoadAttrClassWithMetaclassCheck,
-            id: 178,
-            display: "LOAD_ATTR_CLASS_WITH_METACLASS_CHECK"
-        },
-        {
-            name: LoadAttrGetattributeOverridden,
-            id: 179,
-            display: "LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN"
-        },
-        { name: LoadAttrInstanceValue, id: 180, display: "LOAD_ATTR_INSTANCE_VALUE"},
-        { name: LoadAttrMethodLazyDict, id: 181, display: "LOAD_ATTR_METHOD_LAZY_DICT"},
-        { name: LoadAttrMethodNoDict, id: 182, display: "LOAD_ATTR_METHOD_NO_DICT"},
-        { name: LoadAttrMethodWithValues, id: 183, display: "LOAD_ATTR_METHOD_WITH_VALUES"},
-        { name: LoadAttrModule, id: 184, display: "LOAD_ATTR_MODULE"},
-        { name: LoadAttrNondescriptorNoDict, id: 185, display: "LOAD_ATTR_NONDESCRIPTOR_NO_DICT"},
-        {
-            name: LoadAttrNondescriptorWithValues,
-            id: 186,
-            display: "LOAD_ATTR_NONDESCRIPTOR_WITH_VALUES"
-        },
-        { name: LoadAttrProperty, id: 187, display: "LOAD_ATTR_PROPERTY"},
-        { name: LoadAttrSlot, id: 188, display: "LOAD_ATTR_SLOT"},
-        { name: LoadAttrWithHint, id: 189, display: "LOAD_ATTR_WITH_HINT"},
-        { name: LoadConstImmortal, id: 190, display: "LOAD_CONST_IMMORTAL"},
-        { name: LoadConstMortal, id: 191, display: "LOAD_CONST_MORTAL"},
-        { name: LoadGlobalBuiltin, id: 192, display: "LOAD_GLOBAL_BUILTIN"},
-        { name: LoadGlobalModule, id: 193, display: "LOAD_GLOBAL_MODULE"},
-        { name: LoadSuperAttrAttr, id: 194, display: "LOAD_SUPER_ATTR_ATTR"},
-        { name: LoadSuperAttrMethod, id: 195, display: "LOAD_SUPER_ATTR_METHOD"},
-        { name: ResumeCheck, id: 196, display: "RESUME_CHECK"},
-        { name: SendGen, id: 197, display: "SEND_GEN"},
-        { name: StoreAttrInstanceValue, id: 198, display: "STORE_ATTR_INSTANCE_VALUE"},
-        { name: StoreAttrSlot, id: 199, display: "STORE_ATTR_SLOT"},
-        { name: StoreAttrWithHint, id: 200, display: "STORE_ATTR_WITH_HINT"},
-        { name: StoreSubscrDict, id: 201, display: "STORE_SUBSCR_DICT"},
-        { name: StoreSubscrListInt, id: 202, display: "STORE_SUBSCR_LIST_INT"},
-        { name: ToBoolAlwaysTrue, id: 203, display: "TO_BOOL_ALWAYS_TRUE"},
-        { name: ToBoolBool, id: 204, display: "TO_BOOL_BOOL"},
-        { name: ToBoolInt, id: 205, display: "TO_BOOL_INT"},
-        { name: ToBoolList, id: 206, display: "TO_BOOL_LIST"},
-        { name: ToBoolNone, id: 207, display: "TO_BOOL_NONE"},
-        { name: ToBoolStr, id: 208, display: "TO_BOOL_STR"},
-        { name: UnpackSequenceList, id: 209, display: "UNPACK_SEQUENCE_LIST"},
-        { name: UnpackSequenceTuple, id: 210, display: "UNPACK_SEQUENCE_TUPLE"},
-        { name: UnpackSequenceTwoTuple, id: 211, display: "UNPACK_SEQUENCE_TWO_TUPLE"},
-        { name: InstrumentedEndFor, id: 234, display: "INSTRUMENTED_END_FOR"},
-        { name: InstrumentedPopIter, id: 235, display: "INSTRUMENTED_POP_ITER"},
-        { name: InstrumentedEndSend, id: 236, display: "INSTRUMENTED_END_SEND"},
-        { name: InstrumentedForIter, id: 237, display: "INSTRUMENTED_FOR_ITER"},
-        { name: InstrumentedInstruction, id: 238, display: "INSTRUMENTED_INSTRUCTION"},
-        { name: InstrumentedJumpForward, id: 239, display: "INSTRUMENTED_JUMP_FORWARD"},
-        { name: InstrumentedNotTaken, id: 240, display: "INSTRUMENTED_NOT_TAKEN"},
-        { name: InstrumentedPopJumpIfTrue, id: 241, display: "INSTRUMENTED_POP_JUMP_IF_TRUE"},
-        { name: InstrumentedPopJumpIfFalse, id: 242, display: "INSTRUMENTED_POP_JUMP_IF_FALSE"},
-        { name: InstrumentedPopJumpIfNone, id: 243, display: "INSTRUMENTED_POP_JUMP_IF_NONE"},
-        {
-            name: InstrumentedPopJumpIfNotNone,
-            id: 244,
-            display: "INSTRUMENTED_POP_JUMP_IF_NOT_NONE"
-        },
-        { name: InstrumentedResume, id: 245, display: "INSTRUMENTED_RESUME"},
-        { name: InstrumentedReturnValue, id: 246, display: "INSTRUMENTED_RETURN_VALUE"},
-        { name: InstrumentedYieldValue, id: 247, display: "INSTRUMENTED_YIELD_VALUE"},
-        { name: InstrumentedEndAsyncFor, id: 248, display: "INSTRUMENTED_END_ASYNC_FOR"},
-        { name: InstrumentedLoadSuperAttr, id: 249, display: "INSTRUMENTED_LOAD_SUPER_ATTR"},
-        { name: InstrumentedCall, id: 250, display: "INSTRUMENTED_CALL"},
-        { name: InstrumentedCallKw, id: 251, display: "INSTRUMENTED_CALL_KW"},
-        { name: InstrumentedCallFunctionEx, id: 252, display: "INSTRUMENTED_CALL_FUNCTION_EX"},
-        { name: InstrumentedJumpBackward, id: 253, display: "INSTRUMENTED_JUMP_BACKWARD"},
-        { name: InstrumentedLine, id: 254, display: "INSTRUMENTED_LINE"},
-        { name: EnterExecutor, id: 255, display: "ENTER_EXECUTOR"},
-    ]
+    #[repr(u8)]
+    enum Opcode;
+    pub enum Instruction {
+        Cache = (0, "CACHE"),
+        BinarySlice = (1, "BINARY_SLICE"),
+        BuildTemplate = (2, "BUILD_TEMPLATE"),
+        BinaryOpInplaceAddUnicode = (3, "BINARY_OP_INPLACE_ADD_UNICODE"),
+        CallFunctionEx = (4, "CALL_FUNCTION_EX"),
+        CheckEgMatch = (5, "CHECK_EG_MATCH"),
+        CheckExcMatch = (6, "CHECK_EXC_MATCH"),
+        CleanupThrow = (7, "CLEANUP_THROW"),
+        DeleteSubscr = (8, "DELETE_SUBSCR"),
+        EndFor = (9, "END_FOR"),
+        EndSend = (10, "END_SEND"),
+        ExitInitCheck = (11, "EXIT_INIT_CHECK"),
+        FormatSimple = (12, "FORMAT_SIMPLE"),
+        FormatWithSpec = (13, "FORMAT_WITH_SPEC"),
+        GetAIter = (14, "GET_AITER"),
+        GetANext = (15, "GET_ANEXT"),
+        GetIter = (16, "GET_ITER"),
+        Reserved = (17, "RESERVED"),
+        GetLen = (18, "GET_LEN"),
+        GetYieldFromIter = (19, "GET_YIELD_FROM_ITER"),
+        InterpreterExit = (20, "INTERPRETER_EXIT"),
+        LoadBuildClass = (21, "LOAD_BUILD_CLASS"),
+        LoadLocals = (22, "LOAD_LOCALS"),
+        MakeFunction = (23, "MAKE_FUNCTION"),
+        MatchKeys = (24, "MATCH_KEYS"),
+        MatchMapping = (25, "MATCH_MAPPING"),
+        MatchSequence = (26, "MATCH_SEQUENCE"),
+        Nop = (27, "NOP"),
+        NotTaken = (28, "NOT_TAKEN"),
+        PopExcept = (29, "POP_EXCEPT"),
+        PopIter = (30, "POP_ITER"),
+        PopTop = (31, "POP_TOP"),
+        PushExcInfo = (32, "PUSH_EXC_INFO"),
+        PushNull = (33, "PUSH_NULL"),
+        ReturnGenerator = (34, "RETURN_GENERATOR"),
+        ReturnValue = (35, "RETURN_VALUE"),
+        SetupAnnotations = (36, "SETUP_ANNOTATIONS"),
+        StoreSlice = (37, "STORE_SLICE"),
+        StoreSubscr = (38, "STORE_SUBSCR"),
+        ToBool = (39, "TO_BOOL"),
+        UnaryInvert = (40, "UNARY_INVERT"),
+        UnaryNegative = (41, "UNARY_NEGATIVE"),
+        UnaryNot = (42, "UNARY_NOT"),
+        WithExceptStart = (43, "WITH_EXCEPT_START"),
+        BinaryOp {
+            op: Arg<BinaryOperator>,
+        } = (44, "BINARY_OP"),
+        BuildInterpolation {
+            format: Arg<u32>,
+        } = (45, "BUILD_INTERPOLATION"),
+        BuildList {
+            count: Arg<u32>,
+        } = (46, "BUILD_LIST"),
+        BuildMap {
+            count: Arg<u32>,
+        } = (47, "BUILD_MAP"),
+        BuildSet {
+            count: Arg<u32>,
+        } = (48, "BUILD_SET"),
+        BuildSlice {
+            argc: Arg<BuildSliceArgCount>,
+        } = (49, "BUILD_SLICE"),
+        BuildString {
+            count: Arg<u32>,
+        } = (50, "BUILD_STRING"),
+        BuildTuple {
+            count: Arg<u32>,
+        } = (51, "BUILD_TUPLE"),
+        Call {
+            argc: Arg<u32>,
+        } = (52, "CALL"),
+        CallIntrinsic1 {
+            func: Arg<IntrinsicFunction1>,
+        } = (53, "CALL_INTRINSIC_1"),
+        CallIntrinsic2 {
+            func: Arg<IntrinsicFunction2>,
+        } = (54, "CALL_INTRINSIC_2"),
+        CallKw {
+            argc: Arg<u32>,
+        } = (55, "CALL_KW"),
+        CompareOp {
+            opname: Arg<ComparisonOperator>,
+        } = (56, "COMPARE_OP"),
+        ContainsOp {
+            invert: Arg<Invert>,
+        } = (57, "CONTAINS_OP"),
+        ConvertValue {
+            oparg: Arg<ConvertValueOparg>,
+        } = (58, "CONVERT_VALUE"),
+        Copy {
+            i: Arg<u32>,
+        } = (59, "COPY"),
+        CopyFreeVars {
+            n: Arg<u32>,
+        } = (60, "COPY_FREE_VARS"),
+        DeleteAttr {
+            namei: Arg<NameIdx>,
+        } = (61, "DELETE_ATTR"),
+        DeleteDeref {
+            i: Arg<oparg::VarNum>,
+        } = (62, "DELETE_DEREF"),
+        DeleteFast {
+            var_num: Arg<oparg::VarNum>,
+        } = (63, "DELETE_FAST"),
+        DeleteGlobal {
+            namei: Arg<NameIdx>,
+        } = (64, "DELETE_GLOBAL"),
+        DeleteName {
+            namei: Arg<NameIdx>,
+        } = (65, "DELETE_NAME"),
+        DictMerge {
+            i: Arg<u32>,
+        } = (66, "DICT_MERGE"),
+        DictUpdate {
+            i: Arg<u32>,
+        } = (67, "DICT_UPDATE"),
+        EndAsyncFor = (68, "END_ASYNC_FOR"),
+        ExtendedArg = (69, "EXTENDED_ARG"),
+        ForIter {
+            delta: Arg<Label>,
+        } = (70, "FOR_ITER"),
+        GetAwaitable {
+            r#where: Arg<u32>,
+        } = (71, "GET_AWAITABLE"),
+        ImportFrom {
+            namei: Arg<NameIdx>,
+        } = (72, "IMPORT_FROM"),
+        ImportName {
+            namei: Arg<NameIdx>,
+        } = (73, "IMPORT_NAME"),
+        IsOp {
+            invert: Arg<Invert>,
+        } = (74, "IS_OP"),
+        JumpBackward {
+            delta: Arg<Label>,
+        } = (75, "JUMP_BACKWARD"),
+        JumpBackwardNoInterrupt {
+            delta: Arg<Label>,
+        } = (76, "JUMP_BACKWARD_NO_INTERRUPT"),
+        JumpForward {
+            delta: Arg<Label>,
+        } = (77, "JUMP_FORWARD"),
+        ListAppend {
+            i: Arg<u32>,
+        } = (78, "LIST_APPEND"),
+        ListExtend {
+            i: Arg<u32>,
+        } = (79, "LIST_EXTEND"),
+        LoadAttr {
+            namei: Arg<LoadAttr>,
+        } = (80, "LOAD_ATTR"),
+        LoadCommonConstant {
+            idx: Arg<CommonConstant>,
+        } = (81, "LOAD_COMMON_CONSTANT"),
+        LoadConst {
+            consti: Arg<oparg::ConstIdx>,
+        } = (82, "LOAD_CONST"),
+        LoadDeref {
+            i: Arg<oparg::VarNum>,
+        } = (83, "LOAD_DEREF"),
+        LoadFast {
+            var_num: Arg<oparg::VarNum>,
+        } = (84, "LOAD_FAST"),
+        LoadFastAndClear {
+            var_num: Arg<oparg::VarNum>,
+        } = (85, "LOAD_FAST_AND_CLEAR"),
+        LoadFastBorrow {
+            var_num: Arg<oparg::VarNum>,
+        } = (86, "LOAD_FAST_BORROW"),
+        LoadFastBorrowLoadFastBorrow {
+            var_nums: Arg<oparg::VarNums>,
+        } = (87, "LOAD_FAST_BORROW_LOAD_FAST_BORROW"),
+        LoadFastCheck {
+            var_num: Arg<oparg::VarNum>,
+        } = (88, "LOAD_FAST_CHECK"),
+        LoadFastLoadFast {
+            var_nums: Arg<oparg::VarNums>,
+        } = (89, "LOAD_FAST_LOAD_FAST"),
+        LoadFromDictOrDeref {
+            i: Arg<oparg::VarNum>,
+        } = (90, "LOAD_FROM_DICT_OR_DEREF"),
+        LoadFromDictOrGlobals {
+            i: Arg<NameIdx>,
+        } = (91, "LOAD_FROM_DICT_OR_GLOBALS"),
+        LoadGlobal {
+            namei: Arg<NameIdx>,
+        } = (92, "LOAD_GLOBAL"),
+        LoadName {
+            namei: Arg<NameIdx>,
+        } = (93, "LOAD_NAME"),
+        LoadSmallInt {
+            i: Arg<u32>,
+        } = (94, "LOAD_SMALL_INT"),
+        LoadSpecial {
+            method: Arg<SpecialMethod>,
+        } = (95, "LOAD_SPECIAL"),
+        LoadSuperAttr {
+            namei: Arg<LoadSuperAttr>,
+        } = (96, "LOAD_SUPER_ATTR"),
+        MakeCell {
+            i: Arg<oparg::VarNum>,
+        } = (97, "MAKE_CELL"),
+        MapAdd {
+            i: Arg<u32>,
+        } = (98, "MAP_ADD"),
+        MatchClass {
+            count: Arg<u32>,
+        } = (99, "MATCH_CLASS"),
+        PopJumpIfFalse {
+            delta: Arg<Label>,
+        } = (100, "POP_JUMP_IF_FALSE"),
+        PopJumpIfNone {
+            delta: Arg<Label>,
+        } = (101, "POP_JUMP_IF_NONE"),
+        PopJumpIfNotNone {
+            delta: Arg<Label>,
+        } = (102, "POP_JUMP_IF_NOT_NONE"),
+        PopJumpIfTrue {
+            delta: Arg<Label>,
+        } = (103, "POP_JUMP_IF_TRUE"),
+        RaiseVarargs {
+            argc: Arg<RaiseKind>,
+        } = (104, "RAISE_VARARGS"),
+        Reraise {
+            depth: Arg<u32>,
+        } = (105, "RERAISE"),
+        Send {
+            delta: Arg<Label>,
+        } = (106, "SEND"),
+        SetAdd {
+            i: Arg<u32>,
+        } = (107, "SET_ADD"),
+        SetFunctionAttribute {
+            flag: Arg<MakeFunctionFlag>,
+        } = (108, "SET_FUNCTION_ATTRIBUTE"),
+        SetUpdate {
+            i: Arg<u32>,
+        } = (109, "SET_UPDATE"),
+        StoreAttr {
+            namei: Arg<NameIdx>,
+        } = (110, "STORE_ATTR"),
+        StoreDeref {
+            i: Arg<oparg::VarNum>,
+        } = (111, "STORE_DEREF"),
+        StoreFast {
+            var_num: Arg<oparg::VarNum>,
+        } = (112, "STORE_FAST"),
+        StoreFastLoadFast {
+            var_nums: Arg<oparg::VarNums>,
+        } = (113, "STORE_FAST_LOAD_FAST"),
+        StoreFastStoreFast {
+            var_nums: Arg<oparg::VarNums>,
+        } = (114, "STORE_FAST_STORE_FAST"),
+        StoreGlobal {
+            namei: Arg<NameIdx>,
+        } = (115, "STORE_GLOBAL"),
+        StoreName {
+            namei: Arg<NameIdx>,
+        } = (116, "STORE_NAME"),
+        Swap {
+            i: Arg<u32>,
+        } = (117, "SWAP"),
+        UnpackEx {
+            counts: Arg<UnpackExArgs>,
+        } = (118, "UNPACK_EX"),
+        UnpackSequence {
+            count: Arg<u32>,
+        } = (119, "UNPACK_SEQUENCE"),
+        YieldValue {
+            arg: Arg<u32>,
+        } = (120, "YIELD_VALUE"),
+        Resume {
+            context: Arg<oparg::ResumeContext>,
+        } = (128, "RESUME"),
+        BinaryOpAddFloat = (129, "BINARY_OP_ADD_FLOAT"),
+        BinaryOpAddInt = (130, "BINARY_OP_ADD_INT"),
+        BinaryOpAddUnicode = (131, "BINARY_OP_ADD_UNICODE"),
+        BinaryOpExtend = (132, "BINARY_OP_EXTEND"),
+        BinaryOpMultiplyFloat = (133, "BINARY_OP_MULTIPLY_FLOAT"),
+        BinaryOpMultiplyInt = (134, "BINARY_OP_MULTIPLY_INT"),
+        BinaryOpSubscrDict = (135, "BINARY_OP_SUBSCR_DICT"),
+        BinaryOpSubscrGetitem = (136, "BINARY_OP_SUBSCR_GETITEM"),
+        BinaryOpSubscrListInt = (137, "BINARY_OP_SUBSCR_LIST_INT"),
+        BinaryOpSubscrListSlice = (138, "BINARY_OP_SUBSCR_LIST_SLICE"),
+        BinaryOpSubscrStrInt = (139, "BINARY_OP_SUBSCR_STR_INT"),
+        BinaryOpSubscrTupleInt = (140, "BINARY_OP_SUBSCR_TUPLE_INT"),
+        BinaryOpSubtractFloat = (141, "BINARY_OP_SUBTRACT_FLOAT"),
+        BinaryOpSubtractInt = (142, "BINARY_OP_SUBTRACT_INT"),
+        CallAllocAndEnterInit = (143, "CALL_ALLOC_AND_ENTER_INIT"),
+        CallBoundMethodExactArgs = (144, "CALL_BOUND_METHOD_EXACT_ARGS"),
+        CallBoundMethodGeneral = (145, "CALL_BOUND_METHOD_GENERAL"),
+        CallBuiltinClass = (146, "CALL_BUILTIN_CLASS"),
+        CallBuiltinFast = (147, "CALL_BUILTIN_FAST"),
+        CallBuiltinFastWithKeywords = (148, "CALL_BUILTIN_FAST_WITH_KEYWORDS"),
+        CallBuiltinO = (149, "CALL_BUILTIN_O"),
+        CallIsinstance = (150, "CALL_ISINSTANCE"),
+        CallKwBoundMethod = (151, "CALL_KW_BOUND_METHOD"),
+        CallKwNonPy = (152, "CALL_KW_NON_PY"),
+        CallKwPy = (153, "CALL_KW_PY"),
+        CallLen = (154, "CALL_LEN"),
+        CallListAppend = (155, "CALL_LIST_APPEND"),
+        CallMethodDescriptorFast = (156, "CALL_METHOD_DESCRIPTOR_FAST"),
+        CallMethodDescriptorFastWithKeywords = (157, "CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS"),
+        CallMethodDescriptorNoargs = (158, "CALL_METHOD_DESCRIPTOR_NOARGS"),
+        CallMethodDescriptorO = (159, "CALL_METHOD_DESCRIPTOR_O"),
+        CallNonPyGeneral = (160, "CALL_NON_PY_GENERAL"),
+        CallPyExactArgs = (161, "CALL_PY_EXACT_ARGS"),
+        CallPyGeneral = (162, "CALL_PY_GENERAL"),
+        CallStr1 = (163, "CALL_STR_1"),
+        CallTuple1 = (164, "CALL_TUPLE_1"),
+        CallType1 = (165, "CALL_TYPE_1"),
+        CompareOpFloat = (166, "COMPARE_OP_FLOAT"),
+        CompareOpInt = (167, "COMPARE_OP_INT"),
+        CompareOpStr = (168, "COMPARE_OP_STR"),
+        ContainsOpDict = (169, "CONTAINS_OP_DICT"),
+        ContainsOpSet = (170, "CONTAINS_OP_SET"),
+        ForIterGen = (171, "FOR_ITER_GEN"),
+        ForIterList = (172, "FOR_ITER_LIST"),
+        ForIterRange = (173, "FOR_ITER_RANGE"),
+        ForIterTuple = (174, "FOR_ITER_TUPLE"),
+        JumpBackwardJit = (175, "JUMP_BACKWARD_JIT"),
+        JumpBackwardNoJit = (176, "JUMP_BACKWARD_NO_JIT"),
+        LoadAttrClass = (177, "LOAD_ATTR_CLASS"),
+        LoadAttrClassWithMetaclassCheck = (178, "LOAD_ATTR_CLASS_WITH_METACLASS_CHECK"),
+        LoadAttrGetattributeOverridden = (179, "LOAD_ATTR_GETATTRIBUTE_OVERRIDDEN"),
+        LoadAttrInstanceValue = (180, "LOAD_ATTR_INSTANCE_VALUE"),
+        LoadAttrMethodLazyDict = (181, "LOAD_ATTR_METHOD_LAZY_DICT"),
+        LoadAttrMethodNoDict = (182, "LOAD_ATTR_METHOD_NO_DICT"),
+        LoadAttrMethodWithValues = (183, "LOAD_ATTR_METHOD_WITH_VALUES"),
+        LoadAttrModule = (184, "LOAD_ATTR_MODULE"),
+        LoadAttrNondescriptorNoDict = (185, "LOAD_ATTR_NONDESCRIPTOR_NO_DICT"),
+        LoadAttrNondescriptorWithValues = (186, "LOAD_ATTR_NONDESCRIPTOR_WITH_VALUES"),
+        LoadAttrProperty = (187, "LOAD_ATTR_PROPERTY"),
+        LoadAttrSlot = (188, "LOAD_ATTR_SLOT"),
+        LoadAttrWithHint = (189, "LOAD_ATTR_WITH_HINT"),
+        LoadConstImmortal = (190, "LOAD_CONST_IMMORTAL"),
+        LoadConstMortal = (191, "LOAD_CONST_MORTAL"),
+        LoadGlobalBuiltin = (192, "LOAD_GLOBAL_BUILTIN"),
+        LoadGlobalModule = (193, "LOAD_GLOBAL_MODULE"),
+        LoadSuperAttrAttr = (194, "LOAD_SUPER_ATTR_ATTR"),
+        LoadSuperAttrMethod = (195, "LOAD_SUPER_ATTR_METHOD"),
+        ResumeCheck = (196, "RESUME_CHECK"),
+        SendGen = (197, "SEND_GEN"),
+        StoreAttrInstanceValue = (198, "STORE_ATTR_INSTANCE_VALUE"),
+        StoreAttrSlot = (199, "STORE_ATTR_SLOT"),
+        StoreAttrWithHint = (200, "STORE_ATTR_WITH_HINT"),
+        StoreSubscrDict = (201, "STORE_SUBSCR_DICT"),
+        StoreSubscrListInt = (202, "STORE_SUBSCR_LIST_INT"),
+        ToBoolAlwaysTrue = (203, "TO_BOOL_ALWAYS_TRUE"),
+        ToBoolBool = (204, "TO_BOOL_BOOL"),
+        ToBoolInt = (205, "TO_BOOL_INT"),
+        ToBoolList = (206, "TO_BOOL_LIST"),
+        ToBoolNone = (207, "TO_BOOL_NONE"),
+        ToBoolStr = (208, "TO_BOOL_STR"),
+        UnpackSequenceList = (209, "UNPACK_SEQUENCE_LIST"),
+        UnpackSequenceTuple = (210, "UNPACK_SEQUENCE_TUPLE"),
+        UnpackSequenceTwoTuple = (211, "UNPACK_SEQUENCE_TWO_TUPLE"),
+        InstrumentedEndFor = (234, "INSTRUMENTED_END_FOR"),
+        InstrumentedPopIter = (235, "INSTRUMENTED_POP_ITER"),
+        InstrumentedEndSend = (236, "INSTRUMENTED_END_SEND"),
+        InstrumentedForIter = (237, "INSTRUMENTED_FOR_ITER"),
+        InstrumentedInstruction = (238, "INSTRUMENTED_INSTRUCTION"),
+        InstrumentedJumpForward = (239, "INSTRUMENTED_JUMP_FORWARD"),
+        InstrumentedNotTaken = (240, "INSTRUMENTED_NOT_TAKEN"),
+        InstrumentedPopJumpIfTrue = (241, "INSTRUMENTED_POP_JUMP_IF_TRUE"),
+        InstrumentedPopJumpIfFalse = (242, "INSTRUMENTED_POP_JUMP_IF_FALSE"),
+        InstrumentedPopJumpIfNone = (243, "INSTRUMENTED_POP_JUMP_IF_NONE"),
+        InstrumentedPopJumpIfNotNone = (244, "INSTRUMENTED_POP_JUMP_IF_NOT_NONE"),
+        InstrumentedResume = (245, "INSTRUMENTED_RESUME"),
+        InstrumentedReturnValue = (246, "INSTRUMENTED_RETURN_VALUE"),
+        InstrumentedYieldValue = (247, "INSTRUMENTED_YIELD_VALUE"),
+        InstrumentedEndAsyncFor = (248, "INSTRUMENTED_END_ASYNC_FOR"),
+        InstrumentedLoadSuperAttr = (249, "INSTRUMENTED_LOAD_SUPER_ATTR"),
+        InstrumentedCall = (250, "INSTRUMENTED_CALL"),
+        InstrumentedCallKw = (251, "INSTRUMENTED_CALL_KW"),
+        InstrumentedCallFunctionEx = (252, "INSTRUMENTED_CALL_FUNCTION_EX"),
+        InstrumentedJumpBackward = (253, "INSTRUMENTED_JUMP_BACKWARD"),
+        InstrumentedLine = (254, "INSTRUMENTED_LINE"),
+        EnterExecutor = (255, "ENTER_EXECUTOR"),
+    }
 );
 
 impl Instruction {
