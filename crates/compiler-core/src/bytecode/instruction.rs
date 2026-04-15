@@ -1601,6 +1601,15 @@ impl TryFrom<u16> for AnyInstruction {
     }
 }
 
+impl From<AnyOpcode> for AnyInstruction {
+    fn from(value: AnyOpcode) -> Self {
+        match value {
+            AnyOpcode::Real(op) => Self::Real(op.into()),
+            AnyOpcode::Pseudo(op) => Self::Pseudo(op.into()),
+        }
+    }
+}
+
 macro_rules! inst_either {
     (fn $name:ident ( &self $(, $arg:ident : $arg_ty:ty )* ) -> $ret:ty ) => {
         fn $name(&self $(, $arg : $arg_ty )* ) -> $ret {
@@ -1689,6 +1698,46 @@ impl AnyInstruction {
 pub enum AnyOpcode {
     Real(Opcode),
     Pseudo(PseudoOpcode),
+}
+
+impl From<Opcode> for AnyOpcode {
+    fn from(value: Opcode) -> Self {
+        Self::Real(value)
+    }
+}
+
+impl From<PseudoOpcode> for AnyOpcode {
+    fn from(value: PseudoOpcode) -> Self {
+        Self::Pseudo(value)
+    }
+}
+
+impl TryFrom<u8> for AnyOpcode {
+    type Error = MarshalError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(Opcode::try_from(value)?.into())
+    }
+}
+
+impl TryFrom<u16> for AnyOpcode {
+    type Error = MarshalError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match u8::try_from(value) {
+            Ok(v) => v.try_into(),
+            Err(_) => Ok(PseudoOpcode::try_from(value)?.into()),
+        }
+    }
+}
+
+impl From<AnyInstruction> for AnyOpcode {
+    fn from(value: AnyInstruction) -> Self {
+        match value {
+            AnyInstruction::Real(instr) => Self::Real(instr.into()),
+            AnyInstruction::Pseudo(instr) => Self::Pseudo(instr.into()),
+        }
+    }
 }
 
 impl AnyOpcode {
