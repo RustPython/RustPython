@@ -47,6 +47,15 @@ pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) -> c_int {
+    with_vm(|_vm| {
+        let obj = unsafe { &*op };
+        let ty = unsafe { &*ty };
+        obj.class().is(ty)
+    })
+}
+
+#[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
     let ctx = Context::genesis();
