@@ -16,16 +16,18 @@ use crate::{
 macro_rules! define_opcodes {
     (
         #[repr($typ:ident)]
-        enum $opcode_name:ident;
+        $opcode_vis:vis enum $opcode_name:ident;
+
         $(#[$instr_meta:meta])*
-        enum $instr_name:ident {
+        $instr_vis:vis enum $instr_name:ident {
             $(
                 $(#[$op_meta:meta])*
-                    $op_name:ident $({ $arg_name:ident: Arg<$arg_type:ty> })? = ($op_id:expr, $op_display:literal)
+                    $op_name:ident $({ $arg_name:ident: Arg<$arg_type:ty> $(,)? })? = ($op_id:expr, $op_display:literal)
             ),* $(,)?
+        }
     ) => {
         #[derive(Clone, Copy, Debug)]
-        pub enum $opcode_name {
+        $opcode_vis enum $opcode_name {
             $($op_name),*
         }
 
@@ -76,7 +78,7 @@ macro_rules! define_opcodes {
 
         #[derive(Clone, Copy, Debug)]
         #[repr($typ)]
-        pub enum $instr_name {
+        $instr_vis enum $instr_name {
             $(
                 $(#[$op_meta])*
                 $op_name $({ $arg_name: Arg<$arg_type> })? = $op_id
@@ -119,7 +121,7 @@ macro_rules! define_opcodes {
 
 define_opcodes!(
     #[repr(u8)]
-    enum Opcode;
+    pub enum Opcode;
     pub enum Instruction {
         Cache = (0, "CACHE"),
         BinarySlice = (1, "BINARY_SLICE"),
@@ -1445,32 +1447,21 @@ impl InstructionMetadata for Instruction {
 }
 
 define_opcodes!(
-    opcode_enum: PseudoOpcode,
-    instruction_enum: PseudoInstruction,
-    typ: u16,
-    ops: [
-        { name: AnnotationsPlaceholder, id: 256, display: "ANNOTATIONS_PLACEHOLDER" },
-        { name: Jump, id: 257, display: "JUMP", oparg: { name: delta, typ: Label }},
-        { name: JumpIfFalse, id: 258, display: "JUMP_IF_FALSE", oparg: { name: delta, typ: Label }},
-        { name: JumpIfTrue, id: 259, display: "JUMP_IF_TRUE", oparg: { name: delta, typ: Label }},
-        {
-            name: JumpNoInterrupt,
-            id: 260,
-            display: "JUMP_NO_INTERRUPT",
-            oparg: { name: delta, typ: Label }
-        },
-        { name: LoadClosure, id: 261, display: "LOAD_CLOSURE", oparg: { name: i, typ: NameIdx }},
-        { name: PopBlock, id: 262, display: "POP_BLOCK" },
-        { name: SetupCleanup, id: 263, display: "SETUP_CLEANUP", oparg: { name: delta, typ: Label }},
-        { name: SetupFinally, id: 264, display: "SETUP_FINALLY", oparg: { name: delta, typ: Label }},
-        { name: SetupWith, id: 265, display: "SETUP_WITH", oparg: { name: delta, typ: Label }},
-        {
-            name: StoreFastMaybeNull,
-            id: 266,
-            display: "STORE_FAST_MAYBE_NULL",
-            oparg: { name: var_num, typ: oparg::VarNum }
-        },
-    ]
+    #[repr(u16)]
+    pub enum PseudoOpcode;
+    pub enum PseudoInstruction {
+        AnnotationsPlaceholder = (256, "ANNOTATIONS_PLACEHOLDER"),
+        Jump { delta: Arg<Label> } = (257, "JUMP"),
+        JumpIfFalse { delta: Arg<Label> } = (258, "JUMP_IF_FALSE"),
+        JumpIfTrue { delta: Arg<Label> } = (259, "JUMP_IF_TRUE"),
+        JumpNoInterrupt { delta: Arg<Label> } = (260, "JUMP_NO_INTERRUPT"),
+        LoadClosure { i: Arg<NameIdx> } = (261, "LOAD_CLOSURE"),
+        PopBlock = (262, "POP_BLOCK"),
+        SetupCleanup { delta: Arg<Label> } = (263, "SETUP_CLEANUP"),
+        SetupFinally { delta: Arg<Label> } = (264, "SETUP_FINALLY"),
+        SetupWith { delta: Arg<Label> } = (265, "SETUP_WITH"),
+        StoreFastMaybeNull { var_num: Arg<NameIdx> } = (266, "STORE_FAST_MAYBE_NULL"),
+    }
 );
 
 impl PseudoInstruction {
