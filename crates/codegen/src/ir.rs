@@ -8,10 +8,10 @@ use num_traits::{ToPrimitive, Zero};
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
-        AnyInstruction, Arg, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL, CodeFlags,
-        CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry, InstrDisplayContext,
-        Instruction, InstructionMetadata, Label, OpArg, PseudoInstruction, PyCodeLocationInfoKind,
-        encode_exception_table, oparg,
+        AnyInstruction, AnyOpcode, Arg, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
+        CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
+        InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg, Opcode,
+        PseudoInstruction, PseudoOpcode, PyCodeLocationInfoKind, encode_exception_table, oparg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -2737,16 +2737,14 @@ enum JumpThreadKind {
 }
 
 fn jump_thread_kind(instr: AnyInstruction) -> Option<JumpThreadKind> {
-    match instr {
-        AnyInstruction::Pseudo(PseudoInstruction::Jump { .. })
-        | AnyInstruction::Real(Instruction::JumpForward { .. })
-        | AnyInstruction::Real(Instruction::JumpBackward { .. }) => Some(JumpThreadKind::Plain),
-        AnyInstruction::Pseudo(PseudoInstruction::JumpNoInterrupt { .. })
-        | AnyInstruction::Real(Instruction::JumpBackwardNoInterrupt { .. }) => {
-            Some(JumpThreadKind::NoInterrupt)
-        }
-        _ => None,
-    }
+    Some(match instr.into() {
+        AnyOpcode::Pseudo(PseudoOpcode::Jump)
+        | AnyOpcode::Real(Opcode::JumpForward)
+        | AnyOpcode::Real(Opcode::JumpBackward) => JumpThreadKind::Plain,
+        AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt)
+        | AnyOpcode::Real(Opcode::JumpBackwardNoInterrupt) => JumpThreadKind::NoInterrupt,
+        _ => return None,
+    })
 }
 
 fn threaded_jump_instr(
