@@ -8,7 +8,6 @@ mod _opcode {
         bytecode::{AnyInstruction, AnyOpcode, InstructionMetadata, Opcode, PseudoOpcode},
     };
 
-    #[must_use]
     fn try_from_i32(raw: i32) -> Result<AnyOpcode, ()> {
         u16::try_from(raw)
             .map_err(|_| ())?
@@ -103,7 +102,7 @@ mod _opcode {
 
     #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
-        try_from_i32(opcode).map_or(false, |_| opcode > HAVE_ARGUMENT)
+        try_from_i32(opcode).is_ok_and(|_| opcode > HAVE_ARGUMENT)
     }
 
     #[pyfunction]
