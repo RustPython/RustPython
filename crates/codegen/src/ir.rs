@@ -1477,7 +1477,7 @@ impl CodeInfo {
                     }
                 }
                 // Safe to reorder. SWAP -> NOP, swap j and k.
-                instructions[i].instr = AnyInstruction::Real(Instruction::Nop);
+                instructions[i].instr = Opcode::Nop.into();
                 instructions[i].arg = OpArg::new(0);
                 instructions.swap(j, k);
                 i += 1;
@@ -1516,8 +1516,8 @@ impl CodeInfo {
                 let mut run_end = run_start;
                 while run_end < len
                     && matches!(
-                        instructions[run_end].instr,
-                        AnyInstruction::Real(Instruction::StoreFast { .. })
+                        instructions[run_end].instr.into(),
+                        AnyOpcode::Real(Opcode::StoreFast)
                     )
                 {
                     run_end += 1;
@@ -1532,7 +1532,7 @@ impl CodeInfo {
                     for (j, instr) in instructions[run_start..run_end].iter_mut().enumerate() {
                         let idx = u32::from(instr.arg);
                         if last_occurrence[&idx] != j {
-                            instr.instr = AnyInstruction::Real(Instruction::PopTop);
+                            instr.instr = Opcode::PopTop.into();
                             instr.arg = OpArg::new(0);
                         }
                     }
