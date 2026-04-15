@@ -22,7 +22,7 @@ use crate::{
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
     },
     bytecode::{
-        self, ADAPTIVE_COOLDOWN_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
+        self, ADAPTIVE_COOLDOWN_VALUE, Instruction, LoadAttr, LoadSuperAttr, Opcode, SpecialMethod,
     },
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
@@ -1487,10 +1487,8 @@ impl ExecutingFrame<'_> {
             // When neither is enabled, prev_line is stale but unused.
             if vm.use_tracing.get() {
                 if !matches!(
-                    op,
-                    Instruction::Resume { .. }
-                        | Instruction::ExtendedArg
-                        | Instruction::InstrumentedLine
+                    op.into(),
+                    Opcode::Resume | Opcode::ExtendedArg | Opcode::InstrumentedLine
                 ) && let Some((loc, _)) = self.code.locations.get(idx)
                 {
                     *self.prev_line = loc.line.get() as u32;
@@ -1502,10 +1500,8 @@ impl ExecutingFrame<'_> {
                 if !vm.is_none(&self.object.trace.lock())
                     && *self.object.trace_opcodes.lock()
                     && !matches!(
-                        op,
-                        Instruction::Resume { .. }
-                            | Instruction::InstrumentedResume
-                            | Instruction::ExtendedArg
+                        op.into(),
+                        Opcode::Resume | Opcode::InstrumentedResume | Opcode::ExtendedArg
                     )
                 {
                     vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
@@ -1739,8 +1735,8 @@ impl ExecutingFrame<'_> {
                     if lasti > 0
                         && let Some(prev_unit) = self.code.instructions.get(lasti - 1)
                         && matches!(
-                            &prev_unit.op,
-                            Instruction::YieldValue { .. } | Instruction::InstrumentedYieldValue
+                            &prev_unit.op.into(),
+                            Opcode::YieldValue | Opcode::InstrumentedYieldValue
                         )
                     {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
@@ -8056,7 +8052,7 @@ impl ExecutingFrame<'_> {
         cache_base: usize,
         left: &PyObject,
     ) -> Option<usize> {
-        let next_idx = cache_base + Instruction::BinaryOp { op: Arg::marker() }.cache_entries();
+        let next_idx = cache_base + Instruction::from(Opcode::BinaryOp).cache_entries();
         let unit = self.code.instructions.get(next_idx)?;
         let next_op = unit.op.to_base().unwrap_or(unit.op);
         if !matches!(next_op, Instruction::StoreFast { .. }) {
@@ -8933,10 +8929,7 @@ impl ExecutingFrame<'_> {
     fn for_iter_has_end_for_shape(&self, instr_idx: usize, jump_delta: u32) -> bool {
         let target_idx = instr_idx
             + 1
-            + Instruction::ForIter {
-                delta: Arg::marker(),
-            }
-            .cache_entries()
+            + Instruction::from(Opcode::ForIter).cache_entries()
             + jump_delta as usize;
         self.code.instructions.get(target_idx).is_some_and(|unit| {
             matches!(

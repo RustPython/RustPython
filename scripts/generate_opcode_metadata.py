@@ -26,32 +26,38 @@ PRIORITY_OPMAP = {
 }
 
 
-def to_pascal_case(s: str) -> str:
+def to_snake_case(s: str) -> str:
     res = re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", s)
     return re.sub(r"(\D)(\d+)$", r"\1_\2", res).upper()
 
 
 class Opcode(typing.NamedTuple):
     rust_name: str
+    cpython_name: str
     id: int
     have_oparg: bool
-
-    @property
-    def cpython_name(self) -> str:
-        return to_pascal_case(self.rust_name)
 
     @property
     def is_instrumented(self):
         return self.cpython_name.startswith("INSTRUMENTED_")
 
     @classmethod
-    def from_str(cls, body: str):
-        raw_variants = re.split(r"(\d+),", body.strip())
-        raw_variants.remove("")
-        for raw_name, raw_id in itertools.batched(raw_variants, 2, strict=True):
-            have_oparg = "Arg<" in raw_name  # Hacky but works
-            name = re.findall(r"\b[A-Z][A-Za-z]*\d*\b(?=\s*[\({=])", raw_name)[0]
-            yield cls(rust_name=name.strip(), id=int(raw_id), have_oparg=have_oparg)
+    def from_str(cls, text: str):
+        # Split on commas that are followed by a newline + an uppercase letter (new entry)
+        entries = re.split(r",\s*\n\s*(?=[A-Z])", text)
+        for entry in entries:
+            entry = entry.strip()
+            if not entry:
+                continue
+            have_oparg = "Arg<" in entry  # Hacky but works
+            rust_name = re.match(r"(\w+)", entry).group(1)
+            id_num, cpython_name = re.search(r'\((\d+),\s*"([^"]+)"\)', entry).groups()
+            yield cls(
+                rust_name=rust_name,
+                cpython_name=cpython_name,
+                id=int(id_num),
+                have_oparg=have_oparg,
+            )
 
     def __lt__(self, other: typing.Self) -> bool:
         sprio, oprio = (
@@ -60,16 +66,23 @@ class Opcode(typing.NamedTuple):
         return (sprio, self.id) < (oprio, other.id)
 
 
-def extract_enum_body(contents: str, enum_name: str) -> str:
-    res = re.search(f"pub enum {enum_name} " + r"\{(.+?)\n\}", contents, re.DOTALL)
-    if not res:
-        raise ValueError(f"Could not find {enum_name} enum")
+def extract_enum_body(text: str, name: str) -> str:
+    # Find the start of the enum block
+    start_match = re.search(rf"enum\s+{name}\s*\{{", text)
+    if not start_match:
+        return None
 
-    return "\n".join(
-        line.split("//")[0].strip()  # Remove any comment. i.e. "foo // some comment"
-        for line in res.group(1).splitlines()
-        if not line.strip().startswith("//")  # Ignore comment lines
-    )
+    # Manually track brace depth from that point
+    depth = 0
+    start = start_match.end() - 1  # position of opening '{'
+    for i, ch in enumerate(text[start:], start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                # Return only the inner content (excluding outer braces)
+                return text[start + 1 : i]
 
 
 def build_deopts(contents: str) -> dict[str, list[str]]:
@@ -112,7 +125,7 @@ def build_deopts(contents: str) -> dict[str, list[str]]:
 
     deopts = {}
     for arm in arms:
-        *specialized, deopt = map(to_pascal_case, re.findall(r"Self::(\w*)\b", arm))
+        *specialized, deopt = map(to_snake_case, re.findall(r"Self::(\w*)\b", arm))
         deopts[deopt] = specialized
 
     return deopts
