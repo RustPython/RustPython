@@ -2739,8 +2739,7 @@ enum JumpThreadKind {
 fn jump_thread_kind(instr: AnyInstruction) -> Option<JumpThreadKind> {
     Some(match instr.into() {
         AnyOpcode::Pseudo(PseudoOpcode::Jump)
-        | AnyOpcode::Real(Opcode::JumpForward)
-        | AnyOpcode::Real(Opcode::JumpBackward) => JumpThreadKind::Plain,
+        | AnyOpcode::Real(Opcode::JumpForward | Opcode::JumpBackward) => JumpThreadKind::Plain,
         AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt)
         | AnyOpcode::Real(Opcode::JumpBackwardNoInterrupt) => JumpThreadKind::NoInterrupt,
         _ => return None,
@@ -2761,19 +2760,11 @@ fn threaded_jump_instr(
     if source_kind == JumpThreadKind::NoInterrupt {
         return Some(source);
     }
-    Some(match source {
-        AnyInstruction::Pseudo(_) => PseudoInstruction::Jump {
-            delta: Arg::marker(),
-        }
-        .into(),
-        AnyInstruction::Real(Instruction::JumpBackwardNoInterrupt { .. }) => {
-            Instruction::JumpBackward {
-                delta: Arg::marker(),
-            }
-            .into()
-        }
-        AnyInstruction::Real(Instruction::JumpForward { .. })
-        | AnyInstruction::Real(Instruction::JumpBackward { .. }) => source,
+
+    Some(match source.into() {
+        AnyOpcode::Pseudo(_) => PseudoOpcode::Jump.into(),
+        AnyOpcode::Real(Opcode::JumpBackwardNoInterrupt) => Opcode::JumpBackward.into(),
+        AnyOpcode::Real(Opcode::JumpForward | Opcode::JumpBackward) => source,
         _ => return None,
     })
 }
@@ -2862,23 +2853,11 @@ fn is_conditional_jump(instr: &AnyInstruction) -> bool {
 
 /// Invert a conditional jump opcode.
 fn reversed_conditional(instr: &AnyInstruction) -> Option<AnyInstruction> {
-    Some(match instr.real()? {
-        Instruction::PopJumpIfFalse { .. } => Instruction::PopJumpIfTrue {
-            delta: Arg::marker(),
-        }
-        .into(),
-        Instruction::PopJumpIfTrue { .. } => Instruction::PopJumpIfFalse {
-            delta: Arg::marker(),
-        }
-        .into(),
-        Instruction::PopJumpIfNone { .. } => Instruction::PopJumpIfNotNone {
-            delta: Arg::marker(),
-        }
-        .into(),
-        Instruction::PopJumpIfNotNone { .. } => Instruction::PopJumpIfNone {
-            delta: Arg::marker(),
-        }
-        .into(),
+    Some(match AnyOpcode::from(*instr).real()? {
+        Opcode::PopJumpIfFalse => Opcode::PopJumpIfTrue.into(),
+        Opcode::PopJumpIfTrue => Opcode::PopJumpIfFalse.into(),
+        Opcode::PopJumpIfNone => Opcode::PopJumpIfNotNone.into(),
+        Opcode::PopJumpIfNotNone => Opcode::PopJumpIfNone.into(),
         _ => return None,
     })
 }

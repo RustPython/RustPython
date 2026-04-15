@@ -1601,11 +1601,23 @@ impl TryFrom<u16> for AnyInstruction {
     }
 }
 
+impl From<Opcode> for AnyInstruction {
+    fn from(value: Opcode) -> Self {
+        Self::Real(value.into())
+    }
+}
+
+impl From<PseudoOpcode> for AnyInstruction {
+    fn from(value: PseudoOpcode) -> Self {
+        Self::Pseudo(value.into())
+    }
+}
+
 impl From<AnyOpcode> for AnyInstruction {
     fn from(value: AnyOpcode) -> Self {
         match value {
-            AnyOpcode::Real(op) => Self::Real(op.into()),
-            AnyOpcode::Pseudo(op) => Self::Pseudo(op.into()),
+            AnyOpcode::Real(op) => op.into(),
+            AnyOpcode::Pseudo(op) => op.into(),
         }
     }
 }
