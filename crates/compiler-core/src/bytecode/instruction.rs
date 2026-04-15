@@ -1660,7 +1660,7 @@ impl AnyInstruction {
     /// If was called on something else other than [`Self::Real`].
     pub const fn expect_real(self) -> Instruction {
         self.real()
-            .expect("Expected Instruction::Real, found Instruction::Pseudo")
+            .expect("Expected AnyInstruction::Real, found AnyInstruction::Pseudo")
     }
 
     /// Same as [`Self::pseudo`] but panics if wasn't called on [`Self::Pseudo`].
@@ -1670,7 +1670,7 @@ impl AnyInstruction {
     /// If was called on something else other than [`Self::Pseudo`].
     pub const fn expect_pseudo(self) -> PseudoInstruction {
         self.pseudo()
-            .expect("Expected Instruction::Pseudo, found Instruction::Real")
+            .expect("Expected AnyInstruction::Pseudo, found AnyInstruction::Real")
     }
 
     /// Returns true if this is a block push pseudo instruction
@@ -1682,6 +1682,50 @@ impl AnyInstruction {
     /// Returns true if this is a POP_BLOCK pseudo instruction.
     pub fn is_pop_block(&self) -> bool {
         matches!(self, Self::Pseudo(PseudoInstruction::PopBlock))
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum AnyOpcode {
+    Real(Opcode),
+    Pseudo(PseudoOpcode),
+}
+
+impl AnyOpcode {
+    /// Gets the inner value of [`Self::Real`].
+    pub const fn real(self) -> Option<Opcode> {
+        match self {
+            Self::Real(op) => Some(op),
+            _ => None,
+        }
+    }
+
+    /// Gets the inner value of [`Self::Pseudo`].
+    pub const fn pseudo(self) -> Option<PseudoOpcode> {
+        match self {
+            Self::Pseudo(op) => Some(op),
+            _ => None,
+        }
+    }
+
+    /// Same as [`Self::real`] but panics if wasn't called on [`Self::Real`].
+    ///
+    /// # Panics
+    ///
+    /// If was called on something else other than [`Self::Real`].
+    pub const fn expect_real(self) -> Opcode {
+        self.real()
+            .expect("Expected AnyOpcode::Real, found AnyOpcode::Pseudo")
+    }
+
+    /// Same as [`Self::pseudo`] but panics if wasn't called on [`Self::Pseudo`].
+    ///
+    /// # Panics
+    ///
+    /// If was called on something else other than [`Self::Pseudo`].
+    pub const fn expect_pseudo(self) -> PseudoOpcode {
+        self.pseudo()
+            .expect("Expected AnyOpcode::Pseudo, found AnyOpcode::Real")
     }
 }
 
