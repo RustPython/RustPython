@@ -449,23 +449,15 @@ impl CodeInfo {
                         // Direction must be based on concrete instruction offsets.
                         // Empty blocks can share offsets, so block-order-based resolution
                         // may classify some jumps incorrectly.
-                        op = match op {
-                            Instruction::JumpForward { .. } if target_offset <= current_offset => {
-                                Instruction::JumpBackward {
-                                    delta: Arg::marker(),
-                                }
+                        op = match op.into() {
+                            Opcode::JumpForward if target_offset <= current_offset => {
+                                Opcode::JumpBackward.into()
                             }
-                            Instruction::JumpBackward { .. } if target_offset > current_offset => {
-                                Instruction::JumpForward {
-                                    delta: Arg::marker(),
-                                }
+                            Opcode::JumpBackward if target_offset > current_offset => {
+                                Opcode::JumpForward.into()
                             }
-                            Instruction::JumpBackwardNoInterrupt { .. }
-                                if target_offset > current_offset =>
-                            {
-                                Instruction::JumpForward {
-                                    delta: Arg::marker(),
-                                }
+                            Opcode::JumpBackwardNoInterrupt if target_offset > current_offset => {
+                                Opcode::JumpForward.into()
                             }
                             _ => op,
                         };
@@ -479,9 +471,8 @@ impl CodeInfo {
                                 .expect("END_ASYNC_FOR target must be before instruction");
                             OpArg::new(arg)
                         } else if matches!(
-                            op,
-                            Instruction::JumpBackward { .. }
-                                | Instruction::JumpBackwardNoInterrupt { .. }
+                            op.into(),
+                            Opcode::JumpBackward | Opcode::JumpBackwardNoInterrupt
                         ) {
                             let arg = offset_after
                                 .checked_sub(target_offset)
