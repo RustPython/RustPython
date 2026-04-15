@@ -14,7 +14,7 @@ use crate::{
         object, pystr,
         type_::PyAttributes,
     },
-    bytecode::{self, CodeFlags, CodeUnit, Instruction},
+    bytecode::{self, CodeFlags, CodeUnit, Instruction, Opcode},
     class::StaticType,
     common::rc::PyRc,
     exceptions,
@@ -410,9 +410,7 @@ impl Context {
                 arg: 0.into(),
             },
             CodeUnit {
-                op: Instruction::Resume {
-                    context: bytecode::Arg::marker(),
-                },
+                op: Opcode::Resume.into(),
                 arg: 0.into(),
             },
         ];
