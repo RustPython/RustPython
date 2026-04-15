@@ -33,11 +33,18 @@ macro_rules! define_opcodes {
 
         impl $opcode_name {
             #[must_use]
-            pub const fn as_instruction(&self) -> $instr_name {
+            $opcode_vis const fn as_instruction(&self) -> $instr_name {
                 match self {
                     $(
                         Self::$op_name => $instr_name::$op_name $({ $arg_name: Arg::marker() })?,
                     )*
+                }
+            }
+
+            #[must_use]
+            $opcode_vis const fn name(&self) -> &str {
+                match self {
+                    $(Self::$op_name => $op_display,)*
                 }
             }
         }
@@ -70,9 +77,7 @@ macro_rules! define_opcodes {
 
         impl ::core::fmt::Display for $opcode_name {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                match self {
-                    $(Self::$op_name => write!(f, $op_display),)*
-                }
+                write!(f, "{}", self.name())
             }
         }
 
@@ -87,7 +92,7 @@ macro_rules! define_opcodes {
 
         impl $instr_name {
             #[must_use]
-            pub const fn opcode(&self) -> $opcode_name {
+            $instr_vis const fn opcode(&self) -> $opcode_name {
                 match self {
                     $(
                         Self::$op_name $({ $arg_name: _ })? => $opcode_name::$op_name,
