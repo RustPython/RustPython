@@ -3337,6 +3337,7 @@ version = "0.5.0"
 dependencies = [
  "bitflags 2.11.0",
  "criterion",
+ "icu_properties",
  "num_enum",
  "optional",
  "rustpython-wtf8",
