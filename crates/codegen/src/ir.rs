@@ -1400,15 +1400,15 @@ impl CodeInfo {
         /// Instruction classes that are safe to reorder around SWAP.
         fn is_swappable(instr: &AnyInstruction) -> bool {
             matches!(
-                instr,
-                AnyInstruction::Real(Instruction::StoreFast { .. } | Instruction::PopTop)
+                (*instr).into(),
+                AnyOpcode::Real(Opcode::StoreFast | Opcode::PopTop)
             )
         }
 
         /// Variable index that a STORE_FAST writes to, or None.
         fn stores_to(info: &InstructionInfo) -> Option<u32> {
-            match info.instr {
-                AnyInstruction::Real(Instruction::StoreFast { .. }) => Some(u32::from(info.arg)),
+            match info.instr.into() {
+                AnyOpcode::Real(Opcode::StoreFast) => Some(u32::from(info.arg)),
                 _ => None,
             }
         }
@@ -1535,10 +1535,8 @@ impl CodeInfo {
             while i < len {
                 // Look for UNPACK_SEQUENCE or UNPACK_EX
                 let is_unpack = matches!(
-                    instructions[i].instr,
-                    AnyInstruction::Real(
-                        Instruction::UnpackSequence { .. } | Instruction::UnpackEx { .. }
-                    )
+                    instructions[i].instr.into(),
+                    AnyOpcode::Real(Opcode::UnpackSequence | Opcode::UnpackEx)
                 );
                 if !is_unpack {
                     i += 1;
@@ -1934,8 +1932,8 @@ impl CodeInfo {
                 }
 
                 // Push values to stack with source instruction index
-                let source = match instr {
-                    Instruction::LoadFast { .. } | Instruction::LoadFastLoadFast { .. } => i,
+                let source = match instr.into() {
+                    Opcode::LoadFast | Opcode::LoadFastLoadFast => i,
                     _ => NOT_LOCAL,
                 };
                 for _ in 0..pushes {
