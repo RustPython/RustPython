@@ -32,6 +32,7 @@ macro_rules! define_opcodes {
         }
 
         impl $opcode_name {
+            #[doc = concat!("Converts this opcode to [`", stringify!($instr_name), "`].")]
             #[must_use]
             $opcode_vis const fn as_instruction(&self) -> $instr_name {
                 match self {
@@ -41,6 +42,7 @@ macro_rules! define_opcodes {
                 }
             }
 
+            /// Gets the CPython name representation.
             #[must_use]
             $opcode_vis const fn name(&self) -> &str {
                 match self {
@@ -82,15 +84,16 @@ macro_rules! define_opcodes {
         }
 
         #[derive(Clone, Copy, Debug)]
-        #[repr($typ)]
+        #[repr($typ)] // TODO: Remove this repr
         $instr_vis enum $instr_name {
             $(
                 $(#[$op_meta])*
-                $op_name $({ $arg_name: Arg<$arg_type> })? = $op_id
+                $op_name $({ $arg_name: Arg<$arg_type> })? = $op_id // TODO: Don't assign value
             ),*
         }
 
         impl $instr_name {
+            #[doc = concat!("Get the corresponding [`", stringify!($opcode_name), "`].")]
             #[must_use]
             $instr_vis const fn opcode(&self) -> $opcode_name {
                 match self {
