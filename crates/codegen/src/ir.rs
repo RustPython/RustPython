@@ -1338,15 +1338,15 @@ impl CodeInfo {
                 }
                 match n {
                     1 => {
-                        instructions[i].instr = AnyInstruction::Real(Instruction::Nop);
+                        instructions[i].instr = Opcode::Nop.into();
                         instructions[i].arg = OpArg::new(0);
-                        instructions[i + 1].instr = AnyInstruction::Real(Instruction::Nop);
+                        instructions[i + 1].instr = Opcode::Nop.into();
                         instructions[i + 1].arg = OpArg::new(0);
                     }
                     2 | 3 => {
-                        instructions[i].instr = AnyInstruction::Real(Instruction::Nop);
+                        instructions[i].instr = Opcode::Nop.into();
                         instructions[i].arg = OpArg::new(0);
-                        instructions[i + 1].instr = AnyInstruction::Real(Opcode::Swap.into());
+                        instructions[i + 1].instr = Opcode::Swap.into();
                         instructions[i + 1].arg = OpArg::new(n);
                     }
                     _ => {}
