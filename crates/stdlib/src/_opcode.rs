@@ -5,152 +5,24 @@ mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
-        bytecode::{AnyInstruction, Instruction, InstructionMetadata, PseudoInstruction},
+        bytecode::{AnyInstruction, AnyOpcode, InstructionMetadata, Opcode, PseudoOpcode},
     };
-    use core::ops::Deref;
 
-    #[derive(Clone, Copy)]
-    struct Opcode(AnyInstruction);
-
-    impl Deref for Opcode {
-        type Target = AnyInstruction;
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
+    #[must_use]
+    fn try_from_i32(raw: i32) -> Result<AnyOpcode, ()> {
+        u16::try_from(raw)
+            .map_err(|_| ())?
+            .try_into()
+            .map_err(|_| ())
     }
 
-    impl TryFrom<i32> for Opcode {
-        type Error = ();
-
-        fn try_from(value: i32) -> Result<Self, Self::Error> {
-            Ok(Self(
-                u16::try_from(value)
-                    .map_err(|_| ())?
-                    .try_into()
-                    .map_err(|_| ())?,
-            ))
-        }
-    }
-
-    impl Opcode {
-        // https://github.com/python/cpython/blob/v3.14.2/Include/opcode_ids.h#L252
-        const HAVE_ARGUMENT: i32 = 43;
-
-        pub fn try_from_pyint(raw: PyIntRef, vm: &VirtualMachine) -> PyResult<Self> {
-            let instruction = raw
-                .try_to_primitive::<u16>(vm)
-                .and_then(|v| {
-                    AnyInstruction::try_from(v).map_err(|_| {
-                        vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned())
-                    })
-                })
-                .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
-
-            Ok(Self(instruction))
-        }
-
-        const fn inner(self) -> AnyInstruction {
-            self.0
-        }
-
-        /// Check if opcode is valid (can be converted to an AnyInstruction)
-        #[must_use]
-        pub fn is_valid(opcode: i32) -> bool {
-            Self::try_from(opcode).is_ok()
-        }
-
-        /// Check if instruction has an argument
-        #[must_use]
-        pub fn has_arg(opcode: i32) -> bool {
-            Self::is_valid(opcode) && opcode > Self::HAVE_ARGUMENT
-        }
-
-        /// Check if instruction uses co_consts
-        #[must_use]
-        pub fn has_const(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(Instruction::LoadConst { .. }))
-            )
-        }
-
-        /// Check if instruction uses co_names
-        #[must_use]
-        pub fn has_name(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::DeleteAttr { .. }
-                        | Instruction::DeleteGlobal { .. }
-                        | Instruction::DeleteName { .. }
-                        | Instruction::ImportFrom { .. }
-                        | Instruction::ImportName { .. }
-                        | Instruction::LoadAttr { .. }
-                        | Instruction::LoadGlobal { .. }
-                        | Instruction::LoadName { .. }
-                        | Instruction::StoreAttr { .. }
-                        | Instruction::StoreGlobal { .. }
-                        | Instruction::StoreName { .. }
-                ))
-            )
-        }
-
-        /// Check if instruction is a jump
-        #[must_use]
-        pub fn has_jump(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::ForIter { .. }
-                        | Instruction::PopJumpIfFalse { .. }
-                        | Instruction::PopJumpIfTrue { .. }
-                        | Instruction::Send { .. }
-                ) | AnyInstruction::Pseudo(PseudoInstruction::Jump { .. }))
-            )
-        }
-
-        /// Check if instruction uses co_freevars/co_cellvars
-        #[must_use]
-        pub fn has_free(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::DeleteDeref { .. }
-                        | Instruction::LoadFromDictOrDeref { .. }
-                        | Instruction::LoadDeref { .. }
-                        | Instruction::StoreDeref { .. }
-                ))
-            )
-        }
-
-        /// Check if instruction uses co_varnames (local variables)
-        #[must_use]
-        pub fn has_local(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::DeleteFast { .. }
-                        | Instruction::LoadFast { .. }
-                        | Instruction::LoadFastAndClear { .. }
-                        | Instruction::StoreFast { .. }
-                        | Instruction::StoreFastLoadFast { .. }
-                ))
-            )
-        }
-
-        /// Check if instruction has exception info
-        #[must_use]
-        pub fn has_exc(_opcode: i32) -> bool {
-            // No instructions have exception info in RustPython
-            // (exception handling is done via exception table)
-            false
-        }
-    }
+    // https://github.com/python/cpython/blob/v3.14.2/Include/opcode_ids.h#L252
+    const HAVE_ARGUMENT: i32 = 43;
 
     // prepare specialization
     #[pyattr]
     const ENABLE_SPECIALIZATION: i8 = 1;
+
     #[pyattr]
     const ENABLE_SPECIALIZATION_FT: i8 = 1;
 
@@ -199,62 +71,109 @@ mod _opcode {
             None => None,
         };
 
-        let opcode = Opcode::try_from_pyint(args.opcode, vm)?;
+        let instr = args
+            .opcode
+            .try_to_primitive::<u16>(vm)
+            .and_then(|v| {
+                AnyInstruction::try_from(v)
+                    .map_err(|_| vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned()))
+            })
+            .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
 
         // Raise ValueError if specialized.
-        if opcode.inner().real().is_some_and(|op| op.deopt().is_some()) {
+        if instr.real().is_some_and(|op| op.deopt().is_some()) {
             return Err(vm.new_value_error("invalid opcode or oparg"));
         }
 
         let effect = match jump {
-            Some(true) => opcode.stack_effect_jump(oparg),
-            Some(false) => opcode.stack_effect(oparg),
+            Some(true) => instr.stack_effect_jump(oparg),
+            Some(false) => instr.stack_effect(oparg),
             // jump=None: max of both paths (CPython convention)
-            None => opcode
+            None => instr
                 .stack_effect(oparg)
-                .max(opcode.stack_effect_jump(oparg)),
+                .max(instr.stack_effect_jump(oparg)),
         };
         Ok(effect)
     }
 
     #[pyfunction]
     fn is_valid(opcode: i32) -> bool {
-        Opcode::is_valid(opcode)
+        try_from_i32(opcode).is_ok()
     }
 
     #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
-        Opcode::has_arg(opcode)
+        try_from_i32(opcode).map_or(false, |_| opcode > HAVE_ARGUMENT)
     }
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        Opcode::has_const(opcode)
+        matches!(try_from_i32(opcode), Ok(AnyOpcode::Real(Opcode::LoadConst)))
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        Opcode::has_name(opcode)
+        matches!(
+            try_from_i32(opcode),
+            Ok(AnyOpcode::Real(
+                Opcode::DeleteAttr
+                    | Opcode::DeleteGlobal
+                    | Opcode::DeleteName
+                    | Opcode::ImportFrom
+                    | Opcode::ImportName
+                    | Opcode::LoadAttr
+                    | Opcode::LoadGlobal
+                    | Opcode::LoadName
+                    | Opcode::StoreAttr
+                    | Opcode::StoreGlobal
+                    | Opcode::StoreName
+            ))
+        )
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        Opcode::has_jump(opcode)
+        matches!(
+            try_from_i32(opcode),
+            Ok(AnyOpcode::Real(
+                Opcode::ForIter | Opcode::PopJumpIfFalse | Opcode::PopJumpIfTrue | Opcode::Send
+            ) | AnyOpcode::Pseudo(PseudoOpcode::Jump))
+        )
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        Opcode::has_free(opcode)
+        matches!(
+            try_from_i32(opcode),
+            Ok(AnyOpcode::Real(
+                Opcode::DeleteDeref
+                    | Opcode::LoadFromDictOrDeref
+                    | Opcode::LoadDeref
+                    | Opcode::StoreDeref
+            ))
+        )
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        Opcode::has_local(opcode)
+        matches!(
+            try_from_i32(opcode),
+            Ok(AnyOpcode::Real(
+                Opcode::DeleteFast
+                    | Opcode::LoadFast
+                    | Opcode::LoadFastAndClear
+                    | Opcode::StoreFast
+                    | Opcode::StoreFastLoadFast
+            ))
+        )
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        Opcode::has_exc(opcode)
+        // No instructions have exception info in RustPython
+        // (exception handling is done via exception table)
+        let _ = opcode;
+        false
     }
 
     #[pyfunction]
