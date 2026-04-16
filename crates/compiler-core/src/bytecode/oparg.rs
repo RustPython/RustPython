@@ -248,7 +248,7 @@ oparg_enum!(
     ///
     /// ## See also
     ///
-    /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
+    /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/v3.14.4/Include/ceval.h#L129-L132)
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
     pub enum ConvertValueOparg {
         /// No conversion.
