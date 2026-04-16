@@ -1,38 +1,99 @@
 use crate::{PyObject, with_vm};
 use core::convert::Infallible;
-use core::ffi::CStr;
-use core::ffi::{c_char, c_int};
+use core::ffi::{CStr, c_char, c_int};
 use core::mem::MaybeUninit;
-use rustpython_vm::PyResult;
 use rustpython_vm::builtins::{PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
+use rustpython_vm::exceptions::ExceptionZoo;
+use rustpython_vm::{AsObject, PyResult};
 
-#[unsafe(no_mangle)]
-pub static mut PyExc_BaseException: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+macro_rules! define_exception_statics {
+    ($( $(#[$meta:meta])* $export:ident => $zoo:ident ),* $(,)?) => {
+        $(
+            $(#[$meta])*
+            #[unsafe(no_mangle)]
+            pub static mut $export: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+        )*
 
-#[unsafe(no_mangle)]
-pub static mut PyExc_Exception: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+        #[allow(static_mut_refs)]
+        pub(crate) unsafe fn init_exception_statics(exc: &ExceptionZoo) {
+            unsafe {
+                $(
+                    $export.write(exc.$zoo.as_object().as_raw().cast_mut());
+                )*
+            }
+        }
+    };
+}
 
-#[unsafe(no_mangle)]
-pub static mut PyExc_SystemError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyExc_TypeError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyExc_OverflowError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyExc_IndexError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyExc_AttributeError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyExc_RuntimeError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyExc_ValueError: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+define_exception_statics! {
+    PyExc_BaseException => base_exception_type,
+    PyExc_BaseExceptionGroup => base_exception_group,
+    PyExc_SystemExit => system_exit,
+    PyExc_KeyboardInterrupt => keyboard_interrupt,
+    PyExc_GeneratorExit => generator_exit,
+    PyExc_Exception => exception_type,
+    PyExc_StopIteration => stop_iteration,
+    PyExc_StopAsyncIteration => stop_async_iteration,
+    PyExc_ArithmeticError => arithmetic_error,
+    PyExc_FloatingPointError => floating_point_error,
+    PyExc_SystemError => system_error,
+    PyExc_TypeError => type_error,
+    PyExc_OverflowError => overflow_error,
+    PyExc_ZeroDivisionError => zero_division_error,
+    PyExc_AssertionError => assertion_error,
+    PyExc_IndexError => index_error,
+    PyExc_KeyError => key_error,
+    PyExc_LookupError => lookup_error,
+    PyExc_AttributeError => attribute_error,
+    PyExc_BufferError => buffer_error,
+    PyExc_EOFError => eof_error,
+    PyExc_ImportError => import_error,
+    PyExc_ModuleNotFoundError => module_not_found_error,
+    PyExc_MemoryError => memory_error,
+    PyExc_NameError => name_error,
+    PyExc_UnboundLocalError => unbound_local_error,
+    PyExc_OSError => os_error,
+    PyExc_BlockingIOError => blocking_io_error,
+    PyExc_ChildProcessError => child_process_error,
+    PyExc_ConnectionError => connection_error,
+    PyExc_BrokenPipeError => broken_pipe_error,
+    PyExc_ConnectionAbortedError => connection_aborted_error,
+    PyExc_ConnectionRefusedError => connection_refused_error,
+    PyExc_ConnectionResetError => connection_reset_error,
+    PyExc_FileExistsError => file_exists_error,
+    PyExc_FileNotFoundError => file_not_found_error,
+    PyExc_InterruptedError => interrupted_error,
+    PyExc_IsADirectoryError => is_a_directory_error,
+    PyExc_NotADirectoryError => not_a_directory_error,
+    PyExc_PermissionError => permission_error,
+    PyExc_ProcessLookupError => process_lookup_error,
+    PyExc_TimeoutError => timeout_error,
+    PyExc_ReferenceError => reference_error,
+    PyExc_RuntimeError => runtime_error,
+    PyExc_NotImplementedError => not_implemented_error,
+    PyExc_RecursionError => recursion_error,
+    PyExc_SyntaxError => syntax_error,
+    PyExc_IndentationError => indentation_error,
+    PyExc_TabError => tab_error,
+    PyExc_ValueError => value_error,
+    PyExc_UnicodeError => unicode_error,
+    PyExc_UnicodeDecodeError => unicode_decode_error,
+    PyExc_UnicodeEncodeError => unicode_encode_error,
+    PyExc_UnicodeTranslateError => unicode_translate_error,
+    PyExc_Warning => warning,
+    PyExc_DeprecationWarning => deprecation_warning,
+    PyExc_PendingDeprecationWarning => pending_deprecation_warning,
+    PyExc_RuntimeWarning => runtime_warning,
+    PyExc_SyntaxWarning => syntax_warning,
+    PyExc_UserWarning => user_warning,
+    PyExc_FutureWarning => future_warning,
+    PyExc_ImportWarning => import_warning,
+    PyExc_UnicodeWarning => unicode_warning,
+    PyExc_BytesWarning => bytes_warning,
+    PyExc_ResourceWarning => resource_warning,
+    PyExc_EncodingWarning => encoding_warning,
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
