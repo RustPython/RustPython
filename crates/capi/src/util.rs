@@ -44,6 +44,14 @@ impl FfiResult<*mut PyObject> for PyObjectRef {
     }
 }
 
+impl FfiResult for *mut PyObject {
+    const ERR_VALUE: *mut PyObject = core::ptr::null_mut();
+
+    fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
+        self
+    }
+}
+
 impl FfiResult<*mut PyObject> for *const PyObject {
     const ERR_VALUE: *mut PyObject = core::ptr::null_mut();
 
