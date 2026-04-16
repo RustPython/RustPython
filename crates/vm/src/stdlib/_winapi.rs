@@ -417,7 +417,7 @@ mod _winapi {
         // Deduplicate case-insensitive keys, keeping the last value
         use std::collections::HashMap;
         let mut last_entry: HashMap<String, widestring::WideString> = HashMap::new();
-        for (k, v) in keys.into_iter().zip(values.into_iter()) {
+        for (k, v) in keys.into_iter().zip(values) {
             let k = PyStrRef::try_from_object(vm, k)?;
             let k = k.expect_str();
             let v = PyStrRef::try_from_object(vm, v)?;
