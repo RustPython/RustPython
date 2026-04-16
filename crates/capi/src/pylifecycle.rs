@@ -3,14 +3,11 @@ use crate::object::{
     PyBaseObject_Type, PyBool_Type, PyComplex_Type, PyDict_Type, PyLong_Type, PyTuple_Type,
     PyType_Type, PyUnicode_Type,
 };
-use crate::pyerrors::{
-    PyExc_AttributeError, PyExc_BaseException, PyExc_Exception, PyExc_IndexError,
-    PyExc_OverflowError, PyExc_RuntimeError, PyExc_SystemError, PyExc_TypeError, PyExc_ValueError,
-};
+use crate::pyerrors::init_exception_statics;
 use crate::pystate::attach_vm_to_thread;
 use core::ffi::c_int;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
-use rustpython_vm::{AsObject, Context, Interpreter};
+use rustpython_vm::{Context, Interpreter};
 use std::sync::{Once, OnceLock, mpsc};
 
 static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::SyncSender<ThreadedVirtualMachine>>> =
@@ -51,16 +48,7 @@ pub(crate) fn init_static_type_pointers() {
         PyDict_Type.write(types.dict_type);
         PyComplex_Type.write(types.complex_type);
 
-        let exc = &context.exceptions;
-        PyExc_BaseException.write(exc.base_exception_type.as_object().as_raw().cast_mut());
-        PyExc_Exception.write(exc.exception_type.as_object().as_raw().cast_mut());
-        PyExc_SystemError.write(exc.system_error.as_object().as_raw().cast_mut());
-        PyExc_TypeError.write(exc.type_error.as_object().as_raw().cast_mut());
-        PyExc_OverflowError.write(exc.overflow_error.as_object().as_raw().cast_mut());
-        PyExc_IndexError.write(exc.index_error.as_object().as_raw().cast_mut());
-        PyExc_AttributeError.write(exc.attribute_error.as_object().as_raw().cast_mut());
-        PyExc_RuntimeError.write(exc.runtime_error.as_object().as_raw().cast_mut());
-        PyExc_ValueError.write(exc.value_error.as_object().as_raw().cast_mut());
+        init_exception_statics(&context.exceptions);
     };
 }
 
