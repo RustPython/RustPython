@@ -1441,6 +1441,8 @@ mod platform {
         let zone = widestring::decode_utf16_lossy(name.iter().copied())
             .take_while(|&c| c != '\0')
             .collect::<String>();
+
+        #[allow(clippy::unnecessary_cast, reason = "info.Bias is not always i32")]
         let gmtoff = -((info.Bias + bias) as i32) * 60;
 
         Ok(struct_time_from_tm(vm, tm, &zone, gmtoff))

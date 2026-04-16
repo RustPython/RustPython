@@ -2103,9 +2103,8 @@ impl Constructor for PyType {
         .map_err(|e| vm.new_type_error(e))?;
 
         if let Some(ref slots) = heaptype_slots {
-            let mut offset = base_member_count;
             let class_name = typ.name().to_string();
-            for member in slots.as_slice() {
+            for (offset, member) in (base_member_count..).zip(slots.as_slice().iter()) {
                 // Apply name mangling for private attributes (__x -> _ClassName__x)
                 let member_str = member
                     .to_str()
@@ -2131,7 +2130,6 @@ impl Constructor for PyType {
                 // __slots__ attributes always get a member descriptor
                 // (this overrides any inherited attribute from MRO)
                 typ.set_attr(attr_name, member_descriptor.into());
-                offset += 1;
             }
         }
 
