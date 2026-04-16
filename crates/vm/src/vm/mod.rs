@@ -697,13 +697,11 @@ impl VirtualMachine {
     /// Mirrors `_Py_ThreadCanHandleSignals`.
     #[allow(dead_code)]
     pub(crate) fn is_main_thread(&self) -> bool {
-        #[cfg(feature = "threading")]
-        {
-            crate::stdlib::_thread::get_ident() == self.state.main_thread_ident.load()
-        }
-        #[cfg(not(feature = "threading"))]
-        {
-            true
+        cfg_select! {
+            feature = "threading" => {
+                crate::stdlib::_thread::get_ident() == self.state.main_thread_ident.load()
+            }
+            _ => true,
         }
     }
 
@@ -2030,13 +2028,9 @@ impl VirtualMachine {
         thread::suspend_if_needed(&self.state.stop_the_world);
 
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::signal::check_signals(self)
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            Ok(())
-        }
+        crate::signal::check_signals(self)?;
+
+        Ok(())
     }
 
     /// Push a new exc_info slot (for generator/coroutine resume).
@@ -2151,11 +2145,9 @@ impl VirtualMachine {
             }
             1
         } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            #[allow(clippy::if_same_then_else)]
-            {
-                self.print_exception(exc);
-                #[cfg(unix)]
-                {
+            self.print_exception(exc);
+            cfg_select! {
+                unix => {
                     let action = SigAction::new(
                         nix::sys::signal::SigHandler::SigDfl,
                         SaFlags::SA_ONSTACK,
@@ -2169,15 +2161,9 @@ impl VirtualMachine {
 
                     (libc::SIGINT as u32) + 128
                 }
-                #[cfg(windows)]
-                {
-                    // STATUS_CONTROL_C_EXIT - same as CPython
-                    0xC000013A
-                }
-                #[cfg(not(any(unix, windows)))]
-                {
-                    1
-                }
+                // STATUS_CONTROL_C_EXIT - same as CPython
+                windows => 0xC000013A,
+                _ => 1,
             }
         } else {
             self.print_exception(exc);

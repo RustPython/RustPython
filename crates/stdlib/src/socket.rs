@@ -3264,7 +3264,7 @@ mod _socket {
     fn sock_from_raw(fileno: RawSocket, vm: &VirtualMachine) -> PyResult<Socket> {
         let invalid = cfg_select! {
             windows => fileno == INVALID_SOCKET,
-            _ => fileno < 0
+            _ => fileno < 0,
         };
         if invalid {
             return Err(vm.new_value_error("negative file descriptor"));

@@ -655,24 +655,24 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
 
     // Windows: wchar_t = u16 (UTF-16) -> use Wtf8Buf::from_wide
     // macOS/Linux: wchar_t = i32 (UTF-32) -> convert via char::from_u32
-    #[cfg(windows)]
-    {
-        use rustpython_common::wtf8::Wtf8Buf;
-        let wide: Vec<u16> = wchars.to_vec();
-        let wtf8 = Wtf8Buf::from_wide(&wide);
-        Ok(vm.ctx.new_str(wtf8).into())
-    }
-    #[cfg(not(windows))]
-    {
-        #[allow(
-            clippy::useless_conversion,
-            reason = "wchar_t is i32 on some platforms and u32 on others"
-        )]
-        let s: String = wchars
-            .iter()
-            .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
-            .collect();
-        Ok(vm.ctx.new_str(s).into())
+    cfg_select! {
+        windows => {
+            use rustpython_common::wtf8::Wtf8Buf;
+            let wide: Vec<u16> = wchars.to_vec();
+            let wtf8 = Wtf8Buf::from_wide(&wide);
+            Ok(vm.ctx.new_str(wtf8).into())
+        }
+        _ => {
+            #[allow(
+                clippy::useless_conversion,
+                reason = "wchar_t is i32 on some platforms and u32 on others"
+            )]
+            let s: String = wchars
+                .iter()
+                .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
+                .collect();
+            Ok(vm.ctx.new_str(s).into())
+        }
     }
 }
 
@@ -2030,24 +2030,24 @@ fn ffi_to_python(ty: &Py<PyType>, ptr: *const c_void, vm: &VirtualMachine) -> Py
                     let slice = core::slice::from_raw_parts(wstr_ptr, len);
                     // Windows: wchar_t = u16 (UTF-16) -> use Wtf8Buf::from_wide
                     // Unix: wchar_t = i32 (UTF-32) -> convert via char::from_u32
-                    #[cfg(windows)]
-                    {
-                        use rustpython_common::wtf8::Wtf8Buf;
-                        let wide: Vec<u16> = slice.to_vec();
-                        let wtf8 = Wtf8Buf::from_wide(&wide);
-                        vm.ctx.new_str(wtf8).into()
-                    }
-                    #[cfg(not(windows))]
-                    {
-                        #[allow(
-                            clippy::useless_conversion,
-                            reason = "wchar_t is i32 on some platforms and u32 on others"
-                        )]
-                        let s: String = slice
-                            .iter()
-                            .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
-                            .collect();
-                        vm.ctx.new_str(s).into()
+                    cfg_select! {
+                        windows => {
+                            use rustpython_common::wtf8::Wtf8Buf;
+                            let wide: Vec<u16> = slice.to_vec();
+                            let wtf8 = Wtf8Buf::from_wide(&wide);
+                            vm.ctx.new_str(wtf8).into()
+                        }
+                        _ => {
+                            #[allow(
+                                clippy::useless_conversion,
+                                reason = "wchar_t is i32 on some platforms and u32 on others"
+                            )]
+                            let s: String = slice
+                                .iter()
+                                .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
+                                .collect();
+                            vm.ctx.new_str(s).into()
+                        }
                     }
                 }
             }
