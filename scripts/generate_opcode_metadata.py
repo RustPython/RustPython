@@ -85,48 +85,44 @@ def extract_enum_body(text: str, name: str) -> str:
                 return text[start + 1 : i]
 
 
-def build_deopts(contents: str) -> dict[str, list[str]]:
-    raw_body = re.search(
-        r"fn deopt\(self\) -> Option<Self>(.*)", contents, re.DOTALL
-    ).group(1)
-    body = "\n".join(
-        itertools.takewhile(
-            lambda l: not l.startswith("_ =>"),  # Take until reaching fallback
-            filter(
-                lambda l: (
-                    not l.startswith(
-                        ("//", "Some(match")
-                    )  # Skip comments or start of match
-                ),
-                map(str.strip, raw_body.splitlines()),
-            ),
-        )
-    ).removeprefix("{")
+def build_deopts(text: str) -> dict[str, list[str]]:
+    raw_body = re.search(r"fn deopt\(self\)(.*)", text, re.DOTALL).group(1)
+    match_start = raw_body.find("match self")
+    if match_start == -1:
+        raise ValueError("Could not detect a match statement in deopt method")
 
-    depth = 0
-    arms = []
-    buf = []
-    for char in body:
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
+    brace_depth = 0
+    block_start = None
+    block_end = None
 
-        if depth == 0 and (char in ("}", ",")):
-            arm = "".join(buf).strip()
-            arms.append(arm)
-            buf = []
-        else:
-            buf.append(char)
+    for i, ch in enumerate(raw_body[match_start:], match_start):
+        if ch == "{":
+            brace_depth += 1
+            if block_start is None:
+                block_start = i + 1
+        elif ch == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                block_end = i
+                break
 
-    # last arm
-    arms.append("".join(buf))
-    arms = [arm for arm in arms if arm]
+    match_body = raw_body[block_start:block_end]
+
+    arm_pattern = re.compile(
+        r"((?:Self::\w+\s*\|\s*)*Self::\w+)\s*=>\s*(?:\{\s*)?Opcode::(\w+)", re.DOTALL
+    )
+    variants_pattern = re.compile(r"Self::(\w+)")
 
     deopts = {}
-    for arm in arms:
-        *specialized, deopt = map(to_snake_case, re.findall(r"Self::(\w*)\b", arm))
-        deopts[deopt] = specialized
+    for hit in arm_pattern.finditer(match_body):
+        raw_variants = hit.group(1)
+        opcode = hit.group(2)
+
+        variants = variants_pattern.findall(raw_variants)
+
+        key = to_snake_case(opcode)
+        value = [to_snake_case(variant) for variant in variants]
+        deopts[key] = value
 
     return deopts
 
