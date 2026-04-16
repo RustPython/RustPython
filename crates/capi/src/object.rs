@@ -140,6 +140,22 @@ pub extern "C" fn PyObject_GetAttr(obj: *mut PyObject, name: *mut PyObject) -> *
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyObject_GetAttrString(
+    obj: *mut PyObject,
+    attr_name: *const c_char,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe {
+            CStr::from_ptr(attr_name)
+                .to_str()
+                .expect("attribute name must be valid UTF-8")
+        };
+        obj.get_attr(name, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyObject_SetAttrString(
     obj: *mut PyObject,
     attr_name: *const c_char,
