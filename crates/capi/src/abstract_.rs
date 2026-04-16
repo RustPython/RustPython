@@ -2,7 +2,7 @@ use crate::with_vm;
 use alloc::slice;
 use core::ffi::c_int;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
-use rustpython_vm::{PyObject, PyObjectRef, PyResult};
+use rustpython_vm::{AsObject, PyObject, PyObjectRef};
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
@@ -44,24 +44,17 @@ pub unsafe extern "C" fn PyObject_CallMethodObjArgs(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_VectorcallMethod(
-    name: *mut PyObject,
+pub extern "C" fn PyObject_Vectorcall(
+    callable: *mut PyObject,
     args: *const *mut PyObject,
     nargsf: usize,
     kwnames: *mut PyObject,
 ) -> *mut PyObject {
-    with_vm::<PyResult, _>(|vm| {
+    with_vm(|vm| {
         let args_len = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
-        let num_positional_args = args_len - 1;
+        let num_positional_args = args_len;
 
-        let (receiver, args) = unsafe { slice::from_raw_parts(args, args_len) }
-            .split_first()
-            .expect("PyObject_VectorcallMethod should always have at least one argument");
-
-        let method_name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
-        let callable = unsafe { (&**receiver).get_attr(method_name, vm)? };
-
-        let args = args
+        let args = unsafe { slice::from_raw_parts(args, args_len) }
             .iter()
             .map(|arg| unsafe { &**arg }.to_owned())
             .collect::<Vec<_>>();
@@ -73,7 +66,34 @@ pub extern "C" fn PyObject_VectorcallMethod(
                 .transpose()?
         };
 
+        let callable = unsafe { &*callable };
         callable.vectorcall(args, num_positional_args, kwnames, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyObject_VectorcallMethod(
+    name: *mut PyObject,
+    args: *const *mut PyObject,
+    nargsf: usize,
+    kwnames: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let args_len = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
+
+        let (receiver, args) = unsafe { slice::from_raw_parts(args, args_len) }
+            .split_first()
+            .expect("PyObject_VectorcallMethod should always have at least one argument");
+
+        let method_name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
+        let callable = unsafe { (&**receiver).get_attr(method_name, vm)? };
+
+        Ok(PyObject_Vectorcall(
+            callable.as_object().as_raw().cast_mut(),
+            args.as_ptr(),
+            nargsf - 1,
+            kwnames,
+        ))
     })
 }
 
