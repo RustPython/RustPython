@@ -532,7 +532,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for SurrogatePass {
             .ok_or_else(|| ctx.error_decoding(byte_range.clone(), reason))?;
 
         let s = ctx.full_data();
-        debug_assert!(byte_range.start <= 0.max(s.len() - 1));
+        debug_assert!(byte_range.start <= s.len().saturating_sub(1));
         debug_assert!(byte_range.end >= 1.min(s.len()));
         debug_assert!(byte_range.end <= s.len());
 

@@ -191,7 +191,7 @@ mod _abc {
         }
 
         // Set __abstractmethods__
-        let abstracts_set = PyFrozenSet::from_iter(vm, abstracts.into_iter())?;
+        let abstracts_set = PyFrozenSet::from_iter(vm, abstracts)?;
         cls.set_attr("__abstractmethods__", abstracts_set.into_pyobject(vm), vm)?;
 
         Ok(())
@@ -302,7 +302,7 @@ mod _abc {
         drop(registry_opt);
 
         // Make a local copy to protect against concurrent modifications
-        let registry_copy = PyFrozenSet::from_iter(vm, registry.elements().into_iter())?;
+        let registry_copy = PyFrozenSet::from_iter(vm, registry.elements())?;
 
         for weak_ref_obj in registry_copy.elements() {
             if let Ok(weak_ref) = weak_ref_obj.downcast::<PyWeak>()
