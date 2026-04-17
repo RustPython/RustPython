@@ -19,6 +19,18 @@ impl OpArgByte {
     pub const fn new(value: u8) -> Self {
         Self(value)
     }
+
+    /// Returns the inner value as a [`u8`].
+    #[must_use]
+    pub const fn as_u8(self) -> u8 {
+        self.0
+    }
+
+    /// Returns the inner value as a [`u32`].
+    #[must_use]
+    pub const fn as_u32(self) -> u32 {
+        self.0 as u32
+    }
 }
 
 impl From<u8> for OpArgByte {
@@ -29,7 +41,7 @@ impl From<u8> for OpArgByte {
 
 impl From<OpArgByte> for u8 {
     fn from(value: OpArgByte) -> Self {
-        value.0
+        value.as_u8()
     }
 }
 
@@ -93,7 +105,7 @@ pub struct OpArgState {
 
 impl OpArgState {
     #[inline(always)]
-    pub fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
+    pub const fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
         let arg = self.extend(ins.arg);
         if !matches!(ins.op, Instruction::ExtendedArg) {
             self.reset();
@@ -102,9 +114,9 @@ impl OpArgState {
     }
 
     #[inline(always)]
-    pub fn extend(&mut self, arg: OpArgByte) -> OpArg {
-        self.state = (self.state << 8) | u32::from(arg.0);
-        self.state.into()
+    pub const fn extend(&mut self, arg: OpArgByte) -> OpArg {
+        self.state = (self.state << 8) | arg.as_u32();
+        OpArg::new(self.state)
     }
 
     #[inline(always)]
