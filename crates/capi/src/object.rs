@@ -1,8 +1,10 @@
 use crate::{PyObject, with_vm};
 use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr::NonNull;
-use rustpython_vm::builtins::{PyStr, PyType};
-use rustpython_vm::{AsObject, Context, Py};
+use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
+use rustpython_vm::function::FuncArgs;
+use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
+use rustpython_vm::{AsObject, Context, Py, PyObjectRef};
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
 const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
@@ -103,6 +105,168 @@ pub extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObjec
         let b = unsafe { &*b };
         Ok(a.is_subtype(b))
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
+    with_vm(|_vm| -> Option<*mut c_void> {
+        let ty = unsafe { &*ty };
+        let slot: u8 = slot
+            .try_into()
+            .expect("slot number out of range for SlotAccessor");
+        let slot_accessor: SlotAccessor = slot
+            .try_into()
+            .expect("invalid slot number for SlotAccessor");
+
+        match slot_accessor {
+            SlotAccessor::TpNew => {
+                extern "C" fn newfunc_wrapper(
+                    subtype: *mut PyTypeObject,
+                    args: *mut PyObject,
+                    kwargs: *mut PyObject,
+                ) -> *mut PyObject {
+                    with_vm(|vm| {
+                        let subtype = unsafe { &*subtype };
+                        let mut func_args = FuncArgs::default();
+
+                        if let Some(args_obj) = unsafe { args.as_ref() } {
+                            let tuple = args_obj.try_downcast_ref::<PyTuple>(vm)?;
+                            func_args
+                                .args
+                                .extend(tuple.iter().map(|arg| arg.to_owned()));
+                        }
+
+                        if let Some(kwargs_obj) = unsafe { kwargs.as_ref() } {
+                            let kwargs = kwargs_obj.try_downcast_ref::<PyDict>(vm)?;
+                            for (key, value) in kwargs.items_vec() {
+                                let key = key.try_downcast::<PyStr>(vm)?;
+                                func_args
+                                    .kwargs
+                                    .insert(key.to_string_lossy().into_owned(), value);
+                            }
+                        }
+
+                        subtype
+                            .slots
+                            .new
+                            .load()
+                            .expect("tp_new slot function pointer is null")(
+                            subtype.to_owned(),
+                            func_args,
+                            vm,
+                        )
+                    })
+                }
+
+                if let Some(vtable) = ty.get_type_data::<TypeVTable>() {
+                    vtable.new_func.map(|newfunc| newfunc as *mut c_void)
+                } else {
+                    ty.slots.new.load().map(|_| newfunc_wrapper as *mut c_void)
+                }
+            }
+            _ => {
+                todo!("Slot {slot_accessor:?} for {ty:?} is not yet implemented in PyType_GetSlot")
+            }
+        }
+    })
+}
+
+#[repr(C)]
+pub struct PyType_Slot {
+    slot: c_int,
+    pfunc: *mut c_void,
+}
+
+#[repr(C)]
+pub struct PyType_Spec {
+    name: *const c_char,
+    basicsize: c_int,
+    itemsize: c_int,
+    flags: c_uint,
+    slots: *mut PyType_Slot,
+}
+
+#[derive(Default)]
+struct TypeVTable {
+    new_func: Option<newfunc>,
+}
+
+type newfunc = unsafe extern "C" fn(
+    ty: *mut PyTypeObject,
+    args: *mut PyObject,
+    kwargs: *mut PyObject,
+) -> *mut PyObject;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
+    with_vm(|vm| {
+        let spec = unsafe { &*spec };
+        let name = unsafe {
+            CStr::from_ptr(spec.name)
+                .to_str()
+                .expect("type name must be valid UTF-8")
+        };
+        let mut base = vm.ctx.types.object_type;
+        let mut slots = PyTypeSlots::heap_default();
+
+        slots.basicsize = spec.basicsize as _;
+        slots.itemsize = spec.itemsize as _;
+        slots.flags = PyTypeFlags::from_bits(spec.flags as u64).expect("invalid flags value");
+
+        let mut vtable = TypeVTable::default();
+        let mut slot_ptr = spec.slots;
+        while let slot = unsafe { &*slot_ptr }
+            && slot.slot != 0
+        {
+            let accessor = SlotAccessor::try_from(slot.slot as u8)
+                .expect("invalid slot number in PyType_Spec");
+
+            match accessor {
+                SlotAccessor::TpDealloc => {
+                    slots.del.store(Some(|ty, _vm| {
+                        todo!("tp_dealloc is not yet implemented in PyType_FromSpec for {ty:?}")
+                    }));
+                }
+                SlotAccessor::TpBase => base = unsafe { &*slot.pfunc.cast::<PyTypeObject>() },
+                SlotAccessor::TpGetset => {}
+                SlotAccessor::TpMethods => {}
+                SlotAccessor::TpNew => {
+                    vtable.new_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.new.store(Some(|ty, args, vm| {
+                        let new_func = ty.get_type_data::<TypeVTable>().unwrap().new_func.unwrap();
+                        let kwargs = vm.ctx.new_dict();
+                        for (name, value) in &args.kwargs {
+                            kwargs.set_item(&*vm.ctx.new_str(name.clone()), value.clone(), vm)?;
+                        }
+                        let args = vm.ctx.new_tuple(args.args);
+                        let result = unsafe {
+                            new_func(
+                                (&*ty) as *const _ as *mut _,
+                                args.as_object().as_raw().cast_mut(),
+                                kwargs.as_object().as_raw().cast_mut(),
+                            )
+                        };
+
+                        unsafe { Ok(PyObjectRef::from_raw(NonNull::new(result).unwrap())) }
+                    }));
+                }
+                SlotAccessor::TpDoc => {}
+                _ => todo!("Slot {accessor:?} is not yet supported in PyType_FromSpec"),
+            }
+
+            slot_ptr = unsafe { slot_ptr.add(1) };
+        }
+
+        let class = vm.ctx.new_class(None, name, base.to_owned(), slots);
+        class.init_type_data(vtable).unwrap();
+        class
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
+    // TODO: Implement immutable type freezing semantics.
+    0
 }
 
 #[unsafe(no_mangle)]
@@ -322,5 +486,30 @@ mod tests {
             .unwrap();
             assert!(dict.get_item("foo").is_ok());
         })
+    }
+
+    #[test]
+    fn test_rust_class() {
+        #[pyclass]
+        struct MyClass {
+            #[pyo3(get)]
+            num: i32,
+        }
+
+        #[pymethods]
+        impl MyClass {
+            #[new]
+            fn new(value: i32) -> Self {
+                MyClass { num: value }
+            }
+
+            fn method1(&self) -> PyResult<i32> {
+                Ok(10)
+            }
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(py, MyClass { num: 3 }).unwrap();
+        });
     }
 }

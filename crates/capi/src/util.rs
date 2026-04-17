@@ -118,6 +118,14 @@ impl FfiResult<()> for PyResult<Infallible> {
     }
 }
 
+impl FfiResult<*mut c_void> for Option<*mut c_void> {
+    const ERR_VALUE: *mut c_void = core::ptr::null_mut();
+
+    fn into_output(self, vm: &VirtualMachine) -> *mut c_void {
+        self.map_or_else(|| Self::ERR_VALUE, |obj| obj.into_output(vm))
+    }
+}
+
 impl<T> FfiResult<*mut PyObject> for Option<T>
 where
     T: FfiResult<*mut PyObject>,
