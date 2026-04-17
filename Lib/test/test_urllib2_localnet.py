@@ -360,7 +360,6 @@ class ProxyAuthTests(unittest.TestCase):
         self.server.stop()
         self.server = None
 
-
     def test_proxy_with_bad_password_raises_httperror(self):
         self.proxy_digest_handler.add_password(self.REALM, self.URL,
                                                self.USER, self.PASSWD+"bad")
@@ -368,7 +367,6 @@ class ProxyAuthTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             self.opener.open(self.URL)
         cm.exception.close()
-
 
     def test_proxy_with_no_password_raises_httperror(self):
         self.digest_auth_handler.set_qop("auth")
@@ -383,7 +381,6 @@ class ProxyAuthTests(unittest.TestCase):
         with self.opener.open(self.URL) as result:
             while result.read():
                 pass
-
 
     def test_proxy_qop_auth_int_works_or_throws_urlerror(self):
         self.proxy_digest_handler.add_password(self.REALM, self.URL,
@@ -509,7 +506,6 @@ class TestUrlopen(unittest.TestCase):
         handler.port = server.port
         return handler
 
-
     def test_redirection(self):
         expected_response = b"We got here..."
         responses = [
@@ -522,7 +518,6 @@ class TestUrlopen(unittest.TestCase):
         data = self.urlopen("http://localhost:%s/" % handler.port)
         self.assertEqual(data, expected_response)
         self.assertEqual(handler.requests, ["/", "/somewhere_else"])
-
 
     def test_chunked(self):
         expected_response = b"hello world"
@@ -537,7 +532,6 @@ class TestUrlopen(unittest.TestCase):
         handler = self.start_server(response)
         data = self.urlopen("http://localhost:%s/" % handler.port)
         self.assertEqual(data, expected_response)
-
 
     def test_404(self):
         expected_response = b"Bad bad bad..."
@@ -554,14 +548,12 @@ class TestUrlopen(unittest.TestCase):
         self.assertEqual(data, expected_response)
         self.assertEqual(handler.requests, ["/weeble"])
 
-
     def test_200(self):
         expected_response = b"pycon 2008..."
         handler = self.start_server([(200, [], expected_response)])
         data = self.urlopen("http://localhost:%s/bizarre" % handler.port)
         self.assertEqual(data, expected_response)
         self.assertEqual(handler.requests, ["/bizarre"])
-
 
     def test_200_with_parameters(self):
         expected_response = b"pycon 2008..."
@@ -571,13 +563,11 @@ class TestUrlopen(unittest.TestCase):
         self.assertEqual(data, expected_response)
         self.assertEqual(handler.requests, ["/bizarre", b"get=with_feeling"])
 
-
     def test_https(self):
         handler = self.start_https_server()
         context = ssl.create_default_context(cafile=CERT_localhost)
         data = self.urlopen("https://localhost:%s/bizarre" % handler.port, context=context)
         self.assertEqual(data, b"we care a bit")
-
 
     def test_https_sni(self):
         if ssl is None:
@@ -595,7 +585,6 @@ class TestUrlopen(unittest.TestCase):
         self.urlopen("https://localhost:%s" % handler.port, context=context)
         self.assertEqual(sni_name, "localhost")
 
-
     def test_sending_headers(self):
         handler = self.start_server()
         req = urllib.request.Request("http://localhost:%s/" % handler.port,
@@ -603,7 +592,6 @@ class TestUrlopen(unittest.TestCase):
         with urllib.request.urlopen(req):
             pass
         self.assertEqual(handler.headers_received["Range"], "bytes=20-39")
-
 
     def test_sending_headers_camel(self):
         handler = self.start_server()
@@ -614,14 +602,12 @@ class TestUrlopen(unittest.TestCase):
         self.assertIn("X-Some-Header", handler.headers_received.keys())
         self.assertNotIn("X-SoMe-hEader", handler.headers_received.keys())
 
-
     def test_basic(self):
         handler = self.start_server()
         with urllib.request.urlopen("http://localhost:%s" % handler.port) as open_url:
             for attr in ("read", "close", "info", "geturl"):
                 self.assertHasAttr(open_url, attr)
             self.assertTrue(open_url.read(), "calling 'read' failed")
-
 
     def test_info(self):
         handler = self.start_server()
@@ -634,7 +620,6 @@ class TestUrlopen(unittest.TestCase):
                               "instance of email.message.Message")
         self.assertEqual(info_obj.get_content_subtype(), "plain")
 
-
     def test_geturl(self):
         # Make sure same URL as opened is returned by geturl.
         handler = self.start_server()
@@ -643,14 +628,12 @@ class TestUrlopen(unittest.TestCase):
             url = open_url.geturl()
         self.assertEqual(url, "http://localhost:%s" % handler.port)
 
-
     def test_iteration(self):
         expected_response = b"pycon 2008..."
         handler = self.start_server([(200, [], expected_response)])
         data = urllib.request.urlopen("http://localhost:%s" % handler.port)
         for line in data:
             self.assertEqual(line, expected_response)
-
 
     def test_line_iteration(self):
         lines = [b"We\n", b"got\n", b"here\n", b"verylong " * 8192 + b"\n"]
@@ -663,7 +646,6 @@ class TestUrlopen(unittest.TestCase):
                              "    Expected length was %s, got %s" %
                              (index, len(lines[index]), len(line)))
         self.assertEqual(index + 1, len(lines))
-
 
     def test_issue16464(self):
         # See https://bugs.python.org/issue16464

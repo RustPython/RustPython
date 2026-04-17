@@ -8,10 +8,10 @@ use num_traits::{ToPrimitive, Zero};
 use rustpython_compiler_core::{
     OneIndexed, SourceLocation,
     bytecode::{
-        AnyInstruction, Arg, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL, CodeFlags,
-        CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry, InstrDisplayContext,
-        Instruction, InstructionMetadata, Label, OpArg, PseudoInstruction, PyCodeLocationInfoKind,
-        encode_exception_table, oparg,
+        AnyInstruction, AnyOpcode, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
+        CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
+        InstrDisplayContext, Instruction, InstructionMetadata, Label, OpArg, Opcode,
+        PseudoInstruction, PseudoOpcode, PyCodeLocationInfoKind, encode_exception_table, oparg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -449,23 +449,15 @@ impl CodeInfo {
                         // Direction must be based on concrete instruction offsets.
                         // Empty blocks can share offsets, so block-order-based resolution
                         // may classify some jumps incorrectly.
-                        op = match op {
-                            Instruction::JumpForward { .. } if target_offset <= current_offset => {
-                                Instruction::JumpBackward {
-                                    delta: Arg::marker(),
-                                }
+                        op = match op.into() {
+                            Opcode::JumpForward if target_offset <= current_offset => {
+                                Opcode::JumpBackward.into()
                             }
-                            Instruction::JumpBackward { .. } if target_offset > current_offset => {
-                                Instruction::JumpForward {
-                                    delta: Arg::marker(),
-                                }
+                            Opcode::JumpBackward if target_offset > current_offset => {
+                                Opcode::JumpForward.into()
                             }
-                            Instruction::JumpBackwardNoInterrupt { .. }
-                                if target_offset > current_offset =>
-                            {
-                                Instruction::JumpForward {
-                                    delta: Arg::marker(),
-                                }
+                            Opcode::JumpBackwardNoInterrupt if target_offset > current_offset => {
+                                Opcode::JumpForward.into()
                             }
                             _ => op,
                         };
@@ -479,9 +471,8 @@ impl CodeInfo {
                                 .expect("END_ASYNC_FOR target must be before instruction");
                             OpArg::new(arg)
                         } else if matches!(
-                            op,
-                            Instruction::JumpBackward { .. }
-                                | Instruction::JumpBackwardNoInterrupt { .. }
+                            op.into(),
+                            Opcode::JumpBackward | Opcode::JumpBackwardNoInterrupt
                         ) {
                             let arg = offset_after
                                 .checked_sub(target_offset)
@@ -713,10 +704,7 @@ impl CodeInfo {
                     let (const_idx, _) = self.metadata.consts.insert_full(neg_const);
                     // Replace LOAD_CONST/LOAD_SMALL_INT with new LOAD_CONST
                     let load_location = block.instructions[i].location;
-                    block.instructions[i].instr = Instruction::LoadConst {
-                        consti: Arg::marker(),
-                    }
-                    .into();
+                    block.instructions[i].instr = Opcode::LoadConst.into();
                     block.instructions[i].arg = OpArg::new(const_idx as u32);
                     // Replace UNARY_NEGATIVE with NOP, inheriting the LOAD_CONST
                     // location so that remove_nops can clean it up
@@ -772,10 +760,7 @@ impl CodeInfo {
                     }
                     let (const_idx, _) = self.metadata.consts.insert_full(result_const);
                     // Replace first instruction with LOAD_CONST result
-                    block.instructions[i].instr = Instruction::LoadConst {
-                        consti: Arg::marker(),
-                    }
-                    .into();
+                    block.instructions[i].instr = Opcode::LoadConst.into();
                     block.instructions[i].arg = OpArg::new(const_idx as u32);
                     // NOP out the second and third instructions
                     let loc = block.instructions[i].location;
@@ -982,10 +967,7 @@ impl CodeInfo {
                     let (const_idx, _) = self.metadata.consts.insert_full(ConstantData::Tuple {
                         elements: Vec::new(),
                     });
-                    block.instructions[i].instr = Instruction::LoadConst {
-                        consti: Arg::marker(),
-                    }
-                    .into();
+                    block.instructions[i].instr = Opcode::LoadConst.into();
                     block.instructions[i].arg = OpArg::new(const_idx as u32);
                     i += 1;
                     continue;
@@ -1050,10 +1032,7 @@ impl CodeInfo {
                 }
 
                 // Replace BUILD_TUPLE with LOAD_CONST
-                block.instructions[i].instr = Instruction::LoadConst {
-                    consti: Arg::marker(),
-                }
-                .into();
+                block.instructions[i].instr = Opcode::LoadConst.into();
                 block.instructions[i].arg = OpArg::new(const_idx as u32);
 
                 i += 1;
@@ -1123,20 +1102,14 @@ impl CodeInfo {
                 let eh = block.instructions[i].except_handler;
 
                 // slot[start_idx] → BUILD_LIST 0
-                block.instructions[start_idx].instr = Instruction::BuildList {
-                    count: Arg::marker(),
-                }
-                .into();
+                block.instructions[start_idx].instr = Opcode::BuildList.into();
                 block.instructions[start_idx].arg = OpArg::new(0);
                 block.instructions[start_idx].location = folded_loc;
                 block.instructions[start_idx].end_location = end_loc;
                 block.instructions[start_idx].except_handler = eh;
 
                 // slot[start_idx+1] → LOAD_CONST (tuple)
-                block.instructions[start_idx + 1].instr = Instruction::LoadConst {
-                    consti: Arg::marker(),
-                }
-                .into();
+                block.instructions[start_idx + 1].instr = Opcode::LoadConst.into();
                 block.instructions[start_idx + 1].arg = OpArg::new(const_idx as u32);
                 block.instructions[start_idx + 1].location = folded_loc;
                 block.instructions[start_idx + 1].end_location = end_loc;
@@ -1149,7 +1122,7 @@ impl CodeInfo {
                 }
 
                 // slot[i] (was BUILD_LIST) → LIST_EXTEND 1
-                block.instructions[i].instr = Instruction::ListExtend { i: Arg::marker() }.into();
+                block.instructions[i].instr = Opcode::ListExtend.into();
                 block.instructions[i].arg = OpArg::new(1);
 
                 i += 1;
@@ -1239,20 +1212,14 @@ impl CodeInfo {
                                 block.instructions[j].location = folded_loc;
                             }
 
-                            block.instructions[i].instr = Instruction::LoadConst {
-                                consti: Arg::marker(),
-                            }
-                            .into();
+                            block.instructions[i].instr = Opcode::LoadConst.into();
                             block.instructions[i].arg = OpArg::new(const_idx as u32);
                             i += 2;
                             continue;
                         }
                     }
 
-                    block.instructions[i].instr = Instruction::BuildTuple {
-                        count: Arg::marker(),
-                    }
-                    .into();
+                    block.instructions[i].instr = Opcode::BuildTuple.into();
                     i += 2;
                 } else {
                     i += 1;
@@ -1323,19 +1290,13 @@ impl CodeInfo {
                 let end_loc = block.instructions[i].end_location;
                 let eh = block.instructions[i].except_handler;
 
-                block.instructions[start_idx].instr = Instruction::BuildSet {
-                    count: Arg::marker(),
-                }
-                .into();
+                block.instructions[start_idx].instr = Opcode::BuildSet.into();
                 block.instructions[start_idx].arg = OpArg::new(0);
                 block.instructions[start_idx].location = folded_loc;
                 block.instructions[start_idx].end_location = end_loc;
                 block.instructions[start_idx].except_handler = eh;
 
-                block.instructions[start_idx + 1].instr = Instruction::LoadConst {
-                    consti: Arg::marker(),
-                }
-                .into();
+                block.instructions[start_idx + 1].instr = Opcode::LoadConst.into();
                 block.instructions[start_idx + 1].arg = OpArg::new(const_idx as u32);
                 block.instructions[start_idx + 1].location = folded_loc;
                 block.instructions[start_idx + 1].end_location = end_loc;
@@ -1346,7 +1307,7 @@ impl CodeInfo {
                     block.instructions[j].location = folded_loc;
                 }
 
-                block.instructions[i].instr = Instruction::SetUpdate { i: Arg::marker() }.into();
+                block.instructions[i].instr = Opcode::SetUpdate.into();
                 block.instructions[i].arg = OpArg::new(1);
 
                 i += 1;
@@ -1377,16 +1338,15 @@ impl CodeInfo {
                 }
                 match n {
                     1 => {
-                        instructions[i].instr = AnyInstruction::Real(Instruction::Nop);
+                        instructions[i].instr = Opcode::Nop.into();
                         instructions[i].arg = OpArg::new(0);
-                        instructions[i + 1].instr = AnyInstruction::Real(Instruction::Nop);
+                        instructions[i + 1].instr = Opcode::Nop.into();
                         instructions[i + 1].arg = OpArg::new(0);
                     }
                     2 | 3 => {
-                        instructions[i].instr = AnyInstruction::Real(Instruction::Nop);
+                        instructions[i].instr = Opcode::Nop.into();
                         instructions[i].arg = OpArg::new(0);
-                        instructions[i + 1].instr =
-                            AnyInstruction::Real(Instruction::Swap { i: Arg::marker() });
+                        instructions[i + 1].instr = Opcode::Swap.into();
                         instructions[i + 1].arg = OpArg::new(n);
                     }
                     _ => {}
@@ -1409,15 +1369,15 @@ impl CodeInfo {
         /// Instruction classes that are safe to reorder around SWAP.
         fn is_swappable(instr: &AnyInstruction) -> bool {
             matches!(
-                instr,
-                AnyInstruction::Real(Instruction::StoreFast { .. } | Instruction::PopTop)
+                (*instr).into(),
+                AnyOpcode::Real(Opcode::StoreFast | Opcode::PopTop)
             )
         }
 
         /// Variable index that a STORE_FAST writes to, or None.
         fn stores_to(info: &InstructionInfo) -> Option<u32> {
-            match info.instr {
-                AnyInstruction::Real(Instruction::StoreFast { .. }) => Some(u32::from(info.arg)),
+            match info.instr.into() {
+                AnyOpcode::Real(Opcode::StoreFast) => Some(u32::from(info.arg)),
                 _ => None,
             }
         }
@@ -1517,7 +1477,7 @@ impl CodeInfo {
                     }
                 }
                 // Safe to reorder. SWAP -> NOP, swap j and k.
-                instructions[i].instr = AnyInstruction::Real(Instruction::Nop);
+                instructions[i].instr = Opcode::Nop.into();
                 instructions[i].arg = OpArg::new(0);
                 instructions.swap(j, k);
                 i += 1;
@@ -1544,10 +1504,8 @@ impl CodeInfo {
             while i < len {
                 // Look for UNPACK_SEQUENCE or UNPACK_EX
                 let is_unpack = matches!(
-                    instructions[i].instr,
-                    AnyInstruction::Real(
-                        Instruction::UnpackSequence { .. } | Instruction::UnpackEx { .. }
-                    )
+                    instructions[i].instr.into(),
+                    AnyOpcode::Real(Opcode::UnpackSequence | Opcode::UnpackEx)
                 );
                 if !is_unpack {
                     i += 1;
@@ -1558,8 +1516,8 @@ impl CodeInfo {
                 let mut run_end = run_start;
                 while run_end < len
                     && matches!(
-                        instructions[run_end].instr,
-                        AnyInstruction::Real(Instruction::StoreFast { .. })
+                        instructions[run_end].instr.into(),
+                        AnyOpcode::Real(Opcode::StoreFast)
                     )
                 {
                     run_end += 1;
@@ -1574,7 +1532,7 @@ impl CodeInfo {
                     for (j, instr) in instructions[run_start..run_end].iter_mut().enumerate() {
                         let idx = u32::from(instr.arg);
                         if last_occurrence[&idx] != j {
-                            instr.instr = AnyInstruction::Real(Instruction::PopTop);
+                            instr.instr = Opcode::PopTop.into();
                             instr.arg = OpArg::new(0);
                         }
                     }
@@ -1600,9 +1558,9 @@ impl CodeInfo {
                 };
 
                 if matches!(
-                    next_instr,
-                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
-                ) && matches!(curr_instr, Instruction::CompareOp { .. })
+                    next_instr.into(),
+                    Opcode::PopJumpIfFalse | Opcode::PopJumpIfTrue
+                ) && matches!(curr_instr.into(), Opcode::CompareOp)
                 {
                     block.instructions[i].arg = OpArg::new(
                         u32::from(block.instructions[i].arg) | oparg::COMPARE_OP_BOOL_MASK,
@@ -1624,12 +1582,7 @@ impl CodeInfo {
                                 let idx2 = u32::from(next.arg);
                                 if idx1 < 16 && idx2 < 16 {
                                     let packed = (idx1 << 4) | idx2;
-                                    Some((
-                                        Instruction::LoadFastLoadFast {
-                                            var_nums: Arg::marker(),
-                                        },
-                                        OpArg::new(packed),
-                                    ))
+                                    Some((Opcode::LoadFastLoadFast.into(), OpArg::new(packed)))
                                 } else {
                                     None
                                 }
@@ -1649,12 +1602,7 @@ impl CodeInfo {
                                 let idx2 = u32::from(next.arg);
                                 if idx1 < 16 && idx2 < 16 {
                                     let packed = (idx1 << 4) | idx2;
-                                    Some((
-                                        Instruction::StoreFastStoreFast {
-                                            var_nums: Arg::marker(),
-                                        },
-                                        OpArg::new(packed),
-                                    ))
+                                    Some((Opcode::StoreFastStoreFast.into(), OpArg::new(packed)))
                                 } else {
                                     None
                                 }
@@ -1688,12 +1636,7 @@ impl CodeInfo {
                                         .metadata
                                         .consts
                                         .insert_full(ConstantData::Boolean { value: !value });
-                                    Some((
-                                        (Instruction::LoadConst {
-                                            consti: Arg::marker(),
-                                        }),
-                                        OpArg::new(const_idx as u32),
-                                    ))
+                                    Some(((Opcode::LoadConst.into()), OpArg::new(const_idx as u32)))
                                 }
                                 _ => None,
                             }
@@ -1767,7 +1710,7 @@ impl CodeInfo {
                 // LOAD_SMALL_INT oparg is unsigned, so only 0..=255 can be encoded
                 if let Some(small) = value.to_i32().filter(|v| (0..=255).contains(v)) {
                     // Convert LOAD_CONST to LOAD_SMALL_INT
-                    instr.instr = Instruction::LoadSmallInt { i: Arg::marker() }.into();
+                    instr.instr = Opcode::LoadSmallInt.into();
                     // The arg is the i32 value stored as u32 (two's complement)
                     instr.arg = OpArg::new(small as u32);
                 }
@@ -1883,10 +1826,7 @@ impl CodeInfo {
                 let idx2 = u32::from(next.arg);
                 if idx1 < 16 && idx2 < 16 {
                     let packed = (idx1 << 4) | idx2;
-                    block.instructions[i].instr = Instruction::StoreFastLoadFast {
-                        var_nums: Arg::marker(),
-                    }
-                    .into();
+                    block.instructions[i].instr = Opcode::StoreFastLoadFast.into();
                     block.instructions[i].arg = OpArg::new(packed);
                     // Replace second instruction with NOP (CPython: INSTR_SET_OP0(inst2, NOP))
                     set_to_nop(&mut block.instructions[i + 1]);
@@ -1943,8 +1883,8 @@ impl CodeInfo {
                 }
 
                 // Push values to stack with source instruction index
-                let source = match instr {
-                    Instruction::LoadFast { .. } | Instruction::LoadFastLoadFast { .. } => i,
+                let source = match instr.into() {
+                    Opcode::LoadFast | Opcode::LoadFastLoadFast => i,
                     _ => NOT_LOCAL,
                 };
                 for _ in 0..pushes {
@@ -1971,18 +1911,12 @@ impl CodeInfo {
                 let Some(instr) = info.instr.real() else {
                     continue;
                 };
-                match instr {
-                    Instruction::LoadFast { .. } => {
-                        info.instr = Instruction::LoadFastBorrow {
-                            var_num: Arg::marker(),
-                        }
-                        .into();
+                match instr.into() {
+                    Opcode::LoadFast => {
+                        info.instr = Opcode::LoadFastBorrow.into();
                     }
-                    Instruction::LoadFastLoadFast { .. } => {
-                        info.instr = Instruction::LoadFastBorrowLoadFastBorrow {
-                            var_nums: Arg::marker(),
-                        }
-                        .into();
+                    Opcode::LoadFastLoadFast => {
+                        info.instr = Opcode::LoadFastBorrowLoadFastBorrow.into();
                     }
                     _ => {}
                 }
@@ -2078,10 +2012,7 @@ impl CodeInfo {
                     Some(Instruction::LoadFast { var_num }) => {
                         let var_idx = usize::from(var_num.get(info.arg));
                         if var_idx < nlocals && unsafe_mask[var_idx] {
-                            info.instr = Instruction::LoadFastCheck {
-                                var_num: Arg::marker(),
-                            }
-                            .into();
+                            info.instr = Opcode::LoadFastCheck.into();
                             changed = true;
                         }
                         if var_idx < nlocals {
@@ -2099,28 +2030,19 @@ impl CodeInfo {
                         if needs_check_1 || needs_check_2 {
                             let mut first = info;
                             first.instr = if needs_check_1 {
-                                Instruction::LoadFastCheck {
-                                    var_num: Arg::marker(),
-                                }
+                                Opcode::LoadFastCheck
                             } else {
-                                Instruction::LoadFast {
-                                    var_num: Arg::marker(),
-                                }
+                                Opcode::LoadFast
                             }
                             .into();
                             first.arg = OpArg::new(idx1 as u32);
 
                             let mut second = info;
                             second.instr = if needs_check_2 {
-                                Instruction::LoadFastCheck {
-                                    var_num: Arg::marker(),
-                                }
+                                Opcode::LoadFastCheck.into()
                             } else {
-                                Instruction::LoadFast {
-                                    var_num: Arg::marker(),
-                                }
-                            }
-                            .into();
+                                Opcode::LoadFast.into()
+                            };
                             second.arg = OpArg::new(idx2 as u32);
 
                             new_instructions.push(first);
@@ -2615,10 +2537,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
             ..Block::default()
         };
         jump_block.instructions.push(InstructionInfo {
-            instr: PseudoInstruction::JumpNoInterrupt {
-                delta: Arg::marker(),
-            }
-            .into(),
+            instr: PseudoOpcode::JumpNoInterrupt.into(),
             arg: OpArg::new(0),
             target: warm_next,
             location: SourceLocation::default(),
@@ -2737,16 +2656,13 @@ enum JumpThreadKind {
 }
 
 fn jump_thread_kind(instr: AnyInstruction) -> Option<JumpThreadKind> {
-    match instr {
-        AnyInstruction::Pseudo(PseudoInstruction::Jump { .. })
-        | AnyInstruction::Real(Instruction::JumpForward { .. })
-        | AnyInstruction::Real(Instruction::JumpBackward { .. }) => Some(JumpThreadKind::Plain),
-        AnyInstruction::Pseudo(PseudoInstruction::JumpNoInterrupt { .. })
-        | AnyInstruction::Real(Instruction::JumpBackwardNoInterrupt { .. }) => {
-            Some(JumpThreadKind::NoInterrupt)
-        }
-        _ => None,
-    }
+    Some(match instr.into() {
+        AnyOpcode::Pseudo(PseudoOpcode::Jump)
+        | AnyOpcode::Real(Opcode::JumpForward | Opcode::JumpBackward) => JumpThreadKind::Plain,
+        AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt)
+        | AnyOpcode::Real(Opcode::JumpBackwardNoInterrupt) => JumpThreadKind::NoInterrupt,
+        _ => return None,
+    })
 }
 
 fn threaded_jump_instr(
@@ -2763,19 +2679,11 @@ fn threaded_jump_instr(
     if source_kind == JumpThreadKind::NoInterrupt {
         return Some(source);
     }
-    Some(match source {
-        AnyInstruction::Pseudo(_) => PseudoInstruction::Jump {
-            delta: Arg::marker(),
-        }
-        .into(),
-        AnyInstruction::Real(Instruction::JumpBackwardNoInterrupt { .. }) => {
-            Instruction::JumpBackward {
-                delta: Arg::marker(),
-            }
-            .into()
-        }
-        AnyInstruction::Real(Instruction::JumpForward { .. })
-        | AnyInstruction::Real(Instruction::JumpBackward { .. }) => source,
+
+    Some(match source.into() {
+        AnyOpcode::Pseudo(_) => PseudoOpcode::Jump.into(),
+        AnyOpcode::Real(Opcode::JumpBackwardNoInterrupt) => Opcode::JumpBackward.into(),
+        AnyOpcode::Real(Opcode::JumpForward | Opcode::JumpBackward) => source,
         _ => return None,
     })
 }
@@ -2852,35 +2760,23 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
 
 fn is_conditional_jump(instr: &AnyInstruction) -> bool {
     matches!(
-        instr.real(),
+        instr.real().map(Into::into),
         Some(
-            Instruction::PopJumpIfFalse { .. }
-                | Instruction::PopJumpIfTrue { .. }
-                | Instruction::PopJumpIfNone { .. }
-                | Instruction::PopJumpIfNotNone { .. }
+            Opcode::PopJumpIfFalse
+                | Opcode::PopJumpIfTrue
+                | Opcode::PopJumpIfNone
+                | Opcode::PopJumpIfNotNone
         )
     )
 }
 
 /// Invert a conditional jump opcode.
 fn reversed_conditional(instr: &AnyInstruction) -> Option<AnyInstruction> {
-    Some(match instr.real()? {
-        Instruction::PopJumpIfFalse { .. } => Instruction::PopJumpIfTrue {
-            delta: Arg::marker(),
-        }
-        .into(),
-        Instruction::PopJumpIfTrue { .. } => Instruction::PopJumpIfFalse {
-            delta: Arg::marker(),
-        }
-        .into(),
-        Instruction::PopJumpIfNone { .. } => Instruction::PopJumpIfNotNone {
-            delta: Arg::marker(),
-        }
-        .into(),
-        Instruction::PopJumpIfNotNone { .. } => Instruction::PopJumpIfNone {
-            delta: Arg::marker(),
-        }
-        .into(),
+    Some(match AnyOpcode::from(*instr).real()? {
+        Opcode::PopJumpIfFalse => Opcode::PopJumpIfTrue.into(),
+        Opcode::PopJumpIfTrue => Opcode::PopJumpIfFalse.into(),
+        Opcode::PopJumpIfNone => Opcode::PopJumpIfNotNone.into(),
+        Opcode::PopJumpIfNotNone => Opcode::PopJumpIfNone.into(),
         _ => return None,
     })
 }
@@ -2928,7 +2824,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
             if is_forward {
                 // Insert NOT_TAKEN after forward conditional jump
                 let not_taken = InstructionInfo {
-                    instr: Instruction::NotTaken.into(),
+                    instr: Opcode::NotTaken.into(),
                     arg: OpArg::new(0),
                     target: BlockIdx::NULL,
                     location: last_ins.location,
@@ -2957,7 +2853,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                         ..Block::default()
                     };
                     new_block.instructions.push(InstructionInfo {
-                        instr: Instruction::NotTaken.into(),
+                        instr: Opcode::NotTaken.into(),
                         arg: OpArg::new(0),
                         target: BlockIdx::NULL,
                         location: loc,
@@ -2967,10 +2863,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                         cache_entries: 0,
                     });
                     new_block.instructions.push(InstructionInfo {
-                        instr: PseudoInstruction::Jump {
-                            delta: Arg::marker(),
-                        }
-                        .into(),
+                        instr: PseudoOpcode::Jump.into(),
                         arg: OpArg::new(0),
                         target,
                         location: loc,
@@ -3019,34 +2912,22 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                 continue;
             }
             let target_pos = block_order[target.idx()];
-            info.instr = match info.instr {
-                AnyInstruction::Pseudo(PseudoInstruction::Jump { .. }) => {
+            info.instr = match info.instr.into() {
+                AnyOpcode::Pseudo(PseudoOpcode::Jump) => {
                     if target_pos > source_pos {
-                        Instruction::JumpForward {
-                            delta: Arg::marker(),
-                        }
-                        .into()
+                        Opcode::JumpForward.into()
                     } else {
-                        Instruction::JumpBackward {
-                            delta: Arg::marker(),
-                        }
-                        .into()
+                        Opcode::JumpBackward.into()
                     }
                 }
-                AnyInstruction::Pseudo(PseudoInstruction::JumpNoInterrupt { .. }) => {
+                AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt) => {
                     if target_pos > source_pos {
-                        Instruction::JumpForward {
-                            delta: Arg::marker(),
-                        }
-                        .into()
+                        Opcode::JumpForward.into()
                     } else {
-                        Instruction::JumpBackwardNoInterrupt {
-                            delta: Arg::marker(),
-                        }
-                        .into()
+                        Opcode::JumpBackwardNoInterrupt.into()
                     }
                 }
-                other => other,
+                _ => info.instr,
             };
         }
     }
@@ -4105,10 +3986,7 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], cellfixedoffsets: &[u32])
                     let cell_relative = i.get(info.arg) as usize;
                     let new_idx = cellfixedoffsets[cell_relative];
                     info.arg = OpArg::new(new_idx);
-                    info.instr = Instruction::LoadFast {
-                        var_num: Arg::marker(),
-                    }
-                    .into();
+                    info.instr = Opcode::LoadFast.into();
                 }
                 // Jump pseudo ops are resolved during block linearization
                 PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. } => {}
@@ -4160,12 +4038,12 @@ pub(crate) fn fixup_deref_opargs(blocks: &mut [Block], cellfixedoffsets: &[u32])
                 continue;
             };
             let needs_fixup = matches!(
-                instr,
-                Instruction::LoadDeref { .. }
-                    | Instruction::StoreDeref { .. }
-                    | Instruction::DeleteDeref { .. }
-                    | Instruction::LoadFromDictOrDeref { .. }
-                    | Instruction::MakeCell { .. }
+                instr.into(),
+                Opcode::LoadDeref
+                    | Opcode::StoreDeref
+                    | Opcode::DeleteDeref
+                    | Opcode::LoadFromDictOrDeref
+                    | Opcode::MakeCell
             );
             if needs_fixup {
                 let cell_relative = u32::from(info.arg) as usize;

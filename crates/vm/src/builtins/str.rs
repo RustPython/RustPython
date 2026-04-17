@@ -45,7 +45,8 @@ use rustpython_common::{
 };
 
 use icu_properties::props::{
-    BidiClass, BinaryProperty, EnumeratedProperty, GeneralCategory, XidContinue, XidStart,
+    BidiClass, BinaryProperty, CanonicalCombiningClass, EnumeratedProperty, GeneralCategory,
+    XidContinue, XidStart,
 };
 use unicode_casing::CharExt;
 
@@ -946,7 +947,11 @@ impl PyStr {
 
     #[pymethod]
     fn isalnum(&self) -> bool {
-        !self.data.is_empty() && self.char_all(char::is_alphanumeric)
+        !self.data.is_empty()
+            && self.char_all(|c| {
+                c.is_alphanumeric()
+                    && CanonicalCombiningClass::for_char(c) == CanonicalCombiningClass::NotReordered
+            })
     }
 
     #[pymethod]

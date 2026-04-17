@@ -73,6 +73,15 @@ assert "\u1c89".istitle()
 # assert "Ǳ".title() == "ǲ"
 assert a.isalpha()
 
+# Combining characters differ slightly between Rust and Python
+assert "\u006e".isalnum()
+assert not "\u0303".isalnum()
+assert not "\u006e\u0303".isalnum()
+assert "\u00f1".isalnum()
+assert not "\u0345".isalnum()
+for raw in range(0x0363, 0x036F):
+    assert not chr(raw).isalnum()
+
 s = "1 2 3"
 assert s.split(" ", 1) == ["1", "2 3"]
 assert s.rsplit(" ", 1) == ["1 2", "3"]
