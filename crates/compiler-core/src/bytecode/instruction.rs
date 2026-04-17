@@ -614,23 +614,15 @@ impl Instruction {
     /// Map a specialized opcode back to its adaptive (base) variant.
     /// `_PyOpcode_Deopt`
     pub const fn deopt(self) -> Option<Self> {
-        Some(match self {
-            // RESUME specializations
-            Self::ResumeCheck => Self::Resume {
-                context: Arg::marker(),
-            },
-            // LOAD_CONST specializations
-            Self::LoadConstMortal | Self::LoadConstImmortal => Self::LoadConst {
-                consti: Arg::marker(),
-            },
-            // TO_BOOL specializations
+        let opcode = match self {
+            Self::ResumeCheck => Opcode::Resume,
+            Self::LoadConstMortal | Self::LoadConstImmortal => Opcode::LoadConst,
             Self::ToBoolAlwaysTrue
             | Self::ToBoolBool
             | Self::ToBoolInt
             | Self::ToBoolList
             | Self::ToBoolNone
-            | Self::ToBoolStr => Self::ToBool,
-            // BINARY_OP specializations
+            | Self::ToBoolStr => Opcode::ToBool,
             Self::BinaryOpMultiplyInt
             | Self::BinaryOpAddInt
             | Self::BinaryOpSubtractInt
@@ -645,34 +637,18 @@ impl Instruction {
             | Self::BinaryOpSubscrDict
             | Self::BinaryOpSubscrGetitem
             | Self::BinaryOpExtend
-            | Self::BinaryOpInplaceAddUnicode => Self::BinaryOp { op: Arg::marker() },
-            // STORE_SUBSCR specializations
-            Self::StoreSubscrDict | Self::StoreSubscrListInt => Self::StoreSubscr,
-            // SEND specializations
-            Self::SendGen => Self::Send {
-                delta: Arg::marker(),
-            },
-            // UNPACK_SEQUENCE specializations
+            | Self::BinaryOpInplaceAddUnicode => Opcode::BinaryOp,
+            Self::StoreSubscrDict | Self::StoreSubscrListInt => Opcode::StoreSubscr,
+            Self::SendGen => Opcode::Send,
             Self::UnpackSequenceTwoTuple | Self::UnpackSequenceTuple | Self::UnpackSequenceList => {
-                Self::UnpackSequence {
-                    count: Arg::marker(),
-                }
+                Opcode::UnpackSequence
             }
-            // STORE_ATTR specializations
+
             Self::StoreAttrInstanceValue | Self::StoreAttrSlot | Self::StoreAttrWithHint => {
-                Self::StoreAttr {
-                    namei: Arg::marker(),
-                }
+                Opcode::StoreAttr
             }
-            // LOAD_GLOBAL specializations
-            Self::LoadGlobalModule | Self::LoadGlobalBuiltin => Self::LoadGlobal {
-                namei: Arg::marker(),
-            },
-            // LOAD_SUPER_ATTR specializations
-            Self::LoadSuperAttrAttr | Self::LoadSuperAttrMethod => Self::LoadSuperAttr {
-                namei: Arg::marker(),
-            },
-            // LOAD_ATTR specializations
+            Self::LoadGlobalModule | Self::LoadGlobalBuiltin => Opcode::LoadGlobal,
+            Self::LoadSuperAttrAttr | Self::LoadSuperAttrMethod => Opcode::LoadSuperAttr,
             Self::LoadAttrInstanceValue
             | Self::LoadAttrModule
             | Self::LoadAttrWithHint
@@ -685,28 +661,13 @@ impl Instruction {
             | Self::LoadAttrMethodNoDict
             | Self::LoadAttrMethodLazyDict
             | Self::LoadAttrNondescriptorWithValues
-            | Self::LoadAttrNondescriptorNoDict => Self::LoadAttr {
-                namei: Arg::marker(),
-            },
-            // COMPARE_OP specializations
-            Self::CompareOpFloat | Self::CompareOpInt | Self::CompareOpStr => Self::CompareOp {
-                opname: Arg::marker(),
-            },
-            // CONTAINS_OP specializations
-            Self::ContainsOpSet | Self::ContainsOpDict => Self::ContainsOp {
-                invert: Arg::marker(),
-            },
-            // JUMP_BACKWARD specializations
-            Self::JumpBackwardNoJit | Self::JumpBackwardJit => Self::JumpBackward {
-                delta: Arg::marker(),
-            },
-            // FOR_ITER specializations
+            | Self::LoadAttrNondescriptorNoDict => Opcode::LoadAttr,
+            Self::CompareOpFloat | Self::CompareOpInt | Self::CompareOpStr => Opcode::CompareOp,
+            Self::ContainsOpSet | Self::ContainsOpDict => Opcode::ContainsOp,
+            Self::JumpBackwardNoJit | Self::JumpBackwardJit => Opcode::JumpBackward,
             Self::ForIterList | Self::ForIterTuple | Self::ForIterRange | Self::ForIterGen => {
-                Self::ForIter {
-                    delta: Arg::marker(),
-                }
+                Opcode::ForIter
             }
-            // CALL specializations
             Self::CallBoundMethodExactArgs
             | Self::CallPyExactArgs
             | Self::CallType1
@@ -726,15 +687,12 @@ impl Instruction {
             | Self::CallAllocAndEnterInit
             | Self::CallPyGeneral
             | Self::CallBoundMethodGeneral
-            | Self::CallNonPyGeneral => Self::Call {
-                argc: Arg::marker(),
-            },
-            // CALL_KW specializations
-            Self::CallKwBoundMethod | Self::CallKwPy | Self::CallKwNonPy => Self::CallKw {
-                argc: Arg::marker(),
-            },
+            | Self::CallNonPyGeneral => Opcode::Call,
+            Self::CallKwBoundMethod | Self::CallKwPy | Self::CallKwNonPy => Opcode::CallKw,
             _ => return None,
-        })
+        };
+
+        Some(opcode.as_instruction())
     }
 
     /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
