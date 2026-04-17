@@ -307,7 +307,7 @@ jobs:
             status=$?
             set -e
 
-            echo "::endgroup:"
+            echo "::endgroup::"
 
             if [ $status -eq 0 ]; then
               exit 0
