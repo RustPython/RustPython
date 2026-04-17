@@ -1687,7 +1687,8 @@ pub(super) mod _os {
             let src_path = match follow_symlinks.into_option() {
                 Some(true) => {
                     // Explicit follow_symlinks=True: resolve symlinks
-                    fs::canonicalize(&src.path).unwrap_or_else(|_| PathBuf::from(src.path.clone()))
+                    crate::host_env::fs::canonicalize(&src.path)
+                        .unwrap_or_else(|_| PathBuf::from(src.path.clone()))
                 }
                 Some(false) | None => {
                     // Default or explicit no-follow: native hard_link behavior
@@ -1835,7 +1836,7 @@ pub(super) mod _os {
         }
         #[cfg(windows)]
         {
-            use std::{fs::OpenOptions, os::windows::prelude::*};
+            use std::os::windows::prelude::*;
             type DWORD = u32;
             use windows_sys::Win32::{Foundation::FILETIME, Storage::FileSystem};
 
@@ -1859,11 +1860,11 @@ pub(super) mod _os {
             let acc = ft(acc);
             let modif = ft(modif);
 
-            let f = OpenOptions::new()
-                .write(true)
-                .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
-                .open(&path)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+            let f = crate::host_env::fs::open_write_with_custom_flags(
+                &path,
+                windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS,
+            )
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
             let ret = unsafe {
                 FileSystem::SetFileTime(f.as_raw_handle() as _, core::ptr::null(), &acc, &modif)

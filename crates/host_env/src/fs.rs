@@ -43,3 +43,17 @@ pub fn symlink_metadata(path: impl AsRef<Path>) -> io::Result<Metadata> {
 pub fn open_write(path: impl AsRef<Path>) -> io::Result<File> {
     fs::OpenOptions::new().write(true).open(path)
 }
+
+pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<std::path::PathBuf> {
+    fs::canonicalize(path)
+}
+
+#[cfg(windows)]
+pub fn open_write_with_custom_flags(path: impl AsRef<Path>, flags: u32) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(flags)
+        .open(path)
+}
