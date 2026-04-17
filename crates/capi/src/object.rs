@@ -1,6 +1,5 @@
 use crate::{PyObject, with_vm};
 use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
-use core::mem::MaybeUninit;
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::{AsObject, Context, Py};
@@ -15,30 +14,6 @@ const PY_TPFLAGS_BASE_EXC_SUBCLASS: c_ulong = 1 << 30;
 const PY_TPFLAGS_TYPE_SUBCLASS: c_ulong = 1 << 31;
 
 pub type PyTypeObject = Py<PyType>;
-
-#[unsafe(no_mangle)]
-pub static mut PyType_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyBaseObject_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyLong_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyTuple_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyUnicode_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyBool_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyDict_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
-
-#[unsafe(no_mangle)]
-pub static mut PyComplex_Type: MaybeUninit<&'static PyTypeObject> = MaybeUninit::uninit();
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
@@ -291,7 +266,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Instance checking on static type pointers is yet supported"]
     fn test_static_type_pointers() {
         Python::attach(|py| {
             assert!(py.None().bind(py).is_instance_of::<PyNone>());

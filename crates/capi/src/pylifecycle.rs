@@ -1,8 +1,4 @@
 use crate::log_stub;
-use crate::object::{
-    PyBaseObject_Type, PyBool_Type, PyComplex_Type, PyDict_Type, PyLong_Type, PyTuple_Type,
-    PyType_Type, PyUnicode_Type,
-};
 use crate::pyerrors::init_exception_statics;
 use crate::pystate::attach_vm_to_thread;
 use core::ffi::c_int;
@@ -36,18 +32,8 @@ pub(crate) fn init_static_type_pointers() {
         "Python already initialized, we should not touch the static type pointers"
     );
     let context = Context::genesis();
-    let types = &context.types;
 
     unsafe {
-        PyType_Type.write(types.type_type);
-        PyBaseObject_Type.write(types.object_type);
-        PyLong_Type.write(types.int_type);
-        PyTuple_Type.write(types.tuple_type);
-        PyUnicode_Type.write(types.str_type);
-        PyBool_Type.write(types.bool_type);
-        PyDict_Type.write(types.dict_type);
-        PyComplex_Type.write(types.complex_type);
-
         init_exception_statics(&context.exceptions);
     };
 }
