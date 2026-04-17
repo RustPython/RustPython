@@ -1,10 +1,11 @@
 use crate::{PyObject, with_vm};
 use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr::NonNull;
-use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
+use rustpython_vm::builtins::{PyDict, PyGetSet, PyStr, PyTuple, PyType};
+use rustpython_vm::convert::IntoObject;
 use rustpython_vm::function::FuncArgs;
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
-use rustpython_vm::{AsObject, Context, Py, PyObjectRef};
+use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
 const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
@@ -186,6 +187,15 @@ pub struct PyType_Spec {
     slots: *mut PyType_Slot,
 }
 
+#[repr(C)]
+pub struct PyGetSetDef {
+    name: *const c_char,
+    get: extern "C" fn(*mut PyObject, usize) -> *mut PyObject,
+    set: Option<extern "C" fn(*mut PyObject, *mut PyObject, usize) -> c_int>,
+    doc: *const c_char,
+    closure: usize,
+}
+
 #[derive(Default)]
 struct TypeVTable {
     new_func: Option<newfunc>,
@@ -201,7 +211,7 @@ type newfunc = unsafe extern "C" fn(
 pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
     with_vm(|vm| {
         let spec = unsafe { &*spec };
-        let name = unsafe {
+        let class_name = unsafe {
             CStr::from_ptr(spec.name)
                 .to_str()
                 .expect("type name must be valid UTF-8")
@@ -213,6 +223,7 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         slots.itemsize = spec.itemsize as _;
         slots.flags = PyTypeFlags::from_bits(spec.flags as u64).expect("invalid flags value");
 
+        let mut attributes: &[PyGetSetDef] = &[];
         let mut vtable = TypeVTable::default();
         let mut slot_ptr = spec.slots;
         while let slot = unsafe { &*slot_ptr }
@@ -228,7 +239,16 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     }));
                 }
                 SlotAccessor::TpBase => base = unsafe { &*slot.pfunc.cast::<PyTypeObject>() },
-                SlotAccessor::TpGetset => {}
+                SlotAccessor::TpGetset => {
+                    let start = slot.pfunc.cast::<PyGetSetDef>();
+                    let mut end = start;
+                    while unsafe { !(*end).name.is_null() } {
+                        end = unsafe { end.add(1) }
+                    }
+                    attributes = unsafe {
+                        core::slice::from_raw_parts(start, end.offset_from(start) as usize)
+                    };
+                }
                 SlotAccessor::TpMethods => {}
                 SlotAccessor::TpNew => {
                     vtable.new_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
@@ -250,15 +270,60 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                         unsafe { Ok(PyObjectRef::from_raw(NonNull::new(result).unwrap())) }
                     }));
                 }
-                SlotAccessor::TpDoc => {}
+                SlotAccessor::TpDoc => {
+                    let doc = unsafe {
+                        CStr::from_ptr(slot.pfunc.cast::<c_char>())
+                            .to_str()
+                            .expect("tp_doc must be a valid UTF-8 string")
+                    };
+                    slots.doc = Some(doc);
+                }
                 _ => todo!("Slot {accessor:?} is not yet supported in PyType_FromSpec"),
             }
 
             slot_ptr = unsafe { slot_ptr.add(1) };
         }
 
-        let class = vm.ctx.new_class(None, name, base.to_owned(), slots);
+        let class = vm.ctx.new_class(None, class_name, base.to_owned(), slots);
         class.init_type_data(vtable).unwrap();
+        for attribute in attributes {
+            let name = unsafe {
+                CStr::from_ptr(attribute.name)
+                    .to_str()
+                    .expect("attribute name must be valid UTF-8")
+            };
+            let closure = attribute.closure;
+            let getter = attribute.get;
+            let getset = if let Some(setter) = attribute.set {
+                todo!();
+                unsafe {
+                    vm.ctx.new_getset(
+                        name,
+                        &class,
+                        |obj: PyObjectRef, vm: &VirtualMachine| {},
+                        |obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine| {},
+                    )
+                }
+            } else {
+                let class = unsafe { &*((&*class) as *const _) };
+                vm.ctx.new_readonly_getset(
+                    name,
+                    &class,
+                    move |obj: PyObjectRef, vm: &VirtualMachine| {
+                        let result = getter(obj.as_raw().cast_mut(), closure);
+                        unsafe {
+                            PyObjectRef::from_raw(
+                                NonNull::new(result).expect("TODO handle error from c function"),
+                            )
+                        }
+                    },
+                )
+            };
+            class
+                .attributes
+                .write()
+                .insert(vm.ctx.intern_str(name), getset.into_object());
+        }
         class
     })
 }
@@ -510,6 +575,11 @@ mod tests {
 
         Python::attach(|py| {
             let obj = Bound::new(py, MyClass { num: 3 }).unwrap();
+
+            let globals = PyDict::new(py);
+            globals.set_item("instance", obj).unwrap();
+            py.run(c"assert instance.num == 3", Some(&globals), None)
+                .unwrap();
         });
     }
 }
