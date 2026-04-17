@@ -3220,7 +3220,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustpython-host-env"
+name = "rustpython-host_env"
 version = "0.5.0"
 dependencies = [
  "libc",
@@ -3419,7 +3419,7 @@ dependencies = [
  "rustls-platform-verifier",
  "rustpython-common",
  "rustpython-derive",
- "rustpython-host-env",
+ "rustpython-host_env",
  "rustpython-ruff_python_ast",
  "rustpython-ruff_python_parser",
  "rustpython-ruff_source_file",
@@ -3499,7 +3499,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-compiler-core",
  "rustpython-derive",
- "rustpython-host-env",
+ "rustpython-host_env",
  "rustpython-jit",
  "rustpython-literal",
  "rustpython-ruff_python_ast",

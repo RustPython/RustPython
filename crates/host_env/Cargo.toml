@@ -1,5 +1,5 @@
 [package]
-name = "rustpython-host-env"
+name = "rustpython-host_env"
 description = "Host OS API abstractions for RustPython"
 version.workspace = true
 authors.workspace = true

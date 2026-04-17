@@ -15,14 +15,13 @@ const WEAK_COUNT: usize = 1 << STRONG_WIDTH;
 
 #[inline(never)]
 #[cold]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "refcount overflow must preserve upstream abort semantics"
+)]
 fn refcount_overflow() -> ! {
-    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
-    // SAFETY: abort terminates the process immediately and does not return.
-    unsafe {
-        libc::abort()
-    };
-    #[cfg(all(feature = "std", target_arch = "wasm32"))]
-    core::panic!("refcount overflow");
+    #[cfg(feature = "std")]
+    std::process::abort();
     #[cfg(not(feature = "std"))]
     core::panic!("refcount overflow");
 }

@@ -1,8 +1,5 @@
 use core::time::Duration;
-use std::{
-    io,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 
 pub const SEC_TO_MS: i64 = 1000;
 pub const MS_TO_US: i64 = 1000;
@@ -13,10 +10,8 @@ pub const SEC_TO_NS: i64 = SEC_TO_MS * MS_TO_NS;
 pub const NS_TO_MS: i64 = 1000 * 1000;
 pub const NS_TO_US: i64 = 1000;
 
-pub fn duration_since_system_now() -> io::Result<Duration> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(io::Error::other)
+pub fn duration_since_system_now() -> Result<Duration, SystemTimeError> {
+    SystemTime::now().duration_since(UNIX_EPOCH)
 }
 
 #[cfg(target_env = "msvc")]

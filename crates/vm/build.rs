@@ -1,6 +1,6 @@
 #![allow(
     clippy::disallowed_methods,
-    reason = "build scripts cannot use rustpython-host-env"
+    reason = "build scripts cannot use rustpython-host_env"
 )]
 
 use itertools::Itertools;
