@@ -1077,6 +1077,9 @@ impl SymbolTableBuilder {
 
         // Register .type_params as a SET symbol (it will be converted to cell variable later)
         self.register_name(".type_params", SymbolUsage::Assigned, TextRange::default())?;
+        if for_class {
+            self.register_name(".generic_base", SymbolUsage::Assigned, TextRange::default())?;
+        }
 
         Ok(())
     }
@@ -1263,27 +1266,38 @@ impl SymbolTableBuilder {
         is_ann_assign: bool,
     ) -> SymbolTableResult {
         let current_scope = self.tables.last().map(|t| t.typ);
+        let needs_future_annotation_bookkeeping = is_ann_assign
+            && self.future_annotations
+            && matches!(
+                current_scope,
+                Some(CompilerScope::Module | CompilerScope::Class)
+            );
+        let needs_non_future_conditional_annotations = is_ann_assign
+            && !self.future_annotations
+            && (matches!(current_scope, Some(CompilerScope::Module))
+                || (matches!(current_scope, Some(CompilerScope::Class))
+                    && self.in_conditional_block));
+        let should_register_conditional_annotations = needs_future_annotation_bookkeeping
+            || (needs_non_future_conditional_annotations
+                && !self.tables.last().unwrap().has_conditional_annotations);
 
         // PEP 649: Only AnnAssign annotations can be conditional.
         // Function parameter/return annotations are never conditional.
-        if is_ann_assign && !self.future_annotations {
-            let is_conditional = matches!(current_scope, Some(CompilerScope::Module))
-                || (matches!(current_scope, Some(CompilerScope::Class))
-                    && self.in_conditional_block);
+        if needs_non_future_conditional_annotations {
+            self.tables.last_mut().unwrap().has_conditional_annotations = true;
+        }
 
-            if is_conditional && !self.tables.last().unwrap().has_conditional_annotations {
-                self.tables.last_mut().unwrap().has_conditional_annotations = true;
-                self.register_name(
-                    "__conditional_annotations__",
-                    SymbolUsage::Assigned,
-                    annotation.range(),
-                )?;
-                self.register_name(
-                    "__conditional_annotations__",
-                    SymbolUsage::Used,
-                    annotation.range(),
-                )?;
-            }
+        if should_register_conditional_annotations {
+            self.register_name(
+                "__conditional_annotations__",
+                SymbolUsage::Assigned,
+                annotation.range(),
+            )?;
+            self.register_name(
+                "__conditional_annotations__",
+                SymbolUsage::Used,
+                annotation.range(),
+            )?;
         }
 
         // Create annotation scope for deferred evaluation
@@ -1437,6 +1451,10 @@ impl SymbolTableBuilder {
                 self.register_name("__qualname__", SymbolUsage::Assigned, *range)?;
                 self.register_name("__doc__", SymbolUsage::Assigned, *range)?;
                 self.register_name("__class__", SymbolUsage::Assigned, *range)?;
+                if type_params.is_some() {
+                    self.register_name(".type_params", SymbolUsage::Used, *range)?;
+                    self.register_name("__type_params__", SymbolUsage::Assigned, *range)?;
+                }
                 self.scan_statements(body)?;
                 self.leave_scope();
                 self.in_conditional_block = saved_in_conditional;

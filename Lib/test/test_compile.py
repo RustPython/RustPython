@@ -2576,7 +2576,6 @@ class TestExpressionStackSize(unittest.TestCase):
     def test_binop(self):
         self.check_stack_size("x + " * self.N + "x")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 not less than or equal to 6
     def test_list(self):
         self.check_stack_size("[" + "x, " * self.N + "x]")
 
@@ -2584,7 +2583,6 @@ class TestExpressionStackSize(unittest.TestCase):
     def test_tuple(self):
         self.check_stack_size("(" + "x, " * self.N + "x)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 not less than or equal to 6
     def test_set(self):
         self.check_stack_size("{" + "x, " * self.N + "x}")
 

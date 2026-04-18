@@ -673,7 +673,10 @@ impl Compiler {
 
         let can_fold_const_collection = match collection_type {
             CollectionType::Tuple => n > 0,
-            CollectionType::List | CollectionType::Set => n >= 3,
+            // Match CPython's constant ordering for list/set literals by
+            // letting the late IR folding passes introduce their tuple-backed
+            // constants instead of inserting them during AST lowering.
+            CollectionType::List | CollectionType::Set => false,
         };
         if !self.disable_const_collection_folding
             && !seen_star
@@ -720,8 +723,36 @@ impl Compiler {
         }
 
         // Has stars or too big: use streaming approach
+        let stream_big_nonconst_collection = if !seen_star
+            && big
+            && matches!(collection_type, CollectionType::List | CollectionType::Set)
+        {
+            elts.iter().try_fold(false, |has_nonconst, elt| {
+                if has_nonconst {
+                    return Ok(true);
+                }
+                Ok(self.try_fold_constant_expr(elt)?.is_none())
+            })?
+        } else {
+            false
+        };
+
         let mut sequence_built = false;
         let mut i = 0u32;
+
+        if stream_big_nonconst_collection {
+            match collection_type {
+                CollectionType::List => {
+                    emit!(self, Instruction::BuildList { count: pushed });
+                    sequence_built = true;
+                }
+                CollectionType::Set => {
+                    emit!(self, Instruction::BuildSet { count: pushed });
+                    sequence_built = true;
+                }
+                CollectionType::Tuple => {}
+            }
+        }
 
         for elt in elts.iter() {
             if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = elt {
@@ -1220,10 +1251,8 @@ impl Compiler {
             cellvar_cache.insert("__classdict__".to_string());
         }
 
-        // Handle implicit __conditional_annotations__ cell if needed
-        if ste.has_conditional_annotations
-            && matches!(scope_type, CompilerScope::Class | CompilerScope::Module)
-        {
+        // Handle implicit __conditional_annotations__ cell if needed.
+        if Self::scope_needs_conditional_annotations_cell(ste) {
             cellvar_cache.insert("__conditional_annotations__".to_string());
         }
 
@@ -1923,7 +1952,7 @@ impl Compiler {
         self.future_annotations = symbol_table.future_annotations;
 
         // Module-level __conditional_annotations__ cell
-        let has_module_cond_ann = symbol_table.has_conditional_annotations;
+        let has_module_cond_ann = Self::scope_needs_conditional_annotations_cell(&symbol_table);
         if has_module_cond_ann {
             self.current_code_info()
                 .metadata
@@ -1951,18 +1980,16 @@ impl Compiler {
             emit!(self, Instruction::StoreName { namei: doc })
         }
 
-        // Handle annotations based on future_annotations flag
+        // Handle annotation bookkeeping in CPython order: initialize the
+        // conditional annotation set first, then materialize __annotations__.
         if Self::find_ann(statements) {
+            if Self::scope_needs_conditional_annotations_cell(self.current_symbol_table()) {
+                emit!(self, Instruction::BuildSet { count: 0 });
+                self.store_name("__conditional_annotations__")?;
+            }
+
             if self.future_annotations {
-                // PEP 563: Initialize __annotations__ dict
                 emit!(self, Instruction::SetupAnnotations);
-            } else {
-                // PEP 649: Initialize __conditional_annotations__ before the body.
-                // CPython generates __annotate__ after the body in codegen_body().
-                if self.current_symbol_table().has_conditional_annotations {
-                    emit!(self, Instruction::BuildSet { count: 0 });
-                    self.store_name("__conditional_annotations__")?;
-                }
             }
         }
 
@@ -2100,6 +2127,20 @@ impl Compiler {
             self.compile_statement(statement)?
         }
         Ok(())
+    }
+
+    fn scope_needs_conditional_annotations_cell(symbol_table: &SymbolTable) -> bool {
+        match symbol_table.typ {
+            CompilerScope::Module => {
+                symbol_table.has_conditional_annotations
+                    || (symbol_table.future_annotations && symbol_table.annotation_block.is_some())
+            }
+            CompilerScope::Class => {
+                symbol_table.has_conditional_annotations
+                    || symbol_table.lookup("__conditional_annotations__").is_some()
+            }
+            _ => false,
+        }
     }
 
     fn load_name(&mut self, name: &str) -> CompileResult<()> {
@@ -5189,52 +5230,37 @@ impl Compiler {
             }
         );
 
-        // PEP 649: Initialize __classdict__ cell (before __doc__)
+        // Set __type_params__ from the enclosing type-params closure when
+        // compiling a generic class body.
+        if type_params.is_some() {
+            self.load_name(".type_params")?;
+            self.store_name("__type_params__")?;
+        }
+
+        // PEP 649: Initialize __classdict__ after synthetic generic-class
+        // setup so nested generic classes match CPython's prologue order.
         if self.current_symbol_table().needs_classdict {
             emit!(self, Instruction::LoadLocals);
             let classdict_idx = self.get_cell_var_index("__classdict__")?;
             emit!(self, Instruction::StoreDeref { i: classdict_idx });
         }
 
-        // Store __doc__ only if there's an explicit docstring
+        // Store __doc__ only if there's an explicit docstring.
         if let Some(doc) = doc_str {
             self.emit_load_const(ConstantData::Str { value: doc.into() });
             let doc_name = self.name("__doc__");
             emit!(self, Instruction::StoreName { namei: doc_name });
         }
 
-        // Set __type_params__ if we have type parameters
-        if type_params.is_some() {
-            // Load .type_params from enclosing scope
-            let dot_type_params = self.name(".type_params");
-            emit!(
-                self,
-                Instruction::LoadName {
-                    namei: dot_type_params
-                }
-            );
-
-            // Store as __type_params__
-            let dunder_type_params = self.name("__type_params__");
-            emit!(
-                self,
-                Instruction::StoreName {
-                    namei: dunder_type_params
-                }
-            );
-        }
-
-        // Handle class annotations based on future_annotations flag
+        // Handle class annotation bookkeeping in CPython order.
         if Self::find_ann(body) {
+            if Self::scope_needs_conditional_annotations_cell(self.current_symbol_table()) {
+                emit!(self, Instruction::BuildSet { count: 0 });
+                self.store_name("__conditional_annotations__")?;
+            }
+
             if self.future_annotations {
-                // PEP 563: Initialize __annotations__ dict for class
                 emit!(self, Instruction::SetupAnnotations);
-            } else {
-                // PEP 649: Initialize __conditional_annotations__ set if needed for class
-                if self.current_symbol_table().has_conditional_annotations {
-                    emit!(self, Instruction::BuildSet { count: 0 });
-                    self.store_name("__conditional_annotations__")?;
-                }
             }
         }
 
@@ -5363,15 +5389,10 @@ impl Compiler {
                 in_async_scope: false,
             };
 
-            // Compile type parameters and store as .type_params
+            // Compile type parameters and store them in the synthetic cell that
+            // generic class bodies close over.
             self.compile_type_params(type_params.unwrap())?;
-            let dot_type_params = self.name(".type_params");
-            emit!(
-                self,
-                Instruction::StoreName {
-                    namei: dot_type_params
-                }
-            );
+            self.store_name(".type_params")?;
         }
 
         // Step 2: Compile class body (always done, whether generic or not)
@@ -5387,47 +5408,25 @@ impl Compiler {
 
         // Step 3: Generate the rest of the code for the call
         if is_generic {
-            // Still in type params scope
-            let dot_type_params = self.name(".type_params");
-            let dot_generic_base = self.name(".generic_base");
+            // Generate class creation code
+            emit!(self, Instruction::LoadBuildClass);
+            emit!(self, Instruction::PushNull);
 
-            // Create .generic_base
-            emit!(
-                self,
-                Instruction::LoadName {
-                    namei: dot_type_params
-                }
-            );
+            // Create the class body function with the .type_params closure
+            // captured through the class code object's freevars.
+            self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
+            self.emit_load_const(ConstantData::Str { value: name.into() });
+
+            // Create .generic_base after the class function and name are on the
+            // stack so the remaining call shape matches CPython's ordering.
+            self.load_name(".type_params")?;
             emit!(
                 self,
                 Instruction::CallIntrinsic1 {
                     func: bytecode::IntrinsicFunction1::SubscriptGeneric
                 }
             );
-            emit!(
-                self,
-                Instruction::StoreName {
-                    namei: dot_generic_base
-                }
-            );
-
-            // Generate class creation code
-            emit!(self, Instruction::LoadBuildClass);
-            emit!(self, Instruction::PushNull);
-
-            // Set up the class function with type params
-            let mut func_flags = bytecode::MakeFunctionFlags::new();
-            emit!(
-                self,
-                Instruction::LoadName {
-                    namei: dot_type_params
-                }
-            );
-            func_flags.insert(bytecode::MakeFunctionFlag::TypeParams);
-
-            // Create class function with closure
-            self.make_closure(class_code, func_flags)?;
-            self.emit_load_const(ConstantData::Str { value: name.into() });
+            self.store_name(".generic_base")?;
 
             // Compile bases and call __build_class__
             // Check for starred bases or **kwargs
@@ -5463,12 +5462,7 @@ impl Compiler {
                 }
 
                 // Add .generic_base as final element
-                emit!(
-                    self,
-                    Instruction::LoadName {
-                        namei: dot_generic_base
-                    }
-                );
+                self.load_name(".generic_base")?;
                 emit!(self, Instruction::ListAppend { i: 1 });
 
                 // Convert list to tuple
@@ -5499,12 +5493,7 @@ impl Compiler {
                 };
 
                 // Load .generic_base as the last base
-                emit!(
-                    self,
-                    Instruction::LoadName {
-                        namei: dot_generic_base
-                    }
-                );
+                self.load_name(".generic_base")?;
 
                 let nargs = 2 + u32::try_from(base_count).expect("too many base classes") + 1;
 
@@ -5931,15 +5920,13 @@ impl Compiler {
 
             emit!(self, Instruction::ForIter { delta: else_block });
 
-            // Match CPython codegen_for(): keep a line anchor on the target line
-            // so multiline/single-line `for ...: pass` bodies preserve tracing layout.
+            // Match CPython's line attribution by compiling the loop target on
+            // the target range directly instead of leaving a synthetic anchor
+            // NOP between FOR_ITER and the unpack/store sequence.
             let saved_range = self.current_source_range;
             self.set_source_range(target.range());
-            emit!(self, Instruction::Nop);
-            self.set_source_range(saved_range);
-
-            // Start of loop iteration, set targets:
             self.compile_store(target)?;
+            self.set_source_range(saved_range);
         };
 
         let was_in_loop = self.ctx.loop_data.replace((for_block, after_block));
@@ -9787,6 +9774,19 @@ impl Compiler {
         }
     }
 
+    fn compile_tstring_literal_value(
+        &self,
+        string: &ast::InterpolatedStringLiteralElement,
+        flags: ast::TStringFlags,
+    ) -> Wtf8Buf {
+        if string.value.contains(char::REPLACEMENT_CHARACTER) {
+            let source = self.source_file.slice(string.range);
+            crate::string_parser::parse_fstring_literal_element(source.into(), flags.into()).into()
+        } else {
+            string.value.to_string().into()
+        }
+    }
+
     fn compile_fstring_part_literal_value(&self, string: &ast::StringLiteral) -> Wtf8Buf {
         if string.value.contains(char::REPLACEMENT_CHARACTER) {
             let source = self.source_file.slice(string.range);
@@ -9925,6 +9925,72 @@ impl Compiler {
                     elements.push(constant);
                 }
                 ConstantData::Tuple { elements }
+            }
+            ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
+                let Some(container) = self.try_fold_constant_expr(value)? else {
+                    return Ok(None);
+                };
+                let Some(index) = self.try_fold_constant_expr(slice)? else {
+                    return Ok(None);
+                };
+                let ConstantData::Integer { value: index } = index else {
+                    return Ok(None);
+                };
+                let Some(index): Option<i64> = index.try_into().ok() else {
+                    return Ok(None);
+                };
+
+                match container {
+                    ConstantData::Str { value } => {
+                        let string = value.to_string();
+                        if string.contains(char::REPLACEMENT_CHARACTER) {
+                            return Ok(None);
+                        }
+                        let chars: Vec<_> = string.chars().collect();
+                        let Some(len) = i64::try_from(chars.len()).ok() else {
+                            return Ok(None);
+                        };
+                        let idx: i64 = if index < 0 { len + index } else { index };
+                        let Some(idx) = usize::try_from(idx).ok() else {
+                            return Ok(None);
+                        };
+                        let Some(ch) = chars.get(idx) else {
+                            return Ok(None);
+                        };
+                        ConstantData::Str {
+                            value: ch.to_string().into(),
+                        }
+                    }
+                    ConstantData::Bytes { value } => {
+                        let Some(len) = i64::try_from(value.len()).ok() else {
+                            return Ok(None);
+                        };
+                        let idx: i64 = if index < 0 { len + index } else { index };
+                        let Some(idx) = usize::try_from(idx).ok() else {
+                            return Ok(None);
+                        };
+                        let Some(byte) = value.get(idx) else {
+                            return Ok(None);
+                        };
+                        ConstantData::Integer {
+                            value: BigInt::from(*byte),
+                        }
+                    }
+                    ConstantData::Tuple { elements } => {
+                        let Some(len) = i64::try_from(elements.len()).ok() else {
+                            return Ok(None);
+                        };
+                        let idx: i64 = if index < 0 { len + index } else { index };
+                        let Some(idx) = usize::try_from(idx).ok() else {
+                            return Ok(None);
+                        };
+                        let Some(element) = elements.get(idx) else {
+                            return Ok(None);
+                        };
+                        element.clone()
+                    }
+                    _ => return Ok(None),
+                }
             }
             ast::Expr::UnaryOp(ast::ExprUnaryOp { op, operand, .. }) => {
                 let Some(constant) = self.try_fold_constant_expr(operand)? else {
@@ -10734,39 +10800,26 @@ impl Compiler {
     }
 
     fn compile_expr_tstring(&mut self, expr_tstring: &ast::ExprTString) -> CompileResult<()> {
-        // ast::TStringValue can contain multiple ast::TString parts (implicit concatenation)
-        // Each ast::TString part should be compiled and the results merged into a single Template
+        // ast::TStringValue can contain multiple ast::TString parts (implicit
+        // concatenation). Match CPython's stack order by materializing the
+        // strings tuple first, then evaluating interpolations left-to-right.
         let tstring_value = &expr_tstring.value;
 
-        // Collect all strings and compile all interpolations
         let mut all_strings: Vec<Wtf8Buf> = Vec::new();
         let mut current_string = Wtf8Buf::new();
         let mut interp_count: u32 = 0;
 
         for tstring in tstring_value.iter() {
-            self.compile_tstring_into(
+            self.collect_tstring_strings(
                 tstring,
                 &mut all_strings,
                 &mut current_string,
                 &mut interp_count,
-            )?;
+            );
         }
 
-        // Add trailing string
         all_strings.push(core::mem::take(&mut current_string));
 
-        // Now build the Template:
-        // Stack currently has all interpolations from compile_tstring_into calls
-
-        // 1. Build interpolations tuple from the interpolations on the stack
-        emit!(
-            self,
-            Instruction::BuildTuple {
-                count: interp_count
-            }
-        );
-
-        // 2. Load all string parts
         let string_count: u32 = all_strings
             .len()
             .try_into()
@@ -10774,8 +10827,6 @@ impl Compiler {
         for s in &all_strings {
             self.emit_load_const(ConstantData::Str { value: s.clone() });
         }
-
-        // 3. Build strings tuple
         emit!(
             self,
             Instruction::BuildTuple {
@@ -10783,79 +10834,95 @@ impl Compiler {
             }
         );
 
-        // 4. Swap so strings is below interpolations: [interps, strings] -> [strings, interps]
-        emit!(self, Instruction::Swap { i: 2 });
+        for tstring in tstring_value.iter() {
+            self.compile_tstring_interpolations(tstring)?;
+        }
 
-        // 5. Build the Template
+        emit!(
+            self,
+            Instruction::BuildTuple {
+                count: interp_count
+            }
+        );
         emit!(self, Instruction::BuildTemplate);
 
         Ok(())
     }
 
-    fn compile_tstring_into(
-        &mut self,
+    fn collect_tstring_strings(
+        &self,
         tstring: &ast::TString,
         strings: &mut Vec<Wtf8Buf>,
         current_string: &mut Wtf8Buf,
         interp_count: &mut u32,
-    ) -> CompileResult<()> {
+    ) {
         for element in &tstring.elements {
             match element {
                 ast::InterpolatedStringElement::Literal(lit) => {
-                    // Accumulate literal parts into current_string
-                    current_string.push_str(&lit.value);
+                    current_string
+                        .push_wtf8(&self.compile_tstring_literal_value(lit, tstring.flags));
                 }
                 ast::InterpolatedStringElement::Interpolation(interp) => {
-                    // Finish current string segment
-                    strings.push(core::mem::take(current_string));
-
-                    // Compile the interpolation value
-                    self.compile_expression(&interp.expression)?;
-
-                    // Load the expression source string, including any
-                    // whitespace between '{' and the expression start
-                    let expr_range = interp.expression.range();
-                    let expr_source = if interp.range.start() < expr_range.start()
-                        && interp.range.end() >= expr_range.end()
-                    {
-                        let after_brace = interp.range.start() + TextSize::new(1);
-                        self.source_file
-                            .slice(TextRange::new(after_brace, expr_range.end()))
-                    } else {
-                        // Fallback for programmatically constructed ASTs with dummy ranges
-                        self.source_file.slice(expr_range)
-                    };
-                    self.emit_load_const(ConstantData::Str {
-                        value: expr_source.to_string().into(),
-                    });
-
-                    // Determine conversion code
-                    let conversion: u32 = match interp.conversion {
-                        ast::ConversionFlag::None => 0,
-                        ast::ConversionFlag::Str => 1,
-                        ast::ConversionFlag::Repr => 2,
-                        ast::ConversionFlag::Ascii => 3,
-                    };
-
-                    // Handle format_spec
-                    let has_format_spec = interp.format_spec.is_some();
-                    if let Some(format_spec) = &interp.format_spec {
-                        // Compile format_spec as a string using fstring element compilation
-                        // Use default ast::FStringFlags since format_spec syntax is independent of t-string flags
-                        self.compile_fstring_elements(
-                            ast::FStringFlags::empty(),
-                            &format_spec.elements,
-                        )?;
+                    if let Some(ast::DebugText { leading, trailing }) = &interp.debug_text {
+                        let range = interp.expression.range();
+                        let source = self.source_file.slice(range);
+                        let text = [
+                            strip_fstring_debug_comments(leading).as_str(),
+                            source,
+                            strip_fstring_debug_comments(trailing).as_str(),
+                        ]
+                        .concat();
+                        current_string.push_str(&text);
                     }
-
-                    // Emit BUILD_INTERPOLATION
-                    // oparg encoding: (conversion << 2) | has_format_spec
-                    let format = (conversion << 2) | u32::from(has_format_spec);
-                    emit!(self, Instruction::BuildInterpolation { format });
-
+                    strings.push(core::mem::take(current_string));
                     *interp_count += 1;
                 }
             }
+        }
+    }
+
+    fn compile_tstring_interpolations(&mut self, tstring: &ast::TString) -> CompileResult<()> {
+        for element in &tstring.elements {
+            let ast::InterpolatedStringElement::Interpolation(interp) = element else {
+                continue;
+            };
+
+            self.compile_expression(&interp.expression)?;
+
+            let expr_range = interp.expression.range();
+            let expr_source = if interp.range.start() < expr_range.start()
+                && interp.range.end() >= expr_range.end()
+            {
+                let after_brace = interp.range.start() + TextSize::new(1);
+                self.source_file
+                    .slice(TextRange::new(after_brace, expr_range.end()))
+            } else {
+                self.source_file.slice(expr_range)
+            };
+            self.emit_load_const(ConstantData::Str {
+                value: expr_source.to_string().into(),
+            });
+
+            let mut conversion: u32 = match interp.conversion {
+                ast::ConversionFlag::None => 0,
+                ast::ConversionFlag::Str => 1,
+                ast::ConversionFlag::Repr => 2,
+                ast::ConversionFlag::Ascii => 3,
+            };
+
+            if interp.debug_text.is_some() && conversion == 0 && interp.format_spec.is_none() {
+                conversion = 2;
+            }
+
+            let has_format_spec = interp.format_spec.is_some();
+            if let Some(format_spec) = &interp.format_spec {
+                self.compile_fstring_elements(ast::FStringFlags::empty(), &format_spec.elements)?;
+            }
+
+            // CPython keeps bit 1 set in BUILD_INTERPOLATION's oparg and uses
+            // bit 0 for the optional format spec.
+            let format = 2 | (conversion << 2) | u32::from(has_format_spec);
+            emit!(self, Instruction::BuildInterpolation { format });
         }
 
         Ok(())
@@ -12190,9 +12257,9 @@ def f(node):
             .iter()
             .filter(|op| matches!(op, Instruction::ReturnValue))
             .count();
-        assert!(
-            return_count >= 3,
-            "expected multiple explicit return sites for shared final return case, got ops={ops:?}"
+        assert_eq!(
+            return_count, 5,
+            "expected cloned return sites for each shared return edge, got ops={ops:?}"
         );
     }
 
@@ -12296,6 +12363,145 @@ elif maxsize == 9223372036854775807:
             }),
             "unexpected line-anchor NOP before for-exit epilogue, got ops={ops:?}"
         );
+    }
+
+    #[test]
+    fn test_for_tuple_target_does_not_leave_loop_header_nop() {
+        let code = compile_exec(
+            "\
+def f(pairs):
+    for left, right in pairs:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ForIter { .. },
+                        Instruction::UnpackSequence { .. }
+                    ]
+                )
+            }),
+            "expected FOR_ITER to flow directly into UNPACK_SEQUENCE, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ForIter { .. },
+                        Instruction::Nop,
+                        Instruction::UnpackSequence { .. },
+                    ]
+                )
+            }),
+            "unexpected loop-header NOP before tuple unpack, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_tstring_build_template_matches_cpython_stack_order() {
+        let code = compile_exec("t = t\"{0}\"");
+        let units: Vec<_> = code
+            .instructions
+            .iter()
+            .copied()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            units.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        a,
+                        b,
+                        c,
+                        d,
+                        e,
+                        f,
+                    ]
+                    if matches!(a.op, Instruction::LoadConst { .. })
+                        && matches!(b.op, Instruction::LoadSmallInt { .. })
+                        && matches!(c.op, Instruction::LoadConst { .. })
+                        && matches!(d.op, Instruction::BuildInterpolation { .. })
+                        && u8::from(d.arg) == 2
+                        && matches!(e.op, Instruction::BuildTuple { .. })
+                        && u8::from(e.arg) == 1
+                        && matches!(f.op, Instruction::BuildTemplate)
+                )
+            }),
+            "expected CPython-style t-string lowering, got units={units:?}"
+        );
+        assert!(
+            !units
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::Swap { .. })),
+            "unexpected SWAP in t-string lowering, got units={units:?}"
+        );
+    }
+
+    #[test]
+    fn test_tstring_debug_specifier_uses_debug_literal_and_repr_default() {
+        let code = compile_exec(
+            "\
+value = 42
+t = t\"Value: {value=}\"
+",
+        );
+
+        let string_consts = code
+            .instructions
+            .iter()
+            .filter_map(|unit| match unit.op {
+                Instruction::LoadConst { consti } => {
+                    Some(&code.constants[consti.get(OpArg::new(u32::from(u8::from(unit.arg))))])
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            string_consts.iter().any(|constant| matches!(
+                constant,
+                ConstantData::Tuple { elements }
+                    if matches!(
+                        &elements[..],
+                        [
+                            ConstantData::Str { value: first },
+                            ConstantData::Str { value: second },
+                        ] if first.to_string() == "Value: value=" && second.is_empty()
+                    )
+            )),
+            "expected debug literal prefix in t-string constants, got {string_consts:?}"
+        );
+        assert!(
+            code.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::BuildInterpolation { .. }
+            ) && u8::from(unit.arg) == 10),
+            "expected default repr conversion for debug t-string"
+        );
+    }
+
+    #[test]
+    fn test_tstring_literal_preserves_surrogate_wtf8() {
+        let code = compile_exec("t = t\"\\ud800\"");
+
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Str { value } if value.clone().into_bytes() == [0xED, 0xA0, 0x80]
+        )));
     }
 
     #[test]
@@ -12824,6 +13030,27 @@ class C:
     }
 
     #[test]
+    fn test_future_annotations_class_keeps_conditional_annotations_cell() {
+        let code = compile_exec(
+            "\
+from __future__ import annotations
+class C:
+    x: int
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+
+        assert!(
+            class_code
+                .cellvars
+                .iter()
+                .any(|name| name.as_str() == "__conditional_annotations__"),
+            "expected __conditional_annotations__ cellvar, got cellvars={:?}",
+            class_code.cellvars
+        );
+    }
+
+    #[test]
     fn test_plain_super_call_keeps_class_freevar() {
         let code = compile_exec(
             "\
@@ -13117,6 +13344,200 @@ def f(names, cls):
     }
 
     #[test]
+    fn test_non_none_final_return_is_not_duplicated() {
+        let code = compile_exec(
+            "\
+def f(p, s):
+    if p == '':
+        if s == '':
+            return 0
+    return -1
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let minus_one_loads = f
+            .instructions
+            .iter()
+            .filter(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadConst { consti }
+                        if matches!(
+                            f.constants.get(
+                                consti
+                                    .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                                    .as_usize()
+                            ),
+                            Some(ConstantData::Integer { value }) if value == &BigInt::from(-1)
+                        )
+                )
+            })
+            .count();
+
+        assert_eq!(
+            minus_one_loads,
+            1,
+            "expected a single final return -1 epilogue, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_named_except_conditional_branch_duplicates_cleanup_return() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        raise TypeError('x')
+    except TypeError as e:
+        if '+' not in str(e):
+            self.fail('join() ate exception message')
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let cleanup_return_count = ops
+            .windows(6)
+            .filter(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopExcept,
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreFast { .. } | Instruction::StoreName { .. },
+                        Instruction::DeleteFast { .. } | Instruction::DeleteName { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            })
+            .count();
+
+        assert_eq!(
+            cleanup_return_count, 2,
+            "expected duplicated named-except cleanup return blocks, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_listcomp_cleanup_tail_keeps_split_store_fast_pair() {
+        let code = compile_exec(
+            "\
+def f(escaped_string, quote_types):
+    possible_quotes = [q for q in quote_types if q not in escaped_string]
+    return possible_quotes
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let pop_iter_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopIter))
+            .expect("missing POP_ITER");
+        let tail = &ops[pop_iter_idx + 1..];
+
+        assert!(
+            matches!(
+                tail,
+                [
+                    Instruction::StoreFast { .. },
+                    Instruction::StoreFast { .. },
+                    Instruction::LoadFastBorrow { .. },
+                    Instruction::ReturnValue,
+                    ..
+                ]
+            ),
+            "expected split STORE_FAST pair after listcomp cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_suppress_tail_duplicates_final_return_none() {
+        let code = compile_exec(
+            "\
+def f(cm, cond):
+    if cond:
+        with cm():
+            pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let return_count = ops
+            .iter()
+            .filter(|op| matches!(op, Instruction::ReturnValue))
+            .count();
+
+        assert_eq!(
+            return_count, 3,
+            "expected duplicated return-none epilogues, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::JumpBackwardNoInterrupt { .. })),
+            "with suppress tail should not jump back to shared return block, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_genexpr_compare_header_keeps_split_store_then_borrow_load() {
+        let code = compile_exec(
+            "\
+def f(it):
+    return (offset == (4, 10) for offset in it)
+",
+        );
+        let genexpr = find_code(&code, "<genexpr>").expect("missing <genexpr> code");
+        let ops: Vec<_> = genexpr
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::StoreFastLoadFast { .. })),
+            "expected compare header to keep split STORE_FAST/LOAD_FAST_BORROW, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::CompareOp { .. },
+                    ]
+                )
+            }),
+            "expected split compare header sequence, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_fstring_adjacent_literals_are_merged() {
         let code = compile_exec(
             "\
@@ -13231,6 +13652,74 @@ def f(x):
             }
             _ => false,
         }));
+    }
+
+    #[test]
+    fn test_string_and_bytes_binops_constant_fold_like_cpython() {
+        let code = compile_exec(
+            "\
+x = b'\\\\' + b'u1881'\n\
+y = 103 * 'a' + 'x'\n",
+        );
+
+        assert!(
+            !code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BinaryOp { .. })),
+            "unexpected runtime BINARY_OP in folded string/bytes constants: {:?}",
+            code.instructions
+        );
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Bytes { value } if value == b"\\u1881"
+        )));
+        let expected = format!("{}x", "a".repeat(103));
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Str { value }
+                if value.to_string() == expected
+        )));
+    }
+
+    #[test]
+    fn test_constant_string_subscript_folds_inside_collection() {
+        let code = compile_exec(
+            "\
+values = [item for item in [r\"\\\\'a\\\\'\", r\"\\t3\", r\"\\\\\"[0]]]\n",
+        );
+
+        assert!(
+            !code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BinaryOp { .. })),
+            "unexpected runtime BINARY_OP after constant subscript folding: {:?}",
+            code.instructions
+        );
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Tuple { elements }
+                if elements.len() == 3
+                    && matches!(&elements[2], ConstantData::Str { value } if value.to_string() == "\\")
+        )));
+    }
+
+    #[test]
+    fn test_constant_string_subscript_with_surrogate_skips_lossy_fold() {
+        let code = compile_exec("value = \"\\ud800\"[0]\n");
+
+        assert!(
+            code.instructions.iter().any(|unit| match unit.op {
+                Instruction::BinaryOp { op } => {
+                    op.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        == oparg::BinaryOperator::Subscr
+                }
+                _ => false,
+            }),
+            "expected runtime subscript for surrogate literal, got instructions={:?}",
+            code.instructions
+        );
     }
 
     #[test]
