@@ -401,7 +401,7 @@ impl VirtualMachine {
 
     binary_func!(_sub, Subtract, "-");
     binary_func!(_mod, Remainder, "%");
-    binary_func!(_divmod, Divmod, "divmod");
+    binary_func!(_divmod, Divmod, "divmod()");
     binary_func!(_lshift, Lshift, "<<");
     binary_func!(_rshift, Rshift, ">>");
     binary_func!(_and, And, "&");
