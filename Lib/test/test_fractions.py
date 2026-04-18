@@ -1696,7 +1696,6 @@ class FractionTest(unittest.TestCase):
                                  message % ("divmod()", "complex", "Fraction"),
                                  divmod, b, a)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_three_argument_pow(self):
         message = "unsupported operand type(s) for ** or pow(): '%s', '%s', '%s'"
         self.assertRaisesMessage(TypeError,

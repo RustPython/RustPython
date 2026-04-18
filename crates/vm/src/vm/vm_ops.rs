@@ -372,7 +372,7 @@ impl VirtualMachine {
         } else {
             self.new_type_error(format!(
                 "unsupported operand type(s) for {}: \
-                '{}' and '{}', '{}'",
+                '{}', '{}', '{}'",
                 op_str,
                 a.class(),
                 b.class(),
