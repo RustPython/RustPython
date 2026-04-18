@@ -271,6 +271,8 @@ impl CodeInfo {
         reorder_jump_over_exception_cleanup_blocks(&mut self.blocks);
         self.eliminate_unreachable_blocks();
         remove_redundant_nops_and_jumps(&mut self.blocks);
+        inline_with_suppress_return_blocks(&mut self.blocks);
+        self.eliminate_unreachable_blocks();
         // Late CFG cleanup can create new same-line STORE_FAST/LOAD_FAST and
         // STORE_FAST/STORE_FAST adjacencies in match/capture code paths that
         // did not exist during the earlier flowgraph-like pass.
@@ -301,6 +303,7 @@ impl CodeInfo {
         self.deoptimize_store_fast_store_fast_after_cleanup();
         self.apply_static_swaps();
         self.insert_superinstructions();
+        self.deoptimize_store_fast_store_fast_after_cleanup();
         self.optimize_load_global_push_null();
         self.reorder_entry_prefix_cell_setup();
         self.remove_unused_consts();
@@ -5319,7 +5322,7 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>) {
     while current != BlockIdx::NULL {
         let block = &blocks[current.idx()];
         let next = next_nonempty_block(blocks, block.next);
-        if current != last_block && !block.cold && !block.except_handler {
+        if current != last_block && !block.cold {
             let last_ins = block.instructions.last();
             let has_fallthrough = last_ins
                 .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
@@ -5335,20 +5338,28 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>) {
                     AnyInstruction::Real(Instruction::ReturnValue)
                 )
             };
-            if next == last_block
+            if !block.except_handler
+                && next == last_block
                 && has_fallthrough
                 && trailing_conditional_jump_index(block).is_none()
                 && !already_has_return
             {
                 fallthrough_blocks_to_fix.push(current);
             }
-            if predecessors[last_block.idx()] > 1
-                && let Some(last) = block.instructions.last()
-                && last.instr.is_unconditional_jump()
-                && last.target != BlockIdx::NULL
-                && next_nonempty_block(blocks, last.target) == last_block
-            {
-                jump_targets_to_fix.push((current, block.instructions.len() - 1));
+            let jump_idx = trailing_conditional_jump_index(block).or_else(|| {
+                block.instructions.last().and_then(|last| {
+                    (last.instr.is_unconditional_jump() && last.target != BlockIdx::NULL)
+                        .then_some(block.instructions.len() - 1)
+                })
+            });
+            if let Some(jump_idx) = jump_idx {
+                let jump = &block.instructions[jump_idx];
+                if jump.target != BlockIdx::NULL
+                    && next_nonempty_block(blocks, jump.target) == last_block
+                    && (is_conditional_jump(&jump.instr) || predecessors[last_block.idx()] > 1)
+                {
+                    jump_targets_to_fix.push((current, jump_idx));
+                }
             }
         }
         current = blocks[current.idx()].next;
@@ -5371,7 +5382,7 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>) {
 
     // Clone the final return block for jump predecessors so their target layout
     // matches CPython's duplicated exit blocks.
-    for (block_idx, instr_idx) in jump_targets_to_fix {
+    for (block_idx, instr_idx) in jump_targets_to_fix.into_iter().rev() {
         let jump = blocks[block_idx.idx()].instructions[instr_idx];
         let mut cloned_return = return_insts.clone();
         if let Some(first) = cloned_return.first_mut() {
@@ -5401,6 +5412,64 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>) {
             blocks[block_idx.idx()].next = new_idx;
         }
         blocks[block_idx.idx()].instructions[instr_idx].target = new_idx;
+    }
+}
+
+fn inline_with_suppress_return_blocks(blocks: &mut [Block]) {
+    fn is_return_block(block: &Block) -> bool {
+        block.instructions.len() == 2
+            && matches!(
+                block.instructions[0].instr.real(),
+                Some(Instruction::LoadConst { .. })
+            )
+            && matches!(
+                block.instructions[1].instr.real(),
+                Some(Instruction::ReturnValue)
+            )
+    }
+
+    fn has_with_suppress_prefix(block: &Block, jump_idx: usize) -> bool {
+        let tail: Vec<_> = block.instructions[..jump_idx]
+            .iter()
+            .filter_map(|info| info.instr.real())
+            .rev()
+            .take(5)
+            .collect();
+        matches!(
+            tail.as_slice(),
+            [
+                Instruction::PopTop,
+                Instruction::PopTop,
+                Instruction::PopTop,
+                Instruction::PopExcept,
+                Instruction::PopTop,
+            ]
+        )
+    }
+
+    for block_idx in 0..blocks.len() {
+        let Some(jump_idx) = blocks[block_idx].instructions.len().checked_sub(1) else {
+            continue;
+        };
+        let jump = blocks[block_idx].instructions[jump_idx];
+        if !jump.instr.is_unconditional_jump() || jump.target == BlockIdx::NULL {
+            continue;
+        }
+        if !has_with_suppress_prefix(&blocks[block_idx], jump_idx) {
+            continue;
+        }
+
+        let target = next_nonempty_block(blocks, jump.target);
+        if target == BlockIdx::NULL || !is_return_block(&blocks[target.idx()]) {
+            continue;
+        }
+
+        let mut cloned_return = blocks[target.idx()].instructions.clone();
+        for instr in &mut cloned_return {
+            overwrite_location(instr, jump.location, jump.end_location);
+        }
+        blocks[block_idx].instructions.pop();
+        blocks[block_idx].instructions.extend(cloned_return);
     }
 }
 
