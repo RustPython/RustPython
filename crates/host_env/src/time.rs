@@ -23,6 +23,91 @@ pub fn get_tz_info() -> windows_sys::Win32::System::Time::TIME_ZONE_INFORMATION 
     info
 }
 
+#[cfg(windows)]
+fn u64_from_filetime(time: windows_sys::Win32::Foundation::FILETIME) -> u64 {
+    u64::from(time.dwLowDateTime) | (u64::from(time.dwHighDateTime) << 32)
+}
+
+#[cfg(windows)]
+pub fn query_performance_frequency() -> Option<i64> {
+    let mut freq = core::mem::MaybeUninit::uninit();
+    (unsafe {
+        windows_sys::Win32::System::Performance::QueryPerformanceFrequency(freq.as_mut_ptr())
+    } != 0)
+        .then(|| unsafe { freq.assume_init() })
+}
+
+#[cfg(windows)]
+pub fn query_performance_counter() -> i64 {
+    let mut counter = core::mem::MaybeUninit::uninit();
+    unsafe {
+        windows_sys::Win32::System::Performance::QueryPerformanceCounter(counter.as_mut_ptr());
+        counter.assume_init()
+    }
+}
+
+#[cfg(windows)]
+pub fn get_system_time_adjustment() -> Option<u32> {
+    let mut time_adjustment = core::mem::MaybeUninit::uninit();
+    let mut time_increment = core::mem::MaybeUninit::uninit();
+    let mut is_time_adjustment_disabled = core::mem::MaybeUninit::uninit();
+    (unsafe {
+        windows_sys::Win32::System::SystemInformation::GetSystemTimeAdjustment(
+            time_adjustment.as_mut_ptr(),
+            time_increment.as_mut_ptr(),
+            is_time_adjustment_disabled.as_mut_ptr(),
+        )
+    } != 0)
+        .then(|| unsafe { time_increment.assume_init() })
+}
+
+#[cfg(windows)]
+pub fn tick_count64() -> u64 {
+    unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() }
+}
+
+#[cfg(windows)]
+pub fn get_thread_time_100ns() -> Option<u64> {
+    let mut creation_time = core::mem::MaybeUninit::uninit();
+    let mut exit_time = core::mem::MaybeUninit::uninit();
+    let mut kernel_time = core::mem::MaybeUninit::uninit();
+    let mut user_time = core::mem::MaybeUninit::uninit();
+    (unsafe {
+        windows_sys::Win32::System::Threading::GetThreadTimes(
+            windows_sys::Win32::System::Threading::GetCurrentThread(),
+            creation_time.as_mut_ptr(),
+            exit_time.as_mut_ptr(),
+            kernel_time.as_mut_ptr(),
+            user_time.as_mut_ptr(),
+        )
+    } != 0)
+        .then(|| unsafe {
+            u64_from_filetime(kernel_time.assume_init())
+                + u64_from_filetime(user_time.assume_init())
+        })
+}
+
+#[cfg(windows)]
+pub fn get_process_time_100ns() -> Option<u64> {
+    let mut creation_time = core::mem::MaybeUninit::uninit();
+    let mut exit_time = core::mem::MaybeUninit::uninit();
+    let mut kernel_time = core::mem::MaybeUninit::uninit();
+    let mut user_time = core::mem::MaybeUninit::uninit();
+    (unsafe {
+        windows_sys::Win32::System::Threading::GetProcessTimes(
+            windows_sys::Win32::System::Threading::GetCurrentProcess(),
+            creation_time.as_mut_ptr(),
+            exit_time.as_mut_ptr(),
+            kernel_time.as_mut_ptr(),
+            user_time.as_mut_ptr(),
+        )
+    } != 0)
+        .then(|| unsafe {
+            u64_from_filetime(kernel_time.assume_init())
+                + u64_from_filetime(user_time.assume_init())
+        })
+}
+
 #[cfg(any(unix, windows))]
 #[must_use]
 pub fn asctime_from_tm(tm: &libc::tm) -> String {

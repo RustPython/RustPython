@@ -35,7 +35,6 @@ pub mod module {
     ))]
     use crate::{builtins::PyUtf8StrRef, utils::ToCString};
     use alloc::ffi::CString;
-    use bitflags::bitflags;
     use core::ffi::CStr;
     use nix::{
         errno::Errno,
@@ -374,88 +373,10 @@ pub mod module {
         }
     }
 
-    // Flags for os_access
-    bitflags! {
-        #[derive(Copy, Clone, Debug, PartialEq)]
-        pub struct AccessFlags: u8 {
-            const F_OK = _os::F_OK;
-            const R_OK = _os::R_OK;
-            const W_OK = _os::W_OK;
-            const X_OK = _os::X_OK;
-        }
-    }
-
-    struct Permissions {
-        is_readable: bool,
-        is_writable: bool,
-        is_executable: bool,
-    }
-
-    const fn get_permissions(mode: u32) -> Permissions {
-        Permissions {
-            is_readable: mode & 4 != 0,
-            is_writable: mode & 2 != 0,
-            is_executable: mode & 1 != 0,
-        }
-    }
-
-    fn get_right_permission(
-        mode: u32,
-        file_owner: Uid,
-        file_group: Gid,
-    ) -> nix::Result<Permissions> {
-        let owner_mode = (mode & 0o700) >> 6;
-        let owner_permissions = get_permissions(owner_mode);
-
-        let group_mode = (mode & 0o070) >> 3;
-        let group_permissions = get_permissions(group_mode);
-
-        let others_mode = mode & 0o007;
-        let others_permissions = get_permissions(others_mode);
-
-        let user_id = nix::unistd::getuid();
-        let groups_ids = getgroups_impl()?;
-
-        if file_owner == user_id {
-            Ok(owner_permissions)
-        } else if groups_ids.contains(&file_group) {
-            Ok(group_permissions)
-        } else {
-            Ok(others_permissions)
-        }
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    fn getgroups_impl() -> nix::Result<Vec<Gid>> {
-        use core::ptr;
-        use libc::{c_int, gid_t};
-
-        let ret = unsafe { libc::getgroups(0, ptr::null_mut()) };
-        let mut groups = Vec::<Gid>::with_capacity(Errno::result(ret)? as usize);
-        let ret = unsafe {
-            libc::getgroups(
-                groups.capacity() as c_int,
-                groups.as_mut_ptr() as *mut gid_t,
-            )
-        };
-
-        Errno::result(ret).map(|s| {
-            unsafe { groups.set_len(s as usize) };
-            groups
-        })
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "redox")))]
-    use nix::unistd::getgroups as getgroups_impl;
-
-    #[cfg(target_os = "redox")]
-    fn getgroups_impl() -> nix::Result<Vec<Gid>> {
-        Err(nix::Error::EOPNOTSUPP)
-    }
-
     #[pyfunction]
     fn getgroups(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let group_ids = getgroups_impl().map_err(|e| e.into_pyexception(vm))?;
+        let group_ids =
+            rustpython_host_env::posix::getgroups().map_err(|e| e.into_pyexception(vm))?;
         Ok(group_ids
             .into_iter()
             .map(|gid| vm.ctx.new_int(gid.as_raw()).into())
@@ -464,37 +385,13 @@ pub mod module {
 
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        use std::os::unix::fs::MetadataExt;
-
-        let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
-            vm.new_value_error(
-            "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK",
-        )
-        })?;
-
-        let metadata = match crate::host_env::fs::metadata(&path.path) {
-            Ok(m) => m,
-            // If the file doesn't exist, return False for any access check
-            Err(_) => return Ok(false),
-        };
-
-        // if it's only checking for F_OK
-        if flags == AccessFlags::F_OK {
-            return Ok(true); // File exists
+        match rustpython_host_env::posix::check_access(path.as_ref(), mode) {
+            Ok(ok) => Ok(ok),
+            Err(rustpython_host_env::posix::AccessError::InvalidMode) => Err(vm.new_value_error(
+                "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK",
+            )),
+            Err(rustpython_host_env::posix::AccessError::Os(err)) => Err(err.into_pyexception(vm)),
         }
-
-        let user_id = metadata.uid();
-        let group_id = metadata.gid();
-        let mode = metadata.mode();
-
-        let perm = get_right_permission(mode, Uid::from_raw(user_id), Gid::from_raw(group_id))
-            .map_err(|err| err.into_pyexception(vm))?;
-
-        let r_ok = !flags.contains(AccessFlags::R_OK) || perm.is_readable;
-        let w_ok = !flags.contains(AccessFlags::W_OK) || perm.is_writable;
-        let x_ok = !flags.contains(AccessFlags::X_OK) || perm.is_executable;
-
-        Ok(r_ok && w_ok && x_ok)
     }
 
     #[pyattr]

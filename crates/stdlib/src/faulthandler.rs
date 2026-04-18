@@ -13,6 +13,8 @@ mod decl {
     use core::time::Duration;
     use parking_lot::{Condvar, Mutex};
     #[cfg(any(unix, windows))]
+    use rustpython_host_env::faulthandler as host_faulthandler;
+    #[cfg(any(unix, windows))]
     use rustpython_host_env::os::{get_errno, set_errno};
     use std::thread;
 
@@ -124,7 +126,7 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     fn puts_bytes(fd: i32, s: &[u8]) {
-        let _ = unsafe { libc::write(fd, s.as_ptr().cast::<libc::c_void>(), s.len() as _) };
+        host_faulthandler::write_fd(fd, s);
     }
 
     // _Py_DumpHexadecimal (traceback.c)
@@ -165,14 +167,9 @@ mod decl {
     }
 
     /// Get current thread ID
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn current_thread_id() -> u64 {
-        unsafe { libc::pthread_self() as u64 }
-    }
-
-    #[cfg(windows)]
-    fn current_thread_id() -> u64 {
-        unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() as u64 }
+        host_faulthandler::current_thread_id()
     }
 
     // write_thread_id (traceback.c:1240-1256)
@@ -441,9 +438,7 @@ mod decl {
             return;
         }
         handler.enabled = false;
-        unsafe {
-            libc::sigaction(handler.signum, &handler.previous, core::ptr::null_mut());
-        }
+        host_faulthandler::restore_sigaction(handler.signum, &handler.previous);
     }
 
     #[cfg(windows)]
@@ -452,9 +447,7 @@ mod decl {
             return;
         }
         handler.enabled = false;
-        unsafe {
-            libc::signal(handler.signum, handler.previous);
-        }
+        host_faulthandler::restore_signal_handler(handler.signum, handler.previous);
     }
 
     // faulthandler_fatal_error
@@ -498,15 +491,10 @@ mod decl {
         // We cannot just restore the previous handler because Rust's runtime
         // may have installed its own SIGSEGV handler (for stack overflow detection)
         // that doesn't terminate the process on software-raised signals.
-        unsafe {
-            libc::signal(signum, libc::SIG_DFL);
-            libc::raise(signum);
-        }
+        host_faulthandler::signal_default_and_raise(signum);
 
         // Fallback if raise() somehow didn't terminate the process
-        unsafe {
-            libc::_exit(1);
-        }
+        host_faulthandler::exit_immediately(1);
     }
 
     // faulthandler_fatal_error for Windows
@@ -544,10 +532,7 @@ mod decl {
 
         set_errno(save_errno);
 
-        unsafe {
-            libc::signal(signum, libc::SIG_DFL);
-            libc::raise(signum);
-        }
+        host_faulthandler::signal_default_and_raise(signum);
 
         // Fallback
         rustpython_host_env::os::exit(1);
@@ -559,15 +544,7 @@ mod decl {
 
     #[cfg(windows)]
     fn faulthandler_ignore_exception(code: u32) -> bool {
-        // bpo-30557: ignore exceptions which are not errors
-        if (code & 0x80000000) == 0 {
-            return true;
-        }
-        // bpo-31701: ignore MSC and COM exceptions
-        if code == 0xE06D7363 || code == 0xE0434352 {
-            return true;
-        }
-        false
+        host_faulthandler::ignore_exception(code)
     }
 
     #[cfg(windows)]
@@ -580,8 +557,7 @@ mod decl {
             return EXCEPTION_CONTINUE_SEARCH;
         }
 
-        let record = unsafe { &*(*exc_info).ExceptionRecord };
-        let code = record.ExceptionCode as u32;
+        let code = unsafe { host_faulthandler::exception_code(exc_info) };
 
         if faulthandler_ignore_exception(code) {
             return EXCEPTION_CONTINUE_SEARCH;
@@ -590,24 +566,16 @@ mod decl {
         let fd = FATAL_ERROR.fd.load(Ordering::Relaxed);
 
         puts(fd, "Windows fatal exception: ");
-        match code {
-            0xC0000005 => puts(fd, "access violation"),
-            0xC000008C => puts(fd, "float divide by zero"),
-            0xC0000091 => puts(fd, "float overflow"),
-            0xC0000094 => puts(fd, "int divide by zero"),
-            0xC0000095 => puts(fd, "integer overflow"),
-            0xC0000006 => puts(fd, "page error"),
-            0xC00000FD => puts(fd, "stack overflow"),
-            0xC000001D => puts(fd, "illegal instruction"),
-            _ => {
-                puts(fd, "code ");
-                dump_hexadecimal(fd, code as u64, 8);
-            }
+        if let Some(description) = host_faulthandler::exception_description(code) {
+            puts(fd, description);
+        } else {
+            puts(fd, "code ");
+            dump_hexadecimal(fd, code as u64, 8);
         }
         puts(fd, "\n\n");
 
         // Disable SIGSEGV handler for access violations to avoid double output
-        if code == 0xC0000005 {
+        if host_faulthandler::is_access_violation(code) {
             unsafe {
                 for handler in FAULTHANDLER_HANDLERS.iter_mut() {
                     if handler.signum == libc::SIGSEGV {
@@ -637,12 +605,12 @@ mod decl {
                     continue;
                 }
 
-                let mut action: libc::sigaction = core::mem::zeroed();
-                action.sa_sigaction = faulthandler_fatal_error as *const () as libc::sighandler_t;
-                // SA_NODEFER flag
-                action.sa_flags = libc::SA_NODEFER;
-
-                if libc::sigaction(handler.signum, &action, &mut handler.previous) != 0 {
+                if !host_faulthandler::install_sigaction(
+                    handler.signum,
+                    faulthandler_fatal_error,
+                    libc::SA_NODEFER,
+                    &mut handler.previous,
+                ) {
                     return false;
                 }
 
@@ -666,15 +634,13 @@ mod decl {
                     continue;
                 }
 
-                handler.previous = libc::signal(
+                let Ok(previous) = host_faulthandler::install_signal_handler(
                     handler.signum,
-                    faulthandler_fatal_error as *const () as libc::sighandler_t,
-                );
-
-                // SIG_ERR is -1 as sighandler_t (which is usize on Windows)
-                if handler.previous == libc::SIG_ERR as libc::sighandler_t {
+                    faulthandler_fatal_error,
+                ) else {
                     return false;
-                }
+                };
+                handler.previous = previous;
 
                 handler.enabled = true;
             }
@@ -683,8 +649,8 @@ mod decl {
         // Register Windows vectored exception handler
         #[cfg(windows)]
         {
-            use windows_sys::Win32::System::Diagnostics::Debug::AddVectoredExceptionHandler;
-            let h = unsafe { AddVectoredExceptionHandler(1, Some(faulthandler_exc_handler)) };
+            let h =
+                host_faulthandler::add_vectored_exception_handler(Some(faulthandler_exc_handler));
             EXC_HANDLER.store(h as usize, Ordering::Relaxed);
         }
 
@@ -708,13 +674,8 @@ mod decl {
         // Remove Windows vectored exception handler
         #[cfg(windows)]
         {
-            use windows_sys::Win32::System::Diagnostics::Debug::RemoveVectoredExceptionHandler;
             let h = EXC_HANDLER.swap(0, Ordering::Relaxed);
-            if h != 0 {
-                unsafe {
-                    RemoveVectoredExceptionHandler(h as *mut core::ffi::c_void);
-                }
-            }
+            host_faulthandler::remove_vectored_exception_handler(h);
         }
     }
 
@@ -1026,21 +987,18 @@ mod decl {
 
         if user.chain {
             // Restore the previous handler and re-raise
-            unsafe {
-                libc::sigaction(signum, &user.previous, core::ptr::null_mut());
-            }
+            host_faulthandler::restore_sigaction(signum, &user.previous);
             set_errno(save_errno);
-            unsafe {
-                libc::raise(signum);
-            }
+            host_faulthandler::raise_signal(signum);
             // Re-install our handler with the same flags as register()
             let save_errno2 = get_errno();
-            unsafe {
-                let mut action: libc::sigaction = core::mem::zeroed();
-                action.sa_sigaction = faulthandler_user_signal as *const () as libc::sighandler_t;
-                action.sa_flags = libc::SA_NODEFER;
-                libc::sigaction(signum, &action, core::ptr::null_mut());
-            }
+            let mut ignored_previous: libc::sigaction = unsafe { core::mem::zeroed() };
+            let _ = host_faulthandler::install_sigaction(
+                signum,
+                faulthandler_user_signal,
+                libc::SA_NODEFER,
+                &mut ignored_previous,
+            );
             set_errno(save_errno2);
         }
     }
@@ -1089,26 +1047,23 @@ mod decl {
 
         // Get current handler to save as previous
         let previous = if !user_signals::is_enabled(signum) {
-            unsafe {
-                let mut action: libc::sigaction = core::mem::zeroed();
-                action.sa_sigaction = faulthandler_user_signal as *const () as libc::sighandler_t;
-                // SA_RESTART by default; SA_NODEFER only when chaining
-                // (faulthandler.c:860-864)
-                action.sa_flags = if args.chain {
+            let mut prev: libc::sigaction = unsafe { core::mem::zeroed() };
+            if !host_faulthandler::install_sigaction(
+                args.signum,
+                faulthandler_user_signal,
+                if args.chain {
                     libc::SA_NODEFER
                 } else {
                     libc::SA_RESTART
-                };
-
-                let mut prev: libc::sigaction = core::mem::zeroed();
-                if libc::sigaction(args.signum, &action, &mut prev) != 0 {
-                    return Err(vm.new_os_error(format!(
-                        "Failed to register signal handler for signal {}",
-                        args.signum
-                    )));
-                }
-                prev
+                },
+                &mut prev,
+            ) {
+                return Err(vm.new_os_error(format!(
+                    "Failed to register signal handler for signal {}",
+                    args.signum
+                )));
             }
+            prev
         } else {
             // Already registered, keep previous handler
             user_signals::get_user_signal(signum)
@@ -1137,9 +1092,7 @@ mod decl {
 
         if let Some(old) = user_signals::clear_user_signal(signum as usize) {
             // Restore previous handler
-            unsafe {
-                libc::sigaction(signum, &old.previous, core::ptr::null_mut());
-            }
+            host_faulthandler::restore_sigaction(signum, &old.previous);
             Ok(true)
         } else {
             Ok(false)
@@ -1190,10 +1143,7 @@ mod decl {
         #[cfg(not(target_arch = "wasm32"))]
         {
             suppress_crash_report();
-
-            unsafe {
-                libc::abort();
-            }
+            host_faulthandler::abort_process();
         }
     }
 
@@ -1202,10 +1152,7 @@ mod decl {
         #[cfg(not(target_arch = "wasm32"))]
         {
             suppress_crash_report();
-
-            unsafe {
-                libc::raise(libc::SIGFPE);
-            }
+            host_faulthandler::raise_signal(libc::SIGFPE);
         }
     }
 
@@ -1228,28 +1175,14 @@ mod decl {
     fn suppress_crash_report() {
         #[cfg(windows)]
         {
-            use windows_sys::Win32::System::Diagnostics::Debug::{
-                SEM_NOGPFAULTERRORBOX, SetErrorMode,
-            };
-            unsafe {
-                let mode = SetErrorMode(SEM_NOGPFAULTERRORBOX);
-                SetErrorMode(mode | SEM_NOGPFAULTERRORBOX);
-            }
+            host_faulthandler::suppress_crash_report();
         }
 
         #[cfg(unix)]
         {
-            // Disable core dumps
             #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
             {
-                use libc::{RLIMIT_CORE, rlimit, setrlimit};
-                let rl = rlimit {
-                    rlim_cur: 0,
-                    rlim_max: 0,
-                };
-                unsafe {
-                    let _ = setrlimit(RLIMIT_CORE, &rl);
-                }
+                rustpython_host_env::resource::disable_core_dumps();
             }
         }
     }
@@ -1287,11 +1220,7 @@ mod decl {
     #[cfg(windows)]
     #[pyfunction]
     fn _raise_exception(args: RaiseExceptionArgs, _vm: &VirtualMachine) {
-        use windows_sys::Win32::System::Diagnostics::Debug::RaiseException;
-
         suppress_crash_report();
-        unsafe {
-            RaiseException(args.code, args.flags, 0, core::ptr::null());
-        }
+        host_faulthandler::raise_exception(args.code, args.flags);
     }
 }

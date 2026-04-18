@@ -13,6 +13,8 @@ pub mod crt_fd;
 pub mod fileutils;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod fs;
+#[cfg(any(unix, windows))]
+pub mod locale;
 
 #[cfg(windows)]
 pub mod windows;
@@ -28,15 +30,33 @@ pub mod termios;
 
 #[cfg(unix)]
 pub mod posix;
+#[cfg(unix)]
+pub mod pwd;
+#[cfg(unix)]
+pub mod resource;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
 pub mod shm;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub mod signal;
 pub mod time;
 
+#[cfg(any(unix, windows))]
+pub mod faulthandler;
+#[cfg(windows)]
+pub mod mmap;
 #[cfg(windows)]
 pub mod msvcrt;
+#[cfg(any(unix, windows))]
+pub mod multiprocessing;
 #[cfg(windows)]
 pub mod nt;
 #[cfg(windows)]
+pub mod overlapped;
+#[cfg(windows)]
+pub mod testconsole;
+#[cfg(windows)]
 pub mod winapi;
+#[cfg(windows)]
+pub mod winreg;
+#[cfg(windows)]
+pub mod wmi;

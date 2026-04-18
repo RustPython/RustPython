@@ -6012,16 +6012,8 @@ mod winconsoleio {
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use windows_sys::Win32::{
-        Foundation::{self, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE},
-        Globalization::{CP_UTF8, MultiByteToWideChar, WideCharToMultiByte},
-        Storage::FileSystem::{
-            CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFullPathNameW, OPEN_EXISTING,
-        },
-        System::Console::{
-            GetConsoleMode, GetNumberOfConsoleInputEvents, ReadConsoleW, WriteConsoleW,
-        },
-    };
+    use rustpython_host_env::nt as host_nt;
+    use windows_sys::Win32::Foundation::{self, INVALID_HANDLE_VALUE};
 
     type HANDLE = Foundation::HANDLE;
 
@@ -6036,33 +6028,12 @@ mod winconsoleio {
         handle == INVALID_HANDLE_VALUE || handle.is_null()
     }
 
-    /// Check if a HANDLE is a console and what type ('r', 'w', or '\0').
-    fn get_console_type(handle: HANDLE) -> char {
-        if is_invalid_handle(handle) {
-            return '\0';
-        }
-        let mut mode: u32 = 0;
-        if unsafe { GetConsoleMode(handle, &mut mode) } == 0 {
-            return '\0';
-        }
-        let mut peek_count: u32 = 0;
-        if unsafe { GetNumberOfConsoleInputEvents(handle, &mut peek_count) } != 0 {
-            'r'
-        } else {
-            'w'
-        }
-    }
-
     /// Check if a Python object (fd or path string) refers to a console.
     /// Returns 'r' (input), 'w' (output), 'x' (generic CON), or '\0' (not a console).
     pub(super) fn pyio_get_console_type(path_or_fd: &PyObject, vm: &VirtualMachine) -> char {
         // Try as integer fd first
         if let Ok(fd) = i32::try_from_object(vm, path_or_fd.to_owned()) {
-            if fd >= 0 {
-                let handle = handle_from_fd(fd);
-                return get_console_type(handle);
-            }
-            return '\0';
+            return host_nt::console_type_from_fd(fd);
         }
 
         // Try as string path
@@ -6073,80 +6044,7 @@ mod winconsoleio {
             // Surrogate strings can't be console device names
             return '\0';
         };
-
-        if name_str.eq_ignore_ascii_case("CONIN$") {
-            return 'r';
-        }
-        if name_str.eq_ignore_ascii_case("CONOUT$") {
-            return 'w';
-        }
-        if name_str.eq_ignore_ascii_case("CON") {
-            return 'x';
-        }
-
-        // Resolve full path and check for console device names
-        let wide: Vec<u16> = name_str.encode_utf16().chain(core::iter::once(0)).collect();
-        let mut buf = [0u16; 260]; // MAX_PATH
-        let length = unsafe {
-            GetFullPathNameW(
-                wide.as_ptr(),
-                buf.len() as u32,
-                buf.as_mut_ptr(),
-                core::ptr::null_mut(),
-            )
-        };
-        if length == 0 || length as usize > buf.len() {
-            return '\0';
-        }
-        let full_path = &buf[..length as usize];
-        // Skip \\?\ or \\.\ prefix
-        let path_part = if full_path.len() >= 4
-            && full_path[0] == b'\\' as u16
-            && full_path[1] == b'\\' as u16
-            && (full_path[2] == b'.' as u16 || full_path[2] == b'?' as u16)
-            && full_path[3] == b'\\' as u16
-        {
-            &full_path[4..]
-        } else {
-            full_path
-        };
-
-        let path_str = String::from_utf16_lossy(path_part);
-        if path_str.eq_ignore_ascii_case("CONIN$") {
-            'r'
-        } else if path_str.eq_ignore_ascii_case("CONOUT$") {
-            'w'
-        } else if path_str.eq_ignore_ascii_case("CON") {
-            'x'
-        } else {
-            '\0'
-        }
-    }
-
-    /// Find the last valid UTF-8 boundary in a byte slice.
-    fn find_last_utf8_boundary(buf: &[u8], len: usize) -> usize {
-        let len = len.min(buf.len());
-        for count in 1..=4.min(len) {
-            let c = buf[len - count];
-            if c < 0x80 {
-                return len;
-            }
-            if c >= 0xc0 {
-                let expected = if c < 0xe0 {
-                    2
-                } else if c < 0xf0 {
-                    3
-                } else {
-                    4
-                };
-                if count < expected {
-                    // Incomplete multibyte sequence
-                    return len - count;
-                }
-                return len;
-            }
-        }
-        len
+        host_nt::console_type_from_name(name_str)
     }
 
     #[pyattr]
@@ -6296,55 +6194,8 @@ mod winconsoleio {
                     .chain(core::iter::once(0))
                     .collect();
 
-                let access = if writable {
-                    GENERIC_WRITE
-                } else {
-                    GENERIC_READ
-                };
-
-                // Try read/write first, fall back to specific access
-                let mut handle: HANDLE = unsafe {
-                    CreateFileW(
-                        wide.as_ptr(),
-                        GENERIC_READ | GENERIC_WRITE,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE,
-                        core::ptr::null(),
-                        OPEN_EXISTING,
-                        0,
-                        core::ptr::null_mut(),
-                    )
-                };
-                if is_invalid_handle(handle) {
-                    handle = unsafe {
-                        CreateFileW(
-                            wide.as_ptr(),
-                            access,
-                            FILE_SHARE_READ | FILE_SHARE_WRITE,
-                            core::ptr::null(),
-                            OPEN_EXISTING,
-                            0,
-                            core::ptr::null_mut(),
-                        )
-                    };
-                }
-
-                if is_invalid_handle(handle) {
-                    return Err(std::io::Error::last_os_error().to_pyexception(vm));
-                }
-
-                let osf_flags = if writable {
-                    libc::O_WRONLY | libc::O_BINARY | 0x80 /* O_NOINHERIT */
-                } else {
-                    libc::O_RDONLY | libc::O_BINARY | 0x80 /* O_NOINHERIT */
-                };
-
-                fd = unsafe { libc::open_osfhandle(handle as isize, osf_flags) };
-                if fd < 0 {
-                    unsafe {
-                        Foundation::CloseHandle(handle);
-                    }
-                    return Err(std::io::Error::last_os_error().to_pyexception(vm));
-                }
+                fd = host_nt::open_console_path_fd(wide.as_ptr(), writable)
+                    .map_err(|err| err.to_pyexception(vm))?;
 
                 _name_wide = Some(wide);
             } else {
@@ -6357,7 +6208,7 @@ mod winconsoleio {
             // Validate console type
             if console_type == '\0' {
                 let handle = handle_from_fd(fd);
-                console_type = get_console_type(handle);
+                console_type = host_nt::console_type(handle);
             }
 
             if console_type == '\0' {
@@ -6570,116 +6421,18 @@ mod winconsoleio {
                 return Err(std::io::Error::last_os_error().to_pyexception(vm));
             }
 
-            // Each character may take up to 4 bytes in UTF-8.
-            let mut wlen = (len / 4) as u32;
-            if wlen == 0 {
-                wlen = 1;
-            }
-
             let dest = &mut *buf_ref;
-
-            // Copy from internal buffer first
-            let mut read_len = {
-                let mut buf = self.buf.lock();
-                Self::copy_from_buf(&mut buf, dest)
-            };
-            if read_len > 0 {
-                wlen = wlen.saturating_sub(1);
+            let mut smallbuf = self.buf.lock();
+            match host_nt::read_console_into(handle, dest, &mut smallbuf) {
+                Ok(read_len) => Ok(read_len),
+                Err(host_nt::ReadConsoleError::BufferTooSmall {
+                    available,
+                    required,
+                }) => Err(vm.new_system_error(format!(
+                    "Buffer had room for {available} bytes but {required} bytes required",
+                ))),
+                Err(host_nt::ReadConsoleError::Io(err)) => Err(err.into_pyexception(vm)),
             }
-            if read_len >= len || wlen == 0 {
-                return Ok(read_len);
-            }
-
-            // Read from console
-            let mut wbuf = vec![0u16; wlen as usize];
-            let mut nread: u32 = 0;
-            let res = unsafe {
-                ReadConsoleW(
-                    handle,
-                    wbuf.as_mut_ptr() as _,
-                    wlen,
-                    &mut nread,
-                    core::ptr::null(),
-                )
-            };
-            if res == 0 {
-                return Err(std::io::Error::last_os_error().into_pyexception(vm));
-            }
-            if nread == 0 {
-                return Ok(read_len);
-            }
-
-            // Check for Ctrl+Z (EOF)
-            if nread > 0 && wbuf[0] == 0x1A {
-                return Ok(read_len);
-            }
-
-            // Convert wchar to UTF-8
-            let remaining = len - read_len;
-            let u8n;
-            if remaining < 4 {
-                // Buffer the result in the internal small buffer
-                let mut buf = self.buf.lock();
-                let converted = unsafe {
-                    WideCharToMultiByte(
-                        CP_UTF8,
-                        0,
-                        wbuf.as_ptr(),
-                        nread as i32,
-                        buf.as_mut_ptr() as _,
-                        SMALLBUF as i32,
-                        core::ptr::null(),
-                        core::ptr::null_mut(),
-                    )
-                };
-                if converted > 0 {
-                    u8n = Self::copy_from_buf(&mut buf, &mut dest[read_len..]) as i32;
-                } else {
-                    u8n = 0;
-                }
-            } else {
-                u8n = unsafe {
-                    WideCharToMultiByte(
-                        CP_UTF8,
-                        0,
-                        wbuf.as_ptr(),
-                        nread as i32,
-                        dest[read_len..].as_mut_ptr() as _,
-                        remaining as i32,
-                        core::ptr::null(),
-                        core::ptr::null_mut(),
-                    )
-                };
-            }
-
-            if u8n > 0 {
-                read_len += u8n as usize;
-            } else {
-                let err = std::io::Error::last_os_error();
-                if err.raw_os_error() == Some(122) {
-                    // ERROR_INSUFFICIENT_BUFFER
-                    let needed = unsafe {
-                        WideCharToMultiByte(
-                            CP_UTF8,
-                            0,
-                            wbuf.as_ptr(),
-                            nread as i32,
-                            core::ptr::null_mut(),
-                            0,
-                            core::ptr::null(),
-                            core::ptr::null_mut(),
-                        )
-                    };
-                    if needed > 0 {
-                        return Err(vm.new_system_error(format!(
-                            "Buffer had room for {remaining} bytes but {needed} bytes required",
-                        )));
-                    }
-                }
-                return Err(err.into_pyexception(vm));
-            }
-
-            Ok(read_len)
         }
 
         #[pymethod]
@@ -6693,77 +6446,9 @@ mod winconsoleio {
                 return Err(std::io::Error::last_os_error().to_pyexception(vm));
             }
 
-            let mut result = Vec::new();
-
-            // Copy any buffered bytes first
-            {
-                let mut buf = self.buf.lock();
-                let mut tmp = [0u8; SMALLBUF];
-                let n = Self::copy_from_buf(&mut buf, &mut tmp);
-                result.extend_from_slice(&tmp[..n]);
-            }
-
-            let mut wbuf = vec![0u16; 8192];
-            loop {
-                let mut nread: u32 = 0;
-                let res = unsafe {
-                    ReadConsoleW(
-                        handle,
-                        wbuf.as_mut_ptr() as _,
-                        wbuf.len() as u32,
-                        &mut nread,
-                        core::ptr::null(),
-                    )
-                };
-                if res == 0 {
-                    return Err(std::io::Error::last_os_error().into_pyexception(vm));
-                }
-                if nread == 0 {
-                    break;
-                }
-                // Ctrl+Z at start -> EOF
-                if wbuf[0] == 0x1A {
-                    break;
-                }
-                // Convert to UTF-8
-                let needed = unsafe {
-                    WideCharToMultiByte(
-                        CP_UTF8,
-                        0,
-                        wbuf.as_ptr(),
-                        nread as i32,
-                        core::ptr::null_mut(),
-                        0,
-                        core::ptr::null(),
-                        core::ptr::null_mut(),
-                    )
-                };
-                if needed == 0 {
-                    return Err(std::io::Error::last_os_error().into_pyexception(vm));
-                }
-                let offset = result.len();
-                result.resize(offset + needed as usize, 0);
-                let written = unsafe {
-                    WideCharToMultiByte(
-                        CP_UTF8,
-                        0,
-                        wbuf.as_ptr(),
-                        nread as i32,
-                        result[offset..].as_mut_ptr() as _,
-                        needed,
-                        core::ptr::null(),
-                        core::ptr::null_mut(),
-                    )
-                };
-                if written == 0 {
-                    return Err(std::io::Error::last_os_error().into_pyexception(vm));
-                }
-                // If we didn't fill the buffer, no more data
-                if nread < wbuf.len() as u32 {
-                    break;
-                }
-            }
-
+            let mut smallbuf = self.buf.lock();
+            let result = host_nt::read_console_all(handle, &mut smallbuf)
+                .map_err(|err| err.into_pyexception(vm))?;
             Ok(vm.ctx.new_bytes(result).into())
         }
 
@@ -6791,105 +6476,30 @@ mod winconsoleio {
                 return Err(std::io::Error::last_os_error().to_pyexception(vm));
             }
 
-            let len = size as usize;
-
-            let mut wlen = (len / 4) as u32;
-            if wlen == 0 {
-                wlen = 1;
-            }
-
             let mut read_len = {
                 let mut ibuf = self.buf.lock();
                 Self::copy_from_buf(&mut ibuf, &mut buf)
             };
-            if read_len > 0 {
-                wlen = wlen.saturating_sub(1);
-            }
-            if read_len >= len || wlen == 0 {
+            if read_len >= size as usize {
                 buf.truncate(read_len);
                 return Ok(vm.ctx.new_bytes(buf).into());
             }
-
-            let mut wbuf = vec![0u16; wlen as usize];
-            let mut nread: u32 = 0;
-            let res = unsafe {
-                ReadConsoleW(
-                    handle,
-                    wbuf.as_mut_ptr() as _,
-                    wlen,
-                    &mut nread,
-                    core::ptr::null(),
-                )
-            };
-            if res == 0 {
-                return Err(std::io::Error::last_os_error().into_pyexception(vm));
-            }
-            if nread == 0 || wbuf[0] == 0x1A {
-                buf.truncate(read_len);
-                return Ok(vm.ctx.new_bytes(buf).into());
-            }
-
-            let remaining = len - read_len;
-            let u8n;
-            if remaining < 4 {
+            {
                 let mut ibuf = self.buf.lock();
-                let converted = unsafe {
-                    WideCharToMultiByte(
-                        CP_UTF8,
-                        0,
-                        wbuf.as_ptr(),
-                        nread as i32,
-                        ibuf.as_mut_ptr() as _,
-                        SMALLBUF as i32,
-                        core::ptr::null(),
-                        core::ptr::null_mut(),
-                    )
-                };
-                if converted > 0 {
-                    u8n = Self::copy_from_buf(&mut ibuf, &mut buf[read_len..]) as i32;
-                } else {
-                    u8n = 0;
-                }
-            } else {
-                u8n = unsafe {
-                    WideCharToMultiByte(
-                        CP_UTF8,
-                        0,
-                        wbuf.as_ptr(),
-                        nread as i32,
-                        buf[read_len..].as_mut_ptr() as _,
-                        remaining as i32,
-                        core::ptr::null(),
-                        core::ptr::null_mut(),
-                    )
-                };
-            }
-
-            if u8n > 0 {
-                read_len += u8n as usize;
-            } else {
-                let err = std::io::Error::last_os_error();
-                if err.raw_os_error() == Some(122) {
-                    // ERROR_INSUFFICIENT_BUFFER
-                    let needed = unsafe {
-                        WideCharToMultiByte(
-                            CP_UTF8,
-                            0,
-                            wbuf.as_ptr(),
-                            nread as i32,
-                            core::ptr::null_mut(),
-                            0,
-                            core::ptr::null(),
-                            core::ptr::null_mut(),
-                        )
-                    };
-                    if needed > 0 {
+                match host_nt::read_console_into(handle, &mut buf[read_len..], &mut ibuf) {
+                    Ok(n) => read_len += n,
+                    Err(host_nt::ReadConsoleError::BufferTooSmall {
+                        available,
+                        required,
+                    }) => {
                         return Err(vm.new_system_error(format!(
-                            "Buffer had room for {remaining} bytes but {needed} bytes required",
+                            "Buffer had room for {available} bytes but {required} bytes required",
                         )));
                     }
+                    Err(host_nt::ReadConsoleError::Io(err)) => {
+                        return Err(err.into_pyexception(vm));
+                    }
                 }
-                return Err(err.into_pyexception(vm));
             }
 
             buf.truncate(read_len);
@@ -6919,114 +6529,13 @@ mod winconsoleio {
                 return Ok(0);
             }
 
-            let mut len = data.len().min(BUFMAX);
-
-            // Cap at 32766/2 wchars * 3 bytes (UTF-8 to wchar ratio is at most 3:1)
-            let max_wlen: u32 = 32766 / 2;
-            len = len.min(max_wlen as usize * 3);
-
-            // Reduce len until wlen fits within max_wlen
-            let wlen;
-            loop {
-                len = find_last_utf8_boundary(data, len);
-                let w = unsafe {
-                    MultiByteToWideChar(
-                        CP_UTF8,
-                        0,
-                        data.as_ptr(),
-                        len as i32,
-                        core::ptr::null_mut(),
-                        0,
-                    )
-                };
-                if w as u32 <= max_wlen {
-                    wlen = w;
-                    break;
-                }
-                len /= 2;
-            }
-            if wlen == 0 {
-                return Ok(0);
-            }
-
-            let mut wbuf = vec![0u16; wlen as usize];
-            let wlen = unsafe {
-                MultiByteToWideChar(
-                    CP_UTF8,
-                    0,
-                    data.as_ptr(),
-                    len as i32,
-                    wbuf.as_mut_ptr(),
-                    wlen,
-                )
-            };
-            if wlen == 0 {
-                return Err(std::io::Error::last_os_error().into_pyexception(vm));
-            }
-
-            let mut n_written: u32 = 0;
-            let res = unsafe {
-                WriteConsoleW(
-                    handle,
-                    wbuf.as_ptr() as _,
-                    wlen as u32,
-                    &mut n_written,
-                    core::ptr::null(),
-                )
-            };
-            if res == 0 {
-                return Err(std::io::Error::last_os_error().into_pyexception(vm));
-            }
-
-            // If we wrote fewer wchars than expected, recalculate bytes consumed
-            if n_written < wlen as u32 {
-                // Binary search to find how many input bytes correspond to n_written wchars
-                len = wchar_to_utf8_count(data, len, n_written);
-            }
-
-            Ok(len)
+            host_nt::write_console_utf8(handle, data, BUFMAX)
+                .map_err(|err| err.into_pyexception(vm))
         }
 
         #[pymethod(name = "__reduce__")]
         fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle '_WindowsConsoleIO' instances"))
-        }
-    }
-
-    /// Find how many UTF-8 bytes correspond to n wide chars.
-    fn wchar_to_utf8_count(data: &[u8], mut len: usize, mut n: u32) -> usize {
-        let mut start: usize = 0;
-        loop {
-            let mut mid = 0;
-            for i in (len / 2)..=len {
-                mid = find_last_utf8_boundary(data, i);
-                if mid != 0 {
-                    break;
-                }
-            }
-            if mid == len {
-                return start + len;
-            }
-            if mid == 0 {
-                mid = if len > 1 { len - 1 } else { 1 };
-            }
-            let wlen = unsafe {
-                MultiByteToWideChar(
-                    CP_UTF8,
-                    0,
-                    data[start..].as_ptr(),
-                    mid as i32,
-                    core::ptr::null_mut(),
-                    0,
-                )
-            } as u32;
-            if wlen <= n {
-                start += mid;
-                len -= mid;
-                n -= wlen;
-            } else {
-                len = mid;
-            }
         }
     }
 
