@@ -12190,9 +12190,9 @@ def f(node):
             .iter()
             .filter(|op| matches!(op, Instruction::ReturnValue))
             .count();
-        assert!(
-            return_count >= 3,
-            "expected multiple explicit return sites for shared final return case, got ops={ops:?}"
+        assert_eq!(
+            return_count, 5,
+            "expected cloned return sites for each shared return edge, got ops={ops:?}"
         );
     }
 
@@ -13114,6 +13114,78 @@ def f(names, cls):
             .count();
 
         assert_eq!(return_count, 1);
+    }
+
+    #[test]
+    fn test_listcomp_cleanup_tail_keeps_split_store_fast_pair() {
+        let code = compile_exec(
+            "\
+def f(escaped_string, quote_types):
+    possible_quotes = [q for q in quote_types if q not in escaped_string]
+    return possible_quotes
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let pop_iter_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopIter))
+            .expect("missing POP_ITER");
+        let tail = &ops[pop_iter_idx + 1..];
+
+        assert!(
+            matches!(
+                tail,
+                [
+                    Instruction::StoreFast { .. },
+                    Instruction::StoreFast { .. },
+                    Instruction::LoadFastBorrow { .. },
+                    Instruction::ReturnValue,
+                    ..
+                ]
+            ),
+            "expected split STORE_FAST pair after listcomp cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_suppress_tail_duplicates_final_return_none() {
+        let code = compile_exec(
+            "\
+def f(cm, cond):
+    if cond:
+        with cm():
+            pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let return_count = ops
+            .iter()
+            .filter(|op| matches!(op, Instruction::ReturnValue))
+            .count();
+
+        assert_eq!(
+            return_count, 3,
+            "expected duplicated return-none epilogues, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::JumpBackwardNoInterrupt { .. })),
+            "with suppress tail should not jump back to shared return block, got ops={ops:?}"
+        );
     }
 
     #[test]
