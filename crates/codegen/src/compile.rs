@@ -5931,15 +5931,13 @@ impl Compiler {
 
             emit!(self, Instruction::ForIter { delta: else_block });
 
-            // Match CPython codegen_for(): keep a line anchor on the target line
-            // so multiline/single-line `for ...: pass` bodies preserve tracing layout.
+            // Match CPython's line attribution by compiling the loop target on
+            // the target range directly instead of leaving a synthetic anchor
+            // NOP between FOR_ITER and the unpack/store sequence.
             let saved_range = self.current_source_range;
             self.set_source_range(target.range());
-            emit!(self, Instruction::Nop);
-            self.set_source_range(saved_range);
-
-            // Start of loop iteration, set targets:
             self.compile_store(target)?;
+            self.set_source_range(saved_range);
         };
 
         let was_in_loop = self.ctx.loop_data.replace((for_block, after_block));
@@ -10734,39 +10732,26 @@ impl Compiler {
     }
 
     fn compile_expr_tstring(&mut self, expr_tstring: &ast::ExprTString) -> CompileResult<()> {
-        // ast::TStringValue can contain multiple ast::TString parts (implicit concatenation)
-        // Each ast::TString part should be compiled and the results merged into a single Template
+        // ast::TStringValue can contain multiple ast::TString parts (implicit
+        // concatenation). Match CPython's stack order by materializing the
+        // strings tuple first, then evaluating interpolations left-to-right.
         let tstring_value = &expr_tstring.value;
 
-        // Collect all strings and compile all interpolations
         let mut all_strings: Vec<Wtf8Buf> = Vec::new();
         let mut current_string = Wtf8Buf::new();
         let mut interp_count: u32 = 0;
 
         for tstring in tstring_value.iter() {
-            self.compile_tstring_into(
+            self.collect_tstring_strings(
                 tstring,
                 &mut all_strings,
                 &mut current_string,
                 &mut interp_count,
-            )?;
+            );
         }
 
-        // Add trailing string
         all_strings.push(core::mem::take(&mut current_string));
 
-        // Now build the Template:
-        // Stack currently has all interpolations from compile_tstring_into calls
-
-        // 1. Build interpolations tuple from the interpolations on the stack
-        emit!(
-            self,
-            Instruction::BuildTuple {
-                count: interp_count
-            }
-        );
-
-        // 2. Load all string parts
         let string_count: u32 = all_strings
             .len()
             .try_into()
@@ -10774,8 +10759,6 @@ impl Compiler {
         for s in &all_strings {
             self.emit_load_const(ConstantData::Str { value: s.clone() });
         }
-
-        // 3. Build strings tuple
         emit!(
             self,
             Instruction::BuildTuple {
@@ -10783,79 +10766,94 @@ impl Compiler {
             }
         );
 
-        // 4. Swap so strings is below interpolations: [interps, strings] -> [strings, interps]
-        emit!(self, Instruction::Swap { i: 2 });
+        for tstring in tstring_value.iter() {
+            self.compile_tstring_interpolations(tstring)?;
+        }
 
-        // 5. Build the Template
+        emit!(
+            self,
+            Instruction::BuildTuple {
+                count: interp_count
+            }
+        );
         emit!(self, Instruction::BuildTemplate);
 
         Ok(())
     }
 
-    fn compile_tstring_into(
-        &mut self,
+    fn collect_tstring_strings(
+        &self,
         tstring: &ast::TString,
         strings: &mut Vec<Wtf8Buf>,
         current_string: &mut Wtf8Buf,
         interp_count: &mut u32,
-    ) -> CompileResult<()> {
+    ) {
         for element in &tstring.elements {
             match element {
                 ast::InterpolatedStringElement::Literal(lit) => {
-                    // Accumulate literal parts into current_string
                     current_string.push_str(&lit.value);
                 }
                 ast::InterpolatedStringElement::Interpolation(interp) => {
-                    // Finish current string segment
-                    strings.push(core::mem::take(current_string));
-
-                    // Compile the interpolation value
-                    self.compile_expression(&interp.expression)?;
-
-                    // Load the expression source string, including any
-                    // whitespace between '{' and the expression start
-                    let expr_range = interp.expression.range();
-                    let expr_source = if interp.range.start() < expr_range.start()
-                        && interp.range.end() >= expr_range.end()
-                    {
-                        let after_brace = interp.range.start() + TextSize::new(1);
-                        self.source_file
-                            .slice(TextRange::new(after_brace, expr_range.end()))
-                    } else {
-                        // Fallback for programmatically constructed ASTs with dummy ranges
-                        self.source_file.slice(expr_range)
-                    };
-                    self.emit_load_const(ConstantData::Str {
-                        value: expr_source.to_string().into(),
-                    });
-
-                    // Determine conversion code
-                    let conversion: u32 = match interp.conversion {
-                        ast::ConversionFlag::None => 0,
-                        ast::ConversionFlag::Str => 1,
-                        ast::ConversionFlag::Repr => 2,
-                        ast::ConversionFlag::Ascii => 3,
-                    };
-
-                    // Handle format_spec
-                    let has_format_spec = interp.format_spec.is_some();
-                    if let Some(format_spec) = &interp.format_spec {
-                        // Compile format_spec as a string using fstring element compilation
-                        // Use default ast::FStringFlags since format_spec syntax is independent of t-string flags
-                        self.compile_fstring_elements(
-                            ast::FStringFlags::empty(),
-                            &format_spec.elements,
-                        )?;
+                    if let Some(ast::DebugText { leading, trailing }) = &interp.debug_text {
+                        let range = interp.expression.range();
+                        let source = self.source_file.slice(range);
+                        let text = [
+                            strip_fstring_debug_comments(leading).as_str(),
+                            source,
+                            strip_fstring_debug_comments(trailing).as_str(),
+                        ]
+                        .concat();
+                        current_string.push_str(&text);
                     }
-
-                    // Emit BUILD_INTERPOLATION
-                    // oparg encoding: (conversion << 2) | has_format_spec
-                    let format = (conversion << 2) | u32::from(has_format_spec);
-                    emit!(self, Instruction::BuildInterpolation { format });
-
+                    strings.push(core::mem::take(current_string));
                     *interp_count += 1;
                 }
             }
+        }
+    }
+
+    fn compile_tstring_interpolations(&mut self, tstring: &ast::TString) -> CompileResult<()> {
+        for element in &tstring.elements {
+            let ast::InterpolatedStringElement::Interpolation(interp) = element else {
+                continue;
+            };
+
+            self.compile_expression(&interp.expression)?;
+
+            let expr_range = interp.expression.range();
+            let expr_source = if interp.range.start() < expr_range.start()
+                && interp.range.end() >= expr_range.end()
+            {
+                let after_brace = interp.range.start() + TextSize::new(1);
+                self.source_file
+                    .slice(TextRange::new(after_brace, expr_range.end()))
+            } else {
+                self.source_file.slice(expr_range)
+            };
+            self.emit_load_const(ConstantData::Str {
+                value: expr_source.to_string().into(),
+            });
+
+            let mut conversion: u32 = match interp.conversion {
+                ast::ConversionFlag::None => 0,
+                ast::ConversionFlag::Str => 1,
+                ast::ConversionFlag::Repr => 2,
+                ast::ConversionFlag::Ascii => 3,
+            };
+
+            if interp.debug_text.is_some() && conversion == 0 && interp.format_spec.is_none() {
+                conversion = 2;
+            }
+
+            let has_format_spec = interp.format_spec.is_some();
+            if let Some(format_spec) = &interp.format_spec {
+                self.compile_fstring_elements(ast::FStringFlags::empty(), &format_spec.elements)?;
+            }
+
+            // CPython keeps bit 1 set in BUILD_INTERPOLATION's oparg and uses
+            // bit 0 for the optional format spec.
+            let format = 2 | (conversion << 2) | u32::from(has_format_spec);
+            emit!(self, Instruction::BuildInterpolation { format });
         }
 
         Ok(())
@@ -12295,6 +12293,135 @@ elif maxsize == 9223372036854775807:
                 )
             }),
             "unexpected line-anchor NOP before for-exit epilogue, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_for_tuple_target_does_not_leave_loop_header_nop() {
+        let code = compile_exec(
+            "\
+def f(pairs):
+    for left, right in pairs:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ForIter { .. },
+                        Instruction::UnpackSequence { .. }
+                    ]
+                )
+            }),
+            "expected FOR_ITER to flow directly into UNPACK_SEQUENCE, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ForIter { .. },
+                        Instruction::Nop,
+                        Instruction::UnpackSequence { .. },
+                    ]
+                )
+            }),
+            "unexpected loop-header NOP before tuple unpack, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_tstring_build_template_matches_cpython_stack_order() {
+        let code = compile_exec("t = t\"{0}\"");
+        let units: Vec<_> = code
+            .instructions
+            .iter()
+            .copied()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            units.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        a,
+                        b,
+                        c,
+                        d,
+                        e,
+                        f,
+                    ]
+                    if matches!(a.op, Instruction::LoadConst { .. })
+                        && matches!(b.op, Instruction::LoadSmallInt { .. })
+                        && matches!(c.op, Instruction::LoadConst { .. })
+                        && matches!(d.op, Instruction::BuildInterpolation { .. })
+                        && u8::from(d.arg) == 2
+                        && matches!(e.op, Instruction::BuildTuple { .. })
+                        && u8::from(e.arg) == 1
+                        && matches!(f.op, Instruction::BuildTemplate)
+                )
+            }),
+            "expected CPython-style t-string lowering, got units={units:?}"
+        );
+        assert!(
+            !units
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::Swap { .. })),
+            "unexpected SWAP in t-string lowering, got units={units:?}"
+        );
+    }
+
+    #[test]
+    fn test_tstring_debug_specifier_uses_debug_literal_and_repr_default() {
+        let code = compile_exec(
+            "\
+value = 42
+t = t\"Value: {value=}\"
+",
+        );
+
+        let string_consts = code
+            .instructions
+            .iter()
+            .filter_map(|unit| match unit.op {
+                Instruction::LoadConst { consti } => {
+                    Some(&code.constants[consti.get(OpArg::new(u32::from(u8::from(unit.arg))))])
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            string_consts.iter().any(|constant| matches!(
+                constant,
+                ConstantData::Tuple { elements }
+                    if matches!(
+                        &elements[..],
+                        [
+                            ConstantData::Str { value: first },
+                            ConstantData::Str { value: second },
+                        ] if first.to_string() == "Value: value=" && second.is_empty()
+                    )
+            )),
+            "expected debug literal prefix in t-string constants, got {string_consts:?}"
+        );
+        assert!(
+            code.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::BuildInterpolation { .. }
+            ) && u8::from(unit.arg) == 10),
+            "expected default repr conversion for debug t-string"
         );
     }
 
