@@ -1394,9 +1394,9 @@ impl PyType {
             SlotAccessor::SqLength => {
                 update_sub_slot!(as_sequence, length, sequence_len_wrapper, SeqLength)
             }
-            // Sequence concat uses sq_concat slot - no generic wrapper needed
-            // (handled by number protocol fallback)
             SlotAccessor::SqConcat | SlotAccessor::SqInplaceConcat if !ADD => {
+                // Sequence concat uses sq_concat slot - no generic wrapper needed
+                // (handled by number protocol fallback)
                 accessor.inherit_from_mro(self);
             }
             SlotAccessor::SqRepeat => {

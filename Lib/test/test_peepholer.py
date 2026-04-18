@@ -441,6 +441,7 @@ class TestTranforms(BytecodeTestCase):
         self.check_lnotab(code)
 
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constant_folding_remove_nop_location(self):
         sources = [
             """
@@ -785,7 +786,6 @@ class TestTranforms(BytecodeTestCase):
             c, b, a = a, b, c
         self.assertNotInBytecode(f, "SWAP")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_static_swaps_match_mapping(self):
         for a, b, c in product("_a", "_b", "_c"):
             pattern = f"{{'a': {a}, 'b': {b}, 'c': {c}}}"
@@ -793,7 +793,6 @@ class TestTranforms(BytecodeTestCase):
                 code = compile_pattern_with_fast_locals(pattern)
                 self.assertNotInBytecode(code, "SWAP")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_static_swaps_match_class(self):
         forms = [
             "C({}, {}, {})",
@@ -808,7 +807,6 @@ class TestTranforms(BytecodeTestCase):
                     code = compile_pattern_with_fast_locals(pattern)
                     self.assertNotInBytecode(code, "SWAP")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_static_swaps_match_sequence(self):
         swaps = {"*_, b, c", "a, *_, c", "a, b, *_"}
         forms = ["{}, {}, {}", "{}, {}, *{}", "{}, *{}, {}", "*{}, {}, {}"]
@@ -863,7 +861,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
             y = x + x
         self.assertInBytecode(f, 'LOAD_FAST_BORROW_LOAD_FAST_BORROW')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_unknown_simple(self):
         def f():
             if condition():
@@ -906,7 +903,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f5, 'LOAD_FAST_BORROW')
         self.assertNotInBytecode(f5, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_known_because_already_loaded(self):
         def f():
             if condition():

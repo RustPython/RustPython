@@ -1405,11 +1405,11 @@ impl InstructionMetadata for PseudoInstruction {
     ///   SETUP_FINALLY:  +1  (exc)
     ///   SETUP_CLEANUP:  +2  (lasti + exc)
     ///   SETUP_WITH:     +1  (pops __enter__ result, pushes lasti + exc)
-    fn stack_effect_jump(&self, _oparg: u32) -> i32 {
+    fn stack_effect_jump(&self, oparg: u32) -> i32 {
         match self {
             Self::SetupFinally { .. } | Self::SetupWith { .. } => 1,
             Self::SetupCleanup { .. } => 2,
-            _ => self.stack_effect(_oparg),
+            _ => self.stack_effect(oparg),
         }
     }
 

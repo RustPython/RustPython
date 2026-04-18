@@ -1957,8 +1957,6 @@ class JumpTestCase(unittest.TestCase):
         finally:
             output.append(5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(1, 5, [], (ValueError, "into an 'except'"))
     def test_no_jump_into_bare_except_block(output):
         output.append(1)
@@ -1967,8 +1965,6 @@ class JumpTestCase(unittest.TestCase):
         except:
             output.append(5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(1, 5, [], (ValueError, "into an 'except'"))
     def test_no_jump_into_qualified_except_block(output):
         output.append(1)

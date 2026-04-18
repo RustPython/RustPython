@@ -309,7 +309,7 @@ impl PyCSimpleType {
 
             // Float types: accept numbers
             Some(tc @ ("f" | "d" | "g"))
-                if (value.try_float(vm).is_ok() || value.try_int(vm).is_ok()) =>
+                if value.try_float(vm).is_ok() || value.try_int(vm).is_ok() =>
             {
                 return create_simple_with_value(tc, &value);
             }

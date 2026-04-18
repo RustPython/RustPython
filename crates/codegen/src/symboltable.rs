@@ -571,10 +571,13 @@ impl SymbolTableAnalyzer {
             }
             newfree.extend(child_free);
         }
-        if let Some(ann_free) = annotation_free {
-            // Propagate annotation-scope free names to this scope so
-            // implicit class-scope cells (__classdict__/__conditional_annotations__)
-            // can be materialized by drop_class_free when needed.
+        if let Some(ann_free) = annotation_free
+            && symbol_table.typ == CompilerScope::Class
+        {
+            // Annotation-only free variables should not leak into function
+            // bodies. We only need to propagate them through class scopes so
+            // drop_class_free() can materialize implicit class cells when
+            // annotation scopes reference them.
             newfree.extend(ann_free);
         }
 
@@ -1569,48 +1572,42 @@ impl SymbolTableBuilder {
             }) => {
                 // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
                 match &**target {
-                    Expr::Name(ast::ExprName { id, .. }) if *simple => {
+                    Expr::Name(ast::ExprName { id, .. }) => {
                         let id_str = id.as_str();
 
-                        self.check_name(id_str, ExpressionContext::Store, *range)?;
+                        if *simple {
+                            self.check_name(id_str, ExpressionContext::Store, *range)?;
 
-                        self.register_name(id_str, SymbolUsage::AnnotationAssigned, *range)?;
-                        // PEP 649: Register annotate function in module/class scope
-                        let current_scope = self.tables.last().map(|t| t.typ);
-                        match current_scope {
-                            Some(CompilerScope::Module) => {
-                                self.register_name("__annotate__", SymbolUsage::Assigned, *range)?;
+                            self.register_name(id_str, SymbolUsage::AnnotationAssigned, *range)?;
+                            // PEP 649: Register annotate function in module/class scope
+                            let current_scope = self.tables.last().map(|t| t.typ);
+                            match current_scope {
+                                Some(CompilerScope::Module) => {
+                                    self.register_name(
+                                        "__annotate__",
+                                        SymbolUsage::Assigned,
+                                        *range,
+                                    )?;
+                                }
+                                Some(CompilerScope::Class) => {
+                                    self.register_name(
+                                        "__annotate_func__",
+                                        SymbolUsage::Assigned,
+                                        *range,
+                                    )?;
+                                }
+                                _ => {}
                             }
-                            Some(CompilerScope::Class) => {
-                                self.register_name(
-                                    "__annotate_func__",
-                                    SymbolUsage::Assigned,
-                                    *range,
-                                )?;
-                            }
-                            _ => {}
+                        } else if value.is_some() {
+                            self.check_name(id_str, ExpressionContext::Store, *range)?;
+                            self.register_name(id_str, SymbolUsage::Assigned, *range)?;
                         }
                     }
                     _ => {
                         self.scan_expression(target, ExpressionContext::Store)?;
                     }
                 }
-                // Only scan annotation in annotation scope for simple name targets.
-                // Non-simple annotations (subscript, attribute, parenthesized) are
-                // never compiled into __annotate__, so scanning them would create
-                // sub_tables that cause mismatch in the annotation scope's sub_table index.
-                let is_simple_name = *simple && matches!(&**target, Expr::Name(_));
-                if is_simple_name {
-                    self.scan_ann_assign_annotation(annotation)?;
-                } else {
-                    // Still validate annotation for forbidden expressions
-                    // (yield, await, named) even for non-simple targets.
-                    let was_in_annotation = self.in_annotation;
-                    self.in_annotation = true;
-                    let result = self.scan_expression(annotation, ExpressionContext::Load);
-                    self.in_annotation = was_in_annotation;
-                    result?;
-                }
+                self.scan_ann_assign_annotation(annotation)?;
                 if let Some(value) = value {
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }
@@ -1639,6 +1636,10 @@ impl SymbolTableBuilder {
                 let saved_in_conditional_block = self.in_conditional_block;
                 self.in_conditional_block = true;
                 self.scan_statements(body)?;
+                // Preserve source-order symbol analysis so `global`/`nonlocal`
+                // semantics match CPython, but reorder child scope storage to
+                // match the codegen order for plain try/except/else.
+                let body_subtables_len = self.tables.last().unwrap().sub_tables.len();
                 for handler in handlers {
                     let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                         type_,
@@ -1654,7 +1655,22 @@ impl SymbolTableBuilder {
                     }
                     self.scan_statements(body)?;
                 }
-                self.scan_statements(orelse)?;
+                if finalbody.is_empty() {
+                    let handler_subtables = self
+                        .tables
+                        .last_mut()
+                        .unwrap()
+                        .sub_tables
+                        .split_off(body_subtables_len);
+                    self.scan_statements(orelse)?;
+                    self.tables
+                        .last_mut()
+                        .unwrap()
+                        .sub_tables
+                        .extend(handler_subtables);
+                } else {
+                    self.scan_statements(orelse)?;
+                }
                 self.scan_statements(finalbody)?;
                 self.in_conditional_block = saved_in_conditional_block;
             }
@@ -2160,6 +2176,13 @@ impl SymbolTableBuilder {
             });
         }
 
+        assert!(!generators.is_empty());
+        let outermost = &generators[0];
+
+        // CPython evaluates the outermost iterator in the enclosing scope
+        // before entering the comprehension scope.
+        self.scan_expression(&outermost.iter, ExpressionContext::IterDefinitionExp)?;
+
         // Comprehensions are compiled as functions, so create a scope for them:
         self.enter_scope(
             scope_name,
@@ -2195,36 +2218,27 @@ impl SymbolTableBuilder {
         // Register the passed argument to the generator function as the name ".0"
         self.register_name(".0", SymbolUsage::Parameter, range)?;
 
-        self.scan_expression(elt1, ExpressionContext::Load)?;
-        if let Some(elt2) = elt2 {
-            self.scan_expression(elt2, ExpressionContext::Load)?;
+        self.scan_expression(&outermost.target, ExpressionContext::Iter)?;
+        for if_expr in &outermost.ifs {
+            self.scan_expression(if_expr, ExpressionContext::Load)?;
         }
 
-        let mut is_first_generator = true;
-        for generator in generators {
-            // Set flag for INNER_LOOP_CONFLICT check (only for inner loops, not the first)
-            if !is_first_generator {
-                self.in_comp_inner_loop_target = true;
-            }
+        for generator in &generators[1..] {
+            self.in_comp_inner_loop_target = true;
             self.scan_expression(&generator.target, ExpressionContext::Iter)?;
             self.in_comp_inner_loop_target = false;
-
-            if is_first_generator {
-                is_first_generator = false;
-            } else {
-                self.scan_expression(&generator.iter, ExpressionContext::IterDefinitionExp)?;
-            }
-
+            self.scan_expression(&generator.iter, ExpressionContext::IterDefinitionExp)?;
             for if_expr in &generator.ifs {
                 self.scan_expression(if_expr, ExpressionContext::Load)?;
             }
         }
 
-        self.leave_scope();
+        if let Some(elt2) = elt2 {
+            self.scan_expression(elt2, ExpressionContext::Load)?;
+        }
+        self.scan_expression(elt1, ExpressionContext::Load)?;
 
-        // The first iterable is passed as an argument into the created function:
-        assert!(!generators.is_empty());
-        self.scan_expression(&generators[0].iter, ExpressionContext::IterDefinitionExp)?;
+        self.leave_scope();
 
         Ok(())
     }

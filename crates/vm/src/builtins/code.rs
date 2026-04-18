@@ -1,6 +1,6 @@
 //! Infamous code object. The python class `code`
 
-use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType};
+use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, set::PyFrozenSet};
 use crate::common::lock::PyMutex;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -267,13 +267,6 @@ impl<'a> AsBag for &'a Context {
     }
 }
 
-impl<'a> AsBag for &'a VirtualMachine {
-    type Bag = PyObjBag<'a>;
-    fn as_bag(self) -> PyObjBag<'a> {
-        PyObjBag(&self.ctx)
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct PyObjBag<'a>(pub &'a Context);
 
@@ -345,6 +338,87 @@ impl ConstantBag for PyObjBag<'_> {
 
     fn make_code(&self, code: CodeObject) -> Self::Constant {
         Literal(self.0.new_code(code).into())
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PyVmBag<'a>(pub &'a VirtualMachine);
+
+impl ConstantBag for PyVmBag<'_> {
+    type Constant = Literal;
+
+    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant {
+        let vm = self.0;
+        let ctx = &vm.ctx;
+        let obj = match constant {
+            BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
+            BorrowedConstant::Float { value } => ctx.new_float(value).into(),
+            BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
+            BorrowedConstant::Str { value } if value.len() <= 20 => {
+                ctx.intern_str(value).to_object()
+            }
+            BorrowedConstant::Str { value } => ctx.new_str(value).into(),
+            BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
+            BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
+            BorrowedConstant::Code { code } => {
+                PyCode::new_ref_with_bag(vm, code.map_clone_bag(self)).into()
+            }
+            BorrowedConstant::Tuple { elements } => {
+                let elements = elements
+                    .iter()
+                    .map(|constant| self.make_constant(constant.borrow_constant()).0)
+                    .collect();
+                ctx.new_tuple(elements).into()
+            }
+            BorrowedConstant::Slice { elements } => {
+                let [start, stop, step] = elements;
+                let start_obj = self.make_constant(start.borrow_constant()).0;
+                let stop_obj = self.make_constant(stop.borrow_constant()).0;
+                let step_obj = self.make_constant(step.borrow_constant()).0;
+                use crate::builtins::PySlice;
+                PySlice {
+                    start: Some(start_obj),
+                    stop: stop_obj,
+                    step: Some(step_obj),
+                }
+                .into_ref(ctx)
+                .into()
+            }
+            BorrowedConstant::Frozenset { elements } => {
+                let elements = elements
+                    .iter()
+                    .map(|constant| self.make_constant(constant.borrow_constant()).0);
+                PyFrozenSet::from_iter(vm, elements)
+                    .unwrap()
+                    .into_ref(ctx)
+                    .into()
+            }
+            BorrowedConstant::None => ctx.none(),
+            BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
+        };
+
+        Literal(obj)
+    }
+
+    fn make_name(&self, name: &str) -> &'static PyStrInterned {
+        self.0.ctx.intern_str(name)
+    }
+
+    fn make_int(&self, value: BigInt) -> Self::Constant {
+        Literal(self.0.ctx.new_int(value).into())
+    }
+
+    fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant {
+        Literal(
+            self.0
+                .ctx
+                .new_tuple(elements.map(|lit| lit.0).collect())
+                .into(),
+        )
+    }
+
+    fn make_code(&self, code: CodeObject) -> Self::Constant {
+        Literal(PyCode::new_ref_with_bag(self.0, code).into())
     }
 }
 
@@ -427,6 +501,22 @@ impl PyCode {
             Ordering::Relaxed,
         );
     }
+
+    pub fn new_ref_with_bag(vm: &VirtualMachine, code: CodeObject) -> PyRef<Self> {
+        PyRef::new_ref(PyCode::new(code), vm.ctx.types.code_type.to_owned(), None)
+    }
+
+    pub fn new_ref_from_bytecode(vm: &VirtualMachine, code: bytecode::CodeObject) -> PyRef<Self> {
+        Self::new_ref_with_bag(vm, code.map_bag(PyVmBag(vm)))
+    }
+
+    pub fn new_ref_from_frozen<B: AsRef<[u8]>>(
+        vm: &VirtualMachine,
+        code: frozen::FrozenCodeObject<B>,
+    ) -> PyRef<Self> {
+        Self::new_ref_with_bag(vm, code.decode(PyVmBag(vm)))
+    }
+
     pub fn from_pyc_path(path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let name = match path.file_stem() {
             Some(stem) => stem.display().to_string(),
@@ -1379,7 +1469,7 @@ impl ToPyObject for CodeObject {
 
 impl ToPyObject for bytecode::CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_code(self).into()
+        PyCode::new_ref_from_bytecode(vm, self).into()
     }
 }
 
