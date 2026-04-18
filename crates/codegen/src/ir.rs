@@ -257,7 +257,7 @@ impl CodeInfo {
         self.eliminate_unreachable_blocks();
         resolve_line_numbers(&mut self.blocks);
         redirect_empty_block_targets(&mut self.blocks);
-        duplicate_end_returns(&mut self.blocks);
+        duplicate_end_returns(&mut self.blocks, &self.metadata);
         self.dce(); // truncate after terminal in blocks that got return duplicated
         self.eliminate_unreachable_blocks(); // remove now-unreachable last block
         self.remove_redundant_const_pop_top_pairs();
@@ -272,6 +272,8 @@ impl CodeInfo {
         self.eliminate_unreachable_blocks();
         remove_redundant_nops_and_jumps(&mut self.blocks);
         inline_with_suppress_return_blocks(&mut self.blocks);
+        inline_pop_except_return_blocks(&mut self.blocks);
+        duplicate_named_except_cleanup_returns(&mut self.blocks, &self.metadata);
         self.eliminate_unreachable_blocks();
         // Late CFG cleanup can create new same-line STORE_FAST/LOAD_FAST and
         // STORE_FAST/STORE_FAST adjacencies in match/capture code paths that
@@ -1196,6 +1198,43 @@ impl CodeInfo {
                     value: result.into(),
                 })
             }
+            (ConstantData::Integer { value: n }, ConstantData::Str { value: s })
+                if matches!(op, BinOp::Multiply) =>
+            {
+                let n: usize = n.try_into().ok()?;
+                if n > 4096 {
+                    return None;
+                }
+                let result = s.to_string().repeat(n);
+                Some(ConstantData::Str {
+                    value: result.into(),
+                })
+            }
+            (ConstantData::Bytes { value: l }, ConstantData::Bytes { value: r })
+                if matches!(op, BinOp::Add) =>
+            {
+                let mut result = l.clone();
+                result.extend_from_slice(r);
+                Some(ConstantData::Bytes { value: result })
+            }
+            (ConstantData::Bytes { value: b }, ConstantData::Integer { value: n })
+                if matches!(op, BinOp::Multiply) =>
+            {
+                let n: usize = n.try_into().ok()?;
+                if n > 4096 {
+                    return None;
+                }
+                Some(ConstantData::Bytes { value: b.repeat(n) })
+            }
+            (ConstantData::Integer { value: n }, ConstantData::Bytes { value: b })
+                if matches!(op, BinOp::Multiply) =>
+            {
+                let n: usize = n.try_into().ok()?;
+                if n > 4096 {
+                    return None;
+                }
+                Some(ConstantData::Bytes { value: b.repeat(n) })
+            }
             _ => None,
         }
     }
@@ -1204,6 +1243,7 @@ impl CodeInfo {
         match c {
             ConstantData::Integer { value } => value.bits() > 4096 * 8,
             ConstantData::Str { value } => value.len() > 4096,
+            ConstantData::Bytes { value } => value.len() > 4096,
             _ => false,
         }
     }
@@ -1889,14 +1929,12 @@ impl CodeInfo {
     /// Eliminate dead stores in STORE_FAST sequences (apply_static_swaps).
     ///
     /// In sequences of consecutive STORE_FAST instructions (from tuple unpacking),
-    /// if the same variable is stored to more than once, only the first store
-    /// (which gets TOS — the rightmost value) matters. Later stores to the
-    /// same variable are dead and replaced with POP_TOP.
-    /// Simplified apply_static_swaps (CPython flowgraph.c):
-    /// In STORE_FAST sequences that follow UNPACK_SEQUENCE / UNPACK_EX,
-    /// replace duplicate stores to the same variable with POP_TOP.
-    /// UNPACK pushes values so stores execute left-to-right; the LAST
-    /// store to a variable carries the final value, earlier ones are dead.
+    /// only collapse directly adjacent duplicate targets.
+    ///
+    /// CPython preserves non-adjacent duplicates such as `_, expr, _` so the
+    /// store layout still reflects the original unpack order. Replacing the
+    /// first `_` with POP_TOP there changes the emitted superinstructions and
+    /// bytecode shape even though the final value is the same.
     fn eliminate_dead_stores(&mut self) {
         for block in &mut self.blocks {
             let instructions = &mut block.instructions;
@@ -1924,18 +1962,18 @@ impl CodeInfo {
                     run_end += 1;
                 }
                 if run_end - run_start >= 2 {
-                    // Pass 1: find the LAST occurrence of each variable
-                    let mut last_occurrence = std::collections::HashMap::new();
-                    for (j, instr) in instructions[run_start..run_end].iter().enumerate() {
-                        last_occurrence.insert(u32::from(instr.arg), j);
-                    }
-                    // Pass 2: non-last stores to the same variable are dead
-                    for (j, instr) in instructions[run_start..run_end].iter_mut().enumerate() {
-                        let idx = u32::from(instr.arg);
-                        if last_occurrence[&idx] != j {
+                    let mut j = run_start;
+                    while j < run_end {
+                        let arg = u32::from(instructions[j].arg);
+                        let mut group_end = j + 1;
+                        while group_end < run_end && u32::from(instructions[group_end].arg) == arg {
+                            group_end += 1;
+                        }
+                        for instr in &mut instructions[j..group_end.saturating_sub(1)] {
                             instr.instr = Opcode::PopTop.into();
                             instr.arg = OpArg::new(0);
                         }
+                        j = group_end;
                     }
                 }
                 i = run_end.max(i + 1);
@@ -2356,6 +2394,14 @@ impl CodeInfo {
                     continue;
                 }
 
+                let prev_real = block.instructions[..i]
+                    .iter()
+                    .rev()
+                    .find_map(|info| info.instr.real());
+                let next_real = block.instructions[(j + 1)..]
+                    .iter()
+                    .find_map(|info| info.instr.real());
+
                 match (curr.instr.real(), next.instr.real()) {
                     (Some(Instruction::LoadFast { .. }), Some(Instruction::LoadFast { .. })) => {
                         let idx1 = u32::from(curr.arg);
@@ -2376,6 +2422,13 @@ impl CodeInfo {
                         Some(Instruction::StoreFast { .. }),
                         Some(Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. }),
                     ) => {
+                        if self.flags.contains(CodeFlags::GENERATOR)
+                            && matches!(prev_real, Some(Instruction::ForIter { .. }))
+                            && !matches!(next_real, Some(Instruction::ToBool))
+                        {
+                            i += 1;
+                            continue;
+                        }
                         let store_idx = u32::from(curr.arg);
                         let load_idx = u32::from(next.arg);
                         if store_idx >= 16 || load_idx >= 16 {
@@ -3482,7 +3535,7 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
 
-        duplicate_end_returns(&mut self.blocks);
+        duplicate_end_returns(&mut self.blocks, &self.metadata);
         trace.push((
             "after_duplicate_end_returns".to_owned(),
             self.debug_block_dump(),
@@ -4172,8 +4225,14 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
             if target == BlockIdx::NULL {
                 continue;
             }
-            // Check if target block's first instruction is an unconditional jump
-            let target_jump = blocks[target.idx()].instructions.first().copied();
+            // Thread through blocks that are only leading NOPs followed by an
+            // unconditional jump so late line anchors do not leave
+            // JUMP_FORWARD -> NOP -> JUMP_BACKWARD chains behind.
+            let target_jump = blocks[target.idx()]
+                .instructions
+                .iter()
+                .find(|info| !matches!(info.instr.real(), Some(Instruction::Nop)))
+                .copied();
             if let Some(target_ins) = target_jump
                 && target_ins.instr.is_unconditional_jump()
                 && target_ins.target != BlockIdx::NULL
@@ -4498,7 +4557,10 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
                 if lineno < 0 || prev_lineno == lineno {
                     remove = true;
                 } else if src < src_instructions.len() - 1 {
-                    if src_instructions[src + 1].folded_from_nonliteral_expr {
+                    if src_instructions[src + 1].instr.is_unconditional_jump() {
+                        src_instructions[src + 1].lineno_override = Some(lineno);
+                        remove = true;
+                    } else if src_instructions[src + 1].folded_from_nonliteral_expr {
                         remove = true;
                     } else {
                         let next_lineno = instruction_lineno(&src_instructions[src + 1]);
@@ -4672,6 +4734,14 @@ fn next_nonempty_block(blocks: &[Block], mut idx: BlockIdx) -> BlockIdx {
         idx = blocks[idx.idx()].next;
     }
     idx
+}
+
+fn is_load_const_none(instr: &InstructionInfo, metadata: &CodeUnitMetadata) -> bool {
+    matches!(instr.instr.real(), Some(Instruction::LoadConst { .. }))
+        && matches!(
+            metadata.consts.get_index(u32::from(instr.arg) as usize),
+            Some(ConstantData::None)
+        )
 }
 
 fn instruction_lineno(instr: &InstructionInfo) -> i32 {
@@ -5271,7 +5341,7 @@ fn find_layout_predecessor(blocks: &[Block], target: BlockIdx) -> BlockIdx {
 
 /// Duplicate `LOAD_CONST None + RETURN_VALUE` for blocks that fall through
 /// to the final return block.
-fn duplicate_end_returns(blocks: &mut Vec<Block>) {
+fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
     // Walk the block chain and keep the last non-cold non-empty block.
     // After cold exception handlers are pushed to the end, the mainline
     // return epilogue can sit before trailing cold blocks.
@@ -5295,12 +5365,13 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>) {
     }
 
     let last_insts = &blocks[last_block.idx()].instructions;
-    // Only apply when the last block is EXACTLY a return-None epilogue
+    // Only apply when the last block is EXACTLY a return-None epilogue.
     let is_return_block = last_insts.len() == 2
         && matches!(
             last_insts[0].instr,
             AnyInstruction::Real(Instruction::LoadConst { .. })
         )
+        && is_load_const_none(&last_insts[0], metadata)
         && matches!(
             last_insts[1].instr,
             AnyInstruction::Real(Instruction::ReturnValue)
@@ -5416,18 +5487,6 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>) {
 }
 
 fn inline_with_suppress_return_blocks(blocks: &mut [Block]) {
-    fn is_return_block(block: &Block) -> bool {
-        block.instructions.len() == 2
-            && matches!(
-                block.instructions[0].instr.real(),
-                Some(Instruction::LoadConst { .. })
-            )
-            && matches!(
-                block.instructions[1].instr.real(),
-                Some(Instruction::ReturnValue)
-            )
-    }
-
     fn has_with_suppress_prefix(block: &Block, jump_idx: usize) -> bool {
         let tail: Vec<_> = block.instructions[..jump_idx]
             .iter()
@@ -5460,7 +5519,137 @@ fn inline_with_suppress_return_blocks(blocks: &mut [Block]) {
         }
 
         let target = next_nonempty_block(blocks, jump.target);
-        if target == BlockIdx::NULL || !is_return_block(&blocks[target.idx()]) {
+        if target == BlockIdx::NULL || !is_const_return_block(&blocks[target.idx()]) {
+            continue;
+        }
+
+        let mut cloned_return = blocks[target.idx()].instructions.clone();
+        for instr in &mut cloned_return {
+            overwrite_location(instr, jump.location, jump.end_location);
+        }
+        blocks[block_idx].instructions.pop();
+        blocks[block_idx].instructions.extend(cloned_return);
+    }
+}
+
+fn is_named_except_cleanup_return_block(block: &Block, metadata: &CodeUnitMetadata) -> bool {
+    matches!(
+        block.instructions.as_slice(),
+        [pop_except, load_none1, store, delete, load_none2, ret]
+            if matches!(pop_except.instr.real(), Some(Instruction::PopExcept))
+                && is_load_const_none(load_none1, metadata)
+                && matches!(
+                    store.instr.real(),
+                    Some(Instruction::StoreFast { .. } | Instruction::StoreName { .. })
+                )
+                && matches!(
+                    delete.instr.real(),
+                    Some(Instruction::DeleteFast { .. } | Instruction::DeleteName { .. })
+                )
+                && is_load_const_none(load_none2, metadata)
+                && matches!(ret.instr.real(), Some(Instruction::ReturnValue))
+    )
+}
+
+fn duplicate_named_except_cleanup_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
+    let predecessors = compute_predecessors(blocks);
+    let mut clones = Vec::new();
+
+    for target in 0..blocks.len() {
+        let target = BlockIdx(target as u32);
+        if !is_named_except_cleanup_return_block(&blocks[target.idx()], metadata) {
+            continue;
+        }
+
+        let layout_pred = find_layout_predecessor(blocks, target);
+        if layout_pred == BlockIdx::NULL
+            || next_nonempty_block(blocks, blocks[layout_pred.idx()].next) != target
+        {
+            continue;
+        }
+
+        let fallthroughs_into_target = blocks[layout_pred.idx()]
+            .instructions
+            .last()
+            .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
+            .unwrap_or(true);
+        if !fallthroughs_into_target || predecessors[target.idx()] < 2 {
+            continue;
+        }
+
+        for block_idx in 0..blocks.len() {
+            if block_idx == target.idx() {
+                continue;
+            }
+            let Some(instr_idx) = trailing_conditional_jump_index(&blocks[block_idx]) else {
+                continue;
+            };
+            if next_nonempty_block(blocks, blocks[block_idx].instructions[instr_idx].target)
+                != target
+            {
+                continue;
+            }
+            clones.push((BlockIdx(block_idx as u32), instr_idx, target));
+        }
+    }
+
+    for (block_idx, instr_idx, target) in clones.into_iter().rev() {
+        let jump = blocks[block_idx.idx()].instructions[instr_idx];
+        let mut cloned = blocks[target.idx()].instructions.clone();
+        if let Some(first) = cloned.first_mut() {
+            overwrite_location(first, jump.location, jump.end_location);
+        }
+
+        let new_idx = BlockIdx(blocks.len() as u32);
+        let next = blocks[target.idx()].next;
+        blocks.push(Block {
+            cold: blocks[target.idx()].cold,
+            except_handler: blocks[target.idx()].except_handler,
+            disable_load_fast_borrow: blocks[target.idx()].disable_load_fast_borrow,
+            instructions: cloned,
+            next,
+            ..Block::default()
+        });
+        blocks[target.idx()].next = new_idx;
+        blocks[block_idx.idx()].instructions[instr_idx].target = new_idx;
+    }
+}
+
+fn is_const_return_block(block: &Block) -> bool {
+    block.instructions.len() == 2
+        && matches!(
+            block.instructions[0].instr.real(),
+            Some(Instruction::LoadConst { .. })
+        )
+        && matches!(
+            block.instructions[1].instr.real(),
+            Some(Instruction::ReturnValue)
+        )
+}
+
+fn inline_pop_except_return_blocks(blocks: &mut [Block]) {
+    for block_idx in 0..blocks.len() {
+        let Some(jump_idx) = blocks[block_idx].instructions.len().checked_sub(1) else {
+            continue;
+        };
+        let jump = blocks[block_idx].instructions[jump_idx];
+        if !jump.instr.is_unconditional_jump() || jump.target == BlockIdx::NULL {
+            continue;
+        }
+
+        let Some(last_real_before_jump) = blocks[block_idx].instructions[..jump_idx]
+            .iter()
+            .rev()
+            .find_map(|info| info.instr.real())
+        else {
+            continue;
+        };
+        if !matches!(last_real_before_jump, Instruction::PopExcept) {
+            continue;
+        }
+
+        let target = next_nonempty_block(blocks, jump.target);
+        if target == BlockIdx::NULL || !is_const_return_block(&blocks[target.idx()]) {
             continue;
         }
 

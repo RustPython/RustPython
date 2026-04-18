@@ -441,7 +441,6 @@ class TestTranforms(BytecodeTestCase):
         self.check_lnotab(code)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constant_folding_remove_nop_location(self):
         sources = [
             """

@@ -4697,7 +4697,6 @@ class GenericTests(BaseTestCase):
         with self.assertRaises(TypeError):
             D[()]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_generic_init_subclass_not_called_error(self):
         notes = ["Note: this exception may have been caused by "
                  r"'GenericTests.test_generic_init_subclass_not_called_error.<locals>.Base.__init_subclass__' "
