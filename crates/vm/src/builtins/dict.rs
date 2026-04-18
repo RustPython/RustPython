@@ -663,7 +663,8 @@ impl Py<PyDict> {
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
             self.entries.get(vm, key)
-            // FIXME: check __missing__?
+            // Match CPython's exact-dict fast path: __missing__ only participates
+            // for dict subclasses through the generic mapping lookup path below.
         } else {
             match self.as_object().get_item(key, vm) {
                 Ok(value) => Ok(Some(value)),
