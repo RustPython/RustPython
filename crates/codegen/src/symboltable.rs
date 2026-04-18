@@ -1272,30 +1272,22 @@ impl SymbolTableBuilder {
                 current_scope,
                 Some(CompilerScope::Module | CompilerScope::Class)
             );
+        let needs_non_future_conditional_annotations = is_ann_assign
+            && !self.future_annotations
+            && (matches!(current_scope, Some(CompilerScope::Module))
+                || (matches!(current_scope, Some(CompilerScope::Class))
+                    && self.in_conditional_block));
+        let should_register_conditional_annotations = needs_future_annotation_bookkeeping
+            || (needs_non_future_conditional_annotations
+                && !self.tables.last().unwrap().has_conditional_annotations);
 
         // PEP 649: Only AnnAssign annotations can be conditional.
         // Function parameter/return annotations are never conditional.
-        if is_ann_assign && !self.future_annotations {
-            let is_conditional = matches!(current_scope, Some(CompilerScope::Module))
-                || (matches!(current_scope, Some(CompilerScope::Class))
-                    && self.in_conditional_block);
-
-            if is_conditional && !self.tables.last().unwrap().has_conditional_annotations {
-                self.tables.last_mut().unwrap().has_conditional_annotations = true;
-                self.register_name(
-                    "__conditional_annotations__",
-                    SymbolUsage::Assigned,
-                    annotation.range(),
-                )?;
-                self.register_name(
-                    "__conditional_annotations__",
-                    SymbolUsage::Used,
-                    annotation.range(),
-                )?;
-            }
+        if needs_non_future_conditional_annotations {
+            self.tables.last_mut().unwrap().has_conditional_annotations = true;
         }
 
-        if needs_future_annotation_bookkeeping {
+        if should_register_conditional_annotations {
             self.register_name(
                 "__conditional_annotations__",
                 SymbolUsage::Assigned,
