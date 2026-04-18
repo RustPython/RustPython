@@ -178,6 +178,8 @@ pub(super) mod _os {
     use core::time::Duration;
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
+    #[cfg(windows)]
+    use rustpython_host_env::nt as host_nt;
     use rustpython_host_env::suppress_iph;
     use std::{fs, io, path::PathBuf, time::SystemTime};
 
@@ -856,7 +858,10 @@ pub(super) mod _os {
         #[cfg(windows)]
         #[pymethod]
         fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
-            Ok(junction::exists(self.pathval.clone()).unwrap_or(false))
+            Ok(host_nt::test_file_type_by_name(
+                &self.pathval,
+                host_nt::TestType::Junction,
+            ))
         }
 
         #[pymethod]
@@ -988,7 +993,7 @@ pub(super) mod _os {
                             let lstat = {
                                 let cell = OnceCell::new();
                                 if let Ok(stat_struct) =
-                                    crate::windows::win32_xstat(pathval.as_os_str(), false)
+                                    host_nt::win32_xstat(pathval.as_os_str(), false)
                                 {
                                     let stat_obj =
                                         StatResultData::from_stat(&stat_struct, vm).to_pyobject(vm);
@@ -1398,10 +1403,9 @@ pub(super) mod _os {
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
-        // TODO: replicate CPython's win32_xstat
         let [] = dir_fd.0;
         match file {
-            OsPathOrFd::Path(path) => crate::windows::win32_xstat(&path.path, follow_symlinks.0),
+            OsPathOrFd::Path(path) => host_nt::win32_xstat(&path.path, follow_symlinks.0),
             OsPathOrFd::Fd(fd) => crate::host_env::fileutils::fstat(fd),
         }
         .map(Some)
@@ -1491,40 +1495,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn chdir(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         crate::host_env::os::set_current_dir(&path.path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
-
-        #[cfg(windows)]
-        {
-            // win32_wchdir()
-
-            // On Windows, set the per-drive CWD environment variable (=X:)
-            // This is required for GetFullPathNameW to work correctly with drive-relative paths
-
-            use std::os::windows::ffi::OsStrExt;
-            use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
-
-            if let Ok(cwd) = crate::host_env::os::current_dir() {
-                let cwd_str = cwd.as_os_str();
-                let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
-
-                // Check for UNC-like paths (\\server\share or //server/share)
-                // wcsncmp(new_path, L"\\\\", 2) == 0 || wcsncmp(new_path, L"//", 2) == 0
-                let is_unc_like_path = cwd_wide.len() >= 2
-                    && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
-                        || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
-
-                if !is_unc_like_path {
-                    // Create env var name "=X:" where X is the drive letter
-                    let env_name: [u16; 4] = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
-                    cwd_wide.push(0); // null-terminate the path
-                    unsafe {
-                        SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr());
-                    }
-                }
-            }
-        }
-
-        Ok(())
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyfunction]
@@ -1544,7 +1515,7 @@ pub(super) mod _os {
             .argument("dst")
             .try_path(dst, vm)?;
 
-        fs::rename(&src.path, &dst.path).map_err(|err| {
+        crate::host_env::os::rename(&src.path, &dst.path).map_err(|err| {
             let builder = err.to_os_error_builder(vm);
             let builder = builder.filename(src.filename(vm));
             let builder = builder.filename2(dst.filename(vm));
@@ -2112,33 +2083,7 @@ pub(super) mod _os {
             return Ok(None);
         }
 
-        cfg_select! {
-            any(target_os = "android", target_os = "redox") => {
-                Ok(Some("UTF-8".to_owned()))
-            }
-            windows => {
-                use windows_sys::Win32::System::Console;
-                let cp = match fd {
-                    0 => unsafe { Console::GetConsoleCP() },
-                    1 | 2 => unsafe { Console::GetConsoleOutputCP() },
-                    _ => 0,
-                };
-
-                Ok(Some(format!("cp{cp}")))
-            }
-            _ => {
-                let encoding = unsafe {
-                    let encoding = libc::nl_langinfo(libc::CODESET);
-                    if encoding.is_null() || encoding.read() == b'\0' as libc::c_char {
-                        "UTF-8".to_owned()
-                    } else {
-                        core::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
-                    }
-                };
-
-                Ok(Some(encoding))
-            }
-        }
+        Ok(rustpython_host_env::os::device_encoding(fd))
     }
 
     #[pystruct_sequence_data]

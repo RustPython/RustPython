@@ -35,9 +35,7 @@ pub fn getch() -> Vec<u8> {
 
 pub fn getwch() -> String {
     let value = unsafe { _getwch() };
-    char::from_u32(value)
-        .unwrap_or_else(|| panic!("invalid unicode {value:#x} from _getwch"))
-        .to_string()
+    char::from_u32(value).unwrap().to_string()
 }
 
 pub fn getche() -> Vec<u8> {
@@ -46,9 +44,7 @@ pub fn getche() -> Vec<u8> {
 
 pub fn getwche() -> String {
     let value = unsafe { _getwche() };
-    char::from_u32(value)
-        .unwrap_or_else(|| panic!("invalid unicode {value:#x} from _getwche"))
-        .to_string()
+    char::from_u32(value).unwrap().to_string()
 }
 
 pub fn putch(c: u8) {

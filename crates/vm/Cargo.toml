@@ -107,9 +107,6 @@ libloading = "0.9"
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.17.0"
 
-[target.'cfg(windows)'.dependencies]
-junction = { workspace = true }
-
 [target.'cfg(windows)'.dependencies.windows-sys]
 workspace = true
 features = [

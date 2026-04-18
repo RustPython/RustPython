@@ -8,10 +8,8 @@ use crate::vm::{
     {PyObjectRef, PyResult, TryFromObject, VirtualMachine},
 };
 use itertools::Itertools;
-use nix::{
-    errno::Errno,
-    unistd::{self, Pid},
-};
+use nix::{errno::Errno, unistd};
+use rustpython_host_env::posix as host_posix;
 use std::{
     io::prelude::*,
     os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
@@ -328,42 +326,20 @@ fn exec_inner(
     dup_into_stdio(errwrite, 2, unistd::dup2_stderr)?;
 
     if let Some(ref cwd) = args.cwd {
-        unistd::chdir(cwd.s.as_c_str()).inspect_err(|_| *ctx = ExecErrorContext::ChDir)?
+        host_posix::chdir(cwd.s.as_c_str()).inspect_err(|_| *ctx = ExecErrorContext::ChDir)?
     }
 
-    if args.child_umask >= 0 {
-        unsafe { libc::umask(args.child_umask as libc::mode_t) };
-    }
+    host_posix::set_umask(args.child_umask);
 
     if args.restore_signals {
-        unsafe {
-            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-            libc::signal(libc::SIGXFSZ, libc::SIG_DFL);
-        }
+        host_posix::restore_signals();
     }
 
-    if args.call_setsid {
-        unistd::setsid()?;
-    }
-
-    if args.pgid_to_set > -1 {
-        unistd::setpgid(Pid::from_raw(0), Pid::from_raw(args.pgid_to_set))?;
-    }
-
-    if let Some(_groups) = procargs.extra_groups {
-        #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
-        unistd::setgroups(_groups)?;
-    }
-
-    if let Some(gid) = args.gid.filter(|x| x.as_raw() != u32::MAX) {
-        let ret = unsafe { libc::setregid(gid.as_raw(), gid.as_raw()) };
-        nix::Error::result(ret)?;
-    }
-
-    if let Some(uid) = args.uid.filter(|x| x.as_raw() != u32::MAX) {
-        let ret = unsafe { libc::setreuid(uid.as_raw(), uid.as_raw()) };
-        nix::Error::result(ret)?;
-    }
+    host_posix::setsid_if_needed(args.call_setsid)?;
+    host_posix::setpgid_if_needed(args.pgid_to_set)?;
+    host_posix::setgroups_if_needed(procargs.extra_groups)?;
+    host_posix::setregid_if_needed(args.gid)?;
+    host_posix::setreuid_if_needed(args.uid)?;
 
     // Call preexec_fn after all process setup but before closing FDs
     if let Some(ref preexec_fn) = args.preexec_fn {
@@ -388,8 +364,6 @@ fn exec_inner(
 
     let mut first_err = None;
     for exec in args.exec_list.as_slice() {
-        // not using nix's versions of these functions because those allocate the char-ptr array,
-        // and we can't allocate
         if let Some(envp) = procargs.envp {
             unsafe { libc::execve(exec.s.as_ptr(), procargs.argv.as_ptr(), envp.as_ptr()) };
         } else {

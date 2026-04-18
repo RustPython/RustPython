@@ -3279,9 +3279,13 @@ dependencies = [
 name = "rustpython-host_env"
 version = "0.5.0"
 dependencies = [
+ "junction",
  "libc",
+ "memmap2",
  "nix 0.30.1",
  "num-traits",
+ "parking_lot",
+ "rustix",
  "rustpython-wtf8",
  "termios",
  "widestring",
@@ -3529,7 +3533,6 @@ dependencies = [
  "indexmap",
  "is-macro",
  "itertools 0.14.0",
- "junction",
  "libc",
  "libffi",
  "libloading 0.9.0",

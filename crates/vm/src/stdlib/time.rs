@@ -1035,6 +1035,13 @@ mod platform {
     #[cfg_attr(target_env = "musl", allow(deprecated))]
     use libc::time_t;
     use nix::{sys::time::TimeSpec, time::ClockId};
+    #[cfg(any(
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+    ))]
+    use rustpython_host_env::resource as host_resource;
 
     #[cfg(target_os = "solaris")]
     #[pyattr]
@@ -1293,7 +1300,6 @@ mod platform {
         target_os = "openbsd",
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        use nix::sys::resource::{UsageWho, getrusage};
         fn from_timeval(tv: libc::timeval, vm: &VirtualMachine) -> PyResult<i64> {
             (|tv: libc::timeval| {
                 let t = tv.tv_sec.checked_mul(SEC_TO_NS)?;
@@ -1302,9 +1308,9 @@ mod platform {
             })(tv)
             .ok_or_else(|| vm.new_overflow_error("timestamp too large to convert to i64"))
         }
-        let ru = getrusage(UsageWho::RUSAGE_SELF).map_err(|e| e.into_pyexception(vm))?;
-        let utime = from_timeval(ru.user_time().into(), vm)?;
-        let stime = from_timeval(ru.system_time().into(), vm)?;
+        let ru = host_resource::getrusage(libc::RUSAGE_SELF).map_err(|e| e.into_pyexception(vm))?;
+        let utime = from_timeval(ru.ru_utime, vm)?;
+        let stime = from_timeval(ru.ru_stime, vm)?;
 
         Ok(Duration::from_nanos((utime + stime) as u64))
     }
@@ -1319,12 +1325,7 @@ mod platform {
         builtins::{PyNamespace, PyUtf8StrRef},
     };
     use core::time::Duration;
-    use windows_sys::Win32::{
-        Foundation::FILETIME,
-        System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency},
-        System::SystemInformation::{GetSystemTimeAdjustment, GetTickCount64},
-        System::Threading::{GetCurrentProcess, GetCurrentThread, GetProcessTimes, GetThreadTimes},
-    };
+    use rustpython_host_env::time as host_time;
 
     unsafe extern "C" {
         fn _gmtime64_s(tm: *mut libc::tm, time: *const libc::time_t) -> libc::c_int;
@@ -1415,19 +1416,9 @@ mod platform {
         Ok(timestamp as f64)
     }
 
-    fn u64_from_filetime(time: FILETIME) -> u64 {
-        let large: [u32; 2] = [time.dwLowDateTime, time.dwHighDateTime];
-        unsafe { core::mem::transmute(large) }
-    }
-
     fn win_perf_counter_frequency(vm: &VirtualMachine) -> PyResult<i64> {
-        let frequency = unsafe {
-            let mut freq = core::mem::MaybeUninit::uninit();
-            if QueryPerformanceFrequency(freq.as_mut_ptr()) == 0 {
-                return Err(vm.new_last_os_error());
-            }
-            freq.assume_init()
-        };
+        let frequency =
+            host_time::query_performance_frequency().ok_or_else(|| vm.new_last_os_error())?;
 
         if frequency < 1 {
             Err(vm.new_runtime_error("invalid QueryPerformanceFrequency"))
@@ -1448,11 +1439,7 @@ mod platform {
     }
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let ticks = unsafe {
-            let mut performance_count = core::mem::MaybeUninit::uninit();
-            QueryPerformanceCounter(performance_count.as_mut_ptr());
-            performance_count.assume_init()
-        };
+        let ticks = host_time::query_performance_counter();
 
         Ok(Duration::from_nanos(time_muldiv(
             ticks,
@@ -1462,25 +1449,11 @@ mod platform {
     }
 
     fn get_system_time_adjustment(vm: &VirtualMachine) -> PyResult<u32> {
-        let mut _time_adjustment = core::mem::MaybeUninit::uninit();
-        let mut time_increment = core::mem::MaybeUninit::uninit();
-        let mut _is_time_adjustment_disabled = core::mem::MaybeUninit::uninit();
-        let time_increment = unsafe {
-            if GetSystemTimeAdjustment(
-                _time_adjustment.as_mut_ptr(),
-                time_increment.as_mut_ptr(),
-                _is_time_adjustment_disabled.as_mut_ptr(),
-            ) == 0
-            {
-                return Err(vm.new_last_os_error());
-            }
-            time_increment.assume_init()
-        };
-        Ok(time_increment)
+        host_time::get_system_time_adjustment().ok_or_else(|| vm.new_last_os_error())
     }
 
     pub(super) fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let ticks = unsafe { GetTickCount64() };
+        let ticks = host_time::tick_count64();
 
         Ok(Duration::from_nanos(
             (ticks as i64)
@@ -1525,52 +1498,14 @@ mod platform {
     }
 
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let (kernel_time, user_time) = unsafe {
-            let mut _creation_time = core::mem::MaybeUninit::uninit();
-            let mut _exit_time = core::mem::MaybeUninit::uninit();
-            let mut kernel_time = core::mem::MaybeUninit::uninit();
-            let mut user_time = core::mem::MaybeUninit::uninit();
-
-            let thread = GetCurrentThread();
-            if GetThreadTimes(
-                thread,
-                _creation_time.as_mut_ptr(),
-                _exit_time.as_mut_ptr(),
-                kernel_time.as_mut_ptr(),
-                user_time.as_mut_ptr(),
-            ) == 0
-            {
-                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-            }
-            (kernel_time.assume_init(), user_time.assume_init())
-        };
-        let k_time = u64_from_filetime(kernel_time);
-        let u_time = u64_from_filetime(user_time);
-        Ok(Duration::from_nanos((k_time + u_time) * 100))
+        let total = host_time::get_thread_time_100ns()
+            .ok_or_else(|| vm.new_os_error("Failed to get clock time".to_owned()))?;
+        Ok(Duration::from_nanos(total * 100))
     }
 
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let (kernel_time, user_time) = unsafe {
-            let mut _creation_time = core::mem::MaybeUninit::uninit();
-            let mut _exit_time = core::mem::MaybeUninit::uninit();
-            let mut kernel_time = core::mem::MaybeUninit::uninit();
-            let mut user_time = core::mem::MaybeUninit::uninit();
-
-            let process = GetCurrentProcess();
-            if GetProcessTimes(
-                process,
-                _creation_time.as_mut_ptr(),
-                _exit_time.as_mut_ptr(),
-                kernel_time.as_mut_ptr(),
-                user_time.as_mut_ptr(),
-            ) == 0
-            {
-                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-            }
-            (kernel_time.assume_init(), user_time.assume_init())
-        };
-        let k_time = u64_from_filetime(kernel_time);
-        let u_time = u64_from_filetime(user_time);
-        Ok(Duration::from_nanos((k_time + u_time) * 100))
+        let total = host_time::get_process_time_100ns()
+            .ok_or_else(|| vm.new_os_error("Failed to get clock time".to_owned()))?;
+        Ok(Duration::from_nanos(total * 100))
     }
 }

@@ -67,15 +67,92 @@ pub unsafe fn remove_var(key: impl AsRef<OsStr>) {
 }
 
 pub fn set_current_dir(path: impl AsRef<std::path::Path>) -> io::Result<()> {
-    env::set_current_dir(path)
+    env::set_current_dir(&path)?;
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
+
+        if let Ok(cwd) = env::current_dir() {
+            let cwd_str = cwd.as_os_str();
+            let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
+
+            let is_unc_like_path = cwd_wide.len() >= 2
+                && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
+                    || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
+
+            if !is_unc_like_path {
+                let env_name: [u16; 4] = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
+                cwd_wide.push(0);
+                unsafe {
+                    SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr());
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn process_id() -> u32 {
     std::process::id()
 }
 
+pub fn device_encoding(_fd: i32) -> Option<String> {
+    #[cfg(any(target_os = "android", target_os = "redox"))]
+    {
+        return Some("UTF-8".to_owned());
+    }
+
+    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    {
+        return Some("UTF-8".to_owned());
+    }
+
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Console;
+        let cp = match _fd {
+            0 => unsafe { Console::GetConsoleCP() },
+            1 | 2 => unsafe { Console::GetConsoleOutputCP() },
+            _ => 0,
+        };
+
+        Some(format!("cp{cp}"))
+    }
+
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "redox",
+        windows,
+        all(target_arch = "wasm32", not(target_os = "wasi"))
+    )))]
+    {
+        let encoding = unsafe {
+            let encoding = libc::nl_langinfo(libc::CODESET);
+            if encoding.is_null() || encoding.read() == b'\0' as libc::c_char {
+                "UTF-8".to_owned()
+            } else {
+                core::ffi::CStr::from_ptr(encoding)
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        };
+
+        Some(encoding)
+    }
+}
+
 pub fn exit(code: i32) -> ! {
     std::process::exit(code)
+}
+
+pub fn rename(
+    from: impl AsRef<std::path::Path>,
+    to: impl AsRef<std::path::Path>,
+) -> io::Result<()> {
+    std::fs::rename(from, to)
 }
 
 pub trait ErrorExt {
