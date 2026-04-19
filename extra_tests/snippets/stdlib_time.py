@@ -44,7 +44,7 @@ for case in overflow_cases:
         except TypeError as e:
             raise AssertionError(
                 f"{func_name}({case}) raised TypeError (should be OverflowError): {e}"
-            )
+            ) from e
         else:
             raise AssertionError(
                 f"{func_name}({case}) did not raise — expected OverflowError"

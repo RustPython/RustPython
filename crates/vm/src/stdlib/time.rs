@@ -465,7 +465,7 @@ mod decl {
                     .tm_gmtoff
                     .clone()
                     .try_into_value(vm)
-                    .map_err(|_| invalid_tuple())?;
+                    .map_err(classify_err)?;
                 tm.tm_gmtoff = gmtoff as _;
             }
 
