@@ -199,3 +199,31 @@ x = 123456789012345678901234567890
 for i in range(0, 30):
     format(x, ",")
     x = x // 10
+
+
+# Large float precision must not abort the interpreter.
+# Previously these paths hit unguarded `format!("{:.*e}", ...)` in
+# crates/literal/src/float.rs and `crates/common/src/format.rs` (the `%`
+# branch), which panic past Rust's fmt precision limit and killed the
+# process instead of raising a Python exception.
+_big = 1_000_000
+# f-string default (general format) — g-format trims trailing zeros, so
+# high precision returns the short natural representation.
+assert f"{1.5:.{_big}}" == "1.5"
+assert "{:.{}g}".format(1.5, _big) == "1.5"
+assert "{:.{}G}".format(1.5, _big) == "1.5"
+# Exponential and percent types emit padded zeros up to the (internally
+# capped) precision. We don't pin exact length; we only require the call
+# to return a str and not crash the runtime.
+for spec_type in ("e", "E", "%", "f"):
+    out = ("{:." + str(_big) + spec_type + "}").format(1.5)
+    assert isinstance(out, str) and len(out) > 0
+
+# Shallow cases unchanged.
+assert f"{1.5:.5}" == "1.5"
+assert "{:.3f}".format(1.5) == "1.500"
+assert "{:.2%}".format(0.25) == "25.00%"
+assert "{:.4e}".format(1234.5) == "1.2345e+03"
+assert "{:.3g}".format(1234.5) == "1.23e+03"
+assert f"{float('nan'):.10f}" == "nan"
+assert f"{float('inf'):.10f}" == "inf"

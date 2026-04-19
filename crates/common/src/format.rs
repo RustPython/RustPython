@@ -722,6 +722,7 @@ impl FormatSpec {
                 magnitude if magnitude.is_nan() => Ok("nan%".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
                 _ => {
+                    let precision = float::clamp_fmt_precision(precision);
                     let result = format!("{:.*}", precision, magnitude * 100.0);
                     let point = float::decimal_point_or_empty(precision, self.alternate_form);
                     Ok(format!("{result}{point}%"))
