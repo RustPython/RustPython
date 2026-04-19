@@ -792,7 +792,6 @@ class StrTest(string_tests.StringLikeTest,
         for ch in ['\U0001D7F6', '\U00011066', '\U000104A0']:
             self.assertTrue(ch.isdecimal(), '{!a} is decimal.'.format(ch))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False != True
     def test_isdigit(self):
         super().test_isdigit()
         self.checkequalnofix(True, '\u2460', 'isdigit')
