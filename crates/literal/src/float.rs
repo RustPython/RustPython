@@ -178,9 +178,8 @@ pub fn format_general(
                 let point = decimal_point_or_empty(exp_precision, alternate_form);
                 format!("{base}{point}{e}{exponent:+#03}")
             } else {
-                let precision = clamp_fmt_precision(
-                    ((precision as i64) - 1 - exponent).max(0) as usize,
-                );
+                let precision =
+                    clamp_fmt_precision(((precision as i64) - 1 - exponent).max(0) as usize);
                 let magnitude = format!("{magnitude:.precision$}");
                 let base = maybe_remove_trailing_redundant_chars(magnitude, alternate_form);
                 let point = decimal_point_or_empty(precision, alternate_form);
