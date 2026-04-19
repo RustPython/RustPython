@@ -45,8 +45,8 @@ use rustpython_common::{
 };
 
 use icu_properties::props::{
-    BidiClass, BinaryProperty, CanonicalCombiningClass, EnumeratedProperty, GeneralCategory,
-    XidContinue, XidStart,
+    BidiClass, BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
+    NumericType, XidContinue, XidStart,
 };
 use unicode_casing::CharExt;
 
@@ -949,23 +949,30 @@ impl PyStr {
     fn isalnum(&self) -> bool {
         !self.data.is_empty()
             && self.char_all(|c| {
-                c.is_alphanumeric()
-                    && CanonicalCombiningClass::for_char(c) == CanonicalCombiningClass::NotReordered
+                GeneralCategoryGroup::Letter
+                    .union(GeneralCategoryGroup::Number)
+                    .contains(GeneralCategory::for_char(c))
             })
     }
 
     #[pymethod]
     fn isnumeric(&self) -> bool {
-        !self.data.is_empty() && self.char_all(char::is_numeric)
+        !self.data.is_empty()
+            && self.char_all(|c| {
+                [
+                    NumericType::Decimal,
+                    NumericType::Digit,
+                    NumericType::Numeric,
+                ]
+                .contains(&NumericType::for_char(c))
+            })
     }
 
     #[pymethod]
     fn isdigit(&self) -> bool {
-        // python's isdigit also checks if exponents are digits, these are the unicode codepoints for exponents
         !self.data.is_empty()
             && self.char_all(|c| {
-                c.is_ascii_digit()
-                    || matches!(c, '⁰' | '¹' | '²' | '³' | '⁴' | '⁵' | '⁶' | '⁷' | '⁸' | '⁹')
+                [NumericType::Digit, NumericType::Decimal].contains(&NumericType::for_char(c))
             })
     }
 
@@ -1064,7 +1071,9 @@ impl PyStr {
 
     #[pymethod]
     fn isalpha(&self) -> bool {
-        !self.data.is_empty() && self.char_all(char::is_alphabetic)
+        !self.data.is_empty()
+            && self
+                .char_all(|c| GeneralCategoryGroup::Letter.contains(GeneralCategory::for_char(c)))
     }
 
     #[pymethod]
