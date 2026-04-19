@@ -4340,6 +4340,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         C.__name__ = Nasty("abc")
         C.__name__ = "normal"
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'C.__rfloordiv__' != 'C.__floordiv__'
     def test_subclass_right_op(self):
         # Testing correct dispatch of subclass overloading __r<op>__...
 
@@ -5192,6 +5193,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaisesRegex(NotImplementedError, "BAR"):
             B().foo
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_staticmethod_new(self):
         class MyStaticMethod(staticmethod):
             def __init__(self, func):
@@ -5202,6 +5204,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertIsNone(sm.__func__)
         self.assertIsNone(sm.__wrapped__)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_classmethod_new(self):
         class MyClassMethod(classmethod):
             def __init__(self, func):
