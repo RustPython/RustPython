@@ -79,7 +79,7 @@ macro_rules! define_opcodes {
 
         impl ::core::fmt::Display for $opcode_name {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                write!(f, "{}", self.name())
+                self.name().fmt(f)
             }
         }
 
@@ -1125,13 +1125,9 @@ impl InstructionMetadata for Instruction {
                 let oparg_u32 = u32::from(oparg);
                 let attr_name = name(oparg.name_idx());
                 if oparg.is_method() {
-                    write!(
-                        f,
-                        "{:pad$}({}, {}, method=true)",
-                        opcode, oparg_u32, attr_name
-                    )
+                    write!(f, "{opcode:pad$}({oparg_u32}, {attr_name}, method=true)",)
                 } else {
-                    write!(f, "{:pad$}({}, {})", opcode, oparg_u32, attr_name)
+                    write!(f, "{opcode:pad$}({oparg_u32}, {attr_name})")
                 }
             }
             Self::LoadBuildClass => w!(),
