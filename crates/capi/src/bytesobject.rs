@@ -6,7 +6,7 @@ use rustpython_vm::builtins::PyBytes;
 pub extern "C" fn PyBytes_FromStringAndSize(bytes: *mut c_char, len: isize) -> *mut PyObject {
     with_vm(|vm| {
         if bytes.is_null() {
-            todo!("PyBytes_FromStringAndSize with null bytes is not yet implemented");
+            vm.ctx.new_bytes(vec![0; len as usize])
         } else {
             let bytes_slice =
                 unsafe { core::slice::from_raw_parts(bytes as *const u8, len as usize) };

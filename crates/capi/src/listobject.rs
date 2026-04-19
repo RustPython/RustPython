@@ -1,7 +1,9 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
+use crate::symbols::{exported_object_handle, resolve_object_handle};
 use core::ffi::c_int;
 use core::ptr::NonNull;
+use rustpython_vm::AsObject;
 use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyList;
 
@@ -13,7 +15,7 @@ pub extern "C" fn PyList_New(size: isize) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let list = unsafe { &*obj }.try_downcast_ref::<PyList>(vm)?;
+        let list = unsafe { &*resolve_object_handle(obj) }.try_downcast_ref::<PyList>(vm)?;
         Ok(list.__len__())
     })
 }
@@ -21,20 +23,45 @@ pub extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> *mut PyObject {
     with_vm(|vm| {
-        let list = unsafe { &*obj }.try_downcast_ref::<PyList>(vm)?;
+        let list = unsafe { &*resolve_object_handle(obj) }.try_downcast_ref::<PyList>(vm)?;
 
         list.borrow_vec()
             .get(index as usize)
             .ok_or_else(|| vm.new_index_error(format!("list index out of range: {index}")))
             .map(ToOwned::to_owned)
+            .map(|obj| unsafe { exported_object_handle(obj.into_raw().as_ptr()) })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyList_GetItem(obj: *mut PyObject, index: isize) -> *mut PyObject {
+    with_vm(|vm| {
+        let list = unsafe { &*resolve_object_handle(obj) }.try_downcast_ref::<PyList>(vm)?;
+        let items = list.borrow_vec();
+        let result = items
+            .get(index as usize)
+            .ok_or_else(|| vm.new_index_error(format!("list index out of range: {index}")))?;
+        Ok(unsafe { exported_object_handle(result.as_object().as_raw().cast_mut()) })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyList_Append(list: *mut PyObject, item: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let list = unsafe { &*resolve_object_handle(list) }.try_downcast_ref::<PyList>(vm)?;
+        let item =
+            unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(resolve_object_handle(item))) };
+        list.borrow_vec_mut().push(item);
+        Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyList_SetItem(list: *mut PyObject, index: isize, item: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
-        let item = unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(item)) };
+        let list = unsafe { &*resolve_object_handle(list) }.try_downcast_ref::<PyList>(vm)?;
+        let item =
+            unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(resolve_object_handle(item))) };
 
         let mut list_mut = list.borrow_vec_mut();
         match index - list_mut.len() as isize {

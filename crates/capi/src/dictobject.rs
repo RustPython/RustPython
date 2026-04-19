@@ -1,5 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
+use crate::symbols::{exported_object_handle, resolve_object_handle};
 use core::ffi::c_int;
 use rustpython_vm::AsObject;
 use rustpython_vm::builtins::PyDict;
@@ -16,9 +17,9 @@ pub extern "C" fn PyDict_SetItem(
     val: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { &*key };
-        let value = unsafe { &*val }.to_owned();
+        let dict = unsafe { &*resolve_object_handle(dict) }.try_downcast_ref::<PyDict>(vm)?;
+        let key = unsafe { &*resolve_object_handle(key) };
+        let value = unsafe { &*resolve_object_handle(val) }.to_owned();
         dict.set_item(key, value, vm)
     })
 }
@@ -30,12 +31,12 @@ pub extern "C" fn PyDict_GetItemRef(
     result: *mut *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { &*key };
+        let dict = unsafe { &*resolve_object_handle(dict) }.try_downcast_ref::<PyDict>(vm)?;
+        let key = unsafe { &*resolve_object_handle(key) };
 
         if let Some(value) = dict.get_item_opt(key, vm)? {
             unsafe {
-                *result = value.into_raw().as_ptr();
+                *result = exported_object_handle(value.into_raw().as_ptr());
             }
             Ok(true)
         } else {
@@ -50,7 +51,7 @@ pub extern "C" fn PyDict_GetItemRef(
 #[unsafe(no_mangle)]
 pub extern "C" fn PyDict_Size(dict: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let dict = unsafe { &*resolve_object_handle(dict) }.try_downcast_ref::<PyDict>(vm)?;
         Ok(dict.__len__())
     })
 }
@@ -63,20 +64,71 @@ pub extern "C" fn PyDict_Next(
     value: *mut *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let dict = unsafe { &*resolve_object_handle(dict) }.try_downcast_ref::<PyDict>(vm)?;
         let index = unsafe { *pos } as usize;
         let items = dict.items_vec();
 
         if let Some((k, v)) = items.get(index) {
             unsafe {
-                *key = k.as_object().as_raw().cast_mut();
-                *value = v.as_object().as_raw().cast_mut();
+                *key = exported_object_handle(k.as_object().as_raw().cast_mut());
+                *value = exported_object_handle(v.as_object().as_raw().cast_mut());
                 *pos += 1;
             }
             Ok(true)
         } else {
             Ok(false)
         }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyDict_GetItemWithError(dict: *mut PyObject, key: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let dict = unsafe { &*resolve_object_handle(dict) }.try_downcast_ref::<PyDict>(vm)?;
+        let key = unsafe { &*resolve_object_handle(key) };
+        Ok(dict
+            .get_item_opt(key, vm)?
+            .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
+            .unwrap_or(core::ptr::null_mut()))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyDict_Keys(dict: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let dict = unsafe { &*resolve_object_handle(dict) }.try_downcast_ref::<PyDict>(vm)?;
+        let keys = dict
+            .items_vec()
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect::<Vec<_>>();
+        Ok(vm.ctx.new_list(keys))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyDict_Values(dict: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let dict = unsafe { &*resolve_object_handle(dict) }.try_downcast_ref::<PyDict>(vm)?;
+        let values = dict
+            .items_vec()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
+        Ok(vm.ctx.new_list(values))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyDict_Items(dict: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let dict = unsafe { &*resolve_object_handle(dict) }.try_downcast_ref::<PyDict>(vm)?;
+        let items = dict
+            .items_vec()
+            .into_iter()
+            .map(|(key, value)| vm.ctx.new_tuple(vec![key, value]).into())
+            .collect::<Vec<_>>();
+        Ok(vm.ctx.new_list(items))
     })
 }
 

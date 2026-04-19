@@ -189,6 +189,13 @@ impl PyMethodDef {
         obj: PyObjectRef,
         class: &'static Py<PyType>,
     ) -> PyRef<PyNativeMethod> {
+        eprintln!(
+            "build_bound_method name={} flags={:?} obj_class={} class={}",
+            self.name,
+            self.flags,
+            obj.class().name(),
+            class.name()
+        );
         PyRef::new_ref(
             self.to_bound_method(obj, class),
             ctx.types.builtin_function_or_method_type.to_owned(),
@@ -294,6 +301,34 @@ impl HeapMethodDef {
 impl Py<HeapMethodDef> {
     pub(crate) unsafe fn method(&self) -> &'static PyMethodDef {
         unsafe { &*(&self.method as *const _) }
+    }
+
+    pub fn build_proper_method(
+        &self,
+        class: &'static Py<PyType>,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
+        let method = unsafe { self.method() };
+
+        if method.flags.contains(PyMethodFlags::METHOD) {
+            self.build_method(class, vm).into()
+        } else if method.flags.contains(PyMethodFlags::CLASS) {
+            let mut descriptor = method.to_method(class, &vm.ctx);
+            descriptor._method_def_owner = Some(self.to_owned().into());
+            PyRef::new_ref(descriptor, vm.ctx.types.method_descriptor_type.to_owned(), None).into()
+        } else if method.flags.contains(PyMethodFlags::STATIC) {
+            let function = PyNativeFunction {
+                zelf: Some(class.to_owned().into()),
+                value: method,
+                module: None,
+                _method_def_owner: Some(self.to_owned().into()),
+            };
+            let native = PyNativeMethod { func: function, class };
+            PyRef::new_ref(native, vm.ctx.types.builtin_function_or_method_type.to_owned(), None)
+                .into()
+        } else {
+            self.build_function(vm).into()
+        }
     }
 
     pub fn build_function(&self, vm: &VirtualMachine) -> PyRef<PyNativeFunction> {

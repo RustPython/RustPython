@@ -322,6 +322,28 @@ impl PyTuple<PyObjectRef> {
         }
     }
 
+    /// Build a tuple shell filled with `None` placeholders so C-API callers can
+    /// populate it incrementally via `PyTuple_SetItem`.
+    pub fn new_uninit_ref(len: usize, ctx: &Context) -> PyRef<Self> {
+        if len == 0 {
+            ctx.empty_tuple.clone()
+        } else {
+            let elements = vec![ctx.none(); len].into_boxed_slice();
+            PyRef::new_ref(Self { elements }, ctx.types.tuple_type.to_owned(), None)
+        }
+    }
+
+    /// Mutate a tuple element in place during C-API style construction.
+    ///
+    /// This mirrors CPython's `PyTuple_SetItem` contract and is only safe before
+    /// the tuple is published to user code.
+    pub unsafe fn set_item_unchecked(zelf: &Py<Self>, index: usize, value: PyObjectRef) {
+        let payload = zelf.payload() as *const PyTuple as *mut PyTuple;
+        unsafe {
+            (*payload).elements[index] = value;
+        }
+    }
+
     /// Creating a new tuple with given boxed slice.
     /// NOTE: for usual case, you probably want to use PyTuple::new_ref.
     /// Calling this function implies trying micro optimization for non-zero-sized tuple.

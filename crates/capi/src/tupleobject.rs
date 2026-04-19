@@ -1,34 +1,43 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
+use crate::symbols::{exported_object_handle, resolve_object_handle};
+use rustpython_vm::AsObject;
 use rustpython_vm::PyResult;
 use rustpython_vm::builtins::PyTuple;
+use std::os::raw::c_int;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyTuple_New(len: isize) -> *mut PyObject {
     with_vm(|vm| {
-        if len == 0 {
-            return Ok(vm.ctx.empty_tuple.to_owned());
+        if len < 0 {
+            return Err(vm.new_system_error("negative size passed to PyTuple_New"));
         }
-
-        Err(vm.new_not_implemented_error("PyTuple_New is not yet implemented"))
+        Ok(PyTuple::new_uninit_ref(len as usize, &vm.ctx))
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyTuple_SetItem(
-    _tuple: *mut PyObject,
-    _pos: isize,
-    _value: *mut PyObject,
-) -> *mut PyObject {
-    with_vm::<PyResult, _>(|vm| {
-        Err(vm.new_not_implemented_error("PyTuple_SetItem is not yet implemented"))
+    tuple: *mut PyObject,
+    pos: isize,
+    value: *mut PyObject,
+) -> c_int {
+    with_vm(|vm| -> PyResult<()> {
+        let tuple_obj = unsafe { &*resolve_object_handle(tuple) }.try_downcast_ref::<PyTuple>(vm)?;
+        let index = usize::try_from(pos)
+            .ok()
+            .filter(|&i| i < tuple_obj.len())
+            .ok_or_else(|| vm.new_index_error("tuple assignment index out of range"))?;
+        let value = unsafe { (&*resolve_object_handle(value)).to_owned() };
+        unsafe { PyTuple::set_item_unchecked(tuple_obj, index, value) };
+        Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyTuple_Size(tuple: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
+        let tuple = unsafe { &*resolve_object_handle(tuple) }.try_downcast_ref::<PyTuple>(vm)?;
         Ok(tuple.__len__())
     })
 }
@@ -36,7 +45,7 @@ pub extern "C" fn PyTuple_Size(tuple: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyTuple_GetItem(tuple: *mut PyObject, pos: isize) -> *mut PyObject {
     with_vm(|vm| {
-        let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
+        let tuple = unsafe { &*resolve_object_handle(tuple) }.try_downcast_ref::<PyTuple>(vm)?;
         let result: &PyObject = pos
             .try_into()
             .ok()
@@ -44,7 +53,7 @@ pub extern "C" fn PyTuple_GetItem(tuple: *mut PyObject, pos: isize) -> *mut PyOb
             .ok_or_else(|| vm.new_index_error("tuple index out of range"))?;
 
         //Return borrowed reference
-        Ok(result.as_raw())
+        Ok(unsafe { exported_object_handle(result.as_raw().cast_mut()) })
     })
 }
 

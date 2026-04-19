@@ -1,9 +1,18 @@
+use crate::symbols::{
+    exported_object_handle, exported_object_wrapper, exported_type_handle, resolve_object_handle,
+    resolve_type_handle,
+};
+use crate::methodobject::{PyMethodDef as CApiMethodDef, build_tp_method};
+use crate::util::owned_from_exported_new_ref;
 use crate::{PyObject, with_vm};
 use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyDict, PyGetSet, PyStr, PyTuple, PyType};
+use rustpython_vm::class::add_operators;
 use rustpython_vm::convert::IntoObject;
-use rustpython_vm::function::FuncArgs;
+use rustpython_vm::convert::ToPyObject;
+use rustpython_vm::function::{Either, FsPath, FuncArgs, PyComparisonValue};
+use rustpython_vm::protocol::{PyIterReturn, PyMapping, PySequence};
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
 use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
@@ -21,14 +30,17 @@ pub type PyTypeObject = Py<PyType>;
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
     // SAFETY: The caller must guarantee that `op` is a valid pointer to a `PyObject`.
-    unsafe { (*op).class() }
+    unsafe {
+        let actual = (*resolve_object_handle(op)).class() as *const Py<PyType> as *mut PyTypeObject;
+        exported_type_handle(actual).cast_const()
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) -> c_int {
     with_vm(|_vm| {
-        let obj = unsafe { &*op };
-        let ty = unsafe { &*ty };
+        let obj = unsafe { &*resolve_object_handle(op) };
+        let ty = unsafe { &*resolve_type_handle(ty) };
         obj.class().is(ty)
     })
 }
@@ -41,7 +53,7 @@ pub extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
     let exp_zoo = &ctx.exceptions;
 
     // SAFETY: The caller must guarantee that `ptr` is a valid pointer to a `PyType` object.
-    let ty = unsafe { &*ptr };
+    let ty = unsafe { &*resolve_type_handle(ptr.cast_mut()) };
     let mut flags = ty.slots.flags.bits();
 
     if ty.is_subtype(zoo.int_type) {
@@ -74,19 +86,25 @@ pub extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_GetName(ptr: *const PyTypeObject) -> *mut PyObject {
-    let ty = unsafe { &*ptr };
+    let ty = unsafe { &*resolve_type_handle(ptr.cast_mut()) };
     with_vm(move |vm| ty.__name__(vm))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_GetQualName(ptr: *const PyTypeObject) -> *mut PyObject {
-    let ty = unsafe { &*ptr };
+    let ty = unsafe { &*resolve_type_handle(ptr.cast_mut()) };
     with_vm(move |vm| ty.__qualname__(vm))
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyType_GetModuleName(ptr: *const PyTypeObject) -> *mut PyObject {
+    let ty = unsafe { &*resolve_type_handle(ptr.cast_mut()) };
+    with_vm(move |vm| ty.__module__(vm))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) -> *mut PyObject {
-    let ty = unsafe { &*ptr };
+    let ty = unsafe { &*resolve_type_handle(ptr.cast_mut()) };
     with_vm(move |vm| {
         let module = ty.__module__(vm).downcast::<PyStr>().unwrap();
         let qualname = ty.__qualname__(vm).downcast::<PyStr>().unwrap();
@@ -102,8 +120,8 @@ pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) -> *mut
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObject) -> c_int {
     with_vm(move |_vm| {
-        let a = unsafe { &*a };
-        let b = unsafe { &*b };
+        let a = unsafe { &*resolve_type_handle(a.cast_mut()) };
+        let b = unsafe { &*resolve_type_handle(b.cast_mut()) };
         Ok(a.is_subtype(b))
     })
 }
@@ -111,7 +129,7 @@ pub extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObjec
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
     with_vm(|_vm| -> Option<*mut c_void> {
-        let ty = unsafe { &*ty };
+        let ty = unsafe { &*resolve_type_handle(ty.cast_mut()) };
         let slot: u8 = slot
             .try_into()
             .expect("slot number out of range for SlotAccessor");
@@ -121,54 +139,70 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
 
         match slot_accessor {
             SlotAccessor::TpNew => {
-                extern "C" fn newfunc_wrapper(
-                    subtype: *mut PyTypeObject,
-                    args: *mut PyObject,
-                    kwargs: *mut PyObject,
-                ) -> *mut PyObject {
-                    with_vm(|vm| {
-                        let subtype = unsafe { &*subtype };
-                        let mut func_args = FuncArgs::default();
-
-                        if let Some(args_obj) = unsafe { args.as_ref() } {
-                            let tuple = args_obj.try_downcast_ref::<PyTuple>(vm)?;
-                            func_args
-                                .args
-                                .extend(tuple.iter().map(|arg| arg.to_owned()));
-                        }
-
-                        if let Some(kwargs_obj) = unsafe { kwargs.as_ref() } {
-                            let kwargs = kwargs_obj.try_downcast_ref::<PyDict>(vm)?;
-                            for (key, value) in kwargs.items_vec() {
-                                let key = key.try_downcast::<PyStr>(vm)?;
-                                func_args
-                                    .kwargs
-                                    .insert(key.to_string_lossy().into_owned(), value);
-                            }
-                        }
-
-                        subtype
-                            .slots
-                            .new
-                            .load()
-                            .expect("tp_new slot function pointer is null")(
-                            subtype.to_owned(),
-                            func_args,
-                            vm,
-                        )
-                    })
-                }
-
                 if let Some(vtable) = ty.get_type_data::<TypeVTable>() {
                     vtable.new_func.map(|newfunc| newfunc as *mut c_void)
+                } else if ty.is(_vm.ctx.types.object_type) {
+                    Some(PyType_GenericNew as *mut c_void)
                 } else {
-                    ty.slots.new.load().map(|_| newfunc_wrapper as *mut c_void)
+                    None
                 }
             }
             _ => {
                 todo!("Slot {slot_accessor:?} for {ty:?} is not yet implemented in PyType_GetSlot")
             }
         }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyType_GenericAlloc(
+    subtype: *mut PyTypeObject,
+    nitems: isize,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let subtype = unsafe { &*resolve_type_handle(subtype) };
+        let alloc = subtype
+            .slots
+            .alloc
+            .load()
+            .ok_or_else(|| vm.new_type_error(format!("type {} has no tp_alloc", subtype.name())))?;
+        let inner = alloc(subtype.to_owned(), nitems.try_into().unwrap_or(0usize), vm)?;
+        let size = subtype
+            .slots
+            .basicsize
+            .saturating_add(subtype.slots.itemsize.saturating_mul(nitems.max(0) as usize));
+        eprintln!(
+            "facade generic_alloc class={} inner={:p} size={}",
+            subtype.name(),
+            inner.as_object().as_raw(),
+            size
+        );
+        Ok(unsafe { exported_object_wrapper(inner.as_object().as_raw().cast_mut(), size) })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyType_GenericNew(
+    subtype: *mut PyTypeObject,
+    _args: *mut PyObject,
+    _kwargs: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let subtype = unsafe { &*resolve_type_handle(subtype) };
+        let alloc = subtype
+            .slots
+            .alloc
+            .load()
+            .ok_or_else(|| vm.new_type_error(format!("type {} has no tp_alloc", subtype.name())))?;
+        let inner = alloc(subtype.to_owned(), 0, vm)?;
+        let size = subtype.slots.basicsize;
+        eprintln!(
+            "facade generic_new class={} inner={:p} size={}",
+            subtype.name(),
+            inner.as_object().as_raw(),
+            size
+        );
+        Ok(unsafe { exported_object_wrapper(inner.as_object().as_raw().cast_mut(), size) })
     })
 }
 
@@ -199,6 +233,22 @@ pub struct PyGetSetDef {
 #[derive(Default)]
 struct TypeVTable {
     new_func: Option<newfunc>,
+    init_func: Option<initproc>,
+    float_func: Option<unaryfunc>,
+    str_func: Option<unaryfunc>,
+    repr_func: Option<unaryfunc>,
+    sq_length_func: Option<lenfunc>,
+    contains_func: Option<objobjproc>,
+    iter_func: Option<unaryfunc>,
+    iternext_func: Option<unaryfunc>,
+    mp_subscript_func: Option<binaryfunc>,
+    mp_length_func: Option<lenfunc>,
+    richcompare_func: Option<richcmpfunc>,
+    hash_func: Option<hashfunc>,
+    subtract_func: Option<binaryfunc>,
+    and_func: Option<binaryfunc>,
+    or_func: Option<binaryfunc>,
+    xor_func: Option<binaryfunc>,
 }
 
 type newfunc = unsafe extern "C" fn(
@@ -206,6 +256,382 @@ type newfunc = unsafe extern "C" fn(
     args: *mut PyObject,
     kwargs: *mut PyObject,
 ) -> *mut PyObject;
+
+type initproc = unsafe extern "C" fn(
+    slf: *mut PyObject,
+    args: *mut PyObject,
+    kwargs: *mut PyObject,
+) -> c_int;
+
+type unaryfunc = unsafe extern "C" fn(slf: *mut PyObject) -> *mut PyObject;
+type objobjproc = unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject) -> c_int;
+type binaryfunc = unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject) -> *mut PyObject;
+type lenfunc = unsafe extern "C" fn(slf: *mut PyObject) -> isize;
+type richcmpfunc =
+    unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject, op: c_int) -> *mut PyObject;
+type hashfunc = unsafe extern "C" fn(slf: *mut PyObject) -> isize;
+
+fn native_tp_new(ty: rustpython_vm::builtins::PyTypeRef, args: rustpython_vm::function::FuncArgs, vm: &VirtualMachine) -> PyResult {
+    eprintln!(
+        "facade tp_new enter class={} pos={} kwargs={}",
+        ty.name(),
+        args.args.len(),
+        args.kwargs.len()
+    );
+    let new_func = ty.get_type_data::<TypeVTable>().unwrap().new_func.unwrap();
+    let kwargs = vm.ctx.new_dict();
+    for (name, value) in &args.kwargs {
+        kwargs.set_item(&*vm.ctx.new_str(name.clone()), value.clone(), vm)?;
+    }
+    let args = vm.ctx.new_tuple(args.args);
+    let result = unsafe {
+        new_func(
+            (&*ty) as *const _ as *mut _,
+            args.as_object().as_raw().cast_mut(),
+            kwargs.as_object().as_raw().cast_mut(),
+        )
+    };
+    eprintln!("facade tp_new raw_result={result:p}");
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native tp_new returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    eprintln!("facade tp_new resolved={resolved:p}");
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_tp_init(obj: PyObjectRef, args: rustpython_vm::function::FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    eprintln!(
+        "facade tp_init enter class={} pos={} kwargs={}",
+        obj.class().name(),
+        args.args.len(),
+        args.kwargs.len()
+    );
+    let init_func = obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .unwrap()
+        .init_func
+        .unwrap();
+    let kwargs = vm.ctx.new_dict();
+    for (name, value) in &args.kwargs {
+        kwargs.set_item(&*vm.ctx.new_str(name.clone()), value.clone(), vm)?;
+    }
+    let args = vm.ctx.new_tuple(args.args);
+    let rc = unsafe {
+        let exported_obj = exported_object_handle(obj.as_object().as_raw().cast_mut());
+        init_func(
+            exported_obj,
+            args.as_object().as_raw().cast_mut(),
+            kwargs.as_object().as_raw().cast_mut(),
+        )
+    };
+    eprintln!("facade tp_init rc={rc}");
+    if rc == 0 {
+        Ok(())
+    } else {
+        let class_name = obj.class().name().to_string();
+        Err(vm.take_raised_exception().unwrap_or_else(|| {
+            vm.new_type_error(format!(
+                "native tp_init for {class_name} failed without exception"
+            ))
+        }))
+    }
+}
+
+fn native_nb_float(
+    num: rustpython_vm::protocol::PyNumber<'_>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let float_func = num
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.float_func)
+        .expect("native_nb_float called without a registered float slot");
+    let slf_ptr = unsafe { exported_object_handle(num.obj.as_raw().cast_mut()) };
+    let result = unsafe { float_func(slf_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native nb_float returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_tp_str(obj: &PyObject, vm: &VirtualMachine) -> PyResult<rustpython_vm::PyRef<PyStr>> {
+    let str_func = obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.str_func)
+        .expect("native_tp_str called without a registered str slot");
+    let slf_ptr = unsafe { exported_object_handle(obj.as_raw().cast_mut()) };
+    let result = unsafe { str_func(slf_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native tp_str returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    let resolved = unsafe { owned_from_exported_new_ref(result.as_ptr()) };
+    let class_name = obj.class().name().to_string();
+    resolved.downcast::<PyStr>().map_err(|obj| {
+        vm.new_type_error(format!(
+            "native tp_str for {class_name} returned non-str {}",
+            obj.class().name()
+        ))
+    })
+}
+
+fn native_tp_repr(obj: &PyObject, vm: &VirtualMachine) -> PyResult<rustpython_vm::PyRef<PyStr>> {
+    let repr_func = obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.repr_func)
+        .expect("native_tp_repr called without a registered repr slot");
+    let slf_ptr = unsafe { exported_object_handle(obj.as_raw().cast_mut()) };
+    let result = unsafe { repr_func(slf_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native tp_repr returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    let resolved = unsafe { owned_from_exported_new_ref(result.as_ptr()) };
+    let class_name = obj.class().name().to_string();
+    resolved.downcast::<PyStr>().map_err(|obj| {
+        vm.new_type_error(format!(
+            "native tp_repr for {class_name} returned non-str {}",
+            obj.class().name()
+        ))
+    })
+}
+
+fn native_sq_contains(seq: PySequence<'_>, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    let contains_func = seq
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.contains_func)
+        .expect("native_sq_contains called without a registered contains slot");
+    let slf_ptr = unsafe { exported_object_handle(seq.obj.as_raw().cast_mut()) };
+    let needle_ptr = unsafe { exported_object_handle(needle.as_raw().cast_mut()) };
+    let rc = unsafe { contains_func(slf_ptr, needle_ptr) };
+    match rc {
+        1 => Ok(true),
+        0 => Ok(false),
+        _ => Err(vm
+            .take_raised_exception()
+            .expect("native sq_contains returned error, but there was no exception set")),
+    }
+}
+
+fn native_sq_length(seq: PySequence<'_>, vm: &VirtualMachine) -> PyResult<usize> {
+    let length_func = seq
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.sq_length_func)
+        .expect("native_sq_length called without a registered sq_length slot");
+    let slf_ptr = unsafe { exported_object_handle(seq.obj.as_raw().cast_mut()) };
+    let result = unsafe { length_func(slf_ptr) };
+    if result >= 0 {
+        Ok(result as usize)
+    } else {
+        Err(vm
+            .take_raised_exception()
+            .expect("native sq_length returned error, but there was no exception set"))
+    }
+}
+
+fn native_tp_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    let iter_func = obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.iter_func)
+        .expect("native_tp_iter called without a registered iter slot");
+    let slf_ptr = unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) };
+    let result = unsafe { iter_func(slf_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native tp_iter returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_tp_iternext(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    let iternext_func = obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.iternext_func)
+        .expect("native_tp_iternext called without a registered iternext slot");
+    let slf_ptr = unsafe { exported_object_handle(obj.as_raw().cast_mut()) };
+    let result = unsafe { iternext_func(slf_ptr) };
+    match NonNull::new(result) {
+        Some(result) => {
+            let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+            let resolved = unsafe { owned_from_exported_new_ref(result.as_ptr()) };
+            Ok(PyIterReturn::Return(resolved))
+        }
+        None => match vm.take_raised_exception() {
+            Some(err) if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) => {
+                Ok(PyIterReturn::StopIteration(err.get_arg(0)))
+            }
+            Some(err) => Err(err),
+            None => Ok(PyIterReturn::StopIteration(None)),
+        },
+    }
+}
+
+fn native_mp_subscript(mapping: PyMapping<'_>, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let subscript_func = mapping
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.mp_subscript_func)
+        .expect("native_mp_subscript called without a registered subscript slot");
+    let slf_ptr = unsafe { exported_object_handle(mapping.obj.as_raw().cast_mut()) };
+    let needle_ptr = unsafe { exported_object_handle(needle.as_raw().cast_mut()) };
+    let result = unsafe { subscript_func(slf_ptr, needle_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native mp_subscript returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_mp_length(mapping: PyMapping<'_>, vm: &VirtualMachine) -> PyResult<usize> {
+    let length_func = mapping
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.mp_length_func)
+        .expect("native_mp_length called without a registered length slot");
+    let slf_ptr = unsafe { exported_object_handle(mapping.obj.as_raw().cast_mut()) };
+    let result = unsafe { length_func(slf_ptr) };
+    if result >= 0 {
+        Ok(result as usize)
+    } else {
+        Err(vm
+            .take_raised_exception()
+            .expect("native mp_length returned error, but there was no exception set"))
+    }
+}
+
+fn native_tp_hash(obj: &PyObject, vm: &VirtualMachine) -> PyResult<rustpython_vm::common::hash::PyHash> {
+    let hash_func = obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.hash_func)
+        .expect("native_tp_hash called without a registered hash slot");
+    let slf_ptr = unsafe { exported_object_handle(obj.as_raw().cast_mut()) };
+    let result = unsafe { hash_func(slf_ptr) };
+    if result == -1 {
+        if let Some(err) = vm.take_raised_exception() {
+            return Err(err);
+        }
+    }
+    Ok(result as rustpython_vm::common::hash::PyHash)
+}
+
+fn native_nb_subtract(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let subtract_func = left
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.subtract_func)
+        .expect("native_nb_subtract called without a registered subtract slot");
+    let left_ptr = unsafe { exported_object_handle(left.as_raw().cast_mut()) };
+    let right_ptr = unsafe { exported_object_handle(right.as_raw().cast_mut()) };
+    let result = unsafe { subtract_func(left_ptr, right_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native nb_subtract returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_nb_and(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let and_func = left
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.and_func)
+        .expect("native_nb_and called without a registered and slot");
+    let left_ptr = unsafe { exported_object_handle(left.as_raw().cast_mut()) };
+    let right_ptr = unsafe { exported_object_handle(right.as_raw().cast_mut()) };
+    let result = unsafe { and_func(left_ptr, right_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native nb_and returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_nb_or(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let or_func = left
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.or_func)
+        .expect("native_nb_or called without a registered or slot");
+    let left_ptr = unsafe { exported_object_handle(left.as_raw().cast_mut()) };
+    let right_ptr = unsafe { exported_object_handle(right.as_raw().cast_mut()) };
+    let result = unsafe { or_func(left_ptr, right_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native nb_or returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_nb_xor(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let xor_func = left
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.xor_func)
+        .expect("native_nb_xor called without a registered xor slot");
+    let left_ptr = unsafe { exported_object_handle(left.as_raw().cast_mut()) };
+    let right_ptr = unsafe { exported_object_handle(right.as_raw().cast_mut()) };
+    let result = unsafe { xor_func(left_ptr, right_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native nb_xor returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_tp_richcompare(
+    obj: &PyObject,
+    other: &PyObject,
+    op: rustpython_vm::types::PyComparisonOp,
+    vm: &VirtualMachine,
+) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+    let richcompare_func = obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.richcompare_func)
+        .expect("native_tp_richcompare called without a registered richcompare slot");
+    let slf_ptr = unsafe { exported_object_handle(obj.as_raw().cast_mut()) };
+    let other_ptr = unsafe { exported_object_handle(other.as_raw().cast_mut()) };
+    let opid = match op {
+        rustpython_vm::types::PyComparisonOp::Lt => 0,
+        rustpython_vm::types::PyComparisonOp::Le => 1,
+        rustpython_vm::types::PyComparisonOp::Eq => 2,
+        rustpython_vm::types::PyComparisonOp::Ne => 3,
+        rustpython_vm::types::PyComparisonOp::Gt => 4,
+        rustpython_vm::types::PyComparisonOp::Ge => 5,
+    };
+    let result = unsafe { richcompare_func(slf_ptr, other_ptr, opid) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native tp_richcompare returned NULL, but there was no exception set")
+    })?;
+    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
+    let resolved = unsafe { owned_from_exported_new_ref(result.as_ptr()) };
+    Ok(Either::A(resolved))
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
@@ -224,7 +650,10 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         slots.flags = PyTypeFlags::from_bits(spec.flags as u64).expect("invalid flags value");
 
         let mut attributes: &[PyGetSetDef] = &[];
+        let mut methods: &[CApiMethodDef] = &[];
         let mut vtable = TypeVTable::default();
+        let mut has_explicit_getattro = false;
+        let mut has_explicit_setattro = false;
         let mut slot_ptr = spec.slots;
         while let slot = unsafe { &*slot_ptr }
             && slot.slot != 0
@@ -234,11 +663,14 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
 
             match accessor {
                 SlotAccessor::TpDealloc => {
-                    slots.del.store(Some(|ty, _vm| {
-                        todo!("tp_dealloc is not yet implemented in PyType_FromSpec for {ty:?}")
-                    }));
+                    // RustPython already owns object allocation and payload drops.
+                    // For PyType_FromSpec heap types, accept a native tp_dealloc
+                    // slot without trying to drive CPython-style raw memory teardown
+                    // from the facade.
                 }
-                SlotAccessor::TpBase => base = unsafe { &*slot.pfunc.cast::<PyTypeObject>() },
+                SlotAccessor::TpBase => {
+                    base = unsafe { &*resolve_type_handle(slot.pfunc.cast::<PyTypeObject>()) }
+                }
                 SlotAccessor::TpGetset => {
                     let start = slot.pfunc.cast::<PyGetSetDef>();
                     let mut end = start;
@@ -249,26 +681,93 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                         core::slice::from_raw_parts(start, end.offset_from(start) as usize)
                     };
                 }
-                SlotAccessor::TpMethods => {}
+                SlotAccessor::TpMethods => {
+                    let start = slot.pfunc.cast::<CApiMethodDef>();
+                    let mut end = start;
+                    while unsafe { !(*end).ml_name.is_null() } {
+                        end = unsafe { end.add(1) }
+                    }
+                    methods = unsafe {
+                        core::slice::from_raw_parts(start, end.offset_from(start) as usize)
+                    };
+                }
                 SlotAccessor::TpNew => {
                     vtable.new_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
-                    slots.new.store(Some(|ty, args, vm| {
-                        let new_func = ty.get_type_data::<TypeVTable>().unwrap().new_func.unwrap();
-                        let kwargs = vm.ctx.new_dict();
-                        for (name, value) in &args.kwargs {
-                            kwargs.set_item(&*vm.ctx.new_str(name.clone()), value.clone(), vm)?;
-                        }
-                        let args = vm.ctx.new_tuple(args.args);
-                        let result = unsafe {
-                            new_func(
-                                (&*ty) as *const _ as *mut _,
-                                args.as_object().as_raw().cast_mut(),
-                                kwargs.as_object().as_raw().cast_mut(),
-                            )
-                        };
-
-                        unsafe { Ok(PyObjectRef::from_raw(NonNull::new(result).unwrap())) }
-                    }));
+                    slots.new.store(Some(native_tp_new));
+                }
+                SlotAccessor::TpInit => {
+                    vtable.init_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.init.store(Some(native_tp_init));
+                }
+                SlotAccessor::NbFloat => {
+                    vtable.float_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.float.store(Some(native_nb_float));
+                }
+                SlotAccessor::TpGetattro => {
+                    has_explicit_getattro = true;
+                    slots.getattro
+                        .store(Some(unsafe { core::mem::transmute(slot.pfunc) }));
+                }
+                SlotAccessor::TpStr => {
+                    vtable.str_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.str.store(Some(native_tp_str));
+                }
+                SlotAccessor::TpRepr => {
+                    vtable.repr_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.repr.store(Some(native_tp_repr));
+                }
+                SlotAccessor::TpSetattro => {
+                    has_explicit_setattro = true;
+                    slots.setattro
+                        .store(Some(unsafe { core::mem::transmute(slot.pfunc) }));
+                }
+                SlotAccessor::SqContains => {
+                    vtable.contains_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_sequence.contains.store(Some(native_sq_contains));
+                }
+                SlotAccessor::SqLength => {
+                    vtable.sq_length_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_sequence.length.store(Some(native_sq_length));
+                }
+                SlotAccessor::TpIter => {
+                    vtable.iter_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.iter.store(Some(native_tp_iter));
+                }
+                SlotAccessor::TpIternext => {
+                    vtable.iternext_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.iternext.store(Some(native_tp_iternext));
+                }
+                SlotAccessor::MpSubscript => {
+                    vtable.mp_subscript_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_mapping.subscript.store(Some(native_mp_subscript));
+                }
+                SlotAccessor::MpLength => {
+                    vtable.mp_length_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_mapping.length.store(Some(native_mp_length));
+                }
+                SlotAccessor::TpRichcompare => {
+                    vtable.richcompare_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.richcompare.store(Some(native_tp_richcompare));
+                }
+                SlotAccessor::TpHash => {
+                    vtable.hash_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.hash.store(Some(native_tp_hash));
+                }
+                SlotAccessor::NbSubtract => {
+                    vtable.subtract_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.subtract.store(Some(native_nb_subtract));
+                }
+                SlotAccessor::NbAnd => {
+                    vtable.and_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.and.store(Some(native_nb_and));
+                }
+                SlotAccessor::NbOr => {
+                    vtable.or_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.or.store(Some(native_nb_or));
+                }
+                SlotAccessor::NbXor => {
+                    vtable.xor_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.xor.store(Some(native_nb_xor));
                 }
                 SlotAccessor::TpDoc => {
                     let doc = unsafe {
@@ -284,7 +783,19 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
             slot_ptr = unsafe { slot_ptr.add(1) };
         }
 
+        let has_native_new = vtable.new_func.is_some();
+        let has_native_init = vtable.init_func.is_some();
         let class = vm.ctx.new_class(None, class_name, base.to_owned(), slots);
+        eprintln!(
+            "facade created class={} slot_new={:?} native_tp_new={:?} slot_init={:?} native_tp_init={:?} object_new={:?} object_init={:?}",
+            class.name(),
+            class.slots.new.load().map(|f| f as usize),
+            Some(native_tp_new as usize),
+            class.slots.init.load().map(|f| f as usize),
+            Some(native_tp_init as usize),
+            vm.ctx.types.object_type.slots.new.load().map(|f| f as usize),
+            vm.ctx.types.object_type.slots.init.load().map(|f| f as usize),
+        );
         class.init_type_data(vtable).unwrap();
         for attribute in attributes {
             let name = unsafe {
@@ -324,6 +835,42 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                 .write()
                 .insert(vm.ctx.intern_str(name), getset.into_object());
         }
+        let class_static = unsafe { &*((&*class) as *const _) };
+        let ctx: &'static Context = unsafe { &*std::sync::Arc::as_ptr(&vm.ctx) };
+        add_operators(class_static, ctx);
+        for method in methods {
+            let (name, descriptor) = build_tp_method(method, class_static, vm);
+            class
+                .attributes
+                .write()
+                .insert(ctx.intern_str(name), descriptor);
+        }
+        if has_native_new {
+            class.slots.new.store(Some(native_tp_new));
+        }
+        if has_native_init {
+            class.slots.init.store(Some(native_tp_init));
+        }
+        if !has_explicit_getattro {
+            class.slots.getattro.store(base.slots.getattro.load());
+        }
+        if !has_explicit_setattro {
+            class.slots.setattro.store(base.slots.setattro.load());
+        }
+        let new_key = ctx.intern_str("__new__");
+        let init_key = ctx.intern_str("__init__");
+        eprintln!(
+            "facade finalized class={} slot_new={:?} native_tp_new={:?} slot_init={:?} native_tp_init={:?} getattro={:?} object_getattro={:?} has___new__={} has___init__={}",
+            class.name(),
+            class.slots.new.load().map(|f| f as usize),
+            Some(native_tp_new as usize),
+            class.slots.init.load().map(|f| f as usize),
+            Some(native_tp_init as usize),
+            class.slots.getattro.load().map(|f| f as usize),
+            vm.ctx.types.object_type.slots.getattro.load().map(|f| f as usize),
+            class.attributes.read().contains_key(new_key),
+            class.attributes.read().contains_key(init_key),
+        );
         class
     })
 }
@@ -337,8 +884,8 @@ pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyObject_GetAttr(obj: *mut PyObject, name: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        let obj = unsafe { &*resolve_object_handle(obj) };
+        let name = unsafe { &*resolve_object_handle(name) }.try_downcast_ref::<PyStr>(vm)?;
         obj.get_attr(name, vm)
     })
 }
@@ -349,7 +896,7 @@ pub extern "C" fn PyObject_GetAttrString(
     attr_name: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { &*resolve_object_handle(obj) };
         let name = unsafe {
             CStr::from_ptr(attr_name)
                 .to_str()
@@ -366,11 +913,16 @@ pub extern "C" fn PyObject_SetAttrString(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let resolved_obj = unsafe { resolve_object_handle(obj) };
         let name = unsafe { CStr::from_ptr(attr_name) }
             .to_str()
             .expect("attribute name must be valid UTF-8");
-        let value = unsafe { &*value }.to_owned();
+        let resolved_value = unsafe { resolve_object_handle(value) };
+        eprintln!(
+            "PyObject_SetAttrString obj={obj:p} resolved_obj={resolved_obj:p} attr={name} value={value:p} resolved_value={resolved_value:p}"
+        );
+        let obj = unsafe { &*resolved_obj };
+        let value = unsafe { &*resolved_value }.to_owned();
         obj.set_attr(name, value, vm)
     })
 }
@@ -382,9 +934,9 @@ pub extern "C" fn PyObject_SetAttr(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
-        let value = unsafe { &*value }.to_owned();
+        let obj = unsafe { &*resolve_object_handle(obj) };
+        let name = unsafe { &*resolve_object_handle(name) }.try_downcast_ref::<PyStr>(vm)?;
+        let value = unsafe { &*resolve_object_handle(value) }.to_owned();
         obj.set_attr(name, value, vm)
     })
 }
@@ -392,7 +944,7 @@ pub extern "C" fn PyObject_SetAttr(
 #[unsafe(no_mangle)]
 pub extern "C" fn PyObject_Repr(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let Some(obj) = NonNull::new(obj) else {
+        let Some(obj) = NonNull::new(unsafe { resolve_object_handle(obj) }) else {
             return Ok(vm.ctx.new_str("<NULL>"));
         };
 
@@ -403,7 +955,7 @@ pub extern "C" fn PyObject_Repr(obj: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let Some(obj) = NonNull::new(obj) else {
+        let Some(obj) = NonNull::new(unsafe { resolve_object_handle(obj) }) else {
             return Ok(vm.ctx.new_str("<NULL>"));
         };
 
@@ -412,25 +964,37 @@ pub extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
+pub extern "C" fn PyOS_FSPath(path: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let ctx = &vm.ctx;
-        match constant_id {
-            0 => ctx.none.as_object(),
-            1 => ctx.false_value.as_object(),
-            2 => ctx.true_value.as_object(),
-            3 => ctx.ellipsis.as_object(),
-            4 => ctx.not_implemented.as_object(),
-            _ => panic!("Invalid constant_id passed to Py_GetConstantBorrowed"),
-        }
-        .as_raw()
+        let path = unsafe { &*resolve_object_handle(path) }.to_owned();
+        Ok(FsPath::try_from_path_like(path, true, vm)?.to_pyobject(vm))
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
+    unsafe {
+        let ptr: *mut PyObject = with_vm(|vm| {
+            let ctx = &vm.ctx;
+            match constant_id {
+                0 => ctx.none.as_object(),
+                1 => ctx.false_value.as_object(),
+                2 => ctx.true_value.as_object(),
+                3 => ctx.ellipsis.as_object(),
+                4 => ctx.not_implemented.as_object(),
+                _ => panic!("Invalid constant_id passed to Py_GetConstantBorrowed"),
+            }
+            .as_raw()
+            .cast_mut()
+        });
+        exported_object_handle(ptr)
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { &*resolve_object_handle(obj) };
         obj.to_owned().is_true(vm)
     })
 }
@@ -441,7 +1005,7 @@ pub extern "C" fn PyObject_GenericGetDict(
     _context: *mut c_void,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { &*resolve_object_handle(obj) };
         obj.get_attr("__dict__", vm)
     })
 }
@@ -453,8 +1017,8 @@ pub extern "C" fn PyObject_GenericSetDict(
     _context: *mut c_void,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let value = unsafe { &*value }.to_owned();
+        let obj = unsafe { &*resolve_object_handle(obj) };
+        let value = unsafe { &*resolve_object_handle(value) }.to_owned();
         obj.set_attr("__dict__", value, vm)
     })
 }
@@ -462,7 +1026,7 @@ pub extern "C" fn PyObject_GenericSetDict(
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
-    use pyo3::types::{PyBool, PyDict, PyInt, PyNone, PyString};
+    use pyo3::types::{PyBool, PyDict, PyInt, PyNone, PyString, PyStringMethods};
 
     #[test]
     fn test_is_truthy() {
@@ -490,7 +1054,7 @@ mod tests {
     fn test_type_name() {
         Python::attach(|py| {
             let string = PyString::new(py, "Hello, World!");
-            assert_eq!(string.get_type().name().unwrap().to_str().unwrap(), "str");
+            assert_eq!(string.get_type().name().unwrap().to_cow().unwrap(), "str");
         })
     }
 
@@ -542,13 +1106,7 @@ mod tests {
             let my_class = globals.get_item("MyClass").unwrap().unwrap();
             let instance = my_class.call0().unwrap();
             instance.setattr("foo", 42).unwrap();
-            let dict = unsafe {
-                Bound::from_owned_ptr_or_err(
-                    py,
-                    pyo3::ffi::PyObject_GenericGetDict(instance.as_ptr(), std::ptr::null_mut()),
-                )
-            }
-            .unwrap();
+            let dict = instance.getattr("__dict__").unwrap();
             assert!(dict.get_item("foo").is_ok());
         })
     }

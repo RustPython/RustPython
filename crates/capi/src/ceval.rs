@@ -48,7 +48,6 @@ pub extern "C" fn PyEval_EvalCode(
             globals.to_owned(),
             vm,
         );
-
         vm.run_code_obj(code.to_owned(), scope)
     })
 }

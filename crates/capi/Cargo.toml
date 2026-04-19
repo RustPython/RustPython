@@ -8,20 +8,18 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
-[lib]
-crate-type = ["cdylib"]
-
 [dependencies]
 bitflags.workspace = true
+libc.workspace = true
+libloading = "0.9"
 num-complex.workspace = true
 rustpython-vm = { workspace = true, features = ["threading", "compiler"]}
 
-[features]
-# Enable PyObject_CallMethodObjArgs variadic function, which is only available on nightly Rust.
-nightly = []
+[build-dependencies]
+cc = "1"
 
 [dev-dependencies]
-pyo3 = { git = "https://github.com/bschoenmaeckers/pyo3", branch = "RustPython", features = ["auto-initialize", "abi3"] }
+pyo3 = { path = "/tmp/pyo3-abi-facade", features = ["auto-initialize", "abi3"] }
 
 [lints]
 workspace = true

@@ -1,3 +1,4 @@
+use crate::symbols::{exported_object_handle, resolve_object_handle};
 use crate::{PyObject, with_vm};
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_int};
@@ -97,13 +98,37 @@ define_exception_statics! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
-    with_vm(|vm| vm.take_raised_exception())
+    with_vm(|vm| {
+        let exc = vm.take_raised_exception();
+        if let Some(ref exc) = exc {
+            eprintln!(
+                "PyErr_GetRaisedException class={}({:p}) builtin_attr={:p} builtin_exc={:p}",
+                exc.class().name(),
+                exc.class().as_object().as_raw(),
+                vm.ctx.exceptions.attribute_error.as_object().as_raw(),
+                vm.ctx.exceptions.exception_type.as_object().as_raw(),
+            );
+        } else {
+            eprintln!("PyErr_GetRaisedException none");
+        }
+        exc
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_Occurred() -> *mut PyObject {
+    with_vm(|vm| {
+        Ok(vm
+            .current_exception()
+            .map(|exc| unsafe { exported_object_handle(exc.class().as_object().as_raw().cast_mut()) })
+            .unwrap_or(core::ptr::null_mut()))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
     with_vm::<PyResult<Infallible>, _>(|_vm| {
-        let exception = unsafe { (&*exc).to_owned().downcast_unchecked() };
+        let exception = unsafe { (&*resolve_object_handle(exc)).to_owned().downcast_unchecked() };
         Err(exception)
     });
 }
@@ -111,10 +136,24 @@ pub extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject) {
     with_vm::<PyResult<Infallible>, _>(|vm| {
-        let exc_type = unsafe { (&*exception).to_owned() };
-        let exc_val = unsafe { (&*value).to_owned() };
+        let exc_type = unsafe { (&*resolve_object_handle(exception)).to_owned() };
+        let exc_val = unsafe { (&*resolve_object_handle(value)).to_owned() };
+        eprintln!(
+            "PyErr_SetObject exc_type={}({:p}) value_class={}({:p})",
+            exc_type.class().name(),
+            exc_type.class().as_object().as_raw(),
+            exc_val.class().name(),
+            exc_val.class().as_object().as_raw(),
+        );
 
         let normalized = vm.normalize_exception(exc_type, exc_val, vm.ctx.none())?;
+        eprintln!(
+            "PyErr_SetObject normalized class={}({:p}) builtin_attr={:p} builtin_exc={:p}",
+            normalized.class().name(),
+            normalized.class().as_object().as_raw(),
+            vm.ctx.exceptions.attribute_error.as_object().as_raw(),
+            vm.ctx.exceptions.exception_type.as_object().as_raw(),
+        );
 
         Err(normalized)
     });
@@ -123,7 +162,7 @@ pub extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_char) {
     with_vm::<PyResult<Infallible>, _>(|vm| {
-        let exc_type = unsafe { &*exception }.try_downcast_ref::<PyType>(vm)?;
+        let exc_type = unsafe { &*resolve_object_handle(exception) }.try_downcast_ref::<PyType>(vm)?;
 
         let message = unsafe { CStr::from_ptr(message) }
             .to_str()
@@ -133,6 +172,15 @@ pub extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_ch
             exc_type.to_owned(),
             vec![vm.ctx.new_str(message).into_object()],
         )?;
+        eprintln!(
+            "PyErr_SetString exc_type={}({:p}) exc_class={}({:p}) builtin_attr={:p} builtin_exc={:p}",
+            exc_type.name(),
+            exc_type.as_object().as_raw(),
+            exc.class().name(),
+            exc.class().as_object().as_raw(),
+            vm.ctx.exceptions.attribute_error.as_object().as_raw(),
+            vm.ctx.exceptions.exception_type.as_object().as_raw(),
+        );
 
         Err(exc)
     });
@@ -144,6 +192,12 @@ pub extern "C" fn PyErr_PrintEx(_set_sys_last_vars: c_int) {
         let exception = vm
             .take_raised_exception()
             .expect("No exception set in PyErr_PrintEx");
+        let exc_class = exception.class().name().to_string();
+        let exc_repr = match exception.as_object().repr(vm) {
+            Ok(s) => s.to_string_lossy().into_owned(),
+            Err(err) => format!("<repr failed: {}>", err.class().name()),
+        };
+        eprintln!("PyErr_PrintEx exception class={exc_class} repr={exc_repr}");
 
         vm.print_exception(exception);
     })
@@ -156,7 +210,9 @@ pub extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
             .take_raised_exception()
             .expect("No exception set in PyErr_WriteUnraisable");
 
-        let object = unsafe { vm.unwrap_or_none(obj.as_ref().map(|obj| obj.to_owned())) };
+        let object = unsafe {
+            vm.unwrap_or_none(resolve_object_handle(obj).as_ref().map(|obj| obj.to_owned()))
+        };
 
         vm.run_unraisable(exception, None, object)
     })
@@ -177,7 +233,7 @@ pub extern "C" fn PyErr_NewException(
                 .expect("Exception name must be of the form 'module.ExceptionName'")
         };
 
-        let bases = unsafe { base.as_ref() }.map(|bases| {
+        let bases = unsafe { resolve_object_handle(base).as_ref() }.map(|bases| {
             if let Some(ty) = bases.downcast_ref::<PyType>() {
                 vec![ty.to_owned()]
             } else if let Some(tuple) = bases.downcast_ref::<PyTuple>() {
@@ -213,7 +269,7 @@ pub extern "C" fn PyErr_NewExceptionWithDoc(
 #[unsafe(no_mangle)]
 pub extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let exc = unsafe { &*exc };
+        let exc = unsafe { &*resolve_object_handle(exc) };
         exc.get_attr("__traceback__", vm)
     })
 }
@@ -221,8 +277,8 @@ pub extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut PyObject 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut PyObject) {
     with_vm(|vm| {
-        let exc = unsafe { &*exc };
-        let cause = unsafe { cause.as_ref() }.map(|obj| obj.to_owned());
+        let exc = unsafe { &*resolve_object_handle(exc) };
+        let cause = unsafe { resolve_object_handle(cause).as_ref() }.map(|obj| obj.to_owned());
         exc.set_attr("__cause__", vm.unwrap_or_none(cause), vm)
     })
 }
@@ -230,8 +286,8 @@ pub extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut PyObject)
 #[unsafe(no_mangle)]
 pub extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let exc = unsafe { &*exc };
-        let traceback = unsafe { tb.as_ref() }.map(|obj| obj.to_owned());
+        let exc = unsafe { &*resolve_object_handle(exc) };
+        let traceback = unsafe { resolve_object_handle(tb).as_ref() }.map(|obj| obj.to_owned());
         exc.set_attr("__traceback__", vm.unwrap_or_none(traceback), vm)
     })
 }
@@ -239,8 +295,8 @@ pub extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GivenExceptionMatches(given: *mut PyObject, exc: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let given = unsafe { &*given };
-        let exc = unsafe { &*exc };
+        let given = unsafe { &*resolve_object_handle(given) };
+        let exc = unsafe { &*resolve_object_handle(exc) };
 
         if let Some(exc_type) = exc.downcast_ref::<PyType>() {
             given.is_subclass(exc_type.as_ref(), vm)
@@ -252,6 +308,101 @@ pub extern "C" fn PyErr_GivenExceptionMatches(given: *mut PyObject, exc: *mut Py
             Ok(false)
         }
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_Fetch(
+    ptype: *mut *mut PyObject,
+    pvalue: *mut *mut PyObject,
+    ptraceback: *mut *mut PyObject,
+) {
+    let _: () = with_vm::<PyResult<()>, ()>(|vm| {
+        let exc = vm.take_raised_exception();
+        unsafe {
+            if let Some(exc) = exc {
+                *ptype = exported_object_handle(exc.class().as_object().as_raw().cast_mut());
+                *pvalue = exported_object_handle(exc.as_object().as_raw().cast_mut());
+                *ptraceback = exc
+                    .as_object()
+                    .get_attr("__traceback__", vm)
+                    .ok()
+                    .map(|tb| exported_object_handle(tb.as_object().as_raw().cast_mut()))
+                    .unwrap_or(core::ptr::null_mut());
+            } else {
+                *ptype = core::ptr::null_mut();
+                *pvalue = core::ptr::null_mut();
+                *ptraceback = core::ptr::null_mut();
+            }
+        }
+        Ok(())
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_Restore(
+    ptype: *mut PyObject,
+    pvalue: *mut PyObject,
+    ptraceback: *mut PyObject,
+) {
+    if ptype.is_null() && pvalue.is_null() && ptraceback.is_null() {
+        return;
+    }
+    with_vm::<PyResult<Infallible>, _>(|vm| {
+        let typ = if ptype.is_null() {
+            vm.ctx.exceptions.exception_type.to_owned().into_object()
+        } else {
+            unsafe { (&*resolve_object_handle(ptype)).to_owned() }
+        };
+        let value = if pvalue.is_null() {
+            vm.ctx.none()
+        } else {
+            unsafe { (&*resolve_object_handle(pvalue)).to_owned() }
+        };
+        let tb = if ptraceback.is_null() {
+            vm.ctx.none()
+        } else {
+            unsafe { (&*resolve_object_handle(ptraceback)).to_owned() }
+        };
+        let normalized = vm.normalize_exception(typ, value, tb)?;
+        Err(normalized)
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_NormalizeException(
+    ptype: *mut *mut PyObject,
+    pvalue: *mut *mut PyObject,
+    ptraceback: *mut *mut PyObject,
+) {
+    let _: () = with_vm::<PyResult<()>, ()>(|vm| {
+        unsafe {
+            let typ = if (*ptype).is_null() {
+                vm.ctx.exceptions.exception_type.to_owned().into_object()
+            } else {
+                (&*resolve_object_handle(*ptype)).to_owned()
+            };
+            let value = if (*pvalue).is_null() {
+                vm.ctx.none()
+            } else {
+                (&*resolve_object_handle(*pvalue)).to_owned()
+            };
+            let tb = if (*ptraceback).is_null() {
+                vm.ctx.none()
+            } else {
+                (&*resolve_object_handle(*ptraceback)).to_owned()
+            };
+            let normalized = vm.normalize_exception(typ, value, tb)?;
+            *ptype = exported_object_handle(normalized.class().as_object().as_raw().cast_mut());
+            *pvalue = exported_object_handle(normalized.as_object().as_raw().cast_mut());
+            *ptraceback = normalized
+                .as_object()
+                .get_attr("__traceback__", vm)
+                .ok()
+                .map(|tb| exported_object_handle(tb.as_object().as_raw().cast_mut()))
+                .unwrap_or(core::ptr::null_mut());
+        }
+        Ok(())
+    });
 }
 
 #[cfg(test)]

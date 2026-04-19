@@ -31,6 +31,7 @@ tkinter = ["rustpython-stdlib/tkinter"]
 winresource = "0.1"
 
 [dependencies]
+rustpython-capi = { path = "crates/capi" }
 rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
@@ -53,7 +54,7 @@ rustyline = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-pyo3 = { git = "https://github.com/bschoenmaeckers/pyo3", branch = "RustPython", features = ["auto-initialize"] }
+pyo3 = { path = "/tmp/pyo3-abi-facade", features = ["auto-initialize"] }
 rustpython-stdlib = { workspace = true }
 ruff_python_parser = { workspace = true }
 
@@ -102,7 +103,7 @@ lto = "thin"
 
 [patch.crates-io]
 parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
-pyo3-ffi = { git = "https://github.com/bschoenmaeckers/pyo3", branch = "RustPython" }
+pyo3-ffi = { path = "/tmp/pyo3-abi-facade/pyo3-ffi" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
 

@@ -56,6 +56,15 @@ pub extern "C" fn PyUnicode_AsEncodedString(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyUnicode_EncodeFSDefault(unicode: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
+        let encoded = vm.fsencode(unicode)?;
+        Ok(vm.ctx.new_bytes(encoded.into_owned().into_encoded_bytes()))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_InternInPlace(string: *mut *mut PyObject) {
     with_vm(|vm| {
         let old_str = unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(*string)) }
@@ -92,14 +101,14 @@ pub extern "C" fn PyUnicode_EqualToUTF8AndSize(
 mod tests {
     use pyo3::intern;
     use pyo3::prelude::*;
-    use pyo3::types::PyString;
+    use pyo3::types::{PyString, PyStringMethods};
 
     #[test]
     fn test_unicode() {
         Python::attach(|py| {
             let string = PyString::new(py, "Hello, World!");
             assert!(string.is_instance_of::<PyString>());
-            assert_eq!(string.to_str().unwrap(), "Hello, World!");
+            assert_eq!(string.to_cow().unwrap(), "Hello, World!");
             assert_eq!(string, "Hello, World!");
         })
     }

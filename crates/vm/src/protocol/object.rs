@@ -135,9 +135,27 @@ impl PyObject {
     #[cfg_attr(feature = "flame-it", flame("PyObjectRef"))]
     #[inline]
     pub(crate) fn get_attr_inner(&self, attr_name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        let debug_class = self.class().name().to_owned();
+        if debug_class.contains("blake3") {
+            let getattro = self.class().slots.getattro.load().map(|f| f as usize);
+            let default_getattro = crate::builtins::PyBaseObject::getattro as *const () as usize;
+            eprintln!(
+                "get_attr_inner enter class={} attr={:?} getattro={getattro:?} default_getattro={default_getattro}",
+                debug_class, attr_name
+            );
+        }
         vm_trace!("object.__getattribute__: {:?} {:?}", self, attr_name);
         let getattro = self.class().slots.getattro.load().unwrap();
-        getattro(self, attr_name, vm).inspect_err(|exc| {
+        let result = getattro(self, attr_name, vm);
+        if debug_class.contains("blake3") {
+            eprintln!(
+                "get_attr_inner after_slot class={} attr={:?} ok={}",
+                debug_class,
+                attr_name,
+                result.is_ok()
+            );
+        }
+        result.inspect_err(|exc| {
             vm.set_attribute_error_context(exc, self.to_owned(), attr_name.to_owned());
         })
     }
@@ -229,43 +247,122 @@ impl PyObject {
         dict: Option<PyDictRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
+        let debug_name = format!("{:?}", name_str);
+        let debug_class = self.class().name().to_owned();
+        if debug_class.contains("blake3") {
+            eprintln!("generic_getattr_opt enter class={} name={}", debug_class, debug_name);
+        }
         let name = name_str.as_wtf8();
         let obj_cls = self.class();
         let cls_attr_name = vm.ctx.interned_str(name_str);
+        if debug_class.contains("blake3") {
+            eprintln!(
+                "generic_getattr_opt interned class={} name={} interned={}",
+                debug_class,
+                debug_name,
+                cls_attr_name.is_some()
+            );
+        }
         let cls_attr = match cls_attr_name.and_then(|name| obj_cls.get_attr(name)) {
             Some(descr) => {
+                if debug_class.contains("blake3") {
+                    eprintln!(
+                        "generic_getattr_opt cls_attr class={} name={} attr_class={}",
+                        debug_class,
+                        debug_name,
+                        descr.class().name()
+                    );
+                }
                 let descr_cls = descr.class();
                 let descr_get = descr_cls.slots.descr_get.load();
                 if let Some(descr_get) = descr_get
                     && descr_cls.slots.descr_set.load().is_some()
                 {
+                    if debug_class.contains("blake3") {
+                        eprintln!(
+                            "generic_getattr_opt data_descr class={} name={}",
+                            debug_class, debug_name
+                        );
+                    }
                     let cls = obj_cls.to_owned().into();
                     return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);
                 }
                 Some((descr, descr_get))
             }
-            None => None,
+            None => {
+                if debug_class.contains("blake3") {
+                    eprintln!(
+                        "generic_getattr_opt no_cls_attr class={} name={}",
+                        debug_class, debug_name
+                    );
+                }
+                None
+            }
         };
 
         let dict = dict.or_else(|| self.dict());
+        if debug_class.contains("blake3") {
+            eprintln!(
+                "generic_getattr_opt dict class={} name={} has_dict={}",
+                debug_class,
+                debug_name,
+                dict.is_some()
+            );
+        }
 
         let attr = if let Some(dict) = dict {
+            if debug_class.contains("blake3") {
+                eprintln!(
+                    "generic_getattr_opt dict_lookup class={} name={}",
+                    debug_class, debug_name
+                );
+            }
             dict.get_item_opt(name, vm)?
         } else {
             None
         };
 
         if let Some(obj_attr) = attr {
+            if debug_class.contains("blake3") {
+                eprintln!(
+                    "generic_getattr_opt found_instance_attr class={} name={}",
+                    debug_class, debug_name
+                );
+            }
             Ok(Some(obj_attr))
         } else if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
                 Some(descr_get) => {
+                    if debug_class.contains("blake3") {
+                        eprintln!(
+                            "generic_getattr_opt invoke_descr_get class={} name={} attr_class={}",
+                            debug_class,
+                            debug_name,
+                            attr.class().name()
+                        );
+                    }
                     let cls = obj_cls.to_owned().into();
                     descr_get(attr, Some(self.to_owned()), Some(cls), vm).map(Some)
                 }
-                None => Ok(Some(attr)),
+                None => {
+                    if debug_class.contains("blake3") {
+                        eprintln!(
+                            "generic_getattr_opt plain_class_attr class={} name={} attr_class={}",
+                            debug_class,
+                            debug_name,
+                            attr.class().name()
+                        );
+                    }
+                    Ok(Some(attr))
+                }
             }
         } else {
+            if debug_class.contains("blake3") {
+                eprintln!(
+                    "generic_getattr_opt miss class={} name={}",
+                    debug_class, debug_name
+                );
+            }
             Ok(None)
         }
     }
@@ -582,19 +679,50 @@ impl PyObject {
     /// Real isinstance check without going through __instancecheck__
     /// This is equivalent to CPython's _PyObject_RealIsInstance/object_isinstance
     fn object_isinstance(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
+        eprintln!(
+            "object_isinstance self_class={} cls_class={}",
+            self.class().name(),
+            cls.class().name()
+        );
         if let Ok(cls) = cls.try_to_ref::<PyType>(vm) {
+            eprintln!("object_isinstance cls_is_type={}", cls.name());
             // PyType_Check(cls) - cls is a type object
             let mut retval = self.class().is_subtype(cls);
+            if !retval {
+                eprintln!(
+                    "object_isinstance subtype miss self_type={}({:p}) cls_type={}({:p})",
+                    self.class().name(),
+                    self.class().as_object().as_raw(),
+                    cls.name(),
+                    cls.as_object().as_raw(),
+                );
+                if self.class().name().to_string() == "AttributeError"
+                    && cls.name().to_string() == "Exception"
+                {
+                    eprintln!(
+                        "attribute_error debug builtin_attr={:p} builtin_exc={:p} self_is_builtin_attr={} self_sub_builtin_exc={}",
+                        vm.ctx.exceptions.attribute_error.as_object().as_raw(),
+                        vm.ctx.exceptions.exception_type.as_object().as_raw(),
+                        self.class().is(vm.ctx.exceptions.attribute_error),
+                        self.class().is_subtype(vm.ctx.exceptions.exception_type),
+                    );
+                }
+            }
             if !retval
                 && let Some(i_cls) =
                     vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
                 && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
                 && !i_cls_type.is(self.class())
             {
+                eprintln!(
+                    "object_isinstance __class__ override {}",
+                    i_cls_type.name()
+                );
                 retval = i_cls_type.is_subtype(cls);
             }
             Ok(retval)
         } else {
+            eprintln!("object_isinstance cls_not_type");
             // Not a type object, check if it's a valid class
             cls.check_class(vm, || {
                 format!(
