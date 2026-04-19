@@ -4340,7 +4340,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         C.__name__ = Nasty("abc")
         C.__name__ = "normal"
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'C.__rfloordiv__' != 'C.__floordiv__'
+    @unittest.expectedFailureIf(support.is_android, "TODO: RUSTPYTHON; AssertionError: 'C.__rfloordiv__' != 'C.__floordiv__'")
     def test_subclass_right_op(self):
         # Testing correct dispatch of subclass overloading __r<op>__...
 
