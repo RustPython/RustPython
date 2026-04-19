@@ -898,6 +898,32 @@ impl Frame {
         let nfrees = code.freevars.len();
         let free_start = nlocalsplus - nfrees;
         let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
+        let has_active_hidden_locals = !is_optimized
+            && code.localspluskinds.iter().enumerate().any(|(i, &kind)| {
+                if kind & CO_FAST_HIDDEN == 0 {
+                    return false;
+                }
+                match fastlocals[i].as_ref() {
+                    None => false,
+                    Some(obj) => {
+                        if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
+                            obj.downcast_ref::<PyCell>()
+                                .is_none_or(|cell| cell.get().is_some())
+                        } else {
+                            true
+                        }
+                    }
+                }
+            });
+        let overlay_locals = if has_active_hidden_locals {
+            // Match CPython's PyEval_GetLocals() behavior for frames with
+            // PEP 709 hidden locals: locals() inside an inlined comprehension
+            // returns a snapshot of the active fast locals only, not the
+            // backing module/class/eval mapping.
+            Some(vm.ctx.new_dict())
+        } else {
+            None
+        };
 
         // Track which non-merged cellvar index we're at
         let mut nonmerged_cell_idx = 0;
@@ -975,13 +1001,25 @@ impl Frame {
                 fastlocals[i].clone()
             };
 
-            match locals_map.ass_subscript(name, value, vm) {
+            let result = if let Some(dict) = &overlay_locals {
+                match value {
+                    Some(value) => dict.set_item(name, value, vm),
+                    None => dict.del_item(name, vm),
+                }
+            } else {
+                locals_map.ass_subscript(name, value, vm)
+            };
+            match result {
                 Ok(()) => {}
                 Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                 Err(e) => return Err(e),
             }
         }
-        Ok(locals.clone_mapping(vm))
+        if let Some(dict) = overlay_locals {
+            Ok(ArgMapping::from_dict_exact(dict))
+        } else {
+            Ok(locals.clone_mapping(vm))
+        }
     }
 }
 

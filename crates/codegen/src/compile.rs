@@ -504,6 +504,7 @@ impl Compiler {
                 cellvars: IndexSet::default(),
                 freevars: IndexSet::default(),
                 fast_hidden: IndexMap::default(),
+                fast_hidden_final: IndexSet::default(),
                 argcount: 0,
                 posonlyargcount: 0,
                 kwonlyargcount: 0,
@@ -1323,6 +1324,7 @@ impl Compiler {
                 cellvars: cellvar_cache,
                 freevars: freevar_cache,
                 fast_hidden: IndexMap::default(),
+                fast_hidden_final: IndexSet::default(),
                 argcount: arg_count,
                 posonlyargcount: posonlyarg_count,
                 kwonlyargcount: kwonlyarg_count,
@@ -2222,6 +2224,7 @@ impl Compiler {
         let symbol_scope = {
             let current_table = self.current_symbol_table();
             if current_table.typ == CompilerScope::Class
+                && !self.current_code_info().in_inlined_comp
                 && ((usage == NameUsage::Load
                     && (name == "__class__"
                         || name == "__classdict__"
@@ -2354,7 +2357,15 @@ impl Compiler {
             NameOp::Name => {
                 let namei = self.get_global_name_index(&name);
                 match usage {
-                    NameUsage::Load => emit!(self, Instruction::LoadName { namei }),
+                    NameUsage::Load => {
+                        if self.current_symbol_table().typ == CompilerScope::Class
+                            && self.current_code_info().in_inlined_comp
+                        {
+                            self.emit_load_global(namei, false);
+                        } else {
+                            emit!(self, Instruction::LoadName { namei });
+                        }
+                    }
                     NameUsage::Store => emit!(self, Instruction::StoreName { namei }),
                     NameUsage::Delete => emit!(self, Instruction::DeleteName { namei }),
                 };
@@ -5006,39 +5017,42 @@ impl Compiler {
     fn collect_static_attributes(body: &[ast::Stmt], attrs: Option<&mut IndexSet<String>>) {
         let Some(attrs) = attrs else { return };
         for stmt in body {
-            let f = match stmt {
-                ast::Stmt::FunctionDef(f) => f,
-                _ => continue,
-            };
-            // Skip @staticmethod and @classmethod decorated functions
-            let has_special_decorator = f.decorator_list.iter().any(|d| {
-                matches!(&d.expression, ast::Expr::Name(n)
-                    if n.id.as_str() == "staticmethod" || n.id.as_str() == "classmethod")
-            });
-            if has_special_decorator {
-                continue;
-            }
-            // Skip implicit classmethods (__init_subclass__, __class_getitem__)
-            let fname = f.name.as_str();
-            if fname == "__init_subclass__" || fname == "__class_getitem__" {
-                continue;
-            }
-            // For __new__, scan for "self" (not the first param "cls")
-            if fname == "__new__" {
-                Self::scan_store_attrs(&f.body, "self", attrs);
-                continue;
-            }
-            let first_param = f
-                .parameters
-                .posonlyargs
-                .first()
-                .or(f.parameters.args.first())
-                .map(|p| &p.parameter.name);
-            let Some(self_name) = first_param else {
+            let ast::Stmt::FunctionDef(f) = stmt else {
                 continue;
             };
-            Self::scan_store_attrs(&f.body, self_name.as_str(), attrs);
+            Self::scan_function_store_attrs(f, attrs);
         }
+    }
+
+    fn scan_function_store_attrs(f: &ast::StmtFunctionDef, attrs: &mut IndexSet<String>) {
+        // Skip @staticmethod and @classmethod decorated functions
+        let has_special_decorator = f.decorator_list.iter().any(|d| {
+            matches!(&d.expression, ast::Expr::Name(n)
+                if n.id.as_str() == "staticmethod" || n.id.as_str() == "classmethod")
+        });
+        if has_special_decorator {
+            return;
+        }
+        // Skip implicit classmethods (__init_subclass__, __class_getitem__)
+        let fname = f.name.as_str();
+        if fname == "__init_subclass__" || fname == "__class_getitem__" {
+            return;
+        }
+        // For __new__, scan for "self" (not the first param "cls")
+        if fname == "__new__" {
+            Self::scan_store_attrs(&f.body, "self", attrs);
+            return;
+        }
+        let first_param = f
+            .parameters
+            .posonlyargs
+            .first()
+            .or(f.parameters.args.first())
+            .map(|p| &p.parameter.name);
+        let Some(self_name) = first_param else {
+            return;
+        };
+        Self::scan_store_attrs(&f.body, self_name.as_str(), attrs);
     }
 
     /// Extract self.attr patterns from an assignment target expression.
@@ -5119,6 +5133,9 @@ impl Compiler {
                     for case in &s.cases {
                         Self::scan_store_attrs(&case.body, name, attrs);
                     }
+                }
+                ast::Stmt::FunctionDef(f) => {
+                    Self::scan_function_store_attrs(f, attrs);
                 }
                 _ => {}
             }
@@ -5364,7 +5381,16 @@ impl Compiler {
         self.prepare_decorators(decorator_list)?;
 
         let is_generic = type_params.is_some();
-        let firstlineno = self.get_source_line_number().get().to_u32();
+        let firstlineno = decorator_list
+            .first()
+            .map(|decorator| {
+                self.source_file
+                    .to_source_code()
+                    .line_index(decorator.expression.range().start())
+                    .get()
+                    .to_u32()
+            })
+            .unwrap_or_else(|| self.get_source_line_number().get().to_u32());
 
         // Save context before entering any scopes
         let saved_ctx = self.ctx;
@@ -5588,7 +5614,6 @@ impl Compiler {
             return Ok(());
         };
 
-        self.set_no_location();
         emit!(
             self,
             PseudoInstruction::JumpNoInterrupt { delta: end_block }
@@ -7439,7 +7464,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         enum AugAssignKind<'a> {
             Name { id: &'a str },
-            Subscript,
+            Subscript { use_slice_opt: bool },
             Attr { idx: bytecode::NameIdx },
         }
 
@@ -7455,19 +7480,31 @@ impl Compiler {
                 ctx: _,
                 ..
             }) => {
-                // For augmented assignment, we need to load the value first
-                // But we can't use compile_subscript directly because we need DUP_TOP2
+                let use_slice_opt = slice.should_use_slice_optimization();
                 self.compile_expression(value)?;
-                self.compile_expression(slice)?;
-                emit!(self, Instruction::Copy { i: 2 });
-                emit!(self, Instruction::Copy { i: 2 });
-                emit!(
-                    self,
-                    Instruction::BinaryOp {
-                        op: BinaryOperator::Subscr
-                    }
-                );
-                AugAssignKind::Subscript
+                if use_slice_opt {
+                    let ast::Expr::Slice(slice_expr) = slice.as_ref() else {
+                        unreachable!(
+                            "should_use_slice_optimization should only return true for ast::Expr::Slice"
+                        );
+                    };
+                    self.compile_slice_two_parts(slice_expr)?;
+                    emit!(self, Instruction::Copy { i: 3 });
+                    emit!(self, Instruction::Copy { i: 3 });
+                    emit!(self, Instruction::Copy { i: 3 });
+                    emit!(self, Instruction::BinarySlice);
+                } else {
+                    self.compile_expression(slice)?;
+                    emit!(self, Instruction::Copy { i: 2 });
+                    emit!(self, Instruction::Copy { i: 2 });
+                    emit!(
+                        self,
+                        Instruction::BinaryOp {
+                            op: BinaryOperator::Subscr
+                        }
+                    );
+                }
+                AugAssignKind::Subscript { use_slice_opt }
             }
             ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
                 let attr = attr.as_str();
@@ -7490,11 +7527,19 @@ impl Compiler {
                 // stack: RESULT
                 self.compile_name(id, NameUsage::Store)?;
             }
-            AugAssignKind::Subscript => {
-                // stack: CONTAINER SLICE RESULT
-                emit!(self, Instruction::Swap { i: 3 });
-                emit!(self, Instruction::Swap { i: 2 });
-                emit!(self, Instruction::StoreSubscr);
+            AugAssignKind::Subscript { use_slice_opt } => {
+                if use_slice_opt {
+                    // stack: CONTAINER START STOP RESULT
+                    emit!(self, Instruction::Swap { i: 4 });
+                    emit!(self, Instruction::Swap { i: 3 });
+                    emit!(self, Instruction::Swap { i: 2 });
+                    emit!(self, Instruction::StoreSlice);
+                } else {
+                    // stack: CONTAINER SLICE RESULT
+                    emit!(self, Instruction::Swap { i: 3 });
+                    emit!(self, Instruction::Swap { i: 2 });
+                    emit!(self, Instruction::StoreSubscr);
+                }
             }
             AugAssignKind::Attr { idx } => {
                 // stack: CONTAINER RESULT
@@ -7578,7 +7623,6 @@ impl Compiler {
                 let next2 = self.new_block();
                 self.compile_jump_if_inner(test, false, next2, source_range)?;
                 self.compile_jump_if_inner(body, condition, target_block, source_range)?;
-                self.set_no_location();
                 emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
                 self.set_no_location();
 
@@ -8069,6 +8113,7 @@ impl Compiler {
                 } else {
                     self.compile_bool_op(op, tail)?;
                 }
+                self.mark_last_instruction_folded_from_nonliteral_expr();
                 return Ok(());
             }
         }
@@ -8486,7 +8531,6 @@ impl Compiler {
 
                 // True case
                 self.compile_expression(body)?;
-                self.set_no_location();
                 emit!(
                     self,
                     PseudoInstruction::JumpNoInterrupt { delta: after_block }
@@ -8514,6 +8558,7 @@ impl Compiler {
                     let name = self.mangle(id.as_str());
                     let info = self.code_stack.last_mut().unwrap();
                     info.metadata.fast_hidden.insert(name.to_string(), false);
+                    info.metadata.fast_hidden_final.swap_remove(name.as_ref());
                 }
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Copy { i: 1 });
@@ -9185,10 +9230,12 @@ impl Compiler {
 
         let is_inlined = self.is_inlined_comprehension_context(comprehension_type, &comp_table);
 
-        if is_inlined && !has_an_async_gen && !element_contains_await {
-            // PEP 709: Inlined comprehension - compile inline without new scope.
-            // CPython compiles the outermost iterable before entering the
-            // inlined-comprehension fast-hidden scope tweak.
+        if is_inlined {
+            // CPython inlines every non-generator comprehension that the
+            // symtable marked as comp_inlined, including async variants.
+            // codegen_comprehension() only branches on ste_comp_inlined here
+            // and relies on the inlined path itself to handle GET_AITER /
+            // async-comprehension cleanup.
             return self.compile_inlined_comprehension(
                 comp_table,
                 init_collection,
@@ -9532,6 +9579,10 @@ impl Compiler {
                             .metadata
                             .fast_hidden
                             .insert(name.clone(), true);
+                        self.current_code_info()
+                            .metadata
+                            .fast_hidden_final
+                            .insert(name.clone());
                         changed_fast_hidden.push(name.clone());
                     }
                 }
@@ -9674,8 +9725,14 @@ impl Compiler {
                 emit!(self, PseudoInstruction::PopBlock);
                 self.pop_fblock(FBlockType::TryExcept);
 
-                // Normal path: jump past cleanup
-                emit!(self, PseudoInstruction::Jump { delta: end_block });
+                // Match CPython codegen_pop_inlined_comprehension_locals():
+                // the synthetic jump that skips the exception cleanup uses
+                // JUMP_NO_INTERRUPT, which becomes JUMP_BACKWARD_NO_INTERRUPT
+                // when the cleanup tail sits above the final restore block.
+                emit!(
+                    self,
+                    PseudoInstruction::JumpNoInterrupt { delta: end_block }
+                );
 
                 // Exception cleanup path
                 self.switch_to_block(cleanup_block);
@@ -11356,6 +11413,18 @@ mod tests {
         compile_exec_with_options(source, opts)
     }
 
+    fn compile_single(source: &str) -> CodeObject {
+        let opts = CompileOpts::default();
+        let source_file = SourceFileBuilder::new("source_path", source).finish();
+        let parsed = ruff_python_parser::parse(
+            source_file.source_text(),
+            ruff_python_parser::Mode::Module.into(),
+        )
+        .unwrap()
+        .into_syntax();
+        compile_top(parsed, source_file, Mode::Single, opts).unwrap()
+    }
+
     fn compile_exec_optimized(source: &str) -> CodeObject {
         let opts = CompileOpts {
             optimize: 1,
@@ -11977,6 +12046,79 @@ x = (\"a\"[0]) or 2
     }
 
     #[test]
+    fn test_unary_positive_complex_constant_folds_to_load_const() {
+        let code = compile_exec(
+            "\
+x = +0.0j
+",
+        );
+        let ops: Vec<_> = code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::CallIntrinsic1 { .. })),
+            "unary positive complex constant should not leave CALL_INTRINSIC_1, got ops={ops:?}"
+        );
+        assert!(
+            matches!(
+                ops.as_slice(),
+                [
+                    Instruction::Resume { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::StoreName { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::ReturnValue
+                ]
+            ),
+            "expected module assignment to fold +0.0j into LOAD_CONST, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_folded_nonliteral_bool_op_tail_keeps_plain_load_fast() {
+        let code = compile_exec(
+            "\
+def and_true(x):
+    return True and x
+
+def or_false(x):
+    return False or x
+",
+        );
+
+        for name in ["and_true", "or_false"] {
+            let function = find_code(&code, name).unwrap_or_else(|| panic!("missing {name} code"));
+            let ops: Vec<_> = function
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .filter(|op| !matches!(op, Instruction::Cache))
+                .collect();
+
+            assert!(
+                ops.iter()
+                    .any(|op| matches!(op, Instruction::LoadFast { .. })),
+                "expected folded bool-op tail to keep LOAD_FAST in {name}, got ops={ops:?}"
+            );
+            assert!(
+                !ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        Instruction::LoadFastBorrow { .. }
+                            | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                    )
+                }),
+                "folded bool-op tail should not introduce borrow loads in {name}, got ops={ops:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_nested_double_async_with() {
         assert_dis_snapshot!(compile_exec(
             "\
@@ -12246,6 +12388,67 @@ def f(kwonlyargs, kw_only_defaults, arg2value):
         assert!(
             matches!(next_op, Instruction::JumpBackward { .. }),
             "expected direct loop backedge after STORE_SUBSCR, got {next_op:?}; ops={window:?}"
+        );
+    }
+
+    #[test]
+    fn test_augassign_two_part_slice_uses_slice_opcodes() {
+        let code = compile_exec(
+            "\
+def aug(x, a, b, y):
+    x[a:b] += y
+",
+        );
+        let aug = find_code(&code, "aug").expect("missing aug code");
+        let ops: Vec<_> = aug
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Instruction::BinarySlice))
+                .count(),
+            1,
+            "expected one BINARY_SLICE in augassign slice path, got ops={ops:?}"
+        );
+        assert_eq!(
+            ops.iter()
+                .filter(|op| matches!(op, Instruction::StoreSlice))
+                .count(),
+            1,
+            "expected one STORE_SLICE in augassign slice path, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::BuildSlice { .. } | Instruction::StoreSubscr
+                )
+            }),
+            "two-part augassign slice should avoid BUILD_SLICE/STORE_SUBSCR, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(10).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Copy { .. },
+                        Instruction::Copy { .. },
+                        Instruction::Copy { .. },
+                        Instruction::BinarySlice,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::Swap { .. },
+                        Instruction::Swap { .. },
+                        Instruction::Swap { .. },
+                        Instruction::StoreSlice,
+                    ]
+                )
+            }),
+            "expected CPython-style augassign slice window, got ops={ops:?}"
         );
     }
 
@@ -13477,6 +13680,96 @@ class C:
     }
 
     #[test]
+    fn test_nested_function_static_attributes_are_collected() {
+        let code = compile_exec(
+            "\
+class C:
+    def f(self):
+        self.x = 1
+        self.y = 2
+        self.x = 3
+
+    def g(self, obj):
+        self.y = 4
+        self.z = 5
+
+        def h(self, a):
+            self.u = 6
+            self.v = 7
+
+        obj.self = 8
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+
+        assert!(
+            class_code.constants.iter().any(|constant| matches!(
+                constant,
+                ConstantData::Tuple { elements }
+                    if elements
+                        == &[
+                            ConstantData::Str { value: "u".into() },
+                            ConstantData::Str { value: "v".into() },
+                            ConstantData::Str { value: "x".into() },
+                            ConstantData::Str { value: "y".into() },
+                            ConstantData::Str { value: "z".into() },
+                        ]
+            )),
+            "expected nested function static attributes in class consts"
+        );
+    }
+
+    #[test]
+    fn test_decorated_class_uses_first_decorator_for_firstlineno() {
+        let code = compile_exec(
+            "\
+@dec1
+@dec2
+class C:
+    pass
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+        let store_firstlineno = class_code
+            .instructions
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::StoreName { namei }
+                        if class_code.names
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            .as_str()
+                            == "__firstlineno__"
+                )
+            })
+            .expect("missing STORE_NAME __firstlineno__");
+        let load_firstlineno = class_code
+            .instructions
+            .get(store_firstlineno.saturating_sub(1))
+            .expect("missing LOAD_CONST for __firstlineno__");
+
+        let expected = ConstantData::Integer {
+            value: BigInt::from(1),
+        };
+        assert!(
+            matches!(
+                load_firstlineno.op,
+                Instruction::LoadSmallInt { .. } | Instruction::LoadConst { .. }
+            ),
+            "expected LOAD_SMALL_INT/LOAD_CONST before __firstlineno__, got {:?}",
+            load_firstlineno.op
+        );
+        if let Instruction::LoadConst { consti } = load_firstlineno.op {
+            let value = &class_code.constants
+                [consti.get(OpArg::new(u32::from(u8::from(load_firstlineno.arg))))];
+            assert_eq!(value, &expected);
+        } else {
+            assert_eq!(u32::from(u8::from(load_firstlineno.arg)), 1);
+        }
+    }
+
+    #[test]
     fn test_future_annotations_class_keeps_conditional_annotations_cell() {
         let code = compile_exec(
             "\
@@ -14001,7 +14294,7 @@ def f(x, y, z):
     }
 
     #[test]
-    fn test_constant_ifexp_stmt_in_loop_removes_empty_body() {
+    fn test_constant_if_expression_stmt_in_loop_removes_empty_body() {
         let code = compile_exec(
             "\
 def f(x):
@@ -14025,7 +14318,7 @@ def f(x):
     }
 
     #[test]
-    fn test_ifexp_in_jump_context_skips_constant_true_arm_load() {
+    fn test_if_expression_in_jump_context_skips_constant_true_arm_load() {
         let code = compile_exec(
             "\
 def f():
@@ -14765,6 +15058,41 @@ l = lambda : [2 < x for x in [-1, 3, 0]]
     }
 
     #[test]
+    fn test_async_dictcomp_in_async_function_is_inlined() {
+        let code = compile_exec(
+            "\
+async def f(items):
+    return {item: item async for item in items}
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            find_code(&code, "<dictcomp>").is_none(),
+            "async dict comprehension should be inlined"
+        );
+        assert!(
+            ops.iter().any(|op| matches!(op, Instruction::GetAIter)),
+            "inlined async dict comprehension should keep GET_AITER in outer code, got ops={ops:?}"
+        );
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Instruction::LoadFastAndClear { .. })),
+            "inlined async dict comprehension should use LOAD_FAST_AND_CLEAR, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter().any(|op| matches!(op, Instruction::MakeFunction)),
+            "inlined async dict comprehension should not materialize MAKE_FUNCTION, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_nested_module_scope_dictcomp_symbols_are_local() {
         let symbol_table = scan_program_symbol_table(
             "\
@@ -14887,6 +15215,58 @@ _pathseps_with_colon = {f':{s}' for s in path_separators}
                 Instruction::StoreFastLoadFast { .. } | Instruction::StoreFast { .. }
             )),
             "comprehension target should still use fast locals, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_function_scope_inlined_comprehension_restore_keeps_swap_before_duplicate_store() {
+        let code = compile_exec(
+            "\
+def f():
+    a = [1 for a in [0]]
+    return 1
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| matches!(
+                window,
+                [
+                    Instruction::PopIter,
+                    Instruction::Swap { .. },
+                    Instruction::StoreFast { .. },
+                    Instruction::StoreFast { .. }
+                ]
+            )),
+            "expected PopIter/SWAP 2/STORE_FAST/STORE_FAST restore tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_single_mode_folded_multiline_constant_does_not_leave_nops() {
+        let code = compile_single(
+            "\
+(-
+ -
+ -
+ 1)
+",
+        );
+
+        assert!(
+            !code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::Nop)),
+            "expected folded single-mode multiline constant to drop NOP anchors, got instructions={:?}",
+            code.instructions
         );
     }
 
@@ -15771,9 +16151,9 @@ def f(msg):
     fn test_protected_conditional_tail_keeps_strong_load_fast() {
         let code = compile_exec(
             "\
-def f(m, klass, category, warning_base):
+def f(m, class_name, category, warning_base):
     try:
-        cat = getattr(m, klass)
+        cat = getattr(m, class_name)
     except AttributeError:
         raise ValueError(category)
     if not issubclass(cat, warning_base):

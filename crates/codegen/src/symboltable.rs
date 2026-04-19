@@ -317,26 +317,6 @@ fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String
     }
 }
 
-/// Check if an expression contains an `await` node (shallow, not into nested scopes).
-fn expr_contains_await(expr: &ast::Expr) -> bool {
-    use ast::visitor::Visitor;
-    struct AwaitFinder(bool);
-    impl ast::visitor::Visitor<'_> for AwaitFinder {
-        fn visit_expr(&mut self, expr: &ast::Expr) {
-            if !self.0 {
-                if matches!(expr, ast::Expr::Await(_)) {
-                    self.0 = true;
-                } else {
-                    ast::visitor::walk_expr(self, expr);
-                }
-            }
-        }
-    }
-    let mut finder = AwaitFinder(false);
-    finder.visit_expr(expr);
-    finder.0
-}
-
 /// PEP 709: Merge symbols from an inlined comprehension into the parent scope.
 /// Matches symtable.c inline_comprehension().
 fn inline_comprehension(
@@ -345,7 +325,8 @@ fn inline_comprehension(
     comp_free: &mut IndexSet<String>,
     inlined_cells: &mut IndexSet<String>,
     parent_type: CompilerScope,
-) {
+) -> IndexSet<String> {
+    let mut removed_class_implicit = IndexSet::default();
     for (name, sub_symbol) in &comp.symbols {
         // Skip the .0 parameter
         if sub_symbol.flags.contains(SymbolFlags::PARAMETER) {
@@ -362,9 +343,12 @@ fn inline_comprehension(
         // Handle __class__ in ClassBlock
         let scope = if sub_symbol.scope == SymbolScope::Free
             && parent_type == CompilerScope::Class
-            && name == "__class__"
-        {
+            && matches!(
+                name.as_str(),
+                "__class__" | "__classdict__" | "__conditional_annotations__"
+            ) {
             comp_free.swap_remove(name);
+            removed_class_implicit.insert(name.clone());
             SymbolScope::GlobalImplicit
         } else {
             sub_symbol.scope
@@ -393,6 +377,7 @@ fn inline_comprehension(
             parent_symbols.insert(name.clone(), symbol);
         }
     }
+    removed_class_implicit
 }
 
 type SymbolMap = IndexMap<String, Symbol>;
@@ -557,13 +542,18 @@ impl SymbolTableAnalyzer {
         let mut newfree = IndexSet::default();
         for (idx, (mut child_free, is_inlined)) in child_frees.into_iter().enumerate() {
             if is_inlined {
-                inline_comprehension(
+                let removed_class_implicit = inline_comprehension(
                     &mut symbol_table.symbols,
-                    &sub_tables[idx],
+                    &symbol_table.sub_tables[idx],
                     &mut child_free,
                     &mut inlined_cells,
                     symbol_table.typ,
                 );
+                for name in removed_class_implicit {
+                    symbol_table.sub_tables[idx]
+                        .symbols
+                        .shift_remove(name.as_str());
+                }
             }
             newfree.extend(child_free);
         }
@@ -579,6 +569,12 @@ impl SymbolTableAnalyzer {
 
         let sub_tables = &*symbol_table.sub_tables;
 
+        for symbol in symbol_table.symbols.values_mut() {
+            if inlined_cells.contains(&symbol.name) {
+                symbol.flags.insert(SymbolFlags::COMP_CELL);
+            }
+        }
+
         // Analyze symbols in current scope
         for symbol in symbol_table.symbols.values_mut() {
             self.analyze_symbol(symbol, symbol_table.typ, sub_tables, class_entry)?;
@@ -589,13 +585,24 @@ impl SymbolTableAnalyzer {
             }
         }
 
-        // PEP 709: Promote LOCAL to CELL and set COMP_CELL for inlined cell vars
+        // PEP 709 / CPython symtable.c:
+        // - only promote LOCAL -> CELL in function-like scopes, where
+        //   analyze_cells() runs. Module and class scopes keep their normal
+        //   scope and rely on DEF_COMP_CELL for comprehension-only cells.
+        let promote_inlined_cells_to_cell = matches!(
+            symbol_table.typ,
+            CompilerScope::Function
+                | CompilerScope::AsyncFunction
+                | CompilerScope::Lambda
+                | CompilerScope::Comprehension
+                | CompilerScope::Annotation
+        );
         for symbol in symbol_table.symbols.values_mut() {
-            if inlined_cells.contains(&symbol.name) {
-                if symbol.scope == SymbolScope::Local {
-                    symbol.scope = SymbolScope::Cell;
-                }
-                symbol.flags.insert(SymbolFlags::COMP_CELL);
+            if inlined_cells.contains(&symbol.name)
+                && promote_inlined_cells_to_cell
+                && symbol.scope == SymbolScope::Local
+            {
+                symbol.scope = SymbolScope::Cell;
             }
         }
 
@@ -679,8 +686,19 @@ impl SymbolTableAnalyzer {
                 SymbolScope::Unknown => {
                     // Try hard to figure out what the scope of this symbol is.
                     let scope = if symbol.is_bound() {
-                        self.found_in_inner_scope(sub_tables, &symbol.name, st_typ)
-                            .unwrap_or(SymbolScope::Local)
+                        if symbol.flags.contains(SymbolFlags::COMP_CELL)
+                            && matches!(st_typ, CompilerScope::Module | CompilerScope::Class)
+                        {
+                            // CPython keeps comprehension-only cells in
+                            // module/class scopes as normal local/name
+                            // bindings and uses DEF_COMP_CELL to allocate the
+                            // synthetic cell slot. The spliced comp child
+                            // should not force the outer name itself to CELL.
+                            SymbolScope::Local
+                        } else {
+                            self.found_in_inner_scope(sub_tables, &symbol.name, st_typ)
+                                .unwrap_or(SymbolScope::Local)
+                        }
                     } else if let Some(scope) = self.found_in_outer_scope(&symbol.name, st_typ) {
                         // If found in enclosing scope (function/TypeParams), use that
                         scope
@@ -2207,10 +2225,10 @@ impl SymbolTableBuilder {
         self.tables.last_mut().unwrap().is_generator = is_generator;
 
         // PEP 709: Mark non-generator comprehensions for inlining.
-        // Excluded: generator expressions, async comprehensions,
-        // and annotation scopes nested in classes (can_see_class_scope).
-        let element_has_await = expr_contains_await(elt1) || elt2.is_some_and(expr_contains_await);
-        if !is_generator && !has_async_gen && !element_has_await {
+        // CPython's symtable marks all non-generator comprehensions for
+        // inlining, except annotation scopes nested in classes that can see
+        // class scope.
+        if !is_generator {
             let parent = self.tables.iter().rev().nth(1);
             let parent_can_see_class = parent.is_some_and(|t| t.can_see_class_scope);
             if !parent_can_see_class {

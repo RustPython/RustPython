@@ -392,11 +392,7 @@ def main():
                 sys.stderr.write(".")
                 sys.stderr.flush()
 
-    output = (
-        open(args.output, "w", encoding="utf-8")
-        if args.output
-        else sys.stdout
-    )
+    output = open(args.output, "w", encoding="utf-8") if args.output else sys.stdout
     try:
         json.dump(results, output, ensure_ascii=False, separators=(",", ":"))
     finally:

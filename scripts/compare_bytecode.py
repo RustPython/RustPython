@@ -180,8 +180,7 @@ def _finish_one(job):
         proc.kill()
         proc.communicate()
         print(
-            "  Timeout (600s), retrying %d file(s) serially"
-            % len(job["targets"]),
+            "  Timeout (600s), retrying %d file(s) serially" % len(job["targets"]),
             file=sys.stderr,
         )
         data = None
@@ -205,7 +204,9 @@ def _finish_one(job):
         )
 
     missing = [
-        target for target in job["targets"] if target[0] not in data and target[0] in expected
+        target
+        for target in job["targets"]
+        if target[0] not in data and target[0] in expected
     ]
     if missing:
         print(
