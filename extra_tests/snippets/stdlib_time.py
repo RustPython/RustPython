@@ -24,11 +24,11 @@ assert s == "Thu Jan  1 00:16:40 1970"
 # not TypeError. Covers mktime, asctime, and strftime.
 I32_MAX_PLUS_1 = 2147483648
 overflow_cases = [
-    (I32_MAX_PLUS_1, 1, 1, 0, 0, 0, 0, 0, 0),       # i32 overflow in year
-    (2024, I32_MAX_PLUS_1, 1, 0, 0, 0, 0, 0, 0),    # i32 overflow in month
-    (2024, 1, I32_MAX_PLUS_1, 0, 0, 0, 0, 0, 0),    # i32 overflow in mday
-    (2024, 1, 1, 0, 0, I32_MAX_PLUS_1, 0, 0, 0),    # i32 overflow in sec
-    (88888888888,) * 9,                              # multi-field i32 overflow
+    (I32_MAX_PLUS_1, 1, 1, 0, 0, 0, 0, 0, 0),  # i32 overflow in year
+    (2024, I32_MAX_PLUS_1, 1, 0, 0, 0, 0, 0, 0),  # i32 overflow in month
+    (2024, 1, I32_MAX_PLUS_1, 0, 0, 0, 0, 0, 0),  # i32 overflow in mday
+    (2024, 1, 1, 0, 0, I32_MAX_PLUS_1, 0, 0, 0),  # i32 overflow in sec
+    (88888888888,) * 9,  # multi-field i32 overflow
 ]
 
 for case in overflow_cases:
