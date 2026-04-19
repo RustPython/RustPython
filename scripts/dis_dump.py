@@ -8,6 +8,7 @@ addresses in argument reprs.
 Usage:
     python dis_dump.py Lib/
     python dis_dump.py --base-dir Lib path/to/file.py
+    python dis_dump.py --base-dir Lib --output dump.json path/to/file.py
 """
 
 import argparse
@@ -352,6 +353,11 @@ def main():
         default=0,
         help="Print a dot to stderr every N files processed",
     )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Write JSON output to this file instead of stdout",
+    )
     args = parser.parse_args()
 
     targets = list(args.targets)
@@ -386,7 +392,16 @@ def main():
                 sys.stderr.write(".")
                 sys.stderr.flush()
 
-    json.dump(results, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+    output = (
+        open(args.output, "w", encoding="utf-8")
+        if args.output
+        else sys.stdout
+    )
+    try:
+        json.dump(results, output, ensure_ascii=False, separators=(",", ":"))
+    finally:
+        if args.output:
+            output.close()
 
 
 if __name__ == "__main__":

@@ -72,11 +72,15 @@ def _start_one(interpreter, targets, base_dir):
     files_file = tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", delete=False, dir=PROJECT_ROOT
     )
+    output_file = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", delete=False, dir=PROJECT_ROOT
+    )
     try:
         for _, path in targets:
             files_file.write(path)
             files_file.write("\n")
         files_file.close()
+        output_file.close()
         cmd = [
             interpreter,
             DIS_DUMP,
@@ -84,6 +88,8 @@ def _start_one(interpreter, targets, base_dir):
             base_dir,
             "--files-from",
             files_file.name,
+            "--output",
+            output_file.name,
             "--progress",
             "10",
         ]
@@ -94,44 +100,128 @@ def _start_one(interpreter, targets, base_dir):
             env=env,
             cwd=PROJECT_ROOT,
         )
-        return proc, files_file.name
+        return {
+            "proc": proc,
+            "files_file": files_file.name,
+            "output_file": output_file.name,
+            "targets": targets,
+            "interpreter": interpreter,
+            "base_dir": base_dir,
+        }
     except Exception:
         os.unlink(files_file.name)
+        os.unlink(output_file.name)
         raise
 
 
-def _finish_one(proc, files_file):
-    """Wait for a single dis_dump.py process and return parsed JSON."""
+def _load_dump_output(output_file):
     try:
-        stdout = proc.communicate(timeout=600)[0]
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.communicate()
-        print("  Timeout (600s)", file=sys.stderr)
-        os.unlink(files_file)
-        return {}
-    finally:
-        if os.path.exists(files_file):
-            os.unlink(files_file)
-
-    if proc.returncode != 0:
-        print("  Warning: exited with code %d" % proc.returncode, file=sys.stderr)
-
-    content = stdout.decode(errors="replace").strip()
+        with open(output_file, encoding="utf-8") as f:
+            content = f.read().strip()
+    except OSError as e:
+        print("  Failed to read dump output: %s" % e, file=sys.stderr)
+        return None
     if not content:
         return {}
     try:
         return json.loads(content)
     except json.JSONDecodeError as e:
         print("  JSON parse error: %s" % e, file=sys.stderr)
+        return None
+
+
+def _run_sync_dump(interpreter, targets, base_dir, timeout=600):
+    job = _start_one(interpreter, targets, base_dir)
+    proc = job["proc"]
+    try:
+        stdout = proc.communicate(timeout=600)[0]
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        print("  Timeout (600s)", file=sys.stderr)
+        stdout = b""
+        timed_out = True
+    finally:
+        timed_out = locals().get("timed_out", False)
+
+    try:
+        data = _load_dump_output(job["output_file"])
+    finally:
+        for path in (job["files_file"], job["output_file"]):
+            if os.path.exists(path):
+                os.unlink(path)
+
+    if timed_out:
         return {}
+    if proc.returncode != 0:
+        print("  Warning: exited with code %d" % proc.returncode, file=sys.stderr)
+    stray = stdout.decode(errors="replace").strip()
+    if stray:
+        print("  Warning: unexpected stdout from dump helper", file=sys.stderr)
+    return data
+
+
+def _rerun_missing_targets(interpreter, targets, base_dir):
+    recovered = {}
+    for target in targets:
+        data = _run_sync_dump(interpreter, [target], base_dir)
+        if data:
+            recovered.update(data)
+    return recovered
+
+
+def _finish_one(job):
+    """Wait for a single dis_dump.py process and return parsed JSON."""
+    proc = job["proc"]
+    expected = {relpath for relpath, _ in job["targets"]}
+    try:
+        stdout = proc.communicate(timeout=600)[0]
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        print(
+            "  Timeout (600s), retrying %d file(s) serially"
+            % len(job["targets"]),
+            file=sys.stderr,
+        )
+        data = None
+    else:
+        data = _load_dump_output(job["output_file"])
+    finally:
+        for path in (job["files_file"], job["output_file"]):
+            if os.path.exists(path):
+                os.unlink(path)
+
+    if proc.returncode != 0:
+        print("  Warning: exited with code %d" % proc.returncode, file=sys.stderr)
+
+    stray = stdout.decode(errors="replace").strip() if "stdout" in locals() else ""
+    if stray:
+        print("  Warning: unexpected stdout from dump helper", file=sys.stderr)
+
+    if data is None:
+        return _rerun_missing_targets(
+            job["interpreter"], job["targets"], job["base_dir"]
+        )
+
+    missing = [
+        target for target in job["targets"] if target[0] not in data and target[0] in expected
+    ]
+    if missing:
+        print(
+            "  Re-running %d missing file(s) serially" % len(missing),
+            file=sys.stderr,
+        )
+        data.update(
+            _rerun_missing_targets(job["interpreter"], missing, job["base_dir"])
+        )
+    return data
 
 
 def start_dump(interpreter, targets, base_dir, num_workers=1):
     """Start dis_dump.py under the given interpreter, split across workers."""
     if num_workers <= 1 or len(targets) <= num_workers:
-        proc, ff = _start_one(interpreter, targets, base_dir)
-        return [(proc, ff)]
+        return [_start_one(interpreter, targets, base_dir)]
 
     chunks = [[] for _ in range(num_workers)]
     for i, t in enumerate(targets):
@@ -143,8 +233,8 @@ def start_dump(interpreter, targets, base_dir, num_workers=1):
 def finish_dump(procs):
     """Wait for all dis_dump.py processes and merge results."""
     merged = {}
-    for proc, files_file in procs:
-        merged.update(_finish_one(proc, files_file))
+    for job in procs:
+        merged.update(_finish_one(job))
     return merged
 
 

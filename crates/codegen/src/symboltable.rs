@@ -385,15 +385,11 @@ fn inline_comprehension(
                 }
             }
         } else {
-            // Name doesn't exist in parent, copy from comprehension.
-            // Reset scope to Unknown so analyze_symbol will resolve it
-            // in the parent's context.
+            // Name doesn't exist in parent, copy the comprehension binding.
+            // This matches CPython's inline_comprehension(): newly introduced
+            // comprehension locals stay locals in the parent scope.
             let mut symbol = sub_symbol.clone();
-            symbol.scope = if sub_symbol.is_bound() {
-                SymbolScope::Unknown
-            } else {
-                scope
-            };
+            symbol.scope = scope;
             parent_symbols.insert(name.clone(), symbol);
         }
     }
@@ -2211,24 +2207,13 @@ impl SymbolTableBuilder {
         self.tables.last_mut().unwrap().is_generator = is_generator;
 
         // PEP 709: Mark non-generator comprehensions for inlining.
-        // Only in function-like scopes for now. Module/class scope inlining
-        // needs more work (Cell name resolution, __class__ handling).
-        // Also excluded: generator expressions, async comprehensions,
+        // Excluded: generator expressions, async comprehensions,
         // and annotation scopes nested in classes (can_see_class_scope).
         let element_has_await = expr_contains_await(elt1) || elt2.is_some_and(expr_contains_await);
         if !is_generator && !has_async_gen && !element_has_await {
             let parent = self.tables.iter().rev().nth(1);
             let parent_can_see_class = parent.is_some_and(|t| t.can_see_class_scope);
-            let parent_is_func = parent.is_some_and(|t| {
-                matches!(
-                    t.typ,
-                    CompilerScope::Function
-                        | CompilerScope::AsyncFunction
-                        | CompilerScope::Lambda
-                        | CompilerScope::Comprehension
-                )
-            });
-            if !parent_can_see_class && parent_is_func {
+            if !parent_can_see_class {
                 self.tables.last_mut().unwrap().comp_inlined = true;
             }
         }
