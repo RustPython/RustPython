@@ -27,7 +27,7 @@ unsafe extern "C" {
 mod decl {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
         function::{Either, FuncArgs, OptionalArg},
         types::{PyStructSequence, struct_sequence_new},
     };
@@ -354,6 +354,13 @@ mod decl {
     ) -> PyResult<CheckedTm> {
         let invalid_tuple =
             || vm.new_type_error(format!("{func_name}(): illegal time tuple argument"));
+        let classify_err = |e: PyBaseExceptionRef| {
+            if e.class().is(vm.ctx.exceptions.overflow_error) {
+                vm.new_overflow_error(format!("{func_name} argument out of range"))
+            } else {
+                invalid_tuple()
+            }
+        };
 
         let year: i64 = t.tm_year.clone().try_into_value(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.overflow_error) {
@@ -370,46 +377,30 @@ mod decl {
             .tm_mon
             .clone()
             .try_into_value::<i32>(vm)
-            .map_err(|_| invalid_tuple())?
+            .map_err(classify_err)?
             - 1;
-        let tm_mday = t
-            .tm_mday
-            .clone()
-            .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
-        let tm_hour = t
-            .tm_hour
-            .clone()
-            .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
-        let tm_min = t
-            .tm_min
-            .clone()
-            .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
-        let tm_sec = t
-            .tm_sec
-            .clone()
-            .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
+        let tm_mday = t.tm_mday.clone().try_into_value(vm).map_err(classify_err)?;
+        let tm_hour = t.tm_hour.clone().try_into_value(vm).map_err(classify_err)?;
+        let tm_min = t.tm_min.clone().try_into_value(vm).map_err(classify_err)?;
+        let tm_sec = t.tm_sec.clone().try_into_value(vm).map_err(classify_err)?;
         let tm_wday = (t
             .tm_wday
             .clone()
             .try_into_value::<i32>(vm)
-            .map_err(|_| invalid_tuple())?
+            .map_err(classify_err)?
             + 1)
             % 7;
         let tm_yday = t
             .tm_yday
             .clone()
             .try_into_value::<i32>(vm)
-            .map_err(|_| invalid_tuple())?
+            .map_err(classify_err)?
             - 1;
         let tm_isdst = t
             .tm_isdst
             .clone()
             .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
+            .map_err(classify_err)?;
 
         let mut tm: libc::tm = unsafe { core::mem::zeroed() };
         tm.tm_year = year - 1900;
@@ -474,7 +465,7 @@ mod decl {
                     .tm_gmtoff
                     .clone()
                     .try_into_value(vm)
-                    .map_err(|_| invalid_tuple())?;
+                    .map_err(classify_err)?;
                 tm.tm_gmtoff = gmtoff as _;
             }
 
@@ -963,41 +954,28 @@ mod decl {
         vm: &VirtualMachine,
     ) -> PyResult<libc::tm> {
         let invalid_tuple = || vm.new_type_error("mktime(): illegal time tuple argument");
-        let year: i32 = t
-            .tm_year
-            .clone()
-            .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
+        let classify_err = |e: PyBaseExceptionRef| {
+            if e.class().is(vm.ctx.exceptions.overflow_error) {
+                vm.new_overflow_error("mktime argument out of range")
+            } else {
+                invalid_tuple()
+            }
+        };
+        let year: i32 = t.tm_year.clone().try_into_value(vm).map_err(classify_err)?;
         if year < i32::MIN + 1900 {
             return Err(vm.new_overflow_error("year out of range"));
         }
 
         let mut tm: libc::tm = unsafe { core::mem::zeroed() };
-        tm.tm_sec = t
-            .tm_sec
-            .clone()
-            .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
-        tm.tm_min = t
-            .tm_min
-            .clone()
-            .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
-        tm.tm_hour = t
-            .tm_hour
-            .clone()
-            .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
-        tm.tm_mday = t
-            .tm_mday
-            .clone()
-            .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
+        tm.tm_sec = t.tm_sec.clone().try_into_value(vm).map_err(classify_err)?;
+        tm.tm_min = t.tm_min.clone().try_into_value(vm).map_err(classify_err)?;
+        tm.tm_hour = t.tm_hour.clone().try_into_value(vm).map_err(classify_err)?;
+        tm.tm_mday = t.tm_mday.clone().try_into_value(vm).map_err(classify_err)?;
         tm.tm_mon = t
             .tm_mon
             .clone()
             .try_into_value::<i32>(vm)
-            .map_err(|_| invalid_tuple())?
+            .map_err(classify_err)?
             - 1;
         tm.tm_year = year - 1900;
         tm.tm_wday = -1;
@@ -1005,13 +983,13 @@ mod decl {
             .tm_yday
             .clone()
             .try_into_value::<i32>(vm)
-            .map_err(|_| invalid_tuple())?
+            .map_err(classify_err)?
             - 1;
         tm.tm_isdst = t
             .tm_isdst
             .clone()
             .try_into_value(vm)
-            .map_err(|_| invalid_tuple())?;
+            .map_err(classify_err)?;
         Ok(tm)
     }
 
@@ -1441,6 +1419,8 @@ mod platform {
         let zone = widestring::decode_utf16_lossy(name.iter().copied())
             .take_while(|&c| c != '\0')
             .collect::<String>();
+
+        #[allow(clippy::unnecessary_cast, reason = "info.Bias is not always i32")]
         let gmtoff = -((info.Bias + bias) as i32) * 60;
 
         Ok(struct_time_from_tm(vm, tm, &zone, gmtoff))

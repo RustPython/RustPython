@@ -1,3 +1,4 @@
+use icu_properties::props::{EnumeratedProperty, GeneralCategory, GeneralCategoryGroup};
 use rustpython_wtf8::Wtf8;
 
 #[derive(Debug, Clone, Copy)]
@@ -443,7 +444,11 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
     // TODO: check with cpython
     char::try_from(ch)
-        .map(|x| x.is_alphanumeric())
+        .map(|c| {
+            GeneralCategoryGroup::Letter
+                .union(GeneralCategoryGroup::Number)
+                .contains(GeneralCategory::for_char(c))
+        })
         .unwrap_or(false)
 }
 #[inline]

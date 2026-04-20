@@ -18,7 +18,7 @@ thiserror = { workspace = true }
 libffi = { workspace = true }
 
 cranelift = "0.130.0"
-cranelift-jit = "0.130.0"
+cranelift-jit = "0.130.1"
 cranelift-module = "0.130.0"
 
 [dev-dependencies]

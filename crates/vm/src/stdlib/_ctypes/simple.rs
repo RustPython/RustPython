@@ -301,16 +301,17 @@ impl PyCSimpleType {
         // 4. Try to convert value based on type code
         match type_code.as_deref() {
             // Integer types: accept integers
-            Some(tc @ ("b" | "B" | "h" | "H" | "i" | "I" | "l" | "L" | "q" | "Q")) => {
-                if value.try_int(vm).is_ok() {
-                    return create_simple_with_value(tc, &value);
-                }
+            Some(tc @ ("b" | "B" | "h" | "H" | "i" | "I" | "l" | "L" | "q" | "Q"))
+                if value.try_int(vm).is_ok() =>
+            {
+                return create_simple_with_value(tc, &value);
             }
+
             // Float types: accept numbers
-            Some(tc @ ("f" | "d" | "g")) => {
-                if value.try_float(vm).is_ok() || value.try_int(vm).is_ok() {
-                    return create_simple_with_value(tc, &value);
-                }
+            Some(tc @ ("f" | "d" | "g"))
+                if value.try_float(vm).is_ok() || value.try_int(vm).is_ok() =>
+            {
+                return create_simple_with_value(tc, &value);
             }
             // c_char: 1 byte character
             Some("c") => {

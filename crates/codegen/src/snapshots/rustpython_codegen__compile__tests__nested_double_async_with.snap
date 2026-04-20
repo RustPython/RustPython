@@ -1,6 +1,6 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 10936
+assertion_line: 11626
 expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
   1           0 RESUME               (0)
@@ -13,7 +13,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
             >>    5 CACHE
                   6 CACHE
                   7 CACHE
-                  8 LOAD_CONST           ("spam")
+            >>    8 LOAD_CONST           ("spam")
                   9 CALL                 (1)
             >>   10 CACHE
                  11 CACHE
@@ -34,7 +34,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  26 CACHE
                  27 STORE_FAST           (0, stop_exc)
 
-  3         >>   28 LOAD_GLOBAL          (4, self)
+  3              28 LOAD_GLOBAL          (4, self)
                  29 CACHE
                  30 CACHE
                  31 CACHE
@@ -51,10 +51,10 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  42 CACHE
                  43 LOAD_GLOBAL          (9, NULL + type)
                  44 CACHE
-                 45 CACHE
+            >>   45 CACHE
                  46 CACHE
                  47 CACHE
-            >>   48 LOAD_FAST            (0, stop_exc)
+                 48 LOAD_FAST_BORROW     (0, stop_exc)
                  49 CALL                 (1)
                  50 CACHE
                  51 CACHE
@@ -105,7 +105,7 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                  94 END_SEND
                  95 POP_TOP
 
-  6              96 LOAD_FAST            (0, stop_exc)
+  6              96 LOAD_FAST_BORROW     (0, stop_exc)
                  97 RAISE_VARARGS        (Raise)
 
   2              98 END_FOR
@@ -139,115 +139,118 @@ expression: "compile_exec(\"\\\nasync def test():\n    for stop_exc in (StopIter
                 125 POP_TOP
                 126 POP_TOP
                 127 POP_TOP
-                128 JUMP_FORWARD         (48)
+                128 JUMP_FORWARD         (3)
                 129 COPY                 (3)
                 130 POP_EXCEPT
                 131 RERAISE              (1)
-                132 PUSH_EXC_INFO
+                132 NOP
 
-  7             133 LOAD_GLOBAL          (12, Exception)
+ 10             133 LOAD_GLOBAL          (4, self)
                 134 CACHE
                 135 CACHE
                 136 CACHE
                 137 CACHE
-                138 CHECK_EXC_MATCH
-                139 POP_JUMP_IF_FALSE    (28)
+                138 LOAD_ATTR            (13, fail, method=true)
+                139 CACHE
                 140 CACHE
-                141 NOT_TAKEN
-                142 STORE_FAST           (1, ex)
-
-  8             143 LOAD_GLOBAL          (4, self)
+                141 CACHE
+                142 CACHE
+                143 CACHE
                 144 CACHE
                 145 CACHE
                 146 CACHE
                 147 CACHE
-                148 LOAD_ATTR            (15, assertIs, method=true)
-                149 CACHE
-                150 CACHE
-                151 CACHE
-                152 CACHE
+                148 LOAD_FAST            (0, stop_exc)
+                149 FORMAT_SIMPLE
+                150 LOAD_CONST           (" was suppressed")
+                151 BUILD_STRING         (2)
+                152 CALL                 (1)
                 153 CACHE
                 154 CACHE
                 155 CACHE
-                156 CACHE
-                157 CACHE
-                158 LOAD_FAST_LOAD_FAST  (ex, stop_exc)
-                159 CALL                 (2)
+                156 POP_TOP
+                157 JUMP_FORWARD         (45)
+                158 PUSH_EXC_INFO
+
+  7             159 LOAD_GLOBAL          (14, Exception)
                 160 CACHE
                 161 CACHE
                 162 CACHE
-                163 POP_TOP
-                164 POP_EXCEPT
-                165 LOAD_CONST           (None)
-                166 STORE_FAST           (1, ex)
-                167 DELETE_FAST          (1, ex)
-                168 JUMP_FORWARD         (32)
-                169 RERAISE              (0)
-                170 LOAD_CONST           (None)
-                171 STORE_FAST           (1, ex)
-                172 DELETE_FAST          (1, ex)
-                173 RERAISE              (1)
-                174 COPY                 (3)
-                175 POP_EXCEPT
-                176 RERAISE              (1)
+                163 CACHE
+                164 CHECK_EXC_MATCH
+                165 POP_JUMP_IF_FALSE    (32)
+                166 CACHE
+                167 NOT_TAKEN
+                168 STORE_FAST           (1, ex)
 
- 10             177 LOAD_GLOBAL          (4, self)
+  8             169 LOAD_GLOBAL          (4, self)
+                170 CACHE
+                171 CACHE
+                172 CACHE
+                173 CACHE
+                174 LOAD_ATTR            (17, assertIs, method=true)
+                175 CACHE
+                176 CACHE
+                177 CACHE
                 178 CACHE
                 179 CACHE
                 180 CACHE
                 181 CACHE
-                182 LOAD_ATTR            (17, fail, method=true)
+                182 CACHE
                 183 CACHE
-                184 CACHE
-                185 CACHE
-            >>  186 CACHE
+                184 LOAD_FAST_LOAD_FAST  (ex, stop_exc)
+                185 CALL                 (2)
+                186 CACHE
                 187 CACHE
-                188 CACHE
-                189 CACHE
-                190 CACHE
-                191 CACHE
-                192 LOAD_FAST_BORROW     (0, stop_exc)
-                193 FORMAT_SIMPLE
-                194 LOAD_CONST           (" was suppressed")
-                195 BUILD_STRING         (2)
-                196 CALL                 (1)
-                197 CACHE
-                198 CACHE
-                199 CACHE
-                200 POP_TOP
+            >>  188 CACHE
+                189 POP_TOP
+                190 POP_EXCEPT
+                191 LOAD_CONST           (None)
+                192 STORE_FAST           (1, ex)
+                193 DELETE_FAST          (1, ex)
+                194 JUMP_FORWARD         (8)
+                195 LOAD_CONST           (None)
+                196 STORE_FAST           (1, ex)
+                197 DELETE_FAST          (1, ex)
+                198 RERAISE              (1)
+                199 RERAISE              (0)
+                200 COPY                 (3)
+                201 POP_EXCEPT
+                202 RERAISE              (1)
 
-  3             201 LOAD_CONST           (None)
-            >>  202 LOAD_CONST           (None)
-                203 LOAD_CONST           (None)
-                204 CALL                 (3)
-                205 CACHE
-                206 CACHE
+  3             203 LOAD_CONST           (None)
+                204 LOAD_CONST           (None)
+            >>  205 LOAD_CONST           (None)
+                206 CALL                 (3)
                 207 CACHE
-                208 POP_TOP
-                209 JUMP_BACKWARD        (186)
-                210 CACHE
-                211 PUSH_EXC_INFO
-                212 WITH_EXCEPT_START
-                213 TO_BOOL
-                214 CACHE
-                215 CACHE
+                208 CACHE
+                209 CACHE
+                210 POP_TOP
+                211 JUMP_BACKWARD        (188)
+                212 CACHE
+                213 PUSH_EXC_INFO
+                214 WITH_EXCEPT_START
+                215 TO_BOOL
                 216 CACHE
-                217 POP_JUMP_IF_TRUE     (2)
+                217 CACHE
                 218 CACHE
-                219 NOT_TAKEN
-                220 RERAISE              (2)
-                221 POP_TOP
-                222 POP_EXCEPT
+                219 POP_JUMP_IF_TRUE     (2)
+                220 CACHE
+                221 NOT_TAKEN
+                222 RERAISE              (2)
                 223 POP_TOP
-                224 POP_TOP
+                224 POP_EXCEPT
                 225 POP_TOP
-                226 JUMP_BACKWARD_NO_INTERRUPT(202)
-                227 COPY                 (3)
-                228 POP_EXCEPT
-                229 RERAISE              (1)
+                226 POP_TOP
+                227 POP_TOP
+                228 JUMP_BACKWARD        (205)
+                229 CACHE
+                230 COPY                 (3)
+                231 POP_EXCEPT
+                232 RERAISE              (1)
 
-  2             230 CALL_INTRINSIC_1     (StopIterationError)
-                231 RERAISE              (1)
+  2             233 CALL_INTRINSIC_1     (StopIterationError)
+                234 RERAISE              (1)
 
               2 MAKE_FUNCTION
               3 STORE_NAME           (0, test)

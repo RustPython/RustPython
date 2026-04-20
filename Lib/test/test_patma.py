@@ -3448,7 +3448,6 @@ class TestTracing(unittest.TestCase):
         self.assertListEqual(self._trace(f, "go x"), [1, 2, 4, 5])
         self.assertListEqual(self._trace(f, "spam"), [1, 2, 4, 6, 7])
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_default_capture(self):
         def f(command):                                         # 0
             match command.split():                              # 1
@@ -3463,7 +3462,6 @@ class TestTracing(unittest.TestCase):
         self.assertListEqual(self._trace(f, "go x"), [1, 2, 4, 5])
         self.assertListEqual(self._trace(f, "spam"), [1, 2, 4, 6, 7])
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_no_default(self):
         def f(command):                                         # 0
             match command.split():                              # 1
@@ -3476,7 +3474,6 @@ class TestTracing(unittest.TestCase):
         self.assertListEqual(self._trace(f, "go x"), [1, 2, 4, 5])
         self.assertListEqual(self._trace(f, "spam"), [1, 2, 4])
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_only_default_wildcard(self):
         def f(command):               # 0
             match command.split():    # 1
@@ -3487,7 +3484,6 @@ class TestTracing(unittest.TestCase):
         self.assertListEqual(self._trace(f, "go x"), [1, 2, 3])
         self.assertListEqual(self._trace(f, "spam"), [1, 2, 3])
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_only_default_capture(self):
         def f(command):             # 0
             match command.split():  # 1

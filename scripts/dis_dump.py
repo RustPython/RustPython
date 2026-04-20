@@ -11,6 +11,8 @@ Usage:
 """
 
 import argparse
+import ast
+import builtins
 import dis
 import json
 import os
@@ -38,6 +40,7 @@ _JUMP_OPNAMES = frozenset(
         "JUMP_IF_TRUE_OR_POP",
         "JUMP_IF_FALSE_OR_POP",
         "FOR_ITER",
+        "END_ASYNC_FOR",
         "SEND",
     }
 )
@@ -93,6 +96,14 @@ def _normalize_argrepr(argrepr):
 
     argrepr = re.sub(r"\\u([0-9a-fA-F]{4})", _unescape, argrepr)
     argrepr = re.sub(r"\\U([0-9a-fA-F]{8})", _unescape, argrepr)
+    if argrepr.startswith("frozenset({") and argrepr.endswith("})"):
+        try:
+            values = ast.literal_eval(argrepr[len("frozenset(") : -1])
+        except Exception:
+            return argrepr
+        if isinstance(values, set):
+            parts = sorted(_normalize_argrepr(repr(value)) for value in values)
+            return f"frozenset({{{', '.join(parts)}}})"
     return argrepr
 
 
@@ -100,8 +111,31 @@ _IS_RUSTPYTHON = (
     hasattr(sys, "implementation") and sys.implementation.name == "rustpython"
 )
 
+if _IS_RUSTPYTHON and hasattr(dis, "_common_constants"):
+    common_constants = list(dis._common_constants)
+    while len(common_constants) < 7:
+        common_constants.append(
+            (builtins.list, builtins.set)[len(common_constants) - 5]
+        )
+    dis._common_constants = common_constants
+
 # RustPython's ComparisonOperator enum values → operator strings
 _RP_CMP_OPS = {0: "<", 1: "<=", 2: "==", 3: "!=", 4: ">", 5: ">="}
+
+
+def _resolve_localsplus_name(code, arg):
+    if not isinstance(arg, int) or arg < 0:
+        return arg
+    nlocals = len(code.co_varnames)
+    if arg < nlocals:
+        return code.co_varnames[arg]
+    varnames_set = set(code.co_varnames)
+    nonparam_cells = [v for v in code.co_cellvars if v not in varnames_set]
+    extra = nonparam_cells + list(code.co_freevars)
+    idx = arg - nlocals
+    if 0 <= idx < len(extra):
+        return extra[idx]
+    return arg
 
 
 def _resolve_arg_fallback(code, opname, arg):
@@ -113,8 +147,7 @@ def _resolve_arg_fallback(code, opname, arg):
         return arg
     try:
         if "FAST" in opname:
-            if 0 <= arg < len(code.co_varnames):
-                return code.co_varnames[arg]
+            return _resolve_localsplus_name(code, arg)
         elif opname == "LOAD_CONST":
             if 0 <= arg < len(code.co_consts):
                 return _normalize_argrepr(repr(code.co_consts[arg]))
@@ -125,18 +158,7 @@ def _resolve_arg_fallback(code, opname, arg):
             "LOAD_CLOSURE",
             "MAKE_CELL",
         ):
-            # arg is localsplus index:
-            #   0..nlocals-1 = varnames (parameter cells reuse these slots)
-            #   nlocals.. = non-parameter cells + freevars
-            nlocals = len(code.co_varnames)
-            if arg < nlocals:
-                return code.co_varnames[arg]
-            varnames_set = set(code.co_varnames)
-            nonparam_cells = [v for v in code.co_cellvars if v not in varnames_set]
-            extra = nonparam_cells + list(code.co_freevars)
-            idx = arg - nlocals
-            if 0 <= idx < len(extra):
-                return extra[idx]
+            return _resolve_localsplus_name(code, arg)
         elif opname in (
             "LOAD_NAME",
             "STORE_NAME",
@@ -237,7 +259,7 @@ def _extract_instructions(code):
             # 1. argval not in offset_to_idx (not a valid byte offset)
             # 2. argval == arg (raw arg returned as-is, not resolved to offset)
             # 3. For backward jumps: argval should be < current offset
-            is_backward = "BACKWARD" in inst.opname
+            is_backward = "BACKWARD" in inst.opname or inst.opname == "END_ASYNC_FOR"
             argval_is_raw = inst.argval == inst.arg and inst.arg is not None
             if target_idx is None or argval_is_raw:
                 target_idx = None  # force recalculation

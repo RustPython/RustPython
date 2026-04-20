@@ -19,6 +19,18 @@ impl OpArgByte {
     pub const fn new(value: u8) -> Self {
         Self(value)
     }
+
+    /// Returns the inner value as a [`u8`].
+    #[must_use]
+    pub const fn as_u8(self) -> u8 {
+        self.0
+    }
+
+    /// Returns the inner value as a [`u32`].
+    #[must_use]
+    pub const fn as_u32(self) -> u32 {
+        self.0 as u32
+    }
 }
 
 impl From<u8> for OpArgByte {
@@ -29,7 +41,7 @@ impl From<u8> for OpArgByte {
 
 impl From<OpArgByte> for u8 {
     fn from(value: OpArgByte) -> Self {
-        value.0
+        value.as_u8()
     }
 }
 
@@ -93,7 +105,7 @@ pub struct OpArgState {
 
 impl OpArgState {
     #[inline(always)]
-    pub fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
+    pub const fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
         let arg = self.extend(ins.arg);
         if !matches!(ins.op, Instruction::ExtendedArg) {
             self.reset();
@@ -102,9 +114,9 @@ impl OpArgState {
     }
 
     #[inline(always)]
-    pub fn extend(&mut self, arg: OpArgByte) -> OpArg {
-        self.state = (self.state << 8) | u32::from(arg.0);
-        self.state.into()
+    pub const fn extend(&mut self, arg: OpArgByte) -> OpArg {
+        self.state = (self.state << 8) | arg.as_u32();
+        OpArg::new(self.state)
     }
 
     #[inline(always)]
@@ -124,10 +136,6 @@ impl OpArgState {
 /// - impl [`Into<u32>`]
 /// - impl [`OpArgType`]
 ///
-/// # Note
-/// If an enum variant has "alternative" values (i.e. `Foo = 0 | 1`), the first value will be the
-/// result of converting to a number.
-///
 /// # Examples
 ///
 /// ```ignore
@@ -138,8 +146,8 @@ impl OpArgState {
 ///         /// Some doc.
 ///         Foo = 4,
 ///         Bar = 8,
-///         Baz = 15 | 16,
-///         Qux = 23 | 42
+///         Baz = 15,
+///         Qux = 16
 ///     }
 /// );
 /// ```
@@ -149,7 +157,7 @@ macro_rules! oparg_enum {
         $vis:vis enum $name:ident {
             $(
                 $(#[$variant_meta:meta])*
-                $variant:ident = $value:literal $(| $alternatives:expr)*
+                $variant:ident = $value:literal
             ),* $(,)?
         }
     ) => {
@@ -162,9 +170,9 @@ macro_rules! oparg_enum {
         }
 
         impl_oparg_enum!(
-            enum $name {
+            $vis enum $name {
                 $(
-                    $variant = $value $(| $alternatives)*,
+                    $variant = $value,
                 )*
             }
         );
@@ -173,22 +181,53 @@ macro_rules! oparg_enum {
 
 macro_rules! impl_oparg_enum {
     (
-        enum $name:ident {
+        $vis:vis enum $name:ident {
             $(
-                $variant:ident = $value:literal $(| $alternatives:expr)*
+                $variant:ident = $value:literal
             ),* $(,)?
         }
     ) => {
+        impl $name {
+            /// Returns the oparg as a [`u8`] value.
+            #[must_use]
+            $vis const fn as_u8(self) -> u8 {
+                match self {
+                    $(
+                        Self::$variant => $value,
+                    )*
+                }
+            }
+
+            /// Returns the oparg as a [`u32`] value.
+            #[must_use]
+            $vis const fn as_u32(self) -> u32 {
+                self.as_u8() as u32
+            }
+
+            $vis const fn try_from_u8(value: u8) -> Result<Self, $crate::marshal::MarshalError> {
+                Ok(match value {
+                    $(
+                        $value => Self::$variant,
+                    )*
+                    _ => return Err($crate::marshal::MarshalError::InvalidBytecode),
+                })
+            }
+
+            $vis const fn try_from_u32(value: u32) -> Result<Self, $crate::marshal::MarshalError> {
+                if value > (u8::MAX as u32) {
+                    return Err($crate::marshal::MarshalError::InvalidBytecode);
+                }
+
+                // We already validated this is a lossles cast.
+                Self::try_from_u8(value as u8)
+            }
+        }
+
         impl TryFrom<u8> for $name {
             type Error = $crate::marshal::MarshalError;
 
             fn try_from(value: u8) -> Result<Self, Self::Error> {
-                Ok(match value {
-                    $(
-                        $value $(| $alternatives)* => Self::$variant,
-                    )*
-                    _ => return Err(Self::Error::InvalidBytecode),
-                })
+                Self::try_from_u8(value)
             }
         }
 
@@ -196,25 +235,19 @@ macro_rules! impl_oparg_enum {
             type Error = $crate::marshal::MarshalError;
 
             fn try_from(value: u32) -> Result<Self, Self::Error> {
-                u8::try_from(value)
-                    .map_err(|_| Self::Error::InvalidBytecode)
-                    .map(TryInto::try_into)?
+                Self::try_from_u32(value)
             }
         }
 
         impl From<$name> for u8 {
             fn from(value: $name) -> Self {
-                match value {
-                    $(
-                        $name::$variant => $value,
-                    )*
-                }
+                value.as_u8()
             }
         }
 
         impl From<$name> for u32 {
             fn from(value: $name) -> Self {
-                Self::from(u8::from(value))
+                value.as_u32()
             }
         }
 
@@ -227,7 +260,7 @@ oparg_enum!(
     ///
     /// ## See also
     ///
-    /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
+    /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/v3.14.4/Include/ceval.h#L129-L132)
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
     pub enum ConvertValueOparg {
         /// No conversion.
@@ -236,8 +269,7 @@ oparg_enum!(
         /// f"{x}"
         /// f"{x:4}"
         /// ```
-        // Ruff `ConversionFlag::None` is `-1i8`, when its converted to `u8` its value is `u8::MAX`.
-        None = 0 | 255,
+        None = 0,
         /// Converts by calling `str(<value>)`.
         ///
         /// ```python
@@ -735,19 +767,19 @@ macro_rules! newtype_oparg {
         $vis struct $name(u32);
 
         impl $name {
-            /// Creates a new [`$name`] instance.
+            #[doc = concat!("Creates a new [`", stringify!($name), "`] instance.")]
             #[must_use]
             pub const fn from_u32(value: u32) -> Self {
                 Self(value)
             }
 
-            /// Returns the oparg as a `u32` value.
+            /// Returns the oparg as a [`u32`] value.
             #[must_use]
             pub const fn as_u32(self) -> u32 {
                 self.0
             }
 
-            /// Returns the oparg as a `usize` value.
+            /// Returns the oparg as a [`usize`] value.
             #[must_use]
             pub const fn as_usize(self) -> usize {
               self.0 as usize

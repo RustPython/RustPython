@@ -342,7 +342,7 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<U
 
     // Create hashable_args frozenset if there are hashable elements
     let hashable_args = if !hashable_list.is_empty() {
-        Some(PyFrozenSet::from_iter(vm, hashable_list.into_iter())?.into_ref(&vm.ctx))
+        Some(PyFrozenSet::from_iter(vm, hashable_list)?.into_ref(&vm.ctx))
     } else {
         None
     };
@@ -517,7 +517,7 @@ impl Hashable for PyUnion {
                 Err(e) => return Err(e),
             }
         }
-        let set = PyFrozenSet::from_iter(vm, args_to_hash.into_iter())?;
+        let set = PyFrozenSet::from_iter(vm, args_to_hash)?;
         PyFrozenSet::hash(&set.into_ref(&vm.ctx), vm)
     }
 }
