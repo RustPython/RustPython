@@ -17,6 +17,11 @@ pub extern "C" fn _Py_IncRef(op: *mut PyObject) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn Py_NewRef(op: *mut PyObject) -> *mut PyObject {
+    with_vm(|_vm| unsafe { (*op).to_owned() })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn Py_REFCNT(op: *mut PyObject) -> isize {
     with_vm(|_vm| unsafe { &*op }.strong_count())
 }
