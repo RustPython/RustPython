@@ -148,6 +148,11 @@ pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) 
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyNumber_Index(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { &*obj }.try_index(vm))
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
