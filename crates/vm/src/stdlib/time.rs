@@ -773,18 +773,9 @@ mod decl {
 
     #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let t: libc::tms = unsafe {
-            let mut t = core::mem::MaybeUninit::uninit();
-            if libc::times(t.as_mut_ptr()) == -1 {
-                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-            }
-            t.assume_init()
-        };
-        let freq = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
-
-        Ok(Duration::from_nanos(
-            time_muldiv(t.tms_utime, SEC_TO_NS, freq) + time_muldiv(t.tms_stime, SEC_TO_NS, freq),
-        ))
+        let times =
+            host_time::process_times().map_err(|_| vm.new_os_error("Failed to get clock time".to_owned()))?;
+        Ok(Duration::from_secs_f64(times.user + times.system))
     }
 
     #[cfg(not(any(
@@ -1016,8 +1007,6 @@ mod platform {
         convert::IntoPyException,
     };
     use core::time::Duration;
-    #[cfg_attr(target_env = "musl", allow(deprecated))]
-    use libc::time_t;
     #[cfg(any(
         target_os = "illumos",
         target_os = "netbsd",
@@ -1025,7 +1014,7 @@ mod platform {
         target_os = "solaris",
     ))]
     use rustpython_host_env::resource as host_resource;
-    use rustpython_host_env::time::ClockId;
+    use rustpython_host_env::time::{self as host_time, ClockId};
 
     #[cfg(target_os = "solaris")]
     #[pyattr]
@@ -1088,40 +1077,33 @@ mod platform {
         }
     }
 
-    #[cfg_attr(target_env = "musl", allow(deprecated))]
-    pub(super) fn current_time_t() -> time_t {
-        unsafe { libc::time(core::ptr::null_mut()) }
+    pub(super) fn current_time_t() -> host_time::TimeT {
+        host_time::current_time_t()
     }
 
-    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn gmtime_from_timestamp(
-        when: time_t,
+        when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
-        let ret = unsafe { libc::gmtime_r(&when, out.as_mut_ptr()) };
-        if ret.is_null() {
+        let Some(tm) = host_time::gmtime_from_timestamp(when) else {
             return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
-        }
-        Ok(struct_time_from_tm(vm, unsafe { out.assume_init() }))
+        };
+        Ok(struct_time_from_tm(vm, tm))
     }
 
-    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn localtime_from_timestamp(
-        when: time_t,
+        when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
-        let ret = unsafe { libc::localtime_r(&when, out.as_mut_ptr()) };
-        if ret.is_null() {
+        let Some(tm) = host_time::localtime_from_timestamp(when) else {
             return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
-        }
-        Ok(struct_time_from_tm(vm, unsafe { out.assume_init() }))
+        };
+        Ok(struct_time_from_tm(vm, tm))
     }
 
     pub(super) fn unix_mktime(t: &StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
         let mut tm = super::decl::tm_from_struct_time(t, vm)?;
-        let timestamp = unsafe { libc::mktime(&mut tm) };
+        let timestamp = host_time::mktime(&mut tm);
         if timestamp == -1 && tm.tm_wday == -1 {
             return Err(vm.new_overflow_error("mktime argument out of range"));
         }
@@ -1248,7 +1230,8 @@ mod platform {
 
     #[cfg(target_os = "solaris")]
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        Ok(Duration::from_nanos(unsafe { libc::gethrvtime() }))
+        let _ = vm;
+        Ok(host_time::gethrvtime_duration())
     }
 
     #[cfg(not(any(

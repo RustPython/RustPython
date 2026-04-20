@@ -1,9 +1,13 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-use core::str::Utf8Error;
+use core::{ffi::CStr, str::Utf8Error};
 #[cfg(windows)]
 use core::time::Duration;
+#[cfg(any(unix, windows, target_os = "wasi"))]
+use crate::crt_fd;
+#[cfg(windows)]
+use crate::fs;
 use std::{
     env,
     ffi::{OsStr, OsString},
@@ -13,7 +17,6 @@ use std::{
 };
 #[cfg(windows)]
 use {
-    crate::{crt_fd, fs},
     std::{os::windows::io::AsRawHandle, path::Path},
     windows_sys::Win32::{
         Foundation::FILETIME,
@@ -171,6 +174,14 @@ pub fn exit(code: i32) -> ! {
     std::process::exit(code)
 }
 
+pub fn isatty(fd: i32) -> bool {
+    unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
+}
+
+pub fn system(command: &CStr) -> libc::c_int {
+    unsafe { libc::system(command.as_ptr()) }
+}
+
 pub fn rename(
     from: impl AsRef<std::path::Path>,
     to: impl AsRef<std::path::Path>,
@@ -199,6 +210,20 @@ pub fn seek_fd(
     } else {
         distance_to_move[0] = ret as _;
         Ok(unsafe { core::mem::transmute::<[i32; 2], i64>(distance_to_move) })
+    }
+}
+
+#[cfg(any(unix, target_os = "wasi"))]
+pub fn seek_fd(
+    fd: crt_fd::Borrowed<'_>,
+    position: crt_fd::Offset,
+    how: i32,
+) -> io::Result<crt_fd::Offset> {
+    let ret = unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) };
+    if ret < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(ret)
     }
 }
 

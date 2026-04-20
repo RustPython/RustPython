@@ -89,6 +89,11 @@ pub fn alarm(seconds: u32) -> u32 {
 }
 
 #[cfg(unix)]
+pub fn pause() {
+    unsafe { libc::pause() };
+}
+
+#[cfg(unix)]
 pub fn set_sigint_default_onstack() -> io::Result<()> {
     let mut action: libc::sigaction = unsafe { core::mem::zeroed() };
     action.sa_sigaction = libc::SIG_DFL;
@@ -348,6 +353,11 @@ pub fn valid_signals(max_signum: usize) -> io::Result<Vec<i32>> {
         }
     }
     Ok(signals)
+}
+
+#[cfg(unix)]
+pub fn sigset_contains(mask: &libc::sigset_t, signum: i32) -> bool {
+    unsafe { libc::sigismember(mask, signum) == 1 }
 }
 
 #[cfg(windows)]

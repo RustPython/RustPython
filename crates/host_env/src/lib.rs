@@ -7,6 +7,8 @@ pub use macros::*;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod errno;
 pub mod os;
+#[cfg(any(unix, windows))]
+pub mod thread;
 
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod crt_fd;
