@@ -261,11 +261,11 @@ mod _imp {
                     name.clone().into_wtf8(),
                 )
             };
-            let bag = crate::builtins::code::PyObjBag(&vm.ctx);
+            let bag = crate::builtins::code::PyVmBag(vm);
             let code =
                 rustpython_compiler_core::marshal::deserialize_code(&mut &contiguous[..], bag)
                     .map_err(|_| invalid_err())?;
-            return Ok(vm.ctx.new_code(code));
+            return Ok(PyCode::new_ref_with_bag(vm, code));
         }
         import::make_frozen(vm, name.as_str())
     }

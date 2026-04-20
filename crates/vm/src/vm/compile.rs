@@ -25,8 +25,8 @@ impl VirtualMachine {
         source_path: String,
         opts: CompileOpts,
     ) -> Result<PyRef<PyCode>, CompileError> {
-        let code =
-            compiler::compile(source, mode, &source_path, opts).map(|code| self.ctx.new_code(code));
+        let code = compiler::compile(source, mode, &source_path, opts)
+            .map(|code| PyCode::new_ref_from_bytecode(self, code));
         #[cfg(feature = "parser")]
         if code.is_ok() {
             self.emit_string_escape_warnings(source, &source_path);

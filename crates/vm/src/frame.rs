@@ -22,7 +22,7 @@ use crate::{
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
     },
     bytecode::{
-        self, ADAPTIVE_COOLDOWN_VALUE, Arg, Instruction, LoadAttr, LoadSuperAttr, SpecialMethod,
+        self, ADAPTIVE_COOLDOWN_VALUE, Instruction, LoadAttr, LoadSuperAttr, Opcode, SpecialMethod,
     },
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
@@ -1487,10 +1487,8 @@ impl ExecutingFrame<'_> {
             // When neither is enabled, prev_line is stale but unused.
             if vm.use_tracing.get() {
                 if !matches!(
-                    op,
-                    Instruction::Resume { .. }
-                        | Instruction::ExtendedArg
-                        | Instruction::InstrumentedLine
+                    op.into(),
+                    Opcode::Resume | Opcode::ExtendedArg | Opcode::InstrumentedLine
                 ) && let Some((loc, _)) = self.code.locations.get(idx)
                 {
                     *self.prev_line = loc.line.get() as u32;
@@ -1502,10 +1500,8 @@ impl ExecutingFrame<'_> {
                 if !vm.is_none(&self.object.trace.lock())
                     && *self.object.trace_opcodes.lock()
                     && !matches!(
-                        op,
-                        Instruction::Resume { .. }
-                            | Instruction::InstrumentedResume
-                            | Instruction::ExtendedArg
+                        op.into(),
+                        Opcode::Resume | Opcode::InstrumentedResume | Opcode::ExtendedArg
                     )
                 {
                     vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
@@ -1739,8 +1735,8 @@ impl ExecutingFrame<'_> {
                     if lasti > 0
                         && let Some(prev_unit) = self.code.instructions.get(lasti - 1)
                         && matches!(
-                            &prev_unit.op,
-                            Instruction::YieldValue { .. } | Instruction::InstrumentedYieldValue
+                            &prev_unit.op.into(),
+                            Opcode::YieldValue | Opcode::InstrumentedYieldValue
                         )
                     {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
@@ -2729,16 +2725,7 @@ impl ExecutingFrame<'_> {
                 let class_dict = self.pop_value();
                 let idx = i.get(arg).as_usize();
                 let name = self.localsplus_name(idx);
-                // Only treat KeyError as "not found", propagate other exceptions
-                let value = if let Some(dict_obj) = class_dict.downcast_ref::<PyDict>() {
-                    dict_obj.get_item_opt(name, vm)?
-                } else {
-                    match class_dict.get_item(name, vm) {
-                        Ok(v) => Some(v),
-                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => None,
-                        Err(e) => return Err(e),
-                    }
-                };
+                let value = self.mapping_get_optional(&class_dict, name, vm)?;
                 self.push_value(match value {
                     Some(v) => v,
                     None => self
@@ -2752,18 +2739,7 @@ impl ExecutingFrame<'_> {
                 // PEP 649: Pop dict from stack (classdict), check there first, then globals
                 let dict = self.pop_value();
                 let name = self.code.names[idx.get(arg) as usize];
-
-                // Only treat KeyError as "not found", propagate other exceptions
-                let value = if let Some(dict_obj) = dict.downcast_ref::<PyDict>() {
-                    dict_obj.get_item_opt(name, vm)?
-                } else {
-                    // Not an exact dict, use mapping protocol
-                    match dict.get_item(name, vm) {
-                        Ok(v) => Some(v),
-                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => None,
-                        Err(e) => return Err(e),
-                    }
-                };
+                let value = self.mapping_get_optional(&dict, name, vm)?;
 
                 self.push_value(match value {
                     Some(v) => v,
@@ -3455,15 +3431,16 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::StoreFastLoadFast { var_nums } => {
-                let value = self.pop_value();
-                let locals = self.localsplus.fastlocals_mut();
+                // pop_value_opt: allows NULL from LoadFastAndClear restore paths.
+                let value = self.pop_value_opt();
                 let oparg = var_nums.get(arg);
                 let (store_idx, load_idx) = oparg.indexes();
-                locals[store_idx] = Some(value);
-                let load_value = locals[load_idx]
-                    .clone()
-                    .expect("StoreFastLoadFast: load slot should have value after store");
-                self.push_value(load_value);
+                let load_value = {
+                    let locals = self.localsplus.fastlocals_mut();
+                    locals[store_idx] = value;
+                    locals[load_idx].clone()
+                };
+                self.push_value_opt(load_value);
                 Ok(None)
             }
             Instruction::StoreFastStoreFast { var_nums } => {
@@ -6122,6 +6099,27 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
+    fn mapping_get_optional(
+        &self,
+        mapping: &PyObjectRef,
+        name: &Py<PyStr>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if mapping.class().is(vm.ctx.types.dict_type) {
+            let dict = mapping
+                .downcast_ref::<PyDict>()
+                .expect("exact dict must have a PyDict payload");
+            dict.get_item_opt(name, vm)
+        } else {
+            match mapping.get_item(name, vm) {
+                Ok(value) => Ok(Some(value)),
+                Err(err) if err.fast_isinstance(vm.ctx.exceptions.key_error) => Ok(None),
+                Err(err) => Err(err),
+            }
+        }
+    }
+
+    #[inline]
     fn load_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         if let Some(builtins_dict) = self.builtins_dict {
             // Fast path: both globals and builtins are exact dicts
@@ -8056,7 +8054,7 @@ impl ExecutingFrame<'_> {
         cache_base: usize,
         left: &PyObject,
     ) -> Option<usize> {
-        let next_idx = cache_base + Instruction::BinaryOp { op: Arg::marker() }.cache_entries();
+        let next_idx = cache_base + Instruction::from(Opcode::BinaryOp).cache_entries();
         let unit = self.code.instructions.get(next_idx)?;
         let next_op = unit.op.to_base().unwrap_or(unit.op);
         if !matches!(next_op, Instruction::StoreFast { .. }) {
@@ -8933,10 +8931,7 @@ impl ExecutingFrame<'_> {
     fn for_iter_has_end_for_shape(&self, instr_idx: usize, jump_delta: u32) -> bool {
         let target_idx = instr_idx
             + 1
-            + Instruction::ForIter {
-                delta: Arg::marker(),
-            }
-            .cache_entries()
+            + Instruction::from(Opcode::ForIter).cache_entries()
             + jump_delta as usize;
         self.code.instructions.get(target_idx).is_some_and(|unit| {
             matches!(

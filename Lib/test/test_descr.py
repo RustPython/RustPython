@@ -1716,6 +1716,28 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             spam_cm.__get__(None, list)
         self.assertEqual(str(cm.exception), expected_errmsg)
 
+    @support.cpython_only
+    def test_method_get_meth_method_invalid_type(self):
+        # gh-146615: method_get() for METH_METHOD descriptors used to pass
+        # Py_TYPE(type)->tp_name as the %V fallback instead of the separate
+        # %s argument, causing a missing argument for %s and a crash.
+        # Verify the error message is correct when __get__() is called with a
+        # non-type as the second argument.
+        #
+        # METH_METHOD|METH_FASTCALL|METH_KEYWORDS is the only flag combination
+        # that enters the affected branch in method_get().
+        import io
+
+        obj = io.StringIO()
+        descr = io.TextIOBase.read
+
+        with self.assertRaises(TypeError) as cm:
+            descr.__get__(obj, "not_a_type")
+        self.assertEqual(
+            str(cm.exception),
+            "descriptor 'read' needs a type, not 'str', as arg 2",
+        )
+
     def test_staticmethods(self):
         # Testing static methods...
         class C(object):
@@ -4318,6 +4340,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         C.__name__ = Nasty("abc")
         C.__name__ = "normal"
 
+    @unittest.expectedFailureIf(support.is_android, "TODO: RUSTPYTHON; AssertionError: 'C.__rfloordiv__' != 'C.__floordiv__'")
     def test_subclass_right_op(self):
         # Testing correct dispatch of subclass overloading __r<op>__...
 
@@ -5169,6 +5192,28 @@ class ClassPropertiesAndMethods(unittest.TestCase):
 
         with self.assertRaisesRegex(NotImplementedError, "BAR"):
             B().foo
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
+    def test_staticmethod_new(self):
+        class MyStaticMethod(staticmethod):
+            def __init__(self, func):
+                pass
+        def func(): pass
+        sm = MyStaticMethod(func)
+        self.assertEqual(repr(sm), '<staticmethod(None)>')
+        self.assertIsNone(sm.__func__)
+        self.assertIsNone(sm.__wrapped__)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
+    def test_classmethod_new(self):
+        class MyClassMethod(classmethod):
+            def __init__(self, func):
+                pass
+        def func(): pass
+        cm = MyClassMethod(func)
+        self.assertEqual(repr(cm), '<classmethod(None)>')
+        self.assertIsNone(cm.__func__)
+        self.assertIsNone(cm.__wrapped__)
 
 
 class DictProxyTests(unittest.TestCase):

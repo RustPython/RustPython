@@ -59,7 +59,8 @@ mod _ssl {
     };
     use crate::{
         common::lock::{
-            PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+            LazyLock, PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
+            PyRwLockWriteGuard,
         },
         socket::{self, PySocket},
         vm::{
@@ -1046,7 +1047,7 @@ mod _ssl {
 
         #[pymethod]
         fn set_ciphers(&self, cipherlist: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-            let ciphers = cipherlist.as_str();
+            let ciphers: &str = cipherlist.as_ref();
             if ciphers.contains('\0') {
                 return Err(exceptions::cstring_error(vm));
             }
@@ -1102,7 +1103,8 @@ mod _ssl {
             // Convert name to CString, supporting both str and bytes
             let name_cstr = match name {
                 Either::A(s) => {
-                    if s.as_str().contains('\0') {
+                    let s: &str = s.as_ref();
+                    if s.contains('\0') {
                         return Err(exceptions::cstring_error(vm));
                     }
                     s.to_cstring(vm)?
@@ -1459,7 +1461,7 @@ mod _ssl {
                 }
                 *self.psk_server_callback.lock() = Some(callback);
                 if let OptionalArg::Present(hint) = identity_hint {
-                    *self.psk_identity_hint.lock() = Some(hint.as_str().to_owned());
+                    *self.psk_identity_hint.lock() = Some(hint.to_string());
                 }
                 // Note: The actual callback will be invoked via SSL app_data mechanism
             }
@@ -1487,7 +1489,8 @@ mod _ssl {
             if let Some(cadata) = args.cadata {
                 let (certs, is_pem) = match cadata {
                     Either::A(s) => {
-                        if !s.as_str().is_ascii() {
+                        let s: &str = s.as_ref();
+                        if !s.is_ascii() {
                             return Err(invalid_cadata(vm));
                         }
                         (X509::stack_from_pem(s.as_bytes()), true)
@@ -1977,7 +1980,7 @@ mod _ssl {
             use crate::vm::builtins::{PyByteArray, PyBytes, PyStr};
 
             if let Some(s) = obj.downcast_ref::<PyStr>() {
-                Ok(s.as_str().as_bytes().to_vec())
+                Ok(s.as_bytes().to_vec())
             } else if let Some(b) = obj.downcast_ref::<PyBytes>() {
                 Ok(b.as_bytes().to_vec())
             } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
@@ -2033,7 +2036,7 @@ mod _ssl {
 
             // Configure server hostname
             if let Some(hostname) = &server_hostname {
-                let hostname_str = hostname.as_str();
+                let hostname_str: &str = hostname.as_ref();
                 if hostname_str.is_empty() || hostname_str.starts_with('.') {
                     return Err(vm.new_value_error(
                         "server_hostname cannot be an empty string or start with a leading dot.",
@@ -2752,7 +2755,7 @@ mod _ssl {
         ) -> PyResult<Option<PyBytesRef>> {
             const CB_MAXLEN: usize = 512;
 
-            let cb_type_str = cb_type.as_ref().map_or("tls-unique", |s| s.as_str());
+            let cb_type_str = cb_type.as_ref().map_or("tls-unique", |s| s.as_ref());
 
             if cb_type_str != "tls-unique" {
                 return Err(vm.new_value_error(format!(

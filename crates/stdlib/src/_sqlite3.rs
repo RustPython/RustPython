@@ -3537,36 +3537,30 @@ mod _sqlite3 {
                     // Skip whitespace.
                     pos += 1;
                 }
-                b'-' => {
-                    // Skip line comments.
-                    if sql.get(pos + 1) == Some(&b'-') {
-                        pos += 2;
-                        while let Some(&ch) = sql.get(pos) {
-                            if ch == b'\n' {
-                                break;
-                            }
-                            pos += 1;
+
+                // Skip line comments.
+                b'-' if sql.get(pos + 1) == Some(&b'-') => {
+                    pos += 2;
+                    while let Some(&ch) = sql.get(pos) {
+                        if ch == b'\n' {
+                            break;
                         }
-                        let _ = sql.get(pos)?;
-                    } else {
-                        return Some(&sql[pos..]);
+                        pos += 1;
                     }
+                    let _ = sql.get(pos)?;
                 }
-                b'/' => {
-                    // Skip C style comments.
-                    if sql.get(pos + 1) == Some(&b'*') {
-                        pos += 2;
-                        while let Some(&ch) = sql.get(pos) {
-                            if ch == b'*' && sql.get(pos + 1) == Some(&b'/') {
-                                break;
-                            }
-                            pos += 1;
+
+                // Skip C style comments.
+                b'/' if sql.get(pos + 1) == Some(&b'*') => {
+                    pos += 2;
+                    while let Some(&ch) = sql.get(pos) {
+                        if ch == b'*' && sql.get(pos + 1) == Some(&b'/') {
+                            break;
                         }
-                        let _ = sql.get(pos)?;
-                        pos += 2;
-                    } else {
-                        return Some(&sql[pos..]);
+                        pos += 1;
                     }
+                    let _ = sql.get(pos)?;
+                    pos += 2;
                 }
                 _ => {
                     return Some(&sql[pos..]);

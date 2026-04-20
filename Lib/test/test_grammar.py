@@ -304,7 +304,6 @@ class GrammarTests(unittest.TestCase):
                                  "    nonlocal x\n"
                                  "    x: int\n")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_var_annot_basic_semantics(self):
         # execution order
         with self.assertRaises(ZeroDivisionError):
