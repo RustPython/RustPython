@@ -83,8 +83,17 @@ pub fn format_fixed(precision: usize, magnitude: f64, case: Case, alternate_form
     match magnitude {
         magnitude if magnitude.is_finite() => {
             let point = decimal_point_or_empty(precision, alternate_form);
-            let precision = clamp_fmt_precision(precision);
-            format!("{magnitude:.precision$}{point}")
+            let capped = clamp_fmt_precision(precision);
+            let mut out = format!("{magnitude:.capped$}");
+            // Pad with '0's up to the requested precision to match CPython
+            // byte-identically. `f64` has at most ~767 significant decimal
+            // digits, so any digit past `capped` is deterministically '0'.
+            let missing = precision.saturating_sub(capped);
+            if missing > 0 {
+                out.extend(core::iter::repeat_n('0', missing));
+            }
+            out.push_str(point);
+            out
         }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
@@ -102,8 +111,8 @@ pub fn format_exponent(
 ) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
-            let precision = clamp_exp_precision(precision);
-            let r_exp = format!("{magnitude:.precision$e}");
+            let capped = clamp_exp_precision(precision);
+            let r_exp = format!("{magnitude:.capped$e}");
             let mut parts = r_exp.splitn(2, 'e');
             let base = parts.next().unwrap();
             let exponent = parts.next().unwrap().parse::<i64>().unwrap();
@@ -112,7 +121,15 @@ pub fn format_exponent(
                 Case::Upper => 'E',
             };
             let point = decimal_point_or_empty(precision, alternate_form);
-            format!("{base}{point}{e}{exponent:+#03}")
+            // Pad with '0's up to the requested precision to match CPython
+            // byte-identically past our internal cap; see `format_fixed`.
+            let missing = precision.saturating_sub(capped);
+            let mut mantissa = String::with_capacity(base.len() + missing);
+            mantissa.push_str(base);
+            if missing > 0 {
+                mantissa.extend(core::iter::repeat_n('0', missing));
+            }
+            format!("{mantissa}{point}{e}{exponent:+#03}")
         }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),

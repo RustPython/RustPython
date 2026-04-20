@@ -205,19 +205,32 @@ for i in range(0, 30):
 # Previously these paths hit unguarded `format!("{:.*e}", ...)` in
 # crates/literal/src/float.rs and `crates/common/src/format.rs` (the `%`
 # branch), which panic past Rust's fmt precision limit and killed the
-# process instead of raising a Python exception.
-_big = 1_000_000
-# f-string default (general format) — g-format trims trailing zeros, so
-# high precision returns the short natural representation.
-assert f"{1.5:.{_big}}" == "1.5"
-assert "{:.{}g}".format(1.5, _big) == "1.5"
-assert "{:.{}G}".format(1.5, _big) == "1.5"
-# Exponential and percent types emit padded zeros up to the (internally
-# capped) precision. We don't pin exact length; we only require the call
-# to return a str and not crash the runtime.
-for spec_type in ("e", "E", "%", "f"):
-    out = ("{:." + str(_big) + spec_type + "}").format(1.5)
-    assert isinstance(out, str) and len(out) > 0
+# process instead of raising a Python exception. Internally the limit is
+# u16::MAX; output is zero-padded past that boundary to match CPython
+# byte-identically.
+
+# Boundary values around the internal cap (u16::MAX = 65535). Output must
+# match what CPython would produce.
+# f-format pads with trailing zeros up to the requested precision.
+assert "{:.65534f}".format(1.5) == "1." + "5" + "0" * 65533
+assert "{:.65535f}".format(1.5) == "1." + "5" + "0" * 65534
+assert "{:.65536f}".format(1.5) == "1." + "5" + "0" * 65535
+# e-format emits a fixed mantissa width + 'e+00'.
+assert "{:.65534e}".format(1.5) == "1." + "5" + "0" * 65533 + "e+00"
+assert "{:.65535e}".format(1.5) == "1." + "5" + "0" * 65534 + "e+00"
+assert "{:.65536e}".format(1.5) == "1." + "5" + "0" * 65535 + "e+00"
+# %-format multiplies by 100 then applies f-format.
+assert "{:.65534%}".format(1.5) == "150." + "0" * 65534 + "%"
+assert "{:.65535%}".format(1.5) == "150." + "0" * 65535 + "%"
+assert "{:.65536%}".format(1.5) == "150." + "0" * 65536 + "%"
+# g-format strips trailing zeros, so the short form is the natural
+# representation regardless of precision.
+for p in (65534, 65535, 65536, 1_000_000):
+    assert ("{:." + str(p) + "g}").format(1.5) == "1.5"
+
+# Percent overflow: finite input whose *100 is +inf produces "inf%"
+# rather than crashing. CPython does the same.
+assert "{:.100000%}".format(1.7976931348623157e308) == "inf%"
 
 # Shallow cases unchanged.
 assert f"{1.5:.5}" == "1.5"
