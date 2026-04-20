@@ -2645,7 +2645,7 @@ dependencies = [
 [[package]]
 name = "pyo3"
 version = "0.28.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#b675184d6e54ed0f31fa9c42a1c772f773481a4b"
+source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#09a96fd9c2503cab2f3c1a33e5fd9c7828d9d3dd"
 dependencies = [
  "libc",
  "once_cell",
@@ -2658,7 +2658,7 @@ dependencies = [
 [[package]]
 name = "pyo3-build-config"
 version = "0.28.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#b675184d6e54ed0f31fa9c42a1c772f773481a4b"
+source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#09a96fd9c2503cab2f3c1a33e5fd9c7828d9d3dd"
 dependencies = [
  "target-lexicon",
 ]
@@ -2666,7 +2666,7 @@ dependencies = [
 [[package]]
 name = "pyo3-ffi"
 version = "0.28.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#b675184d6e54ed0f31fa9c42a1c772f773481a4b"
+source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#09a96fd9c2503cab2f3c1a33e5fd9c7828d9d3dd"
 dependencies = [
  "libc",
  "pyo3-build-config",
@@ -2675,7 +2675,7 @@ dependencies = [
 [[package]]
 name = "pyo3-macros"
 version = "0.28.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#b675184d6e54ed0f31fa9c42a1c772f773481a4b"
+source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#09a96fd9c2503cab2f3c1a33e5fd9c7828d9d3dd"
 dependencies = [
  "proc-macro2",
  "pyo3-macros-backend",
@@ -2686,7 +2686,7 @@ dependencies = [
 [[package]]
 name = "pyo3-macros-backend"
 version = "0.28.3"
-source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#b675184d6e54ed0f31fa9c42a1c772f773481a4b"
+source = "git+https://github.com/bschoenmaeckers/pyo3?branch=RustPython#09a96fd9c2503cab2f3c1a33e5fd9c7828d9d3dd"
 dependencies = [
  "heck",
  "proc-macro2",

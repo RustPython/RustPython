@@ -10,7 +10,34 @@ pub extern "C" fn PyTuple_New(len: isize) -> *mut PyObject {
             return Ok(vm.ctx.empty_tuple.to_owned());
         }
 
-        Err(vm.new_not_implemented_error("PyTuple_New is not yet implemented"))
+        Err(vm.new_not_implemented_error("PyTuple_New for non zero sized tuples is not supported, use PyTuple_Pack or PyTuple_FromArray instead"))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyTuple_FromArray(array: *const *mut PyObject, size: isize) -> *mut PyObject {
+    with_vm(|vm| {
+        let slice = unsafe { std::slice::from_raw_parts(array, size as usize) };
+        let elements = slice
+            .iter()
+            .map(|ptr| unsafe { &**ptr }.to_owned())
+            .collect::<Vec<_>>();
+        vm.new_tuple(elements)
+    })
+}
+
+#[unsafe(no_mangle)]
+#[cfg(feature = "nightly")]
+pub unsafe extern "C" fn PyTuple_Pack(len: isize, mut args: ...) -> *mut PyObject {
+    with_vm(|vm| {
+        let mut items = vec![];
+
+        for _ in 0..len {
+            let item = unsafe { &*args.arg::<*mut PyObject>() };
+            items.push(item.to_owned());
+        }
+
+        vm.new_tuple(items)
     })
 }
 
@@ -20,9 +47,7 @@ pub extern "C" fn PyTuple_SetItem(
     _pos: isize,
     _value: *mut PyObject,
 ) -> *mut PyObject {
-    with_vm::<PyResult, _>(|vm| {
-        Err(vm.new_not_implemented_error("PyTuple_SetItem is not yet implemented"))
-    })
+    with_vm::<PyResult, _>(|vm| Err(vm.new_not_implemented_error("Tuple objects are immutable")))
 }
 
 #[unsafe(no_mangle)]
@@ -58,6 +83,14 @@ mod tests {
         Python::attach(|py| {
             let tuple = PyTuple::empty(py);
             assert_eq!(tuple.len(), 0);
+        })
+    }
+
+    #[test]
+    fn test_tuple_into_python() {
+        Python::attach(|py| {
+            let tuple = (1, 2, 3).into_pyobject(py).unwrap();
+            assert_eq!(tuple.len(), 3);
         })
     }
 }
