@@ -251,10 +251,12 @@ assert repr(1e-100 + 1e100j) == "(1e-100+1e+100j)"
 assert repr(1 + 1e100j) == "(1+1e+100j)"
 assert repr(1e100 + 1j) == "(1e+100+1j)"
 
-# Values at the threshold boundaries must stay in non-scientific form.
-assert repr(1e15 + 1j) == "(1000000000000000+1j)"
-assert repr(1e-4 + 1j) == "(0.0001+1j)"
-assert repr(1e-5 + 1j) == "(1e-05+1j)"
+# Threshold boundary: |x| in [1e-4, 1e16) renders in decimal form; values
+# outside that range use scientific notation. These three assertions pin
+# the exact transition points.
+assert repr(1e15 + 1j) == "(1000000000000000+1j)"  # below 1e16 -> decimal
+assert repr(1e-4 + 1j) == "(0.0001+1j)"  # at 1e-4 (inclusive) -> decimal
+assert repr(1e-5 + 1j) == "(1e-05+1j)"  # below 1e-4 -> scientific
 
 # Integer-valued components render without trailing ".0".
 assert repr(1 + 2j) == "(1+2j)"
