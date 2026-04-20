@@ -2226,8 +2226,8 @@ impl SymbolTableBuilder {
 
         // PEP 709: Mark non-generator comprehensions for inlining.
         // CPython's symtable marks all non-generator comprehensions for
-        // inlining, except annotation scopes nested in classes that can see
-        // class scope.
+        // inlining, except scopes nested under a parent that can see class
+        // scope (for example annotation scopes inside classes).
         if !is_generator {
             let parent = self.tables.iter().rev().nth(1);
             let parent_can_see_class = parent.is_some_and(|t| t.can_see_class_scope);

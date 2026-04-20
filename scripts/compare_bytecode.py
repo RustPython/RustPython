@@ -25,6 +25,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 DIS_DUMP = os.path.join(SCRIPT_DIR, "dis_dump.py")
 DEFAULT_REPORT = os.path.join(PROJECT_ROOT, "compare_bytecode.report")
+DUMP_TIMEOUT = 600
 
 
 def find_rustpython():
@@ -69,13 +70,15 @@ def _start_one(interpreter, targets, base_dir):
     if interpreter != sys.executable:
         env["RUSTPYTHONPATH"] = base_dir
 
-    files_file = tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", delete=False, dir=PROJECT_ROOT
-    )
-    output_file = tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", delete=False, dir=PROJECT_ROOT
-    )
+    files_file = None
+    output_file = None
     try:
+        files_file = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, dir=PROJECT_ROOT
+        )
+        output_file = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, dir=PROJECT_ROOT
+        )
         for _, path in targets:
             files_file.write(path)
             files_file.write("\n")
@@ -109,8 +112,14 @@ def _start_one(interpreter, targets, base_dir):
             "base_dir": base_dir,
         }
     except Exception:
-        os.unlink(files_file.name)
-        os.unlink(output_file.name)
+        for handle in (files_file, output_file):
+            if handle is None:
+                continue
+            try:
+                handle.close()
+            finally:
+                if os.path.exists(handle.name):
+                    os.unlink(handle.name)
         raise
 
 
@@ -130,19 +139,18 @@ def _load_dump_output(output_file):
         return None
 
 
-def _run_sync_dump(interpreter, targets, base_dir, timeout=600):
+def _run_sync_dump(interpreter, targets, base_dir, timeout=DUMP_TIMEOUT):
     job = _start_one(interpreter, targets, base_dir)
     proc = job["proc"]
+    stdout = b""
+    timed_out = False
     try:
-        stdout = proc.communicate(timeout=600)[0]
+        stdout = proc.communicate(timeout=timeout)[0]
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.communicate()
-        print("  Timeout (600s)", file=sys.stderr)
-        stdout = b""
+        print(f"  Timeout ({timeout}s)", file=sys.stderr)
         timed_out = True
-    finally:
-        timed_out = locals().get("timed_out", False)
 
     try:
         data = _load_dump_output(job["output_file"])
@@ -163,24 +171,52 @@ def _run_sync_dump(interpreter, targets, base_dir, timeout=600):
 
 def _rerun_missing_targets(interpreter, targets, base_dir):
     recovered = {}
+    failed = []
+    empty = []
     for target in targets:
+        relpath = target[0]
         data = _run_sync_dump(interpreter, [target], base_dir)
-        if data:
+        if data is None:
+            failed.append(relpath)
+            recovered[relpath] = {
+                "status": "error",
+                "error": "dump helper failed while rerunning target",
+            }
+        elif data:
             recovered.update(data)
+        else:
+            empty.append(relpath)
+            recovered[relpath] = {
+                "status": "error",
+                "error": "dump helper produced no data while rerunning target",
+            }
+    if failed:
+        print(
+            "  Warning: rerun failed for %d file(s): %s"
+            % (len(failed), ", ".join(failed[:5])),
+            file=sys.stderr,
+        )
+    if empty:
+        print(
+            "  Warning: rerun produced no data for %d file(s): %s"
+            % (len(empty), ", ".join(empty[:5])),
+            file=sys.stderr,
+        )
     return recovered
 
 
-def _finish_one(job):
+def _finish_one(job, timeout=DUMP_TIMEOUT):
     """Wait for a single dis_dump.py process and return parsed JSON."""
     proc = job["proc"]
     expected = {relpath for relpath, _ in job["targets"]}
+    stdout = b""
     try:
-        stdout = proc.communicate(timeout=600)[0]
+        stdout = proc.communicate(timeout=timeout)[0]
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.communicate()
         print(
-            "  Timeout (600s), retrying %d file(s) serially" % len(job["targets"]),
+            f"  Timeout ({timeout}s), retrying {len(job['targets'])} file(s) serially",
             file=sys.stderr,
         )
         data = None
@@ -194,7 +230,7 @@ def _finish_one(job):
     if proc.returncode != 0:
         print("  Warning: exited with code %d" % proc.returncode, file=sys.stderr)
 
-    stray = stdout.decode(errors="replace").strip() if "stdout" in locals() else ""
+    stray = stdout.decode(errors="replace").strip()
     if stray:
         print("  Warning: unexpected stdout from dump helper", file=sys.stderr)
 

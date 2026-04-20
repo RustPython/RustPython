@@ -30,7 +30,7 @@ use crate::{
     function::{ArgMapping, Either, FuncArgs, PyMethodFlags},
     object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
-    protocol::{PyIter, PyIterReturn},
+    protocol::{PyIter, PyIterReturn, PyMapping},
     scope::Scope,
     sliceable::SliceableSequenceOp,
     stdlib::{_typing, builtins, sys::monitoring},
@@ -609,6 +609,9 @@ pub struct InterpreterFrame {
     pub(crate) owner: atomic::AtomicI8,
     /// Set when f_locals is accessed. Cleared after locals_to_fast() sync.
     pub(crate) locals_dirty: atomic::AtomicBool,
+    /// Persistent overlay for `frame.f_locals` when hidden locals need a
+    /// snapshot separate from the backing locals mapping.
+    pub(crate) f_locals_hidden_overlay: PyMutex<Option<PyDictRef>>,
     /// Number of stack entries to pop after set_f_lineno returns to the
     /// execution loop.  set_f_lineno cannot pop directly because the
     /// execution loop holds the state mutex.
@@ -660,6 +663,7 @@ unsafe impl Traverse for Frame {
         iframe.builtins.traverse(tracer_fn);
         iframe.trace.traverse(tracer_fn);
         iframe.temporary_refs.traverse(tracer_fn);
+        iframe.f_locals_hidden_overlay.traverse(tracer_fn);
     }
 }
 
@@ -739,6 +743,7 @@ impl Frame {
             previous: AtomicPtr::new(core::ptr::null_mut()),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
             locals_dirty: atomic::AtomicBool::new(false),
+            f_locals_hidden_overlay: PyMutex::new(None),
             pending_stack_pops: Default::default(),
             pending_unwind_from_stack: Default::default(),
         };
@@ -797,6 +802,7 @@ impl Frame {
         for slot in fastlocals.iter_mut() {
             *slot = None;
         }
+        self.f_locals_hidden_overlay.lock().take();
     }
 
     /// Get cell contents by localsplus index.
@@ -865,9 +871,16 @@ impl Frame {
             return Ok(());
         }
         let code = &**self.code;
+        let overlay_locals = self
+            .has_active_hidden_locals()
+            .then(|| self.f_locals_hidden_overlay.lock().clone())
+            .flatten()
+            .map(ArgMapping::from_dict_exact);
+        let locals_map = overlay_locals
+            .as_ref()
+            .map_or_else(|| self.locals.mapping(vm), ArgMapping::mapping);
         // SAFETY: Called before generator resume; no concurrent access.
         let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals_mut() };
-        let locals_map = self.locals.mapping(vm);
         for (i, &varname) in code.varnames.iter().enumerate() {
             if i >= fastlocals.len() {
                 break;
@@ -882,23 +895,12 @@ impl Frame {
         Ok(())
     }
 
-    pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
-        use rustpython_compiler_core::bytecode::{
-            CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
-        };
-        // SAFETY: Either the frame is not executing (caller checked owner),
-        // or we're in a trace callback on the same thread that's executing.
-        let locals = &self.locals;
+    fn has_active_hidden_locals(&self) -> bool {
+        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN};
         let code = &**self.code;
-        let locals_map = locals.mapping(vm);
         let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
-
-        // Iterate through all localsplus slots using localspluskinds
-        let nlocalsplus = code.localspluskinds.len();
-        let nfrees = code.freevars.len();
-        let free_start = nlocalsplus - nfrees;
         let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
-        let has_active_hidden_locals = !is_optimized
+        !is_optimized
             && code.localspluskinds.iter().enumerate().any(|(i, &kind)| {
                 if kind & CO_FAST_HIDDEN == 0 {
                     return false;
@@ -914,16 +916,27 @@ impl Frame {
                         }
                     }
                 }
-            });
-        let overlay_locals = if has_active_hidden_locals {
-            // Match CPython's PyEval_GetLocals() behavior for frames with
-            // PEP 709 hidden locals: locals() inside an inlined comprehension
-            // returns a snapshot of the active fast locals only, not the
-            // backing module/class/eval mapping.
-            Some(vm.ctx.new_dict())
-        } else {
-            None
+            })
+    }
+
+    fn sync_visible_locals_to_mapping(
+        &self,
+        locals_map: PyMapping<'_>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use rustpython_compiler_core::bytecode::{
+            CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
         };
+        // SAFETY: Either the frame is not executing (caller checked owner),
+        // or we're in a trace callback on the same thread that's executing.
+        let code = &**self.code;
+        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
+
+        // Iterate through all localsplus slots using localspluskinds
+        let nlocalsplus = code.localspluskinds.len();
+        let nfrees = code.freevars.len();
+        let free_start = nlocalsplus - nfrees;
+        let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
 
         // Track which non-merged cellvar index we're at
         let mut nonmerged_cell_idx = 0;
@@ -1001,24 +1014,52 @@ impl Frame {
                 fastlocals[i].clone()
             };
 
-            let result = if let Some(dict) = &overlay_locals {
-                match value {
-                    Some(value) => dict.set_item(name, value, vm),
-                    None => dict.del_item(name, vm),
-                }
-            } else {
-                locals_map.ass_subscript(name, value, vm)
-            };
+            let result = locals_map.ass_subscript(name, value, vm);
             match result {
                 Ok(()) => {}
                 Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
                 Err(e) => return Err(e),
             }
         }
-        if let Some(dict) = overlay_locals {
-            Ok(ArgMapping::from_dict_exact(dict))
+        Ok(())
+    }
+
+    pub fn f_locals_mapping(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
+        if !self.has_active_hidden_locals() {
+            self.f_locals_hidden_overlay.lock().take();
+            return self.locals(vm);
+        }
+
+        let needs_refresh = !self.locals_dirty.load(atomic::Ordering::Acquire);
+        let overlay_dict = {
+            let mut overlay = self.f_locals_hidden_overlay.lock();
+            match overlay.as_ref() {
+                Some(dict) => dict.clone(),
+                None => {
+                    let dict = vm.ctx.new_dict();
+                    *overlay = Some(dict.clone());
+                    dict
+                }
+            }
+        };
+        if needs_refresh {
+            PyDict::clear(&overlay_dict);
+            let overlay = ArgMapping::from_dict_exact(overlay_dict.clone());
+            self.sync_visible_locals_to_mapping(overlay.mapping(), vm)?;
+        }
+        Ok(ArgMapping::from_dict_exact(overlay_dict))
+    }
+
+    pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
+        if self.has_active_hidden_locals() {
+            // Match CPython's locals() behavior for frames with PEP 709 hidden
+            // locals: return a fresh snapshot instead of the backing mapping.
+            let overlay = ArgMapping::from_dict_exact(vm.ctx.new_dict());
+            self.sync_visible_locals_to_mapping(overlay.mapping(), vm)?;
+            Ok(overlay)
         } else {
-            Ok(locals.clone_mapping(vm))
+            self.sync_visible_locals_to_mapping(self.locals.mapping(vm), vm)?;
+            Ok(self.locals.clone_mapping(vm))
         }
     }
 }

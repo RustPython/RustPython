@@ -454,7 +454,7 @@ impl Frame {
 
     #[pygetset]
     fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
-        let result = self.locals(vm).map(Into::into);
+        let result = self.f_locals_mapping(vm).map(Into::into);
         self.locals_dirty
             .store(true, core::sync::atomic::Ordering::Release);
         result
@@ -703,6 +703,7 @@ impl Py<Frame> {
 
         // Clear temporary refs
         self.temporary_refs.lock().clear();
+        self.f_locals_hidden_overlay.lock().take();
 
         Ok(())
     }
