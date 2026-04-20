@@ -4,6 +4,8 @@ extern crate alloc;
 mod macros;
 pub use macros::*;
 
+#[cfg(any(unix, windows, target_os = "wasi"))]
+pub mod errno;
 pub mod os;
 
 #[cfg(any(unix, windows, target_os = "wasi"))]
@@ -23,11 +25,15 @@ pub mod windows;
 pub mod fcntl;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod select;
+#[cfg(any(unix, windows))]
+pub mod socket;
 #[cfg(unix)]
 pub mod syslog;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
 pub mod termios;
 
+#[cfg(unix)]
+pub mod grp;
 #[cfg(unix)]
 pub mod posix;
 #[cfg(unix)]
@@ -40,6 +46,8 @@ pub mod shm;
 pub mod signal;
 pub mod time;
 
+#[cfg(windows)]
+pub mod cert_store;
 #[cfg(any(unix, windows))]
 pub mod faulthandler;
 #[cfg(windows)]

@@ -212,9 +212,13 @@ pub fn remove_poll_fd(fds: &mut Vec<PollFd>, fd: i32) -> Option<PollFd> {
 }
 
 #[cfg(unix)]
-pub fn poll_fds(fds: &mut [PollFd], timeout: i32) -> nix::Result<i32> {
+pub fn poll_fds(fds: &mut [PollFd], timeout: i32) -> std::io::Result<i32> {
     let res = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, timeout) };
-    nix::Error::result(res)
+    if res < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(res)
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]

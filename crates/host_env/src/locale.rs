@@ -138,6 +138,38 @@ pub fn acp() -> u32 {
     unsafe { windows_sys::Win32::Globalization::GetACP() }
 }
 
+#[cfg(windows)]
+pub fn decode_ansi_bytes(bytes: &[u8]) -> Option<String> {
+    use core::ptr;
+    use windows_sys::Win32::Globalization::{CP_ACP, MultiByteToWideChar};
+
+    let len = unsafe {
+        MultiByteToWideChar(
+            CP_ACP,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            ptr::null_mut(),
+            0,
+        )
+    };
+    if len <= 0 {
+        return None;
+    }
+    let mut wide = vec![0u16; len as usize];
+    unsafe {
+        MultiByteToWideChar(
+            CP_ACP,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            wide.as_mut_ptr(),
+            len,
+        );
+    }
+    Some(String::from_utf16_lossy(&wide))
+}
+
 #[cfg(all(
     unix,
     not(any(target_os = "ios", target_os = "android", target_os = "redox"))

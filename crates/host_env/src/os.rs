@@ -2,12 +2,25 @@
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
 use core::str::Utf8Error;
+#[cfg(windows)]
+use core::time::Duration;
 use std::{
     env,
     ffi::{OsStr, OsString},
     io,
     path::PathBuf,
     process::ExitCode,
+};
+#[cfg(windows)]
+use {
+    crate::{crt_fd, fs},
+    std::{os::windows::io::AsRawHandle, path::Path},
+    windows_sys::Win32::{
+        Foundation::FILETIME,
+        Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, INVALID_SET_FILE_POINTER, SetFilePointer, SetFileTime,
+        },
+    },
 };
 
 /// Convert exit code to std::process::ExitCode
@@ -104,6 +117,16 @@ pub fn process_id() -> u32 {
     std::process::id()
 }
 
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+pub fn cpu_count() -> usize {
+    num_cpus::get()
+}
+
+#[cfg(not(any(not(target_arch = "wasm32"), target_os = "wasi")))]
+pub fn cpu_count() -> usize {
+    1
+}
+
 pub fn device_encoding(_fd: i32) -> Option<String> {
     #[cfg(any(target_os = "android", target_os = "redox"))]
     {
@@ -160,6 +183,64 @@ pub fn rename(
     std::fs::rename(from, to)
 }
 
+#[cfg(windows)]
+pub fn seek_fd(
+    fd: crt_fd::Borrowed<'_>,
+    position: crt_fd::Offset,
+    how: i32,
+) -> io::Result<crt_fd::Offset> {
+    let handle = crt_fd::as_handle(fd)?;
+    let mut distance_to_move: [i32; 2] = unsafe { core::mem::transmute(position) };
+    let ret = unsafe {
+        SetFilePointer(
+            handle.as_raw_handle(),
+            distance_to_move[0],
+            &mut distance_to_move[1],
+            how as _,
+        )
+    };
+    if ret == INVALID_SET_FILE_POINTER {
+        Err(io::Error::last_os_error())
+    } else {
+        distance_to_move[0] = ret as _;
+        Ok(unsafe { core::mem::transmute::<[i32; 2], i64>(distance_to_move) })
+    }
+}
+
+#[cfg(windows)]
+fn filetime_from_duration(duration: Duration) -> FILETIME {
+    let intervals = ((duration.as_secs() as i64 + 11644473600) * 10_000_000)
+        + (duration.subsec_nanos() as i64 / 100);
+    FILETIME {
+        dwLowDateTime: intervals as u32,
+        dwHighDateTime: (intervals >> 32) as u32,
+    }
+}
+
+#[cfg(windows)]
+pub fn set_file_times(
+    path: impl AsRef<Path>,
+    access: Duration,
+    modified: Duration,
+) -> io::Result<()> {
+    let access = filetime_from_duration(access);
+    let modified = filetime_from_duration(modified);
+    let file = fs::open_write_with_custom_flags(path, FILE_FLAG_BACKUP_SEMANTICS)?;
+    let ret = unsafe {
+        SetFileTime(
+            file.as_raw_handle() as _,
+            core::ptr::null(),
+            &access,
+            &modified,
+        )
+    };
+    if ret == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 pub trait ErrorExt {
     fn posix_errno(&self) -> i32;
 }
@@ -206,6 +287,10 @@ pub fn get_errno() -> i32 {
 #[must_use]
 pub fn get_errno() -> i32 {
     std::io::Error::last_os_error().posix_errno()
+}
+
+pub fn clear_errno() {
+    set_errno(0);
 }
 
 /// Set errno to the specified value.

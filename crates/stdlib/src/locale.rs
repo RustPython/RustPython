@@ -5,8 +5,6 @@ pub(crate) use _locale::module_def;
 #[pymodule]
 mod _locale {
     use alloc::ffi::CString;
-    #[cfg(windows)]
-    use core::ptr;
     use rustpython_host_env::locale as host_locale;
     use rustpython_vm::{
         PyObjectRef, PyResult, VirtualMachine,
@@ -63,28 +61,8 @@ mod _locale {
         // On Windows, locale strings use the ANSI code page encoding
         #[cfg(windows)]
         {
-            use windows_sys::Win32::Globalization::{CP_ACP, MultiByteToWideChar};
-            unsafe {
-                let len = MultiByteToWideChar(
-                    CP_ACP,
-                    0,
-                    bytes.as_ptr(),
-                    bytes.len() as i32,
-                    ptr::null_mut(),
-                    0,
-                );
-                if len > 0 {
-                    let mut wide = vec![0u16; len as usize];
-                    MultiByteToWideChar(
-                        CP_ACP,
-                        0,
-                        bytes.as_ptr(),
-                        bytes.len() as i32,
-                        wide.as_mut_ptr(),
-                        len,
-                    );
-                    return Ok(vm.new_pyobj(String::from_utf16_lossy(&wide)));
-                }
+            if let Some(decoded) = host_locale::decode_ansi_bytes(bytes) {
+                return Ok(vm.new_pyobj(decoded));
             }
         }
 

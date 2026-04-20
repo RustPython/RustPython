@@ -27,6 +27,21 @@ use windows_sys::Win32::{
     },
 };
 
+pub type Handle = HANDLE;
+pub type OverlappedIo = OVERLAPPED;
+pub type SocketAddrRaw = SOCKADDR;
+pub type SocketAddrV4 = SOCKADDR_IN;
+pub type SocketAddrV6 = SOCKADDR_IN6;
+pub const AF_INET_FAMILY: i32 = AF_INET as i32;
+pub const AF_INET6_FAMILY: i32 = AF_INET6 as i32;
+pub const INVALID_HANDLE_VALUE_ISIZE: isize =
+    windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE as isize;
+pub const SO_UPDATE_ACCEPT_CONTEXT_VALUE: i32 =
+    windows_sys::Win32::Networking::WinSock::SO_UPDATE_ACCEPT_CONTEXT;
+pub const SO_UPDATE_CONNECT_CONTEXT_VALUE: i32 =
+    windows_sys::Win32::Networking::WinSock::SO_UPDATE_CONNECT_CONTEXT;
+pub const TF_REUSE_SOCKET_FLAG: u32 = windows_sys::Win32::Networking::WinSock::TF_REUSE_SOCKET;
+
 pub struct TransferResult {
     pub transferred: u32,
     pub error: u32,
@@ -957,6 +972,112 @@ pub fn bind_local(socket: isize, family: i32) -> io::Result<()> {
         ))
     } else {
         Ok(())
+    }
+}
+
+pub fn parse_address_v4(host: &str, port: u16) -> io::Result<(Vec<u8>, i32)> {
+    use windows_sys::Win32::Networking::WinSock::{WSAGetLastError, WSAStringToAddressW};
+
+    let mut addr: SOCKADDR_IN = unsafe { core::mem::zeroed() };
+    addr.sin_family = AF_INET;
+
+    let host_wide: Vec<u16> = host.encode_utf16().chain([0]).collect();
+    let mut addr_len = core::mem::size_of::<SOCKADDR_IN>() as i32;
+
+    let ret = unsafe {
+        WSAStringToAddressW(
+            host_wide.as_ptr(),
+            AF_INET as i32,
+            core::ptr::null(),
+            &mut addr as *mut _ as *mut SOCKADDR,
+            &mut addr_len,
+        )
+    };
+    if ret < 0 {
+        return Err(io::Error::from_raw_os_error(
+            unsafe { WSAGetLastError() } as i32
+        ));
+    }
+
+    // WSAStringToAddressW overwrites the port field.
+    addr.sin_port = port.to_be();
+
+    let bytes = unsafe {
+        core::slice::from_raw_parts(
+            &addr as *const _ as *const u8,
+            core::mem::size_of::<SOCKADDR_IN>(),
+        )
+    };
+    Ok((bytes.to_vec(), addr_len))
+}
+
+pub fn parse_address_v6(
+    host: &str,
+    port: u16,
+    flowinfo: u32,
+    scope_id: u32,
+) -> io::Result<(Vec<u8>, i32)> {
+    use windows_sys::Win32::Networking::WinSock::{WSAGetLastError, WSAStringToAddressW};
+
+    let mut addr: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
+    addr.sin6_family = AF_INET6;
+
+    let host_wide: Vec<u16> = host.encode_utf16().chain([0]).collect();
+    let mut addr_len = core::mem::size_of::<SOCKADDR_IN6>() as i32;
+
+    let ret = unsafe {
+        WSAStringToAddressW(
+            host_wide.as_ptr(),
+            AF_INET6 as i32,
+            core::ptr::null(),
+            &mut addr as *mut _ as *mut SOCKADDR,
+            &mut addr_len,
+        )
+    };
+    if ret < 0 {
+        return Err(io::Error::from_raw_os_error(
+            unsafe { WSAGetLastError() } as i32
+        ));
+    }
+
+    // WSAStringToAddressW may overwrite these fields.
+    addr.sin6_port = port.to_be();
+    addr.sin6_flowinfo = flowinfo;
+    addr.Anonymous.sin6_scope_id = scope_id;
+
+    let bytes = unsafe {
+        core::slice::from_raw_parts(
+            &addr as *const _ as *const u8,
+            core::mem::size_of::<SOCKADDR_IN6>(),
+        )
+    };
+    Ok((bytes.to_vec(), addr_len))
+}
+
+pub fn unparse_address(addr: &SOCKADDR_IN6, _addr_len: i32) -> io::Result<SocketAddress> {
+    use core::net::{Ipv4Addr, Ipv6Addr};
+
+    let family = addr.sin6_family;
+    if family == AF_INET {
+        let addr_in = unsafe { &*(addr as *const SOCKADDR_IN6 as *const SOCKADDR_IN) };
+        let ip_bytes = addr_in.sin_addr.S_un.S_un_b;
+        Ok(SocketAddress::V4 {
+            host: Ipv4Addr::new(ip_bytes.s_b1, ip_bytes.s_b2, ip_bytes.s_b3, ip_bytes.s_b4)
+                .to_string(),
+            port: u16::from_be(addr_in.sin_port),
+        })
+    } else if family == AF_INET6 {
+        Ok(SocketAddress::V6 {
+            host: Ipv6Addr::from(addr.sin6_addr.u.Byte).to_string(),
+            port: u16::from_be(addr.sin6_port),
+            flowinfo: u32::from_be(addr.sin6_flowinfo),
+            scope_id: addr.Anonymous.sin6_scope_id,
+        })
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "recvfrom returned unsupported address family",
+        ))
     }
 }
 

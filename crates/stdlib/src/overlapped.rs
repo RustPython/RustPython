@@ -17,11 +17,8 @@ mod _overlapped {
         protocol::PyBuffer,
         types::{Constructor, Destructor},
     };
-    use rustpython_host_env::{overlapped as host_overlapped, winapi as host_winapi};
-    use windows_sys::Win32::{
-        Foundation::{self, GetLastError, HANDLE},
-        Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6},
-        System::IO::OVERLAPPED,
+    use rustpython_host_env::{
+        overlapped as host_overlapped, winapi as host_winapi, windows as host_windows,
     };
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
@@ -33,20 +30,28 @@ mod _overlapped {
     }
 
     #[pyattr]
-    use windows_sys::Win32::{
-        Foundation::{
-            ERROR_IO_PENDING, ERROR_NETNAME_DELETED, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY,
-            ERROR_PORT_UNREACHABLE, ERROR_SEM_TIMEOUT,
-        },
-        Networking::WinSock::{
-            SO_UPDATE_ACCEPT_CONTEXT, SO_UPDATE_CONNECT_CONTEXT, TF_REUSE_SOCKET,
-        },
-        System::Threading::INFINITE,
-    };
+    const ERROR_IO_PENDING: u32 = host_winapi::ERROR_IO_PENDING;
+    #[pyattr]
+    const ERROR_NETNAME_DELETED: u32 = host_winapi::ERROR_NETNAME_DELETED;
+    #[pyattr]
+    const ERROR_OPERATION_ABORTED: u32 = host_winapi::ERROR_OPERATION_ABORTED;
+    #[pyattr]
+    const ERROR_PIPE_BUSY: u32 = host_winapi::ERROR_PIPE_BUSY;
+    #[pyattr]
+    const ERROR_PORT_UNREACHABLE: u32 = host_winapi::ERROR_PORT_UNREACHABLE;
+    #[pyattr]
+    const ERROR_SEM_TIMEOUT: u32 = host_winapi::ERROR_SEM_TIMEOUT;
+    #[pyattr]
+    const SO_UPDATE_ACCEPT_CONTEXT: i32 = host_overlapped::SO_UPDATE_ACCEPT_CONTEXT_VALUE;
+    #[pyattr]
+    const SO_UPDATE_CONNECT_CONTEXT: i32 = host_overlapped::SO_UPDATE_CONNECT_CONTEXT_VALUE;
+    #[pyattr]
+    const TF_REUSE_SOCKET: u32 = host_overlapped::TF_REUSE_SOCKET_FLAG;
+    #[pyattr]
+    const INFINITE: u32 = host_winapi::INFINITE_TIMEOUT;
 
     #[pyattr]
-    const INVALID_HANDLE_VALUE: isize =
-        unsafe { core::mem::transmute(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE) };
+    const INVALID_HANDLE_VALUE: isize = host_overlapped::INVALID_HANDLE_VALUE_ISIZE;
 
     #[pyattr]
     const NULL: isize = 0;
@@ -59,8 +64,8 @@ mod _overlapped {
     }
 
     struct OverlappedInner {
-        overlapped: OVERLAPPED,
-        handle: HANDLE,
+        overlapped: host_overlapped::OverlappedIo,
+        handle: host_overlapped::Handle,
         error: u32,
         data: OverlappedData,
     }
@@ -136,7 +141,7 @@ mod _overlapped {
         result: Option<PyObjectRef>,
         // The actual read buffer
         allocated_buffer: PyBytesRef,
-        address: SOCKADDR_IN6,
+        address: host_overlapped::SocketAddrV6,
         address_length: i32,
     }
 
@@ -155,7 +160,7 @@ mod _overlapped {
         result: Option<PyObjectRef>,
         /* Buffer passed by the user */
         user_buffer: PyBuffer,
-        address: SOCKADDR_IN6,
+        address: host_overlapped::SocketAddrV6,
         address_length: i32,
     }
 
@@ -185,7 +190,7 @@ mod _overlapped {
 
     fn set_from_windows_err(err: u32, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let err = if err == 0 {
-            unsafe { GetLastError() }
+            host_winapi::get_last_error()
         } else {
             err
         };
@@ -200,45 +205,13 @@ mod _overlapped {
 
     /// Parse a Python address tuple to SOCKADDR
     fn parse_address(addr_obj: &PyTupleRef, vm: &VirtualMachine) -> PyResult<(Vec<u8>, i32)> {
-        use windows_sys::Win32::Networking::WinSock::{WSAGetLastError, WSAStringToAddressW};
-
         match addr_obj.len() {
             2 => {
                 // IPv4: (host, port)
                 let host: PyStrRef = addr_obj[0].clone().try_into_value(vm)?;
                 let port: u16 = addr_obj[1].clone().try_to_value(vm)?;
-
-                let mut addr: SOCKADDR_IN = unsafe { core::mem::zeroed() };
-                addr.sin_family = AF_INET;
-
-                let host_wide: Vec<u16> = host.as_wtf8().encode_wide().chain([0]).collect();
-                let mut addr_len = core::mem::size_of::<SOCKADDR_IN>() as i32;
-
-                let ret = unsafe {
-                    WSAStringToAddressW(
-                        host_wide.as_ptr(),
-                        AF_INET as i32,
-                        core::ptr::null(),
-                        &mut addr as *mut _ as *mut SOCKADDR,
-                        &mut addr_len,
-                    )
-                };
-
-                if ret < 0 {
-                    let err = unsafe { WSAGetLastError() } as u32;
-                    return Err(set_from_windows_err(err, vm));
-                }
-
-                // Restore port (WSAStringToAddressW overwrites it)
-                addr.sin_port = port.to_be();
-
-                let bytes = unsafe {
-                    core::slice::from_raw_parts(
-                        &addr as *const _ as *const u8,
-                        core::mem::size_of::<SOCKADDR_IN>(),
-                    )
-                };
-                Ok((bytes.to_vec(), addr_len))
+                host_overlapped::parse_address_v4(host.as_str(), port)
+                    .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
             }
             4 => {
                 // IPv6: (host, port, flowinfo, scope_id)
@@ -246,71 +219,29 @@ mod _overlapped {
                 let port: u16 = addr_obj[1].clone().try_to_value(vm)?;
                 let flowinfo: u32 = addr_obj[2].clone().try_to_value(vm)?;
                 let scope_id: u32 = addr_obj[3].clone().try_to_value(vm)?;
-
-                let mut addr: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
-                addr.sin6_family = AF_INET6;
-
-                let host_wide: Vec<u16> = host.as_wtf8().encode_wide().chain([0]).collect();
-                let mut addr_len = core::mem::size_of::<SOCKADDR_IN6>() as i32;
-
-                let ret = unsafe {
-                    WSAStringToAddressW(
-                        host_wide.as_ptr(),
-                        AF_INET6 as i32,
-                        core::ptr::null(),
-                        &mut addr as *mut _ as *mut SOCKADDR,
-                        &mut addr_len,
-                    )
-                };
-
-                if ret < 0 {
-                    let err = unsafe { WSAGetLastError() } as u32;
-                    return Err(set_from_windows_err(err, vm));
-                }
-
-                // Restore fields that WSAStringToAddressW might overwrite
-                addr.sin6_port = port.to_be();
-                addr.sin6_flowinfo = flowinfo;
-                addr.Anonymous.sin6_scope_id = scope_id;
-
-                let bytes = unsafe {
-                    core::slice::from_raw_parts(
-                        &addr as *const _ as *const u8,
-                        core::mem::size_of::<SOCKADDR_IN6>(),
-                    )
-                };
-                Ok((bytes.to_vec(), addr_len))
+                host_overlapped::parse_address_v6(host.as_str(), port, flowinfo, scope_id)
+                    .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
             }
             _ => Err(vm.new_value_error("illegal address_as_bytes argument")),
         }
     }
 
     /// Parse a SOCKADDR_IN6 (which can also hold IPv4 addresses) to a Python address tuple
-    fn unparse_address(addr: &SOCKADDR_IN6, _addr_len: i32, vm: &VirtualMachine) -> PyResult {
-        use core::net::{Ipv4Addr, Ipv6Addr};
-
-        unsafe {
-            let family = addr.sin6_family;
-            if family == AF_INET {
-                // IPv4 address stored in SOCKADDR_IN6 structure
-                let addr_in = &*(addr as *const SOCKADDR_IN6 as *const SOCKADDR_IN);
-                let ip_bytes = addr_in.sin_addr.S_un.S_un_b;
-                let ip_str =
-                    Ipv4Addr::new(ip_bytes.s_b1, ip_bytes.s_b2, ip_bytes.s_b3, ip_bytes.s_b4)
-                        .to_string();
-                let port = u16::from_be(addr_in.sin_port);
-                Ok((ip_str, port).to_pyobject(vm))
-            } else if family == AF_INET6 {
-                // IPv6 address
-                let ip_bytes = addr.sin6_addr.u.Byte;
-                let ip_str = Ipv6Addr::from(ip_bytes).to_string();
-                let port = u16::from_be(addr.sin6_port);
-                let flowinfo = u32::from_be(addr.sin6_flowinfo);
-                let scope_id = addr.Anonymous.sin6_scope_id;
-                Ok((ip_str, port, flowinfo, scope_id).to_pyobject(vm))
-            } else {
-                Err(vm.new_value_error("recvfrom returned unsupported address family"))
-            }
+    fn unparse_address(
+        addr: &host_overlapped::SocketAddrV6,
+        addr_len: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match host_overlapped::unparse_address(addr, addr_len)
+            .map_err(|_| vm.new_value_error("recvfrom returned unsupported address family"))?
+        {
+            host_overlapped::SocketAddress::V4 { host, port } => Ok((host, port).to_pyobject(vm)),
+            host_overlapped::SocketAddress::V6 {
+                host,
+                port,
+                flowinfo,
+                scope_id,
+            } => Ok((host, port, flowinfo, scope_id).to_pyobject(vm)),
         }
     }
 
@@ -360,9 +291,7 @@ mod _overlapped {
 
         #[pymethod]
         fn getresult(zelf: &Py<Self>, wait: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult {
-            use windows_sys::Win32::Foundation::{
-                ERROR_BROKEN_PIPE, ERROR_MORE_DATA, ERROR_SUCCESS,
-            };
+            use host_winapi::{ERROR_BROKEN_PIPE, ERROR_MORE_DATA, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
             let wait = wait.unwrap_or(false);
@@ -450,7 +379,7 @@ mod _overlapped {
         // ReadFile
         #[pymethod]
         fn ReadFile(zelf: &Py<Self>, handle: isize, size: u32, vm: &VirtualMachine) -> PyResult {
-            use windows_sys::Win32::Foundation::{
+            use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
 
@@ -464,11 +393,11 @@ mod _overlapped {
 
             let buf = vec![0u8; core::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
-            inner.handle = handle as HANDLE;
+            inner.handle = handle as host_overlapped::Handle;
             inner.data = OverlappedData::Read(buf.clone());
 
             let err = host_overlapped::start_read_file(
-                handle as HANDLE,
+                handle as host_overlapped::Handle,
                 buf.as_bytes().as_ptr() as *mut u8,
                 size,
                 &mut inner.overlapped,
@@ -496,7 +425,7 @@ mod _overlapped {
             buf: PyBuffer,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{
+            use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
 
@@ -505,7 +434,7 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            inner.handle = handle as HANDLE;
+            inner.handle = handle as host_overlapped::Handle;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
                 return Err(vm.new_value_error("buffer too large"));
@@ -520,7 +449,7 @@ mod _overlapped {
             inner.data = OverlappedData::ReadInto(buf.clone());
 
             let err = host_overlapped::start_read_file(
-                handle as HANDLE,
+                handle as host_overlapped::Handle,
                 contiguous.as_mut_ptr(),
                 buf_len as u32,
                 &mut inner.overlapped,
@@ -549,7 +478,7 @@ mod _overlapped {
             flags: OptionalArg<u32>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{
+            use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
 
@@ -565,7 +494,7 @@ mod _overlapped {
 
             let buf = vec![0u8; core::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
-            inner.handle = handle as HANDLE;
+            inner.handle = handle as host_overlapped::Handle;
             inner.data = OverlappedData::Read(buf.clone());
 
             let err = host_overlapped::start_wsa_recv(
@@ -599,7 +528,7 @@ mod _overlapped {
             flags: u32,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{
+            use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
 
@@ -609,7 +538,7 @@ mod _overlapped {
             }
 
             let mut flags = flags;
-            inner.handle = handle as HANDLE;
+            inner.handle = handle as host_overlapped::Handle;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
                 return Err(vm.new_value_error("buffer too large"));
@@ -651,14 +580,14 @@ mod _overlapped {
             buf: PyBuffer,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            inner.handle = handle as HANDLE;
+            inner.handle = handle as host_overlapped::Handle;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
                 return Err(vm.new_value_error("buffer too large"));
@@ -673,7 +602,7 @@ mod _overlapped {
             inner.data = OverlappedData::Write(buf.clone());
 
             let err = host_overlapped::start_write_file(
-                handle as HANDLE,
+                handle as host_overlapped::Handle,
                 contiguous.as_ptr(),
                 buf_len as u32,
                 &mut inner.overlapped,
@@ -698,14 +627,14 @@ mod _overlapped {
             flags: u32,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            inner.handle = handle as HANDLE;
+            inner.handle = handle as host_overlapped::Handle;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
                 return Err(vm.new_value_error("buffer too large"));
@@ -743,7 +672,7 @@ mod _overlapped {
             accept_socket: isize,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -751,11 +680,11 @@ mod _overlapped {
             }
 
             // Buffer size: local address + remote address
-            let size = core::mem::size_of::<SOCKADDR_IN6>() + 16;
+            let size = core::mem::size_of::<host_overlapped::SocketAddrV6>() + 16;
             let buf = vec![0u8; size * 2];
             let buf = vm.ctx.new_bytes(buf);
 
-            inner.handle = listen_socket as HANDLE;
+            inner.handle = listen_socket as host_overlapped::Handle;
             inner.data = OverlappedData::Accept(buf.clone());
 
             let err = host_overlapped::start_accept_ex(
@@ -784,7 +713,7 @@ mod _overlapped {
             address: PyTupleRef,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -793,7 +722,7 @@ mod _overlapped {
 
             let (addr_bytes, addr_len) = parse_address(&address, vm)?;
 
-            inner.handle = socket as HANDLE;
+            inner.handle = socket as host_overlapped::Handle;
             // Store addr_bytes in OverlappedData to keep it alive during async operation
             inner.data = OverlappedData::Connect(addr_bytes);
 
@@ -805,7 +734,7 @@ mod _overlapped {
 
             let err = host_overlapped::start_connect_ex(
                 socket as usize,
-                addr_ptr as *const SOCKADDR,
+                addr_ptr as *const host_overlapped::SocketAddrRaw,
                 addr_len,
                 &mut inner.overlapped,
             );
@@ -828,14 +757,14 @@ mod _overlapped {
             flags: u32,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            inner.handle = socket as HANDLE;
+            inner.handle = socket as host_overlapped::Handle;
             inner.data = OverlappedData::Disconnect;
 
             let err =
@@ -868,18 +797,18 @@ mod _overlapped {
             flags: u32,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            inner.handle = socket as HANDLE;
+            inner.handle = socket as host_overlapped::Handle;
             inner.data = OverlappedData::TransmitFile;
             let err = host_overlapped::start_transmit_file(
                 socket as usize,
-                file as HANDLE,
+                file as host_overlapped::Handle,
                 count_to_write,
                 count_per_send,
                 flags,
@@ -901,20 +830,20 @@ mod _overlapped {
         // ConnectNamedPipe
         #[pymethod]
         fn ConnectNamedPipe(zelf: &Py<Self>, pipe: isize, vm: &VirtualMachine) -> PyResult<bool> {
-            use windows_sys::Win32::Foundation::{
-                ERROR_IO_PENDING, ERROR_PIPE_CONNECTED, ERROR_SUCCESS,
-            };
+            use host_winapi::{ERROR_IO_PENDING, ERROR_PIPE_CONNECTED, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
                 return Err(vm.new_value_error("operation already attempted"));
             }
 
-            inner.handle = pipe as HANDLE;
+            inner.handle = pipe as host_overlapped::Handle;
             inner.data = OverlappedData::ConnectNamedPipe;
 
-            let err =
-                host_overlapped::start_connect_named_pipe(pipe as HANDLE, &mut inner.overlapped);
+            let err = host_overlapped::start_connect_named_pipe(
+                pipe as host_overlapped::Handle,
+                &mut inner.overlapped,
+            );
             inner.error = err;
 
             match err {
@@ -940,7 +869,7 @@ mod _overlapped {
             address: PyTupleRef,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -949,7 +878,7 @@ mod _overlapped {
 
             let (addr_bytes, addr_len) = parse_address(&address, vm)?;
 
-            inner.handle = handle as HANDLE;
+            inner.handle = handle as host_overlapped::Handle;
             let buf_len = buf.desc.len;
             if buf_len > u32::MAX as usize {
                 return Err(vm.new_value_error("buffer too large"));
@@ -976,7 +905,7 @@ mod _overlapped {
                 contiguous.as_ptr(),
                 buf_len as u32,
                 flags,
-                addr_ptr as *const SOCKADDR,
+                addr_ptr as *const host_overlapped::SocketAddrRaw,
                 addr_len,
                 &mut inner.overlapped,
             );
@@ -1000,7 +929,7 @@ mod _overlapped {
             flags: OptionalArg<u32>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{
+            use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
 
@@ -1016,10 +945,10 @@ mod _overlapped {
 
             let buf = vec![0u8; core::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
-            inner.handle = handle as HANDLE;
+            inner.handle = handle as host_overlapped::Handle;
 
-            let address: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
-            let address_length = core::mem::size_of::<SOCKADDR_IN6>() as i32;
+            let address: host_overlapped::SocketAddrV6 = unsafe { core::mem::zeroed() };
+            let address_length = core::mem::size_of::<host_overlapped::SocketAddrV6>() as i32;
 
             inner.data = OverlappedData::ReadFrom(OverlappedReadFrom {
                 result: None,
@@ -1031,7 +960,7 @@ mod _overlapped {
             // Get mutable reference to address in inner.data
             let (addr_ptr, addr_len_ptr) = match &mut inner.data {
                 OverlappedData::ReadFrom(rf) => (
-                    &mut rf.address as *mut SOCKADDR_IN6,
+                    &mut rf.address as *mut host_overlapped::SocketAddrV6,
                     &mut rf.address_length as *mut i32,
                 ),
                 _ => unreachable!(),
@@ -1042,7 +971,7 @@ mod _overlapped {
                 buf.as_bytes().as_ptr() as *mut u8,
                 size,
                 &mut flags,
-                addr_ptr as *mut SOCKADDR,
+                addr_ptr as *mut host_overlapped::SocketAddrRaw,
                 addr_len_ptr,
                 &mut inner.overlapped,
             );
@@ -1071,7 +1000,7 @@ mod _overlapped {
             flags: OptionalArg<u32>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            use windows_sys::Win32::Foundation::{
+            use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
 
@@ -1081,7 +1010,7 @@ mod _overlapped {
             }
 
             let mut flags = flags.unwrap_or(0);
-            inner.handle = handle as HANDLE;
+            inner.handle = handle as host_overlapped::Handle;
 
             let Some(mut contiguous) = buf.as_contiguous_mut() else {
                 return Err(vm.new_buffer_error("buffer is not contiguous"));
@@ -1092,8 +1021,8 @@ mod _overlapped {
                 return Err(vm.new_value_error("buffer too large"));
             }
 
-            let address: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
-            let address_length = core::mem::size_of::<SOCKADDR_IN6>() as i32;
+            let address: host_overlapped::SocketAddrV6 = unsafe { core::mem::zeroed() };
+            let address_length = core::mem::size_of::<host_overlapped::SocketAddrV6>() as i32;
 
             inner.data = OverlappedData::ReadFromInto(OverlappedReadFromInto {
                 result: None,
@@ -1105,7 +1034,7 @@ mod _overlapped {
             // Get mutable reference to address in inner.data
             let (addr_ptr, addr_len_ptr) = match &mut inner.data {
                 OverlappedData::ReadFromInto(rfi) => (
-                    &mut rfi.address as *mut SOCKADDR_IN6,
+                    &mut rfi.address as *mut host_overlapped::SocketAddrV6,
                     &mut rfi.address_length as *mut i32,
                 ),
                 _ => unreachable!(),
@@ -1116,7 +1045,7 @@ mod _overlapped {
                 contiguous.as_mut_ptr(),
                 size,
                 &mut flags,
-                addr_ptr as *mut SOCKADDR,
+                addr_ptr as *mut host_overlapped::SocketAddrRaw,
                 addr_len_ptr,
                 &mut inner.overlapped,
             );
@@ -1150,13 +1079,13 @@ mod _overlapped {
                     })?;
             }
 
-            let mut overlapped: OVERLAPPED = unsafe { core::mem::zeroed() };
+            let mut overlapped: host_overlapped::OverlappedIo = unsafe { core::mem::zeroed() };
             if event != NULL {
-                overlapped.hEvent = event as HANDLE;
+                overlapped.hEvent = event as host_overlapped::Handle;
             }
             let inner = OverlappedInner {
                 overlapped,
-                handle: NULL as HANDLE,
+                handle: NULL as host_overlapped::Handle,
                 error: 0,
                 data: OverlappedData::None,
             };
@@ -1168,12 +1097,10 @@ mod _overlapped {
 
     impl Destructor for Overlapped {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            use windows_sys::Win32::Foundation::{
-                ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, ERROR_SUCCESS,
-            };
+            use host_winapi::{ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, ERROR_SUCCESS};
 
             let mut inner = zelf.inner.lock();
-            let olderr = unsafe { GetLastError() };
+            let olderr = host_winapi::get_last_error();
 
             // Cancel pending I/O and wait for completion
             if !host_overlapped::has_overlapped_io_completed(&inner.overlapped)
@@ -1206,7 +1133,7 @@ mod _overlapped {
             }
 
             // Restore last error
-            unsafe { Foundation::SetLastError(olderr) };
+            host_windows::set_last_error(olderr);
 
             Ok(())
         }
@@ -1286,7 +1213,7 @@ mod _overlapped {
 
     #[pyfunction]
     fn BindLocal(socket: isize, family: i32, vm: &VirtualMachine) -> PyResult<()> {
-        if family != AF_INET as i32 && family != AF_INET6 as i32 {
+        if family != host_overlapped::AF_INET_FAMILY && family != host_overlapped::AF_INET6_FAMILY {
             return Err(vm.new_value_error("expected tuple of length 2 or 4"));
         }
         host_overlapped::bind_local(socket, family)
@@ -1301,8 +1228,12 @@ mod _overlapped {
     #[pyfunction]
     fn WSAConnect(socket: isize, address: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
         let (addr_bytes, addr_len) = parse_address(&address, vm)?;
-        host_overlapped::wsa_connect(socket, addr_bytes.as_ptr() as *const SOCKADDR, addr_len)
-            .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
+        host_overlapped::wsa_connect(
+            socket,
+            addr_bytes.as_ptr() as *const host_overlapped::SocketAddrRaw,
+            addr_len,
+        )
+        .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]
@@ -1330,13 +1261,13 @@ mod _overlapped {
 
     #[pyfunction]
     fn SetEvent(handle: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_winapi::set_event(handle as HANDLE)
+        host_winapi::set_event(handle as host_winapi::Handle)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]
     fn ResetEvent(handle: isize, vm: &VirtualMachine) -> PyResult<()> {
-        host_winapi::reset_event(handle as HANDLE)
+        host_winapi::reset_event(handle as host_winapi::Handle)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 }

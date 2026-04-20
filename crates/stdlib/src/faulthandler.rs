@@ -549,7 +549,7 @@ mod decl {
 
     #[cfg(windows)]
     unsafe extern "system" fn faulthandler_exc_handler(
-        exc_info: *mut windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS,
+        exc_info: *mut host_faulthandler::ExceptionPointers,
     ) -> i32 {
         const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
 

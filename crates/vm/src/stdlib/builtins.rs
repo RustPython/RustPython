@@ -754,9 +754,7 @@ mod builtins {
     /// In this case, rustyline may hang because it uses raw mode.
     #[cfg(unix)]
     fn is_pty_child() -> bool {
-        use nix::unistd::{getpid, getsid};
-        // If this process is a session leader, we're likely in a PTY child
-        getsid(None) == Ok(getpid())
+        crate::host_env::posix::is_session_leader()
     }
 
     #[cfg(not(unix))]

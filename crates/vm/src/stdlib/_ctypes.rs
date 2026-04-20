@@ -1196,63 +1196,30 @@ pub(crate) mod _ctypes {
     #[cfg(windows)]
     #[pyfunction(name = "FormatError")]
     fn format_error_func(code: OptionalArg<u32>, _vm: &VirtualMachine) -> PyResult<String> {
-        use windows_sys::Win32::Foundation::{GetLastError, LocalFree};
-        use windows_sys::Win32::System::Diagnostics::Debug::{
-            FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
-            FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
-        };
-
-        let error_code = code.unwrap_or_else(|| unsafe { GetLastError() });
-
-        let mut buffer: *mut u16 = core::ptr::null_mut();
-        let len = unsafe {
-            FormatMessageW(
-                FORMAT_MESSAGE_ALLOCATE_BUFFER
-                    | FORMAT_MESSAGE_FROM_SYSTEM
-                    | FORMAT_MESSAGE_IGNORE_INSERTS,
-                core::ptr::null(),
-                error_code,
-                0,
-                &mut buffer as *mut *mut u16 as *mut u16,
-                0,
-                core::ptr::null(),
-            )
-        };
-
-        if len == 0 || buffer.is_null() {
-            return Ok("<no description>".to_string());
-        }
-
-        let message = unsafe {
-            let slice = core::slice::from_raw_parts(buffer, len as usize);
-            let msg = String::from_utf16_lossy(slice).trim_end().to_string();
-            LocalFree(buffer as *mut _);
-            msg
-        };
-
-        Ok(message)
+        Ok(
+            rustpython_host_env::windows::format_error_message(code.into_option())
+                .unwrap_or_else(|| "<no description>".to_string()),
+        )
     }
 
     #[cfg(windows)]
     #[pyfunction(name = "CopyComPointer")]
     fn copy_com_pointer(src: PyObjectRef, dst: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
-        use windows_sys::Win32::Foundation::{E_POINTER, S_OK};
-
         // 1. Extract pointer-to-pointer address from dst (byref() result)
         let pdst: usize = if let Some(carg) = dst.downcast_ref::<CArgObject>() {
             // byref() result: object buffer address + offset
             let base = if let Some(cdata) = carg.obj.downcast_ref::<PyCData>() {
                 cdata.buffer.read().as_ptr() as usize
             } else {
-                return Ok(E_POINTER);
+                return Ok(rustpython_host_env::windows::HRESULT_E_POINTER);
             };
             (base as isize + carg.offset) as usize
         } else {
-            return Ok(E_POINTER);
+            return Ok(rustpython_host_env::windows::HRESULT_E_POINTER);
         };
 
         if pdst == 0 {
-            return Ok(E_POINTER);
+            return Ok(rustpython_host_env::windows::HRESULT_E_POINTER);
         }
 
         // 2. Extract COM pointer value from src
@@ -1271,7 +1238,7 @@ pub(crate) mod _ctypes {
                 0
             }
         } else {
-            return Ok(E_POINTER);
+            return Ok(rustpython_host_env::windows::HRESULT_E_POINTER);
         };
 
         // 3. Call IUnknown::AddRef if src is non-NULL
@@ -1292,7 +1259,7 @@ pub(crate) mod _ctypes {
             *(pdst as *mut usize) = src_ptr;
         }
 
-        Ok(S_OK)
+        Ok(rustpython_host_env::windows::HRESULT_S_OK)
     }
 
     pub(crate) fn module_exec(

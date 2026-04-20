@@ -44,9 +44,6 @@ pub mod decl {
     #[cfg(any(unix, windows))]
     use rustpython_host_env::time::asctime_from_tm;
     use rustpython_host_env::time::{self as host_time};
-    #[cfg(target_env = "msvc")]
-    #[cfg(not(target_arch = "wasm32"))]
-    use windows_sys::Win32::System::Time::TIME_ZONE_INFORMATION;
 
     #[cfg(windows)]
     unsafe extern "C" {
@@ -125,18 +122,11 @@ pub mod decl {
                 if remaining.is_zero() {
                     break;
                 }
-                let ts = nix::sys::time::TimeSpec::from(remaining);
-                let (res, err) = vm.allow_threads(|| {
-                    let r = unsafe { libc::nanosleep(ts.as_ref(), core::ptr::null_mut()) };
-                    (r, nix::Error::last_raw())
-                });
-                if res == 0 {
-                    break;
-                }
-                if err != libc::EINTR {
-                    return Err(
-                        vm.new_os_error(format!("nanosleep: {}", nix::Error::from_raw(err)))
-                    );
+                let sleep_result = vm.allow_threads(|| host_time::nanosleep(remaining));
+                match sleep_result {
+                    Ok(()) => break,
+                    Err(err) if err.raw_os_error() == Some(libc::EINTR) => {}
+                    Err(err) => return Err(vm.new_os_error(format!("nanosleep: {err}"))),
                 }
                 // EINTR: run signal handlers, then retry with remaining time
                 vm.check_signals()?;
@@ -217,7 +207,7 @@ pub mod decl {
 
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn get_tz_info() -> TIME_ZONE_INFORMATION {
+    pub(super) fn get_tz_info() -> host_time::WindowsTimeZoneInfo {
         host_time::get_tz_info()
     }
 
@@ -240,7 +230,7 @@ pub mod decl {
     fn altzone(_vm: &VirtualMachine) -> i32 {
         let info = get_tz_info();
         // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
-        (info.Bias + info.StandardBias) * 60 - 3600
+        (info.bias + info.standard_bias) * 60 - 3600
     }
 
     #[cfg(not(target_env = "msvc"))]
@@ -256,7 +246,7 @@ pub mod decl {
     fn timezone(_vm: &VirtualMachine) -> i32 {
         let info = get_tz_info();
         // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
-        (info.Bias + info.StandardBias) * 60
+        (info.bias + info.standard_bias) * 60
     }
 
     #[cfg(not(target_os = "freebsd"))]
@@ -273,7 +263,7 @@ pub mod decl {
     fn daylight(_vm: &VirtualMachine) -> i32 {
         let info = get_tz_info();
         // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
-        (info.StandardBias != info.DaylightBias) as i32
+        (info.standard_bias != info.daylight_bias) as i32
     }
 
     #[cfg(not(target_env = "msvc"))]
@@ -296,13 +286,7 @@ pub mod decl {
     fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
         use crate::builtins::tuple::IntoPyTuple;
         let info = get_tz_info();
-        let standard = widestring::decode_utf16_lossy(info.StandardName)
-            .take_while(|&c| c != '\0')
-            .collect::<String>();
-        let daylight = widestring::decode_utf16_lossy(info.DaylightName)
-            .take_while(|&c| c != '\0')
-            .collect::<String>();
-        let tz_name = (&*standard, &*daylight);
+        let tz_name = (&*info.standard_name, &*info.daylight_name);
         tz_name.into_pytuple(vm)
     }
 
@@ -1031,7 +1015,6 @@ mod platform {
     use core::time::Duration;
     #[cfg_attr(target_env = "musl", allow(deprecated))]
     use libc::time_t;
-    use nix::{sys::time::TimeSpec, time::ClockId};
     #[cfg(any(
         target_os = "illumos",
         target_os = "netbsd",
@@ -1039,6 +1022,7 @@ mod platform {
         target_os = "solaris",
     ))]
     use rustpython_host_env::resource as host_resource;
+    use rustpython_host_env::time::ClockId;
 
     #[cfg(target_os = "solaris")]
     #[pyattr]
@@ -1142,8 +1126,7 @@ mod platform {
     }
 
     fn get_clock_time(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<Duration> {
-        let ts = nix::time::clock_gettime(clk_id).map_err(|e| e.into_pyexception(vm))?;
-        Ok(ts.into())
+        rustpython_host_env::time::clock_gettime(clk_id).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1159,23 +1142,8 @@ mod platform {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn clock_getres(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
-        let ts = nix::time::clock_getres(clk_id).map_err(|e| e.into_pyexception(vm))?;
-        Ok(Duration::from(ts).as_secs_f64())
-    }
-
-    #[cfg(not(target_os = "redox"))]
-    #[cfg(not(target_vendor = "apple"))]
-    fn set_clock_time(clk_id: ClockId, timespec: TimeSpec, vm: &VirtualMachine) -> PyResult<()> {
-        nix::time::clock_settime(clk_id, timespec).map_err(|e| e.into_pyexception(vm))
-    }
-
-    #[cfg(not(target_os = "redox"))]
-    #[cfg(target_os = "macos")]
-    fn set_clock_time(clk_id: ClockId, timespec: TimeSpec, vm: &VirtualMachine) -> PyResult<()> {
-        // idk why nix disables clock_settime on macos
-        let ret = unsafe { libc::clock_settime(clk_id.as_raw(), timespec.as_ref()) };
-        nix::Error::result(ret)
-            .map(drop)
+        rustpython_host_env::time::clock_getres(clk_id)
+            .map(|d| d.as_secs_f64())
             .map_err(|e| e.into_pyexception(vm))
     }
 
@@ -1183,7 +1151,7 @@ mod platform {
     #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
     #[pyfunction]
     fn clock_settime(clk_id: ClockId, time: Duration, vm: &VirtualMachine) -> PyResult<()> {
-        set_clock_time(clk_id, time.into(), vm)
+        rustpython_host_env::time::clock_settime(clk_id, time).map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1191,8 +1159,8 @@ mod platform {
     #[cfg_attr(target_env = "musl", allow(deprecated))]
     #[pyfunction]
     fn clock_settime_ns(clk_id: ClockId, time: libc::time_t, vm: &VirtualMachine) -> PyResult<()> {
-        let ts = Duration::from_nanos(time as _).into();
-        set_clock_time(clk_id, ts, vm)
+        rustpython_host_env::time::clock_settime(clk_id, Duration::from_nanos(time as _))
+            .map_err(|e| e.into_pyexception(vm))
     }
 
     // Requires all CLOCK constants available and clock_getres
@@ -1390,18 +1358,14 @@ mod platform {
         // Get timezone info from Windows API
         let info = get_tz_info();
         let (bias, name) = if tm.tm_isdst > 0 {
-            (info.DaylightBias, &info.DaylightName)
+            (info.daylight_bias, &info.daylight_name)
         } else {
-            (info.StandardBias, &info.StandardName)
+            (info.standard_bias, &info.standard_name)
         };
-        let zone = widestring::decode_utf16_lossy(name.iter().copied())
-            .take_while(|&c| c != '\0')
-            .collect::<String>();
 
-        #[allow(clippy::unnecessary_cast, reason = "info.Bias is not always i32")]
-        let gmtoff = -((info.Bias + bias) as i32) * 60;
+        let gmtoff = -(info.bias + bias) * 60;
 
-        Ok(struct_time_from_tm(vm, tm, &zone, gmtoff))
+        Ok(struct_time_from_tm(vm, tm, name, gmtoff))
     }
 
     pub(super) fn win_mktime(t: &StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {

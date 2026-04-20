@@ -19,11 +19,9 @@ mod winreg {
     use malachite_bigint::Sign;
     use num_traits::ToPrimitive;
     use rustpython_host_env::winreg as host_winreg;
-    use windows_sys::Win32::Foundation::{self, ERROR_MORE_DATA};
-    use windows_sys::Win32::System::Registry;
 
     /// Atomic HKEY handle type for lock-free thread-safe access
-    type AtomicHKEY = AtomicCell<Registry::HKEY>;
+    type AtomicHKEY = AtomicCell<host_winreg::HKEY>;
 
     fn os_error_from_windows_code(
         vm: &VirtualMachine,
@@ -34,7 +32,7 @@ mod winreg {
     }
 
     /// Wrapper type for HKEY that can be created from PyHkey or int
-    struct HKEYArg(Registry::HKEY);
+    struct HKEYArg(host_winreg::HKEY);
 
     impl TryFromObject for HKEYArg {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -44,21 +42,20 @@ mod winreg {
             }
             // Then try int
             let handle = usize::try_from_object(vm, obj)?;
-            Ok(HKEYArg(handle as Registry::HKEY))
+            Ok(HKEYArg(handle as host_winreg::HKEY))
         }
     }
 
     // access rights
     #[pyattr]
-    pub(super) use windows_sys::Win32::System::Registry::{
+    pub use host_winreg::{
         KEY_ALL_ACCESS, KEY_CREATE_LINK, KEY_CREATE_SUB_KEY, KEY_ENUMERATE_SUB_KEYS, KEY_EXECUTE,
         KEY_NOTIFY, KEY_QUERY_VALUE, KEY_READ, KEY_SET_VALUE, KEY_WOW64_32KEY, KEY_WOW64_64KEY,
         KEY_WRITE,
     };
-
     // value types
     #[pyattr]
-    pub(super) use windows_sys::Win32::System::Registry::{
+    pub use host_winreg::{
         REG_BINARY, REG_CREATED_NEW_KEY, REG_DWORD, REG_DWORD_BIG_ENDIAN, REG_DWORD_LITTLE_ENDIAN,
         REG_EXPAND_SZ, REG_FULL_RESOURCE_DESCRIPTOR, REG_LINK, REG_MULTI_SZ, REG_NONE,
         REG_NOTIFY_CHANGE_ATTRIBUTES, REG_NOTIFY_CHANGE_LAST_SET, REG_NOTIFY_CHANGE_NAME,
@@ -68,25 +65,14 @@ mod winreg {
         REG_RESOURCE_REQUIREMENTS_LIST, REG_SZ, REG_WHOLE_HIVE_VOLATILE,
     };
 
-    // Additional constants not in windows-sys
     #[pyattr]
-    const REG_REFRESH_HIVE: u32 = 0x00000002;
+    const REG_REFRESH_HIVE: u32 = host_winreg::REG_REFRESH_HIVE;
     #[pyattr]
-    const REG_NO_LAZY_FLUSH: u32 = 0x00000004;
-    // REG_LEGAL_OPTION is a mask of all option flags
+    const REG_NO_LAZY_FLUSH: u32 = host_winreg::REG_NO_LAZY_FLUSH;
     #[pyattr]
-    const REG_LEGAL_OPTION: u32 = Registry::REG_OPTION_RESERVED
-        | Registry::REG_OPTION_NON_VOLATILE
-        | Registry::REG_OPTION_VOLATILE
-        | Registry::REG_OPTION_CREATE_LINK
-        | Registry::REG_OPTION_BACKUP_RESTORE
-        | Registry::REG_OPTION_OPEN_LINK;
-    // REG_LEGAL_CHANGE_FILTER is a mask of all notify flags
+    const REG_LEGAL_OPTION: u32 = host_winreg::REG_LEGAL_OPTION;
     #[pyattr]
-    const REG_LEGAL_CHANGE_FILTER: u32 = Registry::REG_NOTIFY_CHANGE_NAME
-        | Registry::REG_NOTIFY_CHANGE_ATTRIBUTES
-        | Registry::REG_NOTIFY_CHANGE_LAST_SET
-        | Registry::REG_NOTIFY_CHANGE_SECURITY;
+    const REG_LEGAL_CHANGE_FILTER: u32 = host_winreg::REG_LEGAL_CHANGE_FILTER;
 
     // error is an alias for OSError (for backwards compatibility)
     #[pyattr]
@@ -96,37 +82,37 @@ mod winreg {
 
     #[pyattr(once)]
     fn HKEY_CLASSES_ROOT(vm: &VirtualMachine) -> PyRef<PyHkey> {
-        PyHkey::new(Registry::HKEY_CLASSES_ROOT).into_ref(&vm.ctx)
+        PyHkey::new(host_winreg::HKEY_CLASSES_ROOT).into_ref(&vm.ctx)
     }
 
     #[pyattr(once)]
     fn HKEY_CURRENT_USER(vm: &VirtualMachine) -> PyRef<PyHkey> {
-        PyHkey::new(Registry::HKEY_CURRENT_USER).into_ref(&vm.ctx)
+        PyHkey::new(host_winreg::HKEY_CURRENT_USER).into_ref(&vm.ctx)
     }
 
     #[pyattr(once)]
     fn HKEY_LOCAL_MACHINE(vm: &VirtualMachine) -> PyRef<PyHkey> {
-        PyHkey::new(Registry::HKEY_LOCAL_MACHINE).into_ref(&vm.ctx)
+        PyHkey::new(host_winreg::HKEY_LOCAL_MACHINE).into_ref(&vm.ctx)
     }
 
     #[pyattr(once)]
     fn HKEY_USERS(vm: &VirtualMachine) -> PyRef<PyHkey> {
-        PyHkey::new(Registry::HKEY_USERS).into_ref(&vm.ctx)
+        PyHkey::new(host_winreg::HKEY_USERS).into_ref(&vm.ctx)
     }
 
     #[pyattr(once)]
     fn HKEY_PERFORMANCE_DATA(vm: &VirtualMachine) -> PyRef<PyHkey> {
-        PyHkey::new(Registry::HKEY_PERFORMANCE_DATA).into_ref(&vm.ctx)
+        PyHkey::new(host_winreg::HKEY_PERFORMANCE_DATA).into_ref(&vm.ctx)
     }
 
     #[pyattr(once)]
     fn HKEY_CURRENT_CONFIG(vm: &VirtualMachine) -> PyRef<PyHkey> {
-        PyHkey::new(Registry::HKEY_CURRENT_CONFIG).into_ref(&vm.ctx)
+        PyHkey::new(host_winreg::HKEY_CURRENT_CONFIG).into_ref(&vm.ctx)
     }
 
     #[pyattr(once)]
     fn HKEY_DYN_DATA(vm: &VirtualMachine) -> PyRef<PyHkey> {
-        PyHkey::new(Registry::HKEY_DYN_DATA).into_ref(&vm.ctx)
+        PyHkey::new(host_winreg::HKEY_DYN_DATA).into_ref(&vm.ctx)
     }
 
     #[pyattr]
@@ -140,7 +126,7 @@ mod winreg {
     unsafe impl Sync for PyHkey {}
 
     impl PyHkey {
-        fn new(hkey: Registry::HKEY) -> Self {
+        fn new(hkey: host_winreg::HKEY) -> Self {
             Self {
                 hkey: AtomicHKEY::new(hkey),
             }
@@ -225,7 +211,7 @@ mod winreg {
         }
     }
 
-    pub(super) const HKEY_ERR_MSG: &str = "bad operand type";
+    pub const HKEY_ERR_MSG: &str = "bad operand type";
 
     impl AsNumber for PyHkey {
         fn as_number() -> &'static PyNumberMethods {
@@ -320,14 +306,14 @@ mod winreg {
         sub_key: String,
         #[pyarg(any, default = 0)]
         reserved: u32,
-        #[pyarg(any, default = windows_sys::Win32::System::Registry::KEY_WRITE)]
+        #[pyarg(any, default = host_winreg::KEY_WRITE)]
         access: u32,
     }
 
     #[pyfunction]
     fn CreateKeyEx(args: CreateKeyExArgs, vm: &VirtualMachine) -> PyResult<PyHkey> {
         let wide_sub_key = args.sub_key.to_wide_with_nul();
-        let mut res: Registry::HKEY = core::ptr::null_mut();
+        let mut res: host_winreg::HKEY = core::ptr::null_mut();
         let err = unsafe {
             let key = args.key.hkey.load();
             host_winreg::create_key_ex(
@@ -335,7 +321,7 @@ mod winreg {
                 wide_sub_key.as_ptr(),
                 args.reserved,
                 core::ptr::null_mut(),
-                Registry::REG_OPTION_NON_VOLATILE,
+                host_winreg::REG_OPTION_NON_VOLATILE,
                 args.access,
                 core::ptr::null(),
                 &mut res,
@@ -388,7 +374,7 @@ mod winreg {
         key: PyRef<PyHkey>,
         #[pyarg(any)]
         sub_key: String,
-        #[pyarg(any, default = windows_sys::Win32::System::Registry::KEY_WOW64_64KEY)]
+        #[pyarg(any, default = host_winreg::KEY_WOW64_64KEY)]
         access: u32,
         #[pyarg(any, default = 0)]
         reserved: u32,
@@ -437,7 +423,7 @@ mod winreg {
         // Query registry for the required buffer sizes.
         let mut ret_value_size: u32 = 0;
         let mut ret_data_size: u32 = 0;
-        let hkey: Registry::HKEY = hkey.hkey.load();
+        let hkey: host_winreg::HKEY = hkey.hkey.load();
         let rc = unsafe {
             host_winreg::query_info_key(
                 hkey,
@@ -477,7 +463,7 @@ mod winreg {
                     &mut current_data_size as *mut u32,
                 )
             };
-            if rc == ERROR_MORE_DATA {
+            if rc == host_winreg::ERROR_MORE_DATA {
                 // Double the buffer sizes.
                 buf_data_size *= 2;
                 buf_value_size *= 2;
@@ -552,7 +538,7 @@ mod winreg {
         sub_key: String,
         #[pyarg(any, default = 0)]
         reserved: u32,
-        #[pyarg(any, default = windows_sys::Win32::System::Registry::KEY_READ)]
+        #[pyarg(any, default = host_winreg::KEY_READ)]
         access: u32,
     }
 
@@ -560,7 +546,7 @@ mod winreg {
     #[pyfunction(name = "OpenKeyEx")]
     fn OpenKey(args: OpenKeyArgs, vm: &VirtualMachine) -> PyResult<PyHkey> {
         let wide_sub_key = args.sub_key.to_wide_with_nul();
-        let mut res: Registry::HKEY = core::ptr::null_mut();
+        let mut res: host_winreg::HKEY = core::ptr::null_mut();
         let err = unsafe {
             let key = args.key.hkey.load();
             host_winreg::open_key_ex(

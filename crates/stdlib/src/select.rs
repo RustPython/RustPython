@@ -42,7 +42,7 @@ mod decl {
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         #[cfg(windows)]
-        crate::vm::windows::init_winsock();
+        rustpython_host_env::windows::init_winsock();
 
         #[cfg(unix)]
         {
@@ -301,7 +301,9 @@ mod decl {
                 loop {
                     match vm.allow_threads(|| host_select::poll_fds(&mut fds, poll_timeout)) {
                         Ok(_) => break,
-                        Err(nix::Error::EINTR) => vm.check_signals()?,
+                        Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                            vm.check_signals()?
+                        }
                         Err(err) => return Err(err.into_pyexception(vm)),
                     }
                     if let Some(d) = deadline {

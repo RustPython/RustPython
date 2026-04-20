@@ -23,10 +23,14 @@ mod _socket {
         utils::ToCString,
     };
     use rustpython_host_env::os::ErrorExt;
+    #[cfg(any(unix, windows))]
+    use rustpython_host_env::socket as host_socket;
+    #[cfg(windows)]
+    use rustpython_host_env::windows as host_windows;
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         #[cfg(windows)]
-        crate::vm::windows::init_winsock();
+        host_windows::init_winsock();
 
         __module_exec(vm, module);
         Ok(())
@@ -48,72 +52,38 @@ mod _socket {
 
     #[cfg(unix)]
     use libc as c;
-
     #[cfg(windows)]
     mod c {
-        pub(super) use windows_sys::Win32::NetworkManagement::IpHelper::{
-            if_indextoname, if_nametoindex,
+        pub use rustpython_host_env::socket::{
+            AF_APPLETALK, AF_DECnet, AF_INET, AF_INET6, AF_IPX, AF_LINK, AF_UNSPEC, AI_ADDRCONFIG,
+            AI_ALL, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE, AI_V4MAPPED,
+            EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NODATA, EAI_NONAME,
+            EAI_SERVICE, EAI_SOCKTYPE, FROM_PROTOCOL_INFO_VALUE as FROM_PROTOCOL_INFO, IF_NAMESIZE,
+            INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE, IP_ADD_MEMBERSHIP,
+            IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL,
+            IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, IPPORT_RESERVED, IPPROTO_AH,
+            IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP,
+            IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP,
+            IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4, IPPROTO_IPV6, IPPROTO_ND, IPPROTO_NONE,
+            IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP,
+            IPV6_CHECKSUM, IPV6_DONTFRAG, IPV6_HOPLIMIT, IPV6_HOPOPTS, IPV6_JOIN_GROUP,
+            IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP,
+            IPV6_PKTINFO, IPV6_RECVRTHDR, IPV6_RECVTCLASS, IPV6_RTHDR, IPV6_TCLASS,
+            IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_BCAST, MSG_CTRUNC, MSG_DONTROUTE, MSG_MCAST,
+            MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST, NI_MAXSERV,
+            NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, RCVALL_IPLEVEL, RCVALL_OFF,
+            RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD,
+            SD_SEND as SHUT_WR, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL,
+            SO_BROADCAST, SO_ERROR, SO_EXCLUSIVEADDRUSE, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE,
+            SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW,
+            SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR_CODE as SOCKET_ERROR, SOL_SOCKET,
+            SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK,
+            getprotobyname, getservbyname, getservbyport, getsockopt, setsockopt,
         };
-
-        pub(super) use windows_sys::Win32::Networking::WinSock::{
-            INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
-        };
-
-        pub(super) use windows_sys::Win32::Networking::WinSock::{
-            AF_APPLETALK, AF_DECnet, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
-            AI_NUMERICSERV, AI_V4MAPPED, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL,
-            IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_OPTIONS, IP_RECVDSTADDR,
-            IP_TOS, IP_TTL, IPPORT_RESERVED, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
-            IPPROTO_FRAGMENT, IPPROTO_GGP, IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6,
-            IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4,
-            IPPROTO_IPV6, IPPROTO_ND, IPPROTO_NONE, IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW,
-            IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP, IPV6_CHECKSUM, IPV6_DONTFRAG, IPV6_HOPLIMIT,
-            IPV6_HOPOPTS, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS,
-            IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_PKTINFO, IPV6_RECVRTHDR, IPV6_RECVTCLASS,
-            IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_BCAST, MSG_CTRUNC,
-            MSG_DONTROUTE, MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM,
-            NI_MAXHOST, NI_MAXSERV, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV,
-            RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH as SHUT_RDWR,
-            SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH,
-            SIO_RCVALL, SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF,
-            SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM,
-            SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SOMAXCONN, TCP_NODELAY, WSAEBADF,
-            WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK,
-        };
-
-        pub(super) use windows_sys::Win32::Networking::WinSock::{
-            INVALID_SOCKET, SOCKET_ERROR, WSA_FLAG_OVERLAPPED, WSADuplicateSocketW,
-            WSAGetLastError, WSAIoctl, WSAPROTOCOL_INFOW, WSASocketW,
-        };
-
-        pub(super) use windows_sys::Win32::Networking::WinSock::{
-            SO_REUSEADDR as SO_EXCLUSIVEADDRUSE, getprotobyname, getservbyname, getservbyport,
-            getsockopt, setsockopt,
-        };
-
-        pub(super) use windows_sys::Win32::Networking::WinSock::{
-            WSA_NOT_ENOUGH_MEMORY as EAI_MEMORY, WSAEAFNOSUPPORT as EAI_FAMILY,
-            WSAEINVAL as EAI_BADFLAGS, WSAESOCKTNOSUPPORT as EAI_SOCKTYPE,
-            WSAHOST_NOT_FOUND as EAI_NODATA, WSAHOST_NOT_FOUND as EAI_NONAME,
-            WSANO_RECOVERY as EAI_FAIL, WSATRY_AGAIN as EAI_AGAIN,
-            WSATYPE_NOT_FOUND as EAI_SERVICE,
-        };
-
-        pub(super) const IF_NAMESIZE: usize =
-            windows_sys::Win32::NetworkManagement::Ndis::IF_MAX_STRING_SIZE as _;
-        pub(super) const AF_UNSPEC: i32 = windows_sys::Win32::Networking::WinSock::AF_UNSPEC as _;
-        pub(super) const AF_INET: i32 = windows_sys::Win32::Networking::WinSock::AF_INET as _;
-        pub(super) const AF_INET6: i32 = windows_sys::Win32::Networking::WinSock::AF_INET6 as _;
-        pub(super) const AI_PASSIVE: i32 = windows_sys::Win32::Networking::WinSock::AI_PASSIVE as _;
-        pub(super) const AI_NUMERICHOST: i32 =
-            windows_sys::Win32::Networking::WinSock::AI_NUMERICHOST as _;
-        pub(super) const FROM_PROTOCOL_INFO: i32 = -1;
     }
-
     // constants
     #[pyattr(name = "has_ipv6")]
     const HAS_IPV6: bool = true;
-
     #[pyattr]
     // put IPPROTO_MAX later
     use c::{
@@ -840,7 +810,7 @@ mod _socket {
 
     #[cfg(windows)]
     #[pyattr]
-    use windows_sys::Win32::Networking::WinSock::{
+    use host_socket::{
         IPPROTO_CBT, IPPROTO_ICLFXBM, IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP,
         IPPROTO_SCTP, IPPROTO_ST,
     };
@@ -910,9 +880,6 @@ mod _socket {
         paste::paste!(c::[<WSA $e>])
     };
 }
-
-    #[cfg(windows)]
-    use windows_sys::Win32::NetworkManagement::IpHelper;
 
     fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
         #[cfg(unix)]
@@ -1485,7 +1452,7 @@ mod _socket {
                 use crate::vm::builtins::PyBytes;
                 if let Ok(bytes) = fileno_obj.clone().downcast::<PyBytes>() {
                     let bytes_data = bytes.as_bytes();
-                    let expected_size = core::mem::size_of::<c::WSAPROTOCOL_INFOW>();
+                    let expected_size = host_socket::protocol_info_size();
 
                     if bytes_data.len() != expected_size {
                         return Err(vm
@@ -1496,37 +1463,11 @@ mod _socket {
                             .into());
                     }
 
-                    let mut info: c::WSAPROTOCOL_INFOW = unsafe { core::mem::zeroed() };
-                    unsafe {
-                        core::ptr::copy_nonoverlapping(
-                            bytes_data.as_ptr(),
-                            &mut info as *mut c::WSAPROTOCOL_INFOW as *mut u8,
-                            expected_size,
-                        );
-                    }
-
-                    let fd = unsafe {
-                        c::WSASocketW(
-                            c::FROM_PROTOCOL_INFO,
-                            c::FROM_PROTOCOL_INFO,
-                            c::FROM_PROTOCOL_INFO,
-                            &info,
-                            0,
-                            c::WSA_FLAG_OVERLAPPED,
-                        )
-                    };
-
-                    if fd == c::INVALID_SOCKET {
-                        return Err(Self::wsa_error().into());
-                    }
-
-                    crate::vm::stdlib::nt::raw_set_handle_inheritable(fd as _, false)?;
-
-                    family = info.iAddressFamily;
-                    socket_kind = info.iSocketType;
-                    proto = info.iProtocol;
-
-                    sock = unsafe { sock_from_raw_unchecked(fd as RawSocket) };
+                    let shared = host_socket::socket_from_share_data(bytes_data)?;
+                    family = shared.family;
+                    socket_kind = shared.socket_type;
+                    proto = shared.protocol;
+                    sock = unsafe { sock_from_raw_unchecked(shared.raw as RawSocket) };
                     return Ok(zelf.init_inner(family, socket_kind, proto, sock)?);
                 }
 
@@ -2366,7 +2307,7 @@ mod _socket {
 
         #[cfg(windows)]
         fn wsa_error() -> io::Error {
-            io::Error::from_raw_os_error(unsafe { c::WSAGetLastError() })
+            host_socket::last_socket_error()
         }
 
         #[cfg(windows)]
@@ -2402,23 +2343,7 @@ mod _socket {
                             .into());
                     }
                     let option_val: u32 = TryFromObject::try_from_object(vm, option)?;
-                    let ret = unsafe {
-                        c::WSAIoctl(
-                            fd as _,
-                            cmd,
-                            &option_val as *const u32 as *const _,
-                            core::mem::size_of::<u32>() as u32,
-                            core::ptr::null_mut(),
-                            0,
-                            &mut recv,
-                            core::ptr::null_mut(),
-                            None,
-                        )
-                    };
-                    if ret == c::SOCKET_ERROR {
-                        return Err(Self::wsa_error().into());
-                    }
-                    Ok(recv)
+                    host_socket::ioctl_u32(fd as _, cmd, option_val).map_err(Into::into)
                 }
                 c::SIO_KEEPALIVE_VALS => {
                     let tuple: PyTupleRef = option
@@ -2432,36 +2357,18 @@ mod _socket {
                             .into());
                     }
 
-                    #[repr(C)]
-                    struct TcpKeepalive {
-                        onoff: u32,
-                        keepalivetime: u32,
-                        keepaliveinterval: u32,
-                    }
-
-                    let ka = TcpKeepalive {
+                    let ka = host_socket::TcpKeepalive {
                         onoff: TryFromObject::try_from_object(vm, tuple[0].clone())?,
                         keepalivetime: TryFromObject::try_from_object(vm, tuple[1].clone())?,
                         keepaliveinterval: TryFromObject::try_from_object(vm, tuple[2].clone())?,
                     };
 
-                    let ret = unsafe {
-                        c::WSAIoctl(
-                            fd as _,
-                            cmd,
-                            &ka as *const TcpKeepalive as *const _,
-                            core::mem::size_of::<TcpKeepalive>() as u32,
-                            core::ptr::null_mut(),
-                            0,
-                            &mut recv,
-                            core::ptr::null_mut(),
-                            None,
-                        )
-                    };
-                    if ret == c::SOCKET_ERROR {
-                        return Err(Self::wsa_error().into());
+                    if cmd != c::SIO_KEEPALIVE_VALS {
+                        return Err(vm
+                            .new_value_error(format!("invalid ioctl command {}", cmd))
+                            .into());
                     }
-                    Ok(recv)
+                    host_socket::ioctl_keepalive(fd as _, ka).map_err(Into::into)
                 }
                 _ => Err(vm
                     .new_value_error(format!("invalid ioctl command {}", cmd))
@@ -2474,24 +2381,7 @@ mod _socket {
         fn share(&self, process_id: u32, _vm: &VirtualMachine) -> Result<Vec<u8>, IoOrPyException> {
             let sock = self.sock()?;
             let fd = sock_fileno(&sock);
-
-            let mut info: MaybeUninit<c::WSAPROTOCOL_INFOW> = MaybeUninit::uninit();
-
-            let ret = unsafe { c::WSADuplicateSocketW(fd as _, process_id, info.as_mut_ptr()) };
-
-            if ret == c::SOCKET_ERROR {
-                return Err(Self::wsa_error().into());
-            }
-
-            let info = unsafe { info.assume_init() };
-            let bytes = unsafe {
-                core::slice::from_raw_parts(
-                    &info as *const c::WSAPROTOCOL_INFOW as *const u8,
-                    core::mem::size_of::<c::WSAPROTOCOL_INFOW>(),
-                )
-            };
-
-            Ok(bytes.to_vec())
+            host_socket::share_socket(fd as _, process_id).map_err(Into::into)
         }
 
         #[pygetset(name = "type")]
@@ -2654,8 +2544,8 @@ mod _socket {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction]
-    fn sethostname(hostname: PyUtf8StrRef) -> nix::Result<()> {
-        nix::unistd::sethostname(hostname.as_str())
+    fn sethostname(hostname: PyUtf8StrRef) -> std::io::Result<()> {
+        host_socket::sethostname(hostname.as_str())
     }
 
     #[pyfunction]
@@ -2782,20 +2672,13 @@ mod _socket {
     ) -> io::Result<bool> {
         #[cfg(unix)]
         {
-            use nix::poll::*;
             use std::os::fd::AsFd;
-            let events = match kind {
-                SelectKind::Read => PollFlags::POLLIN,
-                SelectKind::Write => PollFlags::POLLOUT,
-                SelectKind::Connect => PollFlags::POLLOUT | PollFlags::POLLERR,
+            let kind = match kind {
+                SelectKind::Read => host_socket::PollKind::Read,
+                SelectKind::Write => host_socket::PollKind::Write,
+                SelectKind::Connect => host_socket::PollKind::Connect,
             };
-            let mut pollfd = [PollFd::new(sock.as_fd(), events)];
-            let timeout = match interval {
-                Some(d) => d.try_into().unwrap_or(PollTimeout::MAX),
-                None => PollTimeout::NONE,
-            };
-            let ret = poll(&mut pollfd, timeout)?;
-            Ok(ret == 0)
+            host_socket::poll_socket(sock.as_fd(), kind, interval)
         }
         #[cfg(windows)]
         {
@@ -3094,6 +2977,13 @@ mod _socket {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
+        #[cfg(windows)]
+        {
+            let name = name.to_cstring(vm)?;
+            return host_socket::if_nametoindex_checked(&name)
+                .map_err(|_| vm.new_last_errno_error());
+        }
+        #[cfg(not(windows))]
         let name = name.to_cstring(vm)?;
         // in case 'if_nametoindex' does not set errno
         rustpython_host_env::os::set_errno(libc::ENODEV);
@@ -3108,6 +2998,12 @@ mod _socket {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
+        #[cfg(windows)]
+        {
+            return host_socket::if_indextoname_checked(index)
+                .map_err(|_| vm.new_last_errno_error());
+        }
+        #[cfg(not(windows))]
         let mut buf = [0; c::IF_NAMESIZE + 1];
         // in case 'if_indextoname' does not set errno
         rustpython_host_env::os::set_errno(libc::ENXIO);
@@ -3135,75 +3031,22 @@ mod _socket {
     fn if_nameindex(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         #[cfg(not(windows))]
         {
-            let list = nix::net::if_::if_nameindex()
+            let list = host_socket::if_nameindex()
                 .map_err(|err| err.into_pyexception(vm))?
-                .to_slice()
-                .iter()
-                .map(|iface| {
-                    let tup: (u32, String) =
-                        (iface.index(), iface.name().to_string_lossy().into_owned());
-                    tup.to_pyobject(vm)
-                })
+                .into_iter()
+                .map(|tup| tup.to_pyobject(vm))
                 .collect();
 
             Ok(list)
         }
         #[cfg(windows)]
         {
-            use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
-
-            let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
-            let list = table.as_slice().iter().map(|entry| {
-                let name =
-                    get_name(&entry.InterfaceLuid).map_err(|err| err.into_pyexception(vm))?;
-                let tup = (entry.InterfaceIndex, name.to_string_lossy());
-                Ok(tup.to_pyobject(vm))
-            });
-            let list = list.collect::<PyResult<_>>()?;
-            return Ok(list);
-
-            fn get_name(luid: &NET_LUID_LH) -> io::Result<widestring::WideCString> {
-                let mut buf = [0; c::IF_NAMESIZE + 1];
-                let ret = unsafe {
-                    IpHelper::ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len())
-                };
-                if ret == 0 {
-                    Ok(widestring::WideCString::from_ustr_truncate(
-                        widestring::WideStr::from_slice(&buf[..]),
-                    ))
-                } else {
-                    Err(io::Error::from_raw_os_error(ret as i32))
-                }
-            }
-            struct MibTable {
-                ptr: core::ptr::NonNull<IpHelper::MIB_IF_TABLE2>,
-            }
-            impl MibTable {
-                fn get_raw() -> io::Result<Self> {
-                    let mut ptr = core::ptr::null_mut();
-                    let ret = unsafe { IpHelper::GetIfTable2Ex(IpHelper::MibIfTableRaw, &mut ptr) };
-                    if ret == 0 {
-                        let ptr = unsafe { core::ptr::NonNull::new_unchecked(ptr) };
-                        Ok(Self { ptr })
-                    } else {
-                        Err(io::Error::from_raw_os_error(ret as i32))
-                    }
-                }
-            }
-            impl MibTable {
-                fn as_slice(&self) -> &[IpHelper::MIB_IF_ROW2] {
-                    unsafe {
-                        let p = self.ptr.as_ptr();
-                        let ptr = &raw const (*p).Table as *const IpHelper::MIB_IF_ROW2;
-                        core::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
-                    }
-                }
-            }
-            impl Drop for MibTable {
-                fn drop(&mut self) {
-                    unsafe { IpHelper::FreeMibTable(self.ptr.as_ptr() as *mut _) };
-                }
-            }
+            let list = host_socket::if_nameindex()
+                .map_err(|err| err.into_pyexception(vm))?
+                .into_iter()
+                .map(|tup| tup.to_pyobject(vm))
+                .collect();
+            Ok(list)
         }
     }
 
@@ -3325,7 +3168,7 @@ mod _socket {
         }
         #[cfg(windows)]
         {
-            windows_sys::Win32::Networking::WinSock::INVALID_SOCKET as RawSocket
+            host_socket::INVALID_RAW_SOCKET as RawSocket
         }
     };
 
@@ -3432,7 +3275,7 @@ mod _socket {
         let newsock = sock.try_clone()?;
         let fd = into_sock_fileno(newsock);
         #[cfg(windows)]
-        crate::vm::stdlib::nt::raw_set_handle_inheritable(fd as _, false)?;
+        host_socket::set_socket_inheritable(fd as _, false)?;
         Ok(fd)
     }
 
@@ -3445,7 +3288,9 @@ mod _socket {
         #[cfg(unix)]
         use libc::close;
         #[cfg(windows)]
-        use windows_sys::Win32::Networking::WinSock::closesocket as close;
+        {
+            return host_socket::close_socket_ignore_connreset(x as _);
+        }
         let ret = unsafe { close(x as _) };
         if ret < 0 {
             let err = std::io::Error::last_os_error();

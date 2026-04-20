@@ -1,5 +1,8 @@
 use std::io;
 
+#[cfg(unix)]
+use std::os::fd::BorrowedFd;
+
 pub fn fcntl_int(fd: i32, cmd: i32, arg: i32) -> io::Result<i32> {
     let ret = unsafe { libc::fcntl(fd, cmd, arg) };
     if ret < 0 {
@@ -7,6 +10,45 @@ pub fn fcntl_int(fd: i32, cmd: i32, arg: i32) -> io::Result<i32> {
     } else {
         Ok(ret)
     }
+}
+
+pub fn validate_fd(fd: i32) -> io::Result<()> {
+    fcntl_int(fd, libc::F_GETFD, 0).map(|_| ())
+}
+
+#[cfg(unix)]
+pub fn get_inheritable(fd: BorrowedFd<'_>) -> io::Result<bool> {
+    use nix::fcntl as nix_fcntl;
+
+    let flags = nix_fcntl::FdFlag::from_bits_truncate(
+        nix_fcntl::fcntl(fd, nix_fcntl::FcntlArg::F_GETFD).map_err(io::Error::from)?,
+    );
+    Ok(!flags.contains(nix_fcntl::FdFlag::FD_CLOEXEC))
+}
+
+#[cfg(unix)]
+pub fn get_blocking(fd: BorrowedFd<'_>) -> io::Result<bool> {
+    use nix::fcntl as nix_fcntl;
+
+    let flags = nix_fcntl::OFlag::from_bits_truncate(
+        nix_fcntl::fcntl(fd, nix_fcntl::FcntlArg::F_GETFL).map_err(io::Error::from)?,
+    );
+    Ok(!flags.contains(nix_fcntl::OFlag::O_NONBLOCK))
+}
+
+#[cfg(unix)]
+pub fn set_blocking(fd: BorrowedFd<'_>, blocking: bool) -> io::Result<()> {
+    use nix::fcntl as nix_fcntl;
+
+    let flags = nix_fcntl::OFlag::from_bits_truncate(
+        nix_fcntl::fcntl(fd, nix_fcntl::FcntlArg::F_GETFL).map_err(io::Error::from)?,
+    );
+    let mut new_flags = flags;
+    new_flags.set(nix_fcntl::OFlag::O_NONBLOCK, !blocking);
+    if flags != new_flags {
+        nix_fcntl::fcntl(fd, nix_fcntl::FcntlArg::F_SETFL(new_flags)).map_err(io::Error::from)?;
+    }
+    Ok(())
 }
 
 pub fn fcntl_with_bytes(fd: i32, cmd: i32, arg: &mut [u8]) -> io::Result<i32> {

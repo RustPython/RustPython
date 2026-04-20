@@ -17,6 +17,8 @@ pub(crate) mod _signal {
     use rustpython_host_env::signal::{self as host_signal, sighandler_t};
     #[cfg(unix)]
     use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
+    #[cfg(unix)]
+    use std::os::fd::AsFd;
 
     #[allow(non_camel_case_types)]
     type sighandler_t = cfg_select! {
@@ -28,7 +30,7 @@ pub(crate) mod _signal {
         windows => {
             type WakeupFdRaw = libc::SOCKET;
             struct WakeupFd(WakeupFdRaw);
-            const INVALID_WAKEUP: libc::SOCKET = windows_sys::Win32::Networking::WinSock::INVALID_SOCKET;
+            const INVALID_WAKEUP: libc::SOCKET = host_signal::INVALID_SOCKET;
             static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
             // windows doesn't use the same fds for files and sockets like windows does, so we need
             // this to know whether to send() or write()
@@ -61,8 +63,6 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     #[allow(unused_imports)]
     pub use libc::SIG_ERR;
-    #[cfg(unix)]
-    pub use nix::unistd::alarm as sig_alarm;
 
     #[cfg(unix)]
     #[pyattr]
@@ -92,15 +92,15 @@ pub(crate) mod _signal {
 
     #[cfg(windows)]
     #[pyattr]
-    const SIGBREAK: i32 = 21; // _SIGBREAK
+    const SIGBREAK: i32 = host_signal::SIGBREAK;
 
     // Windows-specific control events for GenerateConsoleCtrlEvent
     #[cfg(windows)]
     #[pyattr]
-    const CTRL_C_EVENT: u32 = 0;
+    const CTRL_C_EVENT: u32 = host_signal::CTRL_C_EVENT;
     #[cfg(windows)]
     #[pyattr]
-    const CTRL_BREAK_EVENT: u32 = 1;
+    const CTRL_BREAK_EVENT: u32 = host_signal::CTRL_BREAK_EVENT;
 
     #[cfg(unix)]
     #[pyattr]
@@ -242,12 +242,7 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     #[pyfunction]
     fn alarm(time: u32) -> u32 {
-        let prev_time = if time == 0 {
-            sig_alarm::cancel()
-        } else {
-            sig_alarm::set(time)
-        };
-        prev_time.unwrap_or(0)
+        rustpython_host_env::signal::alarm(time)
     }
 
     #[cfg(unix)]
@@ -335,17 +330,14 @@ pub(crate) mod _signal {
             false
         };
         #[cfg(unix)]
-        if let Ok(fd) = unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(fd) } {
-            use nix::fcntl;
-            let oflags = fcntl::fcntl(fd, fcntl::F_GETFL).map_err(|e| e.into_pyexception(vm))?;
-            let nonblock =
-                fcntl::OFlag::from_bits_truncate(oflags).contains(fcntl::OFlag::O_NONBLOCK);
-            if !nonblock {
-                return Err(vm.new_value_error(format!(
-                    "the fd {} must be in non-blocking mode",
-                    fd.as_raw()
-                )));
-            }
+        if let Ok(fd) = unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(fd) }
+            && rustpython_host_env::fcntl::get_blocking(fd.as_fd())
+                .map_err(|e| e.into_pyexception(vm))?
+        {
+            return Err(vm.new_value_error(format!(
+                "the fd {} must be in non-blocking mode",
+                fd.as_raw()
+            )));
         }
 
         let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);

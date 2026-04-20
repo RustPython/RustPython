@@ -5,9 +5,79 @@
 
 use std::{io, path::Path};
 use windows_sys::Win32::{
-    Foundation::{HANDLE, HMODULE, WAIT_FAILED, WAIT_OBJECT_0},
+    Foundation::{HANDLE, HMODULE, WAIT_FAILED},
     System::Threading::PROCESS_INFORMATION,
 };
+
+pub use windows_sys::Win32::{
+    Foundation::{
+        DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
+        ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_NETNAME_DELETED, ERROR_NO_DATA,
+        ERROR_NO_SYSTEM_RESOURCES, ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY,
+        ERROR_PIPE_CONNECTED, ERROR_PORT_UNREACHABLE, ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT,
+        GENERIC_READ, GENERIC_WRITE, STILL_ACTIVE, WAIT_ABANDONED_0, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    },
+    Globalization::{
+        LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA, LCMAP_LINGUISTIC_CASING,
+        LCMAP_LOWERCASE, LCMAP_SIMPLIFIED_CHINESE, LCMAP_TITLECASE, LCMAP_TRADITIONAL_CHINESE,
+        LCMAP_UPPERCASE,
+    },
+    Storage::FileSystem::{
+        COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK, COPY_FILE_FAIL_IF_EXISTS,
+        COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD, COPY_FILE_OPEN_SOURCE_FOR_WRITE,
+        COPY_FILE_REQUEST_COMPRESSED_TRAFFIC, COPY_FILE_REQUEST_SECURITY_PRIVILEGES,
+        COPY_FILE_RESTARTABLE, COPY_FILE_RESUME_FROM_PAUSE, COPYFILE2_CALLBACK_CHUNK_FINISHED,
+        COPYFILE2_CALLBACK_CHUNK_STARTED, COPYFILE2_CALLBACK_ERROR,
+        COPYFILE2_CALLBACK_POLL_CONTINUE, COPYFILE2_CALLBACK_STREAM_FINISHED,
+        COPYFILE2_CALLBACK_STREAM_STARTED, COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE,
+        COPYFILE2_PROGRESS_PAUSE, COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP,
+        FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+        FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, OPEN_EXISTING,
+        PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, SYNCHRONIZE,
+    },
+    System::{
+        Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
+        Memory::{
+            FILE_MAP_ALL_ACCESS, FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ, FILE_MAP_WRITE,
+            MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE, MEM_RESERVE, PAGE_EXECUTE,
+            PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD,
+            PAGE_NOACCESS, PAGE_NOCACHE, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOMBINE,
+            PAGE_WRITECOPY, SEC_COMMIT, SEC_IMAGE, SEC_LARGE_PAGES, SEC_NOCACHE, SEC_RESERVE,
+            SEC_WRITECOMBINE,
+        },
+        Pipes::{
+            NMPWAIT_WAIT_FOREVER, PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE,
+            PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+        },
+        SystemServices::LOCALE_NAME_MAX_LENGTH,
+        Threading::{
+            ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB,
+            CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP,
+            CREATE_NO_WINDOW, DETACHED_PROCESS, HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
+            NORMAL_PRIORITY_CLASS, PROCESS_ALL_ACCESS, PROCESS_DUP_HANDLE, REALTIME_PRIORITY_CLASS,
+            STARTF_FORCEOFFFEEDBACK, STARTF_FORCEONFEEDBACK, STARTF_PREVENTPINNING,
+            STARTF_RUNFULLSCREEN, STARTF_TITLEISAPPID, STARTF_TITLEISLINKNAME,
+            STARTF_UNTRUSTEDSOURCE, STARTF_USECOUNTCHARS, STARTF_USEFILLATTRIBUTE,
+            STARTF_USEHOTKEY, STARTF_USEPOSITION, STARTF_USESHOWWINDOW, STARTF_USESIZE,
+            STARTF_USESTDHANDLES,
+        },
+    },
+    UI::WindowsAndMessaging::SW_HIDE,
+};
+
+pub type Handle = HANDLE;
+pub type StdHandle = windows_sys::Win32::System::Console::STD_HANDLE;
+pub type FileType = windows_sys::Win32::Storage::FileSystem::FILE_TYPE;
+pub const MAX_PATH_USIZE: usize = windows_sys::Win32::Foundation::MAX_PATH as usize;
+pub const INFINITE_TIMEOUT: u32 = windows_sys::Win32::System::Threading::INFINITE;
+pub const CREATE_UNICODE_ENVIRONMENT_FLAG: u32 =
+    windows_sys::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT;
+pub const EXTENDED_STARTUPINFO_PRESENT_FLAG: u32 =
+    windows_sys::Win32::System::Threading::EXTENDED_STARTUPINFO_PRESENT;
+pub const LCMAP_BYTEREV_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_BYTEREV;
+pub const LCMAP_HASH_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_HASH;
+pub const LCMAP_SORTHANDLE_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_SORTHANDLE;
+pub const LCMAP_SORTKEY_FLAG: u32 = windows_sys::Win32::Globalization::LCMAP_SORTKEY;
 
 pub struct PeekNamedPipeResult {
     pub data: Option<Vec<u8>>,
@@ -49,6 +119,21 @@ pub enum MimeRegistryReadError<E> {
 pub struct AttrList {
     handlelist: Vec<usize>,
     attrlist: Vec<u8>,
+}
+
+pub struct StartupInfoData {
+    pub flags: u32,
+    pub show_window: u16,
+    pub std_input: HANDLE,
+    pub std_output: HANDLE,
+    pub std_error: HANDLE,
+}
+
+pub struct ProcessInfo {
+    pub process: HANDLE,
+    pub thread: HANDLE,
+    pub process_id: u32,
+    pub thread_id: u32,
 }
 
 #[must_use]
@@ -132,6 +217,54 @@ pub unsafe fn create_process_w(
     } else {
         Ok(unsafe { procinfo.assume_init() })
     }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "This is the semantic host wrapper for Win32 CreateProcess parameters."
+)]
+pub fn create_process(
+    app_name: *const u16,
+    command_line: *mut u16,
+    inherit_handles: i32,
+    creation_flags: u32,
+    env: *mut u16,
+    current_dir: *mut u16,
+    startup_info: StartupInfoData,
+    handle_list: Option<Vec<usize>>,
+) -> io::Result<ProcessInfo> {
+    let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
+        unsafe { core::mem::zeroed() };
+    si.StartupInfo.cb = core::mem::size_of_val(&si) as _;
+    si.StartupInfo.dwFlags = startup_info.flags;
+    si.StartupInfo.wShowWindow = startup_info.show_window;
+    si.StartupInfo.hStdInput = startup_info.std_input;
+    si.StartupInfo.hStdOutput = startup_info.std_output;
+    si.StartupInfo.hStdError = startup_info.std_error;
+
+    let mut attrlist = create_handle_list_attribute_list(handle_list)?;
+    si.lpAttributeList = attrlist
+        .as_mut()
+        .map_or_else(core::ptr::null_mut, |l| l.as_mut_ptr() as _);
+
+    let procinfo = unsafe {
+        create_process_w(
+            app_name,
+            command_line,
+            inherit_handles,
+            creation_flags | EXTENDED_STARTUPINFO_PRESENT_FLAG | CREATE_UNICODE_ENVIRONMENT_FLAG,
+            env,
+            current_dir,
+            &mut si as *mut _ as *mut _,
+        )?
+    };
+
+    Ok(ProcessInfo {
+        process: procinfo.hProcess,
+        thread: procinfo.hThread,
+        process_id: procinfo.dwProcessId,
+        thread_id: procinfo.dwThreadId,
+    })
 }
 
 pub fn create_junction(src: &Path, dst: &Path) -> io::Result<()> {
@@ -231,9 +364,7 @@ pub fn create_handle_list_attribute_list(
     Ok(Some(attrs))
 }
 
-pub fn get_std_handle(
-    std_handle: windows_sys::Win32::System::Console::STD_HANDLE,
-) -> io::Result<Option<HANDLE>> {
+pub fn get_std_handle(std_handle: StdHandle) -> io::Result<Option<HANDLE>> {
     let handle = unsafe { windows_sys::Win32::System::Console::GetStdHandle(std_handle) };
     if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
         Err(io::Error::last_os_error())
@@ -637,9 +768,7 @@ pub fn get_exit_code_process(handle: HANDLE) -> io::Result<u32> {
     }
 }
 
-pub fn get_file_type(
-    handle: HANDLE,
-) -> io::Result<windows_sys::Win32::Storage::FileSystem::FILE_TYPE> {
+pub fn get_file_type(handle: HANDLE) -> io::Result<FileType> {
     let file_type = unsafe { windows_sys::Win32::Storage::FileSystem::GetFileType(handle) };
     if file_type == 0 && unsafe { windows_sys::Win32::Foundation::GetLastError() } != 0 {
         Err(io::Error::last_os_error())

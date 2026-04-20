@@ -2,11 +2,11 @@ use crate::{
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     convert::{ToPyObject, ToPyResult},
 };
-use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+use rustpython_host_env::nt as host_nt;
 
 /// Windows HANDLE wrapper for Python interop
 #[derive(Clone, Copy)]
-pub struct WinHandle(pub HANDLE);
+pub struct WinHandle(pub host_nt::Handle);
 
 pub(crate) trait WindowsSysResultValue {
     type Ok: ToPyObject;
@@ -16,11 +16,11 @@ pub(crate) trait WindowsSysResultValue {
     fn into_ok(self) -> Self::Ok;
 }
 
-impl WindowsSysResultValue for HANDLE {
+impl WindowsSysResultValue for host_nt::Handle {
     type Ok = WinHandle;
 
     fn is_err(&self) -> bool {
-        *self == INVALID_HANDLE_VALUE
+        host_nt::is_invalid_handle(*self)
     }
 
     fn into_ok(self) -> Self::Ok {
@@ -67,7 +67,7 @@ type HandleInt = isize;
 impl TryFromObject for WinHandle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let handle = HandleInt::try_from_object(vm, obj)?;
-        Ok(WinHandle(handle as HANDLE))
+        Ok(WinHandle(handle as host_nt::Handle))
     }
 }
 
@@ -75,12 +75,4 @@ impl ToPyObject for WinHandle {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         (self.0 as HandleInt).to_pyobject(vm)
     }
-}
-
-pub fn init_winsock() {
-    static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
-    WSA_INIT.call_once(|| unsafe {
-        let mut wsa_data = core::mem::MaybeUninit::uninit();
-        let _ = windows_sys::Win32::Networking::WinSock::WSAStartup(0x0101, wsa_data.as_mut_ptr());
-    })
 }
