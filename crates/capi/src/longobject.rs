@@ -50,17 +50,38 @@ pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_longlong {
+    with_vm::<PyResult<c_longlong>, _>(|vm| {
+        unsafe { &*obj }
+            .to_owned()
+            .try_downcast::<PyInt>(vm)?
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long long"))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyInt;
 
     #[test]
-    fn test_py_int() {
+    fn test_py_int_u32() {
         Python::attach(|py| {
             let number = PyInt::new(py, 123);
             assert!(number.is_instance_of::<PyInt>());
             assert_eq!(number.extract::<i32>().unwrap(), 123);
+        })
+    }
+
+    #[test]
+    fn test_py_int_u64() {
+        Python::attach(|py| {
+            let number = PyInt::new(py, 123u64);
+            assert!(number.is_instance_of::<PyInt>());
+            assert_eq!(number.extract::<u64>().unwrap(), 123);
         })
     }
 }
