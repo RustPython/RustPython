@@ -4,8 +4,8 @@ use crate::pystate::with_vm;
 use bitflags::bitflags_match;
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
-use rustpython_vm::function::{FuncArgs, PyMethodFlags};
-use rustpython_vm::{AsObject, PyObjectRef, PyResult, VirtualMachine};
+use rustpython_vm::function::{FuncArgs, HeapMethodDef, PyMethodFlags};
+use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 type PyCFunction = unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject;
 type PyCFunctionWithKeywords = unsafe extern "C" fn(
@@ -23,10 +23,57 @@ pub union PyMethodPointer {
 
 #[repr(C)]
 pub struct PyMethodDef {
-    ml_name: *const c_char,
-    ml_meth: PyMethodPointer,
-    ml_flags: c_int,
-    ml_doc: *const c_char,
+    pub(crate) ml_name: *const c_char,
+    pub(crate) ml_meth: PyMethodPointer,
+    pub(crate) ml_flags: c_int,
+    pub(crate) ml_doc: *const c_char,
+}
+
+pub(crate) fn build_method_def(
+    vm: &VirtualMachine,
+    ml: &PyMethodDef,
+    slf: Option<PyObjectRef>,
+) -> PyRef<HeapMethodDef> {
+    let name = unsafe { CStr::from_ptr(ml.ml_name) }
+        .to_str()
+        .expect("Method name was not valid UTF-8");
+
+    let doc = NonNull::new(ml.ml_doc.cast_mut()).map(|doc| {
+        unsafe { CStr::from_ptr(doc.as_ptr()) }
+            .to_str()
+            .expect("Method doc was not valid UTF-8")
+    });
+
+    let flags =
+        PyMethodFlags::from_bits(ml.ml_flags as u32).expect("PyMethodDef contains unknown flags");
+
+    assert!(
+        !flags.intersects(
+            PyMethodFlags::METHOD
+                | PyMethodFlags::FASTCALL
+                | PyMethodFlags::CLASS
+                | PyMethodFlags::STATIC
+        ),
+        "These flags are not yet supported: {:?}",
+        flags
+    );
+
+    let method = ml.ml_meth;
+    let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
+        if slf.is_some() {
+            c_function_wrapper(vm, slf.as_ref(), args, method, flags)
+        } else {
+            let slf = if args.args.len() > 0 {
+                Some(args.args.remove(0))
+            } else {
+                None
+            };
+
+            c_function_wrapper(vm, slf.as_ref(), args, method, flags)
+        }
+    };
+
+    vm.ctx.new_method_def(name, callable, flags, doc)
 }
 
 fn c_function_wrapper(
@@ -45,6 +92,7 @@ fn c_function_wrapper(
 
     let ret_ptr = bitflags_match!(flags, {
         PyMethodFlags::NOARGS => {
+            debug_assert!(arg_tuple.is_empty(), "Expected no arguments, but got some");
             let f = unsafe { method.function };
             unsafe { Ok(f(slf_ptr, arg_tuple_ptr)) }
         },
@@ -80,36 +128,8 @@ pub extern "C" fn PyCMethod_New(
 ) -> *mut PyObject {
     with_vm(|vm| -> PyResult {
         let ml = unsafe { &*ml };
-        let name = unsafe { CStr::from_ptr(ml.ml_name) }
-            .to_str()
-            .expect("Method name was not valid UTF-8");
-
-        let doc = unsafe { CStr::from_ptr(ml.ml_doc) }
-            .to_str()
-            .expect("Method doc was not valid UTF-8");
-
-        let flags = PyMethodFlags::from_bits(ml.ml_flags as u32)
-            .expect("PyMethodDef contains unknown flags");
-
-        assert!(
-            !flags.intersects(
-                PyMethodFlags::METHOD
-                    | PyMethodFlags::FASTCALL
-                    | PyMethodFlags::CLASS
-                    | PyMethodFlags::STATIC
-            ),
-            "These flags are not yet supported: {:?}",
-            flags
-        );
-
-        let method = ml.ml_meth;
         let slf = NonNull::new(slf).map(|ptr| unsafe { ptr.as_ref().to_owned() });
-        let callable = move |args: FuncArgs, vm: &VirtualMachine| {
-            c_function_wrapper(vm, slf.as_ref(), args, method, flags)
-        };
-
-        let method = vm.ctx.new_method_def(name, callable, flags, Some(doc));
-        Ok(method.build_function(vm).into())
+        Ok(build_method_def(vm, ml, slf).build_function(vm).into())
     })
 }
 

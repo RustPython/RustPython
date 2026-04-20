@@ -1,11 +1,12 @@
+use crate::methodobject::{PyMethodDef, build_method_def};
 use crate::{PyObject, with_vm};
 use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr::NonNull;
-use rustpython_vm::builtins::{PyDict, PyGetSet, PyStr, PyTuple, PyType};
+use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::function::FuncArgs;
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
-use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
+use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine};
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
 const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
@@ -209,7 +210,7 @@ type newfunc = unsafe extern "C" fn(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
-    with_vm(|vm| {
+    with_vm(|vm| -> PyResult {
         let spec = unsafe { &*spec };
         let class_name = unsafe {
             CStr::from_ptr(spec.name)
@@ -224,6 +225,7 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         slots.flags = PyTypeFlags::from_bits(spec.flags as u64).expect("invalid flags value");
 
         let mut attributes: &[PyGetSetDef] = &[];
+        let mut methods: &[PyMethodDef] = &[];
         let mut vtable = TypeVTable::default();
         let mut slot_ptr = spec.slots;
         while let slot = unsafe { &*slot_ptr }
@@ -249,7 +251,16 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                         core::slice::from_raw_parts(start, end.offset_from(start) as usize)
                     };
                 }
-                SlotAccessor::TpMethods => {}
+                SlotAccessor::TpMethods => {
+                    let start = slot.pfunc.cast::<PyMethodDef>();
+                    let mut end = start;
+                    while unsafe { !(*end).ml_name.is_null() } {
+                        end = unsafe { end.add(1) }
+                    }
+                    methods = unsafe {
+                        core::slice::from_raw_parts(start, end.offset_from(start) as usize)
+                    };
+                }
                 SlotAccessor::TpNew => {
                     vtable.new_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.new.store(Some(|ty, args, vm| {
@@ -324,7 +335,20 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                 .write()
                 .insert(vm.ctx.intern_str(name), getset.into_object());
         }
-        class
+        for method in methods {
+            let class_static = unsafe { &*((&*class) as *const _) };
+            let name = unsafe {
+                CStr::from_ptr(method.ml_name)
+                    .to_str()
+                    .expect("method name must be valid UTF-8")
+            };
+            let method = build_method_def(vm, method, None).build_method(class_static, vm);
+            class
+                .attributes
+                .write()
+                .insert(vm.ctx.intern_str(name), method.into());
+        }
+        Ok(class.into())
     })
 }
 
@@ -569,7 +593,7 @@ mod tests {
             }
 
             fn method1(&self) -> PyResult<i32> {
-                Ok(10)
+                Ok(self.num + 10)
             }
         }
 
@@ -577,9 +601,18 @@ mod tests {
             let obj = Bound::new(py, MyClass { num: 3 }).unwrap();
 
             let globals = PyDict::new(py);
-            globals.set_item("instance", obj).unwrap();
+            globals.set_item("instance", &obj).unwrap();
             py.run(c"assert instance.num == 3", Some(&globals), None)
                 .unwrap();
+
+            #[cfg(feature = "nightly")]
+            assert_eq!(
+                obj.call_method0("method1")
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                13
+            );
         });
     }
 }
