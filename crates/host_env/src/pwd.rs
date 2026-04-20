@@ -1,4 +1,5 @@
 use nix::unistd::{self, User};
+use std::io;
 
 #[derive(Debug, Clone)]
 pub struct Passwd {
@@ -38,8 +39,10 @@ pub fn getpwnam(name: &str) -> Option<Passwd> {
     User::from_name(name).ok().flatten().map(Into::into)
 }
 
-pub fn getpwuid(uid: libc::uid_t) -> nix::Result<Option<Passwd>> {
-    User::from_uid(unistd::Uid::from_raw(uid)).map(|user| user.map(Into::into))
+pub fn getpwuid(uid: libc::uid_t) -> io::Result<Option<Passwd>> {
+    User::from_uid(unistd::Uid::from_raw(uid))
+        .map(|user| user.map(Into::into))
+        .map_err(io::Error::from)
 }
 
 #[cfg(not(target_os = "android"))]

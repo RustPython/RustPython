@@ -16,6 +16,9 @@ use windows_sys::Win32::System::{
     Threading::GetCurrentThreadId,
 };
 
+#[cfg(windows)]
+pub type ExceptionPointers = EXCEPTION_POINTERS;
+
 pub fn write_fd(fd: i32, buf: &[u8]) {
     let _ = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len() as _) };
 }

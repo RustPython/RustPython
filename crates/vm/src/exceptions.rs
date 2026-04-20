@@ -1446,13 +1446,6 @@ impl IntoPyException for std::io::Error {
 }
 
 #[cfg(unix)]
-impl IntoPyException for nix::Error {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        std::io::Error::from(self).into_pyexception(vm)
-    }
-}
-
-#[cfg(unix)]
 impl IntoPyException for rustix::io::Errno {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         std::io::Error::from(self).into_pyexception(vm)

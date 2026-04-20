@@ -19,65 +19,44 @@ mod _winapi {
     use rustpython_host_env::overlapped as host_overlapped;
     use rustpython_host_env::winapi as host_winapi;
     use rustpython_host_env::windows::ToWideString;
-    use windows_sys::Win32::Foundation::{HANDLE, MAX_PATH};
 
     #[pyattr]
-    use windows_sys::Win32::{
-        Foundation::{
-            DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED,
-            ERROR_ALREADY_EXISTS, ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA,
-            ERROR_NETNAME_DELETED, ERROR_NO_DATA, ERROR_NO_SYSTEM_RESOURCES,
-            ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED,
-            ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT, GENERIC_READ, GENERIC_WRITE, STILL_ACTIVE,
-            WAIT_ABANDONED_0, WAIT_OBJECT_0, WAIT_TIMEOUT,
-        },
-        Globalization::{
-            LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA,
-            LCMAP_LINGUISTIC_CASING, LCMAP_LOWERCASE, LCMAP_SIMPLIFIED_CHINESE, LCMAP_TITLECASE,
-            LCMAP_TRADITIONAL_CHINESE, LCMAP_UPPERCASE,
-        },
-        Storage::FileSystem::{
-            COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK,
-            COPY_FILE_FAIL_IF_EXISTS, COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD,
-            COPY_FILE_OPEN_SOURCE_FOR_WRITE, COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
-            COPY_FILE_REQUEST_SECURITY_PRIVILEGES, COPY_FILE_RESTARTABLE,
-            COPY_FILE_RESUME_FROM_PAUSE, COPYFILE2_CALLBACK_CHUNK_FINISHED,
-            COPYFILE2_CALLBACK_CHUNK_STARTED, COPYFILE2_CALLBACK_ERROR,
-            COPYFILE2_CALLBACK_POLL_CONTINUE, COPYFILE2_CALLBACK_STREAM_FINISHED,
-            COPYFILE2_CALLBACK_STREAM_STARTED, COPYFILE2_PROGRESS_CANCEL,
-            COPYFILE2_PROGRESS_CONTINUE, COPYFILE2_PROGRESS_PAUSE, COPYFILE2_PROGRESS_QUIET,
-            COPYFILE2_PROGRESS_STOP, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED,
-            FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE,
-            FILE_TYPE_REMOTE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, SYNCHRONIZE,
-        },
-        System::{
-            Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
-            Memory::{
-                FILE_MAP_ALL_ACCESS, FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ,
-                FILE_MAP_WRITE, MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE,
-                MEM_RESERVE, PAGE_EXECUTE, PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE,
-                PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOACCESS, PAGE_NOCACHE, PAGE_READONLY,
-                PAGE_READWRITE, PAGE_WRITECOMBINE, PAGE_WRITECOPY, SEC_COMMIT, SEC_IMAGE,
-                SEC_LARGE_PAGES, SEC_NOCACHE, SEC_RESERVE, SEC_WRITECOMBINE,
-            },
-            Pipes::{
-                NMPWAIT_WAIT_FOREVER, PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE,
-                PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
-            },
-            SystemServices::LOCALE_NAME_MAX_LENGTH,
-            Threading::{
-                ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS,
-                CREATE_BREAKAWAY_FROM_JOB, CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE,
-                CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, HIGH_PRIORITY_CLASS,
-                IDLE_PRIORITY_CLASS, INFINITE, NORMAL_PRIORITY_CLASS, PROCESS_ALL_ACCESS,
-                PROCESS_DUP_HANDLE, REALTIME_PRIORITY_CLASS, STARTF_FORCEOFFFEEDBACK,
-                STARTF_FORCEONFEEDBACK, STARTF_PREVENTPINNING, STARTF_RUNFULLSCREEN,
-                STARTF_TITLEISAPPID, STARTF_TITLEISLINKNAME, STARTF_UNTRUSTEDSOURCE,
-                STARTF_USECOUNTCHARS, STARTF_USEFILLATTRIBUTE, STARTF_USEHOTKEY,
-                STARTF_USEPOSITION, STARTF_USESHOWWINDOW, STARTF_USESIZE, STARTF_USESTDHANDLES,
-            },
-        },
-        UI::WindowsAndMessaging::SW_HIDE,
+    use host_winapi::{
+        ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS,
+        COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK, COPY_FILE_FAIL_IF_EXISTS,
+        COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD, COPY_FILE_OPEN_SOURCE_FOR_WRITE,
+        COPY_FILE_REQUEST_COMPRESSED_TRAFFIC, COPY_FILE_REQUEST_SECURITY_PRIVILEGES,
+        COPY_FILE_RESTARTABLE, COPY_FILE_RESUME_FROM_PAUSE, COPYFILE2_CALLBACK_CHUNK_FINISHED,
+        COPYFILE2_CALLBACK_CHUNK_STARTED, COPYFILE2_CALLBACK_ERROR,
+        COPYFILE2_CALLBACK_POLL_CONTINUE, COPYFILE2_CALLBACK_STREAM_FINISHED,
+        COPYFILE2_CALLBACK_STREAM_STARTED, COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE,
+        COPYFILE2_PROGRESS_PAUSE, COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP,
+        CREATE_BREAKAWAY_FROM_JOB, CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE,
+        CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, DUPLICATE_CLOSE_SOURCE,
+        DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_BROKEN_PIPE,
+        ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_NETNAME_DELETED, ERROR_NO_DATA,
+        ERROR_NO_SYSTEM_RESOURCES, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED,
+        ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT, FILE_FLAG_FIRST_PIPE_INSTANCE,
+        FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_MAP_ALL_ACCESS,
+        FILE_MAP_COPY, FILE_MAP_EXECUTE, FILE_MAP_READ, FILE_MAP_WRITE, FILE_TYPE_CHAR,
+        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, GENERIC_READ, GENERIC_WRITE,
+        HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS, LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA,
+        LCMAP_KATAKANA, LCMAP_LINGUISTIC_CASING, LCMAP_LOWERCASE, LCMAP_SIMPLIFIED_CHINESE,
+        LCMAP_TITLECASE, LCMAP_TRADITIONAL_CHINESE, LCMAP_UPPERCASE, LOCALE_NAME_MAX_LENGTH,
+        MEM_COMMIT, MEM_FREE, MEM_IMAGE, MEM_MAPPED, MEM_PRIVATE, MEM_RESERVE,
+        NMPWAIT_WAIT_FOREVER, NORMAL_PRIORITY_CLASS, OPEN_EXISTING, PAGE_EXECUTE,
+        PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD,
+        PAGE_NOACCESS, PAGE_NOCACHE, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOMBINE,
+        PAGE_WRITECOPY, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, PIPE_READMODE_MESSAGE,
+        PIPE_TYPE_MESSAGE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT, PROCESS_ALL_ACCESS,
+        PROCESS_DUP_HANDLE, REALTIME_PRIORITY_CLASS, SEC_COMMIT, SEC_IMAGE, SEC_LARGE_PAGES,
+        SEC_NOCACHE, SEC_RESERVE, SEC_WRITECOMBINE, STARTF_FORCEOFFFEEDBACK,
+        STARTF_FORCEONFEEDBACK, STARTF_PREVENTPINNING, STARTF_RUNFULLSCREEN, STARTF_TITLEISAPPID,
+        STARTF_TITLEISLINKNAME, STARTF_UNTRUSTEDSOURCE, STARTF_USECOUNTCHARS,
+        STARTF_USEFILLATTRIBUTE, STARTF_USEHOTKEY, STARTF_USEPOSITION, STARTF_USESHOWWINDOW,
+        STARTF_USESIZE, STARTF_USESTDHANDLES, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
+        STD_OUTPUT_HANDLE, STILL_ACTIVE, SW_HIDE, SYNCHRONIZE, WAIT_ABANDONED_0, WAIT_OBJECT_0,
+        WAIT_TIMEOUT,
     };
 
     #[pyattr]
@@ -124,7 +103,7 @@ mod _winapi {
 
     #[pyfunction]
     fn GetStdHandle(
-        std_handle: windows_sys::Win32::System::Console::STD_HANDLE,
+        std_handle: host_winapi::StdHandle,
         vm: &VirtualMachine,
     ) -> PyResult<Option<WinHandle>> {
         host_winapi::get_std_handle(std_handle)
@@ -176,10 +155,7 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetFileType(
-        h: WinHandle,
-        vm: &VirtualMachine,
-    ) -> PyResult<windows_sys::Win32::Storage::FileSystem::FILE_TYPE> {
+    fn GetFileType(h: WinHandle, vm: &VirtualMachine) -> PyResult<host_winapi::FileType> {
         host_winapi::get_file_type(h.0).map_err(|e| e.to_pyexception(vm))
     }
 
@@ -220,31 +196,29 @@ mod _winapi {
         args: CreateProcessArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(WinHandle, WinHandle, u32, u32)> {
-        let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
-            unsafe { core::mem::zeroed() };
-        si.StartupInfo.cb = core::mem::size_of_val(&si) as _;
-
         macro_rules! si_attr {
             ($attr:ident, $t:ty) => {{
-                si.StartupInfo.$attr = <Option<$t>>::try_from_object(
+                <Option<$t>>::try_from_object(
                     vm,
                     args.startup_info.get_attr(stringify!($attr), vm)?,
                 )?
                 .unwrap_or(0) as _
             }};
             ($attr:ident) => {{
-                si.StartupInfo.$attr = <Option<_>>::try_from_object(
+                <Option<_>>::try_from_object(
                     vm,
                     args.startup_info.get_attr(stringify!($attr), vm)?,
                 )?
                 .unwrap_or(0)
             }};
         }
-        si_attr!(dwFlags);
-        si_attr!(wShowWindow);
-        si_attr!(hStdInput, isize);
-        si_attr!(hStdOutput, isize);
-        si_attr!(hStdError, isize);
+        let startup_info = host_winapi::StartupInfoData {
+            flags: si_attr!(dwFlags),
+            show_window: si_attr!(wShowWindow),
+            std_input: si_attr!(hStdInput, isize),
+            std_output: si_attr!(hStdOutput, isize),
+            std_error: si_attr!(hStdError, isize),
+        };
 
         let mut env = args
             .env_mapping
@@ -252,11 +226,7 @@ mod _winapi {
             .transpose()?;
         let env = env.as_mut().map_or_else(null_mut, |v| v.as_mut_ptr());
 
-        let mut attrlist =
-            getattributelist(args.startup_info.get_attr("lpAttributeList", vm)?, vm)?;
-        si.lpAttributeList = attrlist
-            .as_mut()
-            .map_or_else(null_mut, |l| l.as_mut_ptr() as _);
+        let handle_list = get_handle_list(args.startup_info.get_attr("lpAttributeList", vm)?, vm)?;
 
         let wstr = |s: PyStrRef| {
             let ws = widestring::WideCString::from_str(s.expect_str())
@@ -289,26 +259,23 @@ mod _winapi {
             .as_mut()
             .map_or_else(null_mut, |w| w.as_mut_ptr());
 
-        let procinfo = unsafe {
-            host_winapi::create_process_w(
-                app_name,
-                command_line,
-                args.inherit_handles,
-                args.creation_flags
-                    | windows_sys::Win32::System::Threading::EXTENDED_STARTUPINFO_PRESENT
-                    | windows_sys::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT,
-                env,
-                current_dir,
-                &mut si as *mut _ as *mut _,
-            )
-            .map_err(|e| e.to_pyexception(vm))?
-        };
+        let procinfo = host_winapi::create_process(
+            app_name,
+            command_line,
+            args.inherit_handles,
+            args.creation_flags,
+            env,
+            current_dir,
+            startup_info,
+            handle_list,
+        )
+        .map_err(|e| e.to_pyexception(vm))?;
 
         Ok((
-            WinHandle(procinfo.hProcess),
-            WinHandle(procinfo.hThread),
-            procinfo.dwProcessId,
-            procinfo.dwThreadId,
+            WinHandle(procinfo.process),
+            WinHandle(procinfo.thread),
+            procinfo.process_id,
+            procinfo.thread_id,
         ))
     }
 
@@ -376,14 +343,11 @@ mod _winapi {
         })
     }
 
-    fn getattributelist(
-        obj: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<host_winapi::AttrList>> {
+    fn get_handle_list(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Vec<usize>>> {
         let Some(mapping) = <Option<ArgMapping>>::try_from_object(vm, obj)? else {
             return Ok(None);
         };
-        let handlelist = mapping
+        mapping
             .as_ref()
             .get_item("handle_list", vm)
             .ok()
@@ -395,16 +359,14 @@ mod _winapi {
                     })
                     .transpose()
             })
-            .transpose()?;
-
-        host_winapi::create_handle_list_attribute_list(handlelist).map_err(|e| e.to_pyexception(vm))
+            .transpose()
     }
 
     #[pyfunction]
     fn WaitForSingleObject(h: WinHandle, ms: i64, vm: &VirtualMachine) -> PyResult<u32> {
         // Negative values (e.g., -1) map to INFINITE (0xFFFFFFFF)
         let ms = if ms < 0 {
-            windows_sys::Win32::System::Threading::INFINITE
+            host_winapi::INFINITE_TIMEOUT
         } else if ms > u32::MAX as i64 {
             return Err(vm.new_overflow_error("timeout value is too large"));
         } else {
@@ -420,10 +382,10 @@ mod _winapi {
         milliseconds: u32,
         vm: &VirtualMachine,
     ) -> PyResult<u32> {
-        let handles: Vec<HANDLE> = handle_seq
+        let handles: Vec<host_winapi::Handle> = handle_seq
             .into_vec()
             .into_iter()
-            .map(|h| h as HANDLE)
+            .map(|h| h as host_winapi::Handle)
             .collect();
 
         if handles.is_empty() {
@@ -482,7 +444,7 @@ mod _winapi {
 
     #[pyfunction]
     fn GetModuleFileName(handle: isize, vm: &VirtualMachine) -> PyResult<String> {
-        let mut path: Vec<u16> = vec![0; MAX_PATH as usize];
+        let mut path: Vec<u16> = vec![0; host_winapi::MAX_PATH_USIZE];
 
         let length = host_winapi::get_module_file_name(handle as _, &mut path);
         if length == 0 {
@@ -532,12 +494,14 @@ mod _winapi {
         src: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
-        use windows_sys::Win32::Globalization::{
-            LCMAP_BYTEREV, LCMAP_HASH, LCMAP_SORTHANDLE, LCMAP_SORTKEY,
-        };
-
         // Reject unsupported flags
-        if flags & (LCMAP_SORTHANDLE | LCMAP_HASH | LCMAP_BYTEREV | LCMAP_SORTKEY) != 0 {
+        if flags
+            & (host_winapi::LCMAP_SORTHANDLE_FLAG
+                | host_winapi::LCMAP_HASH_FLAG
+                | host_winapi::LCMAP_BYTEREV_FLAG
+                | host_winapi::LCMAP_SORTKEY_FLAG)
+            != 0
+        {
             return Err(vm.new_value_error("unsupported flags"));
         }
 
@@ -611,7 +575,7 @@ mod _winapi {
 
     #[pyclass(with(Constructor))]
     impl Overlapped {
-        fn new_with_handle(handle: HANDLE, vm: &VirtualMachine) -> PyResult<Self> {
+        fn new_with_handle(handle: host_winapi::Handle, vm: &VirtualMachine) -> PyResult<Self> {
             host_overlapped::Operation::new(handle)
                 .map(|inner| Overlapped {
                     inner: PyMutex::new(inner),
@@ -936,13 +900,11 @@ mod _winapi {
         milliseconds: OptionalArg<u32>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        use windows_sys::Win32::System::Threading::INFINITE as WIN_INFINITE;
-
-        let milliseconds = milliseconds.unwrap_or(WIN_INFINITE);
+        let milliseconds = milliseconds.unwrap_or(host_winapi::INFINITE_TIMEOUT);
 
         // Get handles from sequence
         let seq = ArgSequence::<isize>::try_from_object(vm, handle_seq)?;
-        let handles: Vec<HANDLE> = seq
+        let handles: Vec<host_winapi::Handle> = seq
             .into_vec()
             .into_iter()
             .map(|handle| handle as _)
@@ -970,7 +932,7 @@ mod _winapi {
             let is_main = crate::stdlib::_thread::get_ident() == vm.state.main_thread_ident.load();
             if is_main {
                 let handle = crate::signal::get_sigint_event()
-                    .map(|handle| handle as HANDLE)
+                    .map(|handle| handle as host_winapi::Handle)
                     .unwrap_or_else(|| {
                         let handle = host_winapi::create_event_w(true, false, null())
                             .unwrap_or(core::ptr::null_mut());
@@ -985,7 +947,7 @@ mod _winapi {
             }
         };
         #[cfg(not(feature = "threading"))]
-        let sigint_event: Option<HANDLE> = None;
+        let sigint_event: Option<host_winapi::Handle> = None;
 
         match host_winapi::batched_wait_for_multiple_objects(
             &handles,

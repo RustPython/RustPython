@@ -48,11 +48,6 @@ use core::{
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
-#[cfg(unix)]
-use nix::{
-    sys::signal::{SaFlags, SigAction, SigSet, Signal::SIGINT, kill, sigaction},
-    unistd::getpid,
-};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
@@ -1441,19 +1436,7 @@ impl VirtualMachine {
     /// Returns (base, top) where base is the lowest address and top is the highest.
     #[cfg(all(not(miri), not(target_env = "musl"), windows))]
     fn get_stack_bounds() -> (usize, usize) {
-        use windows_sys::Win32::System::Threading::{
-            GetCurrentThreadStackLimits, SetThreadStackGuarantee,
-        };
-        let mut low: usize = 0;
-        let mut high: usize = 0;
-        unsafe {
-            GetCurrentThreadStackLimits(&mut low as *mut usize, &mut high as *mut usize);
-            // Add the guaranteed stack space (reserved for exception handling)
-            let mut guarantee: u32 = 0;
-            SetThreadStackGuarantee(&mut guarantee);
-            low += guarantee as usize;
-        }
-        (low, high)
+        crate::host_env::windows::current_thread_stack_bounds()
     }
 
     /// Get stack boundaries on non-Windows platforms.
@@ -2156,15 +2139,10 @@ impl VirtualMachine {
                 self.print_exception(exc);
                 #[cfg(unix)]
                 {
-                    let action = SigAction::new(
-                        nix::sys::signal::SigHandler::SigDfl,
-                        SaFlags::SA_ONSTACK,
-                        SigSet::empty(),
-                    );
-                    let result = unsafe { sigaction(SIGINT, &action) };
-                    if result.is_ok() {
+                    if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
                         self.flush_std();
-                        kill(getpid(), SIGINT).expect("Expect to be killed.");
+                        crate::host_env::signal::send_sigint_to_self()
+                            .expect("Expect to be killed.");
                     }
 
                     (libc::SIGINT as u32) + 128

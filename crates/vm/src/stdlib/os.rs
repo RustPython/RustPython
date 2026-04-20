@@ -443,7 +443,8 @@ pub(super) mod _os {
                 {
                     use rustpython_host_env::os::ffi::OsStrExt;
                     use std::os::unix::io::IntoRawFd;
-                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
+                    let new_fd = rustpython_host_env::posix::dup_fd(fno.into())
+                        .map_err(|e| e.into_pyexception(vm))?;
                     let raw_fd = new_fd.into_raw_fd();
                     let dir = OwnedDir::from_fd(raw_fd).map_err(|e| {
                         unsafe { libc::close(raw_fd) };
@@ -452,12 +453,12 @@ pub(super) mod _os {
                     // OwnedDir::drop calls rewinddir (reset to start) then closedir.
                     let mut list = Vec::new();
                     loop {
-                        nix::errno::Errno::clear();
+                        crate::host_env::os::clear_errno();
                         let entry = unsafe { libc::readdir(dir.as_ptr()) };
                         if entry.is_null() {
-                            let err = nix::errno::Errno::last();
-                            if err != nix::errno::Errno::UnknownErrno {
-                                return Err(io::Error::from(err).into_pyexception(vm));
+                            let err = crate::host_env::os::get_errno();
+                            if err != 0 {
+                                return Err(io::Error::from_raw_os_error(err).into_pyexception(vm));
                             }
                             break;
                         }
@@ -1138,13 +1139,13 @@ pub(super) mod _os {
                 Some(dir) => dir,
             };
             loop {
-                nix::errno::Errno::clear();
+                crate::host_env::os::clear_errno();
                 let entry = unsafe {
                     let ptr = libc::readdir(dir.as_ptr());
                     if ptr.is_null() {
-                        let err = nix::errno::Errno::last();
-                        if err != nix::errno::Errno::UnknownErrno {
-                            return Err(io::Error::from(err).into_pyexception(vm));
+                        let err = crate::host_env::os::get_errno();
+                        if err != 0 {
+                            return Err(io::Error::from_raw_os_error(err).into_pyexception(vm));
                         }
                         drop(guard.take());
                         return Ok(PyIterReturn::StopIteration(None));
@@ -1213,7 +1214,8 @@ pub(super) mod _os {
                 {
                     use std::os::unix::io::IntoRawFd;
                     // closedir() closes the fd, so duplicate it first
-                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
+                    let new_fd = rustpython_host_env::posix::dup_fd(fno.into())
+                        .map_err(|e| e.into_pyexception(vm))?;
                     let raw_fd = new_fd.into_raw_fd();
                     let dir = OwnedDir::from_fd(raw_fd).map_err(|e| {
                         // fdopendir failed, close the dup'd fd
@@ -1538,7 +1540,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn cpu_count(vm: &VirtualMachine) -> PyObjectRef {
-        let cpu_count = num_cpus::get();
+        let cpu_count = crate::host_env::os::cpu_count();
         vm.ctx.new_int(cpu_count).into()
     }
 
@@ -1580,24 +1582,8 @@ pub(super) mod _os {
         #[cfg(not(windows))]
         let res = unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) };
         #[cfg(windows)]
-        let res = unsafe {
-            use std::os::windows::io::AsRawHandle;
-            use windows_sys::Win32::Storage::FileSystem;
-            let handle = crt_fd::as_handle(fd).map_err(|e| e.into_pyexception(vm))?;
-            let mut distance_to_move: [i32; 2] = core::mem::transmute(position);
-            let ret = FileSystem::SetFilePointer(
-                handle.as_raw_handle(),
-                distance_to_move[0],
-                &mut distance_to_move[1],
-                how as _,
-            );
-            if ret == FileSystem::INVALID_SET_FILE_POINTER {
-                -1
-            } else {
-                distance_to_move[0] = ret as _;
-                core::mem::transmute::<[i32; 2], i64>(distance_to_move)
-            }
-        };
+        return crate::host_env::os::seek_fd(fd, position, how).map_err(|e| e.into_pyexception(vm));
+        #[cfg(not(windows))]
         if res < 0 {
             Err(vm.new_last_os_error())
         } else {
@@ -1798,21 +1784,12 @@ pub(super) mod _os {
             #[cfg(target_os = "redox")]
             {
                 let [] = dir_fd.0;
-
-                let tv = |d: Duration| libc::timeval {
-                    tv_sec: d.as_secs() as _,
-                    tv_usec: d.as_micros() as _,
-                };
-                nix::sys::stat::utimes(path.as_ref(), &tv(acc).into(), &tv(modif).into())
+                rustpython_host_env::posix::utimes(path.as_ref(), acc, modif)
                     .map_err(|err| err.into_pyexception(vm))
             }
         }
         #[cfg(windows)]
         {
-            use std::os::windows::prelude::*;
-            type DWORD = u32;
-            use windows_sys::Win32::{Foundation::FILETIME, Storage::FileSystem};
-
             let [] = dir_fd.0;
 
             if !_follow_symlinks.0 {
@@ -1821,37 +1798,8 @@ pub(super) mod _os {
                 ));
             }
 
-            let ft = |d: Duration| {
-                let intervals = ((d.as_secs() as i64 + 11644473600) * 10_000_000)
-                    + (d.subsec_nanos() as i64 / 100);
-                FILETIME {
-                    dwLowDateTime: intervals as DWORD,
-                    dwHighDateTime: (intervals >> 32) as DWORD,
-                }
-            };
-
-            let acc = ft(acc);
-            let modif = ft(modif);
-
-            let f = crate::host_env::fs::open_write_with_custom_flags(
-                &path,
-                windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS,
-            )
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-
-            let ret = unsafe {
-                FileSystem::SetFileTime(f.as_raw_handle() as _, core::ptr::null(), &acc, &modif)
-            };
-
-            if ret == 0 {
-                Err(OSErrorBuilder::with_filename(
-                    &io::Error::last_os_error(),
-                    path,
-                    vm,
-                ))
-            } else {
-                Ok(())
-            }
+            crate::host_env::os::set_file_times(&path, acc, modif)
+                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
         }
     }
 
@@ -1880,32 +1828,12 @@ pub(super) mod _os {
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
-            use core::mem::MaybeUninit;
-            use windows_sys::Win32::{Foundation::FILETIME, System::Threading};
-
-            let mut _create = MaybeUninit::<FILETIME>::uninit();
-            let mut _exit = MaybeUninit::<FILETIME>::uninit();
-            let mut kernel = MaybeUninit::<FILETIME>::uninit();
-            let mut user = MaybeUninit::<FILETIME>::uninit();
-
-            unsafe {
-                let h_proc = Threading::GetCurrentProcess();
-                Threading::GetProcessTimes(
-                    h_proc,
-                    _create.as_mut_ptr(),
-                    _exit.as_mut_ptr(),
-                    kernel.as_mut_ptr(),
-                    user.as_mut_ptr(),
-                );
-            }
-
-            let kernel = unsafe { kernel.assume_init() };
-            let user = unsafe { user.assume_init() };
+            let times = crate::host_env::time::get_process_times_100ns()
+                .ok_or_else(|| vm.new_last_os_error())?;
 
             let times_result = TimesResultData {
-                user: user.dwHighDateTime as f64 * 429.4967296 + user.dwLowDateTime as f64 * 1e-7,
-                system: kernel.dwHighDateTime as f64 * 429.4967296
-                    + kernel.dwLowDateTime as f64 * 1e-7,
+                user: times.user as f64 * 1e-7,
+                system: times.system as f64 * 1e-7,
                 children_user: 0.0,
                 children_system: 0.0,
                 elapsed: 0.0,

@@ -5072,7 +5072,8 @@ mod _io {
         // check file descriptor validity
         #[cfg(all(unix, feature = "host_env"))]
         if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
-            nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD).map_err(|_| vm.new_last_errno_error())?;
+            rustpython_host_env::fcntl::validate_fd(fd.as_raw())
+                .map_err(|_| vm.new_last_errno_error())?;
         }
 
         // Construct a RawIO (subclass of RawIOBase)
@@ -5554,8 +5555,7 @@ mod fileio {
             {
                 if let Err(err) = fd_fstat {
                     // If the fd is invalid, prevent destructor from trying to close it
-                    if err.raw_os_error()
-                        == Some(windows_sys::Win32::Foundation::ERROR_INVALID_HANDLE as i32)
+                    if err.raw_os_error() == Some(rustpython_host_env::nt::ERROR_INVALID_HANDLE_I32)
                     {
                         zelf.fd.store(-1);
                     }
@@ -5995,9 +5995,7 @@ mod winconsoleio {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_host_env::nt as host_nt;
-    use windows_sys::Win32::Foundation::{self, INVALID_HANDLE_VALUE};
-
-    type HANDLE = Foundation::HANDLE;
+    type HANDLE = host_nt::Handle;
 
     const SMALLBUF: usize = 4;
     const BUFMAX: usize = 32 * 1024 * 1024;
@@ -6007,7 +6005,7 @@ mod winconsoleio {
     }
 
     fn is_invalid_handle(handle: HANDLE) -> bool {
-        handle == INVALID_HANDLE_VALUE || handle.is_null()
+        host_nt::is_invalid_handle(handle)
     }
 
     /// Check if a Python object (fd or path string) refers to a console.

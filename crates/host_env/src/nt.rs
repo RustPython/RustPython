@@ -23,16 +23,41 @@ use crate::{
 };
 use libc::intptr_t;
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE, MAX_PATH},
+    Foundation::{
+        CloseHandle, ERROR_INVALID_HANDLE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, MAX_PATH,
+    },
     Globalization::{CP_UTF8, MultiByteToWideChar, WideCharToMultiByte},
     Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_TYPE_UNKNOWN, FileBasicInfo,
-        FindClose, FindFirstFileW, GetFileAttributesW, GetFileInformationByHandleEx, GetFileType,
-        GetFullPathNameW, INVALID_FILE_ATTRIBUTES, OPEN_EXISTING, SetFileAttributesW,
-        SetFileInformationByHandle, WIN32_FIND_DATAW,
+        CreateFileW, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_TYPE_UNKNOWN, FileBasicInfo, FindClose, FindFirstFileW,
+        GetFileAttributesW, GetFileInformationByHandleEx, GetFileType, GetFullPathNameW,
+        INVALID_FILE_ATTRIBUTES, OPEN_EXISTING, SetFileAttributesW, SetFileInformationByHandle,
+        WIN32_FIND_DATAW,
     },
     System::{Console, Threading},
+};
+
+pub type Handle = HANDLE;
+pub const MAX_PATH_USIZE: usize = MAX_PATH as usize;
+pub const ERROR_INVALID_HANDLE_I32: i32 = ERROR_INVALID_HANDLE as i32;
+pub const LOAD_LIBRARY_SEARCH_APPLICATION_DIR: u32 =
+    windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_APPLICATION_DIR;
+pub const LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: u32 =
+    windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_DEFAULT_DIRS;
+pub const LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR: u32 =
+    windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR;
+pub const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 =
+    windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32;
+pub const LOAD_LIBRARY_SEARCH_USER_DIRS: u32 =
+    windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_USER_DIRS;
+
+pub use windows_sys::Win32::Storage::FileSystem::{
+    FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN,
+    FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA, FILE_ATTRIBUTE_NORMAL,
+    FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_READONLY,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM,
+    FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
 };
 
 #[cfg(target_env = "msvc")]
@@ -1744,7 +1769,7 @@ fn handle_from_fd(fd: i32) -> HANDLE {
 }
 
 pub fn console_type(handle: HANDLE) -> char {
-    if handle == INVALID_HANDLE_VALUE || handle.is_null() {
+    if is_invalid_handle(handle) {
         return '\0';
     }
     let mut mode: u32 = 0;
@@ -1757,6 +1782,10 @@ pub fn console_type(handle: HANDLE) -> char {
     } else {
         'w'
     }
+}
+
+pub fn is_invalid_handle(handle: Handle) -> bool {
+    handle == INVALID_HANDLE_VALUE || handle.is_null()
 }
 
 pub fn console_type_from_fd(fd: i32) -> char {

@@ -23,16 +23,85 @@ pub struct SemHandle {
     raw: *mut sem_t,
 }
 
+#[cfg(unix)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SemError {
+    WouldBlock,
+    TimedOut,
+    Interrupted,
+    AlreadyExists,
+    NotFound,
+    InvalidInput,
+    Other(i32),
+}
+
+#[cfg(unix)]
+impl SemError {
+    fn from_errno(err: Errno) -> Self {
+        match err {
+            Errno::EAGAIN => Self::WouldBlock,
+            Errno::ETIMEDOUT => Self::TimedOut,
+            Errno::EINTR => Self::Interrupted,
+            Errno::EEXIST => Self::AlreadyExists,
+            Errno::ENOENT => Self::NotFound,
+            Errno::EINVAL => Self::InvalidInput,
+            other => Self::Other(other as i32),
+        }
+    }
+
+    pub fn raw_os_error(self) -> i32 {
+        match self {
+            Self::WouldBlock => Errno::EAGAIN as i32,
+            Self::TimedOut => Errno::ETIMEDOUT as i32,
+            Self::Interrupted => Errno::EINTR as i32,
+            Self::AlreadyExists => Errno::EEXIST as i32,
+            Self::NotFound => Errno::ENOENT as i32,
+            Self::InvalidInput => Errno::EINVAL as i32,
+            Self::Other(code) => code,
+        }
+    }
+
+    pub fn description(self) -> String {
+        Errno::from_raw(self.raw_os_error()).desc().to_owned()
+    }
+}
+
+#[cfg(unix)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TryAcquireStatus {
+    Acquired,
+    WouldBlock,
+    Interrupted,
+    Error(SemError),
+}
+
+#[cfg(unix)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum WaitStatus {
+    Acquired,
+    TimedOut,
+    Interrupted,
+    Error(SemError),
+}
+
 #[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::{
         CloseHandle, ERROR_TOO_MANY_POSTS, GetLastError, HANDLE, INVALID_HANDLE_VALUE, WAIT_FAILED,
         WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
+    Networking::WinSock::{SOCKET, closesocket, recv, send},
     System::Threading::{
-        CreateSemaphoreW, GetCurrentThreadId, ReleaseSemaphore, WaitForSingleObjectEx,
+        CreateSemaphoreW, GetCurrentThreadId, INFINITE, ReleaseSemaphore, WaitForSingleObjectEx,
     },
 };
+
+#[cfg(windows)]
+pub type RawHandle = HANDLE;
+#[cfg(windows)]
+pub type RawSocket = SOCKET;
+#[cfg(windows)]
+pub const INFINITE_TIMEOUT: u32 = INFINITE;
 
 #[cfg(windows)]
 #[derive(Debug)]
@@ -45,12 +114,16 @@ unsafe impl Sync for SemHandle {}
 
 #[cfg(unix)]
 impl SemHandle {
-    pub fn create(name: &str, value: u32, unlink: bool) -> Result<(Self, Option<String>), Errno> {
-        let cname = semaphore_name(name).map_err(|_| Errno::EINVAL)?;
+    pub fn create(
+        name: &str,
+        value: u32,
+        unlink: bool,
+    ) -> Result<(Self, Option<String>), SemError> {
+        let cname = semaphore_name(name).map_err(|_| SemError::InvalidInput)?;
         let raw =
             unsafe { libc::sem_open(cname.as_ptr(), libc::O_CREAT | libc::O_EXCL, 0o600, value) };
         if raw == libc::SEM_FAILED {
-            return Err(Errno::last());
+            return Err(SemError::from_errno(Errno::last()));
         }
         if unlink {
             unsafe {
@@ -62,11 +135,11 @@ impl SemHandle {
         }
     }
 
-    pub fn open_existing(name: &str) -> Result<Self, Errno> {
-        let cname = semaphore_name(name).map_err(|_| Errno::EINVAL)?;
+    pub fn open_existing(name: &str) -> Result<Self, SemError> {
+        let cname = semaphore_name(name).map_err(|_| SemError::InvalidInput)?;
         let raw = unsafe { libc::sem_open(cname.as_ptr(), 0) };
         if raw == libc::SEM_FAILED {
-            Err(Errno::last())
+            Err(SemError::from_errno(Errno::last()))
         } else {
             Ok(Self { raw })
         }
@@ -155,6 +228,39 @@ pub fn wait_timeout() -> u32 {
 
 #[cfg(windows)]
 #[inline]
+pub fn close_socket(socket: SOCKET) -> io::Result<()> {
+    let res = unsafe { closesocket(socket) };
+    if res != 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+pub fn recv_socket(socket: SOCKET, size: usize) -> io::Result<Vec<u8>> {
+    let mut buf = vec![0u8; size];
+    let n_read = unsafe { recv(socket, buf.as_mut_ptr() as *mut _, size as i32, 0) };
+    if n_read < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        buf.truncate(n_read as usize);
+        Ok(buf)
+    }
+}
+
+#[cfg(windows)]
+pub fn send_socket(socket: SOCKET, buf: &[u8]) -> io::Result<i32> {
+    let ret = unsafe { send(socket, buf.as_ptr() as *const _, buf.len() as i32, 0) };
+    if ret < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(ret)
+    }
+}
+
+#[cfg(windows)]
+#[inline]
 pub fn wait_failed() -> u32 {
     WAIT_FAILED
 }
@@ -201,10 +307,14 @@ pub fn semaphore_name(name: &str) -> Result<CString, alloc::ffi::NulError> {
 }
 
 #[cfg(unix)]
-pub fn sem_unlink(name: &str) -> Result<(), Errno> {
-    let cname = semaphore_name(name).map_err(|_| Errno::EINVAL)?;
+pub fn sem_unlink(name: &str) -> Result<(), SemError> {
+    let cname = semaphore_name(name).map_err(|_| SemError::InvalidInput)?;
     let res = unsafe { libc::sem_unlink(cname.as_ptr()) };
-    if res < 0 { Err(Errno::last()) } else { Ok(()) }
+    if res < 0 {
+        Err(SemError::from_errno(Errno::last()))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(all(unix, not(target_vendor = "apple")))]
@@ -212,11 +322,11 @@ pub fn sem_unlink(name: &str) -> Result<(), Errno> {
 ///
 /// `handle` must point to a valid `sem_t` that remains alive for the duration
 /// of this call and is valid to pass to `sem_getvalue`.
-pub unsafe fn get_semaphore_value(handle: *mut sem_t) -> Result<i32, Errno> {
+pub unsafe fn get_semaphore_value(handle: *mut sem_t) -> Result<i32, SemError> {
     let mut sval: libc::c_int = 0;
     let res = unsafe { libc::sem_getvalue(handle, &mut sval) };
     if res < 0 {
-        Err(Errno::last())
+        Err(SemError::from_errno(Errno::last()))
     } else {
         Ok(if sval < 0 { 0 } else { sval })
     }
@@ -224,19 +334,23 @@ pub unsafe fn get_semaphore_value(handle: *mut sem_t) -> Result<i32, Errno> {
 
 #[cfg(unix)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn sem_trywait(handle: *mut sem_t) -> Result<(), Errno> {
-    if unsafe { libc::sem_trywait(handle) } < 0 {
-        Err(Errno::last())
+pub fn sem_trywait_status(handle: *mut sem_t) -> TryAcquireStatus {
+    if unsafe { libc::sem_trywait(handle) } == 0 {
+        TryAcquireStatus::Acquired
     } else {
-        Ok(())
+        match Errno::last() {
+            Errno::EAGAIN => TryAcquireStatus::WouldBlock,
+            Errno::EINTR => TryAcquireStatus::Interrupted,
+            err => TryAcquireStatus::Error(SemError::from_errno(err)),
+        }
     }
 }
 
 #[cfg(unix)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn sem_post(handle: *mut sem_t) -> Result<(), Errno> {
+pub fn sem_post(handle: *mut sem_t) -> Result<(), SemError> {
     if unsafe { libc::sem_post(handle) } < 0 {
-        Err(Errno::last())
+        Err(SemError::from_errno(Errno::last()))
     } else {
         Ok(())
     }
@@ -253,20 +367,20 @@ pub fn sem_value_max() -> i32 {
 }
 
 #[cfg(unix)]
-pub fn gettimeofday() -> Result<libc::timeval, Errno> {
+pub fn gettimeofday() -> Result<libc::timeval, SemError> {
     let mut tv = libc::timeval {
         tv_sec: 0,
         tv_usec: 0,
     };
     if unsafe { libc::gettimeofday(&mut tv, core::ptr::null_mut()) } < 0 {
-        Err(Errno::last())
+        Err(SemError::from_errno(Errno::last()))
     } else {
         Ok(tv)
     }
 }
 
 #[cfg(unix)]
-pub fn deadline_from_timeout(timeout: f64) -> Result<libc::timespec, Errno> {
+pub fn deadline_from_timeout(timeout: f64) -> Result<libc::timespec, SemError> {
     let timeout = if timeout < 0.0 { 0.0 } else { timeout };
     let tv = gettimeofday()?;
     let sec = timeout as libc::c_long;
@@ -282,42 +396,40 @@ pub fn deadline_from_timeout(timeout: f64) -> Result<libc::timespec, Errno> {
 
 #[cfg(unix)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn sem_wait_save_errno(handle: *mut sem_t, deadline: Option<&libc::timespec>) -> (i32, Errno) {
+pub fn sem_wait_status(handle: *mut sem_t, deadline: Option<&libc::timespec>) -> WaitStatus {
     #[cfg(not(target_vendor = "apple"))]
     if let Some(deadline) = deadline {
-        let r = unsafe { libc::sem_timedwait(handle, deadline) };
-        (
-            r,
-            if r < 0 {
-                Errno::last()
-            } else {
-                Errno::from_raw(0)
-            },
-        )
+        if unsafe { libc::sem_timedwait(handle, deadline) } == 0 {
+            WaitStatus::Acquired
+        } else {
+            match Errno::last() {
+                Errno::ETIMEDOUT => WaitStatus::TimedOut,
+                Errno::EINTR => WaitStatus::Interrupted,
+                err => WaitStatus::Error(SemError::from_errno(err)),
+            }
+        }
     } else {
-        let r = unsafe { libc::sem_wait(handle) };
-        (
-            r,
-            if r < 0 {
-                Errno::last()
-            } else {
-                Errno::from_raw(0)
-            },
-        )
+        if unsafe { libc::sem_wait(handle) } == 0 {
+            WaitStatus::Acquired
+        } else {
+            match Errno::last() {
+                Errno::EINTR => WaitStatus::Interrupted,
+                err => WaitStatus::Error(SemError::from_errno(err)),
+            }
+        }
     }
 
     #[cfg(target_vendor = "apple")]
     {
         debug_assert!(deadline.is_none());
-        let r = unsafe { libc::sem_wait(handle) };
-        (
-            r,
-            if r < 0 {
-                Errno::last()
-            } else {
-                Errno::from_raw(0)
-            },
-        )
+        if unsafe { libc::sem_wait(handle) } == 0 {
+            WaitStatus::Acquired
+        } else {
+            match Errno::last() {
+                Errno::EINTR => WaitStatus::Interrupted,
+                err => WaitStatus::Error(SemError::from_errno(err)),
+            }
+        }
     }
 }
 
@@ -334,13 +446,13 @@ pub fn sem_timedwait_poll_step(
     handle: *mut sem_t,
     deadline: &libc::timespec,
     delay: u64,
-) -> Result<PollWaitStep, Errno> {
+) -> Result<PollWaitStep, SemError> {
     if unsafe { libc::sem_trywait(handle) } == 0 {
         return Ok(PollWaitStep::Acquired);
     }
     let err = Errno::last();
     if err != Errno::EAGAIN {
-        return Err(err);
+        return Err(SemError::from_errno(err));
     }
 
     let now = gettimeofday()?;

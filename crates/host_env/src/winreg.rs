@@ -23,6 +23,69 @@ use windows_sys::Win32::{
     System::{Environment, Registry},
 };
 
+pub type HKEY = Registry::HKEY;
+pub const ERROR_MORE_DATA: u32 = Foundation::ERROR_MORE_DATA;
+pub const HKEY_CLASSES_ROOT: HKEY = Registry::HKEY_CLASSES_ROOT;
+pub const HKEY_CURRENT_USER: HKEY = Registry::HKEY_CURRENT_USER;
+pub const HKEY_LOCAL_MACHINE: HKEY = Registry::HKEY_LOCAL_MACHINE;
+pub const HKEY_USERS: HKEY = Registry::HKEY_USERS;
+pub const HKEY_PERFORMANCE_DATA: HKEY = Registry::HKEY_PERFORMANCE_DATA;
+pub const HKEY_CURRENT_CONFIG: HKEY = Registry::HKEY_CURRENT_CONFIG;
+pub const HKEY_DYN_DATA: HKEY = Registry::HKEY_DYN_DATA;
+
+pub const KEY_ALL_ACCESS: u32 = Registry::KEY_ALL_ACCESS;
+pub const KEY_CREATE_LINK: u32 = Registry::KEY_CREATE_LINK;
+pub const KEY_CREATE_SUB_KEY: u32 = Registry::KEY_CREATE_SUB_KEY;
+pub const KEY_ENUMERATE_SUB_KEYS: u32 = Registry::KEY_ENUMERATE_SUB_KEYS;
+pub const KEY_EXECUTE: u32 = Registry::KEY_EXECUTE;
+pub const KEY_NOTIFY: u32 = Registry::KEY_NOTIFY;
+pub const KEY_QUERY_VALUE: u32 = Registry::KEY_QUERY_VALUE;
+pub const KEY_READ: u32 = Registry::KEY_READ;
+pub const KEY_SET_VALUE: u32 = Registry::KEY_SET_VALUE;
+pub const KEY_WOW64_32KEY: u32 = Registry::KEY_WOW64_32KEY;
+pub const KEY_WOW64_64KEY: u32 = Registry::KEY_WOW64_64KEY;
+pub const KEY_WRITE: u32 = Registry::KEY_WRITE;
+
+pub const REG_BINARY: u32 = Registry::REG_BINARY;
+pub const REG_CREATED_NEW_KEY: u32 = Registry::REG_CREATED_NEW_KEY;
+pub const REG_DWORD: u32 = Registry::REG_DWORD;
+pub const REG_DWORD_BIG_ENDIAN: u32 = Registry::REG_DWORD_BIG_ENDIAN;
+pub const REG_DWORD_LITTLE_ENDIAN: u32 = Registry::REG_DWORD_LITTLE_ENDIAN;
+pub const REG_EXPAND_SZ: u32 = Registry::REG_EXPAND_SZ;
+pub const REG_FULL_RESOURCE_DESCRIPTOR: u32 = Registry::REG_FULL_RESOURCE_DESCRIPTOR;
+pub const REG_LINK: u32 = Registry::REG_LINK;
+pub const REG_MULTI_SZ: u32 = Registry::REG_MULTI_SZ;
+pub const REG_NONE: u32 = Registry::REG_NONE;
+pub const REG_NOTIFY_CHANGE_ATTRIBUTES: u32 = Registry::REG_NOTIFY_CHANGE_ATTRIBUTES;
+pub const REG_NOTIFY_CHANGE_LAST_SET: u32 = Registry::REG_NOTIFY_CHANGE_LAST_SET;
+pub const REG_NOTIFY_CHANGE_NAME: u32 = Registry::REG_NOTIFY_CHANGE_NAME;
+pub const REG_NOTIFY_CHANGE_SECURITY: u32 = Registry::REG_NOTIFY_CHANGE_SECURITY;
+pub const REG_OPENED_EXISTING_KEY: u32 = Registry::REG_OPENED_EXISTING_KEY;
+pub const REG_OPTION_BACKUP_RESTORE: u32 = Registry::REG_OPTION_BACKUP_RESTORE;
+pub const REG_OPTION_CREATE_LINK: u32 = Registry::REG_OPTION_CREATE_LINK;
+pub const REG_OPTION_NON_VOLATILE: u32 = Registry::REG_OPTION_NON_VOLATILE;
+pub const REG_OPTION_OPEN_LINK: u32 = Registry::REG_OPTION_OPEN_LINK;
+pub const REG_OPTION_RESERVED: u32 = Registry::REG_OPTION_RESERVED;
+pub const REG_OPTION_VOLATILE: u32 = Registry::REG_OPTION_VOLATILE;
+pub const REG_QWORD: u32 = Registry::REG_QWORD;
+pub const REG_QWORD_LITTLE_ENDIAN: u32 = Registry::REG_QWORD_LITTLE_ENDIAN;
+pub const REG_RESOURCE_LIST: u32 = Registry::REG_RESOURCE_LIST;
+pub const REG_RESOURCE_REQUIREMENTS_LIST: u32 = Registry::REG_RESOURCE_REQUIREMENTS_LIST;
+pub const REG_SZ: u32 = Registry::REG_SZ;
+pub const REG_WHOLE_HIVE_VOLATILE: u32 = Registry::REG_WHOLE_HIVE_VOLATILE as u32;
+pub const REG_REFRESH_HIVE: u32 = 0x00000002;
+pub const REG_NO_LAZY_FLUSH: u32 = 0x00000004;
+pub const REG_LEGAL_OPTION: u32 = Registry::REG_OPTION_RESERVED
+    | Registry::REG_OPTION_NON_VOLATILE
+    | Registry::REG_OPTION_VOLATILE
+    | Registry::REG_OPTION_CREATE_LINK
+    | Registry::REG_OPTION_BACKUP_RESTORE
+    | Registry::REG_OPTION_OPEN_LINK;
+pub const REG_LEGAL_CHANGE_FILTER: u32 = Registry::REG_NOTIFY_CHANGE_NAME
+    | Registry::REG_NOTIFY_CHANGE_ATTRIBUTES
+    | Registry::REG_NOTIFY_CHANGE_LAST_SET
+    | Registry::REG_NOTIFY_CHANGE_SECURITY;
+
 pub fn bytes_as_wide_slice(bytes: &[u8]) -> &[u16] {
     let (prefix, u16_slice, suffix) = unsafe { bytes.align_to::<u16>() };
     debug_assert!(

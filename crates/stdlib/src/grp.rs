@@ -10,8 +10,7 @@ mod grp {
         exceptions,
         types::PyStructSequence,
     };
-    use core::ptr::NonNull;
-    use nix::unistd;
+    use rustpython_host_env::grp as host_grp;
 
     #[pystruct_sequence_data]
     struct GroupData {
@@ -29,15 +28,11 @@ mod grp {
     impl PyGroup {}
 
     impl GroupData {
-        fn from_unistd_group(group: unistd::Group, vm: &VirtualMachine) -> Self {
-            let cstr_lossy = |s: alloc::ffi::CString| {
-                s.into_string()
-                    .unwrap_or_else(|e| e.into_cstring().to_string_lossy().into_owned())
-            };
+        fn from_group(group: host_grp::Group, vm: &VirtualMachine) -> Self {
             GroupData {
                 gr_name: group.name,
-                gr_passwd: cstr_lossy(group.passwd),
-                gr_gid: group.gid.as_raw(),
+                gr_passwd: group.passwd,
+                gr_gid: group.gid,
                 gr_mem: vm
                     .ctx
                     .new_list(group.mem.iter().map(|s| s.to_pyobject(vm)).collect()),
@@ -48,11 +43,9 @@ mod grp {
     #[pyfunction]
     fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<GroupData> {
         let gr_gid = gid.as_bigint();
-        let gid = libc::gid_t::try_from(gr_gid)
-            .map(unistd::Gid::from_raw)
-            .ok();
+        let gid = libc::gid_t::try_from(gr_gid).ok();
         let group = gid
-            .map(unistd::Group::from_gid)
+            .map(host_grp::getgrgid)
             .transpose()
             .map_err(|err| err.into_pyexception(vm))?
             .flatten();
@@ -63,7 +56,7 @@ mod grp {
                     .into(),
             )
         })?;
-        Ok(GroupData::from_unistd_group(group, vm))
+        Ok(GroupData::from_group(group, vm))
     }
 
     #[pyfunction]
@@ -72,7 +65,7 @@ mod grp {
         if gr_name.contains('\0') {
             return Err(exceptions::cstring_error(vm));
         }
-        let group = unistd::Group::from_name(gr_name).map_err(|err| err.into_pyexception(vm))?;
+        let group = host_grp::getgrnam(gr_name).map_err(|err| err.into_pyexception(vm))?;
         let group = group.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
@@ -80,24 +73,14 @@ mod grp {
                     .into(),
             )
         })?;
-        Ok(GroupData::from_unistd_group(group, vm))
+        Ok(GroupData::from_group(group, vm))
     }
 
     #[pyfunction]
     fn getgrall(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        // setgrent, getgrent, etc are not thread safe. Could use fgetgrent_r, but this is easier
-        static GETGRALL: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
-        let _guard = GETGRALL.lock();
-        let mut list = Vec::new();
-
-        unsafe { libc::setgrent() };
-        while let Some(ptr) = NonNull::new(unsafe { libc::getgrent() }) {
-            let group = unistd::Group::from(unsafe { ptr.as_ref() });
-            let group = GroupData::from_unistd_group(group, vm).to_pyobject(vm);
-            list.push(group);
-        }
-        unsafe { libc::endgrent() };
-
-        Ok(list)
+        Ok(host_grp::getgrall()
+            .into_iter()
+            .map(|group| GroupData::from_group(group, vm).to_pyobject(vm))
+            .collect())
     }
 }

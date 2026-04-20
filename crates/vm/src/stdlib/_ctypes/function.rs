@@ -65,13 +65,13 @@ where
 {
     // Before call: restore thread-local errno to system
     let saved = CTYPES_LOCAL_ERRNO.with(|e| e.get());
-    errno::set_errno(errno::Errno(saved));
+    rustpython_host_env::os::set_errno(saved);
 
     // Call the function
     let result = f();
 
     // After call: save system errno to thread-local
-    let new_error = errno::errno().0;
+    let new_error = rustpython_host_env::os::get_errno();
     CTYPES_LOCAL_ERRNO.with(|e| e.set(new_error));
 
     result
@@ -105,13 +105,13 @@ where
 {
     // Before call: restore thread-local last_error to Windows
     let saved = CTYPES_LOCAL_LAST_ERROR.with(|e| e.get());
-    unsafe { windows_sys::Win32::Foundation::SetLastError(saved) };
+    rustpython_host_env::windows::set_last_error(saved);
 
     // Call the function
     let result = f();
 
     // After call: save Windows last_error to thread-local
-    let new_error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+    let new_error = rustpython_host_env::windows::get_last_error();
     CTYPES_LOCAL_LAST_ERROR.with(|e| e.set(new_error));
 
     result

@@ -20,7 +20,6 @@ pub(crate) mod module {
     use rustpython_host_env::nt as host_nt;
     use std::os::windows::ffi::OsStringExt;
     use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Foundation;
 
     #[pyattr]
     use libc::{O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT};
@@ -50,7 +49,7 @@ pub(crate) mod module {
     const TMP_MAX: i32 = i32::MAX;
 
     #[pyattr]
-    use windows_sys::Win32::System::LibraryLoader::{
+    use host_nt::{
         LOAD_LIBRARY_SEARCH_APPLICATION_DIR as _LOAD_LIBRARY_SEARCH_APPLICATION_DIR,
         LOAD_LIBRARY_SEARCH_DEFAULT_DIRS as _LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR as _LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
@@ -257,7 +256,7 @@ pub(crate) mod module {
 
     /// _testFileTypeByHandle - test file type using an open handle
     fn _test_file_type_by_handle(
-        handle: windows_sys::Win32::Foundation::HANDLE,
+        handle: host_nt::Handle,
         tested_type: u32,
         disk_only: bool,
     ) -> bool {
@@ -628,7 +627,7 @@ pub(crate) mod module {
     #[pyfunction]
     fn _getvolumepathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
         let wide = path.to_wide_cstring(vm)?;
-        let buflen = core::cmp::max(wide.len(), Foundation::MAX_PATH as usize);
+        let buflen = core::cmp::max(wide.len(), host_nt::MAX_PATH_USIZE);
         if buflen > u32::MAX as usize {
             return Err(vm.new_overflow_error("path too long"));
         }

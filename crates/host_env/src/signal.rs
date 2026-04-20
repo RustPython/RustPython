@@ -84,6 +84,33 @@ pub fn raise_signal(signalnum: i32) -> io::Result<()> {
 }
 
 #[cfg(unix)]
+pub fn alarm(seconds: u32) -> u32 {
+    unsafe { libc::alarm(seconds) }
+}
+
+#[cfg(unix)]
+pub fn set_sigint_default_onstack() -> io::Result<()> {
+    let mut action: libc::sigaction = unsafe { core::mem::zeroed() };
+    action.sa_sigaction = libc::SIG_DFL;
+    action.sa_flags = libc::SA_ONSTACK;
+    if unsafe { libc::sigemptyset(&mut action.sa_mask) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if unsafe { libc::sigaction(libc::SIGINT, &action, core::ptr::null_mut()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+pub fn send_sigint_to_self() -> io::Result<()> {
+    if unsafe { libc::kill(libc::getpid(), libc::SIGINT) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
 pub fn setitimer(which: i32, new: &libc::itimerval) -> io::Result<libc::itimerval> {
     let mut old = core::mem::MaybeUninit::<libc::itimerval>::uninit();
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -181,6 +208,15 @@ pub const VALID_SIGNALS: &[i32] = &[
 ];
 
 #[cfg(windows)]
+pub const SIGBREAK: i32 = 21;
+#[cfg(windows)]
+pub const CTRL_C_EVENT: u32 = 0;
+#[cfg(windows)]
+pub const CTRL_BREAK_EVENT: u32 = 1;
+#[cfg(windows)]
+pub const INVALID_SOCKET: libc::SOCKET = windows_sys::Win32::Networking::WinSock::INVALID_SOCKET;
+
+#[cfg(windows)]
 pub fn is_valid_signal(signalnum: i32) -> bool {
     VALID_SIGNALS.contains(&signalnum)
 }
@@ -241,7 +277,7 @@ pub fn notify_signal(
         }
     }
 
-    if wakeup_fd == windows_sys::Win32::Networking::WinSock::INVALID_SOCKET {
+    if wakeup_fd == INVALID_SOCKET {
         return;
     }
 

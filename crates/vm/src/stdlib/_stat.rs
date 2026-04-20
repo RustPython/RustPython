@@ -2,6 +2,9 @@ pub(crate) use _stat::module_def;
 
 #[pymodule]
 mod _stat {
+    #[cfg(windows)]
+    use rustpython_host_env::nt as host_nt;
+
     // Use libc::mode_t for Mode to match the system's definition
     #[cfg(unix)]
     type Mode = libc::mode_t;
@@ -228,7 +231,7 @@ mod _stat {
 
     #[cfg(windows)]
     #[pyattr]
-    pub use windows_sys::Win32::Storage::FileSystem::{
+    pub use host_nt::{
         FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE,
         FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN,
         FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA, FILE_ATTRIBUTE_NORMAL,

@@ -22,6 +22,9 @@ use windows_sys::Win32::{
     },
 };
 
+pub type Handle = HANDLE;
+pub const INVALID_HANDLE: Handle = INVALID_HANDLE_VALUE;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccessMode {
     Default = 0,
@@ -32,7 +35,7 @@ pub enum AccessMode {
 
 #[derive(Debug)]
 pub struct NamedMmap {
-    map_handle: HANDLE,
+    map_handle: Handle,
     view_ptr: *mut u8,
     len: usize,
 }
@@ -105,8 +108,8 @@ impl Drop for NamedMmap {
     }
 }
 
-pub fn duplicate_handle(handle: HANDLE) -> io::Result<HANDLE> {
-    let mut new_handle: HANDLE = INVALID_HANDLE_VALUE;
+pub fn duplicate_handle(handle: Handle) -> io::Result<Handle> {
+    let mut new_handle: Handle = INVALID_HANDLE;
     let result = unsafe {
         DuplicateHandle(
             GetCurrentProcess(),
@@ -125,7 +128,7 @@ pub fn duplicate_handle(handle: HANDLE) -> io::Result<HANDLE> {
     }
 }
 
-pub fn get_file_len(handle: HANDLE) -> io::Result<i64> {
+pub fn get_file_len(handle: Handle) -> io::Result<i64> {
     let mut high: u32 = 0;
     let low = unsafe { GetFileSize(handle, &mut high) };
     if low == u32::MAX {
@@ -138,10 +141,10 @@ pub fn get_file_len(handle: HANDLE) -> io::Result<i64> {
 }
 
 pub fn is_invalid_handle_value(handle: isize) -> bool {
-    handle == INVALID_HANDLE_VALUE as isize
+    handle == INVALID_HANDLE as isize
 }
 
-pub fn extend_file(handle: HANDLE, size: i64) -> io::Result<()> {
+pub fn extend_file(handle: Handle, size: i64) -> io::Result<()> {
     if unsafe { SetFilePointerEx(handle, size, core::ptr::null_mut(), FILE_BEGIN) } == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -151,7 +154,7 @@ pub fn extend_file(handle: HANDLE, size: i64) -> io::Result<()> {
     Ok(())
 }
 
-pub fn close_handle(handle: HANDLE) {
+pub fn close_handle(handle: Handle) {
     unsafe { CloseHandle(handle) };
 }
 
@@ -168,7 +171,7 @@ pub fn last_error() -> u32 {
 }
 
 pub fn create_named_mapping(
-    file_handle: HANDLE,
+    file_handle: Handle,
     tag: &str,
     access: AccessMode,
     offset: i64,
@@ -217,7 +220,7 @@ pub fn create_named_mapping(
 }
 
 pub fn map_handle(
-    handle: HANDLE,
+    handle: Handle,
     offset: i64,
     size: usize,
     access: AccessMode,

@@ -4,11 +4,17 @@ use std::io;
 use crate::crt_fd;
 use windows_sys::Win32::System::Diagnostics::Debug;
 
+pub type ErrorMode = u32;
+
 pub const LK_UNLCK: i32 = 0;
 pub const LK_LOCK: i32 = 1;
 pub const LK_NBLCK: i32 = 2;
 pub const LK_RLCK: i32 = 3;
 pub const LK_NBRLCK: i32 = 4;
+pub const SEM_FAILCRITICALERRORS: ErrorMode = Debug::SEM_FAILCRITICALERRORS;
+pub const SEM_NOALIGNMENTFAULTEXCEPT: ErrorMode = Debug::SEM_NOALIGNMENTFAULTEXCEPT;
+pub const SEM_NOGPFAULTERRORBOX: ErrorMode = Debug::SEM_NOGPFAULTERRORBOX;
+pub const SEM_NOOPENFILEERRORBOX: ErrorMode = Debug::SEM_NOOPENFILEERRORBOX;
 
 unsafe extern "C" {
     fn _getch() -> i32;
@@ -117,6 +123,6 @@ pub fn get_error_mode() -> u32 {
     unsafe { suppress_iph!(Debug::GetErrorMode()) }
 }
 
-pub fn set_error_mode(mode: Debug::THREAD_ERROR_MODE) -> u32 {
+pub fn set_error_mode(mode: ErrorMode) -> u32 {
     unsafe { suppress_iph!(Debug::SetErrorMode(mode)) }
 }
