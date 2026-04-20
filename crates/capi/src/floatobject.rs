@@ -31,7 +31,7 @@ mod tests {
         Python::attach(|py| {
             let pi = PyFloat::new(py, PI);
             assert!(pi.is_instance_of::<PyFloat>());
-            assert_eq!(pi.extract::<f64>().unwrap(), 123.0);
+            assert_eq!(pi.extract::<f64>().unwrap(), PI);
         })
     }
 }
