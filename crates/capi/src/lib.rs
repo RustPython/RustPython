@@ -10,6 +10,7 @@ pub(crate) mod capsule;
 pub(crate) mod ceval;
 pub(crate) mod complexobject;
 pub(crate) mod dictobject;
+pub(crate) mod floatobject;
 pub(crate) mod import;
 pub(crate) mod listobject;
 pub(crate) mod longobject;
