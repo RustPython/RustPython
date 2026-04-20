@@ -1211,20 +1211,24 @@ pub fn linetable_to_locations(
             };
 
         line += line_delta;
+        let mk = |l: i32| {
+            if l > 0 {
+                OneIndexed::new(l as usize).unwrap_or(OneIndexed::MIN)
+            } else {
+                OneIndexed::MIN
+            }
+        };
         for _ in 0..length {
             if locations.len() >= num_instructions {
                 break;
             }
             if kind == PyCodeLocationInfoKind::None {
-                locations.push(default_loc());
-            } else {
-                let mk = |l: i32| {
-                    if l > 0 {
-                        OneIndexed::new(l as usize).unwrap_or(OneIndexed::MIN)
-                    } else {
-                        OneIndexed::MIN
-                    }
+                let loc = SourceLocation {
+                    line: mk(line),
+                    character_offset: OneIndexed::from_zero_indexed(0),
                 };
+                locations.push((loc, loc));
+            } else {
                 locations.push((
                     SourceLocation {
                         line: mk(line),

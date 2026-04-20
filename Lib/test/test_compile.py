@@ -999,7 +999,6 @@ class TestSpecifics(unittest.TestCase):
                         dis.dis(code)
                     self.assertNotIn('NOP', output.getvalue())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: unable to find constant -0.0 in (0.0,)
     def test_dont_merge_constants(self):
         # Issue #25843: compile() must not merge constants which are equal
         # but have a different type.
@@ -1193,7 +1192,6 @@ class TestSpecifics(unittest.TestCase):
         line1 = call.__code__.co_firstlineno + 1
         assert line1 not in [line for (_, _, line) in call.__code__.co_lines()]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lineno_after_implicit_return(self):
         TRUE = True
         # Don't use constant True or False, as compiler will remove test
@@ -2495,7 +2493,6 @@ class TestStaticAttributes(unittest.TestCase):
         self.assertIsInstance(C.__static_attributes__, tuple)
         self.assertEqual(sorted(C.__static_attributes__), ['a', 'b'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'C' has no attribute '__static_attributes__'
     def test_nested_function(self):
         class C:
             def f(self):
@@ -2579,7 +2576,6 @@ class TestExpressionStackSize(unittest.TestCase):
     def test_list(self):
         self.check_stack_size("[" + "x, " * self.N + "x]")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 not less than or equal to 6
     def test_tuple(self):
         self.check_stack_size("(" + "x, " * self.N + "x)")
 

@@ -1,6 +1,6 @@
 ---
 source: crates/codegen/src/compile.rs
-assertion_line: 9688
+assertion_line: 11769
 expression: "compile_exec(\"\\\nx = Test() and False or False\n\")"
 ---
   1           0 RESUME               (0)
