@@ -13,6 +13,8 @@ pub(crate) mod _signal {
         function::{ArgIntoFloat, OptionalArg},
     };
     use core::sync::atomic::{self, Ordering};
+    #[cfg(unix)]
+    use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
 
     #[cfg(any(unix, windows))]
     use libc::sighandler_t;
@@ -281,27 +283,6 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
-    fn timeval_to_double(tv: &libc::timeval) -> f64 {
-        tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0)
-    }
-
-    #[cfg(unix)]
-    fn double_to_timeval(val: f64) -> libc::timeval {
-        libc::timeval {
-            tv_sec: val.trunc() as _,
-            tv_usec: ((val.fract()) * 1_000_000.0) as _,
-        }
-    }
-
-    #[cfg(unix)]
-    fn itimerval_to_tuple(it: &libc::itimerval) -> (f64, f64) {
-        (
-            timeval_to_double(&it.it_value),
-            timeval_to_double(&it.it_interval),
-        )
-    }
-
-    #[cfg(unix)]
     #[pyfunction]
     fn setitimer(
         which: i32,
@@ -404,16 +385,17 @@ pub(crate) mod _signal {
                 let fd_i32 = i32::try_from(fd).map_err(|_| vm.new_value_error("invalid fd"))?;
                 // Verify the fd is valid by trying to fstat it
                 let borrowed_fd =
-                    unsafe { crate::common::crt_fd::Borrowed::try_borrow_raw(fd_i32) }
+                    unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(fd_i32) }
                         .map_err(|e| e.into_pyexception(vm))?;
-                crate::common::fileutils::fstat(borrowed_fd).map_err(|e| e.into_pyexception(vm))?;
+                rustpython_host_env::fileutils::fstat(borrowed_fd)
+                    .map_err(|e| e.into_pyexception(vm))?;
             }
             is_socket
         } else {
             false
         };
         #[cfg(unix)]
-        if let Ok(fd) = unsafe { crate::common::crt_fd::Borrowed::try_borrow_raw(fd) } {
+        if let Ok(fd) = unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(fd) } {
             use nix::fcntl;
             let oflags = fcntl::fcntl(fd, fcntl::F_GETFL).map_err(|e| e.into_pyexception(vm))?;
             let nonblock =

@@ -17,10 +17,9 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::{
-    collections::HashSet,
-    io::{self, BufRead, BufReader},
-};
+#[cfg(feature = "host_env")]
+use std::io::{BufRead, BufReader};
+use std::{collections::HashSet, io};
 
 pub use super::exception_group::exception_group;
 
@@ -366,6 +365,7 @@ impl VirtualMachine {
     }
 }
 
+#[cfg(feature = "host_env")]
 fn print_source_line<W: Write>(
     output: &mut W,
     filename: &str,
@@ -373,7 +373,7 @@ fn print_source_line<W: Write>(
 ) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
     // TODO: support different encodings
-    let file = match std::fs::File::open(filename) {
+    let file = match crate::host_env::fs::open(filename) {
         Ok(file) => file,
         Err(_) => return Ok(()),
     };
@@ -389,6 +389,15 @@ fn print_source_line<W: Write>(
         }
     }
 
+    Ok(())
+}
+
+#[cfg(not(feature = "host_env"))]
+fn print_source_line<W: Write>(
+    _output: &mut W,
+    _filename: &str,
+    _lineno: usize,
+) -> Result<(), W::Error> {
     Ok(())
 }
 
@@ -1380,7 +1389,7 @@ impl IntoPyException for OSErrorBuilder {
 
 impl ToOSErrorBuilder for std::io::Error {
     fn to_os_error_builder(&self, vm: &VirtualMachine) -> OSErrorBuilder {
-        use crate::common::os::ErrorExt;
+        use crate::host_env::os::ErrorExt;
 
         let errno = self.posix_errno();
         #[cfg(windows)]
@@ -1937,7 +1946,7 @@ pub(super) mod types {
                         .as_ref()
                         .and_then(|w| w.downcast_ref::<crate::builtins::PyInt>())
                         .and_then(|w| w.try_to_primitive::<i32>(vm).ok())
-                        .map(crate::common::os::winerror_to_errno)
+                        .map(crate::host_env::os::winerror_to_errno)
                     {
                         let errno_obj = vm.new_pyobj(errno);
                         let _ = unsafe { exc.errno.swap(Some(errno_obj.clone())) };

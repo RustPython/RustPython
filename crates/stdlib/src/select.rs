@@ -5,118 +5,8 @@ pub(crate) use decl::module_def;
 use crate::vm::{
     PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
 };
-use core::mem;
+use rustpython_host_env::select::{self as host_select, FdSet, RawFd};
 use std::io;
-
-#[cfg(unix)]
-mod platform {
-    pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
-    pub use std::os::unix::io::RawFd;
-
-    pub const fn check_err(x: i32) -> bool {
-        x < 0
-    }
-}
-
-#[allow(non_snake_case)]
-#[cfg(windows)]
-mod platform {
-    pub use WinSock::{FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval, select};
-    use windows_sys::Win32::Networking::WinSock;
-
-    // based off winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
-
-    pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
-        unsafe {
-            let mut slot = (&raw mut (*set).fd_array).cast::<RawFd>();
-            let fd_count = (*set).fd_count;
-            for _ in 0..fd_count {
-                if *slot == fd {
-                    return;
-                }
-                slot = slot.add(1);
-            }
-            // slot == &fd_array[fd_count] at this point
-            if fd_count < FD_SETSIZE {
-                *slot = fd as RawFd;
-                (*set).fd_count += 1;
-            }
-        }
-    }
-
-    pub unsafe fn FD_ZERO(set: *mut fd_set) {
-        unsafe { (*set).fd_count = 0 };
-    }
-
-    pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
-        use WinSock::__WSAFDIsSet;
-        unsafe { __WSAFDIsSet(fd as _, set) != 0 }
-    }
-
-    pub fn check_err(x: i32) -> bool {
-        x == WinSock::SOCKET_ERROR
-    }
-}
-
-#[cfg(target_os = "wasi")]
-mod platform {
-    pub use libc::{FD_SETSIZE, timeval};
-    pub use std::os::fd::RawFd;
-
-    pub fn check_err(x: i32) -> bool {
-        x < 0
-    }
-
-    #[repr(C)]
-    pub struct fd_set {
-        __nfds: usize,
-        __fds: [libc::c_int; FD_SETSIZE],
-    }
-
-    #[allow(non_snake_case)]
-    pub unsafe fn FD_ISSET(fd: RawFd, set: *const fd_set) -> bool {
-        let set = unsafe { &*set };
-        let n = set.__nfds;
-        for p in &set.__fds[..n] {
-            if *p == fd {
-                return true;
-            }
-        }
-        false
-    }
-
-    #[allow(non_snake_case)]
-    pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
-        let set = unsafe { &mut *set };
-        let n = set.__nfds;
-        for p in &set.__fds[..n] {
-            if *p == fd {
-                return;
-            }
-        }
-        set.__nfds = n + 1;
-        set.__fds[n] = fd;
-    }
-
-    #[allow(non_snake_case)]
-    pub unsafe fn FD_ZERO(set: *mut fd_set) {
-        let set = unsafe { &mut *set };
-        set.__nfds = 0;
-    }
-
-    unsafe extern "C" {
-        pub fn select(
-            nfds: libc::c_int,
-            readfds: *mut fd_set,
-            writefds: *mut fd_set,
-            errorfds: *mut fd_set,
-            timeout: *const timeval,
-        ) -> libc::c_int;
-    }
-}
-
-use platform::RawFd;
-pub use platform::timeval;
 
 #[derive(Traverse)]
 struct Selectable {
@@ -136,72 +26,6 @@ impl TryFromObject for Selectable {
             meth.call((), vm)?.try_into_value(vm)
         })?;
         Ok(Self { obj, fno })
-    }
-}
-
-// Keep it in a MaybeUninit, since on windows FD_ZERO doesn't actually zero the whole thing
-#[repr(transparent)]
-pub struct FdSet(mem::MaybeUninit<platform::fd_set>);
-
-impl FdSet {
-    pub fn new() -> Self {
-        // it's just ints, and all the code that's actually
-        // interacting with it is in C, so it's safe to zero
-        let mut fdset = core::mem::MaybeUninit::zeroed();
-        unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
-        Self(fdset)
-    }
-
-    pub fn insert(&mut self, fd: RawFd) {
-        unsafe { platform::FD_SET(fd, self.0.as_mut_ptr()) };
-    }
-
-    pub fn contains(&mut self, fd: RawFd) -> bool {
-        unsafe { platform::FD_ISSET(fd, self.0.as_mut_ptr()) }
-    }
-
-    pub fn clear(&mut self) {
-        unsafe { platform::FD_ZERO(self.0.as_mut_ptr()) };
-    }
-
-    pub fn highest(&mut self) -> Option<RawFd> {
-        (0..platform::FD_SETSIZE as RawFd)
-            .rev()
-            .find(|&i| self.contains(i))
-    }
-}
-
-pub fn select(
-    nfds: libc::c_int,
-    readfds: &mut FdSet,
-    writefds: &mut FdSet,
-    errfds: &mut FdSet,
-    timeout: Option<&mut timeval>,
-) -> io::Result<i32> {
-    let timeout = match timeout {
-        Some(tv) => tv as *mut timeval,
-        None => core::ptr::null_mut(),
-    };
-    let ret = unsafe {
-        platform::select(
-            nfds,
-            readfds.0.as_mut_ptr(),
-            writefds.0.as_mut_ptr(),
-            errfds.0.as_mut_ptr(),
-            timeout,
-        )
-    };
-    if platform::check_err(ret) {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
-}
-
-fn sec_to_timeval(sec: f64) -> timeval {
-    timeval {
-        tv_sec: sec.trunc() as _,
-        tv_usec: (sec.fract() * 1e6) as _,
     }
 }
 
@@ -279,8 +103,9 @@ mod decl {
             .map_or(0, |n| n + 1) as _;
 
         loop {
-            let mut tv = timeout.map(sec_to_timeval);
-            let res = vm.allow_threads(|| super::select(nfds, &mut r, &mut w, &mut x, tv.as_mut()));
+            let mut tv = timeout.map(host_select::sec_to_timeval);
+            let res =
+                vm.allow_threads(|| host_select::select(nfds, &mut r, &mut w, &mut x, tv.as_mut()));
 
             match res {
                 Ok(_) => break,

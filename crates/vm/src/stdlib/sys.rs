@@ -53,7 +53,7 @@ mod sys {
     use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
     use std::{
-        env::{self, VarError},
+        env,
         io::{IsTerminal, Read, Write},
     };
 
@@ -871,15 +871,18 @@ mod sys {
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let env_var = std::env::var("PYTHONBREAKPOINT")
+        #[cfg(feature = "host_env")]
+        let env_var = crate::host_env::os::var("PYTHONBREAKPOINT")
             .and_then(|env_var| {
                 if env_var.is_empty() {
-                    Err(VarError::NotPresent)
+                    Err(std::env::VarError::NotPresent)
                 } else {
                     Ok(env_var)
                 }
             })
             .unwrap_or_else(|_| "pdb.set_trace".to_owned());
+        #[cfg(not(feature = "host_env"))]
+        let env_var = "pdb.set_trace".to_owned();
 
         if env_var.eq("0") {
             return Ok(vm.ctx.none());
@@ -1091,7 +1094,7 @@ mod sys {
 
     #[cfg(windows)]
     fn get_kernel32_version() -> std::io::Result<(u32, u32, u32)> {
-        use crate::common::windows::ToWideString;
+        use crate::host_env::windows::ToWideString;
         unsafe {
             // Create a wide string for "kernel32.dll"
             let module_name: Vec<u16> = std::ffi::OsStr::new("kernel32.dll").to_wide_with_nul();
