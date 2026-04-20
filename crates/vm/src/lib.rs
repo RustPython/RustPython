@@ -8,6 +8,7 @@
 
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
+#![deny(clippy::disallowed_methods)]
 #![allow(clippy::module_inception)]
 // we want to mirror python naming conventions when defining python structs, so that does mean
 // uppercase acronyms, e.g. TextIOWrapper instead of TextIoWrapper
@@ -105,6 +106,7 @@ pub use self::vm::{Context, Interpreter, InterpreterBuilder, Settings, VirtualMa
 
 pub use rustpython_common as common;
 pub use rustpython_compiler_core::{bytecode, frozen};
+pub use rustpython_host_env as host_env;
 pub use rustpython_literal as literal;
 
 #[doc(hidden)]

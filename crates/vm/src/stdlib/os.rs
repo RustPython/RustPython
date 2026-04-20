@@ -3,20 +3,20 @@
 use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyModule, PySet},
-    common::crt_fd,
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
+    host_env::crt_fd,
 };
-use std::{fs, io, path::Path};
+use std::{io, path::Path};
 
 pub(crate) fn fs_metadata<P: AsRef<Path>>(
     path: P,
     follow_symlink: bool,
-) -> io::Result<fs::Metadata> {
+) -> io::Result<std::fs::Metadata> {
     if follow_symlink {
-        fs::metadata(path.as_ref())
+        crate::host_env::fs::metadata(path.as_ref())
     } else {
-        fs::symlink_metadata(path.as_ref())
+        crate::host_env::fs::symlink_metadata(path.as_ref())
     }
 }
 
@@ -101,7 +101,7 @@ pub(super) struct FollowSymlinks(
 
 #[cfg(not(windows))]
 fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
-    rustpython_common::os::bytes_as_os_str(b)
+    rustpython_host_env::os::bytes_as_os_str(b)
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
 }
 
@@ -152,8 +152,9 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 #[pymodule(sub)]
 pub(super) mod _os {
     use super::{DirFd, FollowSymlinks, SupportFunc};
+    use crate::host_env::fileutils::StatStruct;
     #[cfg(windows)]
-    use crate::common::windows::ToWideString;
+    use crate::host_env::windows::ToWideString;
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{
@@ -161,15 +162,11 @@ pub(super) mod _os {
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
-        common::{
-            crt_fd,
-            fileutils::StatStruct,
-            lock::{OnceCell, PyRwLock},
-            suppress_iph,
-        },
+        common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
         function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs, OptionalArg},
+        host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
@@ -179,7 +176,8 @@ pub(super) mod _os {
     use core::time::Duration;
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
-    use std::{env, fs, fs::OpenOptions, io, path::PathBuf, time::SystemTime};
+    use rustpython_host_env::suppress_iph;
+    use std::{fs, io, path::PathBuf, time::SystemTime};
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -349,7 +347,7 @@ pub(super) mod _os {
         if let Some(fd) = dir_fd.raw_opt() {
             let res = unsafe { libc::mkdirat(fd, c_path.as_ptr(), mode as _) };
             return if res < 0 {
-                let err = crate::common::os::errno_io_error();
+                let err = crate::host_env::os::errno_io_error();
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -359,7 +357,7 @@ pub(super) mod _os {
         let [] = dir_fd.0;
         let res = unsafe { libc::mkdir(c_path.as_ptr(), mode as _) };
         if res < 0 {
-            let err = crate::common::os::errno_io_error();
+            let err = crate::host_env::os::errno_io_error();
             return Err(OSErrorBuilder::with_filename(&err, path, vm));
         }
         Ok(())
@@ -368,7 +366,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn mkdirs(path: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let os_path = vm.fsencode(&path)?;
-        fs::create_dir_all(&*os_path).map_err(|err| err.into_pyexception(vm))
+        crate::host_env::fs::create_dir_all(&*os_path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -383,7 +381,7 @@ pub(super) mod _os {
             let c_path = path.clone().into_cstring(vm)?;
             let res = unsafe { libc::unlinkat(fd, c_path.as_ptr(), libc::AT_REMOVEDIR) };
             return if res < 0 {
-                let err = crate::common::os::errno_io_error();
+                let err = crate::host_env::os::errno_io_error();
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -391,14 +389,16 @@ pub(super) mod _os {
         }
         #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
-        fs::remove_dir(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+        crate::host_env::fs::remove_dir(&path)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[cfg(windows)]
     #[pyfunction]
     fn rmdir(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
-        fs::remove_dir(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+        crate::host_env::fs::remove_dir(&path)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
@@ -413,7 +413,7 @@ pub(super) mod _os {
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
-                let dir_iter = match fs::read_dir(&path) {
+                let dir_iter = match crate::host_env::fs::read_dir(&path) {
                     Ok(iter) => iter,
                     Err(err) => {
                         return Err(OSErrorBuilder::with_filename(&err, path, vm));
@@ -437,7 +437,7 @@ pub(super) mod _os {
                 }
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
-                    use rustpython_common::os::ffi::OsStrExt;
+                    use rustpython_host_env::os::ffi::OsStrExt;
                     use std::os::unix::io::IntoRawFd;
                     let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
                     let raw_fd = new_fd.into_raw_fd();
@@ -490,7 +490,7 @@ pub(super) mod _os {
     /// Check if wide string length exceeds Windows environment variable limit.
     #[cfg(windows)]
     fn check_env_var_len(wide_len: usize, vm: &VirtualMachine) -> PyResult<()> {
-        use crate::common::windows::_MAX_ENV;
+        use crate::host_env::windows::_MAX_ENV;
         if wide_len > _MAX_ENV + 1 {
             return Err(vm.new_value_error(format!(
                 "the environment variable is longer than {_MAX_ENV} characters",
@@ -543,7 +543,7 @@ pub(super) mod _os {
         let key = super::bytes_as_os_str(key, vm)?;
         let value = super::bytes_as_os_str(value, vm)?;
         // SAFETY: requirements forwarded from the caller
-        unsafe { env::set_var(key, value) };
+        unsafe { crate::host_env::os::set_var(key, value) };
         Ok(())
     }
 
@@ -595,7 +595,7 @@ pub(super) mod _os {
         }
         let key = super::bytes_as_os_str(key, vm)?;
         // SAFETY: requirements forwarded from the caller
-        unsafe { env::remove_var(key) };
+        unsafe { crate::host_env::os::remove_var(key) };
         Ok(())
     }
 
@@ -1124,7 +1124,7 @@ pub(super) mod _os {
     #[cfg(all(unix, not(target_os = "redox")))]
     impl IterNext for ScandirIteratorFd {
         fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            use rustpython_common::os::ffi::OsStrExt;
+            use rustpython_host_env::os::ffi::OsStrExt;
             let mut guard = zelf.dir.lock();
             let dir = match guard.as_mut() {
                 None => return Ok(PyIterReturn::StopIteration(None)),
@@ -1187,7 +1187,7 @@ pub(super) mod _os {
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         match path {
             OsPathOrFd::Path(path) => {
-                let entries = fs::read_dir(&path.path)
+                let entries = crate::host_env::fs::read_dir(&path.path)
                     .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
                 Ok(ScandirIterator {
                     entries: PyRwLock::new(Some(entries)),
@@ -1400,7 +1400,7 @@ pub(super) mod _os {
         let [] = dir_fd.0;
         match file {
             OsPathOrFd::Path(path) => crate::windows::win32_xstat(&path.path, follow_symlinks.0),
-            OsPathOrFd::Fd(fd) => crate::common::fileutils::fstat(fd),
+            OsPathOrFd::Fd(fd) => crate::host_env::fileutils::fstat(fd),
         }
         .map(Some)
     }
@@ -1414,7 +1414,7 @@ pub(super) mod _os {
         let mut stat = core::mem::MaybeUninit::uninit();
         let ret = match file {
             OsPathOrFd::Path(path) => {
-                use rustpython_common::os::ffi::OsStrExt;
+                use rustpython_host_env::os::ffi::OsStrExt;
                 let path = path.as_ref().as_os_str().as_bytes();
                 let path = match alloc::ffi::CString::new(path) {
                     Ok(x) => x,
@@ -1473,7 +1473,7 @@ pub(super) mod _os {
     }
 
     fn curdir_inner(vm: &VirtualMachine) -> PyResult<PathBuf> {
-        env::current_dir().map_err(|err| err.into_pyexception(vm))
+        crate::host_env::os::current_dir().map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1488,7 +1488,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn chdir(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
-        env::set_current_dir(&path.path)
+        crate::host_env::os::set_current_dir(&path.path)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
 
         #[cfg(windows)]
@@ -1501,7 +1501,7 @@ pub(super) mod _os {
             use std::os::windows::ffi::OsStrExt;
             use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
 
-            if let Ok(cwd) = env::current_dir() {
+            if let Ok(cwd) = crate::host_env::os::current_dir() {
                 let cwd_str = cwd.as_os_str();
                 let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
 
@@ -1558,7 +1558,7 @@ pub(super) mod _os {
             // https://github.com/WebAssembly/wasi-libc/blob/wasi-sdk-21/libc-bottom-half/getpid/getpid.c
             42
         } else {
-            std::process::id()
+            crate::host_env::os::process_id()
         };
         vm.ctx.new_int(pid).into()
     }
@@ -1571,7 +1571,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn _exit(code: i32) {
-        std::process::exit(code)
+        crate::host_env::os::exit(code)
     }
 
     #[pyfunction]
@@ -1687,7 +1687,8 @@ pub(super) mod _os {
             let src_path = match follow_symlinks.into_option() {
                 Some(true) => {
                     // Explicit follow_symlinks=True: resolve symlinks
-                    fs::canonicalize(&src.path).unwrap_or_else(|_| PathBuf::from(src.path.clone()))
+                    crate::host_env::fs::canonicalize(&src.path)
+                        .unwrap_or_else(|_| PathBuf::from(src.path.clone()))
                 }
                 Some(false) | None => {
                     // Default or explicit no-follow: native hard_link behavior
@@ -1835,7 +1836,7 @@ pub(super) mod _os {
         }
         #[cfg(windows)]
         {
-            use std::{fs::OpenOptions, os::windows::prelude::*};
+            use std::os::windows::prelude::*;
             type DWORD = u32;
             use windows_sys::Win32::{Foundation::FILETIME, Storage::FileSystem};
 
@@ -1859,11 +1860,11 @@ pub(super) mod _os {
             let acc = ft(acc);
             let modif = ft(modif);
 
-            let f = OpenOptions::new()
-                .write(true)
-                .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
-                .open(&path)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+            let f = crate::host_env::fs::open_write_with_custom_flags(
+                &path,
+                windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS,
+            )
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
             let ret = unsafe {
                 FileSystem::SetFileTime(f.as_raw_handle() as _, core::ptr::null(), &acc, &modif)
@@ -2050,7 +2051,7 @@ pub(super) mod _os {
 
         let path = OsPath::try_from_object(vm, path)?;
         // TODO: just call libc::truncate() on POSIX
-        let f = match OpenOptions::new().write(true).open(&path) {
+        let f = match crate::host_env::fs::open_write(&path) {
             Ok(f) => f,
             Err(e) => return Err(error(vm, e, path)),
         };

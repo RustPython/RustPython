@@ -248,7 +248,7 @@ fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>, vm: &VirtualMachine) ->
                 // errno is written in hex format
                 let _ = write!(pipe, "OSError:{:x}:{}", e as i32, ctx.as_msg());
             }
-            std::process::exit(255)
+            rustpython_host_env::os::exit(255)
         }
     }
 }

@@ -4,6 +4,8 @@ pub(crate) use fcntl::module_def;
 
 #[pymodule]
 mod fcntl {
+    use rustpython_host_env::fcntl as host_fcntl;
+
     use crate::vm::{
         PyResult, VirtualMachine,
         builtins::PyIntRef,
@@ -73,19 +75,15 @@ mod fcntl {
                         .ok_or_else(|| vm.new_value_error("fcntl string arg too long"))?
                         .copy_from_slice(&s)
                 }
-                let ret = unsafe { libc::fcntl(fd, cmd, buf.as_mut_ptr()) };
-                if ret < 0 {
-                    return Err(vm.new_last_errno_error());
-                }
+                host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len])
+                    .map_err(|_| vm.new_last_errno_error())?;
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
             }
             OptionalArg::Present(Either::B(i)) => i.as_u32_mask(),
             OptionalArg::Missing => 0,
         };
-        let ret = unsafe { libc::fcntl(fd, cmd, int as i32) };
-        if ret < 0 {
-            return Err(vm.new_last_errno_error());
-        }
+        let ret =
+            host_fcntl::fcntl_int(fd, cmd, int as i32).map_err(|_| vm.new_last_errno_error())?;
         Ok(vm.new_pyobj(ret))
     }
 
@@ -118,11 +116,10 @@ mod fcntl {
                         let mutate_flag = mutate_flag.unwrap_or(true);
                         let mut arg_buf = rw_arg.borrow_buf_mut();
                         if mutate_flag {
-                            let ret =
-                                unsafe { libc::ioctl(fd, request as _, arg_buf.as_mut_ptr()) };
-                            if ret < 0 {
-                                return Err(vm.new_last_errno_error());
+                            let ret = unsafe {
+                                host_fcntl::ioctl_ptr(fd, request, arg_buf.as_mut_ptr().cast())
                             }
+                            .map_err(|_| vm.new_last_errno_error())?;
                             return Ok(vm.ctx.new_int(ret).into());
                         }
                         // treat like an immutable buffer
@@ -130,17 +127,13 @@ mod fcntl {
                     }
                     Either::B(ro_buf) => fill_buf(&ro_buf.borrow_bytes())?,
                 };
-                let ret = unsafe { libc::ioctl(fd, request as _, buf.as_mut_ptr()) };
-                if ret < 0 {
-                    return Err(vm.new_last_errno_error());
-                }
+                unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) }
+                    .map_err(|_| vm.new_last_errno_error())?;
                 Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
             }
             Either::B(i) => {
-                let ret = unsafe { libc::ioctl(fd, request as _, i) };
-                if ret < 0 {
-                    return Err(vm.new_last_errno_error());
-                }
+                let ret =
+                    host_fcntl::ioctl_int(fd, request, i).map_err(|_| vm.new_last_errno_error())?;
                 Ok(vm.ctx.new_int(ret).into())
             }
         }
@@ -150,11 +143,7 @@ mod fcntl {
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
-        let ret = unsafe { libc::flock(fd, operation) };
-        // TODO: add support for platforms that don't have a builtin `flock` syscall
-        if ret < 0 {
-            return Err(vm.new_last_errno_error());
-        }
+        let ret = host_fcntl::flock(fd, operation).map_err(|_| vm.new_last_errno_error())?;
         Ok(vm.ctx.new_int(ret).into())
     }
 
@@ -201,20 +190,7 @@ mod fcntl {
                 .map_err(|e| vm.new_overflow_error(format!("{e}")))?,
             OptionalArg::Missing => 0,
         };
-        let ret = unsafe {
-            libc::fcntl(
-                fd,
-                if (cmd & libc::LOCK_NB) != 0 {
-                    libc::F_SETLK
-                } else {
-                    libc::F_SETLKW
-                },
-                &l,
-            )
-        };
-        if ret < 0 {
-            return Err(vm.new_last_errno_error());
-        }
+        let ret = host_fcntl::lockf(fd, cmd, &l).map_err(|_| vm.new_last_errno_error())?;
         Ok(vm.ctx.new_int(ret).into())
     }
 }

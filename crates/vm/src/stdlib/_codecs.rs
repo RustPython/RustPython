@@ -387,7 +387,7 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn mbcs_encode(args: MbcsEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        use crate::common::windows::ToWideString;
+        use crate::host_env::windows::ToWideString;
         use windows_sys::Win32::Globalization::{
             CP_ACP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
         };
@@ -573,7 +573,7 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn oem_encode(args: OemEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        use crate::common::windows::ToWideString;
+        use crate::host_env::windows::ToWideString;
         use windows_sys::Win32::Globalization::{
             CP_OEMCP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
         };
@@ -1049,7 +1049,7 @@ mod _codecs_windows {
         args: CodePageEncodeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, usize)> {
-        use crate::common::windows::ToWideString;
+        use crate::host_env::windows::ToWideString;
 
         if args.code_page < 0 {
             return Err(vm.new_value_error("invalid code page number"));

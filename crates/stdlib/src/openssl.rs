@@ -1671,17 +1671,17 @@ mod _ssl {
 
             // Open the file using fopen (cross-platform)
             let fp =
-                rustpython_common::fileutils::fopen(path.as_path(), "rb").map_err(|e| {
-                    match e.kind() {
-                        std::io::ErrorKind::NotFound => vm
-                            .new_os_subtype_error(
-                                vm.ctx.exceptions.file_not_found_error.to_owned(),
-                                Some(libc::ENOENT),
-                                e.to_string(),
-                            )
-                            .upcast(),
-                        _ => vm.new_os_error(e.to_string()),
-                    }
+                rustpython_host_env::fileutils::fopen(path.as_path(), "rb").map_err(|e| match e
+                    .kind()
+                {
+                    std::io::ErrorKind::NotFound => vm
+                        .new_os_subtype_error(
+                            vm.ctx.exceptions.file_not_found_error.to_owned(),
+                            Some(libc::ENOENT),
+                            e.to_string(),
+                        )
+                        .upcast(),
+                    _ => vm.new_os_error(e.to_string()),
                 })?;
 
             // Read DH parameters
@@ -1880,7 +1880,7 @@ mod _ssl {
             const PEM_BUFSIZE: usize = 1024;
 
             // Read key file data
-            let key_data = std::fs::read(key_file_path)
+            let key_data = rustpython_host_env::fs::read(key_file_path)
                 .map_err(|e| crate::vm::convert::ToPyException::to_pyexception(&e, vm))?;
 
             let pkey = if let Some(ref pw_obj) = password {

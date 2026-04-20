@@ -283,7 +283,7 @@ mod _overlapped {
         } else {
             err
         };
-        let errno = crate::vm::common::os::winerror_to_errno(err as i32);
+        let errno = rustpython_host_env::os::winerror_to_errno(err as i32);
         let message = std::io::Error::from_raw_os_error(err as i32).to_string();
         let exc = vm.new_errno_error(errno, message);
         let _ = exc

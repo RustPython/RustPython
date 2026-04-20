@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "tkinter environment setup still uses direct host APIs until later extraction"
+)]
+
 // spell-checker:ignore createcommand
 
 pub(crate) use self::_tkinter::module_def;

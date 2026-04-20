@@ -105,18 +105,34 @@ mod rustyline_readline {
         }
 
         pub fn load_history(&mut self, path: &Path) -> OtherResult<()> {
-            self.repl.load_history(path)?;
-            Ok(())
+            #[cfg(not(feature = "host_env"))]
+            {
+                let _ = path;
+                Err(io::Error::other("history requires the `host_env` feature").into())
+            }
+            #[cfg(feature = "host_env")]
+            {
+                self.repl.load_history(path)?;
+                Ok(())
+            }
         }
 
         pub fn save_history(&mut self, path: &Path) -> OtherResult<()> {
-            if !path.exists()
-                && let Some(parent) = path.parent()
+            #[cfg(not(feature = "host_env"))]
             {
-                std::fs::create_dir_all(parent)?;
+                let _ = path;
+                Err(io::Error::other("history requires the `host_env` feature").into())
             }
-            self.repl.save_history(path)?;
-            Ok(())
+            #[cfg(feature = "host_env")]
+            {
+                if !path.exists()
+                    && let Some(parent) = path.parent()
+                {
+                    crate::host_env::fs::create_dir_all(parent)?;
+                }
+                self.repl.save_history(path)?;
+                Ok(())
+            }
         }
 
         pub fn add_history_entry(&mut self, entry: &str) -> OtherResult<()> {

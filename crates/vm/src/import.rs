@@ -340,7 +340,7 @@ pub(crate) fn is_possibly_shadowing_path(origin: &str, vm: &VirtualMachine) -> b
     };
 
     let cmp_path = if sys_path_0.is_empty() {
-        match std::env::current_dir() {
+        match crate::host_env::os::current_dir() {
             Ok(d) => d.to_string_lossy().to_string(),
             Err(_) => return false,
         }
