@@ -209,24 +209,35 @@ for i in range(0, 30):
 # u16::MAX; output is zero-padded past that boundary to match CPython
 # byte-identically.
 
-# Boundary values around the internal cap (u16::MAX = 65535). Output must
-# match what CPython would produce.
+# Three precision points per format type — below the cap (uncapped
+# path), exactly at the cap (boundary), and one past the cap (the
+# unhappy case, where internal clamping plus zero-padding has to
+# reconstruct CPython's output). All must byte-match CPython.
+
 # f-format pads with trailing zeros up to the requested precision.
-assert "{:.65534f}".format(1.5) == "1." + "5" + "0" * 65533
-assert "{:.65535f}".format(1.5) == "1." + "5" + "0" * 65534
-assert "{:.65536f}".format(1.5) == "1." + "5" + "0" * 65535
+assert "{:.65534f}".format(1.5) == "1." + "5" + "0" * 65533  # below cap
+assert "{:.65535f}".format(1.5) == "1." + "5" + "0" * 65534  # at cap
+assert "{:.65536f}".format(1.5) == "1." + "5" + "0" * 65535  # past cap → padding
 # e-format emits a fixed mantissa width + 'e+00'.
-assert "{:.65534e}".format(1.5) == "1." + "5" + "0" * 65533 + "e+00"
-assert "{:.65535e}".format(1.5) == "1." + "5" + "0" * 65534 + "e+00"
-assert "{:.65536e}".format(1.5) == "1." + "5" + "0" * 65535 + "e+00"
+assert "{:.65534e}".format(1.5) == "1." + "5" + "0" * 65533 + "e+00"  # below
+assert "{:.65535e}".format(1.5) == "1." + "5" + "0" * 65534 + "e+00"  # at cap
+assert (
+    "{:.65536e}".format(1.5) == "1." + "5" + "0" * 65535 + "e+00"
+)  # past cap → padding
 # %-format multiplies by 100 then applies f-format.
-assert "{:.65534%}".format(1.5) == "150." + "0" * 65534 + "%"
-assert "{:.65535%}".format(1.5) == "150." + "0" * 65535 + "%"
-assert "{:.65536%}".format(1.5) == "150." + "0" * 65536 + "%"
+assert "{:.65534%}".format(1.5) == "150." + "0" * 65534 + "%"  # below
+assert "{:.65535%}".format(1.5) == "150." + "0" * 65535 + "%"  # at cap
+assert "{:.65536%}".format(1.5) == "150." + "0" * 65536 + "%"  # past cap → padding
 # g-format strips trailing zeros, so the short form is the natural
 # representation regardless of precision.
 for p in (65534, 65535, 65536, 1_000_000):
     assert ("{:." + str(p) + "g}").format(1.5) == "1.5"
+
+# Far past the cap — verifies the pad path handles arbitrary precision,
+# not just one-off values near the boundary.
+assert len("{:.1000000f}".format(1.5)) == 1_000_002  # "1." + 1M zeros
+assert len("{:.1000000e}".format(1.5)) == 1_000_006  # + "e+00"
+assert len("{:.1000000%}".format(1.5)) == 1_000_005  # "150." + 1M zeros + "%"
 
 # Percent overflow: finite input whose *100 is +inf produces "inf%"
 # rather than crashing. CPython does the same.
