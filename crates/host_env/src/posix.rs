@@ -1,5 +1,9 @@
 use alloc::ffi::CString;
+#[cfg(all(unix, not(target_os = "redox")))]
+use alloc::vec::Vec;
 use core::ffi::CStr;
+#[cfg(all(unix, not(target_os = "redox")))]
+use core::ptr::NonNull;
 use std::ffi::{OsStr, OsString};
 #[cfg(target_os = "linux")]
 use std::os::fd::FromRawFd;
@@ -13,6 +17,33 @@ pub struct UnameInfo {
     pub version: String,
     pub machine: String,
 }
+
+#[cfg(all(unix, not(target_os = "redox")))]
+#[derive(Clone, Copy, Debug)]
+pub struct StatVfsInfo {
+    pub f_bsize: libc::c_ulong,
+    pub f_frsize: libc::c_ulong,
+    pub f_blocks: libc::fsblkcnt_t,
+    pub f_bfree: libc::fsblkcnt_t,
+    pub f_bavail: libc::fsblkcnt_t,
+    pub f_files: libc::fsfilcnt_t,
+    pub f_ffree: libc::fsfilcnt_t,
+    pub f_favail: libc::fsfilcnt_t,
+    pub f_flag: libc::c_ulong,
+    pub f_namemax: libc::c_ulong,
+    pub f_fsid: libc::c_ulong,
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+#[derive(Clone, Debug)]
+pub struct RawDirEntry {
+    pub name: Vec<u8>,
+    pub d_type: Option<u8>,
+    pub ino: u64,
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub struct FdDirStream(NonNull<libc::DIR>);
 
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 pub type PriorityWhichType = libc::__priority_which_t;
@@ -113,6 +144,114 @@ pub fn unlinkat(dir_fd: i32, path: &CStr) -> std::io::Result<()> {
     }
 }
 
+#[cfg(not(windows))]
+pub fn make_dir(path: &CStr, mode: u32) -> std::io::Result<()> {
+    let ret = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(all(not(windows), not(target_os = "redox")))]
+pub fn make_dir_at(dir_fd: i32, path: &CStr, mode: u32) -> std::io::Result<()> {
+    let ret = unsafe { libc::mkdirat(dir_fd, path.as_ptr(), mode as _) };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+pub fn link_paths(src: &CStr, dst: &CStr, follow_symlinks: bool) -> std::io::Result<()> {
+    let flags = if follow_symlinks {
+        libc::AT_SYMLINK_FOLLOW
+    } else {
+        0
+    };
+    let ret = unsafe {
+        libc::linkat(
+            libc::AT_FDCWD,
+            src.as_ptr(),
+            libc::AT_FDCWD,
+            dst.as_ptr(),
+            flags,
+        )
+    };
+    if ret != 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(all(not(windows), not(target_os = "redox")))]
+pub fn remove_dir_at(dir_fd: i32, path: &CStr) -> std::io::Result<()> {
+    let ret = unsafe { libc::unlinkat(dir_fd, path.as_ptr(), libc::AT_REMOVEDIR) };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+fn statvfs_info_from_raw(st: libc::statvfs) -> StatVfsInfo {
+    let f_fsid = {
+        let ptr = core::ptr::addr_of!(st.f_fsid) as *const u8;
+        let size = core::mem::size_of_val(&st.f_fsid);
+        if size >= 8 {
+            let bytes = unsafe { core::slice::from_raw_parts(ptr, 8) };
+            u64::from_ne_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ]) as libc::c_ulong
+        } else if size >= 4 {
+            let bytes = unsafe { core::slice::from_raw_parts(ptr, 4) };
+            u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as libc::c_ulong
+        } else {
+            0
+        }
+    };
+
+    StatVfsInfo {
+        f_bsize: st.f_bsize,
+        f_frsize: st.f_frsize,
+        f_blocks: st.f_blocks,
+        f_bfree: st.f_bfree,
+        f_bavail: st.f_bavail,
+        f_files: st.f_files,
+        f_ffree: st.f_ffree,
+        f_favail: st.f_favail,
+        f_flag: st.f_flag,
+        f_namemax: st.f_namemax,
+        f_fsid,
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn statvfs_path(path: &CStr) -> std::io::Result<StatVfsInfo> {
+    let mut st: libc::statvfs = unsafe { core::mem::zeroed() };
+    let ret = unsafe { libc::statvfs(path.as_ptr(), &mut st) };
+    if ret != 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(statvfs_info_from_raw(st))
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn statvfs_fd(fd: i32) -> std::io::Result<StatVfsInfo> {
+    let mut st: libc::statvfs = unsafe { core::mem::zeroed() };
+    let ret = unsafe { libc::fstatvfs(fd, &mut st) };
+    if ret != 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(statvfs_info_from_raw(st))
+    }
+}
+
 #[cfg(not(target_os = "redox"))]
 pub fn mknod(path: &CStr, mode: libc::mode_t, device: libc::dev_t) -> std::io::Result<()> {
     let ret = unsafe { libc::mknod(path.as_ptr(), mode, device) };
@@ -149,6 +288,51 @@ fn gid_from_raw(gid: u32) -> nix::unistd::Gid {
 pub fn fchown(fd: BorrowedFd<'_>, uid: Option<u32>, gid: Option<u32>) -> std::io::Result<()> {
     nix::unistd::fchown(fd, uid.map(uid_from_raw), gid.map(gid_from_raw))
         .map_err(std::io::Error::from)
+}
+
+#[cfg(not(windows))]
+pub fn stat_path(
+    path: &OsStr,
+    dir_fd: Option<i32>,
+    follow_symlinks: bool,
+) -> std::io::Result<Option<crate::fileutils::StatStruct>> {
+    use crate::os::ffi::OsStrExt;
+
+    let path = match CString::new(path.as_bytes()) {
+        Ok(path) => path,
+        Err(_) => return Ok(None),
+    };
+
+    let mut stat = core::mem::MaybeUninit::uninit();
+    #[cfg(not(target_os = "redox"))]
+    if let Some(dir_fd) = dir_fd {
+        let flags = if follow_symlinks {
+            0
+        } else {
+            libc::AT_SYMLINK_NOFOLLOW
+        };
+        let ret = unsafe { libc::fstatat(dir_fd, path.as_ptr(), stat.as_mut_ptr(), flags) };
+        if ret < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        return Ok(Some(unsafe { stat.assume_init() }));
+    }
+
+    let ret = if follow_symlinks {
+        unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
+    } else {
+        unsafe { libc::lstat(path.as_ptr(), stat.as_mut_ptr()) }
+    };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(Some(unsafe { stat.assume_init() }))
+    }
+}
+
+#[cfg(not(windows))]
+pub fn stat_fd(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<crate::fileutils::StatStruct> {
+    crate::fileutils::fstat(fd)
 }
 
 #[cfg(not(target_os = "redox"))]
@@ -281,6 +465,38 @@ pub fn utimes(
         tv_usec: d.as_micros() as _,
     };
     nix::sys::stat::utimes(path, &tv(acc).into(), &tv(modif).into()).map_err(std::io::Error::from)
+}
+
+#[cfg(all(any(target_os = "wasi", unix), not(target_os = "redox")))]
+pub fn set_file_times_at(
+    dir_fd: i32,
+    path: &CStr,
+    access: core::time::Duration,
+    modified: core::time::Duration,
+    follow_symlinks: bool,
+) -> std::io::Result<()> {
+    let ts = |d: core::time::Duration| libc::timespec {
+        tv_sec: d.as_secs() as _,
+        tv_nsec: d.subsec_nanos() as _,
+    };
+    let times = [ts(access), ts(modified)];
+    let ret = unsafe {
+        libc::utimensat(
+            dir_fd,
+            path.as_ptr(),
+            times.as_ptr(),
+            if follow_symlinks {
+                0
+            } else {
+                libc::AT_SYMLINK_NOFOLLOW
+            },
+        )
+    };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -882,6 +1098,75 @@ pub fn dup2(fd: BorrowedFd<'_>, fd2: OwnedFd, inheritable: bool) -> std::io::Res
     }
     Ok(fd2)
 }
+
+#[cfg(all(unix, not(target_os = "redox")))]
+impl FdDirStream {
+    pub fn from_fd(fd: BorrowedFd<'_>) -> std::io::Result<Self> {
+        let new_fd = dup_fd(fd)?;
+        let raw_fd = new_fd.into_raw_fd();
+        let ptr = unsafe { libc::fdopendir(raw_fd) };
+        match NonNull::new(ptr) {
+            Some(ptr) => Ok(Self(ptr)),
+            None => {
+                unsafe { libc::close(raw_fd) };
+                Err(std::io::Error::last_os_error())
+            }
+        }
+    }
+
+    pub fn next_entry(&mut self) -> std::io::Result<Option<RawDirEntry>> {
+        loop {
+            crate::os::clear_errno();
+            let ptr = unsafe { libc::readdir(self.0.as_ptr()) };
+            if ptr.is_null() {
+                let err = crate::os::get_errno();
+                return if err == 0 {
+                    Ok(None)
+                } else {
+                    Err(std::io::Error::from_raw_os_error(err))
+                };
+            }
+
+            let entry = unsafe { &*ptr };
+            let name = unsafe { CStr::from_ptr(entry.d_name.as_ptr()) }.to_bytes();
+            if name == b"." || name == b".." {
+                continue;
+            }
+            #[cfg(target_os = "freebsd")]
+            let ino = entry.d_fileno as u64;
+            #[cfg(not(target_os = "freebsd"))]
+            let ino = entry.d_ino as u64;
+
+            return Ok(Some(RawDirEntry {
+                name: name.to_vec(),
+                d_type: (entry.d_type != libc::DT_UNKNOWN).then_some(entry.d_type),
+                ino,
+            }));
+        }
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+impl Drop for FdDirStream {
+    fn drop(&mut self) {
+        unsafe {
+            libc::rewinddir(self.0.as_ptr());
+            libc::closedir(self.0.as_ptr());
+        }
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+impl core::fmt::Debug for FdDirStream {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("FdDirStream").field(&self.0).finish()
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+unsafe impl Send for FdDirStream {}
+#[cfg(all(unix, not(target_os = "redox")))]
+unsafe impl Sync for FdDirStream {}
 
 pub fn get_terminal_size(fd: libc::c_int) -> std::io::Result<(u16, u16)> {
     let mut w = libc::winsize {

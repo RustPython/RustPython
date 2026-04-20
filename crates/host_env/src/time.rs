@@ -18,6 +18,99 @@ pub fn duration_since_system_now() -> Result<Duration, SystemTimeError> {
 }
 
 #[cfg(unix)]
+pub type TimeT = libc::time_t;
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug)]
+pub struct ProcessTimes {
+    pub user: f64,
+    pub system: f64,
+    pub children_user: f64,
+    pub children_system: f64,
+    pub elapsed: f64,
+}
+
+#[cfg(unix)]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
+pub fn current_time_t() -> TimeT {
+    unsafe { libc::time(core::ptr::null_mut()) }
+}
+
+#[cfg(unix)]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
+pub fn gmtime_from_timestamp(when: TimeT) -> Option<libc::tm> {
+    let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
+    let ret = unsafe { libc::gmtime_r(&when, out.as_mut_ptr()) };
+    (!ret.is_null()).then(|| unsafe { out.assume_init() })
+}
+
+#[cfg(unix)]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
+pub fn localtime_from_timestamp(when: TimeT) -> Option<libc::tm> {
+    let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
+    let ret = unsafe { libc::localtime_r(&when, out.as_mut_ptr()) };
+    (!ret.is_null()).then(|| unsafe { out.assume_init() })
+}
+
+#[cfg(unix)]
+pub fn mktime(tm: &mut libc::tm) -> TimeT {
+    unsafe { libc::mktime(tm) }
+}
+
+#[cfg(unix)]
+pub fn strerror(errno: i32) -> String {
+    unsafe { core::ffi::CStr::from_ptr(libc::strerror(errno)) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
+pub fn getloadavg() -> std::io::Result<[f64; 3]> {
+    let mut loadavg = [0f64; 3];
+    let ok = unsafe { libc::getloadavg(loadavg.as_mut_ptr(), 3) };
+    if ok != 3 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(loadavg)
+    }
+}
+
+#[cfg(unix)]
+pub fn waitstatus_to_exitcode(status: libc::c_int) -> Option<i32> {
+    if libc::WIFEXITED(status) {
+        return Some(libc::WEXITSTATUS(status));
+    }
+    if libc::WIFSIGNALED(status) {
+        return Some(-libc::WTERMSIG(status));
+    }
+    None
+}
+
+#[cfg(any(unix, all(target_arch = "wasm32", target_os = "emscripten")))]
+pub fn process_times() -> std::io::Result<ProcessTimes> {
+    let mut t = libc::tms {
+        tms_utime: 0,
+        tms_stime: 0,
+        tms_cutime: 0,
+        tms_cstime: 0,
+    };
+
+    let tick_for_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
+    let c = unsafe { libc::times(&mut t as *mut _) };
+    if c == (-1i8) as libc::clock_t {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(ProcessTimes {
+        user: t.tms_utime as f64 / tick_for_second,
+        system: t.tms_stime as f64 / tick_for_second,
+        children_user: t.tms_cutime as f64 / tick_for_second,
+        children_system: t.tms_cstime as f64 / tick_for_second,
+        elapsed: c as f64 / tick_for_second,
+    })
+}
+
+#[cfg(unix)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ClockId(libc::clockid_t);
 
@@ -100,6 +193,11 @@ pub fn nanosleep(duration: Duration) -> std::io::Result<()> {
     } else {
         Ok(())
     }
+}
+
+#[cfg(target_os = "solaris")]
+pub fn gethrvtime_duration() -> Duration {
+    Duration::from_nanos(unsafe { libc::gethrvtime() })
 }
 
 #[cfg(target_env = "msvc")]

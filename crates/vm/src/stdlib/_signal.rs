@@ -248,7 +248,7 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     #[pyfunction]
     fn pause(vm: &VirtualMachine) -> PyResult<()> {
-        unsafe { libc::pause() };
+        host_signal::pause();
         signal::check_signals(vm)?;
         Ok(())
     }
@@ -456,8 +456,7 @@ pub(crate) mod _signal {
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
         for signum in 1..signal::NSIG {
-            // SAFETY: mask is a valid sigset_t
-            if unsafe { libc::sigismember(mask, signum as i32) } == 1 {
+            if host_signal::sigset_contains(mask, signum as i32) {
                 set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
             }
         }
