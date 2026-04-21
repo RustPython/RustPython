@@ -412,7 +412,7 @@ jobs:
 
       - name: prek
         id: prek
-        uses: j178/prek-action@53276d8b0d10f8b6672aa85b4588c6921d0370cc # v2.0.1
+        uses: j178/prek-action@cbc2f23eb5539cf20d82d1aabd0d0ecbcc56f4e3 # v2.0.2
         with:
           cache: false
           show-verbose-logs: false
