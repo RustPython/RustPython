@@ -155,11 +155,14 @@ mod _symtable {
         #[pygetset(name = "type")]
         fn typ(&self) -> i32 {
             match self.symtable.typ {
-                CompilerScope::Function => TYPE_FUNCTION,
+                CompilerScope::Function
+                | CompilerScope::AsyncFunction
+                | CompilerScope::Lambda
+                | CompilerScope::Comprehension => TYPE_FUNCTION,
                 CompilerScope::Class => TYPE_CLASS,
                 CompilerScope::Module => TYPE_MODULE,
+                CompilerScope::Annotation => TYPE_ANNOTATION,
                 CompilerScope::TypeParams => TYPE_TYPE_PARAMETERS,
-                _ => -1, // TODO: missing types from the C implementation
             }
         }
 

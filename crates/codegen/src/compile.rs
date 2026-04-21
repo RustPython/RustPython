@@ -1249,11 +1249,34 @@ impl Compiler {
 
         // Build freevars using dictbytype (FREE scope, offset by cellvars size)
         let mut freevar_cache = IndexSet::default();
+        let annotation_free_names: IndexSet<String> = ste
+            .annotation_block
+            .as_ref()
+            .map(|annotation| {
+                annotation
+                    .symbols
+                    .iter()
+                    .filter(|(_, s)| {
+                        s.scope == SymbolScope::Free || s.flags.contains(SymbolFlags::FREE_CLASS)
+                    })
+                    .map(|(name, _)| name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
         let mut free_names: Vec<_> = ste
             .symbols
             .iter()
             .filter(|(_, s)| {
                 s.scope == SymbolScope::Free || s.flags.contains(SymbolFlags::FREE_CLASS)
+            })
+            .filter(|(name, symbol)| {
+                if !matches!(
+                    scope_type,
+                    CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
+                ) {
+                    return true;
+                }
+                !(annotation_free_names.contains(*name) && symbol.flags.is_empty())
             })
             .map(|(name, _)| name.clone())
             .collect();
@@ -1866,9 +1889,18 @@ impl Compiler {
         let mut parent_idx = stack_size - 2;
         let mut parent = &self.code_stack[parent_idx];
 
-        // If parent is ast::TypeParams scope, look at grandparent
-        // Check if parent is a type params scope by name pattern
-        if parent.metadata.name.starts_with("<generic parameters of ") {
+        let parent_scope = self
+            .symbol_table_stack
+            .get(parent_idx)
+            .map(|table| table.typ);
+
+        // CPython skips both generic-parameter scopes and annotation scopes
+        // when building qualnames for the contained function/class code object.
+        if matches!(
+            parent_scope,
+            Some(CompilerScope::TypeParams | CompilerScope::Annotation)
+        ) || parent.metadata.name.starts_with("<generic parameters of ")
+        {
             if stack_size == 2 {
                 // If we're immediately within the module, qualname is just the name
                 return current_obj_name;
@@ -2294,7 +2326,13 @@ impl Compiler {
                     NameOp::Name
                 }
             }
-            SymbolScope::GlobalExplicit => NameOp::Global,
+            SymbolScope::GlobalExplicit => {
+                if can_see_class_scope {
+                    NameOp::DictOrGlobals
+                } else {
+                    NameOp::Global
+                }
+            }
             SymbolScope::Unknown => {
                 if module_global_from_nested_scope {
                     NameOp::Global
@@ -2797,24 +2835,14 @@ impl Compiler {
                 value,
                 ..
             }) => {
-                // let name_string = name.to_string();
                 let Some(name) = name.as_name_expr() else {
-                    // FIXME: is error here?
                     return Err(self.error(CodegenErrorType::SyntaxError(
                         "type alias expect name".to_owned(),
                     )));
                 };
                 let name_string = name.id.to_string();
 
-                // For PEP 695 syntax, we need to compile type_params first
-                // so that they're available when compiling the value expression
-                // Push name first
-                self.emit_load_const(ConstantData::Str {
-                    value: name_string.clone().into(),
-                });
-
                 if let Some(type_params) = type_params {
-                    // Outer scope for TypeParams
                     self.push_symbol_table()?;
                     let key = self.symbol_table_stack.len() - 1;
                     let lineno = self.get_source_line_number().get().to_u32();
@@ -2830,34 +2858,18 @@ impl Compiler {
                         in_async_scope: false,
                     };
 
-                    // Compile type params inside the scope
+                    self.emit_load_const(ConstantData::Str {
+                        value: name_string.clone().into(),
+                    });
                     self.compile_type_params(type_params)?;
-                    // Stack: [type_params_tuple]
-
-                    // Inner closure for lazy value evaluation
-                    self.push_symbol_table()?;
-                    let inner_key = self.symbol_table_stack.len() - 1;
-                    self.enter_scope("TypeAlias", CompilerScope::TypeParams, inner_key, lineno)?;
-                    // Evaluator takes a positional-only format parameter
-                    self.current_code_info().metadata.argcount = 1;
-                    self.current_code_info().metadata.posonlyargcount = 1;
-                    self.current_code_info()
-                        .metadata
-                        .varnames
-                        .insert("format".to_owned());
-                    self.emit_format_validation()?;
-                    self.compile_expression(value)?;
-                    emit!(self, Instruction::ReturnValue);
-                    let value_code = self.exit_scope();
-                    self.make_closure(value_code, bytecode::MakeFunctionFlags::new())?;
-                    // Stack: [type_params_tuple, value_closure]
-
-                    // Swap so unpack_sequence reverse gives correct order
-                    emit!(self, Instruction::Swap { i: 2 });
-                    // Stack: [value_closure, type_params_tuple]
-
-                    // Build tuple and return from TypeParams scope
-                    emit!(self, Instruction::BuildTuple { count: 2 });
+                    self.compile_typealias_value_closure(&name_string, value)?;
+                    emit!(self, Instruction::BuildTuple { count: 3 });
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::TypeAlias
+                        }
+                    );
                     emit!(self, Instruction::ReturnValue);
 
                     let code = self.exit_scope();
@@ -2865,54 +2877,21 @@ impl Compiler {
                     self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
                     emit!(self, Instruction::PushNull);
                     emit!(self, Instruction::Call { argc: 0 });
-
-                    // Unpack: (value_closure, type_params_tuple)
-                    // UnpackSequence reverses → stack: [name, type_params_tuple, value_closure]
-                    emit!(self, Instruction::UnpackSequence { count: 2 });
                 } else {
-                    // Push None for type_params
+                    self.emit_load_const(ConstantData::Str {
+                        value: name_string.clone().into(),
+                    });
                     self.emit_load_const(ConstantData::None);
-                    // Stack: [name, None]
-
-                    // Create a closure for lazy evaluation of the value
-                    self.push_symbol_table()?;
-                    let key = self.symbol_table_stack.len() - 1;
-                    let lineno = self.get_source_line_number().get().to_u32();
-                    self.enter_scope("TypeAlias", CompilerScope::TypeParams, key, lineno)?;
-                    // Evaluator takes a positional-only format parameter
-                    self.current_code_info().metadata.argcount = 1;
-                    self.current_code_info().metadata.posonlyargcount = 1;
-                    self.current_code_info()
-                        .metadata
-                        .varnames
-                        .insert("format".to_owned());
-                    self.emit_format_validation()?;
-
-                    let prev_ctx = self.ctx;
-                    self.ctx = CompileContext {
-                        loop_data: None,
-                        in_class: prev_ctx.in_class,
-                        func: FunctionContext::Function,
-                        in_async_scope: false,
-                    };
-
-                    self.compile_expression(value)?;
-                    emit!(self, Instruction::ReturnValue);
-
-                    let code = self.exit_scope();
-                    self.ctx = prev_ctx;
-                    self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
-                    // Stack: [name, None, closure]
+                    self.compile_typealias_value_closure(&name_string, value)?;
+                    emit!(self, Instruction::BuildTuple { count: 3 });
+                    emit!(
+                        self,
+                        Instruction::CallIntrinsic1 {
+                            func: bytecode::IntrinsicFunction1::TypeAlias
+                        }
+                    );
                 }
 
-                // Build tuple of 3 elements and call intrinsic
-                emit!(self, Instruction::BuildTuple { count: 3 });
-                emit!(
-                    self,
-                    Instruction::CallIntrinsic1 {
-                        func: bytecode::IntrinsicFunction1::TypeAlias
-                    }
-                );
                 self.store_name(&name_string)?;
             }
             ast::Stmt::IpyEscapeCommand(_) => todo!(),
@@ -3015,6 +2994,10 @@ impl Compiler {
         name: &str,
         allow_starred: bool,
     ) -> CompileResult<()> {
+        self.emit_load_const(ConstantData::Tuple {
+            elements: vec![ConstantData::Integer { value: 1.into() }],
+        });
+
         // Push the next symbol table onto the stack
         self.push_symbol_table()?;
 
@@ -3023,11 +3006,8 @@ impl Compiler {
         let lineno = self.get_source_line_number().get().to_u32();
 
         // Enter scope with the type parameter name
-        self.enter_scope(name, CompilerScope::TypeParams, key, lineno)?;
+        self.enter_scope(name, CompilerScope::Annotation, key, lineno)?;
 
-        // Evaluator takes a positional-only format parameter
-        self.current_code_info().metadata.argcount = 1;
-        self.current_code_info().metadata.posonlyargcount = 1;
         self.current_code_info()
             .metadata
             .varnames
@@ -3061,8 +3041,50 @@ impl Compiler {
         let code = self.exit_scope();
         self.ctx = prev_ctx;
 
-        // Create closure for lazy evaluation
-        self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
+        self.make_closure(
+            code,
+            bytecode::MakeFunctionFlags::from([bytecode::MakeFunctionFlag::Defaults]),
+        )?;
+
+        Ok(())
+    }
+
+    fn compile_typealias_value_closure(
+        &mut self,
+        alias_name: &str,
+        value: &ast::Expr,
+    ) -> CompileResult<()> {
+        self.emit_load_const(ConstantData::Tuple {
+            elements: vec![ConstantData::Integer { value: 1.into() }],
+        });
+
+        self.push_symbol_table()?;
+        let key = self.symbol_table_stack.len() - 1;
+        let lineno = self.get_source_line_number().get().to_u32();
+        self.enter_scope(alias_name, CompilerScope::Annotation, key, lineno)?;
+        self.current_code_info()
+            .metadata
+            .varnames
+            .insert(".format".to_owned());
+        self.emit_format_validation()?;
+
+        let prev_ctx = self.ctx;
+        self.ctx = CompileContext {
+            loop_data: None,
+            in_class: prev_ctx.in_class,
+            func: FunctionContext::Function,
+            in_async_scope: false,
+        };
+
+        self.compile_expression(value)?;
+        emit!(self, Instruction::ReturnValue);
+
+        let code = self.exit_scope();
+        self.ctx = prev_ctx;
+        self.make_closure(
+            code,
+            bytecode::MakeFunctionFlags::from([bytecode::MakeFunctionFlag::Defaults]),
+        )?;
 
         Ok(())
     }
@@ -3084,12 +3106,7 @@ impl Compiler {
                     });
 
                     if let Some(expr) = &bound {
-                        let scope_name = if expr.is_tuple_expr() {
-                            format!("<TypeVar constraint of {name}>")
-                        } else {
-                            format!("<TypeVar bound of {name}>")
-                        };
-                        self.compile_type_param_bound_or_default(expr, &scope_name, false)?;
+                        self.compile_type_param_bound_or_default(expr, name.as_str(), false)?;
 
                         let intrinsic = if expr.is_tuple_expr() {
                             bytecode::IntrinsicFunction2::TypeVarWithConstraint
@@ -3107,8 +3124,11 @@ impl Compiler {
                     }
 
                     if let Some(default_expr) = default {
-                        let scope_name = format!("<TypeVar default of {name}>");
-                        self.compile_type_param_bound_or_default(default_expr, &scope_name, false)?;
+                        self.compile_type_param_bound_or_default(
+                            default_expr,
+                            name.as_str(),
+                            false,
+                        )?;
                         emit!(
                             self,
                             Instruction::CallIntrinsic2 {
@@ -3132,8 +3152,11 @@ impl Compiler {
                     );
 
                     if let Some(default_expr) = default {
-                        let scope_name = format!("<ParamSpec default of {name}>");
-                        self.compile_type_param_bound_or_default(default_expr, &scope_name, false)?;
+                        self.compile_type_param_bound_or_default(
+                            default_expr,
+                            name.as_str(),
+                            false,
+                        )?;
                         emit!(
                             self,
                             Instruction::CallIntrinsic2 {
@@ -3160,8 +3183,11 @@ impl Compiler {
 
                     if let Some(default_expr) = default {
                         // TypeVarTuple allows starred expressions
-                        let scope_name = format!("<TypeVarTuple default of {name}>");
-                        self.compile_type_param_bound_or_default(default_expr, &scope_name, true)?;
+                        self.compile_type_param_bound_or_default(
+                            default_expr,
+                            name.as_str(),
+                            true,
+                        )?;
                         emit!(
                             self,
                             Instruction::CallIntrinsic2 {
@@ -4560,7 +4586,7 @@ impl Compiler {
         self.current_code_info()
             .metadata
             .varnames
-            .insert("format".to_owned());
+            .insert(".format".to_owned());
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
         self.emit_format_validation()?;

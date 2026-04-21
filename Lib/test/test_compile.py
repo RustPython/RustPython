@@ -1158,7 +1158,6 @@ class TestSpecifics(unittest.TestCase):
                 self.assertIn('LOAD_ATTR', instructions)
                 self.assertIn('CALL', instructions)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'LOAD_SMALL_INT' not found in ['RESUME', 'LOAD_CONST', 'RETURN_VALUE']
     def test_folding_type_param(self):
         get_code_fn_cls = lambda x: x.co_consts[0].co_consts[2]
         get_code_type_alias = lambda x: x.co_consts[0].co_consts[3]
