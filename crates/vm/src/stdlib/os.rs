@@ -27,13 +27,15 @@ pub struct TargetIsDirectory {
     pub(crate) target_is_directory: bool,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))] {
+cfg_select! {
+    all(any(unix, target_os = "wasi"), not(target_os = "redox")) => {
         use libc::AT_FDCWD;
-    } else {
+    }
+    _ => {
         const AT_FDCWD: i32 = -100;
     }
 }
+
 const DEFAULT_DIR_FD: crt_fd::Borrowed<'static> = unsafe { crt_fd::Borrowed::borrow_raw(AT_FDCWD) };
 
 // XXX: AVAILABLE should be a bool, but we can't yet have it as a bool and just cast it to usize
@@ -2110,10 +2112,11 @@ pub(super) mod _os {
             return Ok(None);
         }
 
-        cfg_if::cfg_if! {
-            if #[cfg(any(target_os = "android", target_os = "redox"))] {
+        cfg_select! {
+            any(target_os = "android", target_os = "redox") => {
                 Ok(Some("UTF-8".to_owned()))
-            } else if #[cfg(windows)] {
+            }
+            windows => {
                 use windows_sys::Win32::System::Console;
                 let cp = match fd {
                     0 => unsafe { Console::GetConsoleCP() },
@@ -2122,7 +2125,8 @@ pub(super) mod _os {
                 };
 
                 Ok(Some(format!("cp{cp}")))
-            } else {
+            }
+            _ => {
                 let encoding = unsafe {
                     let encoding = libc::nl_langinfo(libc::CODESET);
                     if encoding.is_null() || encoding.read() == b'\0' as libc::c_char {

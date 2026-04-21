@@ -39,7 +39,6 @@ ruff_source_file = { workspace = true }
 
 ahash = { workspace = true }
 ascii = { workspace = true }
-cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
 flame = { workspace = true, optional = true }
 hex = { workspace = true }

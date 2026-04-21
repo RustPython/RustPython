@@ -36,7 +36,6 @@ rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler", "gc"] }
 
-cfg-if = { workspace = true }
 log = { workspace = true }
 flame = { workspace = true, optional = true }
 
@@ -136,7 +135,7 @@ exclude = ["pymath"]
 version = "0.5.0"
 authors = ["RustPython Team"]
 edition = "2024"
-rust-version = "1.94.0"
+rust-version = "1.95.0"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
@@ -177,7 +176,6 @@ ascii = "1.1"
 bitflags = "2.11.0"
 bitflagset = "0.0.3"
 bstr = "1"
-cfg-if = "1.0"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
 criterion = { version = "0.8", features = ["html_reports"] }

@@ -259,8 +259,8 @@ impl<T> Drop for PyAtomicRef<T> {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
+cfg_select! {
+    feature = "threading" => {
         unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<T> {}
         unsafe impl<T: Sync + PyPayload> Sync for PyAtomicRef<T> {}
         unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<Option<T>> {}
@@ -270,6 +270,7 @@ cfg_if::cfg_if! {
         unsafe impl Send for PyAtomicRef<Option<PyObject>> {}
         unsafe impl Sync for PyAtomicRef<Option<PyObject>> {}
     }
+    _ => {}
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
