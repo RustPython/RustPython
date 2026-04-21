@@ -1,3 +1,5 @@
+import sys
+
 from testutils import AssertRaises, assert_raises, skip_if_unsupported
 
 assert "".__eq__(1) == NotImplemented
@@ -250,7 +252,10 @@ assert not "\U0001f431".isupper()
 assert not "\U0001f431".islower()
 assert "\U0001f431 CAT".isupper()
 assert "\U0001f431 cat".islower()
-assert "\u0295".islower()
+if sys.version_info >= (3, 15):
+    assert not "\u0295".islower()
+    assert not "\u0295".isupper()
+    assert not "\u0295".istitle()
 assert "\u1c89".isupper()
 assert "hello, my name is".partition("my ") == ("hello, ", "my ", "name is")
 assert "hello".partition("is") == ("hello", "", "")
@@ -525,6 +530,8 @@ assert "a1".islower()
 assert "1a".islower()
 assert "가나다a".islower()
 assert "가나다A".isupper()
+assert not "ジョジョ".isupper()
+assert not "ジョジョ".islower()
 
 # test str.format_map()
 #
