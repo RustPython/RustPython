@@ -3086,7 +3086,6 @@ dependencies = [
 name = "rustpython"
 version = "0.5.0"
 dependencies = [
- "cfg-if",
  "criterion",
  "dirs-next",
  "env_logger",
@@ -3135,7 +3134,6 @@ version = "0.5.0"
 dependencies = [
  "ascii",
  "bitflags 2.11.0",
- "cfg-if",
  "getrandom 0.3.4",
  "itertools 0.14.0",
  "libc",
@@ -3364,7 +3362,6 @@ dependencies = [
  "base64",
  "blake2",
  "bzip2",
- "cfg-if",
  "chrono",
  "constant_time_eq",
  "crc32fast",
@@ -3459,7 +3456,6 @@ dependencies = [
  "bitflags 2.11.0",
  "bstr",
  "caseless",
- "cfg-if",
  "chrono",
  "constant_time_eq",
  "crossbeam-utils",

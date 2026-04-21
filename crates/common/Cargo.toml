@@ -20,7 +20,6 @@ rustpython-wtf8 = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }
-cfg-if = { workspace = true }
 getrandom = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }

@@ -47,7 +47,6 @@ ascii = { workspace = true }
 ahash = { workspace = true }
 bitflags = { workspace = true }
 bstr = { workspace = true }
-cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
 chrono = { workspace = true }
 constant_time_eq = { workspace = true }
