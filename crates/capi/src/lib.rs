@@ -1,3 +1,4 @@
+#![allow(clippy::missing_safety_doc)]
 pub use rustpython_vm::PyObject;
 
 extern crate alloc;
