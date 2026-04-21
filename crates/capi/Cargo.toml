@@ -13,10 +13,14 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rustpython-vm = { workspace = true, features = ["threading"] }
-rustpython-stdlib = {workspace = true, optional = true, features = ["threading"] }
+rustpython-stdlib = {workspace = true, features = ["threading"] }
 
 [dev-dependencies]
 pyo3 = { version = "0.28", features = ["auto-initialize", "abi3"] }
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-shear]
+# Not a direct dependency (yet), but we need to enable threading support in the stdlib.
+ignored = ["rustpython-stdlib"]
