@@ -38,6 +38,7 @@ mod lock {
         IMP_LOCK.lock();
     }
 
+    #[cfg(feature = "host_env")]
     pub(super) fn release_lock_after_fork_parent() {
         if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
             unsafe { IMP_LOCK.unlock() };
@@ -53,7 +54,7 @@ mod lock {
     /// # Safety
     ///
     /// Must only be called from single-threaded child after fork().
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "host_env"))]
     pub(crate) unsafe fn reinit_after_fork() {
         if IMP_LOCK.is_locked() && !IMP_LOCK.is_owned_by_current_thread() {
             // Held by a dead thread — reset to unlocked.
@@ -65,7 +66,7 @@ mod lock {
     /// behavior in the post-fork child:
     /// 1) if ownership metadata is stale (dead owner / changed tid), reset;
     /// 2) if current thread owns the lock, release it.
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "host_env"))]
     pub(super) unsafe fn after_fork_child_reinit_and_release() {
         unsafe { reinit_after_fork() };
         if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
@@ -75,22 +76,22 @@ mod lock {
 }
 
 /// Re-export for fork safety code in posix.rs
-#[cfg(feature = "threading")]
+#[cfg(all(feature = "threading", feature = "host_env"))]
 pub(crate) fn acquire_imp_lock_for_fork() {
     lock::acquire_lock_for_fork();
 }
 
-#[cfg(feature = "threading")]
+#[cfg(all(feature = "threading", feature = "host_env"))]
 pub(crate) fn release_imp_lock_after_fork_parent() {
     lock::release_lock_after_fork_parent();
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) unsafe fn reinit_imp_lock_after_fork() {
     unsafe { lock::reinit_after_fork() }
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) unsafe fn after_fork_child_imp_lock_release() {
     unsafe { lock::after_fork_child_reinit_and_release() }
 }

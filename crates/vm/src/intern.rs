@@ -36,7 +36,7 @@ impl StringPool {
     /// # Safety
     /// Must only be called after fork() in the child process when no other
     /// threads exist.
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
     pub(crate) unsafe fn reinit_after_fork(&self) {
         unsafe { crate::common::lock::reinit_rwlock_after_fork(&self.inner) };
     }
