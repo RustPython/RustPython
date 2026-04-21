@@ -94,24 +94,6 @@ pub extern "C" fn RustPython_PyObject_CallMethodObjArgsArray(
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn PyObject_CallMethodObjArgs(
-    receiver: *mut PyObject,
-    name: *mut PyObject,
-    arg1: *mut PyObject,
-    arg2: *mut PyObject,
-    arg3: *mut PyObject,
-    arg4: *mut PyObject,
-    arg5: *mut PyObject,
-    arg6: *mut PyObject,
-    arg7: *mut PyObject,
-    arg8: *mut PyObject,
-) -> *mut PyObject {
-    let raw = [arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8];
-    let nargs = raw.iter().position(|arg| arg.is_null()).unwrap_or(raw.len());
-    RustPython_PyObject_CallMethodObjArgsArray(receiver, name, raw.as_ptr(), nargs)
-}
-
 fn compare_op_from_c_int(opid: c_int) -> Option<PyComparisonOp> {
     Some(match opid {
         0 => PyComparisonOp::Lt,
@@ -135,11 +117,6 @@ pub extern "C" fn PyObject_Vectorcall(
         let args_len = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
         let num_positional_args = args_len;
 
-        let args = unsafe { slice::from_raw_parts(args, args_len) }
-            .iter()
-            .map(|arg| unsafe { &*resolve_object_handle(*arg) }.to_owned())
-            .collect::<Vec<_>>();
-
         let kwnames: Option<&[PyObjectRef]> = unsafe {
             kwnames
                 .as_ref()
@@ -150,6 +127,12 @@ pub extern "C" fn PyObject_Vectorcall(
                 })
                 .transpose()?
         };
+
+        let kw_count = kwnames.map_or(0, |tuple| tuple.len());
+        let args = unsafe { slice::from_raw_parts(args, args_len + kw_count) }
+            .iter()
+            .map(|arg| unsafe { &*resolve_object_handle(*arg) }.to_owned())
+            .collect::<Vec<_>>();
 
         let callable = unsafe { &*resolve_object_handle(callable) };
         callable.vectorcall(args, num_positional_args, kwnames, vm)

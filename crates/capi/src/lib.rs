@@ -30,20 +30,6 @@ pub(crate) mod tupleobject;
 pub(crate) mod unicodeobject;
 pub(crate) mod util;
 
-#[used]
-static KEEP_PYOBJECT_CALL_METHOD_OBJ_ARGS: extern "C" fn(
-    *mut PyObject,
-    *mut PyObject,
-    *mut PyObject,
-    *mut PyObject,
-    *mut PyObject,
-    *mut PyObject,
-    *mut PyObject,
-    *mut PyObject,
-    *mut PyObject,
-    *mut PyObject,
-) -> *mut PyObject = crate::abstract_::PyObject_CallMethodObjArgs;
-
 #[inline]
 pub(crate) fn log_stub(name: &str) {
     eprintln!("[rustpython-capi stub] {name} called");
