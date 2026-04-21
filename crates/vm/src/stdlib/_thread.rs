@@ -1,5 +1,5 @@
 //! Implementation of the _thread module
-#[cfg(unix)]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) use _thread::after_fork_child;
 pub use _thread::get_ident;
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
@@ -457,6 +457,7 @@ pub(crate) mod _thread {
     /// Get thread ID for a given thread handle (used by start_new_thread)
     fn thread_to_id(handle: &thread::JoinHandle<()>) -> u64 {
         #[cfg(unix)]
+        #[allow(clippy::unnecessary_cast)]
         {
             // On Unix, use pthread ID from the handle
             use std::os::unix::thread::JoinHandleExt;
@@ -1056,7 +1057,7 @@ pub(crate) mod _thread {
     ///
     /// Precondition: `reinit_locks_after_fork()` has already been called, so all
     /// parking_lot-based locks in VmState are in unlocked state.
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
     pub(crate) fn after_fork_child(vm: &VirtualMachine) {
         let current_ident = get_ident();
 
@@ -1140,7 +1141,7 @@ pub(crate) mod _thread {
     }
 
     /// Reset a parking_lot::Mutex to unlocked state after fork.
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "host_env"))]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
         unsafe { rustpython_common::lock::zero_reinit_after_fork(mutex.raw()) };
     }

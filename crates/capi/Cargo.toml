@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rustpython-vm = { workspace = true, features = ["threading"] }
+rustpython-stdlib = {workspace = true, optional = true, features = ["threading"] }
 
 [dev-dependencies]
 pyo3 = { version = "0.28", features = ["auto-initialize", "abi3"] }
