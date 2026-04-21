@@ -120,7 +120,7 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     // In this case:
     //   - sys.executable should be the launcher path (where user invoked Python)
     //   - sys._base_executable should be the real Python executable
-    let exe_dir = if let Ok(launcher) = env::var("__PYVENV_LAUNCHER__") {
+    let exe_dir = if let Ok(launcher) = crate::host_env::os::var("__PYVENV_LAUNCHER__") {
         paths.executable = launcher.clone();
         paths.base_executable = real_executable;
         PathBuf::from(&launcher).parent().map(PathBuf::from)
@@ -370,8 +370,9 @@ fn get_executable_path() -> Option<PathBuf> {
 }
 
 /// Parse pyvenv.cfg and extract the 'home' key value
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(pyvenv_cfg).ok()?;
+    let content = crate::host_env::fs::read_to_string(pyvenv_cfg).ok()?;
 
     for line in content.lines() {
         if let Some((key, value)) = line.split_once('=')
@@ -381,6 +382,11 @@ fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
         }
     }
 
+    None
+}
+
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+fn parse_pyvenv_home(_pyvenv_cfg: &Path) -> Option<String> {
     None
 }
 
@@ -399,7 +405,10 @@ mod tests {
     #[test]
     fn test_search_up() {
         // Test with a path that doesn't have any landmarks
-        let result = search_up_file(std::env::temp_dir(), &["nonexistent_landmark_xyz"]);
+        let result = search_up_file(
+            crate::host_env::os::temp_dir(),
+            &["nonexistent_landmark_xyz"],
+        );
         assert!(result.is_none());
     }
 

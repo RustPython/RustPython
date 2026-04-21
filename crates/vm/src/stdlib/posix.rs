@@ -1,19 +1,8 @@
 // spell-checker:disable
 
-use std::os::fd::BorrowedFd;
-
 pub(crate) use module::module_def;
 
-pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()> {
-    use nix::fcntl;
-    let flags = fcntl::FdFlag::from_bits_truncate(fcntl::fcntl(fd, fcntl::FcntlArg::F_GETFD)?);
-    let mut new_flags = flags;
-    new_flags.set(fcntl::FdFlag::FD_CLOEXEC, !inheritable);
-    if flags != new_flags {
-        fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFD(new_flags))?;
-    }
-    Ok(())
-}
+pub use rustpython_host_env::posix::set_inheritable;
 
 #[pymodule(name = "posix", with(
     super::os::_os,
@@ -53,9 +42,9 @@ pub mod module {
         fcntl,
         unistd::{self, Gid, Pid, Uid},
     };
-    use rustpython_common::os::ffi::OsStringExt;
+    use rustpython_host_env::os::ffi::OsStringExt;
     use std::{
-        env, fs, io,
+        fs, io,
         os::fd::{AsFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };
     use strum::IntoEnumIterator;
@@ -483,7 +472,7 @@ pub mod module {
         )
         })?;
 
-        let metadata = match fs::metadata(&path.path) {
+        let metadata = match crate::host_env::fs::metadata(&path.path) {
             Ok(m) => m,
             // If the file doesn't exist, return False for any access check
             Err(_) => return Ok(false),
@@ -511,7 +500,7 @@ pub mod module {
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
-        for (key, value) in env::vars_os() {
+        for (key, value) in crate::host_env::os::vars_os() {
             let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
             let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
             environ.set_item(&*key, value, vm).unwrap();
@@ -523,7 +512,7 @@ pub mod module {
     #[pyfunction]
     fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
-        for (key, value) in env::vars_os() {
+        for (key, value) in crate::host_env::os::vars_os() {
             let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
             let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
             environ.set_item(&*key, value, vm).unwrap();
@@ -574,7 +563,7 @@ pub mod module {
             let c_path = path.clone().into_cstring(vm)?;
             let res = unsafe { libc::unlinkat(fd, c_path.as_ptr(), 0) };
             return if res < 0 {
-                let err = crate::common::os::errno_io_error();
+                let err = crate::host_env::os::errno_io_error();
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -582,7 +571,8 @@ pub mod module {
         }
         #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
-        fs::remove_file(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+        crate::host_env::fs::remove_file(&path)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -876,79 +866,7 @@ pub mod module {
     /// Best-effort number of OS threads in this process.
     /// Returns <= 0 when unavailable.
     fn get_number_of_os_threads() -> isize {
-        #[cfg(target_os = "macos")]
-        {
-            type MachPortT = libc::c_uint;
-            type KernReturnT = libc::c_int;
-            type MachMsgTypeNumberT = libc::c_uint;
-            type ThreadActArrayT = *mut MachPortT;
-            const KERN_SUCCESS: KernReturnT = 0;
-            unsafe extern "C" {
-                fn mach_task_self() -> MachPortT;
-                fn task_for_pid(
-                    task: MachPortT,
-                    pid: libc::c_int,
-                    target_task: *mut MachPortT,
-                ) -> KernReturnT;
-                fn task_threads(
-                    target_task: MachPortT,
-                    act_list: *mut ThreadActArrayT,
-                    act_list_cnt: *mut MachMsgTypeNumberT,
-                ) -> KernReturnT;
-                fn vm_deallocate(
-                    target_task: MachPortT,
-                    address: libc::uintptr_t,
-                    size: libc::uintptr_t,
-                ) -> KernReturnT;
-            }
-
-            let self_task = unsafe { mach_task_self() };
-            let mut proc_task: MachPortT = 0;
-            if unsafe { task_for_pid(self_task, libc::getpid(), &mut proc_task) } == KERN_SUCCESS {
-                let mut threads: ThreadActArrayT = core::ptr::null_mut();
-                let mut n_threads: MachMsgTypeNumberT = 0;
-                if unsafe { task_threads(proc_task, &mut threads, &mut n_threads) } == KERN_SUCCESS
-                {
-                    if !threads.is_null() {
-                        let _ = unsafe {
-                            vm_deallocate(
-                                self_task,
-                                threads as libc::uintptr_t,
-                                (n_threads as usize * core::mem::size_of::<MachPortT>())
-                                    as libc::uintptr_t,
-                            )
-                        };
-                    }
-                    return n_threads as isize;
-                }
-            }
-            0
-        }
-        #[cfg(target_os = "linux")]
-        {
-            use std::io::Read as _;
-            let mut file = match std::fs::File::open("/proc/self/stat") {
-                Ok(f) => f,
-                Err(_) => return 0,
-            };
-            let mut buf = [0u8; 160];
-            let n = match file.read(&mut buf) {
-                Ok(n) => n,
-                Err(_) => return 0,
-            };
-            let line = match core::str::from_utf8(&buf[..n]) {
-                Ok(s) => s,
-                Err(_) => return 0,
-            };
-            if let Some(field) = line.split_whitespace().nth(19) {
-                return field.parse::<isize>().unwrap_or(0);
-            }
-            0
-        }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        {
-            0
-        }
+        rustpython_host_env::posix::get_number_of_os_threads()
     }
 
     /// Warn if forking from a multi-threaded process.
@@ -1859,7 +1777,7 @@ pub mod module {
             } else {
                 // env=None means use the current environment
 
-                env::vars_os()
+                crate::host_env::os::vars_os()
                     .map(|(k, v)| {
                         let mut entry = k.into_vec();
                         entry.push(b'=');
@@ -2598,9 +2516,9 @@ pub mod module {
 
     #[pyfunction]
     fn sysconf(name: SysconfName, vm: &VirtualMachine) -> PyResult<libc::c_long> {
-        crate::common::os::set_errno(0);
+        crate::host_env::os::set_errno(0);
         let r = unsafe { libc::sysconf(name.0) };
-        if r == -1 && crate::common::os::get_errno() != 0 {
+        if r == -1 && crate::host_env::os::get_errno() != 0 {
             return Err(vm.new_last_errno_error());
         }
         Ok(r)
@@ -2626,7 +2544,7 @@ pub mod module {
     struct SendFileArgs<'fd> {
         out_fd: BorrowedFd<'fd>,
         in_fd: BorrowedFd<'fd>,
-        offset: crate::common::crt_fd::Offset,
+        offset: rustpython_host_env::crt_fd::Offset,
         count: i64,
         #[cfg(target_os = "macos")]
         #[pyarg(any, optional)]

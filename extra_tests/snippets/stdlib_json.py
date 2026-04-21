@@ -217,3 +217,25 @@ i = 7**500
 assert json.dumps(i) == str(i)
 
 assert json.decoder.scanstring('✨x"', 1) == ("x", 3)
+
+
+# Recursion guard: deeply-nested input must raise RecursionError instead of
+# overflowing the native stack (SIGSEGV). Matches CPython's
+# _Py_EnterRecursiveCall in Modules/_json.c.
+
+_deep = 100_000  # well above the ~45k native-stack crash threshold
+
+# Array nesting
+assert_raises(RecursionError, lambda: json.loads("[" * _deep + "]" * _deep))
+
+# Object nesting
+assert_raises(
+    RecursionError,
+    lambda: json.loads('{"a":' * _deep + "1" + "}" * _deep),
+)
+
+# Alternating array/object nesting
+assert_raises(
+    RecursionError,
+    lambda: json.loads(('[{"x":' * _deep) + "1" + ("}]" * _deep)),
+)
