@@ -62,13 +62,6 @@ pub extern "C" fn PyObject_GetIter(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*resolve_object_handle(obj) };
         let iter = obj.get_iter(vm)?;
-        eprintln!(
-            "PyObject_GetIter obj_class={} obj={:p} iter_class={} iter={:p}",
-            obj.class().name(),
-            obj.as_raw(),
-            iter.as_object().class().name(),
-            iter.as_object().as_raw(),
-        );
         Ok(unsafe {
             exported_object_wrapper(
                 iter.as_object().as_raw().cast_mut(),
@@ -328,20 +321,9 @@ pub extern "C" fn PyIter_NextItem(iter: *mut PyObject, item: *mut *mut PyObject)
     let mut result = 0;
     let status: c_int = with_vm(|vm| -> rustpython_vm::PyResult<()> {
         let iter = unsafe { &*resolve_object_handle(iter) };
-        eprintln!(
-            "PyIter_NextItem iter_arg={:p} resolved_iter={:p} class={}",
-            iter,
-            iter.as_raw(),
-            iter.class().name(),
-        );
         let iter = PyIter::new(iter);
         match iter.next(vm)? {
             PyIterReturn::Return(obj) => {
-                eprintln!(
-                    "PyIter_NextItem yielded class={} obj={:p}",
-                    obj.class().name(),
-                    obj.as_raw(),
-                );
                 unsafe {
                     *item = exported_object_wrapper(
                         obj.into_raw().as_ptr(),

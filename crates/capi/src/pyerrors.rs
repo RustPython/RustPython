@@ -98,21 +98,7 @@ define_exception_statics! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
-    with_vm(|vm| {
-        let exc = vm.take_raised_exception();
-        if let Some(ref exc) = exc {
-            eprintln!(
-                "PyErr_GetRaisedException class={}({:p}) builtin_attr={:p} builtin_exc={:p}",
-                exc.class().name(),
-                exc.class().as_object().as_raw(),
-                vm.ctx.exceptions.attribute_error.as_object().as_raw(),
-                vm.ctx.exceptions.exception_type.as_object().as_raw(),
-            );
-        } else {
-            eprintln!("PyErr_GetRaisedException none");
-        }
-        exc
-    })
+    with_vm(|vm| vm.take_raised_exception())
 }
 
 #[unsafe(no_mangle)]
@@ -138,22 +124,8 @@ pub extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject
     with_vm::<PyResult<Infallible>, _>(|vm| {
         let exc_type = unsafe { (&*resolve_object_handle(exception)).to_owned() };
         let exc_val = unsafe { (&*resolve_object_handle(value)).to_owned() };
-        eprintln!(
-            "PyErr_SetObject exc_type={}({:p}) value_class={}({:p})",
-            exc_type.class().name(),
-            exc_type.class().as_object().as_raw(),
-            exc_val.class().name(),
-            exc_val.class().as_object().as_raw(),
-        );
 
         let normalized = vm.normalize_exception(exc_type, exc_val, vm.ctx.none())?;
-        eprintln!(
-            "PyErr_SetObject normalized class={}({:p}) builtin_attr={:p} builtin_exc={:p}",
-            normalized.class().name(),
-            normalized.class().as_object().as_raw(),
-            vm.ctx.exceptions.attribute_error.as_object().as_raw(),
-            vm.ctx.exceptions.exception_type.as_object().as_raw(),
-        );
 
         Err(normalized)
     });
@@ -172,15 +144,6 @@ pub extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_ch
             exc_type.to_owned(),
             vec![vm.ctx.new_str(message).into_object()],
         )?;
-        eprintln!(
-            "PyErr_SetString exc_type={}({:p}) exc_class={}({:p}) builtin_attr={:p} builtin_exc={:p}",
-            exc_type.name(),
-            exc_type.as_object().as_raw(),
-            exc.class().name(),
-            exc.class().as_object().as_raw(),
-            vm.ctx.exceptions.attribute_error.as_object().as_raw(),
-            vm.ctx.exceptions.exception_type.as_object().as_raw(),
-        );
 
         Err(exc)
     });
@@ -192,12 +155,6 @@ pub extern "C" fn PyErr_PrintEx(_set_sys_last_vars: c_int) {
         let exception = vm
             .take_raised_exception()
             .expect("No exception set in PyErr_PrintEx");
-        let exc_class = exception.class().name().to_string();
-        let exc_repr = match exception.as_object().repr(vm) {
-            Ok(s) => s.to_string_lossy().into_owned(),
-            Err(err) => format!("<repr failed: {}>", err.class().name()),
-        };
-        eprintln!("PyErr_PrintEx exception class={exc_class} repr={exc_repr}");
 
         vm.print_exception(exception);
     })

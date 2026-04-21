@@ -1,14 +1,14 @@
 use crate::PyObject;
 use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
-use crate::symbols::{exported_object_handle, resolve_object_handle};
+use crate::symbols::exported_object_handle;
 use crate::util::owned_from_exported_new_ref;
 use bitflags::bitflags_match;
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::function::{FuncArgs, PyMethodFlags};
-use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine};
+use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 
 type PyCFunction = unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject;
 type PyCFunctionWithKeywords = unsafe extern "C" fn(
@@ -55,21 +55,14 @@ fn c_function_wrapper(
     let slf_ptr = slf
         .map(|slf| unsafe { exported_object_handle(slf.as_object().as_raw().cast_mut()) })
         .unwrap_or_default();
-    eprintln!(
-        "c_function_wrapper enter slf={slf_ptr:p} pos={} kwargs={} flags={flags:?}",
-        args.args.len(),
-        args.kwargs.len(),
-    );
 
     let arg_tuple = vm.ctx.new_tuple(core::mem::take(&mut args.args));
     let arg_tuple_ptr = arg_tuple.as_object().as_raw().cast_mut();
     let call_flags = flags & !(PyMethodFlags::METHOD | PyMethodFlags::CLASS | PyMethodFlags::STATIC);
-    eprintln!("c_function_wrapper call_flags={call_flags:?}");
 
     let ret_ptr = bitflags_match!(call_flags, {
         PyMethodFlags::NOARGS => {
             let f = unsafe { method.function };
-            eprintln!("c_function_wrapper branch=NOARGS");
             unsafe { Ok(f(slf_ptr, arg_tuple_ptr)) }
         },
         PyMethodFlags::O => {
@@ -79,12 +72,10 @@ fn c_function_wrapper(
                 .first()
                 .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
                 .unwrap_or(core::ptr::null_mut());
-            eprintln!("c_function_wrapper branch=O arg={arg:p}");
             unsafe { Ok(f(slf_ptr, arg)) }
         },
         PyMethodFlags::VARARGS => {
             let f = unsafe { method.function };
-            eprintln!("c_function_wrapper branch=VARARGS tuple={arg_tuple_ptr:p}");
             unsafe { Ok(f(slf_ptr, arg_tuple_ptr)) }
         },
         PyMethodFlags::VARARGS | PyMethodFlags::KEYWORDS => {
@@ -94,7 +85,6 @@ fn c_function_wrapper(
                 kwargs.set_item(&*k, v, vm)?;
             }
             let kwargs_ptr = kwargs.as_object().as_raw().cast_mut();
-            eprintln!("c_function_wrapper branch=VARARGS|KEYWORDS tuple={arg_tuple_ptr:p} kwargs={kwargs_ptr:p}");
             unsafe { Ok(f(slf_ptr, arg_tuple_ptr, kwargs_ptr)) }
         },
         PyMethodFlags::FASTCALL => {
@@ -104,7 +94,6 @@ fn c_function_wrapper(
                 .iter()
                 .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
                 .collect();
-            eprintln!("c_function_wrapper branch=FASTCALL nargs={}", exported_args.len());
             unsafe { Ok(f(slf_ptr, exported_args.as_ptr(), exported_args.len() as isize)) }
         },
         PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS => {
@@ -125,12 +114,6 @@ fn c_function_wrapper(
                     .map(|name| name.as_object().to_owned())
                     .collect(),
             );
-            eprintln!(
-                "c_function_wrapper branch=FASTCALL|KEYWORDS nargs={} total={} kwnames={}",
-                arg_tuple.len(),
-                exported_args.len(),
-                kwnames.len(),
-            );
             unsafe {
                 Ok(f(
                     slf_ptr,
@@ -142,14 +125,11 @@ fn c_function_wrapper(
         },
         _ => panic!("Unexpected flags value: {flags:?}"),
     })?;
-    eprintln!("c_function_wrapper raw_ret={ret_ptr:p}");
 
     let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
         vm.take_raised_exception()
             .expect("Native function returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(ret_ptr.as_ptr()) };
-    eprintln!("c_function_wrapper resolved_ret={resolved:p}");
     Ok(unsafe { owned_from_exported_new_ref(ret_ptr.as_ptr()) })
 }
 
@@ -173,10 +153,6 @@ pub(crate) fn build_tp_method(
     } else {
         raw_flags | PyMethodFlags::METHOD
     };
-    eprintln!(
-        "build_tp_method name={} raw_flags={raw_flags:?} effective_flags={effective_flags:?}",
-        name
-    );
     let method = ml.ml_meth;
     let heap_def = vm.ctx.new_method_def(
         Box::leak(name.clone().into_boxed_str()),

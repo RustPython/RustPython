@@ -7,14 +7,14 @@ use crate::util::owned_from_exported_new_ref;
 use crate::{PyObject, with_vm};
 use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr::NonNull;
-use rustpython_vm::builtins::{PyDict, PyGetSet, PyStr, PyTuple, PyType};
+use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::class::add_operators;
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::convert::ToPyObject;
-use rustpython_vm::function::{Either, FsPath, FuncArgs, PyComparisonValue};
+use rustpython_vm::function::{Either, FsPath, PyComparisonValue};
 use rustpython_vm::protocol::{PyIterReturn, PyMapping, PySequence};
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
-use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
+use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine};
 
 const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
 const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
@@ -171,12 +171,6 @@ pub extern "C" fn PyType_GenericAlloc(
             .slots
             .basicsize
             .saturating_add(subtype.slots.itemsize.saturating_mul(nitems.max(0) as usize));
-        eprintln!(
-            "facade generic_alloc class={} inner={:p} size={}",
-            subtype.name(),
-            inner.as_object().as_raw(),
-            size
-        );
         Ok(unsafe { exported_object_wrapper(inner.as_object().as_raw().cast_mut(), size) })
     })
 }
@@ -196,12 +190,6 @@ pub extern "C" fn PyType_GenericNew(
             .ok_or_else(|| vm.new_type_error(format!("type {} has no tp_alloc", subtype.name())))?;
         let inner = alloc(subtype.to_owned(), 0, vm)?;
         let size = subtype.slots.basicsize;
-        eprintln!(
-            "facade generic_new class={} inner={:p} size={}",
-            subtype.name(),
-            inner.as_object().as_raw(),
-            size
-        );
         Ok(unsafe { exported_object_wrapper(inner.as_object().as_raw().cast_mut(), size) })
     })
 }
@@ -272,12 +260,6 @@ type richcmpfunc =
 type hashfunc = unsafe extern "C" fn(slf: *mut PyObject) -> isize;
 
 fn native_tp_new(ty: rustpython_vm::builtins::PyTypeRef, args: rustpython_vm::function::FuncArgs, vm: &VirtualMachine) -> PyResult {
-    eprintln!(
-        "facade tp_new enter class={} pos={} kwargs={}",
-        ty.name(),
-        args.args.len(),
-        args.kwargs.len()
-    );
     let new_func = ty.get_type_data::<TypeVTable>().unwrap().new_func.unwrap();
     let kwargs = vm.ctx.new_dict();
     for (name, value) in &args.kwargs {
@@ -291,23 +273,14 @@ fn native_tp_new(ty: rustpython_vm::builtins::PyTypeRef, args: rustpython_vm::fu
             kwargs.as_object().as_raw().cast_mut(),
         )
     };
-    eprintln!("facade tp_new raw_result={result:p}");
     let result = NonNull::new(result).ok_or_else(|| {
         vm.take_raised_exception()
             .expect("native tp_new returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
-    eprintln!("facade tp_new resolved={resolved:p}");
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
 fn native_tp_init(obj: PyObjectRef, args: rustpython_vm::function::FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-    eprintln!(
-        "facade tp_init enter class={} pos={} kwargs={}",
-        obj.class().name(),
-        args.args.len(),
-        args.kwargs.len()
-    );
     let init_func = obj
         .class()
         .get_type_data::<TypeVTable>()
@@ -327,7 +300,6 @@ fn native_tp_init(obj: PyObjectRef, args: rustpython_vm::function::FuncArgs, vm:
             kwargs.as_object().as_raw().cast_mut(),
         )
     };
-    eprintln!("facade tp_init rc={rc}");
     if rc == 0 {
         Ok(())
     } else {
@@ -355,7 +327,6 @@ fn native_nb_float(
         vm.take_raised_exception()
             .expect("native nb_float returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
@@ -371,7 +342,6 @@ fn native_tp_str(obj: &PyObject, vm: &VirtualMachine) -> PyResult<rustpython_vm:
         vm.take_raised_exception()
             .expect("native tp_str returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     let resolved = unsafe { owned_from_exported_new_ref(result.as_ptr()) };
     let class_name = obj.class().name().to_string();
     resolved.downcast::<PyStr>().map_err(|obj| {
@@ -394,7 +364,6 @@ fn native_tp_repr(obj: &PyObject, vm: &VirtualMachine) -> PyResult<rustpython_vm
         vm.take_raised_exception()
             .expect("native tp_repr returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     let resolved = unsafe { owned_from_exported_new_ref(result.as_ptr()) };
     let class_name = obj.class().name().to_string();
     resolved.downcast::<PyStr>().map_err(|obj| {
@@ -454,7 +423,6 @@ fn native_tp_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm.take_raised_exception()
             .expect("native tp_iter returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
@@ -468,7 +436,6 @@ fn native_tp_iternext(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterRet
     let result = unsafe { iternext_func(slf_ptr) };
     match NonNull::new(result) {
         Some(result) => {
-            let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
             let resolved = unsafe { owned_from_exported_new_ref(result.as_ptr()) };
             Ok(PyIterReturn::Return(resolved))
         }
@@ -496,7 +463,6 @@ fn native_mp_subscript(mapping: PyMapping<'_>, needle: &PyObject, vm: &VirtualMa
         vm.take_raised_exception()
             .expect("native mp_subscript returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
@@ -547,7 +513,6 @@ fn native_nb_subtract(left: &PyObject, right: &PyObject, vm: &VirtualMachine) ->
         vm.take_raised_exception()
             .expect("native nb_subtract returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
@@ -564,7 +529,6 @@ fn native_nb_and(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyRe
         vm.take_raised_exception()
             .expect("native nb_and returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
@@ -581,7 +545,6 @@ fn native_nb_or(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyRes
         vm.take_raised_exception()
             .expect("native nb_or returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
@@ -598,7 +561,6 @@ fn native_nb_xor(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyRe
         vm.take_raised_exception()
             .expect("native nb_xor returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
@@ -628,7 +590,6 @@ fn native_tp_richcompare(
         vm.take_raised_exception()
             .expect("native tp_richcompare returned NULL, but there was no exception set")
     })?;
-    let resolved = unsafe { resolve_object_handle(result.as_ptr()) };
     let resolved = unsafe { owned_from_exported_new_ref(result.as_ptr()) };
     Ok(Either::A(resolved))
 }
@@ -786,16 +747,6 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         let has_native_new = vtable.new_func.is_some();
         let has_native_init = vtable.init_func.is_some();
         let class = vm.ctx.new_class(None, class_name, base.to_owned(), slots);
-        eprintln!(
-            "facade created class={} slot_new={:?} native_tp_new={:?} slot_init={:?} native_tp_init={:?} object_new={:?} object_init={:?}",
-            class.name(),
-            class.slots.new.load().map(|f| f as usize),
-            Some(native_tp_new as usize),
-            class.slots.init.load().map(|f| f as usize),
-            Some(native_tp_init as usize),
-            vm.ctx.types.object_type.slots.new.load().map(|f| f as usize),
-            vm.ctx.types.object_type.slots.init.load().map(|f| f as usize),
-        );
         class.init_type_data(vtable).unwrap();
         for attribute in attributes {
             let name = unsafe {
@@ -857,20 +808,6 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         if !has_explicit_setattro {
             class.slots.setattro.store(base.slots.setattro.load());
         }
-        let new_key = ctx.intern_str("__new__");
-        let init_key = ctx.intern_str("__init__");
-        eprintln!(
-            "facade finalized class={} slot_new={:?} native_tp_new={:?} slot_init={:?} native_tp_init={:?} getattro={:?} object_getattro={:?} has___new__={} has___init__={}",
-            class.name(),
-            class.slots.new.load().map(|f| f as usize),
-            Some(native_tp_new as usize),
-            class.slots.init.load().map(|f| f as usize),
-            Some(native_tp_init as usize),
-            class.slots.getattro.load().map(|f| f as usize),
-            vm.ctx.types.object_type.slots.getattro.load().map(|f| f as usize),
-            class.attributes.read().contains_key(new_key),
-            class.attributes.read().contains_key(init_key),
-        );
         class
     })
 }
@@ -913,16 +850,11 @@ pub extern "C" fn PyObject_SetAttrString(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let resolved_obj = unsafe { resolve_object_handle(obj) };
         let name = unsafe { CStr::from_ptr(attr_name) }
             .to_str()
             .expect("attribute name must be valid UTF-8");
-        let resolved_value = unsafe { resolve_object_handle(value) };
-        eprintln!(
-            "PyObject_SetAttrString obj={obj:p} resolved_obj={resolved_obj:p} attr={name} value={value:p} resolved_value={resolved_value:p}"
-        );
-        let obj = unsafe { &*resolved_obj };
-        let value = unsafe { &*resolved_value }.to_owned();
+        let obj = unsafe { &*resolve_object_handle(obj) };
+        let value = unsafe { &*resolve_object_handle(value) }.to_owned();
         obj.set_attr(name, value, vm)
     })
 }

@@ -189,13 +189,6 @@ impl PyMethodDef {
         obj: PyObjectRef,
         class: &'static Py<PyType>,
     ) -> PyRef<PyNativeMethod> {
-        eprintln!(
-            "build_bound_method name={} flags={:?} obj_class={} class={}",
-            self.name,
-            self.flags,
-            obj.class().name(),
-            class.name()
-        );
         PyRef::new_ref(
             self.to_bound_method(obj, class),
             ctx.types.builtin_function_or_method_type.to_owned(),

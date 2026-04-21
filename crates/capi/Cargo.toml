@@ -19,7 +19,7 @@ rustpython-vm = { workspace = true, features = ["threading", "compiler"]}
 cc = "1"
 
 [dev-dependencies]
-pyo3 = { path = "/tmp/pyo3-abi-facade", features = ["auto-initialize", "abi3"] }
+pyo3 = { version = "0.28.3", features = ["auto-initialize", "abi3"] }
 
 [lints]
 workspace = true

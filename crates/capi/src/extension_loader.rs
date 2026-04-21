@@ -1,5 +1,4 @@
 use crate::PyObject;
-use crate::object::{Py_TYPE, PyType_IsSubtype, PyTypeObject};
 use crate::pystate::with_vm;
 use alloc::ffi::CString;
 use core::{
@@ -62,7 +61,6 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
     with_vm(|vm| -> PyResult<PyObjectRef> {
         let spec = unsafe { &*spec }.to_owned();
         let name: PyUtf8StrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
-        eprintln!("facade create_dynamic enter name={}", name.as_str());
         let origin: PyStrRef = spec.get_attr("origin", vm)?.try_into_value(vm)?;
         let short_name = name
             .as_str()
@@ -90,7 +88,6 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
             .map_err(|err| vm.new_import_error(err.to_string(), name.clone().into_wtf8()))?;
 
         let raw = unsafe { init() };
-        eprintln!("facade init raw={:p}", raw);
         if raw.is_null() {
             let err_symbol_name = CString::new("PyErr_GetRaisedException").unwrap();
             let err_symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, err_symbol_name.as_ptr()) };
@@ -99,13 +96,6 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
                 let raw_exc = unsafe { get_exc() };
                 if !raw_exc.is_null() {
                     let exc_obj = unsafe { &*raw_exc }.to_owned();
-                    eprintln!(
-                        "facade init NULL raw_exc class={}({:p}) builtin_attr={:p} builtin_exc={:p}",
-                        exc_obj.class().name(),
-                        exc_obj.class().as_object().as_raw(),
-                        vm.ctx.exceptions.attribute_error.as_object().as_raw(),
-                        vm.ctx.exceptions.exception_type.as_object().as_raw(),
-                    );
                     if let Ok(err) = exc_obj.downcast() {
                         return Err(err);
                     }
@@ -118,10 +108,6 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
         }
 
         let raw_def = unsafe { &*raw.cast::<RawPyModuleDef>() };
-        eprintln!(
-            "facade raw_def name_ptr={:p} slots_ptr={:p}",
-            raw_def.m_name, raw_def.m_slots
-        );
         let module_name = if raw_def.m_name.is_null() {
             name.as_str()
         } else {
@@ -140,19 +126,6 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
         };
 
         let module = vm.new_module(module_name, vm.ctx.new_dict(), doc);
-        let module_type = unsafe { Py_TYPE(module.as_object().as_raw().cast_mut()) };
-        eprintln!(
-            "facade create module={:p} module_type={:p} exported_module_type_sym={:p} subtype={}",
-            module.as_object().as_raw(),
-            module_type,
-            core::ptr::addr_of_mut!(crate::symbols::PYMODULE_TYPE_HANDLE).cast::<PyTypeObject>(),
-            unsafe {
-                PyType_IsSubtype(
-                    module_type,
-                    core::ptr::addr_of_mut!(crate::symbols::PYMODULE_TYPE_HANDLE).cast::<PyTypeObject>(),
-                )
-            }
-        );
         let sys_modules = vm.sys_module.get_attr("modules", vm)?;
         sys_modules.set_item(name.as_pystr(), module.clone().into(), vm)?;
 
@@ -179,13 +152,6 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
                             let raw_exc = unsafe { get_exc() };
                             if !raw_exc.is_null() {
                                 let exc_obj = unsafe { &*raw_exc }.to_owned();
-                                eprintln!(
-                                    "facade exec rc!=0 raw_exc class={}({:p}) builtin_attr={:p} builtin_exc={:p}",
-                                    exc_obj.class().name(),
-                                    exc_obj.class().as_object().as_raw(),
-                                    vm.ctx.exceptions.attribute_error.as_object().as_raw(),
-                                    vm.ctx.exceptions.exception_type.as_object().as_raw(),
-                                );
                                 if let Ok(err) = exc_obj.downcast() {
                                     return Err(err);
                                 }

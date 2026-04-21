@@ -76,13 +76,6 @@ impl GetDescriptor for PyMethodDescriptor {
         vm: &VirtualMachine,
     ) -> PyResult {
         let descr = Self::_as_pyref(&zelf, vm).unwrap();
-        eprintln!(
-            "descr_get name={} obj_present={} cls_present={} flags={:?}",
-            descr.common.name.as_str(),
-            obj.is_some(),
-            cls.is_some(),
-            descr.method.flags,
-        );
         let bound = match obj {
             Some(obj) => {
                 if descr.method.flags.contains(PyMethodFlags::METHOD) {
@@ -104,14 +97,7 @@ impl GetDescriptor for PyMethodDescriptor {
             None if descr.method.flags.contains(PyMethodFlags::CLASS) => cls.unwrap(),
             None => return Ok(zelf),
         };
-        eprintln!(
-            "descr_get binding name={} bound_class={}",
-            descr.common.name.as_str(),
-            bound.class().name()
-        );
-        let result = descr.bind(bound, &vm.ctx);
-        eprintln!("descr_get bound name={}", descr.common.name.as_str());
-        Ok(result.into())
+        Ok(descr.bind(bound, &vm.ctx).into())
     }
 }
 

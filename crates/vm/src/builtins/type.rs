@@ -2523,54 +2523,19 @@ impl Callable for PyType {
         }
 
         let obj = if let Some(slot_new) = zelf.slots.new.load() {
-            if zelf.name().contains("blake3") {
-                eprintln!(
-                    "type.__call__ class={} slot_new={:?} slot_init={:?} new_wrapper={:?}",
-                    zelf.name(),
-                    Some(slot_new as usize),
-                    zelf.slots.init.load().map(|f| f as usize),
-                    Some(crate::types::new_wrapper as usize),
-                );
-            }
             slot_new(zelf.to_owned(), args.clone(), vm)?
         } else {
             return Err(vm.new_type_error(format!("cannot create '{}' instances", zelf.slots.name)));
         };
 
-        if zelf.name().contains("blake3") {
-            eprintln!(
-                "type.__call__ after_new obj={:p} obj_class={} target_class={}",
-                obj.as_object().as_raw(),
-                obj.class().name(),
-                zelf.name(),
-            );
-        }
-
         let issubclass = obj.class().fast_issubclass(zelf);
-        if zelf.name().contains("blake3") {
-            eprintln!(
-                "type.__call__ issubclass class={} value={}",
-                zelf.name(),
-                issubclass
-            );
-        }
 
         if !issubclass {
             return Ok(obj);
         }
 
         if let Some(init_method) = obj.class().slots.init.load() {
-            if zelf.name().contains("blake3") {
-                eprintln!(
-                    "type.__call__ before_init class={} init={:?}",
-                    zelf.name(),
-                    Some(init_method as usize),
-                );
-            }
             init_method(obj.clone(), args, vm)?;
-            if zelf.name().contains("blake3") {
-                eprintln!("type.__call__ after_init class={}", zelf.name());
-            }
         }
         Ok(obj)
     }

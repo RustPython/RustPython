@@ -253,10 +253,8 @@ mod _imp {
         type CreateDynamicFn = unsafe extern "C" fn(*mut crate::PyObject) -> *mut crate::PyObject;
         type TakeDynamicErrorFn = unsafe extern "C" fn() -> *mut crate::PyObject;
         let name: PyUtf8StrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
-        eprintln!("_imp.create_dynamic name={}", name.as_str());
         let symbol_name = CString::new("RustPython_CreateDynamicExtension").unwrap();
         let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, symbol_name.as_ptr()) };
-        eprintln!("_imp.create_dynamic symbol={:p}", symbol);
         if symbol.is_null() {
             return Err(vm.new_import_error(
                 "no external dynamic extension loader registered",
@@ -265,24 +263,14 @@ mod _imp {
         }
         let create_dynamic: CreateDynamicFn = unsafe { core::mem::transmute(symbol) };
         let raw_module = unsafe { create_dynamic(spec.as_raw().cast_mut()) };
-        eprintln!("_imp.create_dynamic raw_module={:p}", raw_module);
         if raw_module.is_null() {
             let err_symbol_name = CString::new("RustPython_TakeDynamicExtensionError").unwrap();
             let err_symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, err_symbol_name.as_ptr()) };
-            eprintln!("_imp.create_dynamic err_symbol={:p}", err_symbol);
             if !err_symbol.is_null() {
                 let take_error: TakeDynamicErrorFn = unsafe { core::mem::transmute(err_symbol) };
                 let raw_err = unsafe { take_error() };
-                eprintln!("_imp.create_dynamic raw_err={:p}", raw_err);
                 if !raw_err.is_null() {
                     let err_obj = unsafe { (&*raw_err).to_owned() };
-                    eprintln!(
-                        "_imp.create_dynamic raw_err class={}({:p}) builtin_attr={:p} builtin_exc={:p}",
-                        err_obj.class().name(),
-                        err_obj.class().as_object().as_raw(),
-                        vm.ctx.exceptions.attribute_error.as_object().as_raw(),
-                        vm.ctx.exceptions.exception_type.as_object().as_raw(),
-                    );
                     if let Ok(err) =
                         err_obj.downcast::<PyBaseException>()
                     {
