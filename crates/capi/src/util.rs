@@ -1,5 +1,5 @@
 use crate::PyObject;
-use crate::symbols::{exported_object_handle, resolve_object_handle, wrapper_refcnt};
+use crate::handles::{exported_object_handle, resolve_object_handle, wrapper_refcnt};
 use core::convert::Infallible;
 use core::ffi::{c_char, c_double, c_int, c_long, c_ulonglong, c_void};
 use core::ptr::NonNull;

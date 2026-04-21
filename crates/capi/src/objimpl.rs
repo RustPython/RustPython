@@ -1,6 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use crate::symbols::resolve_object_handle;
+use crate::handles::resolve_object_handle;
 use rustpython_vm::gc_state;
 
 #[unsafe(no_mangle)]

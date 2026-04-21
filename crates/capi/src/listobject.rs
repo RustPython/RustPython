@@ -1,6 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use crate::symbols::{exported_object_handle, resolve_object_handle};
+use crate::handles::{exported_object_handle, resolve_object_handle};
 use core::ffi::c_int;
 use core::ptr::NonNull;
 use rustpython_vm::AsObject;

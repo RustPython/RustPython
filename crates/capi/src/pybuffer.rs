@@ -1,6 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use crate::symbols::resolve_object_handle;
+use crate::handles::resolve_object_handle;
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use rustpython_vm::protocol::PyBuffer;

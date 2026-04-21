@@ -1,4 +1,4 @@
-use crate::symbols::{exported_object_handle, exported_object_wrapper, resolve_object_handle};
+use crate::handles::{exported_object_handle, exported_object_wrapper, resolve_object_handle};
 use crate::with_vm;
 use alloc::slice;
 use core::ffi::c_int;

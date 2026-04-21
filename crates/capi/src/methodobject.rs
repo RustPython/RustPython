@@ -1,7 +1,7 @@
 use crate::PyObject;
 use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
-use crate::symbols::exported_object_handle;
+use crate::handles::exported_object_handle;
 use crate::util::owned_from_exported_new_ref;
 use bitflags::bitflags_match;
 use core::ffi::{CStr, c_char, c_int};
@@ -196,7 +196,7 @@ pub extern "C" fn PyCMethod_New(
         let method = vm.ctx.new_method_def(name, callable, flags, Some(doc));
         if flags.contains(PyMethodFlags::METHOD) || flags.contains(PyMethodFlags::CLASS) {
             let class = if !cls.is_null() {
-                unsafe { &*crate::symbols::resolve_type_handle(cls) }
+                unsafe { &*crate::handles::resolve_type_handle(cls) }
             } else {
                 return Err(vm.new_system_error(format!(
                     "PyCMethod_New missing class for flagged method {name}"
@@ -204,7 +204,7 @@ pub extern "C" fn PyCMethod_New(
             };
             Ok(method.build_proper_method(class, vm))
         } else if flags.contains(PyMethodFlags::STATIC) && !cls.is_null() {
-            let class = unsafe { &*crate::symbols::resolve_type_handle(cls) };
+            let class = unsafe { &*crate::handles::resolve_type_handle(cls) };
             Ok(method.build_proper_method(class, vm))
         } else {
             Ok(method.build_function(vm).into())

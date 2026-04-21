@@ -1,5 +1,5 @@
 use crate::{PyObject, with_vm};
-use crate::symbols::resolve_object_handle;
+use crate::handles::resolve_object_handle;
 use core::ffi::{CStr, c_char};
 use rustpython_vm::builtins::PyStr;
 

@@ -1,4 +1,4 @@
-use crate::symbols::resolve_object_handle;
+use crate::handles::resolve_object_handle;
 use crate::{PyObject, with_vm};
 use core::ffi::c_char;
 use rustpython_vm::builtins::PyByteArray;

@@ -1,6 +1,5 @@
 use crate::log_stub;
 use crate::pyerrors::init_exception_statics;
-use crate::symbols::init_symbol_handles;
 use core::ffi::{c_char, c_int};
 use core::sync::atomic::{AtomicBool, Ordering};
 use rustpython_vm::VirtualMachine;
@@ -11,7 +10,6 @@ pub(crate) static INITIALIZED: AtomicBool = AtomicBool::new(false);
 pub fn initialize_for_vm(vm: &mut VirtualMachine) {
     unsafe {
         init_exception_statics(&vm.ctx.exceptions);
-        init_symbol_handles(&vm.ctx);
     }
     INITIALIZED.store(true, Ordering::Release);
 }
@@ -30,7 +28,6 @@ pub extern "C" fn Py_Initialize() {
 pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
     let _ = try_with_current_vm(|vm| unsafe {
         init_exception_statics(&vm.ctx.exceptions);
-        init_symbol_handles(&vm.ctx);
     });
     INITIALIZED.store(true, Ordering::Release);
 }

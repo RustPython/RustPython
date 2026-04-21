@@ -1,4 +1,4 @@
-use crate::symbols::{
+use crate::handles::{
     exported_object_handle, exported_object_wrapper, exported_type_handle, resolve_object_handle,
     resolve_type_handle,
 };

@@ -1,6 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use crate::symbols::{exported_object_handle, resolve_object_handle};
+use crate::handles::{exported_object_handle, resolve_object_handle};
 use rustpython_vm::AsObject;
 use rustpython_vm::PyResult;
 use rustpython_vm::builtins::PyTuple;

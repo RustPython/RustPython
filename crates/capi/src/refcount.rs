@@ -1,4 +1,4 @@
-use crate::symbols::{decref_wrapper, incref_wrapper, resolve_object_handle, wrapper_refcnt};
+use crate::handles::{decref_wrapper, incref_wrapper, resolve_object_handle, wrapper_refcnt};
 use crate::{PyObject, with_vm};
 use core::ptr::NonNull;
 use rustpython_vm::PyObjectRef;

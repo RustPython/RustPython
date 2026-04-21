@@ -1,4 +1,4 @@
-use crate::symbols::{exported_object_handle, resolve_object_handle};
+use crate::handles::{exported_object_handle, resolve_object_handle};
 use crate::{PyObject, with_vm};
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_int};
