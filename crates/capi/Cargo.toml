@@ -1,0 +1,21 @@
+[package]
+name = "rustpython-capi"
+description = "Minimal CPython C-API compatibility exports for RustPython"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rustpython-vm = { workspace = true, features = ["threading"] }
+
+[dev-dependencies]
+pyo3 = { version = "0.28", features = ["auto-initialize", "abi3"] }
+
+[lints]
+workspace = true
