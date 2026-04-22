@@ -1,3 +1,4 @@
+use crate::handles::{exported_object_handle, resolve_object_handle};
 use crate::{PyObject, with_vm};
 use core::ffi::{c_char, c_int};
 use core::ptr;
@@ -27,6 +28,7 @@ pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *
 #[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_AsUTF8AndSize(obj: *mut PyObject, size: *mut isize) -> *const c_char {
     with_vm(|vm| {
+        let obj = unsafe { resolve_object_handle(obj) };
         let obj = unsafe {
             obj.as_ref()
                 .expect("PyUnicode_AsUTF8AndSize called with null pointer")
@@ -58,7 +60,7 @@ pub extern "C" fn PyUnicode_AsEncodedString(
 #[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_EncodeFSDefault(unicode: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
+        let unicode = unsafe { &*resolve_object_handle(unicode) }.try_downcast_ref::<PyStr>(vm)?;
         let encoded = vm.fsencode(unicode)?;
         Ok(vm.ctx.new_bytes(encoded.into_owned().into_encoded_bytes()))
     })
@@ -67,13 +69,15 @@ pub extern "C" fn PyUnicode_EncodeFSDefault(unicode: *mut PyObject) -> *mut PyOb
 #[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_InternInPlace(string: *mut *mut PyObject) {
     with_vm(|vm| {
-        let old_str = unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(*string)) }
+        let old_str = unsafe {
+            PyObjectRef::from_raw(NonNull::new_unchecked(resolve_object_handle(*string)))
+        }
             .downcast_exact::<PyStr>(vm)
             .expect("PyUnicode_InternInPlace called with non-string object");
 
         let interned: PyObjectRef = vm.ctx.intern_str(old_str).to_owned().into();
 
-        unsafe { *string = interned.into_raw().as_ptr() }
+        unsafe { *string = exported_object_handle(interned.into_raw().as_ptr()) }
     })
 }
 
@@ -84,7 +88,7 @@ pub extern "C" fn PyUnicode_EqualToUTF8AndSize(
     size: isize,
 ) -> c_int {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
+        let unicode = unsafe { &*resolve_object_handle(unicode) }.try_downcast_ref::<PyStr>(vm)?;
         let result = unsafe {
             let slice = slice::from_raw_parts(string as _, size as _);
             str::from_utf8(slice)

@@ -224,6 +224,14 @@ pub extern "C" fn PyErr_NewExceptionWithDoc(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyException_GetCause(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*resolve_object_handle(exc) };
+        exc.get_attr("__cause__", vm)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let exc = unsafe { &*resolve_object_handle(exc) };

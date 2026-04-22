@@ -188,8 +188,17 @@ mod _imp {
 
     #[pyfunction]
     fn extension_suffixes(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let suffix = format!(".rustpython313-{}.so", crate::stdlib::sys::multiarch());
-        Ok(vec![vm.ctx.new_str(suffix).into()])
+        let version = format!("{}{}", crate::version::MAJOR, crate::version::MINOR);
+        let rustpython_suffix = format!(".rustpython{version}-{}.so", crate::stdlib::sys::multiarch());
+        let cpython_suffix = format!(
+            ".cpython-{version}-{}.so",
+            crate::stdlib::sys::cpython_ext_platform_tag()
+        );
+        Ok(vec![
+            vm.ctx.new_str(cpython_suffix).into(),
+            vm.ctx.new_str(".abi3.so").into(),
+            vm.ctx.new_str(rustpython_suffix).into(),
+        ])
     }
 
     #[pyfunction]

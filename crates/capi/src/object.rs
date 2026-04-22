@@ -786,6 +786,131 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                 .write()
                 .insert(vm.ctx.intern_str(name), getset.into_object());
         }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.float_func)
+            .is_some()
+        {
+            class.slots.as_number.float.store(Some(native_nb_float));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.str_func)
+            .is_some()
+        {
+            class.slots.str.store(Some(native_tp_str));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.repr_func)
+            .is_some()
+        {
+            class.slots.repr.store(Some(native_tp_repr));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.contains_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_sequence
+                .contains
+                .store(Some(native_sq_contains));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.sq_length_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_sequence
+                .length
+                .store(Some(native_sq_length));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.iter_func)
+            .is_some()
+        {
+            class.slots.iter.store(Some(native_tp_iter));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.iternext_func)
+            .is_some()
+        {
+            class.slots.iternext.store(Some(native_tp_iternext));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.mp_subscript_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_mapping
+                .subscript
+                .store(Some(native_mp_subscript));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.mp_length_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_mapping
+                .length
+                .store(Some(native_mp_length));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.richcompare_func)
+            .is_some()
+        {
+            class.slots.richcompare.store(Some(native_tp_richcompare));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.hash_func)
+            .is_some()
+        {
+            class.slots.hash.store(Some(native_tp_hash));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.subtract_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .subtract
+                .store(Some(native_nb_subtract));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.and_func)
+            .is_some()
+        {
+            class.slots.as_number.and.store(Some(native_nb_and));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.or_func)
+            .is_some()
+        {
+            class.slots.as_number.or.store(Some(native_nb_or));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.xor_func)
+            .is_some()
+        {
+            class.slots.as_number.xor.store(Some(native_nb_xor));
+        }
         let class_static = unsafe { &*((&*class) as *const _) };
         let ctx: &'static Context = unsafe { &*std::sync::Arc::as_ptr(&vm.ctx) };
         add_operators(class_static, ctx);
