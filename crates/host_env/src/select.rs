@@ -226,6 +226,12 @@ pub mod epoll {
     pub use rustix::event::Timespec;
     pub use rustix::event::epoll::{Event, EventData, EventFlags};
 
+    #[derive(Debug)]
+    pub enum WaitError {
+        Interrupted,
+        Io(std::io::Error),
+    }
+
     pub fn create() -> std::io::Result<OwnedFd> {
         rustix::event::epoll::create(rustix::event::epoll::CreateFlags::CLOEXEC).map_err(Into::into)
     }
@@ -262,8 +268,12 @@ pub mod epoll {
         epoll: &OwnedFd,
         events: &mut Vec<Event>,
         timeout: Option<&Timespec>,
-    ) -> rustix::io::Result<usize> {
+    ) -> Result<usize, WaitError> {
         events.clear();
-        rustix::event::epoll::wait(epoll, rustix::buffer::spare_capacity(events), timeout)
+        match rustix::event::epoll::wait(epoll, rustix::buffer::spare_capacity(events), timeout) {
+            Ok(n) => Ok(n),
+            Err(rustix::io::Errno::INTR) => Err(WaitError::Interrupted),
+            Err(err) => Err(WaitError::Io(err.into())),
+        }
     }
 }

@@ -1219,11 +1219,7 @@ mod _socket {
                         }
                         let cstr = alloc::ffi::CString::new(ifname)
                             .map_err(|_| vm.new_os_error("invalid interface name".to_owned()))?;
-                        let idx = unsafe { libc::if_nametoindex(cstr.as_ptr()) };
-                        if idx == 0 {
-                            return Err(io::Error::last_os_error().into());
-                        }
-                        idx as i32
+                        host_socket::if_nametoindex_checked(cstr.as_c_str())? as i32
                     };
 
                     // Create sockaddr_can
@@ -1830,6 +1826,8 @@ mod _socket {
         #[cfg(target_os = "linux")]
         #[pymethod]
         fn sendmsg_afalg(&self, args: SendmsgAfalgArgs, vm: &VirtualMachine) -> PyResult<usize> {
+            use std::os::fd::BorrowedFd;
+
             let msg = args.msg;
             let op = args.op;
             let iv = args.iv;
@@ -1844,100 +1842,17 @@ mod _socket {
                 OptionalArg::Missing => None,
             };
 
-            // Build control messages for AF_ALG
-            let mut control_buf = Vec::new();
-
-            // Add ALG_SET_OP control message
-            {
-                let op_bytes = op.to_ne_bytes();
-                let space =
-                    unsafe { libc::CMSG_SPACE(core::mem::size_of::<u32>() as u32) } as usize;
-                let old_len = control_buf.len();
-                control_buf.resize(old_len + space, 0u8);
-
-                let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
-                unsafe {
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(core::mem::size_of::<u32>() as u32) as _;
-                    (*cmsg).cmsg_level = libc::SOL_ALG;
-                    (*cmsg).cmsg_type = libc::ALG_SET_OP;
-                    let data = libc::CMSG_DATA(cmsg);
-                    core::ptr::copy_nonoverlapping(op_bytes.as_ptr(), data, op_bytes.len());
-                }
-            }
-
-            // Add ALG_SET_IV control message if iv is provided
-            if let Some(iv_data) = iv {
-                let iv_bytes = iv_data.borrow_buf();
-                // struct af_alg_iv { __u32 ivlen; __u8 iv[]; }
-                let iv_struct_size = 4 + iv_bytes.len();
-                let space = unsafe { libc::CMSG_SPACE(iv_struct_size as u32) } as usize;
-                let old_len = control_buf.len();
-                control_buf.resize(old_len + space, 0u8);
-
-                let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
-                unsafe {
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(iv_struct_size as u32) as _;
-                    (*cmsg).cmsg_level = libc::SOL_ALG;
-                    (*cmsg).cmsg_type = libc::ALG_SET_IV;
-                    let data = libc::CMSG_DATA(cmsg);
-                    // Write ivlen
-                    let ivlen = (iv_bytes.len() as u32).to_ne_bytes();
-                    core::ptr::copy_nonoverlapping(ivlen.as_ptr(), data, 4);
-                    // Write iv
-                    core::ptr::copy_nonoverlapping(iv_bytes.as_ptr(), data.add(4), iv_bytes.len());
-                }
-            }
-
-            // Add ALG_SET_AEAD_ASSOCLEN control message if assoclen is provided
-            if let Some(assoclen_val) = assoclen {
-                let assoclen_bytes = assoclen_val.to_ne_bytes();
-                let space =
-                    unsafe { libc::CMSG_SPACE(core::mem::size_of::<u32>() as u32) } as usize;
-                let old_len = control_buf.len();
-                control_buf.resize(old_len + space, 0u8);
-
-                let cmsg = control_buf[old_len..].as_mut_ptr() as *mut libc::cmsghdr;
-                unsafe {
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(core::mem::size_of::<u32>() as u32) as _;
-                    (*cmsg).cmsg_level = libc::SOL_ALG;
-                    (*cmsg).cmsg_type = libc::ALG_SET_AEAD_ASSOCLEN;
-                    let data = libc::CMSG_DATA(cmsg);
-                    core::ptr::copy_nonoverlapping(
-                        assoclen_bytes.as_ptr(),
-                        data,
-                        assoclen_bytes.len(),
-                    );
-                }
-            }
-
-            // Build buffers
             let buffers = msg.iter().map(|buf| buf.borrow_buf()).collect::<Vec<_>>();
-            let iovecs: Vec<libc::iovec> = buffers
+            let buffers = buffers
                 .iter()
-                .map(|buf| libc::iovec {
-                    iov_base: buf.as_ptr() as *mut _,
-                    iov_len: buf.len(),
-                })
-                .collect();
-
-            // Set up msghdr
-            let mut msghdr: libc::msghdr = unsafe { core::mem::zeroed() };
-            msghdr.msg_iov = iovecs.as_ptr() as *mut _;
-            msghdr.msg_iovlen = iovecs.len() as _;
-            if !control_buf.is_empty() {
-                msghdr.msg_control = control_buf.as_mut_ptr() as *mut _;
-                msghdr.msg_controllen = control_buf.len() as _;
-            }
+                .map(|buf| io::IoSlice::new(buf))
+                .collect::<Vec<_>>();
+            let iv = iv.map(|iv| iv.borrow_buf()).map(|iv| iv.to_vec());
 
             self.sock_op(vm, SelectKind::Write, || {
                 let sock = self.sock()?;
-                let fd = sock_fileno(&sock);
-                let ret = unsafe { libc::sendmsg(fd as libc::c_int, &msghdr, flags) };
-                if ret < 0 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(ret as usize)
-                }
+                let fd = unsafe { BorrowedFd::borrow_raw(sock_fileno(&sock)) };
+                host_socket::sendmsg_afalg(fd, &buffers, op, iv.as_deref(), assoclen, flags)
             })
             .map_err(|e| e.into_pyexception(vm))
         }
@@ -1954,8 +1869,6 @@ mod _socket {
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<PyTupleRef> {
-            use core::mem::MaybeUninit;
-
             if bufsize < 0 {
                 return Err(vm.new_value_error("negative buffer size in recvmsg"));
             }
@@ -1968,62 +1881,29 @@ mod _socket {
             let ancbufsize = ancbufsize as usize;
             let flags = flags.unwrap_or(0);
 
-            // Allocate buffers
-            let mut data_buf: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); bufsize];
-            let mut anc_buf: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); ancbufsize];
-            let mut addr_storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
-
-            // Set up iovec
-            let mut iov = [libc::iovec {
-                iov_base: data_buf.as_mut_ptr().cast(),
-                iov_len: bufsize,
-            }];
-
-            // Set up msghdr
-            let mut msg: libc::msghdr = unsafe { core::mem::zeroed() };
-            msg.msg_name = (&mut addr_storage as *mut libc::sockaddr_storage).cast();
-            msg.msg_namelen = core::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
-            msg.msg_iov = iov.as_mut_ptr();
-            msg.msg_iovlen = 1;
-            if ancbufsize > 0 {
-                msg.msg_control = anc_buf.as_mut_ptr().cast();
-                msg.msg_controllen = ancbufsize as _;
-            }
-
-            let n = self
+            let msg = self
                 .sock_op(vm, SelectKind::Read, || {
                     let sock = self.sock()?;
-                    let fd = sock_fileno(&sock);
-                    let ret = unsafe { libc::recvmsg(fd as libc::c_int, &mut msg, flags) };
-                    if ret < 0 {
-                        Err(io::Error::last_os_error())
-                    } else {
-                        Ok(ret as usize)
-                    }
+                    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock_fileno(&sock)) };
+                    host_socket::recvmsg(fd, bufsize, ancbufsize, flags)
                 })
                 .map_err(|e| e.into_pyexception(vm))?;
 
-            // Build data bytes
-            let data = unsafe {
-                data_buf.set_len(n);
-                core::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(data_buf)
-            };
-
             // Build ancdata list
-            let ancdata = Self::parse_ancillary_data(&msg, vm)?;
+            let ancdata = Self::parse_ancillary_data(&msg.ancdata, vm)?;
 
             // Build address tuple
-            let address = if msg.msg_namelen > 0 {
+            let address = if let Some(address) = msg.address {
                 let storage: socket2::SockAddrStorage =
-                    unsafe { core::mem::transmute(addr_storage) };
-                let addr = unsafe { socket2::SockAddr::new(storage, msg.msg_namelen) };
+                    unsafe { core::mem::transmute(address.storage) };
+                let addr = unsafe { socket2::SockAddr::new(storage, address.len as _) };
                 get_addr_tuple(&addr, vm)
             } else {
                 vm.ctx.none()
             };
 
             Ok(vm.ctx.new_tuple(vec![
-                vm.ctx.new_bytes(data).into(),
+                vm.ctx.new_bytes(msg.data).into(),
                 ancdata,
                 vm.ctx.new_int(msg.msg_flags).into(),
                 address,
@@ -2032,35 +1912,18 @@ mod _socket {
 
         /// Parse ancillary data from a received message header
         #[cfg(all(unix, not(target_os = "redox")))]
-        fn parse_ancillary_data(msg: &libc::msghdr, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn parse_ancillary_data(
+            control: &[host_socket::AncillaryMessage],
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
             let mut result = Vec::new();
-
-            // Calculate buffer end for truncation handling
-            let ctrl_buf = msg.msg_control as *const u8;
-            let ctrl_end = unsafe { ctrl_buf.add(msg.msg_controllen as _) };
-
-            let mut cmsg: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(msg) };
-            while !cmsg.is_null() {
-                let cmsg_ref = unsafe { &*cmsg };
-                let data_ptr = unsafe { libc::CMSG_DATA(cmsg) };
-
-                // Calculate data length, respecting buffer truncation
-                let data_len_from_cmsg =
-                    cmsg_ref.cmsg_len as usize - (data_ptr as usize - cmsg as usize);
-                let available = ctrl_end as usize - data_ptr as usize;
-                let data_len = data_len_from_cmsg.min(available);
-
-                let data = unsafe { core::slice::from_raw_parts(data_ptr, data_len) };
-
+            for cmsg in control {
                 let tuple = vm.ctx.new_tuple(vec![
-                    vm.ctx.new_int(cmsg_ref.cmsg_level).into(),
-                    vm.ctx.new_int(cmsg_ref.cmsg_type).into(),
-                    vm.ctx.new_bytes(data.to_vec()).into(),
+                    vm.ctx.new_int(cmsg.level).into(),
+                    vm.ctx.new_int(cmsg.kind).into(),
+                    vm.ctx.new_bytes(cmsg.data.clone()).into(),
                 ]);
-
                 result.push(tuple.into());
-
-                cmsg = unsafe { libc::CMSG_NXTHDR(msg, cmsg) };
             }
 
             Ok(vm.ctx.new_list(result).into())
@@ -2072,53 +1935,32 @@ mod _socket {
             cmsgs: &[(i32, i32, ArgBytesLike)],
             vm: &VirtualMachine,
         ) -> PyResult<Vec<u8>> {
-            use core::{mem, ptr};
-
             if cmsgs.is_empty() {
                 return Ok(vec![]);
             }
-
-            let capacity = cmsgs
+            let data = cmsgs
                 .iter()
-                .map(|(_, _, buf)| buf.len())
-                .try_fold(0, |sum, len| {
-                    let space = checked_cmsg_space(len).ok_or_else(|| {
-                        vm.new_os_error("ancillary data item too large".to_owned())
-                    })?;
-                    usize::checked_add(sum, space)
-                        .ok_or_else(|| vm.new_os_error("too much ancillary data".to_owned()))
-                })?;
+                .map(|(lvl, typ, buf)| {
+                    let data = buf.borrow_buf();
+                    (*lvl, *typ, data.to_vec())
+                })
+                .collect::<Vec<_>>();
+            let data_refs = data
+                .iter()
+                .map(|(lvl, typ, data)| (*lvl, *typ, data.as_slice()))
+                .collect::<Vec<_>>();
 
-            let mut cmsg_buffer = vec![0u8; capacity];
-
-            // make a dummy msghdr so we can use the CMSG_* apis
-            let mut mhdr = unsafe { mem::zeroed::<libc::msghdr>() };
-            mhdr.msg_control = cmsg_buffer.as_mut_ptr().cast();
-            mhdr.msg_controllen = capacity as _;
-
-            let mut pmhdr: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(&mhdr) };
-            for (lvl, typ, buf) in cmsgs {
-                if pmhdr.is_null() {
-                    return Err(vm.new_runtime_error(
-                        "unexpected NULL result from CMSG_FIRSTHDR/CMSG_NXTHDR",
-                    ));
+            host_socket::pack_ancillary_messages(&data_refs).map_err(|err| match err {
+                host_socket::AncillaryPackError::ItemTooLarge => {
+                    vm.new_os_error("ancillary data item too large".to_owned())
                 }
-                let data = &*buf.borrow_buf();
-                assert_eq!(data.len(), buf.len());
-                // Safe because we know that pmhdr is valid, and we initialized it with
-                // sufficient space
-                unsafe {
-                    (*pmhdr).cmsg_level = *lvl;
-                    (*pmhdr).cmsg_type = *typ;
-                    (*pmhdr).cmsg_len = libc::CMSG_LEN(data.len() as _) as _;
-                    ptr::copy_nonoverlapping(data.as_ptr(), libc::CMSG_DATA(pmhdr), data.len());
+                host_socket::AncillaryPackError::TooMuchData => {
+                    vm.new_os_error("too much ancillary data".to_owned())
                 }
-
-                // Safe because mhdr is valid
-                pmhdr = unsafe { libc::CMSG_NXTHDR(&mhdr, pmhdr) };
-            }
-
-            Ok(cmsg_buffer)
+                host_socket::AncillaryPackError::UnexpectedNullHeader => {
+                    vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR/CMSG_NXTHDR")
+                }
+            })
         }
 
         #[pymethod]
@@ -2212,20 +2054,7 @@ mod _socket {
             let fd = sock_fileno(&sock);
             let buflen = buflen.unwrap_or(0);
             if buflen == 0 {
-                let mut flag: libc::c_int = 0;
-                let mut flagsize = core::mem::size_of::<libc::c_int>() as _;
-                let ret = unsafe {
-                    c::getsockopt(
-                        fd as _,
-                        level,
-                        name,
-                        &mut flag as *mut libc::c_int as *mut _,
-                        &mut flagsize,
-                    )
-                };
-                if ret < 0 {
-                    return Err(rustpython_host_env::os::errno_io_error().into());
-                }
+                let flag = host_socket::getsockopt_int(fd as _, level, name)?;
                 Ok(vm.ctx.new_int(flag).into())
             } else {
                 if buflen <= 0 || buflen > 1024 {
@@ -2233,21 +2062,7 @@ mod _socket {
                         .new_os_error("getsockopt buflen out of range".to_owned())
                         .into());
                 }
-                let mut buf = vec![0u8; buflen as usize];
-                let mut buflen = buflen as _;
-                let ret = unsafe {
-                    c::getsockopt(
-                        fd as _,
-                        level,
-                        name,
-                        buf.as_mut_ptr() as *mut _,
-                        &mut buflen,
-                    )
-                };
-                if ret < 0 {
-                    return Err(rustpython_host_env::os::errno_io_error().into());
-                }
-                buf.truncate(buflen as usize);
+                let buf = host_socket::getsockopt_bytes(fd as _, level, name, buflen as usize)?;
                 Ok(vm.ctx.new_bytes(buf).into())
             }
         }
@@ -2263,33 +2078,23 @@ mod _socket {
         ) -> Result<(), IoOrPyException> {
             let sock = self.sock()?;
             let fd = sock_fileno(&sock);
-            let ret = match (value, optlen) {
-                (Some(Either::A(b)), OptionalArg::Missing) => b.with_ref(|b| unsafe {
-                    c::setsockopt(fd as _, level, name, b.as_ptr() as *const _, b.len() as _)
-                }),
-                (Some(Either::B(ref val)), OptionalArg::Missing) => unsafe {
-                    c::setsockopt(
-                        fd as _,
-                        level,
-                        name,
-                        val as *const i32 as *const _,
-                        core::mem::size_of::<i32>() as _,
-                    )
-                },
-                (None, OptionalArg::Present(optlen)) => unsafe {
-                    c::setsockopt(fd as _, level, name, core::ptr::null(), optlen as _)
-                },
+            match (value, optlen) {
+                (Some(Either::A(b)), OptionalArg::Missing) => {
+                    b.with_ref(|b| host_socket::setsockopt_bytes(fd as _, level, name, b))?
+                }
+                (Some(Either::B(val)), OptionalArg::Missing) => {
+                    host_socket::setsockopt_int(fd as _, level, name, val)?
+                }
+                (None, OptionalArg::Present(optlen)) => {
+                    host_socket::setsockopt_none(fd as _, level, name, optlen)?
+                }
                 _ => {
                     return Err(vm
                         .new_type_error("expected the value arg xor the optlen arg")
                         .into());
                 }
-            };
-            if ret < 0 {
-                Err(rustpython_host_env::os::errno_io_error().into())
-            } else {
-                Ok(())
             }
+            Ok(())
         }
 
         #[pymethod]
@@ -2498,18 +2303,7 @@ mod _socket {
                     String::new()
                 } else {
                     let mut buf = [0u8; libc::IF_NAMESIZE];
-                    let ret = unsafe {
-                        libc::if_indextoname(
-                            ifindex as libc::c_uint,
-                            buf.as_mut_ptr() as *mut libc::c_char,
-                        )
-                    };
-                    if ret.is_null() {
-                        String::new()
-                    } else {
-                        let nul_pos = memchr::memchr(b'\0', &buf).unwrap_or(buf.len());
-                        String::from_utf8_lossy(&buf[..nul_pos]).into_owned()
-                    }
+                    host_socket::if_indextoname_checked(ifindex as u32).unwrap_or_default()
                 };
                 return vm.ctx.new_tuple(vec![vm.ctx.new_str(ifname).into()]).into();
             }
@@ -3184,19 +2978,14 @@ mod _socket {
         let strerr = {
             #[cfg(unix)]
             {
-                let s = match err_kind {
-                    SocketError::GaiError => unsafe {
-                        ffi::CStr::from_ptr(libc::gai_strerror(err.error_num()))
-                    },
-                    SocketError::HError => unsafe {
-                        ffi::CStr::from_ptr(libc::hstrerror(err.error_num()))
-                    },
-                };
-                s.to_str().unwrap()
+                match err_kind {
+                    SocketError::GaiError => host_socket::gai_error_string(err.error_num()),
+                    SocketError::HError => host_socket::h_error_string(err.error_num()),
+                }
             }
             #[cfg(windows)]
             {
-                "getaddrinfo failed"
+                "getaddrinfo failed".to_owned()
             }
         };
         let exception_cls = match err_kind {
@@ -3286,20 +3075,7 @@ mod _socket {
     }
 
     fn close_inner(x: RawSocket) -> io::Result<()> {
-        #[cfg(unix)]
-        use libc::close;
-        #[cfg(windows)]
-        {
-            return host_socket::close_socket_ignore_connreset(x as _);
-        }
-        let ret = unsafe { close(x as _) };
-        if ret < 0 {
-            let err = std::io::Error::last_os_error();
-            if err.raw_os_error() != Some(errcode!(ECONNRESET)) {
-                return Err(err);
-            }
-        }
-        Ok(())
+        host_socket::close_socket_ignore_connreset(x as _)
     }
 
     enum SocketError {
@@ -3308,44 +3084,16 @@ mod _socket {
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
-    fn checked_cmsg_len(len: usize) -> Option<usize> {
-        // SAFETY: CMSG_LEN is always safe
-        let cmsg_len = |length| unsafe { libc::CMSG_LEN(length) };
-        if len as u64 > (i32::MAX as u64 - cmsg_len(0) as u64) {
-            return None;
-        }
-        let res = cmsg_len(len as _) as usize;
-        if res > i32::MAX as usize || res < len {
-            return None;
-        }
-        Some(res)
-    }
-
-    #[cfg(all(unix, not(target_os = "redox")))]
-    fn checked_cmsg_space(len: usize) -> Option<usize> {
-        // SAFETY: CMSG_SPACE is always safe
-        let cmsg_space = |length| unsafe { libc::CMSG_SPACE(length) };
-        if len as u64 > (i32::MAX as u64 - cmsg_space(1) as u64) {
-            return None;
-        }
-        let res = cmsg_space(len as _) as usize;
-        if res > i32::MAX as usize || res < len {
-            return None;
-        }
-        Some(res)
-    }
-
-    #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "CMSG_LEN")]
     fn cmsg_len(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
-        checked_cmsg_len(length)
+        host_socket::checked_cmsg_len(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_LEN() argument out of range"))
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "CMSG_SPACE")]
     fn cmsg_space(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
-        checked_cmsg_space(length)
+        host_socket::checked_cmsg_space(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range"))
     }
 }

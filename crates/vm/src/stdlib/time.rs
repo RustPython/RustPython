@@ -33,8 +33,6 @@ mod decl {
     };
     #[cfg(any(unix, windows))]
     use crate::{common::wtf8::Wtf8Buf, convert::ToPyObject};
-    #[cfg(unix)]
-    use alloc::ffi::CString;
     #[cfg(not(any(unix, windows)))]
     use chrono::{
         DateTime, Datelike, TimeZone, Timelike,
@@ -44,16 +42,6 @@ mod decl {
     #[cfg(any(unix, windows))]
     use rustpython_host_env::time::asctime_from_tm;
     use rustpython_host_env::time::{self as host_time};
-
-    #[cfg(windows)]
-    unsafe extern "C" {
-        fn wcsftime(
-            s: *mut libc::wchar_t,
-            max: libc::size_t,
-            format: *const libc::wchar_t,
-            tm: *const libc::tm,
-        ) -> libc::size_t;
-    }
 
     #[allow(dead_code)]
     pub(super) const SEC_TO_MS: i64 = host_time::SEC_TO_MS;
@@ -322,18 +310,11 @@ mod decl {
     }
 
     #[cfg(any(unix, windows))]
-    struct CheckedTm {
-        tm: libc::tm,
-        #[cfg(unix)]
-        zone: Option<CString>,
-    }
-
-    #[cfg(any(unix, windows))]
     fn checked_tm_from_struct_time(
         t: &StructTimeData,
         vm: &VirtualMachine,
         func_name: &'static str,
-    ) -> PyResult<CheckedTm> {
+    ) -> PyResult<host_time::CheckedTm> {
         let invalid_tuple =
             || vm.new_type_error(format!("{func_name}(): illegal time tuple argument"));
         let classify_err = |e: PyBaseExceptionRef| {
@@ -384,45 +365,6 @@ mod decl {
             .try_into_value(vm)
             .map_err(classify_err)?;
 
-        let mut tm: libc::tm = unsafe { core::mem::zeroed() };
-        tm.tm_year = year - 1900;
-        tm.tm_mon = tm_mon;
-        tm.tm_mday = tm_mday;
-        tm.tm_hour = tm_hour;
-        tm.tm_min = tm_min;
-        tm.tm_sec = tm_sec;
-        tm.tm_wday = tm_wday;
-        tm.tm_yday = tm_yday;
-        tm.tm_isdst = tm_isdst;
-
-        if tm.tm_mon == -1 {
-            tm.tm_mon = 0;
-        } else if tm.tm_mon < 0 || tm.tm_mon > 11 {
-            return Err(vm.new_value_error("month out of range"));
-        }
-        if tm.tm_mday == 0 {
-            tm.tm_mday = 1;
-        } else if tm.tm_mday < 0 || tm.tm_mday > 31 {
-            return Err(vm.new_value_error("day of month out of range"));
-        }
-        if tm.tm_hour < 0 || tm.tm_hour > 23 {
-            return Err(vm.new_value_error("hour out of range"));
-        }
-        if tm.tm_min < 0 || tm.tm_min > 59 {
-            return Err(vm.new_value_error("minute out of range"));
-        }
-        if tm.tm_sec < 0 || tm.tm_sec > 61 {
-            return Err(vm.new_value_error("seconds out of range"));
-        }
-        if tm.tm_wday < 0 {
-            return Err(vm.new_value_error("day of week out of range"));
-        }
-        if tm.tm_yday == -1 {
-            tm.tm_yday = 0;
-        } else if tm.tm_yday < 0 || tm.tm_yday > 365 {
-            return Err(vm.new_value_error("day of year out of range"));
-        }
-
         #[cfg(unix)]
         {
             use crate::builtins::PyUtf8StrRef;
@@ -434,28 +376,75 @@ mod decl {
                     .clone()
                     .try_into_value(vm)
                     .map_err(|_| invalid_tuple())?;
+                Some(zone.as_str().to_owned())
+            };
+            let gmtoff = if t.tm_gmtoff.is(&vm.ctx.none) {
+                None
+            } else {
                 Some(
-                    CString::new(zone.as_str())
-                        .map_err(|_| vm.new_value_error("embedded null character"))?,
+                    t.tm_gmtoff
+                        .clone()
+                        .try_into_value::<i64>(vm)
+                        .map_err(classify_err)?,
                 )
             };
-            if let Some(zone) = &zone {
-                tm.tm_zone = zone.as_ptr().cast_mut();
-            }
-            if !t.tm_gmtoff.is(&vm.ctx.none) {
-                let gmtoff: i64 = t
-                    .tm_gmtoff
-                    .clone()
-                    .try_into_value(vm)
-                    .map_err(classify_err)?;
-                tm.tm_gmtoff = gmtoff as _;
-            }
-
-            Ok(CheckedTm { tm, zone })
+            host_time::checked_tm_from_parts(host_time::CheckedTmParts {
+                year: year.into(),
+                tm_mon,
+                tm_mday,
+                tm_hour,
+                tm_min,
+                tm_sec,
+                tm_wday,
+                tm_yday,
+                tm_isdst,
+                zone,
+                gmtoff,
+            })
+            .map_err(|err| map_checked_tm_error(vm, err))
         }
         #[cfg(windows)]
         {
-            Ok(CheckedTm { tm })
+            host_time::checked_tm_from_parts(host_time::CheckedTmParts {
+                year: year.into(),
+                tm_mon,
+                tm_mday,
+                tm_hour,
+                tm_min,
+                tm_sec,
+                tm_wday,
+                tm_yday,
+                tm_isdst,
+            })
+            .map_err(|err| map_checked_tm_error(vm, err))
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    fn map_checked_tm_error(
+        vm: &VirtualMachine,
+        err: host_time::CheckedTmError,
+    ) -> PyBaseExceptionRef {
+        match err {
+            host_time::CheckedTmError::YearOutOfRange => vm.new_overflow_error("year out of range"),
+            host_time::CheckedTmError::MonthOutOfRange => vm.new_value_error("month out of range"),
+            host_time::CheckedTmError::DayOfMonthOutOfRange => {
+                vm.new_value_error("day of month out of range")
+            }
+            host_time::CheckedTmError::HourOutOfRange => vm.new_value_error("hour out of range"),
+            host_time::CheckedTmError::MinuteOutOfRange => {
+                vm.new_value_error("minute out of range")
+            }
+            host_time::CheckedTmError::SecondsOutOfRange => {
+                vm.new_value_error("seconds out of range")
+            }
+            host_time::CheckedTmError::DayOfWeekOutOfRange => {
+                vm.new_value_error("day of week out of range")
+            }
+            host_time::CheckedTmError::DayOfYearOutOfRange => {
+                vm.new_value_error("day of year out of range")
+            }
+            host_time::CheckedTmError::EmbeddedNul => vm.new_value_error("embedded null character"),
         }
     }
 
@@ -592,7 +581,11 @@ mod decl {
     }
 
     #[cfg(any(unix, windows))]
-    fn strftime_crt(format: &PyStrRef, checked_tm: CheckedTm, vm: &VirtualMachine) -> PyResult {
+    fn strftime_crt(
+        format: &PyStrRef,
+        checked_tm: host_time::CheckedTm,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         #[cfg(unix)]
         let _keep_zone_alive = &checked_tm.zone;
         let mut tm = checked_tm.tm;
@@ -607,62 +600,14 @@ mod decl {
             }
         }
 
-        #[cfg(unix)]
-        fn strftime_ascii(fmt: &str, tm: &libc::tm, vm: &VirtualMachine) -> PyResult<String> {
-            let fmt_c =
-                CString::new(fmt).map_err(|_| vm.new_value_error("embedded null character"))?;
-            let mut size = 1024usize;
-            let max_scale = 256usize.saturating_mul(fmt.len().max(1));
-            loop {
-                let mut out = vec![0u8; size];
-                let written = unsafe {
-                    libc::strftime(
-                        out.as_mut_ptr().cast(),
-                        out.len(),
-                        fmt_c.as_ptr(),
-                        tm as *const libc::tm,
-                    )
-                };
-                if written > 0 || size >= max_scale {
-                    return Ok(String::from_utf8_lossy(&out[..written]).into_owned());
-                }
-                size = size.saturating_mul(2);
-            }
-        }
-
-        #[cfg(windows)]
-        fn strftime_ascii(fmt: &str, tm: &libc::tm, vm: &VirtualMachine) -> PyResult<String> {
-            if fmt.contains('\0') {
-                return Err(vm.new_value_error("embedded null character"));
-            }
-            // Use wcsftime for proper Unicode output (e.g. %Z timezone names)
-            let fmt_wide: Vec<u16> = fmt.encode_utf16().chain(core::iter::once(0)).collect();
-            let mut size = 1024usize;
-            let max_scale = 256usize.saturating_mul(fmt.len().max(1));
-            loop {
-                let mut out = vec![0u16; size];
-                let written = unsafe {
-                    rustpython_host_env::suppress_iph!(wcsftime(
-                        out.as_mut_ptr(),
-                        out.len(),
-                        fmt_wide.as_ptr(),
-                        tm as *const libc::tm,
-                    ))
-                };
-                if written > 0 || size >= max_scale {
-                    return Ok(String::from_utf16_lossy(&out[..written]));
-                }
-                size = size.saturating_mul(2);
-            }
-        }
-
         let mut out = Wtf8Buf::new();
         let mut ascii = String::new();
 
         for codepoint in format.as_wtf8().code_points() {
             if codepoint.to_u32() == 0 {
                 if !ascii.is_empty() {
-                    let part = strftime_ascii(&ascii, &tm, vm)?;
+                    let part = host_time::strftime_ascii(&ascii, &tm)
+                        .map_err(|_| vm.new_value_error("embedded null character"))?;
                     out.extend(part.chars());
                     ascii.clear();
                 }
@@ -677,14 +622,16 @@ mod decl {
             }
 
             if !ascii.is_empty() {
-                let part = strftime_ascii(&ascii, &tm, vm)?;
+                let part = host_time::strftime_ascii(&ascii, &tm)
+                    .map_err(|_| vm.new_value_error("embedded null character"))?;
                 out.extend(part.chars());
                 ascii.clear();
             }
             out.push(codepoint);
         }
         if !ascii.is_empty() {
-            let part = strftime_ascii(&ascii, &tm, vm)?;
+            let part = host_time::strftime_ascii(&ascii, &tm)
+                .map_err(|_| vm.new_value_error("embedded null character"))?;
             out.extend(part.chars());
         }
         Ok(out.to_pyobject(vm))
@@ -773,8 +720,8 @@ mod decl {
 
     #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let times =
-            host_time::process_times().map_err(|_| vm.new_os_error("Failed to get clock time".to_owned()))?;
+        let times = host_time::process_times()
+            .map_err(|_| vm.new_os_error("Failed to get clock time".to_owned()))?;
         Ok(Duration::from_secs_f64(times.user + times.system))
     }
 
@@ -921,31 +868,32 @@ mod decl {
             return Err(vm.new_overflow_error("year out of range"));
         }
 
-        let mut tm: libc::tm = unsafe { core::mem::zeroed() };
-        tm.tm_sec = t.tm_sec.clone().try_into_value(vm).map_err(classify_err)?;
-        tm.tm_min = t.tm_min.clone().try_into_value(vm).map_err(classify_err)?;
-        tm.tm_hour = t.tm_hour.clone().try_into_value(vm).map_err(classify_err)?;
-        tm.tm_mday = t.tm_mday.clone().try_into_value(vm).map_err(classify_err)?;
-        tm.tm_mon = t
-            .tm_mon
-            .clone()
-            .try_into_value::<i32>(vm)
-            .map_err(classify_err)?
-            - 1;
-        tm.tm_year = year - 1900;
-        tm.tm_wday = -1;
-        tm.tm_yday = t
-            .tm_yday
-            .clone()
-            .try_into_value::<i32>(vm)
-            .map_err(classify_err)?
-            - 1;
-        tm.tm_isdst = t
-            .tm_isdst
-            .clone()
-            .try_into_value(vm)
-            .map_err(classify_err)?;
-        Ok(tm)
+        host_time::mktime_tm_from_parts(host_time::MktimeTmParts {
+            year,
+            tm_sec: t.tm_sec.clone().try_into_value(vm).map_err(classify_err)?,
+            tm_min: t.tm_min.clone().try_into_value(vm).map_err(classify_err)?,
+            tm_hour: t.tm_hour.clone().try_into_value(vm).map_err(classify_err)?,
+            tm_mday: t.tm_mday.clone().try_into_value(vm).map_err(classify_err)?,
+            tm_mon: t
+                .tm_mon
+                .clone()
+                .try_into_value::<i32>(vm)
+                .map_err(classify_err)?,
+            tm_yday: t
+                .tm_yday
+                .clone()
+                .try_into_value::<i32>(vm)
+                .map_err(classify_err)?,
+            tm_isdst: t
+                .tm_isdst
+                .clone()
+                .try_into_value(vm)
+                .map_err(classify_err)?,
+        })
+        .map_err(|err| match err {
+            host_time::CheckedTmError::YearOutOfRange => vm.new_overflow_error("year out of range"),
+            _ => vm.new_type_error("mktime(): illegal time tuple argument"),
+        })
     }
 
     #[cfg(any(unix, windows))]
@@ -1278,13 +1226,6 @@ mod platform {
     use core::time::Duration;
     use rustpython_host_env::time as host_time;
 
-    unsafe extern "C" {
-        fn _gmtime64_s(tm: *mut libc::tm, time: *const libc::time_t) -> libc::c_int;
-        fn _localtime64_s(tm: *mut libc::tm, time: *const libc::time_t) -> libc::c_int;
-        #[link_name = "_mktime64"]
-        fn c_mktime(tm: *mut libc::tm) -> libc::time_t;
-    }
-
     fn struct_time_from_tm(
         vm: &VirtualMachine,
         tm: libc::tm,
@@ -1306,40 +1247,25 @@ mod platform {
         }
     }
 
-    #[cfg_attr(target_env = "musl", allow(deprecated))]
-    pub(super) fn current_time_t() -> libc::time_t {
-        unsafe { libc::time(core::ptr::null_mut()) }
+    pub(super) fn current_time_t() -> host_time::TimeT {
+        host_time::current_time_t()
     }
 
-    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn gmtime_from_timestamp(
-        when: libc::time_t,
+        when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
-        let err = unsafe { _gmtime64_s(out.as_mut_ptr(), &when) };
-        if err != 0 {
-            return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
-        }
-        Ok(struct_time_from_tm(
-            vm,
-            unsafe { out.assume_init() },
-            "UTC",
-            0,
-        ))
+        let tm = host_time::gmtime_from_timestamp(when)
+            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        Ok(struct_time_from_tm(vm, tm, "UTC", 0))
     }
 
-    #[cfg_attr(target_env = "musl", allow(deprecated))]
     pub(super) fn localtime_from_timestamp(
-        when: libc::time_t,
+        when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
-        let err = unsafe { _localtime64_s(out.as_mut_ptr(), &when) };
-        if err != 0 {
-            return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
-        }
-        let tm = unsafe { out.assume_init() };
+        let tm = host_time::localtime_from_timestamp(when)
+            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
 
         // Get timezone info from Windows API
         let info = get_tz_info();
@@ -1356,7 +1282,7 @@ mod platform {
 
     pub(super) fn win_mktime(t: &StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
         let mut tm = super::decl::tm_from_struct_time(t, vm)?;
-        let timestamp = unsafe { rustpython_host_env::suppress_iph!(c_mktime(&mut tm)) };
+        let timestamp = host_time::mktime(&mut tm);
         if timestamp == -1 && tm.tm_wday == -1 {
             return Err(vm.new_overflow_error("mktime argument out of range"));
         }

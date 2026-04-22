@@ -496,8 +496,10 @@ mod decl {
                         host_select::epoll::wait(epoll, &mut events, poll_timeout.as_ref())
                     }) {
                         Ok(_) => break,
-                        Err(rustix::io::Errno::INTR) => vm.check_signals()?,
-                        Err(e) => return Err(e.into_pyexception(vm)),
+                        Err(host_select::epoll::WaitError::Interrupted) => vm.check_signals()?,
+                        Err(host_select::epoll::WaitError::Io(e)) => {
+                            return Err(e.into_pyexception(vm));
+                        }
                     }
                     if let Some(deadline) = deadline {
                         if let Some(new_timeout) = deadline.checked_duration_since(Instant::now()) {

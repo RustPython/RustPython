@@ -299,7 +299,7 @@ impl PyCPointer {
     /// Get the pointer value stored in buffer as usize
     pub fn get_ptr_value(&self) -> usize {
         let buffer = self.0.buffer.read();
-        super::base::read_ptr_from_buffer(&buffer)
+        rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
     }
 
     /// Set the pointer value in buffer
@@ -513,18 +513,16 @@ impl PyCPointer {
             if step == 1 {
                 // Optimized contiguous copy
                 let start_addr = (ptr_value as isize + start * element_size as isize) as *const u8;
-                unsafe {
-                    result.extend_from_slice(core::slice::from_raw_parts(start_addr, len));
-                }
+                result = unsafe { rustpython_host_env::ctypes::bytes_at(start_addr, len) };
             } else {
-                let mut cur = start;
-                for _ in 0..len {
-                    let addr = (ptr_value as isize + cur * element_size as isize) as *const u8;
-                    unsafe {
-                        result.push(*addr);
-                    }
-                    cur += step;
-                }
+                let start_addr = (ptr_value as isize + start * element_size as isize) as *const u8;
+                result = unsafe {
+                    rustpython_host_env::ctypes::read_bytes_strided(
+                        start_addr,
+                        len,
+                        step * element_size as isize,
+                    )
+                };
             }
             return Ok(vm.ctx.new_bytes(result).into());
         }
@@ -534,23 +532,15 @@ impl PyCPointer {
             if len == 0 {
                 return Ok(vm.ctx.new_str("").into());
             }
-            let mut result = String::with_capacity(len);
             let wchar_size = core::mem::size_of::<libc::wchar_t>();
-            let mut cur = start;
-            for _ in 0..len {
-                let addr = (ptr_value as isize + cur * wchar_size as isize) as *const libc::wchar_t;
-                unsafe {
-                    #[allow(
-                        clippy::unnecessary_cast,
-                        reason = "wchar_t is i32 on some platforms and u32 on others"
-                    )]
-                    if let Some(c) = char::from_u32(*addr as u32) {
-                        result.push(c);
-                    }
-                }
-                cur += step;
-            }
-            return Ok(vm.ctx.new_str(result).into());
+            let start_addr =
+                (ptr_value as isize + start * wchar_size as isize) as *const libc::wchar_t;
+            return Ok(vm
+                .ctx
+                .new_str(unsafe {
+                    rustpython_host_env::ctypes::read_wide_string_strided(start_addr, len, step)
+                })
+                .into());
         }
 
         // other types → list with Pointer_item for each
@@ -706,7 +696,7 @@ impl PyCPointer {
                     .into()),
                 _ => {
                     // Default: read as bytes
-                    let bytes = core::slice::from_raw_parts(ptr, size).to_vec();
+                    let bytes = rustpython_host_env::ctypes::bytes_at(ptr, size);
                     Ok(vm.ctx.new_bytes(bytes).into())
                 }
             }

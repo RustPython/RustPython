@@ -4,8 +4,11 @@ extern crate alloc;
 mod macros;
 pub use macros::*;
 
+pub mod ctypes;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod errno;
+#[cfg(any(unix, windows, target_os = "wasi"))]
+pub mod io;
 pub mod os;
 #[cfg(any(unix, windows))]
 pub mod thread;
@@ -52,7 +55,7 @@ pub mod time;
 pub mod cert_store;
 #[cfg(any(unix, windows))]
 pub mod faulthandler;
-#[cfg(windows)]
+#[cfg(any(unix, windows))]
 pub mod mmap;
 #[cfg(windows)]
 pub mod msvcrt;
