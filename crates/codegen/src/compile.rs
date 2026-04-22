@@ -2226,11 +2226,15 @@ impl Compiler {
         let is_function_like = self.ctx.in_func();
 
         // Look up the symbol, handling ast::TypeParams and Annotation scopes specially
-        let (symbol_scope, can_see_class_scope) = {
-            let current_table = self.current_symbol_table();
+        let (symbol_scope, can_see_class_scope, class_declared_global) = {
+            let current_idx = self.symbol_table_stack.len() - 1;
+            let current_table = &self.symbol_table_stack[current_idx];
             let is_typeparams = current_table.typ == CompilerScope::TypeParams;
             let is_annotation = current_table.typ == CompilerScope::Annotation;
             let can_see_class = current_table.can_see_class_scope;
+            let parent_table = current_idx
+                .checked_sub(1)
+                .and_then(|idx| self.symbol_table_stack.get(idx));
 
             // First try to find in current table
             let symbol = current_table.lookup(name.as_ref());
@@ -2244,8 +2248,17 @@ impl Compiler {
             } else {
                 symbol
             };
+            let class_declared_global = can_see_class
+                && parent_table.is_some_and(|table| table.typ == CompilerScope::Class)
+                && parent_table
+                    .and_then(|table| table.lookup(name.as_ref()))
+                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::GLOBAL));
 
-            (symbol.map(|s| s.scope), can_see_class)
+            (
+                symbol.map(|s| s.scope),
+                can_see_class,
+                class_declared_global,
+            )
         };
 
         // Special handling for class scope implicit cell variables
@@ -2318,7 +2331,9 @@ impl Compiler {
             SymbolScope::GlobalImplicit => {
                 // PEP 649: In annotation scope with class visibility, use DictOrGlobals
                 // to check classdict first before globals
-                if can_see_class_scope {
+                if class_declared_global {
+                    NameOp::Global
+                } else if can_see_class_scope {
                     NameOp::DictOrGlobals
                 } else if is_function_like {
                     NameOp::Global
@@ -2327,7 +2342,10 @@ impl Compiler {
                 }
             }
             SymbolScope::GlobalExplicit => {
-                if can_see_class_scope {
+                // A global declared in the owning class body must bypass the
+                // classdict, but an explicit global inherited from an outer
+                // function still participates in DictOrGlobals lookup.
+                if can_see_class_scope && !class_declared_global {
                     NameOp::DictOrGlobals
                 } else {
                     NameOp::Global
@@ -3011,7 +3029,7 @@ impl Compiler {
         self.current_code_info()
             .metadata
             .varnames
-            .insert("format".to_owned());
+            .insert(".format".to_owned());
 
         self.emit_format_validation()?;
 
@@ -4586,7 +4604,7 @@ impl Compiler {
         self.current_code_info()
             .metadata
             .varnames
-            .insert(".format".to_owned());
+            .insert("format".to_owned());
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
         self.emit_format_validation()?;
@@ -14774,6 +14792,91 @@ values = [-1, not True, ~0, +True, 5]
                 .any(|unit| matches!(unit.op, Instruction::ListExtend { .. })),
             "large constant lists should not fold to LIST_EXTEND, got instructions={:?}",
             code.instructions
+        );
+    }
+
+    #[test]
+    fn test_annotation_closure_uses_format_varname() {
+        let code = compile_exec(
+            "\
+class C:
+    x: int
+",
+        );
+        let annotate = find_code(&code, "__annotate__").expect("missing __annotate__ code");
+        let varnames = annotate
+            .varnames
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(varnames, vec!["format"]);
+    }
+
+    #[test]
+    fn test_type_param_evaluator_uses_dot_format_varname() {
+        let code = compile_exec(
+            "\
+class C[T: int]:
+    pass
+",
+        );
+        let evaluator = find_code(&code, "T").expect("missing type parameter evaluator");
+        let varnames = evaluator
+            .varnames
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(varnames, vec![".format"]);
+    }
+
+    #[test]
+    fn test_class_annotation_global_resolution_matches_cpython() {
+        let class_global = compile_exec(
+            "\
+X = 'global'
+class C:
+    locals()['X'] = 'class'
+    global X
+    y: X
+",
+        );
+        let annotate =
+            find_code(&class_global, "__annotate__").expect("missing class __annotate__ code");
+        assert!(
+            annotate
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadGlobal { .. })),
+            "expected explicit class global to use LOAD_GLOBAL, got instructions={:?}",
+            annotate.instructions
+        );
+        assert!(
+            !annotate
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFromDictOrGlobals { .. })),
+            "did not expect class explicit global to use LOAD_FROM_DICT_OR_GLOBALS, got instructions={:?}",
+            annotate.instructions
+        );
+
+        let outer_global = compile_exec(
+            "\
+def f():
+    global X
+    class C:
+        locals()['X'] = 'class'
+        y: X
+",
+        );
+        let annotate = find_code(&outer_global, "__annotate__")
+            .expect("missing nested class __annotate__ code");
+        assert!(
+            annotate
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFromDictOrGlobals { .. })),
+            "expected outer explicit global in class annotation to use LOAD_FROM_DICT_OR_GLOBALS, got instructions={:?}",
+            annotate.instructions
         );
     }
 
