@@ -1,13 +1,13 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-use core::{ffi::CStr, str::Utf8Error};
-#[cfg(windows)]
-use core::time::Duration;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 use crate::crt_fd;
 #[cfg(windows)]
 use crate::fs;
+#[cfg(windows)]
+use core::time::Duration;
+use core::{ffi::CStr, str::Utf8Error};
 use std::{
     env,
     ffi::{OsStr, OsString},
@@ -185,6 +185,35 @@ pub fn isatty(fd: i32) -> bool {
 
 pub fn system(command: &CStr) -> libc::c_int {
     unsafe { libc::system(command.as_ptr()) }
+}
+
+#[cfg(target_os = "linux")]
+pub fn copy_file_range(
+    src: crt_fd::Borrowed<'_>,
+    offset_src: Option<&mut crt_fd::Offset>,
+    dst: crt_fd::Borrowed<'_>,
+    offset_dst: Option<&mut crt_fd::Offset>,
+    count: usize,
+) -> io::Result<usize> {
+    #[allow(clippy::unnecessary_option_map_or_else)]
+    let p_offset_src = offset_src.map_or_else(core::ptr::null_mut, |x| x as *mut _);
+    #[allow(clippy::unnecessary_option_map_or_else)]
+    let p_offset_dst = offset_dst.map_or_else(core::ptr::null_mut, |x| x as *mut _);
+
+    // Why not use `libc::copy_file_range`: On musl, the libc wrapper may be missing.
+    let ret = unsafe {
+        libc::syscall(
+            libc::SYS_copy_file_range,
+            src.as_raw(),
+            p_offset_src,
+            dst.as_raw(),
+            p_offset_dst,
+            count,
+            0u32,
+        )
+    };
+
+    usize::try_from(ret).map_err(|_| io::Error::last_os_error())
 }
 
 pub fn rename(

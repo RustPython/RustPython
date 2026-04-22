@@ -18,73 +18,6 @@ mod decl {
     use rustpython_host_env::os::{get_errno, set_errno};
     use std::thread;
 
-    /// fault_handler_t
-    #[cfg(unix)]
-    struct FaultHandler {
-        signum: libc::c_int,
-        enabled: bool,
-        name: &'static str,
-        previous: libc::sigaction,
-    }
-
-    #[cfg(windows)]
-    struct FaultHandler {
-        signum: libc::c_int,
-        enabled: bool,
-        name: &'static str,
-        previous: libc::sighandler_t,
-    }
-
-    #[cfg(unix)]
-    impl FaultHandler {
-        const fn new(signum: libc::c_int, name: &'static str) -> Self {
-            Self {
-                signum,
-                enabled: false,
-                name,
-                // SAFETY: sigaction is a C struct that can be zero-initialized
-                previous: unsafe { core::mem::zeroed() },
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    impl FaultHandler {
-        const fn new(signum: libc::c_int, name: &'static str) -> Self {
-            Self {
-                signum,
-                enabled: false,
-                name,
-                previous: 0,
-            }
-        }
-    }
-
-    /// faulthandler_handlers[]
-    /// Number of fatal signals
-    #[cfg(unix)]
-    const FAULTHANDLER_NSIGNALS: usize = 5;
-    #[cfg(windows)]
-    const FAULTHANDLER_NSIGNALS: usize = 4;
-
-    // Signal handlers use mutable statics matching faulthandler.c implementation.
-    #[cfg(unix)]
-    static mut FAULTHANDLER_HANDLERS: [FaultHandler; FAULTHANDLER_NSIGNALS] = [
-        FaultHandler::new(libc::SIGBUS, "Bus error"),
-        FaultHandler::new(libc::SIGILL, "Illegal instruction"),
-        FaultHandler::new(libc::SIGFPE, "Floating-point exception"),
-        FaultHandler::new(libc::SIGABRT, "Aborted"),
-        FaultHandler::new(libc::SIGSEGV, "Segmentation fault"),
-    ];
-
-    #[cfg(windows)]
-    static mut FAULTHANDLER_HANDLERS: [FaultHandler; FAULTHANDLER_NSIGNALS] = [
-        FaultHandler::new(libc::SIGILL, "Illegal instruction"),
-        FaultHandler::new(libc::SIGFPE, "Floating-point exception"),
-        FaultHandler::new(libc::SIGABRT, "Aborted"),
-        FaultHandler::new(libc::SIGSEGV, "Segmentation fault"),
-    ];
-
     /// fatal_error state
     struct FatalErrorState {
         enabled: AtomicBool,
@@ -431,25 +364,6 @@ mod decl {
 
     // Signal handlers
 
-    /// faulthandler_disable_fatal_handler (faulthandler.c:310-321)
-    #[cfg(unix)]
-    unsafe fn faulthandler_disable_fatal_handler(handler: &mut FaultHandler) {
-        if !handler.enabled {
-            return;
-        }
-        handler.enabled = false;
-        host_faulthandler::restore_sigaction(handler.signum, &handler.previous);
-    }
-
-    #[cfg(windows)]
-    unsafe fn faulthandler_disable_fatal_handler(handler: &mut FaultHandler) {
-        if !handler.enabled {
-            return;
-        }
-        handler.enabled = false;
-        host_faulthandler::restore_signal_handler(handler.signum, handler.previous);
-    }
-
     // faulthandler_fatal_error
     #[cfg(unix)]
     extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
@@ -461,20 +375,10 @@ mod decl {
 
         let fd = FATAL_ERROR.fd.load(Ordering::Relaxed);
 
-        let handler = unsafe {
-            FAULTHANDLER_HANDLERS
-                .iter_mut()
-                .find(|h| h.signum == signum)
-        };
-
-        if let Some(h) = handler {
-            // Disable handler (restores previous)
-            unsafe {
-                faulthandler_disable_fatal_handler(h);
-            }
-
+        if let Some(name) = host_faulthandler::fatal_signal_name(signum) {
+            host_faulthandler::disable_fatal_signal(signum);
             puts(fd, "Fatal Python error: ");
-            puts(fd, h.name);
+            puts(fd, name);
             puts(fd, "\n\n");
         } else {
             puts(fd, "Fatal Python error from unexpected signum: ");
@@ -508,18 +412,10 @@ mod decl {
 
         let fd = FATAL_ERROR.fd.load(Ordering::Relaxed);
 
-        let handler = unsafe {
-            FAULTHANDLER_HANDLERS
-                .iter_mut()
-                .find(|h| h.signum == signum)
-        };
-
-        if let Some(h) = handler {
-            unsafe {
-                faulthandler_disable_fatal_handler(h);
-            }
+        if let Some(name) = host_faulthandler::fatal_signal_name(signum) {
+            host_faulthandler::disable_fatal_signal(signum);
             puts(fd, "Fatal Python error: ");
-            puts(fd, h.name);
+            puts(fd, name);
             puts(fd, "\n\n");
         } else {
             puts(fd, "Fatal Python error from unexpected signum: ");
@@ -576,14 +472,7 @@ mod decl {
 
         // Disable SIGSEGV handler for access violations to avoid double output
         if host_faulthandler::is_access_violation(code) {
-            unsafe {
-                for handler in FAULTHANDLER_HANDLERS.iter_mut() {
-                    if handler.signum == libc::SIGSEGV {
-                        faulthandler_disable_fatal_handler(handler);
-                        break;
-                    }
-                }
-            }
+            host_faulthandler::disable_fatal_signal(libc::SIGSEGV);
         }
 
         let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
@@ -599,23 +488,8 @@ mod decl {
             return true;
         }
 
-        unsafe {
-            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
-                if handler.enabled {
-                    continue;
-                }
-
-                if !host_faulthandler::install_sigaction(
-                    handler.signum,
-                    faulthandler_fatal_error,
-                    libc::SA_NODEFER,
-                    &mut handler.previous,
-                ) {
-                    return false;
-                }
-
-                handler.enabled = true;
-            }
+        if !host_faulthandler::enable_fatal_handlers(faulthandler_fatal_error, libc::SA_NODEFER) {
+            return false;
         }
 
         FATAL_ERROR.enabled.store(true, Ordering::Relaxed);
@@ -628,22 +502,8 @@ mod decl {
             return true;
         }
 
-        unsafe {
-            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
-                if handler.enabled {
-                    continue;
-                }
-
-                let Ok(previous) = host_faulthandler::install_signal_handler(
-                    handler.signum,
-                    faulthandler_fatal_error,
-                ) else {
-                    return false;
-                };
-                handler.previous = previous;
-
-                handler.enabled = true;
-            }
+        if !host_faulthandler::enable_fatal_handlers(faulthandler_fatal_error, 0) {
+            return false;
         }
 
         // Register Windows vectored exception handler
@@ -665,11 +525,7 @@ mod decl {
             return;
         }
 
-        unsafe {
-            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
-                faulthandler_disable_fatal_handler(handler);
-            }
-        }
+        host_faulthandler::disable_fatal_handlers();
 
         // Remove Windows vectored exception handler
         #[cfg(windows)]
@@ -906,108 +762,26 @@ mod decl {
     }
 
     #[cfg(unix)]
-    mod user_signals {
-        use parking_lot::Mutex;
-
-        const NSIG: usize = 64;
-
-        #[derive(Clone, Copy)]
-        pub(super) struct UserSignal {
-            pub enabled: bool,
-            pub fd: i32,
-            pub all_threads: bool,
-            pub chain: bool,
-            pub previous: libc::sigaction,
-        }
-
-        impl Default for UserSignal {
-            fn default() -> Self {
-                Self {
-                    enabled: false,
-                    fd: 2, // stderr
-                    all_threads: true,
-                    chain: false,
-                    // SAFETY: sigaction is a C struct that can be zero-initialized
-                    previous: unsafe { core::mem::zeroed() },
-                }
-            }
-        }
-
-        static USER_SIGNALS: Mutex<Option<Vec<UserSignal>>> = Mutex::new(None);
-
-        pub(super) fn get_user_signal(signum: usize) -> Option<UserSignal> {
-            let guard = USER_SIGNALS.lock();
-            guard.as_ref().and_then(|v| v.get(signum).copied())
-        }
-
-        pub(super) fn set_user_signal(signum: usize, signal: UserSignal) {
-            let mut guard = USER_SIGNALS.lock();
-            if guard.is_none() {
-                *guard = Some(vec![UserSignal::default(); NSIG]);
-            }
-            if let Some(ref mut v) = *guard
-                && signum < v.len()
-            {
-                v[signum] = signal;
-            }
-        }
-
-        pub(super) fn clear_user_signal(signum: usize) -> Option<UserSignal> {
-            let mut guard = USER_SIGNALS.lock();
-            if let Some(ref mut v) = *guard
-                && signum < v.len()
-                && v[signum].enabled
-            {
-                let old = v[signum];
-                v[signum] = UserSignal::default();
-                return Some(old);
-            }
-            None
-        }
-
-        pub(super) fn is_enabled(signum: usize) -> bool {
-            let guard = USER_SIGNALS.lock();
-            guard
-                .as_ref()
-                .and_then(|v| v.get(signum))
-                .is_some_and(|s| s.enabled)
-        }
-    }
-
-    #[cfg(unix)]
     extern "C" fn faulthandler_user_signal(signum: libc::c_int) {
         let save_errno = get_errno();
 
-        let user = match user_signals::get_user_signal(signum as usize) {
-            Some(u) if u.enabled => u,
+        let user = match host_faulthandler::get_user_signal(signum as usize) {
+            Some(u) => u,
             _ => return,
         };
 
         faulthandler_dump_traceback(user.fd, user.all_threads);
 
         if user.chain {
-            // Restore the previous handler and re-raise
-            host_faulthandler::restore_sigaction(signum, &user.previous);
             set_errno(save_errno);
-            host_faulthandler::raise_signal(signum);
-            // Re-install our handler with the same flags as register()
-            let save_errno2 = get_errno();
-            let mut ignored_previous: libc::sigaction = unsafe { core::mem::zeroed() };
-            let _ = host_faulthandler::install_sigaction(
-                signum,
-                faulthandler_user_signal,
-                libc::SA_NODEFER,
-                &mut ignored_previous,
-            );
-            set_errno(save_errno2);
+            let _ = host_faulthandler::reraise_user_signal(signum, faulthandler_user_signal);
         }
     }
 
     #[cfg(unix)]
     fn check_signum(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
         // Check if it's a fatal signal (faulthandler.c uses faulthandler_handlers array)
-        let is_fatal = unsafe { FAULTHANDLER_HANDLERS.iter().any(|h| h.signum == signum) };
-        if is_fatal {
+        if host_faulthandler::is_fatal_signal(signum) {
             return Err(vm.new_runtime_error(format!(
                 "signal {} cannot be registered, use enable() instead",
                 signum
@@ -1043,44 +817,19 @@ mod decl {
 
         let fd = get_fd_from_file_opt(args.file, vm)?;
 
-        let signum = args.signum as usize;
-
-        // Get current handler to save as previous
-        let previous = if !user_signals::is_enabled(signum) {
-            let mut prev: libc::sigaction = unsafe { core::mem::zeroed() };
-            if !host_faulthandler::install_sigaction(
-                args.signum,
-                faulthandler_user_signal,
-                if args.chain {
-                    libc::SA_NODEFER
-                } else {
-                    libc::SA_RESTART
-                },
-                &mut prev,
-            ) {
-                return Err(vm.new_os_error(format!(
-                    "Failed to register signal handler for signal {}",
-                    args.signum
-                )));
-            }
-            prev
-        } else {
-            // Already registered, keep previous handler
-            user_signals::get_user_signal(signum)
-                .map(|u| u.previous)
-                .unwrap_or(unsafe { core::mem::zeroed() })
-        };
-
-        user_signals::set_user_signal(
-            signum,
-            user_signals::UserSignal {
-                enabled: true,
-                fd,
-                all_threads: args.all_threads,
-                chain: args.chain,
-                previous,
-            },
-        );
+        host_faulthandler::register_user_signal(
+            args.signum,
+            fd,
+            args.all_threads,
+            args.chain,
+            faulthandler_user_signal,
+        )
+        .map_err(|_| {
+            vm.new_os_error(format!(
+                "Failed to register signal handler for signal {}",
+                args.signum
+            ))
+        })?;
 
         Ok(())
     }
@@ -1089,14 +838,7 @@ mod decl {
     #[pyfunction]
     fn unregister(signum: i32, vm: &VirtualMachine) -> PyResult<bool> {
         check_signum(signum, vm)?;
-
-        if let Some(old) = user_signals::clear_user_signal(signum as usize) {
-            // Restore previous handler
-            host_faulthandler::restore_sigaction(signum, &old.previous);
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        Ok(host_faulthandler::unregister_user_signal(signum))
     }
 
     // Test functions for faulthandler testing

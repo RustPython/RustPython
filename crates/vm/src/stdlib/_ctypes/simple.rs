@@ -1158,56 +1158,32 @@ impl PyCSimple {
         if type_code == "z" {
             // c_char_p: read pointer from buffer, dereference to get bytes string
             let buffer = zelf.0.buffer.read();
-            let ptr = super::base::read_ptr_from_buffer(&buffer);
+            let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer);
             if ptr == 0 {
                 return Ok(vm.ctx.none());
             }
-            // Read null-terminated string at the address
-            unsafe {
-                let cstr = core::ffi::CStr::from_ptr(ptr as _);
-                return Ok(vm.ctx.new_bytes(cstr.to_bytes().to_vec()).into());
-            }
+            return Ok(vm
+                .ctx
+                .new_bytes(unsafe { rustpython_host_env::ctypes::read_c_string_bytes(ptr as _) })
+                .into());
         }
         if type_code == "Z" {
             // c_wchar_p: read pointer from buffer, dereference to get wide string
             let buffer = zelf.0.buffer.read();
-            let ptr = super::base::read_ptr_from_buffer(&buffer);
+            let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer);
             if ptr == 0 {
                 return Ok(vm.ctx.none());
             }
-            // Read null-terminated wide string at the address
-            // Windows: wchar_t = u16 (UTF-16) -> use Wtf8Buf::from_wide for surrogate pairs
-            // Unix: wchar_t = i32 (UTF-32) -> convert via char::from_u32
-            unsafe {
-                let w_ptr = ptr as *const libc::wchar_t;
-                let len = libc::wcslen(w_ptr);
-                let wchars = core::slice::from_raw_parts(w_ptr, len);
-                #[cfg(windows)]
-                {
-                    use rustpython_common::wtf8::Wtf8Buf;
-                    let wide: Vec<u16> = wchars.to_vec();
-                    let wtf8 = Wtf8Buf::from_wide(&wide);
-                    return Ok(vm.ctx.new_str(wtf8).into());
-                }
-                #[cfg(not(windows))]
-                {
-                    #[allow(
-                        clippy::useless_conversion,
-                        reason = "wchar_t is i32 on some platforms and u32 on others"
-                    )]
-                    let s: String = wchars
-                        .iter()
-                        .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
-                        .collect();
-                    return Ok(vm.ctx.new_str(s).into());
-                }
-            }
+            return Ok(vm
+                .ctx
+                .new_str(unsafe { rustpython_host_env::ctypes::read_wide_string(ptr as _) })
+                .into());
         }
 
         // O_get: py_object - read PyObject pointer from buffer
         if type_code == "O" {
             let buffer = zelf.0.buffer.read();
-            let ptr = super::base::read_ptr_from_buffer(&buffer);
+            let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer);
             if ptr == 0 {
                 return Err(vm.new_value_error("PyObject is NULL"));
             }

@@ -178,10 +178,10 @@ pub(super) mod _os {
     use core::time::Duration;
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
-    #[cfg(all(unix, not(target_os = "redox")))]
-    use rustpython_host_env::posix as host_posix;
     #[cfg(windows)]
     use rustpython_host_env::nt as host_nt;
+    #[cfg(all(unix, not(target_os = "redox")))]
+    use rustpython_host_env::posix as host_posix;
     use std::{fs, io, path::PathBuf, time::SystemTime};
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -382,9 +382,7 @@ pub(super) mod _os {
         #[cfg(not(target_os = "redox"))]
         if let Some(fd) = dir_fd.raw_opt() {
             let c_path = path.clone().into_cstring(vm)?;
-            return if let Err(err) =
-                crate::host_env::posix::remove_dir_at(fd, c_path.as_c_str())
-            {
+            return if let Err(err) = crate::host_env::posix::remove_dir_at(fd, c_path.as_c_str()) {
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -440,15 +438,17 @@ pub(super) mod _os {
                 }
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
-                    let mut dir =
-                        host_posix::FdDirStream::from_fd(fno.into()).map_err(|e| e.into_pyexception(vm))?;
+                    let mut dir = host_posix::FdDirStream::from_fd(fno.into())
+                        .map_err(|e| e.into_pyexception(vm))?;
                     let mut list = Vec::new();
                     while let Some(entry) = dir.next_entry().map_err(|e| e.into_pyexception(vm))? {
-                        list.push(OutputMode::String.process_path(
-                            rustpython_host_env::os::bytes_as_os_str(&entry.name)
-                                .expect("unix dir entry names are arbitrary bytes"),
-                            vm,
-                        ));
+                        list.push(
+                            OutputMode::String.process_path(
+                                rustpython_host_env::os::bytes_as_os_str(&entry.name)
+                                    .expect("unix dir entry names are arbitrary bytes"),
+                                vm,
+                            ),
+                        );
                     }
                     list
                 }
@@ -1086,7 +1086,9 @@ pub(super) mod _os {
                 DirEntry {
                     file_name,
                     pathval,
-                    file_type: Err(io::Error::other("file_type unavailable for fd-based scandir")),
+                    file_type: Err(io::Error::other(
+                        "file_type unavailable for fd-based scandir",
+                    )),
                     d_type: entry.d_type,
                     dir_fd: Some(zelf.orig_fd),
                     mode: OutputMode::String,
@@ -1324,9 +1326,11 @@ pub(super) mod _os {
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
         match file {
-            OsPathOrFd::Path(path) => {
-                host_posix::stat_path(path.as_ref().as_os_str(), dir_fd.raw_opt(), follow_symlinks.0)
-            }
+            OsPathOrFd::Path(path) => host_posix::stat_path(
+                path.as_ref().as_os_str(),
+                dir_fd.raw_opt(),
+                follow_symlinks.0,
+            ),
             OsPathOrFd::Fd(fd) => host_posix::stat_fd(fd).map(Some),
         }
     }
@@ -1713,37 +1717,19 @@ pub(super) mod _os {
     #[cfg(target_os = "linux")]
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
-        #[allow(clippy::unnecessary_option_map_or_else)]
-        let p_offset_src = args.offset_src.as_ref().map_or_else(core::ptr::null, |x| x);
-        #[allow(clippy::unnecessary_option_map_or_else)]
-        let p_offset_dst = args.offset_dst.as_ref().map_or_else(core::ptr::null, |x| x);
         let count: usize = args
             .count
             .try_into()
             .map_err(|_| vm.new_value_error("count should >= 0"))?;
 
-        // The flags argument is provided to allow
-        // for future extensions and currently must be to 0.
-        let flags = 0u32;
-
-        // Safety: p_offset_src and p_offset_dst is a unique pointer for offset_src and offset_dst respectively,
-        // and will only be freed after this function ends.
-        //
-        // Why not use `libc::copy_file_range`: On `musl-libc`, `libc::copy_file_range` is not provided. Therefore
-        // we use syscalls directly instead.
-        let ret = unsafe {
-            libc::syscall(
-                libc::SYS_copy_file_range,
-                args.src,
-                p_offset_src as *mut i64,
-                args.dst,
-                p_offset_dst as *mut i64,
-                count,
-                flags,
-            )
-        };
-
-        usize::try_from(ret).map_err(|_| vm.new_last_errno_error())
+        crate::host_env::os::copy_file_range(
+            args.src,
+            args.offset_src.as_mut(),
+            args.dst,
+            args.offset_dst.as_mut(),
+            count,
+        )
+        .map_err(|_| vm.new_last_errno_error())
     }
 
     #[pyfunction]
@@ -1923,11 +1909,7 @@ pub(super) mod _os {
             OsPathOrFd::Fd(fd) => crate::host_env::posix::statvfs_fd(fd.as_raw()),
         };
         if let Err(err) = st {
-            return Err(OSErrorBuilder::with_filename(
-                &err,
-                path,
-                vm,
-            ));
+            return Err(OSErrorBuilder::with_filename(&err, path, vm));
         }
         Ok(StatvfsResultData::from_statvfs(st.unwrap()).to_pyobject(vm))
     }
@@ -1967,7 +1949,7 @@ pub(super) mod _os {
         supports
     }
 }
-pub(crate) use _os::{ftruncate, isatty, lseek};
+pub(crate) use _os::ftruncate;
 
 pub(crate) struct SupportFunc {
     name: &'static str,

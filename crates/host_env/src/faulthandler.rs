@@ -6,7 +6,12 @@
     clippy::result_unit_err,
     reason = "These helpers preserve the existing fault-handler error surface."
 )]
+#![allow(static_mut_refs)]
 
+#[cfg(unix)]
+use alloc::vec::Vec;
+#[cfg(unix)]
+use parking_lot::Mutex;
 #[cfg(windows)]
 use windows_sys::Win32::System::{
     Diagnostics::Debug::{
@@ -19,8 +24,126 @@ use windows_sys::Win32::System::{
 #[cfg(windows)]
 pub type ExceptionPointers = EXCEPTION_POINTERS;
 
+#[cfg(unix)]
+struct FatalSignalHandler {
+    signum: libc::c_int,
+    enabled: bool,
+    name: &'static str,
+    previous: libc::sigaction,
+}
+
+#[cfg(windows)]
+struct FatalSignalHandler {
+    signum: libc::c_int,
+    enabled: bool,
+    name: &'static str,
+    previous: libc::sighandler_t,
+}
+
+#[cfg(unix)]
+impl FatalSignalHandler {
+    const fn new(signum: libc::c_int, name: &'static str) -> Self {
+        Self {
+            signum,
+            enabled: false,
+            name,
+            previous: unsafe { core::mem::zeroed() },
+        }
+    }
+}
+
+#[cfg(windows)]
+impl FatalSignalHandler {
+    const fn new(signum: libc::c_int, name: &'static str) -> Self {
+        Self {
+            signum,
+            enabled: false,
+            name,
+            previous: 0,
+        }
+    }
+}
+
+#[cfg(unix)]
+const FATAL_SIGNAL_COUNT: usize = 5;
+#[cfg(windows)]
+const FATAL_SIGNAL_COUNT: usize = 4;
+
+#[cfg(unix)]
+static mut FATAL_SIGNAL_HANDLERS: [FatalSignalHandler; FATAL_SIGNAL_COUNT] = [
+    FatalSignalHandler::new(libc::SIGBUS, "Bus error"),
+    FatalSignalHandler::new(libc::SIGILL, "Illegal instruction"),
+    FatalSignalHandler::new(libc::SIGFPE, "Floating-point exception"),
+    FatalSignalHandler::new(libc::SIGABRT, "Aborted"),
+    FatalSignalHandler::new(libc::SIGSEGV, "Segmentation fault"),
+];
+
+#[cfg(windows)]
+static mut FATAL_SIGNAL_HANDLERS: [FatalSignalHandler; FATAL_SIGNAL_COUNT] = [
+    FatalSignalHandler::new(libc::SIGILL, "Illegal instruction"),
+    FatalSignalHandler::new(libc::SIGFPE, "Floating-point exception"),
+    FatalSignalHandler::new(libc::SIGABRT, "Aborted"),
+    FatalSignalHandler::new(libc::SIGSEGV, "Segmentation fault"),
+];
+
+#[cfg(unix)]
+const USER_SIGNAL_CAPACITY: usize = 64;
+
+#[cfg(unix)]
+#[derive(Clone, Copy)]
+pub struct UserSignal {
+    pub fd: i32,
+    pub all_threads: bool,
+    pub chain: bool,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy)]
+struct RegisteredUserSignal {
+    enabled: bool,
+    fd: i32,
+    all_threads: bool,
+    chain: bool,
+    previous: libc::sigaction,
+}
+
+#[cfg(unix)]
+impl Default for RegisteredUserSignal {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            fd: 2,
+            all_threads: true,
+            chain: false,
+            previous: unsafe { core::mem::zeroed() },
+        }
+    }
+}
+
+#[cfg(unix)]
+static USER_SIGNALS: Mutex<Option<Vec<RegisteredUserSignal>>> = Mutex::new(None);
+
 pub fn write_fd(fd: i32, buf: &[u8]) {
     let _ = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len() as _) };
+}
+
+#[cfg(any(unix, windows))]
+pub fn is_fatal_signal(signum: libc::c_int) -> bool {
+    unsafe {
+        FATAL_SIGNAL_HANDLERS
+            .iter()
+            .any(|handler| handler.signum == signum)
+    }
+}
+
+#[cfg(any(unix, windows))]
+pub fn fatal_signal_name(signum: libc::c_int) -> Option<&'static str> {
+    unsafe {
+        FATAL_SIGNAL_HANDLERS
+            .iter()
+            .find(|handler| handler.signum == signum)
+            .map(|handler| handler.name)
+    }
 }
 
 #[cfg(any(unix, windows))]
@@ -61,6 +184,53 @@ pub fn install_sigaction(
 }
 
 #[cfg(unix)]
+unsafe fn disable_fatal_signal_handler(handler: &mut FatalSignalHandler) {
+    if !handler.enabled {
+        return;
+    }
+    handler.enabled = false;
+    restore_sigaction(handler.signum, &handler.previous);
+}
+
+#[cfg(unix)]
+pub fn enable_fatal_handlers(handler: extern "C" fn(libc::c_int), flags: libc::c_int) -> bool {
+    unsafe {
+        for entry in FATAL_SIGNAL_HANDLERS.iter_mut() {
+            if entry.enabled {
+                continue;
+            }
+
+            if !install_sigaction(entry.signum, handler, flags, &mut entry.previous) {
+                return false;
+            }
+            entry.enabled = true;
+        }
+    }
+    true
+}
+
+#[cfg(unix)]
+pub fn disable_fatal_signal(signum: libc::c_int) {
+    unsafe {
+        if let Some(handler) = FATAL_SIGNAL_HANDLERS
+            .iter_mut()
+            .find(|handler| handler.signum == signum)
+        {
+            disable_fatal_signal_handler(handler);
+        }
+    }
+}
+
+#[cfg(unix)]
+pub fn disable_fatal_handlers() {
+    unsafe {
+        for handler in FATAL_SIGNAL_HANDLERS.iter_mut() {
+            disable_fatal_signal_handler(handler);
+        }
+    }
+}
+
+#[cfg(unix)]
 pub fn restore_sigaction(signum: libc::c_int, previous: &libc::sigaction) {
     unsafe {
         libc::sigaction(signum, previous, core::ptr::null_mut());
@@ -80,6 +250,113 @@ pub fn exit_immediately(code: libc::c_int) -> ! {
     unsafe { libc::_exit(code) }
 }
 
+#[cfg(unix)]
+pub fn get_user_signal(signum: usize) -> Option<UserSignal> {
+    let guard = USER_SIGNALS.lock();
+    guard
+        .as_ref()
+        .and_then(|signals| signals.get(signum))
+        .and_then(|signal| {
+            signal.enabled.then_some(UserSignal {
+                fd: signal.fd,
+                all_threads: signal.all_threads,
+                chain: signal.chain,
+            })
+        })
+}
+
+#[cfg(unix)]
+pub fn register_user_signal(
+    signum: libc::c_int,
+    fd: i32,
+    all_threads: bool,
+    chain: bool,
+    handler: extern "C" fn(libc::c_int),
+) -> std::io::Result<()> {
+    let signum = signum as usize;
+    let mut guard = USER_SIGNALS.lock();
+    if guard.is_none() {
+        *guard = Some(vec![RegisteredUserSignal::default(); USER_SIGNAL_CAPACITY]);
+    }
+    let signals = guard
+        .as_mut()
+        .expect("user signal table must be initialized");
+    let entry = &mut signals[signum];
+
+    if !entry.enabled {
+        let mut previous = unsafe { core::mem::zeroed() };
+        if !install_sigaction(
+            signum as libc::c_int,
+            handler,
+            if chain {
+                libc::SA_NODEFER
+            } else {
+                libc::SA_RESTART
+            },
+            &mut previous,
+        ) {
+            return Err(std::io::Error::last_os_error());
+        }
+        entry.previous = previous;
+    }
+
+    entry.enabled = true;
+    entry.fd = fd;
+    entry.all_threads = all_threads;
+    entry.chain = chain;
+    Ok(())
+}
+
+#[cfg(unix)]
+pub fn unregister_user_signal(signum: libc::c_int) -> bool {
+    let signum = signum as usize;
+    let mut guard = USER_SIGNALS.lock();
+    let Some(signals) = guard.as_mut() else {
+        return false;
+    };
+    let Some(entry) = signals.get_mut(signum) else {
+        return false;
+    };
+    if !entry.enabled {
+        return false;
+    }
+
+    let previous = entry.previous;
+    *entry = RegisteredUserSignal::default();
+    restore_sigaction(signum as libc::c_int, &previous);
+    true
+}
+
+#[cfg(unix)]
+pub fn reraise_user_signal(signum: libc::c_int, handler: extern "C" fn(libc::c_int)) -> bool {
+    let signum_usize = signum as usize;
+    let previous = {
+        let guard = USER_SIGNALS.lock();
+        let Some(signals) = guard.as_ref() else {
+            return false;
+        };
+        let Some(entry) = signals.get(signum_usize) else {
+            return false;
+        };
+        if !entry.enabled || !entry.chain {
+            return false;
+        }
+        entry.previous
+    };
+
+    restore_sigaction(signum, &previous);
+    let saved_errno = crate::os::get_errno();
+    crate::os::set_errno(saved_errno);
+    raise_signal(signum);
+    let errno_after_raise = crate::os::get_errno();
+
+    let mut ignored_previous = unsafe { core::mem::zeroed() };
+    let _ = install_sigaction(signum, handler, libc::SA_NODEFER, &mut ignored_previous);
+
+    crate::os::set_errno(errno_after_raise);
+    true
+}
+
 #[cfg(windows)]
 pub fn install_signal_handler(
     signum: libc::c_int,
@@ -90,6 +367,54 @@ pub fn install_signal_handler(
         Err(())
     } else {
         Ok(previous)
+    }
+}
+
+#[cfg(windows)]
+unsafe fn disable_fatal_signal_handler(handler: &mut FatalSignalHandler) {
+    if !handler.enabled {
+        return;
+    }
+    handler.enabled = false;
+    restore_signal_handler(handler.signum, handler.previous);
+}
+
+#[cfg(windows)]
+pub fn enable_fatal_handlers(handler: extern "C" fn(libc::c_int), _flags: libc::c_int) -> bool {
+    unsafe {
+        for entry in FATAL_SIGNAL_HANDLERS.iter_mut() {
+            if entry.enabled {
+                continue;
+            }
+
+            let Ok(previous) = install_signal_handler(entry.signum, handler) else {
+                return false;
+            };
+            entry.previous = previous;
+            entry.enabled = true;
+        }
+    }
+    true
+}
+
+#[cfg(windows)]
+pub fn disable_fatal_signal(signum: libc::c_int) {
+    unsafe {
+        if let Some(handler) = FATAL_SIGNAL_HANDLERS
+            .iter_mut()
+            .find(|handler| handler.signum == signum)
+        {
+            disable_fatal_signal_handler(handler);
+        }
+    }
+}
+
+#[cfg(windows)]
+pub fn disable_fatal_handlers() {
+    unsafe {
+        for handler in FATAL_SIGNAL_HANDLERS.iter_mut() {
+            disable_fatal_signal_handler(handler);
+        }
     }
 }
 

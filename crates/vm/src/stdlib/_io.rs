@@ -22,6 +22,7 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyModule,
 };
 pub use _io::{OpenArgs, io_open as open};
+use rustpython_host_env::io as host_io;
 
 fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     file.get_attr("closed", vm)?.try_to_bool(vm)
@@ -147,13 +148,7 @@ mod _io {
 
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
-        let x = (0..=2).contains(&whence);
-        cfg_select! {
-            any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux") => {
-                x || matches!(whence, libc::SEEK_DATA | libc::SEEK_HOLE)
-            }
-            _ => x,
-        }
+        host_io::validate_whence(whence)
     }
 
     fn ensure_unclosed(file: &PyObject, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
@@ -177,7 +172,7 @@ mod _io {
                 if exc.fast_isinstance(vm.ctx.exceptions.os_error)
                     && let Ok(errno_attr) = exc.as_object().get_attr("errno", vm)
                     && let Ok(errno_val) = i32::try_from_object(vm, errno_attr)
-                    && errno_val == libc::EINTR
+                    && host_io::is_interrupted_errno(errno_val)
                 {
                     vm.check_signals()?;
                     return Ok(None);
@@ -5349,108 +5344,7 @@ mod fileio {
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use std::io::Read;
-
-    bitflags::bitflags! {
-        #[derive(Copy, Clone, Debug, PartialEq)]
-        struct Mode: u8 {
-            const CREATED   = 0b0001;
-            const READABLE  = 0b0010;
-            const WRITABLE  = 0b0100;
-            const APPENDING = 0b1000;
-        }
-    }
-
-    enum ModeError {
-        Invalid,
-        BadRwa,
-    }
-
-    impl ModeError {
-        fn error_msg(&self, mode_str: &str) -> String {
-            match self {
-                Self::Invalid => format!("invalid mode: {mode_str}"),
-                Self::BadRwa => {
-                    "Must have exactly one of create/read/write/append mode and at most one plus"
-                        .to_owned()
-                }
-            }
-        }
-    }
-
-    fn compute_mode(mode_str: &str) -> Result<(Mode, i32), ModeError> {
-        let mut flags = 0;
-        let mut plus = false;
-        let mut rwa = false;
-        let mut mode = Mode::empty();
-        for c in mode_str.bytes() {
-            match c {
-                b'x' => {
-                    if rwa {
-                        return Err(ModeError::BadRwa);
-                    }
-                    rwa = true;
-                    mode.insert(Mode::WRITABLE | Mode::CREATED);
-                    flags |= libc::O_EXCL | libc::O_CREAT;
-                }
-                b'r' => {
-                    if rwa {
-                        return Err(ModeError::BadRwa);
-                    }
-                    rwa = true;
-                    mode.insert(Mode::READABLE);
-                }
-                b'w' => {
-                    if rwa {
-                        return Err(ModeError::BadRwa);
-                    }
-                    rwa = true;
-                    mode.insert(Mode::WRITABLE);
-                    flags |= libc::O_CREAT | libc::O_TRUNC;
-                }
-                b'a' => {
-                    if rwa {
-                        return Err(ModeError::BadRwa);
-                    }
-                    rwa = true;
-                    mode.insert(Mode::WRITABLE | Mode::APPENDING);
-                    flags |= libc::O_APPEND | libc::O_CREAT;
-                }
-                b'+' => {
-                    if plus {
-                        return Err(ModeError::BadRwa);
-                    }
-                    plus = true;
-                    mode.insert(Mode::READABLE | Mode::WRITABLE);
-                }
-                b'b' => {}
-                _ => return Err(ModeError::Invalid),
-            }
-        }
-
-        if !rwa {
-            return Err(ModeError::BadRwa);
-        }
-
-        if mode.contains(Mode::READABLE | Mode::WRITABLE) {
-            flags |= libc::O_RDWR
-        } else if mode.contains(Mode::READABLE) {
-            flags |= libc::O_RDONLY
-        } else {
-            flags |= libc::O_WRONLY
-        }
-
-        #[cfg(windows)]
-        {
-            flags |= libc::O_BINARY | libc::O_NOINHERIT;
-        }
-        #[cfg(unix)]
-        {
-            flags |= libc::O_CLOEXEC
-        }
-
-        Ok((mode, flags as _))
-    }
+    use rustpython_host_env::io as host_io;
 
     #[pyattr]
     #[pyclass(module = "_io", name, base = _RawIOBase)]
@@ -5459,7 +5353,7 @@ mod fileio {
         _base: _RawIOBase,
         fd: AtomicCell<i32>,
         closefd: AtomicCell<bool>,
-        mode: AtomicCell<Mode>,
+        mode: AtomicCell<host_io::FileMode>,
         seekable: AtomicCell<Option<bool>>,
         blksize: AtomicCell<i64>,
         finalizing: AtomicCell<bool>,
@@ -5483,7 +5377,7 @@ mod fileio {
                 _base: Default::default(),
                 fd: AtomicCell::new(-1),
                 closefd: AtomicCell::new(true),
-                mode: AtomicCell::new(Mode::empty()),
+                mode: AtomicCell::new(host_io::FileMode::empty()),
                 seekable: AtomicCell::new(None),
                 blksize: AtomicCell::new(super::DEFAULT_BUFFER_SIZE as _),
                 finalizing: AtomicCell::new(false),
@@ -5522,8 +5416,10 @@ mod fileio {
                 .mode
                 .unwrap_or_else(|| PyUtf8Str::from("rb").into_ref(&vm.ctx));
             let mode_str = mode_obj.as_str();
-            let (mode, flags) =
-                compute_mode(mode_str).map_err(|e| vm.new_value_error(e.error_msg(mode_str)))?;
+            let parsed = host_io::parse_fileio_mode(mode_str)
+                .map_err(|e| vm.new_value_error(e.error_msg(mode_str)))?;
+            let mode = parsed.mode;
+            let flags = parsed.flags;
             zelf.mode.store(mode);
 
             let (fd, filename) = if let Some(fd) = arg_fd {
@@ -5548,9 +5444,9 @@ mod fileio {
                 } else {
                     let path = OsPath::try_from_fspath(name.clone(), vm)?;
                     #[cfg(any(unix, target_os = "wasi"))]
-                    let fd = crt_fd::open(&path.clone().into_cstring(vm)?, flags, 0o666);
+                    let fd = host_io::open_path(&path.clone().into_cstring(vm)?, flags, 0o666);
                     #[cfg(windows)]
-                    let fd = crt_fd::wopen(&path.to_wide_cstring(vm)?, flags, 0o666);
+                    let fd = host_io::open_path(&path.to_wide_cstring(vm)?, flags, 0o666);
                     let filename = OsPathOrFd::Path(path);
                     match fd {
                         Ok(fd) => (fd.into_raw(), Some(filename)),
@@ -5567,47 +5463,17 @@ mod fileio {
 
             // TODO: _Py_set_inheritable
 
-            let fd_fstat = rustpython_host_env::fileutils::fstat(fd);
-
-            #[cfg(windows)]
-            {
-                if let Err(err) = fd_fstat {
-                    // If the fd is invalid, prevent destructor from trying to close it
-                    if err.raw_os_error() == Some(rustpython_host_env::nt::ERROR_INVALID_HANDLE_I32)
-                    {
+            match host_io::inspect_file_target(fd) {
+                Ok(info) => {
+                    if let Some(blksize) = info.blksize {
+                        zelf.blksize.store(blksize);
+                    }
+                }
+                Err(err) => {
+                    if host_io::should_forget_fd_after_inspect_error(&err, fd_is_own) {
                         zelf.fd.store(-1);
                     }
                     return Err(OSErrorBuilder::with_filename(&err, filename, vm));
-                }
-            }
-            #[cfg(any(unix, target_os = "wasi"))]
-            {
-                match fd_fstat {
-                    Ok(status) => {
-                        if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
-                            // If fd was passed by user, don't close it on error
-                            if !fd_is_own {
-                                zelf.fd.store(-1);
-                            }
-                            let err = std::io::Error::from_raw_os_error(libc::EISDIR);
-                            return Err(OSErrorBuilder::with_filename(&err, filename, vm));
-                        }
-                        // Store st_blksize for _blksize property
-                        if status.st_blksize > 1 {
-                            #[allow(
-                                clippy::useless_conversion,
-                                reason = "needed for 32-bit platforms"
-                            )]
-                            zelf.blksize.store(i64::from(status.st_blksize));
-                        }
-                    }
-                    Err(err) => {
-                        if err.raw_os_error() == Some(libc::EBADF) {
-                            // fd is invalid, prevent destructor from trying to close it
-                            zelf.fd.store(-1);
-                            return Err(OSErrorBuilder::with_filename(&err, filename, vm));
-                        }
-                    }
                 }
             }
 
@@ -5621,8 +5487,8 @@ mod fileio {
                 return Err(e);
             }
 
-            if mode.contains(Mode::APPENDING) {
-                let _ = os::lseek(fd, 0, libc::SEEK_END, vm);
+            if mode.contains(host_io::FileMode::APPENDING) {
+                let _ = host_io::seek_to_end(fd);
             }
 
             Ok(())
@@ -5703,7 +5569,7 @@ mod fileio {
             if self.fd.load() < 0 {
                 return Err(io_closed_error(vm));
             }
-            Ok(self.mode.load().contains(Mode::READABLE))
+            Ok(self.mode.load().contains(host_io::FileMode::READABLE))
         }
 
         #[pymethod]
@@ -5711,33 +5577,12 @@ mod fileio {
             if self.fd.load() < 0 {
                 return Err(io_closed_error(vm));
             }
-            Ok(self.mode.load().contains(Mode::WRITABLE))
+            Ok(self.mode.load().contains(host_io::FileMode::WRITABLE))
         }
 
         #[pygetset]
         fn mode(&self) -> &'static str {
-            let mode = self.mode.load();
-            if mode.contains(Mode::CREATED) {
-                if mode.contains(Mode::READABLE) {
-                    "xb+"
-                } else {
-                    "xb"
-                }
-            } else if mode.contains(Mode::APPENDING) {
-                if mode.contains(Mode::READABLE) {
-                    "ab+"
-                } else {
-                    "ab"
-                }
-            } else if mode.contains(Mode::READABLE) {
-                if mode.contains(Mode::WRITABLE) {
-                    "rb+"
-                } else {
-                    "rb"
-                }
-            } else {
-                "wb"
-            }
+            self.mode.load().raw_mode()
         }
 
         #[pymethod]
@@ -5746,7 +5591,7 @@ mod fileio {
             read_byte: OptionalSize,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Vec<u8>>> {
-            if !zelf.mode.load().contains(Mode::READABLE) {
+            if !zelf.mode.load().contains(host_io::FileMode::READABLE) {
                 return Err(new_unsupported_operation(
                     vm,
                     "File or stream is not readable".to_owned(),
@@ -5757,14 +5602,14 @@ mod fileio {
                 let mut bytes = vec![0; read_byte];
                 // Loop on EINTR (PEP 475)
                 let n = loop {
-                    match vm.allow_threads(|| crt_fd::read(handle, &mut bytes)) {
+                    match vm.allow_threads(|| host_io::read_once(handle, &mut bytes)) {
                         Ok(n) => break n,
-                        Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                        Err(e) if host_io::is_interrupted_error(&e) => {
                             vm.check_signals()?;
                             continue;
                         }
                         // Non-blocking mode: return None if EAGAIN
-                        Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {
+                        Err(e) if host_io::is_would_block_error(&e) => {
                             return Ok(None);
                         }
                         Err(e) => return Err(Self::io_error(zelf, e, vm)),
@@ -5776,17 +5621,14 @@ mod fileio {
                 let mut bytes = vec![];
                 // Loop on EINTR (PEP 475)
                 loop {
-                    match vm.allow_threads(|| {
-                        let mut h = handle;
-                        h.read_to_end(&mut bytes)
-                    }) {
-                        Ok(_) => break,
-                        Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                    match vm.allow_threads(|| host_io::read_all(handle, &mut bytes)) {
+                        Ok(()) => break,
+                        Err(e) if host_io::is_interrupted_error(&e) => {
                             vm.check_signals()?;
                             continue;
                         }
                         // Non-blocking mode: return None if EAGAIN (only if no data read yet)
-                        Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {
+                        Err(e) if host_io::is_would_block_error(&e) => {
                             if bytes.is_empty() {
                                 return Ok(None);
                             }
@@ -5807,7 +5649,7 @@ mod fileio {
             obj: ArgMemoryBuffer,
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
-            if !zelf.mode.load().contains(Mode::READABLE) {
+            if !zelf.mode.load().contains(host_io::FileMode::READABLE) {
                 return Err(new_unsupported_operation(
                     vm,
                     "File or stream is not readable".to_owned(),
@@ -5819,14 +5661,14 @@ mod fileio {
             let mut buf = obj.borrow_buf_mut();
             // Loop on EINTR (PEP 475)
             let ret = loop {
-                match vm.allow_threads(|| crt_fd::read(handle, &mut buf)) {
+                match vm.allow_threads(|| host_io::read_once(handle, &mut buf)) {
                     Ok(n) => break n,
-                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                    Err(e) if host_io::is_interrupted_error(&e) => {
                         vm.check_signals()?;
                         continue;
                     }
                     // Non-blocking mode: return None if EAGAIN
-                    Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {
+                    Err(e) if host_io::is_would_block_error(&e) => {
                         return Ok(None);
                     }
                     Err(e) => return Err(Self::io_error(zelf, e, vm)),
@@ -5842,7 +5684,7 @@ mod fileio {
             obj: ArgBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
-            if !zelf.mode.load().contains(Mode::WRITABLE) {
+            if !zelf.mode.load().contains(host_io::FileMode::WRITABLE) {
                 return Err(new_unsupported_operation(
                     vm,
                     "File or stream is not writable".to_owned(),
@@ -5853,14 +5695,14 @@ mod fileio {
 
             // Loop on EINTR (PEP 475)
             let len = loop {
-                match obj.with_ref(|b| vm.allow_threads(|| crt_fd::write(handle, b))) {
+                match obj.with_ref(|b| vm.allow_threads(|| host_io::write_once(handle, b))) {
                     Ok(n) => break n,
-                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                    Err(e) if host_io::is_interrupted_error(&e) => {
                         vm.check_signals()?;
                         continue;
                     }
                     // Non-blocking mode: return None if EAGAIN
-                    Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => return Ok(None),
+                    Err(e) if host_io::is_would_block_error(&e) => return Ok(None),
                     Err(e) => return Err(Self::io_error(zelf, e, vm)),
                 }
             };
@@ -5882,7 +5724,7 @@ mod fileio {
             }
             let fd = zelf.fd.swap(-1);
             let close_err = if fd >= 0 {
-                crt_fd::close(unsafe { crt_fd::Owned::from_raw(fd) })
+                host_io::close_owned_fd(unsafe { crt_fd::Owned::from_raw(fd) })
                     .map_err(|err| Self::io_error(zelf, err, vm))
                     .err()
             } else {
@@ -5902,7 +5744,7 @@ mod fileio {
         fn seekable(&self, vm: &VirtualMachine) -> PyResult<bool> {
             let fd = self.get_fd(vm)?;
             Ok(self.seekable.load().unwrap_or_else(|| {
-                let seekable = os::lseek(fd, 0, libc::SEEK_CUR, vm).is_ok();
+                let seekable = host_io::is_seekable(fd);
                 self.seekable.store(Some(seekable));
                 seekable
             }))
@@ -5919,13 +5761,13 @@ mod fileio {
             let fd = self.get_fd(vm)?;
             let offset = get_offset(offset, vm)?;
 
-            os::lseek(fd, offset, how, vm)
+            host_io::seek(fd, offset, how).map_err(|e| e.into_pyexception(vm))
         }
 
         #[pymethod]
         fn tell(&self, vm: &VirtualMachine) -> PyResult<Offset> {
             let fd = self.get_fd(vm)?;
-            os::lseek(fd, 0, libc::SEEK_CUR, vm)
+            host_io::tell(fd).map_err(|e| e.into_pyexception(vm))
         }
 
         #[pymethod]
@@ -5933,7 +5775,7 @@ mod fileio {
             let fd = self.get_fd(vm)?;
             let len = match len.flatten() {
                 Some(l) => get_offset(l, vm)?,
-                None => os::lseek(fd, 0, libc::SEEK_CUR, vm)?,
+                None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };
             os::ftruncate(fd, len).map_err(|e| e.into_pyexception(vm))?;
             Ok(len)
@@ -5942,7 +5784,7 @@ mod fileio {
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult<bool> {
             let fd = self.fileno(vm)?;
-            Ok(os::isatty(fd))
+            Ok(host_io::isatty(fd))
         }
 
         #[pymethod]
@@ -6012,6 +5854,7 @@ mod winconsoleio {
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use rustpython_host_env::io as host_io;
     use rustpython_host_env::nt as host_nt;
     type HANDLE = host_nt::Handle;
 
@@ -6019,7 +5862,7 @@ mod winconsoleio {
     const BUFMAX: usize = 32 * 1024 * 1024;
 
     fn handle_from_fd(fd: i32) -> HANDLE {
-        unsafe { rustpython_host_env::suppress_iph!(libc::get_osfhandle(fd)) as HANDLE }
+        host_nt::handle_from_fd(fd)
     }
 
     fn is_invalid_handle(handle: HANDLE) -> bool {
@@ -6236,9 +6079,8 @@ mod winconsoleio {
     fn internal_close(zelf: &WindowsConsoleIO) {
         let fd = zelf.fd.swap(-1);
         if fd >= 0 && zelf.closefd.load() {
-            unsafe {
-                libc::close(fd);
-            }
+            let _ =
+                host_io::close_owned_fd(unsafe { crate::host_env::crt_fd::Owned::from_raw(fd) });
         }
     }
 
@@ -6347,12 +6189,9 @@ mod winconsoleio {
             }
             let fd = zelf.fd.swap(-1);
             let close_err: Option<PyBaseExceptionRef> = if fd >= 0 {
-                let result = unsafe { libc::close(fd) };
-                if result < 0 {
-                    Some(std::io::Error::last_os_error().into_pyexception(vm))
-                } else {
-                    None
-                }
+                host_io::close_owned_fd(unsafe { crate::host_env::crt_fd::Owned::from_raw(fd) })
+                    .err()
+                    .map(|e| e.into_pyexception(vm))
             } else {
                 None
             };

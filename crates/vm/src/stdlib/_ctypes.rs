@@ -3,7 +3,6 @@
 mod array;
 mod base;
 mod function;
-mod library;
 mod pointer;
 mod simple;
 mod structure;
@@ -235,7 +234,6 @@ fn get_align(ty: &str) -> usize {
 
 #[pymodule]
 pub(crate) mod _ctypes {
-    use super::library;
     use super::{PyCArray, PyCData, PyCPointer, PyCSimple, PyCStructure, PyCUnion};
     use crate::builtins::{PyType, PyTypeRef};
     use crate::class::StaticType;
@@ -546,14 +544,11 @@ pub(crate) mod _ctypes {
     fn load_library_windows(
         name: String,
         _load_flags: OptionalArg<i32>,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> PyResult<usize> {
         // TODO: audit functions first
         // TODO: load_flags
-        let cache = library::libcache();
-        let mut cache_write = cache.write();
-        let (id, _) = cache_write.get_or_insert_lib(&name, vm).unwrap();
-        Ok(id)
+        Ok(rustpython_host_env::ctypes::open_library(&name).unwrap())
     }
 
     #[cfg(not(windows))]
@@ -568,58 +563,35 @@ pub(crate) mod _ctypes {
 
         match name {
             Some(name) => {
-                let cache = library::libcache();
-                let mut cache_write = cache.write();
                 let os_str = name.as_os_str(vm)?;
-                let (id, _) = cache_write
-                    .get_or_insert_lib_with_mode(&*os_str, mode, vm)
-                    .map_err(|e| {
-                        let name_str = os_str.to_string_lossy();
-                        vm.new_os_error(format!("{}: {}", name_str, e))
-                    })?;
-                Ok(id)
+                rustpython_host_env::ctypes::open_library_with_mode(&*os_str, mode).map_err(|e| {
+                    let name_str = os_str.to_string_lossy();
+                    vm.new_os_error(format!("{}: {}", name_str, e))
+                })
             }
             None => {
                 // dlopen(NULL, mode) to get the current process handle (for pythonapi)
-                let handle = unsafe { libc::dlopen(core::ptr::null(), mode) };
-                if handle.is_null() {
-                    let err = unsafe { libc::dlerror() };
-                    let msg = if err.is_null() {
-                        "dlopen() error".to_string()
-                    } else {
-                        unsafe {
-                            core::ffi::CStr::from_ptr(err)
-                                .to_string_lossy()
-                                .into_owned()
-                        }
-                    };
-                    return Err(vm.new_os_error(msg));
-                }
+                let handle = rustpython_host_env::ctypes::dlopen_self(mode)
+                    .map_err(|msg| vm.new_os_error(msg))?;
                 // Add to library cache so symbol lookup works
-                let cache = library::libcache();
-                let mut cache_write = cache.write();
-                let id = cache_write.insert_raw_handle(handle);
-                Ok(id)
+                Ok(rustpython_host_env::ctypes::insert_raw_library_handle(
+                    handle,
+                ))
             }
         }
     }
 
     #[pyfunction(name = "FreeLibrary")]
     fn free_library(handle: usize) -> PyResult<()> {
-        let cache = library::libcache();
-        let mut cache_write = cache.write();
-        cache_write.drop_lib(handle);
+        rustpython_host_env::ctypes::drop_library(handle);
         Ok(())
     }
 
     #[cfg(not(windows))]
     #[pyfunction]
     fn dlclose(handle: usize, _vm: &VirtualMachine) -> PyResult<()> {
-        // Remove from cache, which triggers SharedLibrary drop.
-        // libloading::Library calls dlclose automatically on Drop.
-        let cache = library::libcache();
-        let mut cache_write = cache.write();
-        cache_write.drop_lib(handle);
+        // Remove from the host_env cache. The underlying library is closed on Drop.
+        rustpython_host_env::ctypes::drop_library(handle);
         Ok(())
     }
 
@@ -632,29 +604,8 @@ pub(crate) mod _ctypes {
     ) -> PyResult<usize> {
         let symbol_name = alloc::ffi::CString::new(name.as_str())
             .map_err(|_| vm.new_value_error("symbol name contains null byte"))?;
-
-        // Clear previous error
-        unsafe { libc::dlerror() };
-
-        let ptr = unsafe { libc::dlsym(handle as *mut libc::c_void, symbol_name.as_ptr()) };
-
-        // Check for error via dlerror first
-        let err = unsafe { libc::dlerror() };
-        if !err.is_null() {
-            let msg = unsafe {
-                core::ffi::CStr::from_ptr(err)
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            return Err(vm.new_os_error(msg));
-        }
-
-        // Treat NULL symbol address as error
-        // This handles cases like GNU IFUNCs that resolve to NULL
-        if ptr.is_null() {
-            return Err(vm.new_os_error(format!("symbol '{}' not found", name.as_str())));
-        }
-
+        let ptr = rustpython_host_env::ctypes::dlsym_checked(handle, symbol_name.as_c_str())
+            .map_err(|msg| vm.new_os_error(msg))?;
         Ok(ptr as usize)
     }
 
@@ -975,14 +926,12 @@ pub(crate) mod _ctypes {
 
     #[pyattr]
     fn _memmove_addr(_vm: &VirtualMachine) -> usize {
-        let f = libc::memmove;
-        f as *const () as usize
+        rustpython_host_env::ctypes::memmove_addr()
     }
 
     #[pyattr]
     fn _memset_addr(_vm: &VirtualMachine) -> usize {
-        let f = libc::memset;
-        f as *const () as usize
+        rustpython_host_env::ctypes::memset_addr()
     }
 
     #[pyattr]

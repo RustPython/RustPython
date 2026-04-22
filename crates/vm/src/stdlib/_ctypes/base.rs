@@ -1300,24 +1300,21 @@ impl PyCData {
                 .ok_or_else(|| vm.new_value_error("Invalid library handle"))?
         };
 
-        // Look up the library in the cache and use lib.get() for symbol lookup
-        let library_cache = super::library::libcache().read();
-        let library = library_cache
-            .get_lib(handle)
-            .ok_or_else(|| vm.new_value_error("Library not found"))?;
-        let inner_lib = library.lib.lock();
-
         let symbol_name_with_nul = format!("{}\0", name.as_wtf8());
-        let ptr: *const u8 = if let Some(lib) = &*inner_lib {
-            unsafe {
-                lib.get::<*const u8>(symbol_name_with_nul.as_bytes())
-                    .map(|sym| *sym)
-                    .map_err(|_| {
-                        vm.new_value_error(format!("symbol '{}' not found", name.as_wtf8()))
-                    })?
+        let ptr = match rustpython_host_env::ctypes::lookup_data_symbol_addr(
+            handle,
+            symbol_name_with_nul.as_bytes(),
+        ) {
+            Ok(ptr) => ptr as *const u8,
+            Err(rustpython_host_env::ctypes::LookupSymbolError::LibraryNotFound) => {
+                return Err(vm.new_value_error("Library not found"));
             }
-        } else {
-            return Err(vm.new_value_error("Library closed"));
+            Err(rustpython_host_env::ctypes::LookupSymbolError::LibraryClosed) => {
+                return Err(vm.new_value_error("Library closed"));
+            }
+            Err(rustpython_host_env::ctypes::LookupSymbolError::Load(_)) => {
+                return Err(vm.new_value_error(format!("symbol '{}' not found", name.as_wtf8())));
+            }
         };
 
         // dlsym can return NULL for symbols that resolve to NULL (e.g., GNU IFUNC)
@@ -2155,7 +2152,9 @@ pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue
                 .map_or(0.0, f64::from_ne_bytes);
             FfiArgValue::F64(v)
         }
-        "z" | "Z" | "P" | "O" => FfiArgValue::Pointer(read_ptr_from_buffer(buffer)),
+        "z" | "Z" | "P" | "O" => FfiArgValue::Pointer(
+            rustpython_host_env::ctypes::read_pointer_from_buffer(buffer),
+        ),
         "?" => {
             let v = buffer.first().map(|&b| b != 0).unwrap_or(false);
             FfiArgValue::U8(if v { 1 } else { 0 })
@@ -2307,36 +2306,31 @@ pub(super) fn bytes_to_pyobject(
             }
             "z" => {
                 // c_char_p: read NULL-terminated string from pointer
-                let ptr = read_ptr_from_buffer(bytes);
+                let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(bytes);
                 if ptr == 0 {
                     return Ok(vm.ctx.none());
                 }
-                let c_str = unsafe { core::ffi::CStr::from_ptr(ptr as _) };
-                Ok(vm.ctx.new_bytes(c_str.to_bytes().to_vec()).into())
+                Ok(vm
+                    .ctx
+                    .new_bytes(unsafe {
+                        rustpython_host_env::ctypes::read_c_string_bytes(ptr as _)
+                    })
+                    .into())
             }
             "Z" => {
                 // c_wchar_p: read NULL-terminated wide string from pointer
-                let ptr = read_ptr_from_buffer(bytes);
+                let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(bytes);
                 if ptr == 0 {
                     return Ok(vm.ctx.none());
                 }
-                let len = unsafe { libc::wcslen(ptr as *const libc::wchar_t) };
-                let wchars =
-                    unsafe { core::slice::from_raw_parts(ptr as *const libc::wchar_t, len) };
-                // wchar_t is i32 on some platforms and u32 on others
-                #[allow(
-                    clippy::unnecessary_cast,
-                    reason = "wchar_t is i32 on some platforms and u32 on others"
-                )]
-                let s: String = wchars
-                    .iter()
-                    .filter_map(|&c| char::from_u32(c as u32))
-                    .collect();
-                Ok(vm.ctx.new_str(s).into())
+                Ok(vm
+                    .ctx
+                    .new_str(unsafe { rustpython_host_env::ctypes::read_wide_string(ptr as _) })
+                    .into())
             }
             "P" => {
                 // c_void_p: return pointer value as integer
-                let val = read_ptr_from_buffer(bytes);
+                let val = rustpython_host_env::ctypes::read_pointer_from_buffer(bytes);
                 if val == 0 {
                     return Ok(vm.ctx.none());
                 }
@@ -2382,16 +2376,6 @@ pub(super) fn get_usize_attr(
         return Err(vm.new_value_error(format!("{attr} must be a non-negative integer")));
     }
     Ok(val.to_usize().unwrap_or(default))
-}
-
-/// Read a pointer value from buffer
-#[inline]
-pub(super) fn read_ptr_from_buffer(buffer: &[u8]) -> usize {
-    const PTR_SIZE: usize = core::mem::size_of::<usize>();
-    buffer
-        .first_chunk::<PTR_SIZE>()
-        .copied()
-        .map_or(0, usize::from_ne_bytes)
 }
 
 /// Check if a type is a "simple instance" (direct subclass of a simple type)

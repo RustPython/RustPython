@@ -1183,6 +1183,26 @@ pub fn get_terminal_size(fd: libc::c_int) -> std::io::Result<(u16, u16)> {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub fn full_fsync(fd: BorrowedFd<'_>) -> std::io::Result<()> {
+    let ret = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_FULLFSYNC) };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn madvise(addr: usize, len: usize, advice: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::madvise(addr as *mut libc::c_void, len, advice) };
+    if ret != 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 pub fn pathconf(path: &CStr, name: i32) -> std::io::Result<Option<libc::c_long>> {
     crate::os::clear_errno();
     debug_assert_eq!(crate::os::get_errno(), 0);

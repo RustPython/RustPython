@@ -23,7 +23,6 @@ use libffi::{
     low,
     middle::{Arg, Cif, Closure, CodePtr, Type},
 };
-use libloading::Symbol;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
 
@@ -116,9 +115,6 @@ where
 
     result
 }
-
-type FP = unsafe extern "C" fn();
-
 /// Get FFI type for a ctypes type code
 fn get_ffi_type(ty: &str) -> Option<libffi::middle::Type> {
     type_info(ty).map(|t| (t.ffi_type_fn)())
@@ -209,7 +205,7 @@ fn convert_to_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<FfiArgV
     if let Some(simple) = value.downcast_ref::<PyCSimple>() {
         let buffer = simple.0.buffer.read();
         if buffer.len() >= core::mem::size_of::<usize>() {
-            let addr = super::base::read_ptr_from_buffer(&buffer);
+            let addr = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer);
             return Ok(FfiArgValue::Pointer(addr));
         }
     }
@@ -619,11 +615,14 @@ fn string_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
     if ptr == 0 {
         return Err(vm.new_value_error("NULL pointer access"));
     }
+    if size < 0 {
+        return Ok(vm
+            .ctx
+            .new_bytes(unsafe { rustpython_host_env::ctypes::read_c_string_bytes(ptr as _) })
+            .into());
+    }
     let ptr = ptr as *const u8;
-    let len = if size < 0 {
-        // size == -1 means use strlen
-        unsafe { libc::strlen(ptr as _) }
-    } else {
+    let len = {
         // Overflow check for huge size values
         let size_usize = size as usize;
         if size_usize > isize::MAX as usize / 2 {
@@ -631,8 +630,10 @@ fn string_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
         }
         size_usize
     };
-    let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
-    Ok(vm.ctx.new_bytes(bytes.to_vec()).into())
+    Ok(vm
+        .ctx
+        .new_bytes(unsafe { rustpython_host_env::ctypes::bytes_at(ptr, len) })
+        .into())
 }
 
 /// wstring_at implementation - read wide string from memory at ptr
@@ -641,9 +642,13 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_value_error("NULL pointer access"));
     }
     let w_ptr = ptr as *const libc::wchar_t;
-    let len = if size < 0 {
-        unsafe { libc::wcslen(w_ptr) }
-    } else {
+    if size < 0 {
+        return Ok(vm
+            .ctx
+            .new_str(unsafe { rustpython_host_env::ctypes::read_wide_string(w_ptr) })
+            .into());
+    }
+    let len = {
         // Overflow check for huge size values
         let size_usize = size as usize;
         if size_usize > isize::MAX as usize / core::mem::size_of::<libc::wchar_t>() {
@@ -651,29 +656,10 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
         }
         size_usize
     };
-    let wchars = unsafe { core::slice::from_raw_parts(w_ptr, len) };
-
-    // Windows: wchar_t = u16 (UTF-16) -> use Wtf8Buf::from_wide
-    // macOS/Linux: wchar_t = i32 (UTF-32) -> convert via char::from_u32
-    cfg_select! {
-        windows => {
-            use rustpython_common::wtf8::Wtf8Buf;
-            let wide: Vec<u16> = wchars.to_vec();
-            let wtf8 = Wtf8Buf::from_wide(&wide);
-            Ok(vm.ctx.new_str(wtf8).into())
-        }
-        _ => {
-            #[allow(
-                clippy::useless_conversion,
-                reason = "wchar_t is i32 on some platforms and u32 on others"
-            )]
-            let s: String = wchars
-                .iter()
-                .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
-                .collect();
-            Ok(vm.ctx.new_str(s).into())
-        }
-    }
+    Ok(vm
+        .ctx
+        .new_str(unsafe { rustpython_host_env::ctypes::read_wide_string_with_len(w_ptr, len) })
+        .into())
 }
 
 /// A buffer wrapping raw memory at a given pointer, for zero-copy memoryview.
@@ -799,7 +785,7 @@ pub(super) fn cast_impl(
     } else if let Some(simple) = obj.downcast_ref::<PyCSimple>() {
         // Simple type (c_void_p, c_char_p, etc.) → value from buffer
         let buffer = simple.0.buffer.read();
-        super::base::read_ptr_from_buffer(&buffer)
+        rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
     } else if let Some(cdata) = obj.downcast_ref::<PyCData>() {
         // Array, Structure, Union → buffer address (b_ptr)
         cdata.buffer.read().as_ptr() as usize
@@ -873,7 +859,7 @@ impl PyCFuncPtr {
     /// Get function pointer address from buffer
     fn get_func_ptr(&self) -> usize {
         let buffer = self._base.buffer.read();
-        super::base::read_ptr_from_buffer(&buffer)
+        rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
     }
 
     /// Get CodePtr from buffer for FFI calls
@@ -1017,32 +1003,28 @@ impl Constructor for PyCFuncPtr {
                     .as_bigint()
                     .clone(),
             };
-            let library_cache = super::library::libcache().read();
-            let library = library_cache
-                .get_lib(
-                    handle
-                        .to_usize()
-                        .ok_or_else(|| vm.new_value_error("Invalid handle"))?,
-                )
-                .ok_or_else(|| vm.new_value_error("Library not found"))?;
-            let inner_lib = library.lib.lock();
-
             let terminated = format!("{}\0", &name);
-            let ptr_val = if let Some(lib) = &*inner_lib {
-                let pointer: Symbol<'_, FP> = unsafe {
-                    lib.get(terminated.as_bytes())
-                        .map_err(|err| err.to_string())
-                        .map_err(|err| vm.new_attribute_error(err))?
-                };
-                let addr = *pointer as usize;
-                // dlsym can return NULL for symbols that resolve to NULL (e.g., GNU IFUNC)
-                // Treat NULL addresses as errors
-                if addr == 0 {
-                    return Err(vm.new_attribute_error(format!("function '{}' not found", name)));
+            let ptr_val = match rustpython_host_env::ctypes::lookup_function_symbol_addr(
+                handle
+                    .to_usize()
+                    .ok_or(vm.new_value_error("Invalid handle"))?,
+                terminated.as_bytes(),
+            ) {
+                Ok(addr) => {
+                    if addr == 0 {
+                        return Err(
+                            vm.new_attribute_error(format!("function '{}' not found", name))
+                        );
+                    }
+                    addr
                 }
-                addr
-            } else {
-                0
+                Err(rustpython_host_env::ctypes::LookupSymbolError::LibraryNotFound) => {
+                    return Err(vm.new_value_error("Library not found"));
+                }
+                Err(rustpython_host_env::ctypes::LookupSymbolError::LibraryClosed) => 0,
+                Err(rustpython_host_env::ctypes::LookupSymbolError::Load(err)) => {
+                    return Err(vm.new_attribute_error(err));
+                }
             };
 
             return PyCFuncPtr {
@@ -1316,7 +1298,7 @@ fn resolve_com_method(
     let com_ptr = if let Some(simple) = self_arg.downcast_ref::<PyCSimple>() {
         let buffer = simple.0.buffer.read();
         if buffer.len() >= core::mem::size_of::<usize>() {
-            super::base::read_ptr_from_buffer(&buffer)
+            rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
         } else {
             0
         }
@@ -2010,8 +1992,9 @@ fn ffi_to_python(ty: &Py<PyType>, ptr: *const c_void, vm: &VirtualMachine) -> Py
                 if cstr_ptr.is_null() {
                     vm.ctx.none()
                 } else {
-                    let cstr = core::ffi::CStr::from_ptr(cstr_ptr);
-                    vm.ctx.new_bytes(cstr.to_bytes().to_vec()).into()
+                    vm.ctx
+                        .new_bytes(rustpython_host_env::ctypes::read_c_string_bytes(cstr_ptr))
+                        .into()
                 }
             }
             Some("Z") => {
@@ -2020,32 +2003,9 @@ fn ffi_to_python(ty: &Py<PyType>, ptr: *const c_void, vm: &VirtualMachine) -> Py
                 if wstr_ptr.is_null() {
                     vm.ctx.none()
                 } else {
-                    let mut len = 0;
-                    while *wstr_ptr.add(len) != 0 {
-                        len += 1;
-                    }
-                    let slice = core::slice::from_raw_parts(wstr_ptr, len);
-                    // Windows: wchar_t = u16 (UTF-16) -> use Wtf8Buf::from_wide
-                    // Unix: wchar_t = i32 (UTF-32) -> convert via char::from_u32
-                    cfg_select! {
-                        windows => {
-                            use rustpython_common::wtf8::Wtf8Buf;
-                            let wide: Vec<u16> = slice.to_vec();
-                            let wtf8 = Wtf8Buf::from_wide(&wide);
-                            vm.ctx.new_str(wtf8).into()
-                        }
-                        _ => {
-                            #[allow(
-                                clippy::useless_conversion,
-                                reason = "wchar_t is i32 on some platforms and u32 on others"
-                            )]
-                            let s: String = slice
-                                .iter()
-                                .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
-                                .collect();
-                            vm.ctx.new_str(s).into()
-                        }
-                    }
+                    vm.ctx
+                        .new_str(rustpython_host_env::ctypes::read_wide_string(wstr_ptr))
+                        .into()
                 }
             }
             Some("P") => vm.ctx.new_int(*(ptr as *const usize)).into(),

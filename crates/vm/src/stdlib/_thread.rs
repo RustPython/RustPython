@@ -27,9 +27,9 @@ pub(crate) mod _thread {
         RawMutex, RawThreadId,
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
+    use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
     #[cfg(any(unix, windows))]
     use rustpython_host_env::thread as host_thread;
-    use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
     use std::thread;
 
     // PYTHREAD_NAME: show current thread name

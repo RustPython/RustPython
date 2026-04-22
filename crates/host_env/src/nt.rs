@@ -1764,7 +1764,7 @@ pub fn get_terminal_size_handle(h: HANDLE) -> io::Result<(usize, usize)> {
     Ok((columns, lines))
 }
 
-fn handle_from_fd(fd: i32) -> HANDLE {
+pub fn handle_from_fd(fd: i32) -> HANDLE {
     unsafe { crate::suppress_iph!(libc::get_osfhandle(fd)) as HANDLE }
 }
 

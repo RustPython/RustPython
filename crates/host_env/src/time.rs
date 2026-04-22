@@ -1,3 +1,5 @@
+#[cfg(any(unix, windows))]
+use alloc::ffi::CString;
 use core::time::Duration;
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 
@@ -18,6 +20,9 @@ pub fn duration_since_system_now() -> Result<Duration, SystemTimeError> {
 }
 
 #[cfg(unix)]
+pub type TimeT = libc::time_t;
+
+#[cfg(windows)]
 pub type TimeT = libc::time_t;
 
 #[cfg(unix)]
@@ -55,6 +60,41 @@ pub fn localtime_from_timestamp(when: TimeT) -> Option<libc::tm> {
 #[cfg(unix)]
 pub fn mktime(tm: &mut libc::tm) -> TimeT {
     unsafe { libc::mktime(tm) }
+}
+
+#[cfg(windows)]
+unsafe extern "C" {
+    fn _gmtime64_s(tm: *mut libc::tm, time: *const libc::time_t) -> libc::c_int;
+    fn _localtime64_s(tm: *mut libc::tm, time: *const libc::time_t) -> libc::c_int;
+    #[link_name = "_mktime64"]
+    fn c_mktime(tm: *mut libc::tm) -> libc::time_t;
+}
+
+#[cfg(windows)]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
+pub fn current_time_t() -> TimeT {
+    unsafe { libc::time(core::ptr::null_mut()) }
+}
+
+#[cfg(windows)]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
+pub fn gmtime_from_timestamp(when: TimeT) -> Option<libc::tm> {
+    let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
+    let err = unsafe { _gmtime64_s(out.as_mut_ptr(), &when) };
+    (err == 0).then(|| unsafe { out.assume_init() })
+}
+
+#[cfg(windows)]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
+pub fn localtime_from_timestamp(when: TimeT) -> Option<libc::tm> {
+    let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
+    let err = unsafe { _localtime64_s(out.as_mut_ptr(), &when) };
+    (err == 0).then(|| unsafe { out.assume_init() })
+}
+
+#[cfg(windows)]
+pub fn mktime(tm: &mut libc::tm) -> TimeT {
+    unsafe { crate::suppress_iph!(c_mktime(tm)) }
 }
 
 #[cfg(unix)]
@@ -349,4 +389,197 @@ pub fn asctime_from_tm(tm: &libc::tm) -> String {
         tm.tm_sec,
         tm.tm_year + 1900
     )
+}
+
+#[cfg(any(unix, windows))]
+#[derive(Clone, Debug)]
+pub struct CheckedTm {
+    pub tm: libc::tm,
+    #[cfg(unix)]
+    pub zone: Option<CString>,
+}
+
+#[cfg(any(unix, windows))]
+#[derive(Clone, Debug)]
+pub struct CheckedTmParts {
+    pub year: i64,
+    pub tm_mon: i32,
+    pub tm_mday: i32,
+    pub tm_hour: i32,
+    pub tm_min: i32,
+    pub tm_sec: i32,
+    pub tm_wday: i32,
+    pub tm_yday: i32,
+    pub tm_isdst: i32,
+    #[cfg(unix)]
+    pub zone: Option<String>,
+    #[cfg(unix)]
+    pub gmtoff: Option<i64>,
+}
+
+#[cfg(any(unix, windows))]
+#[derive(Clone, Copy, Debug)]
+pub struct MktimeTmParts {
+    pub year: i32,
+    pub tm_sec: i32,
+    pub tm_min: i32,
+    pub tm_hour: i32,
+    pub tm_mday: i32,
+    pub tm_mon: i32,
+    pub tm_yday: i32,
+    pub tm_isdst: i32,
+}
+
+#[cfg(any(unix, windows))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckedTmError {
+    YearOutOfRange,
+    MonthOutOfRange,
+    DayOfMonthOutOfRange,
+    HourOutOfRange,
+    MinuteOutOfRange,
+    SecondsOutOfRange,
+    DayOfWeekOutOfRange,
+    DayOfYearOutOfRange,
+    EmbeddedNul,
+}
+
+#[cfg(any(unix, windows))]
+pub fn checked_tm_from_parts(parts: CheckedTmParts) -> Result<CheckedTm, CheckedTmError> {
+    if parts.year < i64::from(i32::MIN) + 1900 || parts.year > i64::from(i32::MAX) {
+        return Err(CheckedTmError::YearOutOfRange);
+    }
+
+    let mut tm: libc::tm = unsafe { core::mem::zeroed() };
+    tm.tm_year = parts.year as i32 - 1900;
+    tm.tm_mon = parts.tm_mon;
+    tm.tm_mday = parts.tm_mday;
+    tm.tm_hour = parts.tm_hour;
+    tm.tm_min = parts.tm_min;
+    tm.tm_sec = parts.tm_sec;
+    tm.tm_wday = parts.tm_wday;
+    tm.tm_yday = parts.tm_yday;
+    tm.tm_isdst = parts.tm_isdst;
+
+    if tm.tm_mon == -1 {
+        tm.tm_mon = 0;
+    } else if !(0..=11).contains(&tm.tm_mon) {
+        return Err(CheckedTmError::MonthOutOfRange);
+    }
+    if tm.tm_mday == 0 {
+        tm.tm_mday = 1;
+    } else if !(0..=31).contains(&tm.tm_mday) {
+        return Err(CheckedTmError::DayOfMonthOutOfRange);
+    }
+    if !(0..=23).contains(&tm.tm_hour) {
+        return Err(CheckedTmError::HourOutOfRange);
+    }
+    if !(0..=59).contains(&tm.tm_min) {
+        return Err(CheckedTmError::MinuteOutOfRange);
+    }
+    if !(0..=61).contains(&tm.tm_sec) {
+        return Err(CheckedTmError::SecondsOutOfRange);
+    }
+    if tm.tm_wday < 0 {
+        return Err(CheckedTmError::DayOfWeekOutOfRange);
+    }
+    if tm.tm_yday == -1 {
+        tm.tm_yday = 0;
+    } else if !(0..=365).contains(&tm.tm_yday) {
+        return Err(CheckedTmError::DayOfYearOutOfRange);
+    }
+
+    #[cfg(unix)]
+    {
+        let zone = match parts.zone {
+            Some(zone) => Some(CString::new(zone).map_err(|_| CheckedTmError::EmbeddedNul)?),
+            None => None,
+        };
+        if let Some(zone) = &zone {
+            tm.tm_zone = zone.as_ptr().cast_mut();
+        }
+        if let Some(gmtoff) = parts.gmtoff {
+            tm.tm_gmtoff = gmtoff as _;
+        }
+        Ok(CheckedTm { tm, zone })
+    }
+    #[cfg(windows)]
+    {
+        Ok(CheckedTm { tm })
+    }
+}
+
+#[cfg(any(unix, windows))]
+pub fn mktime_tm_from_parts(parts: MktimeTmParts) -> Result<libc::tm, CheckedTmError> {
+    if parts.year < i32::MIN + 1900 {
+        return Err(CheckedTmError::YearOutOfRange);
+    }
+    let mut tm: libc::tm = unsafe { core::mem::zeroed() };
+    tm.tm_sec = parts.tm_sec;
+    tm.tm_min = parts.tm_min;
+    tm.tm_hour = parts.tm_hour;
+    tm.tm_mday = parts.tm_mday;
+    tm.tm_mon = parts.tm_mon - 1;
+    tm.tm_year = parts.year - 1900;
+    tm.tm_wday = -1;
+    tm.tm_yday = parts.tm_yday - 1;
+    tm.tm_isdst = parts.tm_isdst;
+    Ok(tm)
+}
+
+#[cfg(unix)]
+pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError> {
+    let fmt_c = CString::new(fmt).map_err(|_| CheckedTmError::EmbeddedNul)?;
+    let mut size = 1024usize;
+    let max_scale = 256usize.saturating_mul(fmt.len().max(1));
+    loop {
+        let mut out = vec![0u8; size];
+        let written = unsafe {
+            libc::strftime(
+                out.as_mut_ptr().cast(),
+                out.len(),
+                fmt_c.as_ptr(),
+                tm as *const libc::tm,
+            )
+        };
+        if written > 0 || size >= max_scale {
+            return Ok(String::from_utf8_lossy(&out[..written]).into_owned());
+        }
+        size = size.saturating_mul(2);
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "C" {
+    fn wcsftime(
+        s: *mut libc::wchar_t,
+        max: libc::size_t,
+        format: *const libc::wchar_t,
+        tm: *const libc::tm,
+    ) -> libc::size_t;
+}
+
+#[cfg(windows)]
+pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError> {
+    if fmt.contains('\0') {
+        return Err(CheckedTmError::EmbeddedNul);
+    }
+    let fmt_wide: Vec<u16> = fmt.encode_utf16().chain(core::iter::once(0)).collect();
+    let mut size = 1024usize;
+    let max_scale = 256usize.saturating_mul(fmt.len().max(1));
+    loop {
+        let mut out = vec![0u16; size];
+        let written = unsafe {
+            crate::suppress_iph!(wcsftime(
+                out.as_mut_ptr(),
+                out.len(),
+                fmt_wide.as_ptr(),
+                tm as *const libc::tm,
+            ))
+        };
+        if written > 0 || size >= max_scale {
+            return Ok(String::from_utf16_lossy(&out[..written]));
+        }
+        size = size.saturating_mul(2);
+    }
 }

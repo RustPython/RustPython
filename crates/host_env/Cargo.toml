@@ -11,6 +11,7 @@ license.workspace = true
 [dependencies]
 rustpython-wtf8 = { workspace = true }
 
+bitflags = { workspace = true }
 libc = { workspace = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true }
@@ -29,9 +30,12 @@ num_cpus = "1.17.0"
 [target.'cfg(all(unix, not(target_os = "ios"), not(target_os = "redox")))'.dependencies]
 termios = { workspace = true }
 
+[target.'cfg(any(unix, windows))'.dependencies]
+memmap2 = "0.9.10"
+libloading = "0.9"
+
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }
-memmap2 = "0.9.10"
 schannel = { workspace = true }
 widestring = { workspace = true }
 windows-sys = { workspace = true, features = [
