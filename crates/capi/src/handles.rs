@@ -1,10 +1,10 @@
 use crate::PyObject;
 use crate::object::PyTypeObject;
 use core::ptr;
-use rustpython_vm::{AsObject, Py};
+use rustpython_vm::{AsObject, Py, PyObjectRef};
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::vm::Context;
-use std::alloc::{Layout, alloc_zeroed, dealloc};
+use std::alloc::{Layout, alloc_zeroed};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -29,6 +29,11 @@ struct WrapperMaps {
 fn wrapper_maps() -> &'static Mutex<WrapperMaps> {
     static WRAPPER_MAPS: OnceLock<Mutex<WrapperMaps>> = OnceLock::new();
     WRAPPER_MAPS.get_or_init(|| Mutex::new(WrapperMaps::default()))
+}
+
+fn retained_builtin_objects() -> &'static Mutex<Vec<PyObjectRef>> {
+    static RETAINED_BUILTINS: OnceLock<Mutex<Vec<PyObjectRef>>> = OnceLock::new();
+    RETAINED_BUILTINS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 #[inline]
@@ -127,32 +132,62 @@ static mut PYTRUESTRUCT_EXPORT: ExportedStaticObject = ExportedStaticObject {
 #[allow(static_mut_refs)]
 pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
     unsafe {
-        ACTUAL_PYBASEOBJECT_TYPE =
-            normalize_type_ptr(ctx.types.object_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYBOOL_TYPE =
-            normalize_type_ptr(ctx.types.bool_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYBYTEARRAY_TYPE =
-            normalize_type_ptr(ctx.types.bytearray_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYBYTES_TYPE =
-            normalize_type_ptr(ctx.types.bytes_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYDICT_TYPE =
-            normalize_type_ptr(ctx.types.dict_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYLIST_TYPE =
-            normalize_type_ptr(ctx.types.list_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYLONG_TYPE =
-            normalize_type_ptr(ctx.types.int_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYMODULE_TYPE =
-            normalize_type_ptr(ctx.types.module_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYTUPLE_TYPE =
-            normalize_type_ptr(ctx.types.tuple_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYTYPE_TYPE =
-            normalize_type_ptr(ctx.types.type_type as *const Py<PyType> as *mut PyTypeObject);
-        ACTUAL_PYUNICODE_TYPE =
-            normalize_type_ptr(ctx.types.str_type as *const Py<PyType> as *mut PyTypeObject);
+        let object_type = ctx.types.object_type.to_owned();
+        let bool_type = ctx.types.bool_type.to_owned();
+        let bytearray_type = ctx.types.bytearray_type.to_owned();
+        let bytes_type = ctx.types.bytes_type.to_owned();
+        let dict_type = ctx.types.dict_type.to_owned();
+        let list_type = ctx.types.list_type.to_owned();
+        let int_type = ctx.types.int_type.to_owned();
+        let module_type = ctx.types.module_type.to_owned();
+        let tuple_type = ctx.types.tuple_type.to_owned();
+        let type_type = ctx.types.type_type.to_owned();
+        let str_type = ctx.types.str_type.to_owned();
+        let none: PyObjectRef = ctx.none.to_owned().into();
+        let false_value: PyObjectRef = ctx.false_value.to_owned().into();
+        let true_value: PyObjectRef = ctx.true_value.to_owned().into();
 
-        ACTUAL_PYNONESTRUCT = ctx.none.as_object().as_raw().cast_mut();
-        ACTUAL_PYFALSESTRUCT = ctx.false_value.as_object().as_raw().cast_mut();
-        ACTUAL_PYTRUESTRUCT = ctx.true_value.as_object().as_raw().cast_mut();
+        ACTUAL_PYBASEOBJECT_TYPE =
+            normalize_type_ptr(object_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYBOOL_TYPE = normalize_type_ptr(bool_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYBYTEARRAY_TYPE =
+            normalize_type_ptr(bytearray_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYBYTES_TYPE =
+            normalize_type_ptr(bytes_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYDICT_TYPE = normalize_type_ptr(dict_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYLIST_TYPE = normalize_type_ptr(list_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYLONG_TYPE = normalize_type_ptr(int_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYMODULE_TYPE =
+            normalize_type_ptr(module_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYTUPLE_TYPE =
+            normalize_type_ptr(tuple_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYTYPE_TYPE = normalize_type_ptr(type_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYUNICODE_TYPE =
+            normalize_type_ptr(str_type.as_object().as_raw().cast_mut().cast());
+
+        ACTUAL_PYNONESTRUCT = none.as_raw().cast_mut();
+        ACTUAL_PYFALSESTRUCT = false_value.as_raw().cast_mut();
+        ACTUAL_PYTRUESTRUCT = true_value.as_raw().cast_mut();
+
+        let retained = retained_builtin_objects();
+        let mut retained = retained.lock().unwrap();
+        retained.clear();
+        retained.extend([
+            object_type.into(),
+            bool_type.into(),
+            bytearray_type.into(),
+            bytes_type.into(),
+            dict_type.into(),
+            list_type.into(),
+            int_type.into(),
+            module_type.into(),
+            tuple_type.into(),
+            type_type.into(),
+            str_type.into(),
+            none,
+            false_value,
+            true_value,
+        ]);
 
         let pytype_export = ptr::addr_of_mut!(PYTYPE_TYPE_EXPORT).cast::<PyTypeObject>();
         PYTYPE_TYPE_EXPORT.ob_type = pytype_export;
@@ -261,13 +296,10 @@ pub(crate) unsafe fn decref_wrapper(op: *mut PyObject) -> bool {
         drop(maps);
 
         unsafe {
-            drop((&*inner).to_owned());
+            let _ = rustpython_vm::PyObjectRef::from_raw(
+                core::ptr::NonNull::new_unchecked(inner),
+            );
         }
-
-        let header_size = core::mem::size_of::<CApiObjectHeader>();
-        let align = core::mem::align_of::<CApiObjectHeader>();
-        let layout = Layout::from_size_align(header_size, align).expect("valid wrapper layout");
-        unsafe { dealloc(op.cast::<u8>(), layout) };
     }
 
     true

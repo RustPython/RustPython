@@ -103,10 +103,12 @@ fn c_function_wrapper(
                 .iter()
                 .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
                 .collect();
+            let mut kwarg_values = Vec::with_capacity(args.kwargs.len());
             let mut kwnames = Vec::with_capacity(args.kwargs.len());
             for (k, v) in args.kwargs {
                 kwnames.push(vm.ctx.new_str(k.to_string()));
                 exported_args.push(unsafe { exported_object_handle(v.as_object().as_raw().cast_mut()) });
+                kwarg_values.push(v);
             }
             let kwnames_tuple = vm.ctx.new_tuple(
                 kwnames

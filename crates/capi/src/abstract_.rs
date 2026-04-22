@@ -277,17 +277,10 @@ pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) 
     with_vm(|vm| {
         let obj = unsafe { &*resolve_object_handle(obj) };
         let value = unsafe { &mut *resolve_object_handle(value) };
-        match obj.try_sequence(vm) {
-            Ok(sequence) => sequence.contains(value, vm),
-            Err(type_err) => {
-                // TODO Dict should implement sequence protocol, but for now we can special case it
-                if let Some(dict) = obj.downcast_ref::<PyDict>() {
-                    Ok(dict.contains_key(value, vm))
-                } else {
-                    Err(type_err)
-                }
-            }
+        if let Some(dict) = obj.downcast_ref::<PyDict>() {
+            return Ok(dict.contains_key(value, vm));
         }
+        obj.sequence_unchecked().contains(value, vm)
     })
 }
 
@@ -308,10 +301,7 @@ pub extern "C" fn PyIter_NextItem(iter: *mut PyObject, item: *mut *mut PyObject)
         match iter.next(vm)? {
             PyIterReturn::Return(obj) => {
                 unsafe {
-                    *item = exported_object_wrapper(
-                        obj.into_raw().as_ptr(),
-                        core::mem::size_of::<usize>() * 2,
-                    );
+                    *item = exported_object_handle(obj.into_raw().as_ptr());
                 }
                 result = 1;
             }

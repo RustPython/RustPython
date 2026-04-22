@@ -6,7 +6,13 @@ use core::mem::MaybeUninit;
 use rustpython_vm::builtins::{PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::exceptions::ExceptionZoo;
-use rustpython_vm::{AsObject, PyResult};
+use rustpython_vm::{AsObject, PyObjectRef, PyResult};
+use std::sync::{Mutex, OnceLock};
+
+fn retained_exception_objects() -> &'static Mutex<Vec<PyObjectRef>> {
+    static RETAINED_EXCEPTIONS: OnceLock<Mutex<Vec<PyObjectRef>>> = OnceLock::new();
+    RETAINED_EXCEPTIONS.get_or_init(|| Mutex::new(Vec::new()))
+}
 
 macro_rules! define_exception_statics {
     ($( $(#[$meta:meta])* $export:ident => $zoo:ident ),* $(,)?) => {
@@ -18,11 +24,17 @@ macro_rules! define_exception_statics {
 
         #[allow(static_mut_refs)]
         pub(crate) unsafe fn init_exception_statics(exc: &ExceptionZoo) {
+            let mut retained = Vec::new();
             unsafe {
                 $(
-                    $export.write(exc.$zoo.as_object().as_raw().cast_mut());
+                    let obj: PyObjectRef = exc.$zoo.to_owned().into();
+                    $export.write(obj.as_raw().cast_mut());
+                    retained.push(obj);
                 )*
             }
+            let retained_store = retained_exception_objects();
+            let mut retained_store = retained_store.lock().unwrap();
+            *retained_store = retained;
         }
     };
 }

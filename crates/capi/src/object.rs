@@ -598,11 +598,14 @@ fn native_tp_richcompare(
 pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
     with_vm(|vm| {
         let spec = unsafe { &*spec };
-        let class_name = unsafe {
+        let full_class_name = unsafe {
             CStr::from_ptr(spec.name)
                 .to_str()
                 .expect("type name must be valid UTF-8")
         };
+        let (module_name, class_name) = full_class_name
+            .rsplit_once('.')
+            .map_or((None, full_class_name), |(module, name)| (Some(module), name));
         let mut base = vm.ctx.types.object_type;
         let mut slots = PyTypeSlots::heap_default();
 
@@ -747,7 +750,11 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         let has_native_new = vtable.new_func.is_some();
         let has_native_init = vtable.init_func.is_some();
         let class = vm.ctx.new_class(None, class_name, base.to_owned(), slots);
+        if let Some(module_name) = module_name {
+            class.set_attr(vm.ctx.intern_str("__module__"), vm.ctx.new_str(module_name).into());
+        }
         class.init_type_data(vtable).unwrap();
+        let class_static: &'static Py<PyType> = Box::leak(Box::new(class.to_owned()));
         for attribute in attributes {
             let name = unsafe {
                 CStr::from_ptr(attribute.name)
@@ -767,17 +774,23 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     )
                 }
             } else {
-                let class = unsafe { &*((&*class) as *const _) };
                 vm.ctx.new_readonly_getset(
                     name,
-                    &class,
+                    class_static,
                     move |obj: PyObjectRef, vm: &VirtualMachine| {
-                        let result = getter(obj.as_raw().cast_mut(), closure);
-                        unsafe {
-                            PyObjectRef::from_raw(
-                                NonNull::new(result).expect("TODO handle error from c function"),
-                            )
-                        }
+                        let exported_obj =
+                            unsafe { exported_object_handle(obj.as_raw().cast_mut()) };
+                        let result = getter(exported_obj, closure);
+                        let result = NonNull::new(result).ok_or_else(|| {
+                            vm.take_raised_exception().unwrap_or_else(|| {
+                                vm.new_system_error(
+                                    "native getset returned NULL without raising".to_owned(),
+                                )
+                            })
+                        })?;
+                        let resolved: PyResult<PyObjectRef> =
+                            Ok(unsafe { owned_from_exported_new_ref(result.as_ptr()) });
+                        resolved
                     },
                 )
             };
@@ -911,7 +924,6 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         {
             class.slots.as_number.xor.store(Some(native_nb_xor));
         }
-        let class_static = unsafe { &*((&*class) as *const _) };
         let ctx: &'static Context = unsafe { &*std::sync::Arc::as_ptr(&vm.ctx) };
         add_operators(class_static, ctx);
         for method in methods {
