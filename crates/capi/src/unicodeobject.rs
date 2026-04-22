@@ -1,6 +1,5 @@
 use crate::{PyObject, with_vm};
-use core::ffi::{c_char, c_int};
-use core::ptr;
+use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use core::slice;
 use core::str;
@@ -47,12 +46,33 @@ pub extern "C" fn PyUnicode_AsUTF8AndSize(obj: *mut PyObject, size: *mut isize) 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_AsEncodedString(
-    _unicode: *mut PyObject,
-    _encoding: *const c_char,
-    _errors: *const c_char,
+    unicode: *mut PyObject,
+    encoding: *const c_char,
+    errors: *const c_char,
 ) -> *mut PyObject {
-    crate::log_stub("PyUnicode_AsEncodedString");
-    ptr::null_mut()
+    with_vm(|vm| {
+        let unicode = unsafe { &*unicode }
+            .try_downcast_ref::<PyStr>(vm)?
+            .to_owned();
+        let encoding = if encoding.is_null() {
+            "utf-8"
+        } else {
+            unsafe { CStr::from_ptr(encoding) }
+                .to_str()
+                .expect("encoding must be valid UTF-8")
+        };
+        let errors = if errors.is_null() {
+            None
+        } else {
+            let errors = unsafe { CStr::from_ptr(errors) }
+                .to_str()
+                .expect("errors must be valid UTF-8");
+            Some(vm.ctx.new_utf8_str(errors))
+        };
+        vm.state
+            .codec_registry
+            .encode_text(unicode, encoding, errors, vm)
+    })
 }
 
 #[unsafe(no_mangle)]
