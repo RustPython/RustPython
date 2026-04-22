@@ -32,7 +32,15 @@ pub(crate) mod util;
 
 #[inline]
 pub(crate) fn log_stub(name: &str) {
-    eprintln!("[rustpython-capi stub] {name} called");
+    let _ = name;
 }
+
+unsafe extern "C" {
+    fn RustPython_Keep_PyObject_CallMethodObjArgs() -> *mut core::ffi::c_void;
+}
+
+#[used]
+static KEEP_PYOBJECT_CALLMETHODOBJARGS: unsafe extern "C" fn() -> *mut core::ffi::c_void =
+    RustPython_Keep_PyObject_CallMethodObjArgs;
 
 pub use crate::pylifecycle::initialize_for_vm;
