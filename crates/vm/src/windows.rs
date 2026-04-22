@@ -1,4 +1,4 @@
-use crate::common::fileutils::{
+use crate::host_env::fileutils::{
     StatStruct,
     windows::{FILE_INFO_BY_NAME_CLASS, get_file_information_by_name},
 };
@@ -6,7 +6,7 @@ use crate::{
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     convert::{ToPyObject, ToPyResult},
 };
-use rustpython_common::windows::ToWideString;
+use rustpython_host_env::windows::ToWideString;
 use std::ffi::OsStr;
 use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
 
@@ -103,8 +103,8 @@ const S_IFMT: u16 = libc::S_IFMT as u16;
 const S_IFDIR: u16 = libc::S_IFDIR as u16;
 const S_IFREG: u16 = libc::S_IFREG as u16;
 const S_IFCHR: u16 = libc::S_IFCHR as u16;
-const S_IFLNK: u16 = crate::common::fileutils::windows::S_IFLNK as u16;
-const S_IFIFO: u16 = crate::common::fileutils::windows::S_IFIFO as u16;
+const S_IFLNK: u16 = crate::host_env::fileutils::windows::S_IFLNK as u16;
+const S_IFIFO: u16 = crate::host_env::fileutils::windows::S_IFIFO as u16;
 
 /// FILE_ATTRIBUTE_TAG_INFO structure for GetFileInformationByHandleEx
 #[repr(C)]
@@ -141,7 +141,7 @@ fn attribute_data_to_stat(
     basic_info: Option<&windows_sys::Win32::Storage::FileSystem::FILE_BASIC_INFO>,
     id_info: Option<&windows_sys::Win32::Storage::FileSystem::FILE_ID_INFO>,
 ) -> StatStruct {
-    use crate::common::fileutils::windows::SECS_BETWEEN_EPOCHS;
+    use crate::host_env::fileutils::windows::SECS_BETWEEN_EPOCHS;
     use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
     let mut st_mode = attributes_to_mode(info.dwFileAttributes);
@@ -513,7 +513,7 @@ fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct>
                 || (!traverse && is_reparse_tag_name_surrogate(stat_info.ReparseTag))
             {
                 let mut result =
-                    crate::common::fileutils::windows::stat_basic_info_to_stat(&stat_info);
+                    crate::host_env::fileutils::windows::stat_basic_info_to_stat(&stat_info);
                 // If st_ino is 0, fall through to slow path to get proper file ID
                 if result.st_ino != 0 || result.st_ino_high != 0 {
                     result.update_st_mode_from_path(path, stat_info.FileAttributes);

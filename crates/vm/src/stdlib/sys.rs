@@ -53,7 +53,7 @@ mod sys {
     use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
     use std::{
-        env::{self, VarError},
+        env,
         io::{IsTerminal, Read, Write},
     };
 
@@ -243,26 +243,18 @@ mod sys {
     pub(crate) const MAXSIZE: isize = isize::MAX;
     #[pyattr(name = "maxunicode")]
     const MAXUNICODE: u32 = core::char::MAX as u32;
+
     #[pyattr(name = "platform")]
-    pub const PLATFORM: &str = {
-        cfg_if::cfg_if! {
-            if #[cfg(target_os = "linux")] {
-                "linux"
-            } else if #[cfg(target_os = "android")] {
-                "android"
-            } else if #[cfg(target_os = "macos")] {
-                "darwin"
-            } else if #[cfg(target_os = "ios")] {
-                "ios"
-            } else if #[cfg(windows)] {
-                "win32"
-            } else if #[cfg(target_os = "wasi")] {
-                "wasi"
-            } else {
-                "unknown"
-            }
-        }
+    pub const PLATFORM: &str = cfg_select! {
+        target_os = "linux" => "linux",
+        target_os = "android" => "android",
+        target_os = "macos" => "darwin",
+        target_os = "ios" => "ios",
+        windows => "win32",
+        target_os = "wasi" => "wasi",
+        _ => "unknown"
     };
+
     #[pyattr(name = "ps1")]
     const PS1: &str = ">>>>> ";
     #[pyattr(name = "ps2")]
@@ -871,15 +863,18 @@ mod sys {
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let env_var = std::env::var("PYTHONBREAKPOINT")
+        #[cfg(feature = "host_env")]
+        let env_var = crate::host_env::os::var("PYTHONBREAKPOINT")
             .and_then(|env_var| {
                 if env_var.is_empty() {
-                    Err(VarError::NotPresent)
+                    Err(std::env::VarError::NotPresent)
                 } else {
                     Ok(env_var)
                 }
             })
             .unwrap_or_else(|_| "pdb.set_trace".to_owned());
+        #[cfg(not(feature = "host_env"))]
+        let env_var = "pdb.set_trace".to_owned();
 
         if env_var.eq("0") {
             return Ok(vm.ctx.none());
@@ -1091,7 +1086,7 @@ mod sys {
 
     #[cfg(windows)]
     fn get_kernel32_version() -> std::io::Result<(u32, u32, u32)> {
-        use crate::common::windows::ToWideString;
+        use crate::host_env::windows::ToWideString;
         unsafe {
             // Create a wide string for "kernel32.dll"
             let module_name: Vec<u16> = std::ffi::OsStr::new("kernel32.dll").to_wide_with_nul();

@@ -13,7 +13,7 @@ mod decl {
     use core::time::Duration;
     use parking_lot::{Condvar, Mutex};
     #[cfg(any(unix, windows))]
-    use rustpython_common::os::{get_errno, set_errno};
+    use rustpython_host_env::os::{get_errno, set_errno};
     use std::thread;
 
     /// fault_handler_t
@@ -587,7 +587,7 @@ mod decl {
         }
 
         // Fallback
-        std::process::exit(1);
+        rustpython_host_env::os::exit(1);
     }
 
     // Windows vectored exception handler (faulthandler.c:417-480)
@@ -880,7 +880,7 @@ mod decl {
                 }
 
                 if exit {
-                    std::process::exit(1);
+                    rustpython_host_env::os::exit(1);
                 }
             }
 

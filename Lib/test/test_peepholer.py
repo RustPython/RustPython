@@ -199,7 +199,6 @@ class TestTranforms(BytecodeTestCase):
             ],)
         self.check_lnotab(crater)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constant_folding_lists_of_constants(self):
         for line, elem in (
             # in/not in constants with BUILD_LIST should be folded to a tuple:
@@ -214,7 +213,6 @@ class TestTranforms(BytecodeTestCase):
                 self.assertNotInBytecode(code, 'BUILD_LIST')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constant_folding_sets_of_constants(self):
         for line, elem in (
             # in/not in constants with BUILD_SET should be folded to a frozenset:
@@ -634,7 +632,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertNotInBytecode(f, 'BINARY_OP')
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; no BUILD_LIST to BUILD_TUPLE optimization
     def test_in_literal_list(self):
         def containtest():
             return x in [a, b]

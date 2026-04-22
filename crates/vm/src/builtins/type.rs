@@ -397,11 +397,12 @@ impl<T> AsRef<T> for PointerSlot<T> {
 
 pub type PyTypeRef = PyRef<PyType>;
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
+cfg_select! {
+    feature = "threading" => {
         unsafe impl Send for PyType {}
         unsafe impl Sync for PyType {}
     }
+    _ => {}
 }
 
 /// For attributes we do not use a dict, but an IndexMap, which is an Hash Table

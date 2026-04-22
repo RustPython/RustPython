@@ -817,11 +817,12 @@ pub struct PyWeak {
     pub(crate) hash: PyAtomic<crate::common::hash::PyHash>,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
+cfg_select! {
+    feature = "threading" => {
         unsafe impl Send for PyWeak {}
         unsafe impl Sync for PyWeak {}
     }
+    _ => {}
 }
 
 impl PyWeak {
@@ -1193,11 +1194,12 @@ impl Clone for PyObjectRef {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
+cfg_select! {
+    feature = "threading" => {
         unsafe impl Send for PyObjectRef {}
         unsafe impl Sync for PyObjectRef {}
     }
+    _ => {}
 }
 
 #[repr(transparent)]
@@ -2014,11 +2016,12 @@ impl fmt::Debug for PyStackRef {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
+cfg_select! {
+    feature = "threading" => {
         unsafe impl Send for PyStackRef {}
         unsafe impl Sync for PyStackRef {}
     }
+    _ => {}
 }
 
 // Ensure Option<PyStackRef> uses niche optimization and matches Option<PyObjectRef> in size
@@ -2129,11 +2132,12 @@ pub struct PyRef<T> {
     ptr: NonNull<Py<T>>,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
+cfg_select! {
+    feature = "threading" => {
         unsafe impl<T> Send for PyRef<T> {}
         unsafe impl<T> Sync for PyRef<T> {}
     }
+    _ => {}
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyRef<T> {

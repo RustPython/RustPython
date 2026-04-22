@@ -7,9 +7,9 @@ pub(crate) use winreg::module_def;
 mod winreg {
     use crate::builtins::{PyInt, PyStr, PyTuple, PyTypeRef};
     use crate::common::hash::PyHash;
-    use crate::common::windows::ToWideString;
     use crate::convert::TryFromObject;
     use crate::function::FuncArgs;
+    use crate::host_env::windows::ToWideString;
     use crate::object::AsObject;
     use crate::protocol::PyNumberMethods;
     use crate::types::{AsNumber, Hashable};

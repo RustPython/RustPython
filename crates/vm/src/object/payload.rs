@@ -7,11 +7,12 @@ use crate::{
 };
 use core::ptr::NonNull;
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
+cfg_select! {
+    feature = "threading" => {
         pub trait PyThreadingConstraint: Send + Sync {}
         impl<T: Send + Sync> PyThreadingConstraint for T {}
-    } else {
+    }
+    _ => {
         pub trait PyThreadingConstraint {}
         impl<T> PyThreadingConstraint for T {}
     }

@@ -2154,7 +2154,7 @@ unsafe extern "C" fn thunk_callback(
         // Swap errno before call if FUNCFLAG_USE_ERRNO is set
         let use_errno = userdata.flags & StgInfoFlags::FUNCFLAG_USE_ERRNO.bits() != 0;
         let saved_errno = if use_errno {
-            let current = rustpython_common::os::get_errno();
+            let current = rustpython_host_env::os::get_errno();
             // TODO: swap with ctypes stored errno (thread-local)
             Some(current)
         } else {
@@ -2175,10 +2175,10 @@ unsafe extern "C" fn thunk_callback(
 
         // Swap errno back after call
         if use_errno {
-            let _current = rustpython_common::os::get_errno();
+            let _current = rustpython_host_env::os::get_errno();
             // TODO: store current errno to ctypes storage
             if let Some(saved) = saved_errno {
-                rustpython_common::os::set_errno(saved);
+                rustpython_host_env::os::set_errno(saved);
             }
         }
 

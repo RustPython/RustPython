@@ -30,10 +30,10 @@ mod mmap {
     #[cfg(unix)]
     use nix::{sys::stat::fstat, unistd};
     #[cfg(unix)]
-    use rustpython_common::crt_fd;
+    use rustpython_host_env::crt_fd;
 
     #[cfg(windows)]
-    use rustpython_common::suppress_iph;
+    use rustpython_host_env::suppress_iph;
     #[cfg(windows)]
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
     #[cfg(windows)]
