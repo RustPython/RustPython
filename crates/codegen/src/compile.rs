@@ -3376,182 +3376,7 @@ impl Compiler {
         emit!(self, PseudoInstruction::Jump { delta: else_block });
         self.set_no_location();
 
-        // except handlers:
-        self.switch_to_block(handler_block);
-
-        // SETUP_CLEANUP(cleanup) for except block
-        // This handles exceptions during exception matching
-        // Exception table: L2 to L3 -> L5 [1] lasti
-        // After PUSH_EXC_INFO, stack is [prev_exc, exc]
-        // depth=1 means keep prev_exc on stack when routing to cleanup
         let cleanup_block = self.new_block();
-        emit!(
-            self,
-            PseudoInstruction::SetupCleanup {
-                delta: cleanup_block
-            }
-        );
-        self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
-
-        // Exception is on top of stack now, pushed by unwind_blocks
-        // PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] for PopExcept
-        emit!(self, Instruction::PushExcInfo);
-        for handler in handlers {
-            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
-                type_,
-                name,
-                body,
-                range: handler_range,
-                ..
-            }) = &handler;
-            self.set_source_range(*handler_range);
-            let next_handler = self.new_block();
-
-            // If we gave a typ,
-            // check if this handler can handle the exception:
-            if let Some(exc_type) = type_ {
-                // Check exception type:
-                // Stack: [prev_exc, exc]
-                self.compile_expression(exc_type)?;
-                // Stack: [prev_exc, exc, type]
-                emit!(self, Instruction::CheckExcMatch);
-                // Stack: [prev_exc, exc, bool]
-                emit!(
-                    self,
-                    Instruction::PopJumpIfFalse {
-                        delta: next_handler
-                    }
-                );
-                // Stack: [prev_exc, exc]
-
-                // We have a match, store in name (except x as y)
-                if let Some(alias) = name {
-                    self.store_name(alias.as_str())?
-                } else {
-                    // Drop exception from top of stack:
-                    emit!(self, Instruction::PopTop);
-                }
-            } else {
-                // Catch all!
-                // Drop exception from top of stack:
-                emit!(self, Instruction::PopTop);
-            }
-
-            // If name is bound, we need a cleanup handler for RERAISE
-            let handler_cleanup_block = if name.is_some() {
-                // SETUP_CLEANUP(cleanup_end) for named handler
-                let cleanup_end = self.new_block();
-                emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup_end });
-                self.push_fblock_full(
-                    FBlockType::HandlerCleanup,
-                    cleanup_end,
-                    cleanup_end,
-                    FBlockDatum::ExceptionName(name.as_ref().unwrap().as_str().to_owned()),
-                )?;
-                Some(cleanup_end)
-            } else {
-                // no SETUP_CLEANUP for unnamed handler
-                self.push_fblock(FBlockType::HandlerCleanup, finally_block, finally_block)?;
-                None
-            };
-
-            // Handler code:
-            self.compile_statements(body)?;
-
-            self.pop_fblock(FBlockType::HandlerCleanup);
-            // PopBlock for inner SETUP_CLEANUP (named handler only)
-            if handler_cleanup_block.is_some() {
-                emit!(self, PseudoInstruction::PopBlock);
-            }
-
-            // cleanup_end block for named handler
-            // IMPORTANT: In CPython, cleanup_end is within outer SETUP_CLEANUP scope.
-            // so when RERAISE is executed, it goes to the cleanup block which does POP_EXCEPT.
-            // We MUST compile cleanup_end BEFORE popping ExceptionHandler so RERAISE routes to cleanup_block.
-            if let Some(cleanup_end) = handler_cleanup_block {
-                let handler_normal_exit = self.new_block();
-                emit!(
-                    self,
-                    PseudoInstruction::JumpNoInterrupt {
-                        delta: handler_normal_exit,
-                    }
-                );
-
-                self.switch_to_block(cleanup_end);
-                if let Some(alias) = name {
-                    // name = None; del name; before RERAISE
-                    self.emit_load_const(ConstantData::None);
-                    self.store_name(alias.as_str())?;
-                    self.compile_name(alias.as_str(), NameUsage::Delete)?;
-                }
-                // RERAISE 1 (with lasti) - exception is on stack from exception table routing
-                // Stack at entry: [prev_exc (at handler_depth), lasti, exc]
-                // This RERAISE is within ExceptionHandler scope, so it routes to cleanup_block
-                // which does COPY 3; POP_EXCEPT; RERAISE
-                emit!(self, Instruction::Reraise { depth: 1 });
-
-                // Switch to normal exit block - this is where handler body success continues
-                self.switch_to_block(handler_normal_exit);
-            }
-
-            // PopBlock for outer SETUP_CLEANUP (ExceptionHandler)
-            emit!(self, PseudoInstruction::PopBlock);
-            // Now pop ExceptionHandler - the normal path continues from here
-            self.pop_fblock(FBlockType::ExceptionHandler);
-            emit!(self, Instruction::PopExcept);
-
-            // Delete the exception variable if it was bound (normal path)
-            if let Some(alias) = name {
-                // Set the variable to None before deleting
-                self.emit_load_const(ConstantData::None);
-                self.store_name(alias.as_str())?;
-                self.compile_name(alias.as_str(), NameUsage::Delete)?;
-            }
-
-            // Pop FinallyTry block before jumping to finally body.
-            // The else_block path also pops this; both paths must agree
-            // on the except stack when entering finally_block.
-            if !finalbody.is_empty() {
-                emit!(self, PseudoInstruction::PopBlock);
-            }
-
-            // Jump to finally block
-            emit!(
-                self,
-                PseudoInstruction::JumpNoInterrupt {
-                    delta: finally_block,
-                }
-            );
-
-            // Re-push ExceptionHandler for next handler in the loop
-            // This will be popped at the end of handlers loop or when matched
-            self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
-
-            // Emit a new label for the next handler
-            self.switch_to_block(next_handler);
-        }
-
-        // If code flows here, we have an unhandled exception,
-        // raise the exception again!
-        // RERAISE 0
-        // Stack: [prev_exc, exc] - exception is on stack from PUSH_EXC_INFO
-        // NOTE: We emit RERAISE 0 BEFORE popping fblock so it is within cleanup handler scope
-        emit!(self, Instruction::Reraise { depth: 0 });
-
-        // Pop EXCEPTION_HANDLER fblock
-        // Pop after RERAISE so the instruction has the correct exception handler
-        self.pop_fblock(FBlockType::ExceptionHandler);
-
-        // cleanup block (POP_EXCEPT_AND_RERAISE)
-        // Stack at entry: [prev_exc, lasti, exc] (depth=1 + lasti + exc pushed)
-        // COPY 3: copy prev_exc to top -> [prev_exc, lasti, exc, prev_exc]
-        // POP_EXCEPT: pop prev_exc from stack and restore -> [prev_exc, lasti, exc]
-        // RERAISE 1: reraise with lasti
-        self.switch_to_block(cleanup_block);
-        emit!(self, Instruction::Copy { i: 3 });
-        emit!(self, Instruction::PopExcept);
-        emit!(self, Instruction::Reraise { depth: 1 });
-
         // We successfully ran the try block:
         // else:
         self.switch_to_block(else_block);
@@ -3579,6 +3404,135 @@ impl Compiler {
             emit!(self, PseudoInstruction::Jump { delta: end_block });
         }
 
+        // except handlers:
+        self.switch_to_block(handler_block);
+        self.set_no_location();
+
+        // SETUP_CLEANUP(cleanup) for except block
+        // This handles exceptions during exception matching
+        // Exception table: L2 to L3 -> L5 [1] lasti
+        // After PUSH_EXC_INFO, stack is [prev_exc, exc]
+        // depth=1 means keep prev_exc on stack when routing to cleanup
+        emit!(
+            self,
+            PseudoInstruction::SetupCleanup {
+                delta: cleanup_block
+            }
+        );
+        self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
+
+        // Exception is on top of stack now, pushed by unwind_blocks
+        // PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] for PopExcept
+        self.set_no_location();
+        emit!(self, Instruction::PushExcInfo);
+        for handler in handlers {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                type_,
+                name,
+                body,
+                range: handler_range,
+                ..
+            }) = &handler;
+            self.set_source_range(*handler_range);
+            let next_handler = self.new_block();
+
+            if let Some(exc_type) = type_ {
+                self.compile_expression(exc_type)?;
+                emit!(self, Instruction::CheckExcMatch);
+                emit!(
+                    self,
+                    Instruction::PopJumpIfFalse {
+                        delta: next_handler
+                    }
+                );
+
+                if let Some(alias) = name {
+                    self.store_name(alias.as_str())?
+                } else {
+                    emit!(self, Instruction::PopTop);
+                }
+            } else {
+                emit!(self, Instruction::PopTop);
+            }
+
+            let handler_cleanup_block = if name.is_some() {
+                let cleanup_end = self.new_block();
+                emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup_end });
+                self.push_fblock_full(
+                    FBlockType::HandlerCleanup,
+                    cleanup_end,
+                    cleanup_end,
+                    FBlockDatum::ExceptionName(name.as_ref().unwrap().as_str().to_owned()),
+                )?;
+                Some(cleanup_end)
+            } else {
+                self.push_fblock(FBlockType::HandlerCleanup, finally_block, finally_block)?;
+                None
+            };
+
+            self.compile_statements(body)?;
+
+            self.pop_fblock(FBlockType::HandlerCleanup);
+            if handler_cleanup_block.is_some() {
+                emit!(self, PseudoInstruction::PopBlock);
+            }
+
+            if let Some(cleanup_end) = handler_cleanup_block {
+                let handler_normal_exit = self.new_block();
+                emit!(
+                    self,
+                    PseudoInstruction::JumpNoInterrupt {
+                        delta: handler_normal_exit,
+                    }
+                );
+
+                self.switch_to_block(cleanup_end);
+                if let Some(alias) = name {
+                    self.emit_load_const(ConstantData::None);
+                    self.store_name(alias.as_str())?;
+                    self.compile_name(alias.as_str(), NameUsage::Delete)?;
+                }
+                emit!(self, Instruction::Reraise { depth: 1 });
+                self.switch_to_block(handler_normal_exit);
+            }
+
+            emit!(self, PseudoInstruction::PopBlock);
+            self.pop_fblock(FBlockType::ExceptionHandler);
+            emit!(self, Instruction::PopExcept);
+
+            if let Some(alias) = name {
+                self.emit_load_const(ConstantData::None);
+                self.store_name(alias.as_str())?;
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+            }
+
+            if !finalbody.is_empty() {
+                emit!(self, PseudoInstruction::PopBlock);
+            }
+
+            emit!(
+                self,
+                PseudoInstruction::JumpNoInterrupt {
+                    delta: finally_block,
+                }
+            );
+
+            self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
+            self.switch_to_block(next_handler);
+        }
+
+        self.set_no_location();
+        emit!(self, Instruction::Reraise { depth: 0 });
+        self.pop_fblock(FBlockType::ExceptionHandler);
+
+        self.switch_to_block(cleanup_block);
+        self.set_no_location();
+        emit!(self, Instruction::Copy { i: 3 });
+        self.set_no_location();
+        emit!(self, Instruction::PopExcept);
+        self.set_no_location();
+        emit!(self, Instruction::Reraise { depth: 1 });
+
         // finally (exception path)
         // This is where exceptions go to run finally before reraise
         // Stack at entry: [lasti, exc] (from exception table with preserve_lasti=true)
@@ -3595,8 +3549,10 @@ impl Compiler {
             // SETUP_CLEANUP for finally body
             // Exceptions during finally body need to go to cleanup block
             if let Some(cleanup) = finally_cleanup_block {
+                self.set_no_location();
                 emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup });
             }
+            self.set_no_location();
             emit!(self, Instruction::PushExcInfo);
             if let Some(cleanup) = finally_cleanup_block {
                 self.push_fblock(FBlockType::FinallyEnd, cleanup, cleanup)?;
@@ -13269,6 +13225,82 @@ def f(it):
     }
 
     #[test]
+    fn test_generator_filter_keeps_cpython_style_forward_yield_body_entry() {
+        let code = compile_exec(
+            "\
+def gen(it):
+    for f in it:
+        if f.name:
+            yield f.name
+",
+        );
+        let gen_code = find_code(&code, "gen").expect("missing gen code");
+        let ops: Vec<_> = gen_code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::YieldValue { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style generator filter to jump on true into the yield body and fall through into the loop backedge on false, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_generator_negated_filter_keeps_cpython_style_false_edge_into_yield_body() {
+        let code = compile_exec(
+            "\
+def gen(fields):
+    for f in fields:
+        if f.init and not f.kw_only:
+            yield f
+",
+        );
+        let gen_code = find_code(&code, "gen").expect("missing gen code");
+        let ops: Vec<_> = gen_code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::YieldValue { .. },
+                        Instruction::Resume { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style negated generator filter to jump on false into the yield body and fall through into the loop backedge on true, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_multi_with_header_uses_store_fast_load_fast() {
         let code = compile_exec(
             "\
@@ -13574,6 +13606,61 @@ def f(filters, text, category, module, lineno, defaultaction, _wm):
         for (stage, dump) in trace {
             eprintln!("=== {stage} ===\n{dump}");
         }
+    }
+
+    #[test]
+    fn test_try_except_else_with_finally_keeps_with_handler_before_outer_except() {
+        let code = compile_exec(
+            "\
+def jumpy(i):
+    for i in range(10):
+        print(i)
+        if i < 4:
+            continue
+        if i > 6:
+            break
+    else:
+        print('I can haz else clause?')
+    while i:
+        print(i)
+        i -= 1
+        if i > 6:
+            continue
+        if i < 4:
+            break
+    else:
+        print('Who let lolcatz into this test suite?')
+    try:
+        1 / 0
+    except ZeroDivisionError:
+        print('Here we go, here we go, here we go...')
+    else:
+        with i as dodgy:
+            print('Never reach this')
+    finally:
+        print('OK, now we\\'re done')
+",
+        );
+        let jumpy = find_code(&code, "jumpy").expect("missing jumpy code");
+        let ops: Vec<_> = jumpy
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let with_except_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::WithExceptStart))
+            .expect("missing WITH_EXCEPT_START");
+        let check_exc_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::CheckExcMatch))
+            .expect("missing CHECK_EXC_MATCH");
+        assert!(
+            with_except_idx < check_exc_idx,
+            "expected with-except cleanup to be emitted before outer except matching like CPython, got ops={ops:?}",
+        );
     }
 
     #[test]
@@ -15792,6 +15879,122 @@ def while_not_chained(a, b, c):
                 )
             }),
             "expected CPython-style no-wraparound forward hop before the loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_while_break_else_keeps_true_edge_into_forward_break_body() {
+        let code = compile_exec(
+            "\
+def f(i):
+    while i:
+        i -= 1
+        if i < 4:
+            break
+    else:
+        print('x')
+    print('y')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpForward { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style true edge into forward break body with false path falling into the loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_if_continue_reorders_false_path_to_loop_backedge() {
+        let code = compile_exec(
+            "\
+def f(items, changes):
+    for x in items:
+        if not x:
+            if x in changes:
+                raise TypeError
+            continue
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                    ]
+                )
+            }),
+            "expected nested if/continue to keep CPython-style false-edge jump-back tails, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_assert_keeps_false_edge_into_raise_body() {
+        let code = compile_exec(
+            "\
+def f(bytecode):
+    for instr, positions in zip(bytecode, bytecode.codeobj.co_positions()):
+        assert instr.positions == positions
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::RaiseVarargs { .. },
+                    ]
+                )
+            }),
+            "expected loop assert to keep CPython-style false-edge into the raise body, got ops={ops:?}"
         );
     }
 

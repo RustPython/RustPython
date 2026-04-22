@@ -5874,6 +5874,39 @@ fn block_contains_suspension_point(block: &Block) -> bool {
         })
 }
 
+fn is_stop_iteration_error_handler_block(block: &Block) -> bool {
+    matches!(
+        block.instructions.as_slice(),
+        [
+            InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::CallIntrinsic1 { func }),
+                arg,
+                ..
+            },
+            InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::Reraise { .. }),
+                ..
+            }
+        ] if matches!(func.get(*arg), oparg::IntrinsicFunction1::StopIterationError)
+    )
+}
+
+fn block_has_only_stop_iteration_error_handlers(block: &Block, blocks: &[Block]) -> bool {
+    let mut saw_handler = false;
+    for info in &block.instructions {
+        let Some(handler) = info.except_handler else {
+            continue;
+        };
+        saw_handler = true;
+        let target = next_nonempty_block(blocks, handler.handler_block);
+        if target == BlockIdx::NULL || !is_stop_iteration_error_handler_block(&blocks[target.idx()])
+        {
+            return false;
+        }
+    }
+    saw_handler
+}
+
 fn block_is_exceptional(block: &Block) -> bool {
     block.except_handler || block.preserve_lasti || is_exception_cleanup_block(block)
 }
@@ -5973,6 +6006,13 @@ fn reorder_conditional_exit_and_jump_blocks(blocks: &mut [Block]) {
             break;
         }
         if jump_block == BlockIdx::NULL {
+            current = next;
+            continue;
+        }
+        if !matches!(
+            blocks[jump_block.idx()].instructions[0].instr.real(),
+            Some(Instruction::JumpForward { .. })
+        ) {
             current = next;
             continue;
         }
@@ -6118,10 +6158,6 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             current = next;
             continue;
         };
-        if !is_false_path_conditional_jump(&last.instr) {
-            current = next;
-            continue;
-        }
 
         let chain_start = next;
         let jump_start = last.target;
@@ -6129,6 +6165,34 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             || jump_start == BlockIdx::NULL
             || chain_start == jump_start
         {
+            current = next;
+            continue;
+        }
+        let mut chain_has_suspension_point = false;
+        let mut scan = chain_start;
+        while scan != BlockIdx::NULL && scan != jump_start {
+            if block_contains_suspension_point(&blocks[scan.idx()]) {
+                chain_has_suspension_point = true;
+                break;
+            }
+            scan = blocks[scan.idx()].next;
+        }
+        let chain_starts_with_false_path_jump = trailing_conditional_jump_index(
+            &blocks[chain_start.idx()],
+        )
+        .is_some_and(|chain_cond_idx| {
+            is_false_path_conditional_jump(
+                &blocks[chain_start.idx()].instructions[chain_cond_idx].instr,
+            )
+        });
+        let chain_is_single_exit_block = is_scope_exit_block(&blocks[chain_start.idx()])
+            && next_nonempty_block(blocks, blocks[chain_start.idx()].next) == jump_start;
+        let allow_true_path_jump_back_reorder =
+            matches!(last.instr.real(), Some(Instruction::PopJumpIfTrue { .. }))
+                && (chain_has_suspension_point
+                    || chain_starts_with_false_path_jump
+                    || chain_is_single_exit_block);
+        if !is_false_path_conditional_jump(&last.instr) && !allow_true_path_jump_back_reorder {
             current = next;
             continue;
         }
@@ -6162,8 +6226,9 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
         let mut chain_valid = true;
         while cursor != BlockIdx::NULL && cursor != jump_start {
             if block_is_exceptional(&blocks[cursor.idx()])
-                || block_is_protected(&blocks[cursor.idx()])
+                || (block_is_protected(&blocks[cursor.idx()])
                     && block_contains_suspension_point(&blocks[cursor.idx()])
+                    && !block_has_only_stop_iteration_error_handlers(&blocks[cursor.idx()], blocks))
             {
                 chain_valid = false;
                 break;
@@ -6220,6 +6285,7 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
 
         let after_jump = next_nonempty_block(blocks, blocks[jump_block.idx()].next);
         if nonempty_blocks == 1
+            && !is_jump_only_block(&blocks[chain_start.idx()])
             && after_jump != BlockIdx::NULL
             && !blocks[after_jump.idx()].cold
             && !block_is_exceptional(&blocks[after_jump.idx()])
