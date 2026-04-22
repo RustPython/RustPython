@@ -1103,7 +1103,10 @@ impl InstructionMetadata for Instruction {
                 }
             }
             Self::ContainsOp { invert } => w!(CONTAINS_OP, ?invert),
-            Self::ConvertValue { oparg } => write!(f, "{:pad$}{}", "CONVERT_VALUE", oparg.get(arg)),
+            Self::ConvertValue { oparg } => {
+                let oparg = oparg.get(arg);
+                write!(f, "{:pad$} {} ({})", "CONVERT_VALUE", oparg.as_u8(), oparg)
+            }
             Self::Copy { i } => w!(COPY, i),
             Self::CopyFreeVars { n } => w!(COPY_FREE_VARS, n),
             Self::DeleteAttr { namei } => w!(DELETE_ATTR, name = namei),
