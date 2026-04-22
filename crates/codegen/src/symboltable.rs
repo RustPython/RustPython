@@ -65,6 +65,11 @@ pub struct SymbolTable {
     /// Annotations are compiled as a separate `__annotate__` function
     pub annotation_block: Option<Box<SymbolTable>>,
 
+    /// True only for deferred function/class/module annotation scopes that
+    /// should resolve outer names as if they were siblings of the owning
+    /// function body, matching CPython's PEP 649 lookup rules.
+    pub skip_enclosing_function_scope: bool,
+
     /// PEP 649: Whether this scope has conditional annotations
     /// (annotations inside if/for/while/etc. blocks or at module level)
     pub has_conditional_annotations: bool,
@@ -95,6 +100,7 @@ impl SymbolTable {
             is_generator: false,
             comp_inlined: false,
             annotation_block: None,
+            skip_enclosing_function_scope: false,
             has_conditional_annotations: false,
             future_annotations: false,
             mangled_names: None,
@@ -317,26 +323,6 @@ fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String
     }
 }
 
-/// Check if an expression contains an `await` node (shallow, not into nested scopes).
-fn expr_contains_await(expr: &ast::Expr) -> bool {
-    use ast::visitor::Visitor;
-    struct AwaitFinder(bool);
-    impl ast::visitor::Visitor<'_> for AwaitFinder {
-        fn visit_expr(&mut self, expr: &ast::Expr) {
-            if !self.0 {
-                if matches!(expr, ast::Expr::Await(_)) {
-                    self.0 = true;
-                } else {
-                    ast::visitor::walk_expr(self, expr);
-                }
-            }
-        }
-    }
-    let mut finder = AwaitFinder(false);
-    finder.visit_expr(expr);
-    finder.0
-}
-
 /// PEP 709: Merge symbols from an inlined comprehension into the parent scope.
 /// Matches symtable.c inline_comprehension().
 fn inline_comprehension(
@@ -345,7 +331,8 @@ fn inline_comprehension(
     comp_free: &mut IndexSet<String>,
     inlined_cells: &mut IndexSet<String>,
     parent_type: CompilerScope,
-) {
+) -> IndexSet<String> {
+    let mut removed_class_implicit = IndexSet::default();
     for (name, sub_symbol) in &comp.symbols {
         // Skip the .0 parameter
         if sub_symbol.flags.contains(SymbolFlags::PARAMETER) {
@@ -362,9 +349,12 @@ fn inline_comprehension(
         // Handle __class__ in ClassBlock
         let scope = if sub_symbol.scope == SymbolScope::Free
             && parent_type == CompilerScope::Class
-            && name == "__class__"
-        {
+            && matches!(
+                name.as_str(),
+                "__class__" | "__classdict__" | "__conditional_annotations__"
+            ) {
             comp_free.swap_remove(name);
+            removed_class_implicit.insert(name.clone());
             SymbolScope::GlobalImplicit
         } else {
             sub_symbol.scope
@@ -385,18 +375,15 @@ fn inline_comprehension(
                 }
             }
         } else {
-            // Name doesn't exist in parent, copy from comprehension.
-            // Reset scope to Unknown so analyze_symbol will resolve it
-            // in the parent's context.
+            // Name doesn't exist in parent, copy the comprehension binding.
+            // This matches CPython's inline_comprehension(): newly introduced
+            // comprehension locals stay locals in the parent scope.
             let mut symbol = sub_symbol.clone();
-            symbol.scope = if sub_symbol.is_bound() {
-                SymbolScope::Unknown
-            } else {
-                scope
-            };
+            symbol.scope = scope;
             parent_symbols.insert(name.clone(), symbol);
         }
     }
+    removed_class_implicit
 }
 
 type SymbolMap = IndexMap<String, Symbol>;
@@ -477,7 +464,7 @@ use stack::StackStack;
 #[derive(Default)]
 #[repr(transparent)]
 struct SymbolTableAnalyzer {
-    tables: StackStack<(SymbolMap, CompilerScope)>,
+    tables: StackStack<(SymbolMap, CompilerScope, bool)>,
 }
 
 impl SymbolTableAnalyzer {
@@ -519,7 +506,11 @@ impl SymbolTableAnalyzer {
         let mut child_frees: Vec<(IndexSet<String>, bool)> = Vec::new();
         let mut annotation_free: Option<IndexSet<String>> = None;
 
-        let mut info = (symbols, symbol_table.typ);
+        let mut info = (
+            symbols,
+            symbol_table.typ,
+            symbol_table.skip_enclosing_function_scope,
+        );
         self.tables.with_append(&mut info, |list| {
             let inner_scope = unsafe { &mut *(list as *mut _ as *mut Self) };
             for sub_table in sub_tables.iter_mut() {
@@ -561,13 +552,18 @@ impl SymbolTableAnalyzer {
         let mut newfree = IndexSet::default();
         for (idx, (mut child_free, is_inlined)) in child_frees.into_iter().enumerate() {
             if is_inlined {
-                inline_comprehension(
+                let removed_class_implicit = inline_comprehension(
                     &mut symbol_table.symbols,
-                    &sub_tables[idx],
+                    &symbol_table.sub_tables[idx],
                     &mut child_free,
                     &mut inlined_cells,
                     symbol_table.typ,
                 );
+                for name in removed_class_implicit {
+                    symbol_table.sub_tables[idx]
+                        .symbols
+                        .shift_remove(name.as_str());
+                }
             }
             newfree.extend(child_free);
         }
@@ -583,9 +579,21 @@ impl SymbolTableAnalyzer {
 
         let sub_tables = &*symbol_table.sub_tables;
 
+        for symbol in symbol_table.symbols.values_mut() {
+            if inlined_cells.contains(&symbol.name) {
+                symbol.flags.insert(SymbolFlags::COMP_CELL);
+            }
+        }
+
         // Analyze symbols in current scope
         for symbol in symbol_table.symbols.values_mut() {
-            self.analyze_symbol(symbol, symbol_table.typ, sub_tables, class_entry)?;
+            self.analyze_symbol(
+                symbol,
+                symbol_table.typ,
+                symbol_table.skip_enclosing_function_scope,
+                sub_tables,
+                class_entry,
+            )?;
 
             // Collect free variables from this scope
             if symbol.scope == SymbolScope::Free || symbol.flags.contains(SymbolFlags::FREE_CLASS) {
@@ -593,13 +601,24 @@ impl SymbolTableAnalyzer {
             }
         }
 
-        // PEP 709: Promote LOCAL to CELL and set COMP_CELL for inlined cell vars
+        // PEP 709 / CPython symtable.c:
+        // - only promote LOCAL -> CELL in function-like scopes, where
+        //   analyze_cells() runs. Module and class scopes keep their normal
+        //   scope and rely on DEF_COMP_CELL for comprehension-only cells.
+        let promote_inlined_cells_to_cell = matches!(
+            symbol_table.typ,
+            CompilerScope::Function
+                | CompilerScope::AsyncFunction
+                | CompilerScope::Lambda
+                | CompilerScope::Comprehension
+                | CompilerScope::Annotation
+        );
         for symbol in symbol_table.symbols.values_mut() {
-            if inlined_cells.contains(&symbol.name) {
-                if symbol.scope == SymbolScope::Local {
-                    symbol.scope = SymbolScope::Cell;
-                }
-                symbol.flags.insert(SymbolFlags::COMP_CELL);
+            if inlined_cells.contains(&symbol.name)
+                && promote_inlined_cells_to_cell
+                && symbol.scope == SymbolScope::Local
+            {
+                symbol.scope = SymbolScope::Cell;
             }
         }
 
@@ -615,6 +634,7 @@ impl SymbolTableAnalyzer {
         &mut self,
         symbol: &mut Symbol,
         st_typ: CompilerScope,
+        skip_enclosing_function_scope: bool,
         sub_tables: &[SymbolTable],
         class_entry: Option<&SymbolMap>,
     ) -> SymbolTableResult {
@@ -635,8 +655,11 @@ impl SymbolTableAnalyzer {
                         let scope_depth = self.tables.as_ref().len();
                         // check if the name is already defined in any outer scope
                         if scope_depth < 2
-                            || self.found_in_outer_scope(&symbol.name, st_typ)
-                                != Some(SymbolScope::Free)
+                            || self.found_in_outer_scope(
+                                &symbol.name,
+                                st_typ,
+                                skip_enclosing_function_scope,
+                            ) != Some(SymbolScope::Free)
                         {
                             return Err(SymbolTableError {
                                 error: format!("no binding for nonlocal '{}' found", symbol.name),
@@ -646,7 +669,7 @@ impl SymbolTableAnalyzer {
                         }
                         // Check if the nonlocal binding refers to a type parameter
                         if symbol.flags.contains(SymbolFlags::NONLOCAL) {
-                            for (symbols, _typ) in self.tables.iter().rev() {
+                            for (symbols, _typ, _skip) in self.tables.iter().rev() {
                                 if let Some(sym) = symbols.get(&symbol.name) {
                                     if sym.flags.contains(SymbolFlags::TYPE_PARAM) {
                                         return Err(SymbolTableError {
@@ -683,9 +706,24 @@ impl SymbolTableAnalyzer {
                 SymbolScope::Unknown => {
                     // Try hard to figure out what the scope of this symbol is.
                     let scope = if symbol.is_bound() {
-                        self.found_in_inner_scope(sub_tables, &symbol.name, st_typ)
-                            .unwrap_or(SymbolScope::Local)
-                    } else if let Some(scope) = self.found_in_outer_scope(&symbol.name, st_typ) {
+                        if symbol.flags.contains(SymbolFlags::COMP_CELL)
+                            && matches!(st_typ, CompilerScope::Module | CompilerScope::Class)
+                        {
+                            // CPython keeps comprehension-only cells in
+                            // module/class scopes as normal local/name
+                            // bindings and uses DEF_COMP_CELL to allocate the
+                            // synthetic cell slot. The spliced comp child
+                            // should not force the outer name itself to CELL.
+                            SymbolScope::Local
+                        } else {
+                            self.found_in_inner_scope(sub_tables, &symbol.name, st_typ)
+                                .unwrap_or(SymbolScope::Local)
+                        }
+                    } else if let Some(scope) = self.found_in_outer_scope(
+                        &symbol.name,
+                        st_typ,
+                        skip_enclosing_function_scope,
+                    ) {
                         // If found in enclosing scope (function/TypeParams), use that
                         scope
                     } else if let Some(class_symbols) = class_entry
@@ -710,19 +748,26 @@ impl SymbolTableAnalyzer {
         Ok(())
     }
 
-    fn found_in_outer_scope(&mut self, name: &str, st_typ: CompilerScope) -> Option<SymbolScope> {
+    fn found_in_outer_scope(
+        &mut self,
+        name: &str,
+        st_typ: CompilerScope,
+        skip_enclosing_function_scope: bool,
+    ) -> Option<SymbolScope> {
         let mut decl_depth = None;
-        for (i, (symbols, typ)) in self.tables.iter().rev().enumerate() {
+        for (i, (symbols, typ, _skip)) in self.tables.iter().rev().enumerate() {
             if matches!(typ, CompilerScope::Module)
                 || matches!(typ, CompilerScope::Class if name != "__class__" && name != "__classdict__" && name != "__conditional_annotations__")
             {
                 continue;
             }
 
-            // PEP 649: Annotation scope is conceptually a sibling of the function,
-            // not a child. Skip the immediate parent function scope when looking
-            // for outer variables from annotation scope.
+            // Real PEP 649 annotation blocks resolve names as siblings of the
+            // owning function body. Other annotation-like scopes such as type
+            // aliases and TypeVar bound/default evaluators keep normal lexical
+            // lookup and therefore leave this path disabled.
             if st_typ == CompilerScope::Annotation
+                && skip_enclosing_function_scope
                 && i == 0
                 && matches!(
                     typ,
@@ -771,7 +816,7 @@ impl SymbolTableAnalyzer {
             let is_class_implicit =
                 name == "__classdict__" || name == "__conditional_annotations__";
 
-            for (table, typ) in self.tables.iter_mut().rev().take(decl_depth) {
+            for (table, typ, _skip) in self.tables.iter_mut().rev().take(decl_depth) {
                 if let CompilerScope::Class = typ {
                     if let Some(free_class) = table.get_mut(name) {
                         free_class.flags.insert(SymbolFlags::FREE_CLASS)
@@ -1112,6 +1157,7 @@ impl SymbolTableBuilder {
             );
             // Annotation scope in class can see class scope
             annotation_table.can_see_class_scope = can_see_class_scope;
+            annotation_table.skip_enclosing_function_scope = true;
             // Add 'format' parameter
             annotation_table.varnames.push("format".to_owned());
             current.annotation_block = Some(Box::new(annotation_table));
@@ -1720,6 +1766,17 @@ impl SymbolTableBuilder {
                 type_params,
                 ..
             }) => {
+                let Some(name_expr) = name.as_name_expr() else {
+                    return Err(SymbolTableError {
+                        error: "type alias expect name".to_owned(),
+                        location: Some(
+                            self.source_file
+                                .to_source_code()
+                                .source_location(name.range().start(), PositionEncoding::Utf8),
+                        ),
+                    });
+                };
+                let alias_name = name_expr.id.to_string();
                 let was_in_type_alias = self.in_type_alias;
                 self.in_type_alias = true;
                 // Check before entering any sub-scopes
@@ -1730,7 +1787,7 @@ impl SymbolTableBuilder {
                 let is_generic = type_params.is_some();
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
-                        "TypeAlias",
+                        &format!("<generic parameters of {alias_name}>"),
                         self.line_index_start(type_params.range),
                         false,
                     )?;
@@ -1738,12 +1795,12 @@ impl SymbolTableBuilder {
                 }
                 // Value scope for lazy evaluation
                 self.enter_scope(
-                    "TypeAlias",
-                    CompilerScope::TypeParams,
+                    &alias_name,
+                    CompilerScope::Annotation,
                     self.line_index_start(value.range()),
                 );
                 // Evaluator takes a format parameter
-                self.register_name("format", SymbolUsage::Parameter, TextRange::default())?;
+                self.register_name(".format", SymbolUsage::Parameter, TextRange::default())?;
                 if in_class {
                     if let Some(table) = self.tables.last_mut() {
                         table.can_see_class_scope = true;
@@ -2211,24 +2268,13 @@ impl SymbolTableBuilder {
         self.tables.last_mut().unwrap().is_generator = is_generator;
 
         // PEP 709: Mark non-generator comprehensions for inlining.
-        // Only in function-like scopes for now. Module/class scope inlining
-        // needs more work (Cell name resolution, __class__ handling).
-        // Also excluded: generator expressions, async comprehensions,
-        // and annotation scopes nested in classes (can_see_class_scope).
-        let element_has_await = expr_contains_await(elt1) || elt2.is_some_and(expr_contains_await);
-        if !is_generator && !has_async_gen && !element_has_await {
+        // CPython's symtable marks all non-generator comprehensions for
+        // inlining, except scopes nested under a parent that can see class
+        // scope (for example annotation scopes inside classes).
+        if !is_generator {
             let parent = self.tables.iter().rev().nth(1);
             let parent_can_see_class = parent.is_some_and(|t| t.can_see_class_scope);
-            let parent_is_func = parent.is_some_and(|t| {
-                matches!(
-                    t.typ,
-                    CompilerScope::Function
-                        | CompilerScope::AsyncFunction
-                        | CompilerScope::Lambda
-                        | CompilerScope::Comprehension
-                )
-            });
-            if !parent_can_see_class && parent_is_func {
+            if !parent_can_see_class {
                 self.tables.last_mut().unwrap().comp_inlined = true;
             }
         }
@@ -2269,13 +2315,12 @@ impl SymbolTableBuilder {
         scope_name: &str,
         scope_info: &'static str,
     ) -> SymbolTableResult {
-        // Enter a new TypeParams scope for the bound/default expression
-        // This allows the expression to access outer scope symbols
+        // Bounds/defaults are compiled as annotation scopes in CPython.
         let in_class = self.tables.last().is_some_and(|t| t.can_see_class_scope);
         let line_number = self.line_index_start(expr.range());
-        self.enter_scope(scope_name, CompilerScope::TypeParams, line_number);
+        self.enter_scope(scope_name, CompilerScope::Annotation, line_number);
         // Evaluator takes a format parameter
-        self.register_name("format", SymbolUsage::Parameter, TextRange::default())?;
+        self.register_name(".format", SymbolUsage::Parameter, TextRange::default())?;
 
         if in_class {
             if let Some(table) = self.tables.last_mut() {
@@ -2355,23 +2400,19 @@ impl SymbolTableBuilder {
 
                     // Process bound in a separate scope
                     if let Some(binding) = bound {
-                        let (scope_name, scope_info) = if binding.is_tuple_expr() {
-                            (
-                                format!("<TypeVar constraint of {name}>"),
-                                "a TypeVar constraint",
-                            )
+                        let scope_info = if binding.is_tuple_expr() {
+                            "a TypeVar constraint"
                         } else {
-                            (format!("<TypeVar bound of {name}>"), "a TypeVar bound")
+                            "a TypeVar bound"
                         };
-                        self.scan_type_param_bound_or_default(binding, &scope_name, scope_info)?;
+                        self.scan_type_param_bound_or_default(binding, name.as_str(), scope_info)?;
                     }
 
                     // Process default in a separate scope
                     if let Some(default_value) = default {
-                        let scope_name = format!("<TypeVar default of {name}>");
                         self.scan_type_param_bound_or_default(
                             default_value,
-                            &scope_name,
+                            name.as_str(),
                             "a TypeVar default",
                         )?;
                     }
@@ -2386,10 +2427,9 @@ impl SymbolTableBuilder {
 
                     // Process default in a separate scope
                     if let Some(default_value) = default {
-                        let scope_name = format!("<ParamSpec default of {name}>");
                         self.scan_type_param_bound_or_default(
                             default_value,
-                            &scope_name,
+                            name,
                             "a ParamSpec default",
                         )?;
                     }
@@ -2404,10 +2444,9 @@ impl SymbolTableBuilder {
 
                     // Process default in a separate scope
                     if let Some(default_value) = default {
-                        let scope_name = format!("<TypeVarTuple default of {name}>");
                         self.scan_type_param_bound_or_default(
                             default_value,
-                            &scope_name,
+                            name,
                             "a TypeVarTuple default",
                         )?;
                     }

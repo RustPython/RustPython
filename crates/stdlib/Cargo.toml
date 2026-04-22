@@ -30,6 +30,7 @@ flame-it = ["flame"]
 rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
+rustpython-host_env = { workspace = true }
 
 ruff_python_parser = { workspace = true }
 ruff_python_ast = { workspace = true }
@@ -38,7 +39,6 @@ ruff_source_file = { workspace = true }
 
 ahash = { workspace = true }
 ascii = { workspace = true }
-cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
 flame = { workspace = true, optional = true }
 hex = { workspace = true }
@@ -116,7 +116,7 @@ socket2 = { version = "0.6.3", features = ["all"] }
 dns-lookup = "3.0"
 
 # OpenSSL dependencies (optional, for ssl-openssl feature)
-openssl = { version = "0.10.76", optional = true }
+openssl = { version = "0.10.77", optional = true }
 openssl-sys = { version = "0.9.110", optional = true }
 openssl-probe = { version = "0.2.1", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }

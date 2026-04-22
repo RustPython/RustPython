@@ -7,17 +7,19 @@ mod cert;
 mod ssl_error;
 
 // Conditional compilation for OpenSSL version-specific error codes
-cfg_if::cfg_if! {
-    if #[cfg(ossl310)] {
-        // OpenSSL 3.1.0+
+cfg_select! {
+    // OpenSSL 3.1.0+
+    ossl310 => {
         mod ssl_data_31;
         use ssl_data_31 as ssl_data;
-    } else if #[cfg(ossl300)] {
-        // OpenSSL 3.0.0+
+    }
+    // OpenSSL 3.0.0+
+    ossl300 => {
         mod ssl_data_300;
         use ssl_data_300 as ssl_data;
-    } else {
-        // OpenSSL 1.1.1+ (fallback)
+    }
+    // OpenSSL 1.1.1+ (fallback)
+    _ => {
         mod ssl_data_111;
         use ssl_data_111 as ssl_data;
     }
@@ -30,13 +32,10 @@ use rustpython_common::lock::LazyLock;
 
 // define our own copy of ProbeResult so we can handle the vendor case
 // easily, without having to have a bunch of cfgs
-cfg_if::cfg_if! {
-    if #[cfg(openssl_vendored)] {
-        static PROBE: LazyLock<ProbeResult> = LazyLock::new(openssl_probe::probe);
-    } else {
-        static PROBE: LazyLock<ProbeResult> = LazyLock::new(|| ProbeResult { cert_file: None, cert_dir: vec![] });
-    }
-}
+static PROBE: LazyLock<ProbeResult> = cfg_select! {
+    openssl_vendored => LazyLock::new(openssl_probe::probe)
+    _ => LazyLock::new(|| ProbeResult { cert_file: None, cert_dir: vec![] })
+};
 
 fn probe() -> &'static ProbeResult {
     &PROBE
@@ -1349,13 +1348,14 @@ mod _ssl {
 
         #[pymethod]
         fn set_default_verify_paths(&self, vm: &VirtualMachine) -> PyResult<()> {
-            cfg_if::cfg_if! {
-                if #[cfg(openssl_vendored)] {
+            cfg_select! {
+                openssl_vendored => {
                     let (cert_file, cert_dir) = get_cert_file_dir();
                     self.builder()
                         .load_verify_locations(Some(cert_file), Some(cert_dir))
                         .map_err(|e| convert_openssl_error(vm, e))
-                } else {
+                }
+                _ => {
                     self.builder()
                         .set_default_verify_paths()
                         .map_err(|e| convert_openssl_error(vm, e))
@@ -1671,17 +1671,17 @@ mod _ssl {
 
             // Open the file using fopen (cross-platform)
             let fp =
-                rustpython_common::fileutils::fopen(path.as_path(), "rb").map_err(|e| {
-                    match e.kind() {
-                        std::io::ErrorKind::NotFound => vm
-                            .new_os_subtype_error(
-                                vm.ctx.exceptions.file_not_found_error.to_owned(),
-                                Some(libc::ENOENT),
-                                e.to_string(),
-                            )
-                            .upcast(),
-                        _ => vm.new_os_error(e.to_string()),
-                    }
+                rustpython_host_env::fileutils::fopen(path.as_path(), "rb").map_err(|e| match e
+                    .kind()
+                {
+                    std::io::ErrorKind::NotFound => vm
+                        .new_os_subtype_error(
+                            vm.ctx.exceptions.file_not_found_error.to_owned(),
+                            Some(libc::ENOENT),
+                            e.to_string(),
+                        )
+                        .upcast(),
+                    _ => vm.new_os_error(e.to_string()),
                 })?;
 
             // Read DH parameters
@@ -1880,7 +1880,7 @@ mod _ssl {
             const PEM_BUFSIZE: usize = 1024;
 
             // Read key file data
-            let key_data = std::fs::read(key_file_path)
+            let key_data = rustpython_host_env::fs::read(key_file_path)
                 .map_err(|e| crate::vm::convert::ToPyException::to_pyexception(&e, vm))?;
 
             let pkey = if let Some(ref pw_obj) = password {

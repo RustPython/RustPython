@@ -1,6 +1,6 @@
 // to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
 // how `mod` works, but we want this sometimes for pymodule declarations
-
+#![deny(clippy::disallowed_methods)]
 #![allow(clippy::module_inception)]
 
 #[macro_use]

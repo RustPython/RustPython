@@ -120,7 +120,7 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
     let interp = builder.interpreter();
     let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
 
-    rustpython_vm::common::os::exit_code(exitcode)
+    rustpython_vm::host_env::os::exit_code(exitcode)
 }
 
 fn get_pip(scope: Scope, vm: &VirtualMachine) -> PyResult<()> {

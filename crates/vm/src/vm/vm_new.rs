@@ -249,7 +249,7 @@ impl VirtualMachine {
     /// On windows, CRT errno are expected to be handled by this function.
     /// This is identical to `new_last_os_error` on non-Windows platforms.
     pub fn new_last_errno_error(&self) -> PyBaseExceptionRef {
-        let err = crate::common::os::errno_io_error();
+        let err = crate::host_env::os::errno_io_error();
         err.to_pyexception(self)
     }
 

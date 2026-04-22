@@ -14,7 +14,6 @@ mod _socket {
             PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
             PyUtf8StrRef,
         },
-        common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
@@ -23,6 +22,7 @@ mod _socket {
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
     };
+    use rustpython_host_env::os::ErrorExt;
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         #[cfg(windows)]
@@ -1568,20 +1568,23 @@ mod _socket {
                 if socket_kind == -1 {
                     socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
                 }
-                cfg_if::cfg_if! {
-                    if #[cfg(any(
+
+                cfg_select! {
+                    any(
                         target_os = "android",
                         target_os = "freebsd",
                         target_os = "fuchsia",
                         target_os = "linux",
-                    ))] {
+                    ) => {
                         if proto == -1 {
                             proto = sock.protocol()?.map_or(0, Into::into);
                         }
-                    } else {
+                    }
+                    _ => {
                         proto = 0;
                     }
                 }
+
                 return Ok(zelf.init_inner(family, socket_kind, proto, sock)?);
             }
 
@@ -2270,7 +2273,7 @@ mod _socket {
                     )
                 };
                 if ret < 0 {
-                    return Err(crate::common::os::errno_io_error().into());
+                    return Err(rustpython_host_env::os::errno_io_error().into());
                 }
                 Ok(vm.ctx.new_int(flag).into())
             } else {
@@ -2291,7 +2294,7 @@ mod _socket {
                     )
                 };
                 if ret < 0 {
-                    return Err(crate::common::os::errno_io_error().into());
+                    return Err(rustpython_host_env::os::errno_io_error().into());
                 }
                 buf.truncate(buflen as usize);
                 Ok(vm.ctx.new_bytes(buf).into())
@@ -2332,7 +2335,7 @@ mod _socket {
                 }
             };
             if ret < 0 {
-                Err(crate::common::os::errno_io_error().into())
+                Err(rustpython_host_env::os::errno_io_error().into())
             } else {
                 Ok(())
             }
@@ -2787,13 +2790,13 @@ mod _socket {
         }
         #[cfg(windows)]
         {
-            use crate::select;
+            use rustpython_host_env::select as host_select;
 
             let fd = sock_fileno(sock);
 
-            let mut reads = select::FdSet::new();
-            let mut writes = select::FdSet::new();
-            let mut errs = select::FdSet::new();
+            let mut reads = host_select::FdSet::new();
+            let mut writes = host_select::FdSet::new();
+            let mut errs = host_select::FdSet::new();
 
             let fd = fd as usize;
             match kind {
@@ -2805,12 +2808,12 @@ mod _socket {
                 }
             }
 
-            let mut interval = interval.map(|dur| select::timeval {
+            let mut interval = interval.map(|dur| host_select::timeval {
                 tv_sec: dur.as_secs() as _,
                 tv_usec: dur.subsec_micros() as _,
             });
 
-            select::select(
+            host_select::select(
                 fd as i32 + 1,
                 &mut reads,
                 &mut writes,
@@ -3084,7 +3087,7 @@ mod _socket {
     fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         let name = name.to_cstring(vm)?;
         // in case 'if_nametoindex' does not set errno
-        crate::common::os::set_errno(libc::ENODEV);
+        rustpython_host_env::os::set_errno(libc::ENODEV);
         let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
         if ret == 0 {
             Err(vm.new_last_errno_error())
@@ -3098,7 +3101,7 @@ mod _socket {
     fn if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
         let mut buf = [0; c::IF_NAMESIZE + 1];
         // in case 'if_indextoname' does not set errno
-        crate::common::os::set_errno(libc::ENXIO);
+        rustpython_host_env::os::set_errno(libc::ENXIO);
         let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
         if ret.is_null() {
             Err(vm.new_last_errno_error())
@@ -3259,14 +3262,9 @@ mod _socket {
     }
 
     fn sock_from_raw(fileno: RawSocket, vm: &VirtualMachine) -> PyResult<Socket> {
-        let invalid = {
-            cfg_if::cfg_if! {
-                if #[cfg(windows)] {
-                    fileno == INVALID_SOCKET
-                } else {
-                    fileno < 0
-                }
-            }
+        let invalid = cfg_select! {
+            windows => fileno == INVALID_SOCKET,
+            _ => fileno < 0
         };
         if invalid {
             return Err(vm.new_value_error("negative file descriptor"));

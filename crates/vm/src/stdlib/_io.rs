@@ -5,19 +5,15 @@ pub(crate) use _io::module_def;
 #[cfg(all(unix, feature = "threading"))]
 pub(crate) use _io::reinit_std_streams_after_fork;
 
-cfg_if::cfg_if! {
-    if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
-        use crate::common::crt_fd::Offset;
-    } else {
-        type Offset = i64;
-    }
-}
-
-// EAGAIN constant for BlockingIOError
-cfg_if::cfg_if! {
-    if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
+cfg_select! {
+    any(not(target_arch = "wasm32"), target_os = "wasi") => {
+        use rustpython_host_env::crt_fd::Offset;
+        // EAGAIN constant for BlockingIOError
         const EAGAIN: i32 = libc::EAGAIN;
-    } else {
+    }
+    _ => {
+        type Offset = i64;
+        // EAGAIN constant for BlockingIOError
         const EAGAIN: i32 = 11; // Standard POSIX value
     }
 }
@@ -152,12 +148,11 @@ mod _io {
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
         let x = (0..=2).contains(&whence);
-        cfg_if::cfg_if! {
-            if #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))] {
+        cfg_select! {
+            any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux") => {
                 x || matches!(whence, libc::SEEK_DATA | libc::SEEK_HOLE)
-            } else {
-                x
             }
+            _ => x
         }
     }
 
@@ -5089,18 +5084,16 @@ mod _io {
         let is_console = false;
 
         let file_io_class: &Py<PyType> = {
-            cfg_if::cfg_if! {
-                if #[cfg(all(feature = "host_env", windows))] {
+            cfg_select! {
+                all(feature = "host_env", windows) =>  {
                     if is_console {
                         Some(super::winconsoleio::WindowsConsoleIO::static_type())
                     } else {
                         Some(super::fileio::FileIO::static_type())
                     }
-                } else if #[cfg(feature = "host_env")] {
-                    Some(super::fileio::FileIO::static_type())
-                } else {
-                    None
                 }
+                feature = "host_env" => Some(super::fileio::FileIO::static_type()),
+                _ => None,
             }
         }
         .ok_or_else(|| {
@@ -5323,11 +5316,12 @@ mod _io {
 #[pymodule]
 mod fileio {
     use super::{_io::*, Offset, iobase_finalize};
+    use crate::host_env::crt_fd;
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
-        common::{crt_fd, wtf8::Wtf8Buf},
+        common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
         exceptions::OSErrorBuilder,
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
@@ -5554,7 +5548,7 @@ mod fileio {
 
             // TODO: _Py_set_inheritable
 
-            let fd_fstat = crate::common::fileutils::fstat(fd);
+            let fd_fstat = rustpython_host_env::fileutils::fstat(fd);
 
             #[cfg(windows)]
             {
@@ -6017,7 +6011,7 @@ mod winconsoleio {
     const BUFMAX: usize = 32 * 1024 * 1024;
 
     fn handle_from_fd(fd: i32) -> HANDLE {
-        unsafe { rustpython_common::suppress_iph!(libc::get_osfhandle(fd)) as HANDLE }
+        unsafe { rustpython_host_env::suppress_iph!(libc::get_osfhandle(fd)) as HANDLE }
     }
 
     fn is_invalid_handle(handle: HANDLE) -> bool {
