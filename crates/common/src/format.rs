@@ -722,9 +722,24 @@ impl FormatSpec {
                 magnitude if magnitude.is_nan() => Ok("nan%".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
                 _ => {
-                    let result = format!("{:.*}", precision, magnitude * 100.0);
-                    let point = float::decimal_point_or_empty(precision, self.alternate_form);
-                    Ok(format!("{result}{point}%"))
+                    let scaled = magnitude * 100.0;
+                    // `magnitude * 100` can overflow a finite input to +inf
+                    // (e.g. f64::MAX). Emit "inf%" so the outer sign handler
+                    // produces "-inf%" or "inf%" consistently with CPython.
+                    if scaled.is_infinite() {
+                        Ok("inf%".to_owned())
+                    } else {
+                        let capped = float::clamp_fmt_precision(precision);
+                        let mut result = format!("{:.*}", capped, scaled);
+                        // Pad with '0's up to the requested precision to match
+                        // CPython byte-identically past the internal cap.
+                        let missing = precision.saturating_sub(capped);
+                        if missing > 0 {
+                            result.extend(core::iter::repeat_n('0', missing));
+                        }
+                        let point = float::decimal_point_or_empty(precision, self.alternate_form);
+                        Ok(format!("{result}{point}%"))
+                    }
                 }
             },
             None => match magnitude {
