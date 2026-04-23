@@ -5010,8 +5010,7 @@ impl CodeInfo {
                     } else {
                         OpArg::new(ins.target.0)
                     };
-                    let instr_display = instr.display(display_arg, self);
-                    eprint!("{instr_display}: {depth} {effect:+} => ");
+                    eprint!("{display_arg:?}: {depth} {effect:+} => ");
                 }
                 let new_depth = depth.checked_add_signed(effect).ok_or({
                     if effect < 0 {
