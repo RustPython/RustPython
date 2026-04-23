@@ -387,8 +387,7 @@ fn ensure_repr_c(mut item: Item) -> Item {
     };
     let has_repr = s.attrs.iter().any(|attr| attr.path().is_ident("repr"));
     if !has_repr {
-        let repr_c: syn::Attribute = parse_quote!(#[repr(C)]);
-        s.attrs.push(repr_c);
+        s.attrs.push(parse_quote!(#[repr(C)]));
     }
     item
 }
