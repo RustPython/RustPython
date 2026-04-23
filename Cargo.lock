@@ -3096,6 +3096,7 @@ dependencies = [
  "libc",
  "log",
  "pyo3",
+ "rustpython-capi",
  "rustpython-compiler",
  "rustpython-pylib",
  "rustpython-ruff_python_parser",
