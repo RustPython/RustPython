@@ -1086,7 +1086,7 @@ impl InstructionMetadata for Instruction {
                     write!(f, "{:pad$}({})", opcode, op)
                 }
             }
-            Self::ContainsOp { invert } => w!(?invert),
+            Self::ContainsOp { invert } => w!(invert),
             Self::ConvertValue { oparg } => {
                 let oparg = oparg.get(arg);
                 write!(f, "{:pad$} {} ({})", opcode, oparg.as_u8(), oparg)
@@ -1117,7 +1117,7 @@ impl InstructionMetadata for Instruction {
             Self::ImportFrom { namei } => w!(name = namei),
             Self::ImportName { namei } => w!(name = namei),
             Self::InterpreterExit => w!(),
-            Self::IsOp { invert } => w!(?invert),
+            Self::IsOp { invert } => w!(invert),
             Self::JumpBackward { delta } => w!(delta),
             Self::JumpBackwardNoInterrupt { delta } => w!(delta),
             Self::JumpForward { delta } => w!(delta),
