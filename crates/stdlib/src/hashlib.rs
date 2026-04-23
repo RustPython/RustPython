@@ -21,7 +21,7 @@ pub mod _hashlib {
     use digest::{DynDigest, OutputSizeUser, core_api::BlockSizeUser};
     use digest::{ExtendableOutput, Update};
     use dyn_clone::{DynClone, clone_trait_object};
-    use hmac::Mac;
+    use hmac::{KeyInit, Mac};
     use md5::Md5;
     use sha1::Sha1;
     use sha2::{Sha224, Sha256, Sha384, Sha512};
@@ -768,7 +768,7 @@ pub mod _hashlib {
 
         macro_rules! make_hmac {
             ($hash_ty:ty) => {{
-                let mut mac = <hmac::Hmac<$hash_ty> as Mac>::new_from_slice(&key_buf)
+                let mut mac = <hmac::Hmac<$hash_ty> as KeyInit>::new_from_slice(&key_buf)
                     .map_err(|_| vm.new_value_error("invalid key length".to_owned()))?;
                 if let Some(ref m) = msg_data {
                     m.with_ref(|bytes| Mac::update(&mut mac, bytes));
@@ -806,7 +806,7 @@ pub mod _hashlib {
 
         macro_rules! do_hmac {
             ($hash_ty:ty) => {{
-                let mut mac = <hmac::Hmac<$hash_ty> as Mac>::new_from_slice(&key_buf)
+                let mut mac = <hmac::Hmac<$hash_ty> as KeyInit>::new_from_slice(&key_buf)
                     .map_err(|_| vm.new_value_error("invalid key length".to_owned()))?;
                 Mac::update(&mut mac, &msg_buf);
                 Ok(mac.finalize().into_bytes().to_vec().into())
