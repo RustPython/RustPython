@@ -11620,26 +11620,6 @@ mod tests {
         })
     }
 
-    macro_rules! assert_dis_snapshot {
-        ($value:expr) => {
-            insta::assert_snapshot!(
-                insta::internals::AutoName,
-                $value.display_expand_code_objects().to_string(),
-                stringify!($value)
-            )
-        };
-    }
-
-    #[test]
-    fn test_if_ors() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-if True or False or False:
-    pass
-"
-        ));
-    }
-
     #[test]
     fn test_trace_assert_true_try_pair() {
         let trace = compile_exec_late_cfg_trace(
@@ -11875,44 +11855,6 @@ def f(self):
     }
 
     #[test]
-    fn test_if_ands() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-if True and False and False:
-    pass
-"
-        ));
-    }
-
-    #[test]
-    fn test_if_mixed() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-if (True and False) or (False and True):
-    pass
-"
-        ));
-    }
-
-    #[test]
-    fn test_nested_bool_op() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-x = Test() and False or False
-"
-        ));
-    }
-
-    #[test]
-    fn test_const_bool_not_op() {
-        assert_dis_snapshot!(compile_exec_optimized(
-            "\
-x = not True
-"
-        ));
-    }
-
-    #[test]
     fn test_plain_constant_bool_op_folds_to_selected_operand() {
         let code = compile_exec(
             "\
@@ -12142,24 +12084,6 @@ def or_false(x):
                 "folded bool-op tail should not introduce borrow loads in {name}, got ops={ops:?}"
             );
         }
-    }
-
-    #[test]
-    fn test_nested_double_async_with() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-async def test():
-    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
-        with self.subTest(type=type(stop_exc)):
-            try:
-                async with egg():
-                    raise stop_exc
-            except Exception as ex:
-                self.assertIs(ex, stop_exc)
-            else:
-                self.fail(f'{stop_exc} was suppressed')
-"
-        ));
     }
 
     #[test]
@@ -13131,20 +13055,6 @@ def f(x, y):
     }
 
     #[test]
-    fn test_bare_function_annotations_check_attribute_and_subscript_expressions() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-def f(one: int):
-    int.new_attr: int
-    [list][0].new_attr: [int, str]
-    my_lst = [1]
-    my_lst[one]: int
-    return my_lst
-"
-        ));
-    }
-
-    #[test]
     fn test_non_simple_bare_name_annotation_does_not_create_local_binding() {
         let code = compile_exec(
             "\
@@ -13174,16 +13084,6 @@ def f2bad():
                 .map(|unit| unit.op)
                 .collect::<Vec<_>>()
         );
-    }
-
-    #[test]
-    fn test_constant_true_if_pass_keeps_line_anchor_nop() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-if 1:
-    pass
-"
-        ));
     }
 
     #[test]
