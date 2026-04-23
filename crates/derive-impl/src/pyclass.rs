@@ -573,14 +573,20 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     let fake_ident = Ident::new("pyclass", item.span());
     let (class_meta, class_name, module_name, base, metaclass, unhashable) = {
         let (ident, _) = pyclass_ident_and_attrs(&item)?;
-        let class_meta =
-            ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
+        let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
         let class_name = class_meta.class_name()?;
         let module_name = class_meta.module()?;
         let base = class_meta.base()?;
         let metaclass = class_meta.metaclass()?;
         let unhashable = class_meta.unhashable()?;
-        (class_meta, class_name, module_name, base, metaclass, unhashable)
+        (
+            class_meta,
+            class_name,
+            module_name,
+            base,
+            metaclass,
+            unhashable,
+        )
     };
 
     // When a base is specified:
