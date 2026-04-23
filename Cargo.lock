@@ -712,9 +712,9 @@ dependencies = [
 
 [[package]]
 name = "cranelift"
-version = "0.130.0"
+version = "0.130.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f13b593d4c3fe30bdf7e7bf4cbe78637849515822d305da6080c7ddda554d251"
+checksum = "6531a94f310e0a4a4b2b2698a86fb95a1b2d1b33f84bbed71393620b4a978f19"
 dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
@@ -824,9 +824,9 @@ dependencies = [
 
 [[package]]
 name = "cranelift-frontend"
-version = "0.130.0"
+version = "0.130.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4c5eca7696c1c04ab4c7ed8d18eadbb47d6cc9f14ec86fe0881bf1d7e97e261"
+checksum = "14db6b0e0e4994c581092df78d837be2072578f7cb2528f96a6cf895e56dee63"
 dependencies = [
  "cranelift-codegen",
  "log",
@@ -2251,9 +2251,9 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "openssl"
-version = "0.10.76"
+version = "0.10.77"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "951c002c75e16ea2c65b8c7e4d3d51d5530d8dfa7d060b4776828c88cfb18ecf"
+checksum = "bfe4646e360ec77dff7dde40ed3d6c5fee52d156ef4a62f53973d38294dad87f"
 dependencies = [
  "bitflags 2.11.0",
  "cfg-if",
@@ -2292,9 +2292,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.112"
+version = "0.9.114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57d55af3b3e226502be1526dfdba67ab0e9c96fc293004e79576b2b9edb0dbdb"
+checksum = "13ce1245cd07fcc4cfdb438f7507b0c7e4f3849a69fd84d52374c66d83741bb6"
 dependencies = [
  "cc",
  "libc",
@@ -3086,7 +3086,6 @@ dependencies = [
 name = "rustpython"
 version = "0.5.0"
 dependencies = [
- "cfg-if",
  "criterion",
  "dirs-next",
  "env_logger",
@@ -3135,7 +3134,6 @@ version = "0.5.0"
 dependencies = [
  "ascii",
  "bitflags 2.11.0",
- "cfg-if",
  "getrandom 0.3.4",
  "itertools 0.14.0",
  "libc",
@@ -3364,7 +3362,6 @@ dependencies = [
  "base64",
  "blake2",
  "bzip2",
- "cfg-if",
  "chrono",
  "constant_time_eq",
  "crc32fast",
@@ -3459,7 +3456,6 @@ dependencies = [
  "bitflags 2.11.0",
  "bstr",
  "caseless",
- "cfg-if",
  "chrono",
  "constant_time_eq",
  "crossbeam-utils",
@@ -4345,9 +4341,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.22.0"
+version = "1.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
+checksum = "5ac8b6f42ead25368cf5b098aeb3dc8a1a2c05a3eee8a9a1a68c640edbfc79d9"
 dependencies = [
  "atomic",
  "js-sys",

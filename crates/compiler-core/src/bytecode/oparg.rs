@@ -125,31 +125,52 @@ impl OpArgState {
     }
 }
 
-/// Helper macro for defining oparg enums in an optimal way.
+/// Defines an enum whose variants map to fixed `u8` discriminants,
+/// and automatically implements the following traits:
 ///
-/// Will generate the following:
+/// - [`Display`](std::fmt::Display)
+/// - [`From`]`<EnumName> for u8` / `u32`
+/// - [`TryFrom`]`<u8> / <u32> for EnumName`
+/// - [`OpArgType`]
 ///
-/// - Enum which variant's aren't assigned any value (for optimizations).
-/// - impl [`TryFrom<u8>`]
-/// - impl [`TryFrom<u32>`]
-/// - impl [`Into<u8>`]
-/// - impl [`Into<u32>`]
-/// - impl [`OpArgType`]
+/// Along with the inherent methods `as_u8`, `as_u32`, `try_from_u8`, and `try_from_u32`.
 ///
-/// # Examples
+/// # Variant syntax
+///
+/// Each variant is assigned a value using one of two forms:
+///
+/// | Form | Syntax | `Display` output |
+/// |---|---|---|
+/// | Numeric | `Variant = 0` | `0` |
+/// | Labeled | `Variant = (0, "label")` | `label` |
+///
+/// # Example
 ///
 /// ```ignore
-/// oparg_enum!(
-///     /// Oparg for the `X` opcode.
-///     #[derive(Clone, Copy)]
-///     pub enum MyOpArg {
-///         /// Some doc.
-///         Foo = 4,
-///         Bar = 8,
-///         Baz = 15,
-///         Qux = 16
+/// oparg_enum! {
+///     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///     pub enum MyArg {
+///         /// No argument.
+///         None  = 0,
+///         /// A small argument, displayed as "small".
+///         Small = (1, "small"),
+///         /// A large argument, displayed as "large".
+///         Large = (2, "large"),
 ///     }
-/// );
+/// }
+///
+/// assert_eq!(MyArg::None.as_u8(), 0);
+/// assert_eq!(MyArg::Small.as_u8(), 1);
+///
+/// assert_eq!(MyArg::try_from_u8(2), Ok(MyArg::Large));
+/// assert_eq!(u8::from(MyArg::None), 0u8);
+///
+/// assert_eq!(MyArg::None.to_string(),  "0");
+/// assert_eq!(MyArg::Small.to_string(), "small");
+/// assert_eq!(MyArg::Large.to_string(), "large");
+///
+/// // Format specs are respected
+/// assert_eq!(format!("{:>10}", MyArg::Small), "     small");
 /// ```
 macro_rules! oparg_enum {
     (
@@ -157,7 +178,7 @@ macro_rules! oparg_enum {
         $vis:vis enum $name:ident {
             $(
                 $(#[$variant_meta:meta])*
-                $variant:ident = $value:literal
+                $variant:ident = $value:tt
             ),* $(,)?
         }
     ) => {
@@ -183,7 +204,7 @@ macro_rules! impl_oparg_enum {
     (
         $vis:vis enum $name:ident {
             $(
-                $variant:ident = $value:literal
+                $variant:ident = $value:tt
             ),* $(,)?
         }
     ) => {
@@ -193,7 +214,7 @@ macro_rules! impl_oparg_enum {
             $vis const fn as_u8(self) -> u8 {
                 match self {
                     $(
-                        Self::$variant => $value,
+                        Self::$variant => impl_oparg_enum!(@discriminant $value),
                     )*
                 }
             }
@@ -207,7 +228,7 @@ macro_rules! impl_oparg_enum {
             $vis const fn try_from_u8(value: u8) -> Result<Self, $crate::marshal::MarshalError> {
                 Ok(match value {
                     $(
-                        $value => Self::$variant,
+                        impl_oparg_enum!(@discriminant $value) => Self::$variant,
                     )*
                     _ => return Err($crate::marshal::MarshalError::InvalidBytecode),
                 })
@@ -251,7 +272,26 @@ macro_rules! impl_oparg_enum {
             }
         }
 
+        impl ::core::fmt::Display for $name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                match self {
+                    $(
+                        Self::$variant => impl_oparg_enum!(@display f, $value),
+                    )*
+                }
+            }
+        }
+
         impl OpArgType for $name {}
+    };
+
+    (@discriminant ($num:literal, $str:literal)) => { $num };
+    (@discriminant $num:literal) => { $num };
+    (@display $f:expr, ($num:literal, $str:literal)) => {
+        ::core::fmt::Display::fmt($str, $f)
+    };
+    (@display $f:expr, $num:literal) => {
+        ::core::fmt::Display::fmt(&$num, $f)
     };
 }
 
@@ -269,6 +309,8 @@ oparg_enum!(
         /// f"{x}"
         /// f"{x:4}"
         /// ```
+        // NOTE: We should never reach the display of this.
+        // `FVC_NONE` are being handled by `Instruction::FormatSimple`
         None = 0,
         /// Converts by calling `str(<value>)`.
         ///
@@ -276,37 +318,23 @@ oparg_enum!(
         /// f"{x!s}"
         /// f"{x!s:2}"
         /// ```
-        Str = 1,
+        Str = (1, "str"),
         /// Converts by calling `repr(<value>)`.
         ///
         /// ```python
         /// f"{x!r}"
         /// f"{x!r:2}"
         /// ```
-        Repr = 2,
+        Repr = (2, "repr"),
         /// Converts by calling `ascii(<value>)`.
         ///
         /// ```python
         /// f"{x!a}"
         /// f"{x!a:2}"
         /// ```
-        Ascii = 3,
+        Ascii = (3, "ascii"),
     }
 );
-
-impl fmt::Display for ConvertValueOparg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let out = match self {
-            Self::Str => "1 (str)",
-            Self::Repr => "2 (repr)",
-            Self::Ascii => "3 (ascii)",
-            // We should never reach this. `FVC_NONE` are being handled by `Instruction::FormatSimple`
-            Self::None => "",
-        };
-
-        write!(f, "{out}")
-    }
-}
 
 pub type NameIdx = u32;
 
@@ -511,59 +539,59 @@ oparg_enum!(
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub enum BinaryOperator {
         /// `+`
-        Add = 0,
+        Add = (0, "+"),
         /// `&`
-        And = 1,
+        And = (1, "&"),
         /// `//`
-        FloorDivide = 2,
+        FloorDivide = (2, "//"),
         /// `<<`
-        Lshift = 3,
+        Lshift = (3, "<<"),
         /// `@`
-        MatrixMultiply = 4,
+        MatrixMultiply = (4, "@"),
         /// `*`
-        Multiply = 5,
+        Multiply = (5, "*"),
         /// `%`
-        Remainder = 6,
+        Remainder = (6, "%"),
         /// `|`
-        Or = 7,
+        Or = (7, "|"),
         /// `**`
-        Power = 8,
+        Power = (8, "**"),
         /// `>>`
-        Rshift = 9,
+        Rshift = (9, ">>"),
         /// `-`
-        Subtract = 10,
+        Subtract = (10, "-"),
         /// `/`
-        TrueDivide = 11,
+        TrueDivide = (11, "/"),
         /// `^`
-        Xor = 12,
+        Xor = (12, "^"),
         /// `+=`
-        InplaceAdd = 13,
+        InplaceAdd = (13, "+="),
         /// `&=`
-        InplaceAnd = 14,
+        InplaceAnd = (14, "&="),
         /// `//=`
-        InplaceFloorDivide = 15,
+        InplaceFloorDivide = (15, "//="),
         /// `<<=`
-        InplaceLshift = 16,
+        InplaceLshift = (16, "<<="),
         /// `@=`
-        InplaceMatrixMultiply = 17,
+        InplaceMatrixMultiply = (17, "@="),
         /// `*=`
-        InplaceMultiply = 18,
+        InplaceMultiply = (18, "*="),
         /// `%=`
-        InplaceRemainder = 19,
+        InplaceRemainder = (19, "%="),
         /// `|=`
-        InplaceOr = 20,
+        InplaceOr = (20, "|="),
         /// `**=`
-        InplacePower = 21,
+        InplacePower = (21, "**="),
         /// `>>=`
-        InplaceRshift = 22,
+        InplaceRshift = (22, ">>="),
         /// `-=`
-        InplaceSubtract = 23,
+        InplaceSubtract = (23, "-="),
         /// `/=`
-        InplaceTrueDivide = 24,
+        InplaceTrueDivide = (24, "/="),
         /// `^=`
-        InplaceXor = 25,
+        InplaceXor = (25, "^="),
         /// `[]` subscript
-        Subscr = 26,
+        Subscr = (26, "[]"),
     }
 );
 
@@ -600,41 +628,6 @@ impl BinaryOperator {
     }
 }
 
-impl fmt::Display for BinaryOperator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let op = match self {
-            Self::Add => "+",
-            Self::And => "&",
-            Self::FloorDivide => "//",
-            Self::Lshift => "<<",
-            Self::MatrixMultiply => "@",
-            Self::Multiply => "*",
-            Self::Remainder => "%",
-            Self::Or => "|",
-            Self::Power => "**",
-            Self::Rshift => ">>",
-            Self::Subtract => "-",
-            Self::TrueDivide => "/",
-            Self::Xor => "^",
-            Self::InplaceAdd => "+=",
-            Self::InplaceAnd => "&=",
-            Self::InplaceFloorDivide => "//=",
-            Self::InplaceLshift => "<<=",
-            Self::InplaceMatrixMultiply => "@=",
-            Self::InplaceMultiply => "*=",
-            Self::InplaceRemainder => "%=",
-            Self::InplaceOr => "|=",
-            Self::InplacePower => "**=",
-            Self::InplaceRshift => ">>=",
-            Self::InplaceSubtract => "-=",
-            Self::InplaceTrueDivide => "/=",
-            Self::InplaceXor => "^=",
-            Self::Subscr => "[]",
-        };
-        write!(f, "{op}")
-    }
-}
-
 oparg_enum!(
     /// Whether or not to invert the operation.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -657,27 +650,15 @@ oparg_enum!(
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum SpecialMethod {
         /// `__enter__` for sync context manager
-        Enter = 0,
+        Enter = (0, "__enter__"),
         /// `__exit__` for sync context manager
-        Exit = 1,
+        Exit = (1, "__exit__"),
         /// `__aenter__` for async context manager
-        AEnter = 2,
+        AEnter = (2, "__aenter__"),
         /// `__aexit__` for async context manager
-        AExit = 3,
+        AExit = (3, "__aexit__"),
     }
 );
-
-impl fmt::Display for SpecialMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let method_name = match self {
-            Self::Enter => "__enter__",
-            Self::Exit => "__exit__",
-            Self::AEnter => "__aenter__",
-            Self::AExit => "__aexit__",
-        };
-        write!(f, "{method_name}")
-    }
-}
 
 oparg_enum!(
     /// Common constants for LOAD_COMMON_CONSTANT opcode.
@@ -685,36 +666,21 @@ oparg_enum!(
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum CommonConstant {
         /// `AssertionError` exception type
-        AssertionError = 0,
+        AssertionError = (0, "AssertionError"),
         /// `NotImplementedError` exception type
-        NotImplementedError = 1,
+        NotImplementedError = (1, "NotImplementedError"),
         /// Built-in `tuple` type
-        BuiltinTuple = 2,
+        BuiltinTuple = (2, "tuple"),
         /// Built-in `all` function
-        BuiltinAll = 3,
+        BuiltinAll = (3, "all"),
         /// Built-in `any` function
-        BuiltinAny = 4,
+        BuiltinAny = (4, "any"),
         /// Built-in `list` type
-        BuiltinList = 5,
+        BuiltinList = (5, "list"),
         /// Built-in `set` type
-        BuiltinSet = 6,
+        BuiltinSet = (6, "set"),
     }
 );
-
-impl fmt::Display for CommonConstant {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            Self::AssertionError => "AssertionError",
-            Self::NotImplementedError => "NotImplementedError",
-            Self::BuiltinTuple => "tuple",
-            Self::BuiltinAll => "all",
-            Self::BuiltinAny => "any",
-            Self::BuiltinList => "list",
-            Self::BuiltinSet => "set",
-        };
-        write!(f, "{name}")
-    }
-}
 
 oparg_enum!(
     /// Specifies if a slice is built with either 2 or 3 arguments.
