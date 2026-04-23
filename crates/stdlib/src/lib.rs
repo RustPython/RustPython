@@ -106,11 +106,16 @@ mod openssl;
 #[cfg(all(
     feature = "host_env",
     not(target_arch = "wasm32"),
-    feature = "ssl-rustls"
+    feature = "__ssl-rustls"
 ))]
 mod ssl;
-#[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls"))]
-compile_error!("features \"ssl-openssl\" and \"ssl-rustls\" are mutually exclusive");
+#[cfg(all(feature = "ssl-openssl", feature = "__ssl-rustls"))]
+compile_error!("features \"ssl-openssl\" and the \"ssl-rustls-*\" family are mutually exclusive");
+
+#[cfg(all(feature = "ssl-rustls-aws-lc-rs", feature = "ssl-rustls-ring"))]
+compile_error!(
+    "features \"ssl-rustls-aws-lc-rs\" (also enabled transitively by \"ssl-rustls-fips\") and \"ssl-rustls-ring\" are mutually exclusive; pick exactly one rustls crypto backend"
+);
 
 #[cfg(all(
     feature = "host_env",
@@ -222,7 +227,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         #[cfg(all(
             feature = "host_env",
             not(target_arch = "wasm32"),
-            feature = "ssl-rustls"
+            feature = "__ssl-rustls"
         ))]
         ssl::module_def(ctx),
         statistics::module_def(ctx),
