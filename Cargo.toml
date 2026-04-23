@@ -10,6 +10,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+capi = ["dep:rustpython-capi", "threading"]
 default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls", "host_env"]
 host_env = ["rustpython-vm/host_env", "rustpython-stdlib?/host_env"]
 importlib = ["rustpython-vm/importlib"]
@@ -31,6 +32,7 @@ tkinter = ["rustpython-stdlib/tkinter"]
 winresource = "0.1"
 
 [dependencies]
+rustpython-capi = { workspace = true, optional = true }
 rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
@@ -140,6 +142,7 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [workspace.dependencies]
+rustpython-capi = { path = "crates/capi", version = "0.5.0" }
 rustpython-compiler-core = { path = "crates/compiler-core", version = "0.5.0" }
 rustpython-compiler = { path = "crates/compiler", version = "0.5.0" }
 rustpython-codegen = { path = "crates/codegen", version = "0.5.0" }
