@@ -19,6 +19,7 @@ updates:
           - "digest"
           - "md-5"
           - "sha-1"
+          - "sha1"
           - "sha2"
           - "sha3"
           - "blake2"
