@@ -18,7 +18,7 @@ pub mod _hashlib {
         types::{Constructor, Representable},
     };
     use blake2::{Blake2b512, Blake2s256};
-    use digest::{DynDigest, OutputSizeUser, core_api::BlockSizeUser};
+    use digest::{DynDigest, OutputSizeUser, block_api::BlockSizeUser};
     use digest::{ExtendableOutput, Update};
     use dyn_clone::{DynClone, clone_trait_object};
     use hmac::{KeyInit, Mac};
