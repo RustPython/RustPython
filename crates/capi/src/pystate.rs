@@ -9,6 +9,7 @@ thread_local! {
     static VM: RefCell<Option<ThreadedVirtualMachine>> = const { RefCell::new(None) };
 }
 
+#[allow(dead_code)]
 pub(crate) fn with_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
     if VM_CURRENT.is_set() {
         // We have an active VM set, so use that.
@@ -62,6 +63,7 @@ pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
 
 #[cfg(test)]
 mod tests {
+    use crate::get_main_interpreter;
     use crate::pystate::{VM, with_vm};
     use pyo3::prelude::*;
     use rustpython_vm::vm::thread::VM_CURRENT;
@@ -69,7 +71,7 @@ mod tests {
     #[test]
     fn test_new_thread() {
         Python::attach(|_py| {
-            with_vm(|vm| {
+            with_vm(|_vm| {
                 assert!(
                     VM_CURRENT.is_set(),
                     "This thread did not have a vm attached"
@@ -78,7 +80,7 @@ mod tests {
 
             std::thread::spawn(move || {
                 Python::attach(|_py| {
-                    with_vm(|vm| {
+                    with_vm(|_vm| {
                         assert!(
                             VM_CURRENT.is_set(),
                             "This thread did not have a vm attached"
@@ -89,5 +91,34 @@ mod tests {
             .join()
             .unwrap();
         })
+    }
+
+    #[test]
+    fn test_current_vm_main_thread() {
+        Python::initialize();
+
+        // Detach vm from thread, because initialize attaches one automatically.
+        VM.with(|vm| vm.borrow_mut().take());
+
+        // let RustPython create a vm for this thread.
+        let vm = get_main_interpreter()
+            .as_ref()
+            .unwrap()
+            .enter(|vm| vm.new_thread());
+
+        // Attach the vm using RustPython
+        vm.run(|_vm| {
+            assert!(VM_CURRENT.is_set(), "This thread should have a vm attached");
+
+            Python::attach(|_py| {
+                with_vm(|_vm| {
+                    assert!(VM_CURRENT.is_set());
+                    assert!(
+                        VM.with(|vm| vm.borrow().is_none()),
+                        "We should not create a new vm when there is already a vm active"
+                    )
+                })
+            })
+        });
     }
 }
