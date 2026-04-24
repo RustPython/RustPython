@@ -138,14 +138,6 @@ class TestUnicode:
 
 class TestPyUnicode(TestUnicode, PyTest): pass
 class TestCUnicode(TestUnicode, CTest):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_ascii_non_printable_encode(self):
-        return super().test_ascii_non_printable_encode()
-
-    @unittest.skip("TODO: RUSTPYTHON; panics with 'str has surrogates'")
+    @unittest.skip("TODO: RUSTPYTHON; decode path still uses PyUtf8StrRef")
     def test_single_surrogate_decode(self):
         return super().test_single_surrogate_decode()
-
-    @unittest.skip("TODO: RUSTPYTHON; panics with 'str has surrogates'")
-    def test_single_surrogate_encode(self):
-        return super().test_single_surrogate_encode()
