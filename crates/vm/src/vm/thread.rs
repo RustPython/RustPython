@@ -66,7 +66,7 @@ thread_local! {
 
 }
 
-scoped_tls::scoped_thread_local!(static VM_CURRENT: VirtualMachine);
+scoped_tls::scoped_thread_local!(pub static VM_CURRENT: VirtualMachine);
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
     if !VM_CURRENT.is_set() {
