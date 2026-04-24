@@ -1,5 +1,5 @@
 use crate::get_main_interpreter;
-use crate::pystate::attach_vm_to_thread;
+use crate::pystate::ensure_thread_has_vm_attached;
 use core::ffi::c_int;
 use rustpython_vm::Interpreter;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
@@ -31,7 +31,7 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
     if interp.is_none() {
         *interp = Interpreter::with_init(Default::default(), |_vm| {}).into();
         drop(interp);
-        attach_vm_to_thread();
+        ensure_thread_has_vm_attached();
     }
 }
 
