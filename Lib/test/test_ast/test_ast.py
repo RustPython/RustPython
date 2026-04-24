@@ -2108,7 +2108,6 @@ class ASTValidatorTests(unittest.TestCase):
         self.assertIsInstance(funcdef, ast.FunctionDef)
         self.assertTrue(matcher(funcdef))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_classdef(self):
         def cls(bases=None, keywords=None, body=None, decorator_list=None, type_params=None):
             if bases is None:
