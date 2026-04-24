@@ -37,6 +37,7 @@ mod _ssl {
             lock::{PyMutex, PyRwLock},
         },
         socket::{PySocket, SelectKind, sock_select, timeout_error_msg},
+        ssl::compat,
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
@@ -64,7 +65,6 @@ mod _ssl {
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
     };
-    use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
     use std::{
         collections::{HashMap, hash_map::DefaultHasher},
         io::BufRead,
@@ -77,13 +77,22 @@ mod _ssl {
     use rustls::{
         ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection,
         client::{ClientSessionMemoryCache, ClientSessionStore},
-        crypto::SupportedKxGroup,
+        crypto::{CryptoProvider, SupportedKxGroup},
         pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName},
         server::{ClientHello, ResolvesServerCert},
         sign::CertifiedKey,
         version::{TLS12, TLS13},
     };
     use sha2::{Digest, Sha256};
+
+    #[cfg(all(feature = "ssl-rustls-aws-lc-rs", feature = "ssl-rustls-ring"))]
+    compile_error!("Enable only one rustls provider: ssl-rustls-aws-lc-rs or ssl-rustls-ring");
+
+    #[cfg(feature = "ssl-rustls-aws-lc-rs")]
+    use rustls::crypto::aws_lc_rs::{ALL_CIPHER_SUITES, Ticketer, sign};
+
+    #[cfg(feature = "ssl-rustls-ring")]
+    use rustls::crypto::ring::{ALL_CIPHER_SUITES, Ticketer, sign};
 
     // Import certificate operations module
     use super::cert;
@@ -1189,15 +1198,14 @@ mod _ssl {
             }
 
             // Additional validation: Create CertifiedKey to ensure rustls accepts it
-            let signing_key =
-                rustls::crypto::aws_lc_rs::sign::any_supported_type(&key).map_err(|_| {
-                    vm.new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
-                        None,
-                        "[SSL: KEY_VALUES_MISMATCH] key values mismatch",
-                    )
-                    .upcast()
-                })?;
+            let signing_key = sign::any_supported_type(&key).map_err(|_| {
+                vm.new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    "[SSL: KEY_VALUES_MISMATCH] key values mismatch",
+                )
+                .upcast()
+            })?;
 
             let certified_key = CertifiedKey::new(full_chain.clone(), signing_key);
             if certified_key.keys_match().is_err() {
@@ -2295,7 +2303,7 @@ mod _ssl {
                 rustls_server_session_store: rustls::server::ServerSessionMemoryCache::new(
                     SSL_SESSION_CACHE_SIZE,
                 ),
-                server_ticketer: rustls::crypto::aws_lc_rs::Ticketer::new()
+                server_ticketer: Ticketer::new()
                     .expect("Failed to create shared ticketer for TLS 1.2 session resumption"),
                 accept_count: AtomicUsize::new(0),
                 session_hits: AtomicUsize::new(0),
@@ -4883,7 +4891,9 @@ mod _ssl {
 
     #[pyfunction]
     fn RAND_bytes(n: i64, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        use aws_lc_rs::rand::{SecureRandom, SystemRandom};
+        compat::ensure_default_provider();
+        let default_provider =
+            CryptoProvider::get_default().expect("A CryptoProvider should have been set earlier");
 
         // Validate n is not negative
         if n < 0 {
@@ -4891,9 +4901,10 @@ mod _ssl {
         }
 
         let n_usize = n as usize;
-        let rng = SystemRandom::new();
         let mut buf = vec![0u8; n_usize];
-        rng.fill(&mut buf)
+        default_provider
+            .secure_random
+            .fill(&mut buf)
             .map_err(|_| vm.new_os_error("Failed to generate random bytes"))?;
         Ok(PyBytesRef::from(vm.ctx.new_bytes(buf)))
     }

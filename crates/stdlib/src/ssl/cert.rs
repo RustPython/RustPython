@@ -24,6 +24,12 @@ use x509_parser::prelude::*;
 
 use super::compat::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT};
 
+#[cfg(feature = "ssl-rustls-aws-lc-rs")]
+use rustls::crypto::aws_lc_rs::sign;
+
+#[cfg(feature = "ssl-rustls-ring")]
+use rustls::crypto::ring::sign;
+
 // Certificate Verification Constants
 
 /// All supported signature schemes for certificate verification
@@ -1265,9 +1271,7 @@ pub fn validate_cert_key_match(
 
     // For rustls, the actual validation happens when creating CertifiedKey
     // We can attempt to create a signing key to verify the key is valid
-    use rustls::crypto::aws_lc_rs::sign::any_supported_type;
-
-    match any_supported_type(private_key) {
+    match sign::any_supported_type(private_key) {
         Ok(_signing_key) => {
             // If we can create a signing key, the private key is valid
             // Rustls will validate the cert-key match when building config

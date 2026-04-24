@@ -59,10 +59,16 @@ pub const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
 /// happens exactly once, even if called from multiple threads.
 static INIT_PROVIDER: Once = Once::new();
 
-fn ensure_default_provider() {
+pub(super) fn ensure_default_provider() {
     INIT_PROVIDER.call_once(|| {
+        #[cfg(feature = "ssl-rustls-aws-lc-rs")]
         let _ = rustls::crypto::CryptoProvider::install_default(
             rustls::crypto::aws_lc_rs::default_provider(),
+        );
+
+        #[cfg(feature = "ssl-rustls-ring")]
+        let _ = rustls::crypto::CryptoProvider::install_default(
+            rustls::crypto::ring::default_provider(),
         );
     });
 }
@@ -663,12 +669,12 @@ fn create_custom_crypto_provider(
     cipher_suites: Option<Vec<rustls::SupportedCipherSuite>>,
     kx_groups: Option<Vec<&'static dyn rustls::crypto::SupportedKxGroup>>,
 ) -> Arc<rustls::crypto::CryptoProvider> {
-    use rustls::crypto::aws_lc_rs::{ALL_CIPHER_SUITES, ALL_KX_GROUPS};
-    let default_provider = rustls::crypto::aws_lc_rs::default_provider();
+    let default_provider = rustls::crypto::CryptoProvider::get_default()
+        .expect("A CryptoProvider should have been set earlier");
 
     Arc::new(rustls::crypto::CryptoProvider {
-        cipher_suites: cipher_suites.unwrap_or_else(|| ALL_CIPHER_SUITES.to_vec()),
-        kx_groups: kx_groups.unwrap_or_else(|| ALL_KX_GROUPS.to_vec()),
+        cipher_suites: cipher_suites.unwrap_or_else(|| default_provider.cipher_suites.clone()),
+        kx_groups: kx_groups.unwrap_or_else(|| default_provider.kx_groups.clone()),
         signature_verification_algorithms: default_provider.signature_verification_algorithms,
         secure_random: default_provider.secure_random,
         key_provider: default_provider.key_provider,
@@ -2365,7 +2371,8 @@ pub(super) fn curve_name_to_kx_group(
     curve: &str,
 ) -> Result<Vec<&'static dyn SupportedKxGroup>, String> {
     // Get the default crypto provider's key exchange groups
-    let provider = rustls::crypto::aws_lc_rs::default_provider();
+    let provider = rustls::crypto::CryptoProvider::get_default()
+        .expect("A CryptoProvider should have been set earlier");
     let all_groups = &provider.kx_groups;
 
     match curve {
