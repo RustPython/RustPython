@@ -667,24 +667,30 @@ mod _json {
         }
     }
 
-    fn encode_string(s: &str, ascii_only: bool) -> String {
+    fn encode_string(wtf8: &rustpython_common::wtf8::Wtf8, ascii_only: bool) -> Wtf8Buf {
         flame_guard!("_json::encode_string");
-        let mut buf = Vec::<u8>::with_capacity(s.len() + 2);
-        machinery::write_json_string(s, ascii_only, &mut buf)
+        let mut buf = Vec::<u8>::with_capacity(wtf8.len() + 2);
+        machinery::write_json_string(wtf8, ascii_only, &mut buf)
             // SAFETY: writing to a vec can't fail
             .unwrap_or_else(|_| unsafe { core::hint::unreachable_unchecked() });
-        // SAFETY: we only output valid utf8 from write_json_string
-        unsafe { String::from_utf8_unchecked(buf) }
+        // write_json_string is designed to produce valid WTF-8 bytes:
+        // - ASCII control characters and JSON-specials are written as ASCII escapes
+        // - Valid Unicode scalars are written as UTF-8 (a subset of WTF-8)
+        // - Lone surrogates (ascii_only=false branch only) pass through as the
+        //   input's WTF-8 byte sequences unchanged
+        // Use the checked constructor so any violation of that invariant
+        // surfaces as a panic during testing instead of undefined behavior.
+        Wtf8Buf::from_bytes(buf).expect("write_json_string produced invalid WTF-8")
     }
 
     #[pyfunction]
-    fn encode_basestring(s: PyUtf8StrRef) -> String {
-        encode_string(s.as_str(), false)
+    fn encode_basestring(s: PyStrRef) -> Wtf8Buf {
+        encode_string(s.as_wtf8(), false)
     }
 
     #[pyfunction]
-    fn encode_basestring_ascii(s: PyUtf8StrRef) -> String {
-        encode_string(s.as_str(), true)
+    fn encode_basestring_ascii(s: PyStrRef) -> Wtf8Buf {
+        encode_string(s.as_wtf8(), true)
     }
 
     fn py_decode_error(
