@@ -125,7 +125,7 @@ foreign-types-shared = { version = "0.1.1", optional = true }
 rustls = { version = "0.23.37", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 rustls-pemfile = { version = "2.2", optional = true }
-rustls-platform-verifier = { version = "0.6", optional = true }
+rustls-platform-verifier = { version = "0.7", optional = true }
 x509-cert = { version = "0.2.5", features = ["pem", "builder"], optional = true }
 x509-parser = { version = "0.18", optional = true }
 der = { version = "0.7", features = ["alloc", "oid"], optional = true }
