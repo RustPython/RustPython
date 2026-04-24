@@ -318,12 +318,13 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
     Ok(tokens)
 }
 
-/// Validates that when a base class is specified, the struct has the base type as its first field.
-/// This ensures proper memory layout for subclassing (required for #[repr(transparent)] to work correctly).
-fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
+/// Validates that when a base class is specified, the struct has the base type as its first
+/// *declared* field.  Returns a token naming that field (e.g. `_base` or `0` for tuple structs)
+/// so the caller can emit a compile-time `offset_of!` assertion, or `None` for non-structs.
+fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<TokenStream>> {
     let Item::Struct(item_struct) = item else {
         // Only validate structs - enums with base are already an error elsewhere
-        return Ok(());
+        return Ok(None);
     };
 
     // Get the base type name for error messages
@@ -347,6 +348,8 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
                     "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
                 );
             }
+            let ident = first_field.ident.as_ref().map(|id| quote! { #id });
+            Ok(ident)
         }
         syn::Fields::Unnamed(fields) => {
             let Some(first_field) = fields.unnamed.first() else {
@@ -361,6 +364,7 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
                     "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
                 );
             }
+            Ok(Some(quote! { 0 }))
         }
         syn::Fields::Unit => {
             bail_span!(
@@ -369,8 +373,23 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
             );
         }
     }
+}
 
-    Ok(())
+/// Adds `#[repr(C)]` to a derived pyclass struct when no explicit `#[repr(…)]` is present.
+///
+/// The inherited getter dispatcher reinterprets the derived object pointer as `*Base`, which
+/// is only valid when the base field is at offset 0.  Under `#[repr(Rust)]` the compiler may
+/// reorder fields to minimise padding, silently displacing the base field.  `#[repr(C)]`
+/// preserves declaration order, guaranteeing offset 0 for the first field.
+fn ensure_repr_c(mut item: Item) -> Item {
+    let Item::Struct(ref mut s) = item else {
+        return item;
+    };
+    let has_repr = s.attrs.iter().any(|attr| attr.path().is_ident("repr"));
+    if !has_repr {
+        s.attrs.push(parse_quote!(#[repr(C)]));
+    }
+    item
 }
 
 /// Check if a type matches a given path (handles simple cases like `Foo` or `path::to::Foo`)
@@ -549,19 +568,60 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     if matches!(item, syn::Item::Use(_)) {
         return Ok(quote!(#item));
     }
-    let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
-    let fake_ident = Ident::new("pyclass", item.span());
-    let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
-    let class_name = class_meta.class_name()?;
-    let module_name = class_meta.module()?;
-    let base = class_meta.base()?;
-    let metaclass = class_meta.metaclass()?;
-    let unhashable = class_meta.unhashable()?;
 
-    // Validate that if base is specified, the first field must be of the base type
-    if let Some(ref base_path) = base {
-        validate_base_field(&item, base_path)?;
-    }
+    let fake_ident = Ident::new("pyclass", item.span());
+    let (class_meta, class_name, module_name, base, metaclass, unhashable) = {
+        let (ident, _) = pyclass_ident_and_attrs(&item)?;
+        let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
+        let class_name = class_meta.class_name()?;
+        let module_name = class_meta.module()?;
+        let base = class_meta.base()?;
+        let metaclass = class_meta.metaclass()?;
+        let unhashable = class_meta.unhashable()?;
+        (
+            class_meta,
+            class_name,
+            module_name,
+            base,
+            metaclass,
+            unhashable,
+        )
+    };
+
+    // When a base is specified:
+    //   1. Validate that the first *declared* field has the base type.
+    //   2. Auto-insert #[repr(C)] so the compiler preserves declaration order,
+    //      keeping the base field at offset 0 as the inherited getter dispatcher requires.
+    //   3. Emit a compile-time offset_of! assertion as a safety net for structs that
+    //      already carry an explicit repr that does not guarantee offset 0.
+    let base_field_token = if let Some(ref base_path) = base {
+        validate_base_field(&item, base_path)?
+    } else {
+        None
+    };
+
+    let item = if base.is_some() {
+        ensure_repr_c(item)
+    } else {
+        item
+    };
+
+    let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
+
+    let offset_assert = match (&base, &base_field_token) {
+        (Some(_), Some(field)) => quote! {
+            const _: () = ::core::assert!(
+                ::core::mem::offset_of!(#ident, #field) == 0,
+                concat!(
+                    "The base field of `", stringify!(#ident), "` is not at offset 0. \
+                     Add `#[repr(C)]` (or `#[repr(transparent)]`) to the struct so the \
+                     compiler preserves declaration order and inherited getter dispatch \
+                     reads the correct memory."
+                )
+            );
+        },
+        _ => quote! {},
+    };
 
     let class_def = generate_class_def(
         ident,
@@ -704,6 +764,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     let ret = quote! {
         #derive_trace
         #item
+        #offset_assert
         #maybe_traverse_code
         #class_def
         #impl_payload
