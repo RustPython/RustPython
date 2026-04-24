@@ -2,8 +2,6 @@ import codecs
 from collections import OrderedDict
 from test.test_json import PyTest, CTest
 
-import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
-
 
 class TestUnicode:
     # test_encoding1 and test_encoding2 from 2.x are irrelevant (only str
@@ -137,7 +135,4 @@ class TestUnicode:
 
 
 class TestPyUnicode(TestUnicode, PyTest): pass
-class TestCUnicode(TestUnicode, CTest):
-    @unittest.skip("TODO: RUSTPYTHON; decode path still uses PyUtf8StrRef")
-    def test_single_surrogate_decode(self):
-        return super().test_single_surrogate_decode()
+class TestCUnicode(TestUnicode, CTest): pass
