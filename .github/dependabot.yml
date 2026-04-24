@@ -121,6 +121,11 @@ updates:
       toml:
         patterns:
           - "toml*"
+      unix:
+        patterns:
+          - "mac_address"
+          - "nix"
+          - "rustyline"
       wasm-bindgen:
         patterns:
           - "wasm-bindgen*"
