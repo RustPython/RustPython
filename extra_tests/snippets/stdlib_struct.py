@@ -76,3 +76,19 @@ assert data == b"\0"
 
 assert struct.error.__module__ == "struct"
 assert struct.error.__name__ == "error"
+
+# Non-ASCII format string: error type matches CPython.
+# str → UnicodeEncodeError (encoding='ascii')
+# bytes → struct.error
+try:
+    struct.Struct("\udc00")
+except UnicodeEncodeError as e:
+    assert e.encoding == "ascii"
+else:
+    assert False, "expected UnicodeEncodeError"
+
+with assert_raises(UnicodeEncodeError):
+    struct.Struct("한")
+
+with assert_raises(struct.error):
+    struct.Struct(b"\xff")
