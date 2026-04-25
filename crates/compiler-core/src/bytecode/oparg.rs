@@ -396,6 +396,7 @@ oparg_enum!(
     /// Intrinsic function for CALL_INTRINSIC_2
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum IntrinsicFunction2 {
+        Invalid = 0,
         PrepReraiseStar = 1,
         TypeVarWithBound = 2,
         TypeVarWithConstraint = 3,
@@ -404,6 +405,21 @@ oparg_enum!(
         SetTypeparamDefault = 5,
     }
 );
+
+impl IntrinsicFunction2 {
+    /// https://github.com/python/cpython/blob/v3.14.4/Include/internal/pycore_intrinsics.h#L26-L31
+    #[must_use]
+    pub const fn desc(&self) -> &str {
+        match self {
+            Self::Invalid => "INTRINSIC_2_INVALID",
+            Self::PrepReraiseStar => "INTRINSIC_PREP_RERAISE_STAR",
+            Self::TypeVarWithBound => "INTRINSIC_TYPEVAR_WITH_BOUND",
+            Self::TypeVarWithConstraint => "INTRINSIC_TYPEVAR_WITH_CONSTRAINTS",
+            Self::SetFunctionTypeParams => "INTRINSIC_SET_FUNCTION_TYPE_PARAMS",
+            Self::SetTypeparamDefault => "INTRINSIC_SET_TYPEPARAM_DEFAULT",
+        }
+    }
+}
 
 bitflagset::bitflag! {
     /// `SET_FUNCTION_ATTRIBUTE` flags.

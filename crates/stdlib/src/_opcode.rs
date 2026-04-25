@@ -198,17 +198,9 @@ mod _opcode {
 
     #[pyfunction]
     fn get_intrinsic2_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        [
-            "INTRINSIC_2_INVALID",
-            "INTRINSIC_PREP_RERAISE_STAR",
-            "INTRINSIC_TYPEVAR_WITH_BOUND",
-            "INTRINSIC_TYPEVAR_WITH_CONSTRAINTS",
-            "INTRINSIC_SET_FUNCTION_TYPE_PARAMS",
-            "INTRINSIC_SET_TYPEPARAM_DEFAULT",
-        ]
-        .into_iter()
-        .map(|x| vm.ctx.new_str(x).into())
-        .collect()
+        oparg::IntrinsicFunction2::iterator()
+            .map(|x| vm.ctx.new_str(x.desc()).into())
+            .collect()
     }
 
     #[pyfunction]
