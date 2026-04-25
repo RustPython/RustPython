@@ -242,6 +242,12 @@ macro_rules! impl_oparg_enum {
                 // We already validated this is a lossles cast.
                 Self::try_from_u8(value as u8)
             }
+
+            /// Iterate over the variants.
+            #[must_use]
+            $vis fn iterator() -> impl Iterator<Item = Self> {
+                [$(Self::$variant),*].iter().copied()
+            }
         }
 
         impl TryFrom<u8> for $name {
