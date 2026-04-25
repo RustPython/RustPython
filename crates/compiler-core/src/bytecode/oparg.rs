@@ -372,7 +372,7 @@ oparg_enum!(
     /// Intrinsic function for CALL_INTRINSIC_1
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum IntrinsicFunction1 {
-        // Invalid = 0,
+        Invalid = 0,
         Print = 1,
         /// Import * operation
         ImportStar = 2,
@@ -391,6 +391,27 @@ oparg_enum!(
         TypeAlias = 11,
     }
 );
+
+impl IntrinsicFunction1 {
+    /// https://github.com/python/cpython/blob/v3.14.4/Include/internal/pycore_intrinsics.h#L9-L20
+    #[must_use]
+    pub const fn desc(&self) -> &str {
+        match self {
+            Self::Invalid => "INTRINSIC_1_INVALID",
+            Self::Print => "INTRINSIC_PRINT",
+            Self::ImportStar => "INTRINSIC_IMPORT_STAR",
+            Self::StopIterationError => "INTRINSIC_STOPITERATION_ERROR",
+            Self::AsyncGenWrap => "INTRINSIC_ASYNC_GEN_WRAP",
+            Self::UnaryPositive => "INTRINSIC_UNARY_POSITIVE",
+            Self::ListToTuple => "INTRINSIC_LIST_TO_TUPLE",
+            Self::TypeVar => "INTRINSIC_TYPEVAR",
+            Self::ParamSpec => "INTRINSIC_PARAMSPEC",
+            Self::TypeVarTuple => "INTRINSIC_TYPEVARTUPLE",
+            Self::SubscriptGeneric => "INTRINSIC_SUBSCRIPT_GENERIC",
+            Self::TypeAlias => "INTRINSIC_TYPEALIAS",
+        }
+    }
+}
 
 oparg_enum!(
     /// Intrinsic function for CALL_INTRINSIC_2

@@ -177,23 +177,9 @@ mod _opcode {
 
     #[pyfunction]
     fn get_intrinsic1_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        [
-            "INTRINSIC_1_INVALID",
-            "INTRINSIC_PRINT",
-            "INTRINSIC_IMPORT_STAR",
-            "INTRINSIC_STOPITERATION_ERROR",
-            "INTRINSIC_ASYNC_GEN_WRAP",
-            "INTRINSIC_UNARY_POSITIVE",
-            "INTRINSIC_LIST_TO_TUPLE",
-            "INTRINSIC_TYPEVAR",
-            "INTRINSIC_PARAMSPEC",
-            "INTRINSIC_TYPEVARTUPLE",
-            "INTRINSIC_SUBSCRIPT_GENERIC",
-            "INTRINSIC_TYPEALIAS",
-        ]
-        .into_iter()
-        .map(|x| vm.ctx.new_str(x).into())
-        .collect()
+        oparg::IntrinsicFunction1::iterator()
+            .map(|x| vm.ctx.new_str(x.desc()).into())
+            .collect()
     }
 
     #[pyfunction]

@@ -9458,6 +9458,9 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         match func {
+            bytecode::IntrinsicFunction1::Invalid => {
+                unreachable!("This is a bug in RustPython compiler")
+            }
             bytecode::IntrinsicFunction1::Print => {
                 let displayhook = vm
                     .sys_module
