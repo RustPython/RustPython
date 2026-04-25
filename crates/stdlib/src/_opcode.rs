@@ -5,7 +5,7 @@ mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
-        bytecode::{AnyInstruction, AnyOpcode, InstructionMetadata, Opcode, PseudoOpcode},
+        bytecode::{AnyInstruction, AnyOpcode, InstructionMetadata, Opcode, PseudoOpcode, oparg},
     };
 
     fn try_from_i32(raw: i32) -> Result<AnyOpcode, ()> {
@@ -253,9 +253,8 @@ mod _opcode {
 
     #[pyfunction]
     fn get_special_method_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        ["__enter__", "__exit__", "__aenter__", "__aexit__"]
-            .into_iter()
-            .map(|x| vm.ctx.new_str(x).into())
+        oparg::SpecialMethod::iterator()
+            .map(|x| vm.ctx.new_str(x.to_string()).into())
             .collect()
     }
 
