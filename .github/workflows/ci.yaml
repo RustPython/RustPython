@@ -33,6 +33,7 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true' # TODO: Remove on 2026/06/02
 
 jobs:
   rust_tests:
@@ -426,7 +427,7 @@ jobs:
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # 1.24.0
+        uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # v1.24.0
         with:
           level: warning
           fail_level: error
@@ -512,10 +513,12 @@ jobs:
 
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
+
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           cache: "npm"
           cache-dependency-path: "wasm/demo/package-lock.json"
+
       - name: run test
         run: |
           driver_path="$(pwd)/../../geckodriver"
@@ -525,8 +528,11 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/demo
-      - uses: mwilliamson/setup-wabt-action@v3
-        with: { wabt-version: "1.0.36" }
+
+      - uses: mwilliamson/setup-wabt-action@427f2fdd70bc4dbc2e53c2eb4f19f66162d71bd2 # v4.0.0
+        with:
+          wabt-version: "1.0.36"
+
       - name: check wasm32-unknown without js
         run: |
           cd example_projects/wasm32_without_js/rustpython-without-js
@@ -536,6 +542,7 @@ jobs:
             echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
           fi
           cargo run --release --manifest-path wasm-runtime/Cargo.toml rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
+
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
         run: |
@@ -545,9 +552,10 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/notebook
+
       - name: Deploy demo to Github Pages
         if: success() && github.ref == 'refs/heads/release'
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
         env:
           ACTIONS_DEPLOY_KEY: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
           PUBLISH_DIR: ./wasm/demo/dist
