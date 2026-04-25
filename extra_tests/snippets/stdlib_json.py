@@ -239,3 +239,19 @@ assert_raises(
     RecursionError,
     lambda: json.loads(('[{"x":' * _deep) + "1" + ("}]" * _deep)),
 )
+
+
+# Invalid \uXXXX escape: error position points at the 'u', matching CPython.
+try:
+    json.loads('"\\uXYZW"')
+except json.JSONDecodeError as e:
+    assert e.pos == 2, f"expected pos=2, got {e.pos}"
+else:
+    assert False, "expected JSONDecodeError"
+
+try:
+    json.loads('"abc\\uZZZZ"')
+except json.JSONDecodeError as e:
+    assert e.pos == 5, f"expected pos=5, got {e.pos}"
+else:
+    assert False, "expected JSONDecodeError"
