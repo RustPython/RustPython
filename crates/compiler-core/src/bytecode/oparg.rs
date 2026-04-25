@@ -244,7 +244,6 @@ macro_rules! impl_oparg_enum {
             }
 
             /// Iterate over the variants.
-            #[must_use]
             $vis fn iterator() -> impl Iterator<Item = Self> {
                 [$(Self::$variant),*].iter().copied()
             }
