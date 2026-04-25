@@ -85,7 +85,7 @@ try:
 except UnicodeEncodeError as e:
     assert e.encoding == "ascii"
 else:
-    assert False, "expected UnicodeEncodeError"
+    raise AssertionError("expected UnicodeEncodeError")
 
 with assert_raises(UnicodeEncodeError):
     struct.Struct("한")
