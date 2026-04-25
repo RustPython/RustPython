@@ -525,7 +525,7 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/demo
-      - uses: mwilliamson/setup-wabt-action@v3
+      - uses: mwilliamson/setup-wabt-action@v3.2.0
         with: { wabt-version: "1.0.36" }
       - name: check wasm32-unknown without js
         run: |
