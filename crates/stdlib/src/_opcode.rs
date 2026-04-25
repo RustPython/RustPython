@@ -191,42 +191,16 @@ mod _opcode {
 
     #[pyfunction]
     fn get_nb_ops(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        [
-            ("NB_ADD", "+"),
-            ("NB_AND", "&"),
-            ("NB_FLOOR_DIVIDE", "//"),
-            ("NB_LSHIFT", "<<"),
-            ("NB_MATRIX_MULTIPLY", "@"),
-            ("NB_MULTIPLY", "*"),
-            ("NB_REMAINDER", "%"),
-            ("NB_OR", "|"),
-            ("NB_POWER", "**"),
-            ("NB_RSHIFT", ">>"),
-            ("NB_SUBTRACT", "-"),
-            ("NB_TRUE_DIVIDE", "/"),
-            ("NB_XOR", "^"),
-            ("NB_INPLACE_ADD", "+="),
-            ("NB_INPLACE_AND", "&="),
-            ("NB_INPLACE_FLOOR_DIVIDE", "//="),
-            ("NB_INPLACE_LSHIFT", "<<="),
-            ("NB_INPLACE_MATRIX_MULTIPLY", "@="),
-            ("NB_INPLACE_MULTIPLY", "*="),
-            ("NB_INPLACE_REMAINDER", "%="),
-            ("NB_INPLACE_OR", "|="),
-            ("NB_INPLACE_POWER", "**="),
-            ("NB_INPLACE_RSHIFT", ">>="),
-            ("NB_INPLACE_SUBTRACT", "-="),
-            ("NB_INPLACE_TRUE_DIVIDE", "/="),
-            ("NB_INPLACE_XOR", "^="),
-            ("NB_SUBSCR", "[]"),
-        ]
-        .into_iter()
-        .map(|(a, b)| {
-            vm.ctx
-                .new_tuple(vec![vm.ctx.new_str(a).into(), vm.ctx.new_str(b).into()])
-                .into()
-        })
-        .collect()
+        oparg::BinaryOperator::iterator()
+            .map(|x| {
+                vm.ctx
+                    .new_tuple(vec![
+                        vm.ctx.new_str(x.desc()).into(),
+                        vm.ctx.new_str(x.to_string()).into(),
+                    ])
+                    .into()
+            })
+            .collect()
     }
 
     #[pyfunction]

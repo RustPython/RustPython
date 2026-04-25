@@ -669,6 +669,40 @@ impl BinaryOperator {
             _ => self,
         }
     }
+
+    /// https://github.com/python/cpython/blob/v3.14.4/Include/opcode.h#L10-L36
+    #[must_use]
+    pub const fn desc(&self) -> &str {
+        match self {
+            Self::Add => "NB_ADD",
+            Self::And => "NB_AND",
+            Self::FloorDivide => "NB_FLOOR_DIVIDE",
+            Self::Lshift => "NB_LSHIFT",
+            Self::MatrixMultiply => "NB_MATRIX_MULTIPLY",
+            Self::Multiply => "NB_MULTIPLY",
+            Self::Remainder => "NB_REMAINDER",
+            Self::Or => "NB_OR",
+            Self::Power => "NB_POWER",
+            Self::Rshift => "NB_RSHIFT",
+            Self::Subtract => "NB_SUBTRACT",
+            Self::TrueDivide => "NB_TRUE_DIVIDE",
+            Self::Xor => "NB_XOR",
+            Self::InplaceAdd => "NB_INPLACE_ADD",
+            Self::InplaceAnd => "NB_INPLACE_AND",
+            Self::InplaceFloorDivide => "NB_INPLACE_FLOOR_DIVIDE",
+            Self::InplaceLshift => "NB_INPLACE_LSHIFT",
+            Self::InplaceMatrixMultiply => "NB_INPLACE_MATRIX_MULTIPLY",
+            Self::InplaceMultiply => "NB_INPLACE_MULTIPLY",
+            Self::InplaceRemainder => "NB_INPLACE_REMAINDER",
+            Self::InplaceOr => "NB_INPLACE_OR",
+            Self::InplacePower => "NB_INPLACE_POWER",
+            Self::InplaceRshift => "NB_INPLACE_RSHIFT",
+            Self::InplaceSubtract => "NB_INPLACE_SUBTRACT",
+            Self::InplaceTrueDivide => "NB_INPLACE_TRUE_DIVIDE",
+            Self::InplaceXor => "NB_INPLACE_XOR",
+            Self::Subscr => "NB_SUBSCR",
+        }
+    }
 }
 
 oparg_enum!(
