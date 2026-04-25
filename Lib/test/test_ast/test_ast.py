@@ -604,7 +604,6 @@ class AST_Tests(unittest.TestCase):
             ):
                 compile(e, "<test>", "eval")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_empty_yield_from(self):
         # Issue 16546: yield from value is not optional.
         empty_yield_from = ast.parse("def f():\n yield from g()")
@@ -1039,7 +1038,6 @@ class AST_Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, f"^{e}$"):
                 compile(tree, "<test>", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_none_checks(self) -> None:
         tests = [
             (ast.alias, "name", "import spam as SPAM"),

@@ -92,7 +92,7 @@ impl Node for ast::Alias {
             name: Node::ast_from_object(
                 vm,
                 source_file,
-                get_node_field(vm, &object, "name", "alias")?,
+                get_node_field_required(vm, &object, "name", "alias")?,
             )?,
             asname: get_node_field_opt(vm, &object, "asname")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
@@ -140,7 +140,7 @@ impl Node for ast::WithItem {
             context_expr: Node::ast_from_object(
                 vm,
                 source_file,
-                get_node_field(vm, &object, "context_expr", "withitem")?,
+                get_node_field_required(vm, &object, "context_expr", "withitem")?,
             )?,
             optional_vars: get_node_field_opt(vm, &object, "optional_vars")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))

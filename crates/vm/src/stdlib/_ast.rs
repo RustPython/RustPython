@@ -73,6 +73,33 @@ fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &'static str, typ:
         .ok_or_else(|| vm.new_type_error(format!(r#"required field "{field}" missing from {typ}"#)))
 }
 
+/// Read a required scalar field, rejecting both attribute absence and `None` value
+/// with CPython-compatible error messages. Pairs with `get_node_field_opt` (which
+/// returns `Option::None` for the same conditions): both filter `None`, but diverge
+/// on whether to raise or return `None`.
+///
+/// Errors:
+/// - Attribute absent: `TypeError("required field \"X\" missing from Y")` (via `get_node_field`).
+/// - Attribute present but `None`: `ValueError("field 'X' is required for Y")`,
+///   matching CPython's `Python/ast.c` validator output.
+///
+/// Use for required scalar fields where `None` is invalid (e.g. `comprehension.target`,
+/// `keyword.value`, `match_case.pattern`). Do NOT use for fields where `None` is
+/// legitimate (e.g. `Constant.value` representing the `None` literal — use plain
+/// `get_node_field`); or for optional fields (use `get_node_field_opt`).
+fn get_node_field_required(
+    vm: &VirtualMachine,
+    obj: &PyObject,
+    field: &'static str,
+    typ: &str,
+) -> PyResult {
+    let value = get_node_field(vm, obj, field, typ)?;
+    if vm.is_none(&value) {
+        return Err(vm.new_value_error(format!("field '{field}' is required for {typ}")));
+    }
+    Ok(value)
+}
+
 fn get_node_field_opt(
     vm: &VirtualMachine,
     obj: &PyObject,
