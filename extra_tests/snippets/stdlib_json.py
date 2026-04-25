@@ -247,11 +247,11 @@ try:
 except json.JSONDecodeError as e:
     assert e.pos == 2, f"expected pos=2, got {e.pos}"
 else:
-    assert False, "expected JSONDecodeError"
+    raise AssertionError("expected JSONDecodeError")
 
 try:
     json.loads('"abc\\uZZZZ"')
 except json.JSONDecodeError as e:
     assert e.pos == 5, f"expected pos=5, got {e.pos}"
 else:
-    assert False, "expected JSONDecodeError"
+    raise AssertionError("expected JSONDecodeError")
