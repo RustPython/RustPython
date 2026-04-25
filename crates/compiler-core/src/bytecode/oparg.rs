@@ -242,6 +242,11 @@ macro_rules! impl_oparg_enum {
                 // We already validated this is a lossles cast.
                 Self::try_from_u8(value as u8)
             }
+
+            /// Iterate over the variants.
+            $vis fn iter() -> impl Iterator<Item = Self> {
+                [$(Self::$variant),*].iter().copied()
+            }
         }
 
         impl TryFrom<u8> for $name {
@@ -366,7 +371,7 @@ oparg_enum!(
     /// Intrinsic function for CALL_INTRINSIC_1
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum IntrinsicFunction1 {
-        // Invalid = 0,
+        Invalid = 0,
         Print = 1,
         /// Import * operation
         ImportStar = 2,
@@ -386,10 +391,32 @@ oparg_enum!(
     }
 );
 
+impl IntrinsicFunction1 {
+    /// https://github.com/python/cpython/blob/v3.14.4/Include/internal/pycore_intrinsics.h#L9-L20
+    #[must_use]
+    pub const fn desc(&self) -> &str {
+        match self {
+            Self::Invalid => "INTRINSIC_1_INVALID",
+            Self::Print => "INTRINSIC_PRINT",
+            Self::ImportStar => "INTRINSIC_IMPORT_STAR",
+            Self::StopIterationError => "INTRINSIC_STOPITERATION_ERROR",
+            Self::AsyncGenWrap => "INTRINSIC_ASYNC_GEN_WRAP",
+            Self::UnaryPositive => "INTRINSIC_UNARY_POSITIVE",
+            Self::ListToTuple => "INTRINSIC_LIST_TO_TUPLE",
+            Self::TypeVar => "INTRINSIC_TYPEVAR",
+            Self::ParamSpec => "INTRINSIC_PARAMSPEC",
+            Self::TypeVarTuple => "INTRINSIC_TYPEVARTUPLE",
+            Self::SubscriptGeneric => "INTRINSIC_SUBSCRIPT_GENERIC",
+            Self::TypeAlias => "INTRINSIC_TYPEALIAS",
+        }
+    }
+}
+
 oparg_enum!(
     /// Intrinsic function for CALL_INTRINSIC_2
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum IntrinsicFunction2 {
+        Invalid = 0,
         PrepReraiseStar = 1,
         TypeVarWithBound = 2,
         TypeVarWithConstraint = 3,
@@ -398,6 +425,21 @@ oparg_enum!(
         SetTypeparamDefault = 5,
     }
 );
+
+impl IntrinsicFunction2 {
+    /// https://github.com/python/cpython/blob/v3.14.4/Include/internal/pycore_intrinsics.h#L26-L31
+    #[must_use]
+    pub const fn desc(&self) -> &str {
+        match self {
+            Self::Invalid => "INTRINSIC_2_INVALID",
+            Self::PrepReraiseStar => "INTRINSIC_PREP_RERAISE_STAR",
+            Self::TypeVarWithBound => "INTRINSIC_TYPEVAR_WITH_BOUND",
+            Self::TypeVarWithConstraint => "INTRINSIC_TYPEVAR_WITH_CONSTRAINTS",
+            Self::SetFunctionTypeParams => "INTRINSIC_SET_FUNCTION_TYPE_PARAMS",
+            Self::SetTypeparamDefault => "INTRINSIC_SET_TYPEPARAM_DEFAULT",
+        }
+    }
+}
 
 bitflagset::bitflag! {
     /// `SET_FUNCTION_ATTRIBUTE` flags.
@@ -624,6 +666,40 @@ impl BinaryOperator {
             Self::TrueDivide => Self::InplaceTrueDivide,
             Self::Xor => Self::InplaceXor,
             _ => self,
+        }
+    }
+
+    /// https://github.com/python/cpython/blob/v3.14.4/Include/opcode.h#L10-L36
+    #[must_use]
+    pub const fn desc(&self) -> &str {
+        match self {
+            Self::Add => "NB_ADD",
+            Self::And => "NB_AND",
+            Self::FloorDivide => "NB_FLOOR_DIVIDE",
+            Self::Lshift => "NB_LSHIFT",
+            Self::MatrixMultiply => "NB_MATRIX_MULTIPLY",
+            Self::Multiply => "NB_MULTIPLY",
+            Self::Remainder => "NB_REMAINDER",
+            Self::Or => "NB_OR",
+            Self::Power => "NB_POWER",
+            Self::Rshift => "NB_RSHIFT",
+            Self::Subtract => "NB_SUBTRACT",
+            Self::TrueDivide => "NB_TRUE_DIVIDE",
+            Self::Xor => "NB_XOR",
+            Self::InplaceAdd => "NB_INPLACE_ADD",
+            Self::InplaceAnd => "NB_INPLACE_AND",
+            Self::InplaceFloorDivide => "NB_INPLACE_FLOOR_DIVIDE",
+            Self::InplaceLshift => "NB_INPLACE_LSHIFT",
+            Self::InplaceMatrixMultiply => "NB_INPLACE_MATRIX_MULTIPLY",
+            Self::InplaceMultiply => "NB_INPLACE_MULTIPLY",
+            Self::InplaceRemainder => "NB_INPLACE_REMAINDER",
+            Self::InplaceOr => "NB_INPLACE_OR",
+            Self::InplacePower => "NB_INPLACE_POWER",
+            Self::InplaceRshift => "NB_INPLACE_RSHIFT",
+            Self::InplaceSubtract => "NB_INPLACE_SUBTRACT",
+            Self::InplaceTrueDivide => "NB_INPLACE_TRUE_DIVIDE",
+            Self::InplaceXor => "NB_INPLACE_XOR",
+            Self::Subscr => "NB_SUBSCR",
         }
     }
 }
