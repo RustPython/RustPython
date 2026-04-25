@@ -177,21 +177,21 @@ mod _opcode {
 
     #[pyfunction]
     fn get_intrinsic1_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        oparg::IntrinsicFunction1::iterator()
+        oparg::IntrinsicFunction1::iter()
             .map(|x| vm.ctx.new_str(x.desc()).into())
             .collect()
     }
 
     #[pyfunction]
     fn get_intrinsic2_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        oparg::IntrinsicFunction2::iterator()
+        oparg::IntrinsicFunction2::iter()
             .map(|x| vm.ctx.new_str(x.desc()).into())
             .collect()
     }
 
     #[pyfunction]
     fn get_nb_ops(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        oparg::BinaryOperator::iterator()
+        oparg::BinaryOperator::iter()
             .map(|x| {
                 vm.ctx
                     .new_tuple(vec![
@@ -205,7 +205,7 @@ mod _opcode {
 
     #[pyfunction]
     fn get_special_method_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        oparg::SpecialMethod::iterator()
+        oparg::SpecialMethod::iter()
             .map(|x| vm.ctx.new_str(x.to_string()).into())
             .collect()
     }
