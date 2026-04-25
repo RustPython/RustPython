@@ -190,7 +190,7 @@ jobs:
       - name: Setup Android NDK
         if: ${{ matrix.target == 'aarch64-linux-android' }}
         id: setup-ndk
-        uses: nttld/setup-ndk@v1
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         with:
           ndk-version: r27
           add-to-path: true
@@ -593,7 +593,7 @@ jobs:
             ${{ runner.os }}-stable--
 
       - name: Setup Wasmer
-        uses: wasmerio/setup-wasmer@v3
+        uses: wasmerio/setup-wasmer@24b15c95293d23f89c68bd40dac76338f773e924 # v3.1
 
       - name: Install clang
         uses: ./.github/actions/install-linux-deps
