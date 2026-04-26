@@ -1,4 +1,5 @@
 import sys
+import time
 
 import unittest
 # TODO: RUSTPYTHON
@@ -587,6 +588,10 @@ class IntStrDigitLimitsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             str(i)
 
+    @unittest.skipUnless(
+        hasattr(time, "get_clock_info"),
+        "requires time.get_clock_info (not available on wasm)",
+    )
     def test_denial_of_service_prevented_int_to_str(self):
         """Regression test: ensure we fail before performing O(N**2) work."""
         maxdigits = sys.get_int_max_str_digits()

@@ -480,11 +480,12 @@ impl FormatSpec {
 
     /// Returns true if this format spec produces a decimal int representation
     /// subject to `sys.get_int_max_str_digits()` (no spec, 'd', or 'n').
-    /// Binary bases ('b', 'o', 'x', 'X') are exempt per CPython.
+    /// Binary bases ('b', 'o', 'x', 'X') are exempt per CPython. 'N' is rejected
+    /// later in `format_int` as `UnknownFormatCode`, so it is not included here.
     pub fn is_decimal_int_format(&self) -> bool {
         matches!(
             self.format_type,
-            None | Some(FormatType::Decimal) | Some(FormatType::Number(_))
+            None | Some(FormatType::Decimal) | Some(FormatType::Number(Case::Lower))
         )
     }
 
