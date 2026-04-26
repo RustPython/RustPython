@@ -101,6 +101,7 @@ lto = "thin"
 
 [patch.crates-io]
 parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
+num-complex = { git = "https://github.com/moreal/num-complex", rev = "e179d6f7d4045ad9381249afb849fcb48831616c" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
 
@@ -197,7 +198,7 @@ malachite-bigint = "0.9.1"
 malachite-q = "0.9.1"
 malachite-base = "0.9.1"
 memchr = "2.8.0"
-num-complex = "0.4.6"
+num-complex = { git = "https://github.com/moreal/num-complex", rev = "e179d6f7d4045ad9381249afb849fcb48831616c" }
 num-integer = "0.1.46"
 num-traits = "0.2"
 num_enum = { version = "0.7", default-features = false }

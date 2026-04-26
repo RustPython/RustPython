@@ -2179,8 +2179,7 @@ dependencies = [
 [[package]]
 name = "num-complex"
 version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
+source = "git+https://github.com/moreal/num-complex?rev=e179d6f7d4045ad9381249afb849fcb48831616c#e179d6f7d4045ad9381249afb849fcb48831616c"
 dependencies = [
  "num-traits",
 ]
