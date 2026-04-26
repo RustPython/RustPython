@@ -573,7 +573,6 @@ class IntStrDigitLimitsTests(unittest.TestCase):
             else:
                 self.int_class(i, base)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_max_str_digits(self):
         maxdigits = sys.get_int_max_str_digits()
 
@@ -588,7 +587,6 @@ class IntStrDigitLimitsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             str(i)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_denial_of_service_prevented_int_to_str(self):
         """Regression test: ensure we fail before performing O(N**2) work."""
         maxdigits = sys.get_int_max_str_digits()
@@ -713,7 +711,6 @@ class IntStrDigitLimitsTests(unittest.TestCase):
         with self.assertRaises(ValueError) as err:
             int_class(f'{s}1', base)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_int_from_other_bases(self):
         base = 3
         with self.subTest(base=base):
