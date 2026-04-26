@@ -231,17 +231,20 @@ pub fn scanstring<'a>(
                     'r' => "\r",
                     't' => "\t",
                     'u' => {
-                        let mut uni = decode_unicode(&mut chars, char_offset + char_i)?;
+                        // Error position for an invalid \uXXXX escape points at the
+                        // `u`, not the `\` -- matches CPython's json.decoder.
+                        let mut uni = decode_unicode(&mut chars, char_offset + next_char_i)?;
                         chunk_start = byte_i + 6;
                         if let Some(lead) = uni.to_lead_surrogate() {
                             // uni is a surrogate -- try to find its pair
                             let mut chars2 = chars.clone();
-                            if let Some(((_, (byte_pos2, _)), (_, _))) = chars2
+                            if let Some(((_, (byte_pos2, _)), (u2_char_i, (_, _)))) = chars2
                                 .next_tuple()
                                 .filter(|((_, (_, c1)), (_, (_, c2)))| *c1 == '\\' && *c2 == 'u')
                             {
-                                let uni2 =
-                                    decode_unicode(&mut chars2, char_offset + next_char_i + 1)?;
+                                // u2_char_i is the `u` of the second \uXXXX; same
+                                // position convention as the primary call above.
+                                let uni2 = decode_unicode(&mut chars2, char_offset + u2_char_i)?;
                                 if let Some(trail) = uni2.to_trail_surrogate() {
                                     // ok, we found what we were looking for -- \uXXXX\uXXXX, both surrogates
                                     uni = lead.merge(trail).into();
