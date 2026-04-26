@@ -590,7 +590,7 @@ class IntStrDigitLimitsTests(unittest.TestCase):
 
     @unittest.skipUnless(
         hasattr(time, "get_clock_info"),
-        "requires time.get_clock_info (not available on wasm)",
+        "TODO: RUSTPYTHON; time.get_clock_info is not available on wasm",
     )
     def test_denial_of_service_prevented_int_to_str(self):
         """Regression test: ensure we fail before performing O(N**2) work."""
