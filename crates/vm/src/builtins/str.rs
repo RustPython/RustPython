@@ -1026,6 +1026,15 @@ impl PyStr {
 
     #[pymethod]
     fn title(&self) -> Wtf8Buf {
+        match self.as_str_kind() {
+            PyKindStr::Ascii(_) => unsafe {
+                Wtf8Buf::from_bytes_unchecked(crate::bytes_inner::title_ascii(self.as_bytes()))
+            },
+            PyKindStr::Wtf8(_) | PyKindStr::Utf8(_) => self.title_non_ascii(),
+        }
+    }
+
+    fn title_non_ascii(&self) -> Wtf8Buf {
         let mut title = Wtf8Buf::with_capacity(self.data.len());
         let mut previous_is_cased = false;
         for c_orig in self.as_wtf8().code_points() {
