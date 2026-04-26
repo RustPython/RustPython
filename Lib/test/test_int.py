@@ -588,8 +588,8 @@ class IntStrDigitLimitsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             str(i)
 
-    @unittest.skipUnless(
-        hasattr(time, "get_clock_info"),
+    @unittest.expectedFailureIf(
+        not hasattr(time, "get_clock_info"),
         "TODO: RUSTPYTHON; time.get_clock_info is not available on wasm",
     )
     def test_denial_of_service_prevented_int_to_str(self):
