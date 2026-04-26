@@ -72,7 +72,7 @@ assert not a.isdecimal()
 assert not a.isnumeric()
 assert a.istitle()
 assert "\u1c89".istitle()
-# assert "Ǳ".title() == "ǲ"
+assert "Ǳ".title() == "ǲ"
 assert a.isalpha()
 assert not "\u093f".isalpha()
 
