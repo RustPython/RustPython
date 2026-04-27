@@ -5193,7 +5193,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaisesRegex(NotImplementedError, "BAR"):
             B().foo
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_staticmethod_new(self):
         class MyStaticMethod(staticmethod):
             def __init__(self, func):
@@ -5204,7 +5203,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertIsNone(sm.__func__)
         self.assertIsNone(sm.__wrapped__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_classmethod_new(self):
         class MyClassMethod(classmethod):
             def __init__(self, func):
