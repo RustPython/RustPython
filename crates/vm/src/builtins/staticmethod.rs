@@ -1,6 +1,6 @@
 use super::{PyGenericAlias, PyStr, PyType, PyTypeRef};
 use crate::{
-    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::lock::PyMutex,
     function::{FuncArgs, PySetterValue},
@@ -44,20 +44,16 @@ impl Constructor for PyStaticMethod {
     type Args = PyObjectRef;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let callable: Self::Args = args.bind(vm)?;
-        let doc = callable.get_attr("__doc__", vm);
-
+        // Validate the signature here, but defer storing the callable and
+        // copying its attributes to `__init__` so that subclasses overriding
+        // `__init__` without calling `super().__init__()` see `__func__` as
+        // `None`, matching CPython.
+        let _: Self::Args = args.bind(vm)?;
         let result = Self {
-            callable: PyMutex::new(callable),
+            callable: PyMutex::new(vm.ctx.none()),
         }
         .into_ref_with_type(vm, cls)?;
-        let obj = PyObjectRef::from(result);
-
-        if let Ok(doc) = doc {
-            obj.set_attr("__doc__", doc, vm)?;
-        }
-
-        Ok(obj)
+        Ok(PyObjectRef::from(result))
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
@@ -80,8 +76,11 @@ impl PyStaticMethod {
 impl Initializer for PyStaticMethod {
     type Args = PyObjectRef;
 
-    fn init(zelf: PyRef<Self>, callable: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.callable.lock() = callable;
+    fn init(zelf: PyRef<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.callable.lock() = callable.clone();
+        if let Ok(doc) = callable.get_attr("__doc__", vm) {
+            zelf.as_object().set_attr("__doc__", doc, vm)?;
+        }
         Ok(())
     }
 }
