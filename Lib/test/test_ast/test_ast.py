@@ -1057,7 +1057,6 @@ class AST_Tests(unittest.TestCase):
             with self.subTest(test_input=test):
                 self.assertEqual(repr(ast.parse(test)), snapshot)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     def test_repr_large_input_crash(self):
         # gh-125010: Fix use-after-free in ast repr()
         source = "0x0" + "e" * 10_000

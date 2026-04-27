@@ -500,6 +500,9 @@ impl PyInt {
         }
         let format_spec =
             FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        if format_spec.is_decimal_int_format() {
+            check_int_to_str_digits(&zelf.value, vm)?;
+        }
         let result = if format_spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
             format_spec.format_int_locale(&zelf.value, &locale)
@@ -655,9 +658,34 @@ impl Comparable for PyInt {
     }
 }
 
+/// Pre-format check enforcing `sys.get_int_max_str_digits()` on int → str conversions.
+/// Mirrors CPython's PEP 644 DoS mitigation. Cheap fast-path for small values via
+/// bit-count upper bound on decimal digits.
+pub(crate) fn check_int_to_str_digits(value: &BigInt, vm: &VirtualMachine) -> PyResult<()> {
+    let limit = vm.state.int_max_str_digits.load();
+    if limit == 0 {
+        return Ok(());
+    }
+    let bits = value.bits();
+    // Below ~452 decimal digits: definitely under any reasonable limit.
+    if bits < 1500 {
+        return Ok(());
+    }
+    // Upper bound on decimal digit count: ⌈bits × log10(2)⌉ + 1, with log10(2) ≈ 0.30103.
+    let digits_upper = (bits as usize * 30103 / 100000) + 1;
+    if digits_upper > limit {
+        return Err(vm.new_value_error(format!(
+            "Exceeds the limit ({limit} digits) for integer string conversion; \
+             use sys.set_int_max_str_digits() to increase the limit"
+        )));
+    }
+    Ok(())
+}
+
 impl Representable for PyInt {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        check_int_to_str_digits(&zelf.value, vm)?;
         Ok(zelf.to_str_radix_10())
     }
 }

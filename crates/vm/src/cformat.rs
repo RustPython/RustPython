@@ -9,7 +9,8 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyByteArray, PyBytes, PyFloat, PyInt, PyStr, try_f64_to_bigint, tuple,
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyFloat, PyInt, PyStr,
+        int::check_int_to_str_digits, try_f64_to_bigint, tuple,
     },
     function::ArgIntoFloat,
     protocol::PyBuffer,
@@ -54,17 +55,19 @@ fn spec_format_bytes(
             CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
                 match_class!(match &obj {
                     ref i @ PyInt => {
+                        check_int_to_str_digits(i.as_bigint(), vm)?;
                         Ok(spec.format_number(i.as_bigint()).into_bytes())
                     }
                     ref f @ PyFloat => {
-                        Ok(spec
-                            .format_number(&try_f64_to_bigint(f.to_f64(), vm)?)
-                            .into_bytes())
+                        let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
+                        check_int_to_str_digits(&bigint, vm)?;
+                        Ok(spec.format_number(&bigint).into_bytes())
                     }
                     obj => {
                         if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
                             let result = method?.call((), vm)?;
                             if let Some(i) = result.downcast_ref::<PyInt>() {
+                                check_int_to_str_digits(i.as_bigint(), vm)?;
                                 return Ok(spec.format_number(i.as_bigint()).into_bytes());
                             }
                         }
@@ -149,17 +152,19 @@ fn spec_format_string(
             CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
                 match_class!(match &obj {
                     ref i @ PyInt => {
+                        check_int_to_str_digits(i.as_bigint(), vm)?;
                         Ok(spec.format_number(i.as_bigint()).into())
                     }
                     ref f @ PyFloat => {
-                        Ok(spec
-                            .format_number(&try_f64_to_bigint(f.to_f64(), vm)?)
-                            .into())
+                        let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
+                        check_int_to_str_digits(&bigint, vm)?;
+                        Ok(spec.format_number(&bigint).into())
                     }
                     obj => {
                         if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
                             let result = method?.call((), vm)?;
                             if let Some(i) = result.downcast_ref::<PyInt>() {
+                                check_int_to_str_digits(i.as_bigint(), vm)?;
                                 return Ok(spec.format_number(i.as_bigint()).into());
                             }
                         }
