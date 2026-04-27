@@ -2176,6 +2176,18 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.31.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d6d0705320c1e6ba1d912b5e37cf18071b6c2e9b7fa8215a1e8a7651966f5d3"
+dependencies = [
+ "bitflags 2.11.0",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
  "memoffset",
 ]
 
@@ -3281,7 +3293,7 @@ name = "rustpython-host_env"
 version = "0.5.0"
 dependencies = [
  "libc",
- "nix 0.30.1",
+ "nix 0.31.2",
  "num-traits",
  "rustpython-wtf8",
  "termios",
@@ -3451,7 +3463,7 @@ dependencies = [
  "memchr",
  "memmap2",
  "mt19937",
- "nix 0.30.1",
+ "nix 0.31.2",
  "num-complex",
  "num-traits",
  "num_enum",
@@ -3537,7 +3549,7 @@ dependencies = [
  "log",
  "malachite-bigint",
  "memchr",
- "nix 0.30.1",
+ "nix 0.31.2",
  "num-complex",
  "num-integer",
  "num-traits",
