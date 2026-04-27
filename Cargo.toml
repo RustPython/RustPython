@@ -170,7 +170,7 @@ ruff_source_file = { package = "rustpython-ruff_source_file", version = "0.15.8"
 # ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", rev = "c2a8815842f9dc5d24ec19385eae0f1a7188b0d9" }
 # ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", rev = "c2a8815842f9dc5d24ec19385eae0f1a7188b0d9" }
 
-der = { version = "0.8", features = ["alloc", "oid", "zeroize"] }
+der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 ahash = "0.8.12"
 ascii = "1.1"
