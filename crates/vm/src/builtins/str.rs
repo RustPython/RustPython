@@ -406,6 +406,18 @@ impl Constructor for PyStr {
         }
 
         let args: Self::Args = func_args.bind(vm)?;
+
+        // CPython parity: when cls is exactly str, return the __str__ / __repr__
+        // result as-is so any str subclass type the user returned is preserved
+        // (matches unicode_new_impl which only invokes unicode_subtype_new when
+        // type != &PyUnicode_Type).
+        if cls.is(vm.ctx.types.str_type)
+            && args.encoding.is_missing()
+            && let OptionalArg::Present(input) = &args.object
+        {
+            return Ok(input.str(vm)?.into());
+        }
+
         let payload = Self::py_new(&cls, args, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }
