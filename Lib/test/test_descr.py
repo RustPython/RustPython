@@ -4952,7 +4952,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             a + a
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slot_shadows_class_variable(self):
         with self.assertRaises(ValueError) as cm:
             class X:
@@ -4961,7 +4960,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         m = str(cm.exception)
         self.assertEqual("'foo' in __slots__ conflicts with class variable", m)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_doc(self):
         class X:
             "elephant"

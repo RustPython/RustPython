@@ -2004,7 +2004,7 @@ impl Constructor for PyType {
                 // Check if slot name conflicts with class attributes
                 if attributes.contains_key(vm.ctx.intern_str(slot.as_wtf8())) {
                     return Err(vm.new_value_error(format!(
-                        "'{}' in __slots__ conflicts with a class variable",
+                        "'{}' in __slots__ conflicts with class variable",
                         slot.as_wtf8()
                     )));
                 }
@@ -2404,7 +2404,7 @@ impl Py<PyType> {
         // Similar to CPython's type_set_doc
         let value = value.ok_or_else(|| {
             vm.new_type_error(format!(
-                "cannot delete '__doc__' attribute of type '{}'",
+                "cannot delete '__doc__' attribute of immutable type '{}'",
                 self.name()
             ))
         })?;
