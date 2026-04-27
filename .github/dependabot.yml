@@ -2,7 +2,9 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - "/"
+      - "crates/*"
     schedule:
       interval: weekly
     cooldown:
