@@ -505,7 +505,7 @@ pub extern "C" fn PyObject_GenericSetDict(
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
-    use pyo3::types::{PyBool, PyDict, PyInt, PyNone, PyString};
+    use pyo3::types::{PyBool, PyDict, PyInt, PyNone, PyString, PyType};
 
     #[test]
     fn test_is_truthy() {
@@ -614,6 +614,17 @@ mod tests {
             fn method1(&self) -> PyResult<i32> {
                 Ok(self.num + 10)
             }
+
+            #[staticmethod]
+            fn static_method(a: i32, b: i32) -> PyResult<i32> {
+                Ok(a + b)
+            }
+
+            #[classmethod]
+            fn cls_method(cls: &Bound<'_, PyType>) -> PyResult<i32> {
+                // assert!(cls.is_subclass_of::<MyClass>()?);
+                Ok(10)
+            }
         }
 
         Python::attach(|py| {
@@ -624,13 +635,28 @@ mod tests {
             py.run(c"assert instance.num == 3", Some(&globals), None)
                 .unwrap();
 
-            #[cfg(feature = "nightly")]
             assert_eq!(
-                obj.call_method0("method1")
+                obj.call_method1("method1", ())
                     .unwrap()
                     .extract::<i32>()
                     .unwrap(),
                 13
+            );
+
+            assert_eq!(
+                obj.call_method1("static_method", (5, 8))
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                13
+            );
+
+            assert_eq!(
+                obj.call_method1("cls_method", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                10
             );
         });
     }
