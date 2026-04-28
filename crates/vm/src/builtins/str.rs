@@ -27,6 +27,7 @@ use crate::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter,
     },
+    utils::VecFmtWriter,
 };
 use alloc::{borrow::Cow, fmt};
 use ascii::{AsciiChar, AsciiStr, AsciiString};
@@ -44,11 +45,14 @@ use rustpython_common::{
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk, Wtf8Concat},
 };
 
+use icu_casemap::TitlecaseMapper;
+use icu_locale::LanguageIdentifier;
 use icu_properties::props::{
     BidiClass, BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
     Lowercase, NumericType, Uppercase, XidContinue, XidStart,
 };
 use unicode_casing::CharExt;
+use writeable::Writeable;
 
 impl<'a> TryFromBorrowedObject<'a> for String {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
@@ -1065,7 +1069,29 @@ impl PyStr {
             PyKindStr::Ascii(_) => unsafe {
                 Wtf8Buf::from_bytes_unchecked(crate::bytes_inner::title_ascii(self.as_bytes()))
             },
-            PyKindStr::Wtf8(_) | PyKindStr::Utf8(_) => self.title_non_ascii(),
+            PyKindStr::Utf8(s) => TitlecaseMapper::new()
+                .titlecase_segment_to_string(s, &LanguageIdentifier::UNKNOWN, Default::default())
+                .to_string()
+                .into(),
+            PyKindStr::Wtf8(s) => {
+                let mut buf = VecFmtWriter(Vec::with_capacity(s.len()));
+                let mapper = TitlecaseMapper::new();
+                for chunk in s.as_bytes().utf8_chunks() {
+                    mapper
+                        .titlecase_segment(
+                            chunk.valid(),
+                            &LanguageIdentifier::UNKNOWN,
+                            Default::default(),
+                        )
+                        .write_to(&mut buf)
+                        .expect("Writing to an in-memory buffer cannot fail.");
+                    buf.0.extend(chunk.invalid());
+                }
+                // SAFETY:
+                // * `s` is valid WTF-8; surrogate bytes were appended without processing.
+                // * TitlecaseMapper produces valid UTF-8.
+                unsafe { Wtf8Buf::from_bytes_unchecked(buf.0) }
+            }
         }
     }
 
