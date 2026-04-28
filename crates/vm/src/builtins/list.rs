@@ -13,7 +13,6 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
-    iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
@@ -577,11 +576,77 @@ impl Comparable for PyList {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
-        let a = &*zelf.borrow_vec();
-        let b = &*other.borrow_vec();
-        a.iter()
-            .richcompare(b.iter(), op, vm)
-            .map(PyComparisonValue::Implemented)
+
+        let mut zlen = zelf.__len__();
+        let mut olen = other.__len__();
+        if matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) && (zlen != olen) {
+            // Shortcut: if the lengths differ, the lists differ
+            return Ok(PyComparisonValue::Implemented(matches!(
+                op,
+                PyComparisonOp::Ne
+            )));
+        }
+
+        let mut zelements = zelf.borrow_vec().to_vec();
+        let mut oelements = other.borrow_vec().to_vec();
+
+        // Search for the first index where items are different.
+        let mut i = 0;
+        while i < zlen && i < olen {
+            if zelements.len() != zlen {
+                // Comparison mutated the list; refetch it.
+                zelements = zelf.borrow_vec().to_vec();
+            }
+
+            if oelements.len() != olen {
+                // Comparison mutated the list; refetch it.
+                oelements = other.borrow_vec().to_vec();
+            }
+
+            let zitem = &zelements[i];
+            let oitem = &oelements[i];
+
+            if !vm.bool_eq(zitem, oitem)? {
+                break;
+            }
+
+            // Refetch list sizes as calling the comparison may mutate the list.
+            zlen = zelf.__len__();
+            olen = other.__len__();
+
+            i += 1;
+        }
+
+        zlen = zelf.__len__();
+        olen = other.__len__();
+        if i >= zlen || i >= olen {
+            // No more items to compare -- compare sizes
+            let res = match op {
+                PyComparisonOp::Eq => zlen == olen,
+                PyComparisonOp::Ne => zlen != olen,
+                PyComparisonOp::Lt => zlen < olen,
+                PyComparisonOp::Le => zlen <= olen,
+                PyComparisonOp::Gt => zlen > olen,
+                PyComparisonOp::Ge => zlen >= olen,
+            };
+
+            return Ok(PyComparisonValue::Implemented(res));
+        };
+
+        // We have an item that differs -- shortcuts for EQ/NE.
+        match op {
+            PyComparisonOp::Eq => return Ok(PyComparisonValue::Implemented(false)),
+            PyComparisonOp::Ne => return Ok(PyComparisonValue::Implemented(true)),
+            _ => {}
+        }
+
+        // Compare the final item again using the proper operator.
+        zelements = zelf.borrow_vec().to_vec();
+        oelements = other.borrow_vec().to_vec();
+        let zitem = &zelements[i];
+        let oitem = &oelements[i];
+        let res = vm.identical_or_equal(zitem, oitem)?;
+        Ok(PyComparisonValue::Implemented(res))
     }
 }
 
