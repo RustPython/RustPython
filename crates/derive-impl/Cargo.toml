@@ -16,11 +16,11 @@ rustpython-doc = { workspace = true }
 itertools = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits"] }
 
-maplit = "1.0.2"
+maplit = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
-syn-ext = { version = "0.5.0", features = ["full"] }
-textwrap = { version = "0.16.1", default-features = false }
+syn-ext = { workspace = true, features = ["full"] }
+textwrap = { workspace = true, default-features = false }
 
 [lints]
 workspace = true
