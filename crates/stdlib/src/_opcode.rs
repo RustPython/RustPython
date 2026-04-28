@@ -121,11 +121,14 @@ mod _opcode {
                     | Opcode::ImportFrom
                     | Opcode::ImportName
                     | Opcode::LoadAttr
+                    | Opcode::LoadFromDictOrGlobals
                     | Opcode::LoadGlobal
                     | Opcode::LoadName
+                    | Opcode::LoadSuperAttr
                     | Opcode::StoreAttr
                     | Opcode::StoreGlobal
                     | Opcode::StoreName
+                    | Opcode::InstrumentedLoadSuperAttr
             ))
         )
     }
@@ -135,8 +138,24 @@ mod _opcode {
         matches!(
             try_from_i32(opcode),
             Ok(AnyOpcode::Real(
-                Opcode::ForIter | Opcode::PopJumpIfFalse | Opcode::PopJumpIfTrue | Opcode::Send
-            ) | AnyOpcode::Pseudo(PseudoOpcode::Jump))
+                Opcode::EndAsyncFor
+                    | Opcode::ForIter
+                    | Opcode::JumpBackward
+                    | Opcode::JumpBackwardNoInterrupt
+                    | Opcode::JumpForward
+                    | Opcode::PopJumpIfFalse
+                    | Opcode::PopJumpIfNone
+                    | Opcode::PopJumpIfNotNone
+                    | Opcode::PopJumpIfTrue
+                    | Opcode::Send
+                    | Opcode::InstrumentedForIter
+                    | Opcode::InstrumentedEndAsyncFor
+            ) | AnyOpcode::Pseudo(
+                PseudoOpcode::Jump
+                    | PseudoOpcode::JumpIfFalse
+                    | PseudoOpcode::JumpIfTrue
+                    | PseudoOpcode::JumpNoInterrupt
+            ))
         )
     }
 
@@ -147,7 +166,7 @@ mod _opcode {
             Ok(AnyOpcode::Real(
                 Opcode::DeleteDeref
                     | Opcode::LoadFromDictOrDeref
-                    | Opcode::LoadDeref
+                    | Opcode::MakeCell
                     | Opcode::StoreDeref
             ))
         )
@@ -159,11 +178,17 @@ mod _opcode {
             try_from_i32(opcode),
             Ok(AnyOpcode::Real(
                 Opcode::DeleteFast
+                    | Opcode::LoadDeref
                     | Opcode::LoadFast
                     | Opcode::LoadFastAndClear
+                    | Opcode::LoadFastBorrow
+                    | Opcode::LoadFastBorrowLoadFastBorrow
+                    | Opcode::LoadFastCheck
+                    | Opcode::LoadFastLoadFast
                     | Opcode::StoreFast
                     | Opcode::StoreFastLoadFast
-            ))
+                    | Opcode::StoreFastStoreFast
+            ) | AnyOpcode::Pseudo(PseudoOpcode::LoadClosure | PseudoOpcode::StoreFastMaybeNull))
         )
     }
 
@@ -171,8 +196,14 @@ mod _opcode {
     fn has_exc(opcode: i32) -> bool {
         // No instructions have exception info in RustPython
         // (exception handling is done via exception table)
-        let _ = opcode;
-        false
+        // This is for compatibility with CPython
+
+        matches!(
+            try_from_i32(opcode),
+            Ok(AnyOpcode::Pseudo(
+                PseudoOpcode::SetupCleanup | PseudoOpcode::SetupFinally | PseudoOpcode::SetupWith
+            ))
+        )
     }
 
     #[pyfunction]
