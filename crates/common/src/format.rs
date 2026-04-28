@@ -315,6 +315,11 @@ impl FormatSpec {
         let (alternate_form, text) = parse_alternate_form(text);
         let (zero, text) = parse_zero(text);
         let (width, text) = parse_number(text)?;
+        if let Some(w) = width
+            && w > i32::MAX as usize
+        {
+            return Err(FormatSpecError::DecimalDigitsTooMany);
+        }
         let (grouping_option, text) = FormatGrouping::parse(text);
         if let Some(grouping) = &grouping_option {
             Self::validate_separator(grouping, text)?;
