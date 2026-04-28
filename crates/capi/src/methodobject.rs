@@ -62,7 +62,9 @@ pub(crate) fn build_method_def(
 
     let method = ml.ml_meth;
     let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-        if let Some(slf) = slf.as_ref() {
+        if let Some(slf) = slf.as_ref()
+            && !flags.contains(PyMethodFlags::STATIC)
+        {
             args.args.insert(0, slf.clone());
         }
         c_function_wrapper(vm, args, method, flags)
