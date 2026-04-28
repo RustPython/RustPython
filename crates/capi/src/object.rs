@@ -19,6 +19,25 @@ const PY_TPFLAGS_TYPE_SUBCLASS: c_ulong = 1 << 31;
 
 pub type PyTypeObject = Py<PyType>;
 
+macro_rules! define_py_check {
+    ($name:ident, $type_name:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $name(obj: *mut PyObject) -> c_int {
+            with_vm(|vm| unsafe { (*obj).is_instance(vm.ctx.types.$type_name.as_object(), vm) })
+        }
+    };
+    (exact $name:ident, $type_name:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $name(obj: *mut PyObject) -> c_int {
+            with_vm(|vm| unsafe { (*obj).class().is(vm.ctx.types.$type_name) })
+        }
+    };
+}
+
+define_py_check!(PyFloat_Check, float_type);
+define_py_check!(PyModule_Check, module_type);
+define_py_check!(PyBool_Check, bool_type);
+
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
     // SAFETY: The caller must guarantee that `op` is a valid pointer to a `PyObject`.
