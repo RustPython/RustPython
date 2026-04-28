@@ -1,7 +1,10 @@
+#[cfg(any(unix, target_os = "wasi"))]
 use core::ffi::CStr;
 use std::io;
 
-use crate::{crt_fd, fileutils, os};
+#[cfg(any(unix, target_os = "wasi"))]
+use crate::fileutils;
+use crate::{crt_fd, os};
 
 bitflags::bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
@@ -142,23 +145,20 @@ pub struct FileTargetInfo {
     pub blksize: Option<i64>,
 }
 
+#[cfg(any(unix, target_os = "wasi"))]
 pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
     let status = fileutils::fstat(fd)?;
-
-    #[cfg(any(unix, target_os = "wasi"))]
-    {
-        if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
-            return Err(io::Error::from_raw_os_error(libc::EISDIR));
-        }
-        #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
-        let blksize = (status.st_blksize > 1).then(|| i64::from(status.st_blksize));
-        Ok(FileTargetInfo { blksize })
+    if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
+        return Err(io::Error::from_raw_os_error(libc::EISDIR));
     }
+    #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
+    let blksize = (status.st_blksize > 1).then(|| i64::from(status.st_blksize));
+    Ok(FileTargetInfo { blksize })
+}
 
-    #[cfg(windows)]
-    {
-        Ok(FileTargetInfo { blksize: None })
-    }
+#[cfg(windows)]
+pub fn inspect_file_target(_fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
+    Ok(FileTargetInfo { blksize: None })
 }
 
 #[cfg(any(unix, target_os = "wasi"))]
@@ -171,18 +171,16 @@ pub fn open_path(path: &widestring::WideCStr, flags: i32, mode: i32) -> io::Resu
     crt_fd::wopen(path, flags, mode)
 }
 
-pub fn should_forget_fd_after_inspect_error(err: &io::Error, fd_is_own: bool) -> bool {
-    #[cfg(windows)]
-    {
-        err.raw_os_error() == Some(crate::nt::ERROR_INVALID_HANDLE_I32)
-    }
+#[cfg(windows)]
+pub fn should_forget_fd_after_inspect_error(err: &io::Error, _fd_is_own: bool) -> bool {
+    err.raw_os_error() == Some(crate::nt::ERROR_INVALID_HANDLE_I32)
+}
 
-    #[cfg(any(unix, target_os = "wasi"))]
-    {
-        let errno = err.raw_os_error();
-        (errno == Some(libc::EISDIR) || errno == Some(libc::EBADF))
-            && (!fd_is_own || errno == Some(libc::EBADF))
-    }
+#[cfg(any(unix, target_os = "wasi"))]
+pub fn should_forget_fd_after_inspect_error(err: &io::Error, fd_is_own: bool) -> bool {
+    let errno = err.raw_os_error();
+    (errno == Some(libc::EISDIR) || errno == Some(libc::EBADF))
+        && (!fd_is_own || errno == Some(libc::EBADF))
 }
 
 pub fn seek_to_end(fd: crt_fd::Borrowed<'_>) -> io::Result<crt_fd::Offset> {
@@ -197,7 +195,7 @@ pub fn validate_whence(whence: i32) -> bool {
     let standard = (0..=2).contains(&whence);
     #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))]
     {
-        return standard || matches!(whence, libc::SEEK_DATA | libc::SEEK_HOLE);
+        standard || matches!(whence, libc::SEEK_DATA | libc::SEEK_HOLE)
     }
     #[cfg(not(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux")))]
     {

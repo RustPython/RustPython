@@ -2355,8 +2355,11 @@ pub mod module {
 #[pymodule(sub)]
 mod posix_sched {
     use crate::{
-        AsObject, Py, PyObjectRef, PyResult, VirtualMachine, builtins::PyTupleRef,
-        convert::ToPyObject, function::FuncArgs, types::PyStructSequence,
+        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
+        builtins::PyTupleRef,
+        convert::{IntoPyException, ToPyObject},
+        function::FuncArgs,
+        types::PyStructSequence,
     };
 
     #[derive(FromArgs)]

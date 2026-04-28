@@ -148,7 +148,6 @@ pub fn poll_socket(
 }
 
 #[cfg(any(
-    unix,
     target_os = "dragonfly",
     target_os = "freebsd",
     target_os = "fuchsia",

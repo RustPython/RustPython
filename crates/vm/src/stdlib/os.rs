@@ -1716,7 +1716,7 @@ pub(super) mod _os {
 
     #[cfg(target_os = "linux")]
     #[pyfunction]
-    fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
+    fn copy_file_range(mut args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
         let count: usize = args
             .count
             .try_into()
