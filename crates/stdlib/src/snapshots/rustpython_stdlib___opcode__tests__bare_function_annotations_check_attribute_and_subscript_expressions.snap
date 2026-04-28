@@ -1,6 +1,6 @@
 ---
 source: crates/stdlib/src/_opcode.rs
-expression: "def f(one: int):\n    int.new_attr: int\n    [list][0].new_attr: [int, str]\n    my_lst = [1]\n    my_lst[one]: int\n    return my_lst\n"
+expression: "\"\ndef f(one: int):\n    int.new_attr: int\n    [list][0].new_attr: [int, str]\n    my_lst = [1]\n    my_lst[one]: int\n    return my_lst\n\""
 ---
   0           RESUME                   0
 
@@ -15,7 +15,7 @@ expression: "def f(one: int):\n    int.new_attr: int\n    [list][0].new_attr: [i
 
 Disassembly of <code object __annotate__ at 0xdeadbeef file "<embedded>", line 1>:
   1           RESUME                   0
-              LOAD_FAST_BORROW         0
+              LOAD_FAST_BORROW         0 (format)
               LOAD_SMALL_INT           2
               COMPARE_OP             132 (>)
               POP_JUMP_IF_FALSE        3 (to L1)
@@ -43,10 +43,10 @@ Disassembly of <code object f at 0xdeadbeef file "<embedded>", line 1>:
               BUILD_LIST               1
               STORE_FAST               1 (my_lst)
 
-  5           LOAD_FAST_BORROW         1
+  5           LOAD_FAST_BORROW         1 (my_lst)
               POP_TOP
-              LOAD_FAST_BORROW         0
+              LOAD_FAST_BORROW         0 (one)
               POP_TOP
 
-  6           LOAD_FAST_BORROW         1
+  6           LOAD_FAST_BORROW         1 (my_lst)
               RETURN_VALUE
