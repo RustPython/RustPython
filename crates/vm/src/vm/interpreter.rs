@@ -119,6 +119,7 @@ where
         switch_interval: AtomicCell::new(0.005),
         global_trace_func: PyMutex::default(),
         global_profile_func: PyMutex::default(),
+        type_mutex: PyMutex::default(),
         #[cfg(feature = "threading")]
         main_thread_ident: AtomicCell::new(0),
         #[cfg(feature = "threading")]

@@ -792,6 +792,9 @@ pub mod module {
         #[cfg(feature = "threading")]
         crate::object::reset_weakref_locks_after_fork();
 
+        // Repair any type-cache entries left mid-update at fork time.
+        unsafe { crate::builtins::type_::type_cache_after_fork() };
+
         // Phase 3: Clean up thread state. Locks are now reinit'd so we can
         // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
@@ -831,6 +834,7 @@ pub mod module {
             reinit_mutex_after_fork(&vm.state.atexit_funcs);
             reinit_mutex_after_fork(&vm.state.global_trace_func);
             reinit_mutex_after_fork(&vm.state.global_profile_func);
+            reinit_mutex_after_fork(&vm.state.type_mutex);
             reinit_mutex_after_fork(&vm.state.monitoring);
 
             // PyGlobalState parking_lot::Mutex locks

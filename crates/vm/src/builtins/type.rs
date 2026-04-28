@@ -18,7 +18,7 @@ use crate::{
     common::{
         ascii,
         borrow::BorrowedValue,
-        lock::{PyMutex, PyRwLock, PyRwLockReadGuard},
+        lock::{PyRwLock, PyRwLockReadGuard},
     },
     function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
@@ -216,6 +216,24 @@ pub fn type_cache_clear() {
     TYPE_CACHE_CLEARING.store(false, Ordering::Release);
 }
 
+/// Repair type-cache SeqLock state in the post-fork child.
+///
+/// If fork happens while a writer holds an entry SeqLock, the child inherits
+/// the odd sequence value with no surviving writer to release it. Clear only
+/// those in-progress entries, matching CPython's `_PyTypes_AfterFork()`.
+pub unsafe fn type_cache_after_fork() {
+    for entry in TYPE_CACHE.iter() {
+        let seq = entry.sequence.load(Ordering::Relaxed);
+        if (seq & 1) == 0 {
+            continue;
+        }
+        entry.value.store(core::ptr::null_mut(), Ordering::Relaxed);
+        entry.name.store(core::ptr::null_mut(), Ordering::Relaxed);
+        entry.version.store(0, Ordering::Relaxed);
+        entry.sequence.store(0, Ordering::Relaxed);
+    }
+}
+
 unsafe impl crate::object::Traverse for PyType {
     fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
         self.base.traverse(tracer_fn);
@@ -276,8 +294,6 @@ pub struct TypeSpecializationCache {
     pub init: PyAtomicRef<Option<PyFunction>>,
     pub getitem: PyAtomicRef<Option<PyFunction>>,
     pub getitem_version: AtomicU32,
-    // Serialize cache writes/invalidation similar to CPython's BEGIN_TYPE_LOCK.
-    write_lock: PyMutex<()>,
     retired: PyRwLock<Vec<PyObjectRef>>,
 }
 
@@ -287,7 +303,6 @@ impl TypeSpecializationCache {
             init: PyAtomicRef::from(None::<PyRef<PyFunction>>),
             getitem: PyAtomicRef::from(None::<PyRef<PyFunction>>),
             getitem_version: AtomicU32::new(0),
-            write_lock: PyMutex::new(()),
             retired: PyRwLock::new(Vec::new()),
         }
     }
@@ -328,9 +343,6 @@ impl TypeSpecializationCache {
 
     #[inline]
     fn invalidate_for_type_modified(&self) {
-        let _guard = self.write_lock.lock();
-        // _spec_cache contract: type modification invalidates all cached
-        // specialization functions.
         self.swap_init(None, None);
         self.swap_getitem(None, None);
     }
@@ -350,7 +362,6 @@ impl TypeSpecializationCache {
     }
 
     fn clear_into(&self, out: &mut Vec<PyObjectRef>) {
-        let _guard = self.write_lock.lock();
         let old_init = unsafe { self.init.swap(None) };
         if let Some(old_init) = old_init {
             out.push(old_init.into());
@@ -458,9 +469,15 @@ fn is_subtype_with_mro(a_mro: &[PyTypeRef], a: &Py<PyType>, b: &Py<PyType>) -> b
 }
 
 impl PyType {
+    #[inline]
+    fn with_type_lock<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+        let _guard = vm.state.type_mutex.lock();
+        f()
+    }
+
     /// Assign a fresh version tag. Returns 0 if the version counter has been
     /// exhausted, in which case no new cache entries can be created.
-    pub fn assign_version_tag(&self) -> u32 {
+    fn assign_version_tag_inner(&self) -> u32 {
         let v = self.tp_version_tag.load(Ordering::Acquire);
         if v != 0 {
             return v;
@@ -468,7 +485,7 @@ impl PyType {
 
         // Assign versions to all direct bases first (MRO invariant).
         for base in self.bases.read().iter() {
-            if base.assign_version_tag() == 0 {
+            if base.assign_version_tag_inner() == 0 {
                 return 0;
             }
         }
@@ -488,27 +505,70 @@ impl PyType {
         }
     }
 
-    /// Invalidate this type's version tag and cascade to all subclasses.
-    pub fn modified(&self) {
-        if let Some(ext) = self.heaptype_ext.as_ref() {
-            ext.specialization_cache.invalidate_for_type_modified();
+    pub fn assign_version_tag(&self) -> u32 {
+        let version = self.tp_version_tag.load(Ordering::Acquire);
+        if version != 0 {
+            return version;
         }
-        // If already invalidated, all subclasses must also be invalidated
-        // (guaranteed by the MRO invariant in assign_version_tag).
+        crate::vm::thread::try_with_current_vm(|vm| {
+            Self::with_type_lock(vm, || {
+                let version = self.tp_version_tag.load(Ordering::Acquire);
+                if version == 0 {
+                    self.assign_version_tag_inner()
+                } else {
+                    version
+                }
+            })
+        })
+        .unwrap_or_else(|| self.assign_version_tag_inner())
+    }
+
+    pub(crate) fn version_for_specialization(&self, vm: &VirtualMachine) -> u32 {
+        let version = self.tp_version_tag.load(Ordering::Acquire);
+        if version != 0 {
+            return version;
+        }
+        Self::with_type_lock(vm, || {
+            let version = self.tp_version_tag.load(Ordering::Acquire);
+            if version == 0 {
+                self.assign_version_tag_inner()
+            } else {
+                version
+            }
+        })
+    }
+
+    /// Invalidate this type's version tag and cascade to all subclasses.
+    fn modified_inner(&self) {
         let old_version = self.tp_version_tag.load(Ordering::Acquire);
         if old_version == 0 {
             return;
+        }
+        let subclasses = self.subclasses.read();
+        for weak_ref in subclasses.iter() {
+            if let Some(sub) = weak_ref.upgrade() {
+                sub.downcast_ref::<PyType>().unwrap().modified_inner();
+            }
         }
         self.tp_version_tag.store(0, Ordering::SeqCst);
         // Nullify borrowed pointers in cache entries for this version
         // so they don't dangle after the dict is modified.
         type_cache_clear_version(old_version);
-        let subclasses = self.subclasses.read();
-        for weak_ref in subclasses.iter() {
-            if let Some(sub) = weak_ref.upgrade() {
-                sub.downcast_ref::<PyType>().unwrap().modified();
-            }
+        if let Some(ext) = self.heaptype_ext.as_ref() {
+            ext.specialization_cache.invalidate_for_type_modified();
         }
+    }
+
+    pub fn modified(&self) {
+        if self.tp_version_tag.load(Ordering::Acquire) == 0 {
+            return;
+        }
+        if let Some(()) = crate::vm::thread::try_with_current_vm(|vm| {
+            Self::with_type_lock(vm, || self.modified_inner());
+        }) {
+            return;
+        }
+        self.modified_inner();
     }
 
     pub fn new_simple_heap(
@@ -921,6 +981,74 @@ impl PyType {
         self.find_name_in_mro(attr_name)
     }
 
+    /// CPython-style `_PyType_LookupRefAndVersion` equivalent for interned names.
+    /// Returns the observed lookup result and the type version used for the lookup.
+    pub(crate) fn lookup_ref_and_version_interned(
+        &self,
+        name: &'static PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> (Option<PyObjectRef>, u32) {
+        let version = self.tp_version_tag.load(Ordering::Acquire);
+        if version != 0 {
+            let idx = type_cache_hash(version, name);
+            let entry = &TYPE_CACHE[idx];
+            let name_ptr = name as *const _ as *mut _;
+            loop {
+                let seq1 = entry.begin_read();
+                let entry_version = entry.version.load(Ordering::Acquire);
+                let type_version = self.tp_version_tag.load(Ordering::Acquire);
+                if entry_version != type_version
+                    || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
+                {
+                    break;
+                }
+                let ptr = entry.value.load(Ordering::Acquire);
+                if ptr.is_null() {
+                    if entry.end_read(seq1) {
+                        return (None, entry_version);
+                    }
+                    continue;
+                }
+                if let Some(cloned) = unsafe { PyObject::try_to_owned_from_ptr(ptr) } {
+                    let same_ptr = core::ptr::eq(entry.value.load(Ordering::Relaxed), ptr);
+                    if same_ptr && entry.end_read(seq1) {
+                        return (Some(cloned), entry_version);
+                    }
+                    drop(cloned);
+                    continue;
+                }
+                break;
+            }
+        }
+
+        Self::with_type_lock(vm, || {
+            let assigned = if self.tp_version_tag.load(Ordering::Acquire) == 0 {
+                self.assign_version_tag_inner()
+            } else {
+                self.tp_version_tag.load(Ordering::Acquire)
+            };
+            let result = self.find_name_in_mro_uncached(name);
+            if assigned != 0
+                && !TYPE_CACHE_CLEARING.load(Ordering::Acquire)
+                && self.tp_version_tag.load(Ordering::Acquire) == assigned
+            {
+                let idx = type_cache_hash(assigned, name);
+                let entry = &TYPE_CACHE[idx];
+                let name_ptr = name as *const _ as *mut _;
+                entry.begin_write();
+                entry.version.store(0, Ordering::Release);
+                let new_ptr = result.as_ref().map_or(core::ptr::null_mut(), |found| {
+                    &**found as *const PyObject as *mut _
+                });
+                entry.value.store(new_ptr, Ordering::Relaxed);
+                entry.name.store(name_ptr, Ordering::Relaxed);
+                entry.version.store(assigned, Ordering::Release);
+                entry.end_write();
+            }
+            (result, assigned)
+        })
+    }
+
     /// Cache __init__ for CALL_ALLOC_AND_ENTER_INIT specialization.
     /// The cache is valid only when guarded by the type version check.
     pub(crate) fn cache_init_for_specialization(
@@ -935,15 +1063,16 @@ impl PyType {
         if tp_version == 0 {
             return false;
         }
-        if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
-            return false;
-        }
-        let _guard = ext.specialization_cache.write_lock.lock();
-        if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
-            return false;
-        }
-        ext.specialization_cache.swap_init(Some(init), Some(vm));
-        true
+        Self::with_type_lock(vm, || {
+            if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+                return false;
+            }
+            if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+                return false;
+            }
+            ext.specialization_cache.swap_init(Some(init), Some(vm));
+            true
+        })
     }
 
     /// Read cached __init__ for CALL_ALLOC_AND_ENTER_INIT specialization.
@@ -977,20 +1106,21 @@ impl PyType {
         if tp_version == 0 {
             return false;
         }
-        let _guard = ext.specialization_cache.write_lock.lock();
-        if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
-            return false;
-        }
-        let func_version = getitem.get_version_for_current_state();
-        if func_version == 0 {
-            return false;
-        }
-        ext.specialization_cache
-            .swap_getitem(Some(getitem), Some(vm));
-        ext.specialization_cache
-            .getitem_version
-            .store(func_version, Ordering::Relaxed);
-        true
+        Self::with_type_lock(vm, || {
+            if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
+                return false;
+            }
+            let func_version = getitem.get_version_for_current_state();
+            if func_version == 0 {
+                return false;
+            }
+            ext.specialization_cache
+                .swap_getitem(Some(getitem), Some(vm));
+            ext.specialization_cache
+                .getitem_version
+                .store(func_version, Ordering::Release);
+            true
+        })
     }
 
     /// Read cached __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
@@ -1011,18 +1141,7 @@ impl PyType {
         Some((getitem, cached_version))
     }
 
-    pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        self.attributes.read().get(attr_name).cloned()
-    }
-
-    /// find_name_in_mro with method cache (MCACHE).
-    /// Looks in tp_dict of types in MRO, bypasses descriptors.
-    ///
-    /// Uses a lock-free SeqLock-style pattern:
-    ///   Read:  load sequence/version/name → load value + try_to_owned →
-    ///          validate value pointer + sequence
-    ///   Write: sequence(begin) → version=0 → swap value/name → version=assigned → sequence(end)
-    fn find_name_in_mro(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
+    fn find_name_in_mro_without_vm(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
         let version = self.tp_version_tag.load(Ordering::Acquire);
         if version != 0 {
             let idx = type_cache_hash(version, name);
@@ -1044,8 +1163,6 @@ impl PyType {
                     }
                     continue;
                 }
-                // _Py_TryIncrefCompare-style validation:
-                // safe_inc via raw pointer, then ensure source is unchanged.
                 if let Some(cloned) = unsafe { PyObject::try_to_owned_from_ptr(ptr) } {
                     let same_ptr = core::ptr::eq(entry.value.load(Ordering::Relaxed), ptr);
                     if same_ptr && entry.end_read(seq1) {
@@ -1058,20 +1175,12 @@ impl PyType {
             }
         }
 
-        // Assign version BEFORE the MRO walk so that any concurrent
-        // modified() call during the walk invalidates this version.
         let assigned = if version == 0 {
             self.assign_version_tag()
         } else {
             version
         };
-
-        // MRO walk
         let result = self.find_name_in_mro_uncached(name);
-
-        // Only cache positive results. Negative results are not cached to
-        // avoid stale entries from transient MRO walk failures during
-        // concurrent type modifications.
         if let Some(ref found) = result
             && assigned != 0
             && !TYPE_CACHE_CLEARING.load(Ordering::Acquire)
@@ -1081,18 +1190,32 @@ impl PyType {
             let entry = &TYPE_CACHE[idx];
             let name_ptr = name as *const _ as *mut _;
             entry.begin_write();
-            // Invalidate first to prevent readers from seeing partial state
             entry.version.store(0, Ordering::Release);
-            // Store borrowed pointer (no refcount increment).
             let new_ptr = &**found as *const PyObject as *mut PyObject;
             entry.value.store(new_ptr, Ordering::Relaxed);
             entry.name.store(name_ptr, Ordering::Relaxed);
-            // Activate entry — Release ensures value/name writes are visible
             entry.version.store(assigned, Ordering::Release);
             entry.end_write();
         }
-
         result
+    }
+
+    pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
+        self.attributes.read().get(attr_name).cloned()
+    }
+
+    /// find_name_in_mro with method cache (MCACHE).
+    /// Looks in tp_dict of types in MRO, bypasses descriptors.
+    ///
+    /// Uses a lock-free SeqLock-style pattern:
+    ///   Read:  load sequence/version/name → load value + try_to_owned →
+    ///          validate value pointer + sequence
+    ///   Write: sequence(begin) → version=0 → swap value/name → version=assigned → sequence(end)
+    fn find_name_in_mro(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
+        crate::vm::thread::try_with_current_vm(|vm| {
+            self.lookup_ref_and_version_interned(name, vm).0
+        })
+        .unwrap_or_else(|| self.find_name_in_mro_without_vm(name))
     }
 
     /// Raw MRO walk without cache.
@@ -1108,7 +1231,7 @@ impl PyType {
     /// _PyType_LookupRef: look up a name through the MRO without setting an exception.
     pub fn lookup_ref(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
         let interned_name = vm.ctx.interned_str(name)?;
-        self.find_name_in_mro(interned_name)
+        self.lookup_ref_and_version_interned(interned_name, vm).0
     }
 
     pub fn get_super_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
@@ -1357,38 +1480,41 @@ impl PyType {
         //     // TODO: how to uniquely identify the subclasses to remove?
         // }
 
-        *zelf.bases.write() = bases;
-        // Recursively update the mros of this class and all subclasses
-        fn update_mro_recursively(cls: &PyType, vm: &VirtualMachine) -> PyResult<()> {
-            let mut mro =
-                PyType::resolve_mro(&cls.bases.read()).map_err(|msg| vm.new_type_error(msg))?;
-            // Preserve self (mro[0]) when updating MRO
-            mro.insert(0, cls.mro.read()[0].to_owned());
-            *cls.mro.write() = mro;
-            for subclass in cls.subclasses.write().iter() {
-                let subclass = subclass.upgrade().unwrap();
-                let subclass: &Py<PyType> = subclass.downcast_ref().unwrap();
-                update_mro_recursively(subclass, vm)?;
+        Self::with_type_lock(vm, || {
+            *zelf.bases.write() = bases;
+            // Recursively update the mros of this class and all subclasses
+            fn update_mro_recursively(cls: &PyType, vm: &VirtualMachine) -> PyResult<()> {
+                let mut mro =
+                    PyType::resolve_mro(&cls.bases.read()).map_err(|msg| vm.new_type_error(msg))?;
+                // Preserve self (mro[0]) when updating MRO
+                mro.insert(0, cls.mro.read()[0].to_owned());
+                *cls.mro.write() = mro;
+                for subclass in cls.subclasses.write().iter() {
+                    let subclass = subclass.upgrade().unwrap();
+                    let subclass: &Py<PyType> = subclass.downcast_ref().unwrap();
+                    update_mro_recursively(subclass, vm)?;
+                }
+                Ok(())
+            }
+            update_mro_recursively(zelf, vm)?;
+
+            // Invalidate inline caches
+            zelf.modified_inner();
+
+            // TODO: do any old slots need to be cleaned up first?
+            zelf.init_slots(&vm.ctx);
+
+            // Register this type as a subclass of its new bases
+            let weakref_type = super::PyWeak::static_type();
+            for base in zelf.bases.read().iter() {
+                base.subclasses.write().push(
+                    zelf.as_object()
+                        .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
+                        .unwrap(),
+                );
             }
             Ok(())
-        }
-        update_mro_recursively(zelf, vm)?;
-
-        // Invalidate inline caches
-        zelf.modified();
-
-        // TODO: do any old slots need to be cleaned up first?
-        zelf.init_slots(&vm.ctx);
-
-        // Register this type as a subclass of its new bases
-        let weakref_type = super::PyWeak::static_type();
-        for base in zelf.bases.read().iter() {
-            base.subclasses.write().push(
-                zelf.as_object()
-                    .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
-                    .unwrap(),
-            );
-        }
+        })?;
 
         Ok(())
     }
@@ -1480,20 +1606,31 @@ impl PyType {
             )));
         }
 
-        let mut attrs = self.attributes.write();
-        // First try __annotate__, in case that's been set explicitly
-        if let Some(annotate) = attrs.get(identifier!(vm, __annotate__)).cloned() {
+        let annotate_key = identifier!(vm, __annotate__);
+        let annotate_func_key = identifier!(vm, __annotate_func__);
+        let attrs = self.attributes.read();
+        if let Some(annotate) = attrs.get(annotate_key).cloned() {
             return Ok(annotate);
         }
-        // Then try __annotate_func__
-        if let Some(annotate) = attrs.get(identifier!(vm, __annotate_func__)).cloned() {
-            // TODO: Apply descriptor tp_descr_get if needed
+        if let Some(annotate) = attrs.get(annotate_func_key).cloned() {
             return Ok(annotate);
         }
-        // Set __annotate_func__ = None and return None
+        drop(attrs);
+
         let none = vm.ctx.none();
-        attrs.insert(identifier!(vm, __annotate_func__), none.clone());
-        Ok(none)
+        let (result, _prev) = Self::with_type_lock(vm, || {
+            let mut attrs = self.attributes.write();
+            if let Some(annotate) = attrs.get(annotate_key).cloned() {
+                return (annotate, None);
+            }
+            if let Some(annotate) = attrs.get(annotate_func_key).cloned() {
+                return (annotate, None);
+            }
+            self.modified_inner();
+            let prev = attrs.insert(annotate_func_key, none.clone());
+            (none, prev)
+        });
+        Ok(result)
     }
 
     #[pygetset(setter)]
@@ -1516,20 +1653,27 @@ impl PyType {
             return Err(vm.new_type_error("__annotate__ must be callable or None"));
         }
 
-        let mut attrs = self.attributes.write();
-        // Clear cached annotations only when setting to a new callable
-        if !vm.is_none(&value) {
-            attrs.swap_remove(identifier!(vm, __annotations_cache__));
-        }
-        attrs.insert(identifier!(vm, __annotate_func__), value.clone());
+        let _prev_values = Self::with_type_lock(vm, || {
+            self.modified_inner();
+            let mut attrs = self.attributes.write();
+            let removed = if !vm.is_none(&value) {
+                attrs.swap_remove(identifier!(vm, __annotations_cache__))
+            } else {
+                None
+            };
+            let prev = attrs.insert(identifier!(vm, __annotate_func__), value);
+            (removed, prev)
+        });
 
         Ok(())
     }
 
     #[pygetset]
     fn __annotations__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let annotations_key = identifier!(vm, __annotations__);
+        let annotations_cache_key = identifier!(vm, __annotations_cache__);
         let attrs = self.attributes.read();
-        if let Some(annotations) = attrs.get(identifier!(vm, __annotations__)).cloned() {
+        if let Some(annotations) = attrs.get(annotations_key).cloned() {
             // Ignore the __annotations__ descriptor stored on type itself.
             if !annotations.class().is(vm.ctx.types.getset_type) {
                 if vm.is_none(&annotations)
@@ -1544,8 +1688,7 @@ impl PyType {
                 )));
             }
         }
-        // Then try __annotations_cache__
-        if let Some(annotations) = attrs.get(identifier!(vm, __annotations_cache__)).cloned() {
+        if let Some(annotations) = attrs.get(annotations_cache_key).cloned() {
             if vm.is_none(&annotations)
                 || annotations.class().is(vm.ctx.types.dict_type)
                 || self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
@@ -1582,11 +1725,21 @@ impl PyType {
             vm.ctx.new_dict().into()
         };
 
-        // Cache the result in __annotations_cache__
-        self.attributes
-            .write()
-            .insert(identifier!(vm, __annotations_cache__), annotations.clone());
-        Ok(annotations)
+        let (result, _prev) = Self::with_type_lock(vm, || {
+            let mut attrs = self.attributes.write();
+            if let Some(existing) = attrs.get(annotations_key).cloned()
+                && !existing.class().is(vm.ctx.types.getset_type)
+            {
+                return (existing, None);
+            }
+            if let Some(existing) = attrs.get(annotations_cache_key).cloned() {
+                return (existing, None);
+            }
+            self.modified_inner();
+            let prev = attrs.insert(annotations_cache_key, annotations.clone());
+            (annotations, prev)
+        });
+        Ok(result)
     }
 
     #[pygetset(setter)]
@@ -1602,43 +1755,43 @@ impl PyType {
             )));
         }
 
-        let mut attrs = self.attributes.write();
-        let has_annotations = attrs.contains_key(identifier!(vm, __annotations__));
+        let _prev_values = Self::with_type_lock(vm, || {
+            self.modified_inner();
+            let mut attrs = self.attributes.write();
+            let has_annotations = attrs.contains_key(identifier!(vm, __annotations__));
 
-        match value {
-            crate::function::PySetterValue::Assign(value) => {
-                // SET path: store the value (including None)
-                let key = if has_annotations {
-                    identifier!(vm, __annotations__)
-                } else {
-                    identifier!(vm, __annotations_cache__)
-                };
-                attrs.insert(key, value);
-                if has_annotations {
-                    attrs.swap_remove(identifier!(vm, __annotations_cache__));
+            let mut prev = Vec::new();
+            match value {
+                crate::function::PySetterValue::Assign(value) => {
+                    let key = if has_annotations {
+                        identifier!(vm, __annotations__)
+                    } else {
+                        identifier!(vm, __annotations_cache__)
+                    };
+                    prev.extend(attrs.insert(key, value));
+                    if has_annotations {
+                        prev.extend(attrs.swap_remove(identifier!(vm, __annotations_cache__)));
+                    }
+                }
+                crate::function::PySetterValue::Delete => {
+                    let removed = if has_annotations {
+                        attrs.swap_remove(identifier!(vm, __annotations__))
+                    } else {
+                        attrs.swap_remove(identifier!(vm, __annotations_cache__))
+                    };
+                    if removed.is_none() {
+                        return Err(vm.new_attribute_error("__annotations__"));
+                    }
+                    prev.extend(removed);
+                    if has_annotations {
+                        prev.extend(attrs.swap_remove(identifier!(vm, __annotations_cache__)));
+                    }
                 }
             }
-            crate::function::PySetterValue::Delete => {
-                // DELETE path: remove the key
-                let removed = if has_annotations {
-                    attrs
-                        .swap_remove(identifier!(vm, __annotations__))
-                        .is_some()
-                } else {
-                    attrs
-                        .swap_remove(identifier!(vm, __annotations_cache__))
-                        .is_some()
-                };
-                if !removed {
-                    return Err(vm.new_attribute_error("__annotations__"));
-                }
-                if has_annotations {
-                    attrs.swap_remove(identifier!(vm, __annotations_cache__));
-                }
-            }
-        }
-        attrs.swap_remove(identifier!(vm, __annotate_func__));
-        attrs.swap_remove(identifier!(vm, __annotate__));
+            prev.extend(attrs.swap_remove(identifier!(vm, __annotate_func__)));
+            prev.extend(attrs.swap_remove(identifier!(vm, __annotate__)));
+            Ok(prev)
+        })?;
 
         Ok(())
     }
@@ -1671,9 +1824,13 @@ impl PyType {
     #[pygetset(setter)]
     fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.check_set_special_type_attr(identifier!(vm, __module__), vm)?;
-        let mut attributes = self.attributes.write();
-        attributes.swap_remove(identifier!(vm, __firstlineno__));
-        attributes.insert(identifier!(vm, __module__), value);
+        let _prev_values = Self::with_type_lock(vm, || {
+            self.modified_inner();
+            let mut attributes = self.attributes.write();
+            let removed = attributes.swap_remove(identifier!(vm, __firstlineno__));
+            let prev = attributes.insert(identifier!(vm, __module__), value);
+            (removed, prev)
+        });
         Ok(())
     }
 
@@ -1795,24 +1952,26 @@ impl PyType {
         value: PySetterValue<PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let key = identifier!(vm, __type_params__);
         match value {
-            PySetterValue::Assign(ref val) => {
-                let key = identifier!(vm, __type_params__);
+            PySetterValue::Assign(val) => {
                 self.check_set_special_type_attr(key, vm)?;
-                self.modified();
-                self.attributes.write().insert(key, val.clone().into());
+                let _prev_value = Self::with_type_lock(vm, || {
+                    self.modified_inner();
+                    self.attributes.write().insert(key, val.into())
+                });
             }
             PySetterValue::Delete => {
-                // For delete, we still need to check if the type is immutable
                 if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
                     return Err(vm.new_type_error(format!(
                         "cannot delete '__type_params__' attribute of immutable type '{}'",
                         self.slot_name()
                     )));
                 }
-                let key = identifier!(vm, __type_params__);
-                self.modified();
-                self.attributes.write().shift_remove(&key);
+                let _prev_value = Self::with_type_lock(vm, || {
+                    self.modified_inner();
+                    self.attributes.write().shift_remove(&key)
+                });
             }
         }
         Ok(())
@@ -2434,10 +2593,12 @@ impl Py<PyType> {
         // Check if we can set this special type attribute
         self.check_set_special_type_attr(identifier!(vm, __doc__), vm)?;
 
-        // Set the __doc__ in the type's dict
-        self.attributes
-            .write()
-            .insert(identifier!(vm, __doc__), value);
+        let _prev_value = PyType::with_type_lock(vm, || {
+            self.modified_inner();
+            self.attributes
+                .write()
+                .insert(identifier!(vm, __doc__), value)
+        });
 
         Ok(())
     }
@@ -2499,23 +2660,29 @@ impl SetAttr for PyType {
         }
         let assign = value.is_assign();
 
-        // Invalidate inline caches before modifying attributes.
-        // This ensures other threads see the version invalidation before
-        // any attribute changes, preventing use-after-free of cached descriptors.
-        zelf.modified();
+        // Drop old value OUTSIDE the type lock to avoid deadlock:
+        // dropping may trigger weakref callbacks → method calls →
+        // LOAD_ATTR specialization → version_for_specialization → type lock.
+        let _prev_value = Self::with_type_lock(vm, || {
+            // Invalidate inline caches before modifying attributes.
+            // This ensures other threads see the version invalidation before
+            // any attribute changes, preventing use-after-free of cached descriptors.
+            zelf.modified_inner();
 
-        if let PySetterValue::Assign(value) = value {
-            zelf.attributes.write().insert(attr_name, value);
-        } else {
-            let prev_value = zelf.attributes.write().shift_remove(attr_name); // TODO: swap_remove applicable?
-            if prev_value.is_none() {
-                return Err(vm.new_attribute_error(format!(
-                    "type object '{}' has no attribute '{}'",
-                    zelf.name(),
-                    attr_name,
-                )));
+            if let PySetterValue::Assign(value) = value {
+                Ok(zelf.attributes.write().insert(attr_name, value))
+            } else {
+                let prev_value = zelf.attributes.write().shift_remove(attr_name); // TODO: swap_remove applicable?
+                if prev_value.is_none() {
+                    return Err(vm.new_attribute_error(format!(
+                        "type object '{}' has no attribute '{}'",
+                        zelf.name(),
+                        attr_name,
+                    )));
+                }
+                Ok(prev_value)
             }
-        }
+        })?;
 
         if attr_name.as_wtf8().starts_with("__") && attr_name.as_wtf8().ends_with("__") {
             if assign {
