@@ -431,6 +431,10 @@ jobs:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
 
+      - name: restore git permissions
+        if: ${{ !cancelled() }}
+        run: sudo chown -R "$(id -u):$(id -g)" .git
+
       - name: reviewdog
         if: ${{ !cancelled() }}
         uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # v1.24.0

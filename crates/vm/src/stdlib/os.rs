@@ -178,7 +178,10 @@ pub(super) mod _os {
     use core::time::Duration;
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
-    use rustpython_host_env::suppress_iph;
+    #[cfg(windows)]
+    use rustpython_host_env::nt as host_nt;
+    #[cfg(all(unix, not(target_os = "redox")))]
+    use rustpython_host_env::posix as host_posix;
     use std::{fs, io, path::PathBuf, time::SystemTime};
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -347,9 +350,9 @@ pub(super) mod _os {
         let c_path = path.clone().into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
         if let Some(fd) = dir_fd.raw_opt() {
-            let res = unsafe { libc::mkdirat(fd, c_path.as_ptr(), mode as _) };
-            return if res < 0 {
-                let err = crate::host_env::os::errno_io_error();
+            return if let Err(err) =
+                crate::host_env::posix::make_dir_at(fd, c_path.as_c_str(), mode as u32)
+            {
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -357,9 +360,7 @@ pub(super) mod _os {
         }
         #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
-        let res = unsafe { libc::mkdir(c_path.as_ptr(), mode as _) };
-        if res < 0 {
-            let err = crate::host_env::os::errno_io_error();
+        if let Err(err) = crate::host_env::posix::make_dir(c_path.as_c_str(), mode as u32) {
             return Err(OSErrorBuilder::with_filename(&err, path, vm));
         }
         Ok(())
@@ -381,9 +382,7 @@ pub(super) mod _os {
         #[cfg(not(target_os = "redox"))]
         if let Some(fd) = dir_fd.raw_opt() {
             let c_path = path.clone().into_cstring(vm)?;
-            let res = unsafe { libc::unlinkat(fd, c_path.as_ptr(), libc::AT_REMOVEDIR) };
-            return if res < 0 {
-                let err = crate::host_env::os::errno_io_error();
+            return if let Err(err) = crate::host_env::posix::remove_dir_at(fd, c_path.as_c_str()) {
                 Err(OSErrorBuilder::with_filename(&err, path, vm))
             } else {
                 Ok(())
@@ -439,35 +438,17 @@ pub(super) mod _os {
                 }
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
-                    use rustpython_host_env::os::ffi::OsStrExt;
-                    use std::os::unix::io::IntoRawFd;
-                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
-                    let raw_fd = new_fd.into_raw_fd();
-                    let dir = OwnedDir::from_fd(raw_fd).map_err(|e| {
-                        unsafe { libc::close(raw_fd) };
-                        e.into_pyexception(vm)
-                    })?;
-                    // OwnedDir::drop calls rewinddir (reset to start) then closedir.
+                    let mut dir = host_posix::FdDirStream::from_fd(fno.into())
+                        .map_err(|e| e.into_pyexception(vm))?;
                     let mut list = Vec::new();
-                    loop {
-                        nix::errno::Errno::clear();
-                        let entry = unsafe { libc::readdir(dir.as_ptr()) };
-                        if entry.is_null() {
-                            let err = nix::errno::Errno::last();
-                            if err != nix::errno::Errno::UnknownErrno {
-                                return Err(io::Error::from(err).into_pyexception(vm));
-                            }
-                            break;
-                        }
-                        let fname = unsafe { core::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) }
-                            .to_bytes();
-                        match fname {
-                            b"." | b".." => continue,
-                            _ => list.push(
-                                OutputMode::String
-                                    .process_path(std::ffi::OsStr::from_bytes(fname), vm),
+                    while let Some(entry) = dir.next_entry().map_err(|e| e.into_pyexception(vm))? {
+                        list.push(
+                            OutputMode::String.process_path(
+                                rustpython_host_env::os::bytes_as_os_str(&entry.name)
+                                    .expect("unix dir entry names are arbitrary bytes"),
+                                vm,
                             ),
-                        }
+                        );
                     }
                     list
                 }
@@ -856,7 +837,10 @@ pub(super) mod _os {
         #[cfg(windows)]
         #[pymethod]
         fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
-            Ok(junction::exists(self.pathval.clone()).unwrap_or(false))
+            Ok(host_nt::test_file_type_by_name(
+                &self.pathval,
+                host_nt::TestType::Junction,
+            ))
         }
 
         #[pymethod]
@@ -988,7 +972,7 @@ pub(super) mod _os {
                             let lstat = {
                                 let cell = OnceCell::new();
                                 if let Ok(stat_struct) =
-                                    crate::windows::win32_xstat(pathval.as_os_str(), false)
+                                    host_nt::win32_xstat(pathval.as_os_str(), false)
                                 {
                                     let stat_obj =
                                         StatResultData::from_stat(&stat_struct, vm).to_pyobject(vm);
@@ -1028,54 +1012,12 @@ pub(super) mod _os {
         }
     }
 
-    /// Wrapper around a raw `libc::DIR*` for fd-based scandir.
-    #[cfg(all(unix, not(target_os = "redox")))]
-    struct OwnedDir(core::ptr::NonNull<libc::DIR>);
-
-    #[cfg(all(unix, not(target_os = "redox")))]
-    impl OwnedDir {
-        fn from_fd(fd: crt_fd::Raw) -> io::Result<Self> {
-            let ptr = unsafe { libc::fdopendir(fd) };
-            core::ptr::NonNull::new(ptr)
-                .map(OwnedDir)
-                .ok_or_else(io::Error::last_os_error)
-        }
-
-        fn as_ptr(&self) -> *mut libc::DIR {
-            self.0.as_ptr()
-        }
-    }
-
-    #[cfg(all(unix, not(target_os = "redox")))]
-    impl Drop for OwnedDir {
-        fn drop(&mut self) {
-            unsafe {
-                libc::rewinddir(self.0.as_ptr());
-                libc::closedir(self.0.as_ptr());
-            }
-        }
-    }
-
-    #[cfg(all(unix, not(target_os = "redox")))]
-    impl core::fmt::Debug for OwnedDir {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            f.debug_tuple("OwnedDir").field(&self.0).finish()
-        }
-    }
-
-    // Safety: OwnedDir wraps a *mut libc::DIR. All access is synchronized
-    // through the PyMutex in ScandirIteratorFd.
-    #[cfg(all(unix, not(target_os = "redox")))]
-    unsafe impl Send for OwnedDir {}
-    #[cfg(all(unix, not(target_os = "redox")))]
-    unsafe impl Sync for OwnedDir {}
-
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyattr]
     #[pyclass(name = "ScandirIter")]
     #[derive(Debug, PyPayload)]
     struct ScandirIteratorFd {
-        dir: crate::common::lock::PyMutex<Option<OwnedDir>>,
+        dir: crate::common::lock::PyMutex<Option<host_posix::FdDirStream>>,
         /// The original fd passed to scandir(), stored in DirEntry for fstatat
         orig_fd: crt_fd::Raw,
     }
@@ -1126,59 +1068,37 @@ pub(super) mod _os {
     #[cfg(all(unix, not(target_os = "redox")))]
     impl IterNext for ScandirIteratorFd {
         fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            use rustpython_host_env::os::ffi::OsStrExt;
             let mut guard = zelf.dir.lock();
             let dir = match guard.as_mut() {
                 None => return Ok(PyIterReturn::StopIteration(None)),
                 Some(dir) => dir,
             };
-            loop {
-                nix::errno::Errno::clear();
-                let entry = unsafe {
-                    let ptr = libc::readdir(dir.as_ptr());
-                    if ptr.is_null() {
-                        let err = nix::errno::Errno::last();
-                        if err != nix::errno::Errno::UnknownErrno {
-                            return Err(io::Error::from(err).into_pyexception(vm));
-                        }
-                        drop(guard.take());
-                        return Ok(PyIterReturn::StopIteration(None));
-                    }
-                    &*ptr
-                };
-                let fname = unsafe { core::ffi::CStr::from_ptr(entry.d_name.as_ptr()) }.to_bytes();
-                if fname == b"." || fname == b".." {
-                    continue;
+            let Some(entry) = dir.next_entry().map_err(|e| e.into_pyexception(vm))? else {
+                drop(guard.take());
+                return Ok(PyIterReturn::StopIteration(None));
+            };
+            let file_name = std::ffi::OsString::from(
+                rustpython_host_env::os::bytes_as_os_str(&entry.name)
+                    .expect("unix dir entry names are arbitrary bytes"),
+            );
+            let pathval = PathBuf::from(&file_name);
+            Ok(PyIterReturn::Return(
+                DirEntry {
+                    file_name,
+                    pathval,
+                    file_type: Err(io::Error::other(
+                        "file_type unavailable for fd-based scandir",
+                    )),
+                    d_type: entry.d_type,
+                    dir_fd: Some(zelf.orig_fd),
+                    mode: OutputMode::String,
+                    lstat: OnceCell::new(),
+                    stat: OnceCell::new(),
+                    ino: AtomicCell::new(entry.ino as _),
                 }
-                let file_name = std::ffi::OsString::from(std::ffi::OsStr::from_bytes(fname));
-                let pathval = PathBuf::from(&file_name);
-                #[cfg(target_os = "freebsd")]
-                let ino = entry.d_fileno;
-                #[cfg(not(target_os = "freebsd"))]
-                let ino = entry.d_ino;
-                let d_type = entry.d_type;
-                return Ok(PyIterReturn::Return(
-                    DirEntry {
-                        file_name,
-                        pathval,
-                        file_type: Err(io::Error::other(
-                            "file_type unavailable for fd-based scandir",
-                        )),
-                        d_type: if d_type == libc::DT_UNKNOWN {
-                            None
-                        } else {
-                            Some(d_type)
-                        },
-                        dir_fd: Some(zelf.orig_fd),
-                        mode: OutputMode::String,
-                        lstat: OnceCell::new(),
-                        stat: OnceCell::new(),
-                        ino: AtomicCell::new(ino as _),
-                    }
-                    .into_ref(&vm.ctx)
-                    .into(),
-                ));
-            }
+                .into_ref(&vm.ctx)
+                .into(),
+            ))
         }
     }
 
@@ -1206,15 +1126,8 @@ pub(super) mod _os {
                 }
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
-                    use std::os::unix::io::IntoRawFd;
-                    // closedir() closes the fd, so duplicate it first
-                    let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
-                    let raw_fd = new_fd.into_raw_fd();
-                    let dir = OwnedDir::from_fd(raw_fd).map_err(|e| {
-                        // fdopendir failed, close the dup'd fd
-                        unsafe { libc::close(raw_fd) };
-                        e.into_pyexception(vm)
-                    })?;
+                    let dir = host_posix::FdDirStream::from_fd(fno.into())
+                        .map_err(|e| e.into_pyexception(vm))?;
                     Ok(ScandirIteratorFd {
                         dir: crate::common::lock::PyMutex::new(Some(dir)),
                         orig_fd: fno.as_raw(),
@@ -1398,10 +1311,9 @@ pub(super) mod _os {
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
-        // TODO: replicate CPython's win32_xstat
         let [] = dir_fd.0;
         match file {
-            OsPathOrFd::Path(path) => crate::windows::win32_xstat(&path.path, follow_symlinks.0),
+            OsPathOrFd::Path(path) => host_nt::win32_xstat(&path.path, follow_symlinks.0),
             OsPathOrFd::Fd(fd) => crate::host_env::fileutils::fstat(fd),
         }
         .map(Some)
@@ -1413,42 +1325,14 @@ pub(super) mod _os {
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
-        let mut stat = core::mem::MaybeUninit::uninit();
-        let ret = match file {
-            OsPathOrFd::Path(path) => {
-                use rustpython_host_env::os::ffi::OsStrExt;
-                let path = path.as_ref().as_os_str().as_bytes();
-                let path = match alloc::ffi::CString::new(path) {
-                    Ok(x) => x,
-                    Err(_) => return Ok(None),
-                };
-
-                #[cfg(not(target_os = "redox"))]
-                let fstatat_ret = dir_fd.raw_opt().map(|dir_fd| {
-                    let flags = if follow_symlinks.0 {
-                        0
-                    } else {
-                        libc::AT_SYMLINK_NOFOLLOW
-                    };
-                    unsafe { libc::fstatat(dir_fd, path.as_ptr(), stat.as_mut_ptr(), flags) }
-                });
-                #[cfg(target_os = "redox")]
-                let ([], fstatat_ret) = (dir_fd.0, None);
-
-                fstatat_ret.unwrap_or_else(|| {
-                    if follow_symlinks.0 {
-                        unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
-                    } else {
-                        unsafe { libc::lstat(path.as_ptr(), stat.as_mut_ptr()) }
-                    }
-                })
-            }
-            OsPathOrFd::Fd(fd) => unsafe { libc::fstat(fd.as_raw(), stat.as_mut_ptr()) },
-        };
-        if ret < 0 {
-            return Err(io::Error::last_os_error());
+        match file {
+            OsPathOrFd::Path(path) => host_posix::stat_path(
+                path.as_ref().as_os_str(),
+                dir_fd.raw_opt(),
+                follow_symlinks.0,
+            ),
+            OsPathOrFd::Fd(fd) => host_posix::stat_fd(fd).map(Some),
         }
-        Ok(Some(unsafe { stat.assume_init() }))
     }
 
     #[pyfunction]
@@ -1491,40 +1375,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn chdir(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         crate::host_env::os::set_current_dir(&path.path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
-
-        #[cfg(windows)]
-        {
-            // win32_wchdir()
-
-            // On Windows, set the per-drive CWD environment variable (=X:)
-            // This is required for GetFullPathNameW to work correctly with drive-relative paths
-
-            use std::os::windows::ffi::OsStrExt;
-            use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
-
-            if let Ok(cwd) = crate::host_env::os::current_dir() {
-                let cwd_str = cwd.as_os_str();
-                let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
-
-                // Check for UNC-like paths (\\server\share or //server/share)
-                // wcsncmp(new_path, L"\\\\", 2) == 0 || wcsncmp(new_path, L"//", 2) == 0
-                let is_unc_like_path = cwd_wide.len() >= 2
-                    && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
-                        || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
-
-                if !is_unc_like_path {
-                    // Create env var name "=X:" where X is the drive letter
-                    let env_name: [u16; 4] = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
-                    cwd_wide.push(0); // null-terminate the path
-                    unsafe {
-                        SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr());
-                    }
-                }
-            }
-        }
-
-        Ok(())
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyfunction]
@@ -1544,7 +1395,7 @@ pub(super) mod _os {
             .argument("dst")
             .try_path(dst, vm)?;
 
-        fs::rename(&src.path, &dst.path).map_err(|err| {
+        crate::host_env::os::rename(&src.path, &dst.path).map_err(|err| {
             let builder = err.to_os_error_builder(vm);
             let builder = builder.filename(src.filename(vm));
             let builder = builder.filename2(dst.filename(vm));
@@ -1567,7 +1418,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn cpu_count(vm: &VirtualMachine) -> PyObjectRef {
-        let cpu_count = num_cpus::get();
+        let cpu_count = crate::host_env::os::cpu_count();
         vm.ctx.new_int(cpu_count).into()
     }
 
@@ -1596,7 +1447,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     pub fn isatty(fd: i32) -> bool {
-        unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
+        crate::host_env::os::isatty(fd)
     }
 
     #[pyfunction]
@@ -1606,32 +1457,7 @@ pub(super) mod _os {
         how: i32,
         vm: &VirtualMachine,
     ) -> PyResult<crt_fd::Offset> {
-        #[cfg(not(windows))]
-        let res = unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) };
-        #[cfg(windows)]
-        let res = unsafe {
-            use std::os::windows::io::AsRawHandle;
-            use windows_sys::Win32::Storage::FileSystem;
-            let handle = crt_fd::as_handle(fd).map_err(|e| e.into_pyexception(vm))?;
-            let mut distance_to_move: [i32; 2] = core::mem::transmute(position);
-            let ret = FileSystem::SetFilePointer(
-                handle.as_raw_handle(),
-                distance_to_move[0],
-                &mut distance_to_move[1],
-                how as _,
-            );
-            if ret == FileSystem::INVALID_SET_FILE_POINTER {
-                -1
-            } else {
-                distance_to_move[0] = ret as _;
-                core::mem::transmute::<[i32; 2], i64>(distance_to_move)
-            }
-        };
-        if res < 0 {
-            Err(vm.new_last_os_error())
-        } else {
-            Ok(res)
-        }
+        crate::host_env::os::seek_fd(fd, position, how).map_err(|e| e.into_pyexception(vm))
     }
 
     #[derive(FromArgs)]
@@ -1661,20 +1487,9 @@ pub(super) mod _os {
                 .map_err(|_| vm.new_value_error("embedded null byte"))?;
 
             let follow = follow_symlinks.into_option().unwrap_or(true);
-            let flags = if follow { libc::AT_SYMLINK_FOLLOW } else { 0 };
-
-            let ret = unsafe {
-                libc::linkat(
-                    libc::AT_FDCWD,
-                    src_cstr.as_ptr(),
-                    libc::AT_FDCWD,
-                    dst_cstr.as_ptr(),
-                    flags,
-                )
-            };
-
-            if ret != 0 {
-                let err = std::io::Error::last_os_error();
+            if let Err(err) =
+                crate::host_env::posix::link_paths(src_cstr.as_c_str(), dst_cstr.as_c_str(), follow)
+            {
                 let builder = err.to_os_error_builder(vm);
                 let builder = builder.filename(src.filename(vm));
                 let builder = builder.filename2(dst.filename(vm));
@@ -1711,7 +1526,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn system(command: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
         let cstr = command.to_cstring(vm)?;
-        let x = unsafe { libc::system(cstr.as_ptr()) };
+        let x = crate::host_env::os::system(cstr.as_c_str());
         Ok(x)
     }
 
@@ -1795,31 +1610,14 @@ pub(super) mod _os {
             {
                 let path_for_err = path.clone();
                 let path = path.into_cstring(vm)?;
-
-                let ts = |d: Duration| libc::timespec {
-                    tv_sec: d.as_secs() as _,
-                    tv_nsec: d.subsec_nanos() as _,
-                };
-                let times = [ts(acc), ts(modif)];
-
-                let ret = unsafe {
-                    libc::utimensat(
-                        dir_fd.get().as_raw(),
-                        path.as_ptr(),
-                        times.as_ptr(),
-                        if _follow_symlinks.0 {
-                            0
-                        } else {
-                            libc::AT_SYMLINK_NOFOLLOW
-                        },
-                    )
-                };
-                if ret < 0 {
-                    Err(OSErrorBuilder::with_filename(
-                        &io::Error::last_os_error(),
-                        path_for_err,
-                        vm,
-                    ))
+                if let Err(err) = crate::host_env::posix::set_file_times_at(
+                    dir_fd.get().as_raw(),
+                    path.as_c_str(),
+                    acc,
+                    modif,
+                    _follow_symlinks.0,
+                ) {
+                    Err(OSErrorBuilder::with_filename(&err, path_for_err, vm))
                 } else {
                     Ok(())
                 }
@@ -1827,21 +1625,12 @@ pub(super) mod _os {
             #[cfg(target_os = "redox")]
             {
                 let [] = dir_fd.0;
-
-                let tv = |d: Duration| libc::timeval {
-                    tv_sec: d.as_secs() as _,
-                    tv_usec: d.as_micros() as _,
-                };
-                nix::sys::stat::utimes(path.as_ref(), &tv(acc).into(), &tv(modif).into())
+                rustpython_host_env::posix::utimes(path.as_ref(), acc, modif)
                     .map_err(|err| err.into_pyexception(vm))
             }
         }
         #[cfg(windows)]
         {
-            use std::os::windows::prelude::*;
-            type DWORD = u32;
-            use windows_sys::Win32::{Foundation::FILETIME, Storage::FileSystem};
-
             let [] = dir_fd.0;
 
             if !_follow_symlinks.0 {
@@ -1850,37 +1639,8 @@ pub(super) mod _os {
                 ));
             }
 
-            let ft = |d: Duration| {
-                let intervals = ((d.as_secs() as i64 + 11644473600) * 10_000_000)
-                    + (d.subsec_nanos() as i64 / 100);
-                FILETIME {
-                    dwLowDateTime: intervals as DWORD,
-                    dwHighDateTime: (intervals >> 32) as DWORD,
-                }
-            };
-
-            let acc = ft(acc);
-            let modif = ft(modif);
-
-            let f = crate::host_env::fs::open_write_with_custom_flags(
-                &path,
-                windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS,
-            )
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-
-            let ret = unsafe {
-                FileSystem::SetFileTime(f.as_raw_handle() as _, core::ptr::null(), &acc, &modif)
-            };
-
-            if ret == 0 {
-                Err(OSErrorBuilder::with_filename(
-                    &io::Error::last_os_error(),
-                    path,
-                    vm,
-                ))
-            } else {
-                Ok(())
-            }
+            crate::host_env::os::set_file_times(&path, acc, modif)
+                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
         }
     }
 
@@ -1909,32 +1669,12 @@ pub(super) mod _os {
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
-            use core::mem::MaybeUninit;
-            use windows_sys::Win32::{Foundation::FILETIME, System::Threading};
-
-            let mut _create = MaybeUninit::<FILETIME>::uninit();
-            let mut _exit = MaybeUninit::<FILETIME>::uninit();
-            let mut kernel = MaybeUninit::<FILETIME>::uninit();
-            let mut user = MaybeUninit::<FILETIME>::uninit();
-
-            unsafe {
-                let h_proc = Threading::GetCurrentProcess();
-                Threading::GetProcessTimes(
-                    h_proc,
-                    _create.as_mut_ptr(),
-                    _exit.as_mut_ptr(),
-                    kernel.as_mut_ptr(),
-                    user.as_mut_ptr(),
-                );
-            }
-
-            let kernel = unsafe { kernel.assume_init() };
-            let user = unsafe { user.assume_init() };
+            let times = crate::host_env::time::get_process_times_100ns()
+                .ok_or_else(|| vm.new_last_os_error())?;
 
             let times_result = TimesResultData {
-                user: user.dwHighDateTime as f64 * 429.4967296 + user.dwLowDateTime as f64 * 1e-7,
-                system: kernel.dwHighDateTime as f64 * 429.4967296
-                    + kernel.dwLowDateTime as f64 * 1e-7,
+                user: times.user as f64 * 1e-7,
+                system: times.system as f64 * 1e-7,
                 children_user: 0.0,
                 children_system: 0.0,
                 elapsed: 0.0,
@@ -1944,27 +1684,15 @@ pub(super) mod _os {
         }
         #[cfg(unix)]
         {
-            let mut t = libc::tms {
-                tms_utime: 0,
-                tms_stime: 0,
-                tms_cutime: 0,
-                tms_cstime: 0,
-            };
-
-            let tick_for_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
-            let c = unsafe { libc::times(&mut t as *mut _) };
-
-            // XXX: The signedness of `clock_t` varies from platform to platform.
-            if c == (-1i8) as libc::clock_t {
-                return Err(vm.new_os_error("Fail to get times".to_string()));
-            }
+            let times = crate::host_env::time::process_times()
+                .map_err(|_| vm.new_os_error("Fail to get times".to_string()))?;
 
             let times_result = TimesResultData {
-                user: t.tms_utime as f64 / tick_for_second,
-                system: t.tms_stime as f64 / tick_for_second,
-                children_user: t.tms_cutime as f64 / tick_for_second,
-                children_system: t.tms_cstime as f64 / tick_for_second,
-                elapsed: c as f64 / tick_for_second,
+                user: times.user,
+                system: times.system,
+                children_user: times.children_user,
+                children_system: times.children_system,
+                elapsed: times.elapsed,
             };
 
             Ok(times_result.to_pyobject(vm))
@@ -1989,44 +1717,24 @@ pub(super) mod _os {
     #[cfg(target_os = "linux")]
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
-        #[allow(clippy::unnecessary_option_map_or_else)]
-        let p_offset_src = args.offset_src.as_ref().map_or_else(core::ptr::null, |x| x);
-        #[allow(clippy::unnecessary_option_map_or_else)]
-        let p_offset_dst = args.offset_dst.as_ref().map_or_else(core::ptr::null, |x| x);
         let count: usize = args
             .count
             .try_into()
             .map_err(|_| vm.new_value_error("count should >= 0"))?;
 
-        // The flags argument is provided to allow
-        // for future extensions and currently must be to 0.
-        let flags = 0u32;
-
-        // Safety: p_offset_src and p_offset_dst is a unique pointer for offset_src and offset_dst respectively,
-        // and will only be freed after this function ends.
-        //
-        // Why not use `libc::copy_file_range`: On `musl-libc`, `libc::copy_file_range` is not provided. Therefore
-        // we use syscalls directly instead.
-        let ret = unsafe {
-            libc::syscall(
-                libc::SYS_copy_file_range,
-                args.src,
-                p_offset_src as *mut i64,
-                args.dst,
-                p_offset_dst as *mut i64,
-                count,
-                flags,
-            )
-        };
-
-        usize::try_from(ret).map_err(|_| vm.new_last_errno_error())
+        crate::host_env::os::copy_file_range(
+            args.src,
+            args.offset_src.as_mut(),
+            args.dst,
+            args.offset_dst.as_mut(),
+            count,
+        )
+        .map_err(|_| vm.new_last_errno_error())
     }
 
     #[pyfunction]
     fn strerror(e: i32) -> String {
-        unsafe { core::ffi::CStr::from_ptr(libc::strerror(e)) }
-            .to_string_lossy()
-            .into_owned()
+        crate::host_env::time::strerror(e)
     }
 
     #[pyfunction]
@@ -2065,16 +1773,8 @@ pub(super) mod _os {
     #[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
     #[pyfunction]
     fn getloadavg(vm: &VirtualMachine) -> PyResult<(f64, f64, f64)> {
-        let mut loadavg = [0f64; 3];
-
-        // Safety: loadavg is on stack and only write by `getloadavg` and are freed
-        // after this function ends.
-        unsafe {
-            if libc::getloadavg(&mut loadavg[0] as *mut f64, 3) != 3 {
-                return Err(vm.new_os_error("Load averages are unobtainable".to_string()));
-            }
-        }
-
+        let loadavg = crate::host_env::time::getloadavg()
+            .map_err(|_| vm.new_os_error("Load averages are unobtainable".to_string()))?;
         Ok((loadavg[0], loadavg[1], loadavg[2]))
     }
 
@@ -2084,16 +1784,12 @@ pub(super) mod _os {
         let status = u32::try_from(status)
             .map_err(|_| vm.new_value_error(format!("invalid WEXITSTATUS: {status}")))?;
 
-        let status = status as libc::c_int;
-        if libc::WIFEXITED(status) {
-            return Ok(libc::WEXITSTATUS(status));
+        if let Some(exitcode) = crate::host_env::time::waitstatus_to_exitcode(status as libc::c_int)
+        {
+            return Ok(exitcode);
         }
 
-        if libc::WIFSIGNALED(status) {
-            return Ok(-libc::WTERMSIG(status));
-        }
-
-        Err(vm.new_value_error(format!("Invalid wait status: {status}")))
+        Err(vm.new_value_error(format!("Invalid wait status: {}", status as libc::c_int)))
     }
 
     #[cfg(windows)]
@@ -2112,33 +1808,7 @@ pub(super) mod _os {
             return Ok(None);
         }
 
-        cfg_select! {
-            any(target_os = "android", target_os = "redox") => {
-                Ok(Some("UTF-8".to_owned()))
-            }
-            windows => {
-                use windows_sys::Win32::System::Console;
-                let cp = match fd {
-                    0 => unsafe { Console::GetConsoleCP() },
-                    1 | 2 => unsafe { Console::GetConsoleOutputCP() },
-                    _ => 0,
-                };
-
-                Ok(Some(format!("cp{cp}")))
-            }
-            _ => {
-                let encoding = unsafe {
-                    let encoding = libc::nl_langinfo(libc::CODESET);
-                    if encoding.is_null() || encoding.read() == b'\0' as libc::c_char {
-                        "UTF-8".to_owned()
-                    } else {
-                        core::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
-                    }
-                };
-
-                Ok(Some(encoding))
-            }
-        }
+        Ok(rustpython_host_env::os::device_encoding(fd))
     }
 
     #[pystruct_sequence_data]
@@ -2209,27 +1879,7 @@ pub(super) mod _os {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     impl StatvfsResultData {
-        fn from_statvfs(st: libc::statvfs) -> Self {
-            // f_fsid is a struct on some platforms (e.g., Linux fsid_t) and a scalar on others.
-            // We extract raw bytes and interpret as a native-endian integer.
-            // Note: The value may differ across architectures due to endianness.
-            let f_fsid = {
-                let ptr = core::ptr::addr_of!(st.f_fsid) as *const u8;
-                let size = core::mem::size_of_val(&st.f_fsid);
-                if size >= 8 {
-                    let bytes = unsafe { core::slice::from_raw_parts(ptr, 8) };
-                    u64::from_ne_bytes([
-                        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6],
-                        bytes[7],
-                    ]) as libc::c_ulong
-                } else if size >= 4 {
-                    let bytes = unsafe { core::slice::from_raw_parts(ptr, 4) };
-                    u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as libc::c_ulong
-                } else {
-                    0
-                }
-            };
-
+        fn from_statvfs(st: crate::host_env::posix::StatVfsInfo) -> Self {
             Self {
                 f_bsize: st.f_bsize,
                 f_frsize: st.f_frsize,
@@ -2241,7 +1891,7 @@ pub(super) mod _os {
                 f_favail: st.f_favail,
                 f_flag: st.f_flag,
                 f_namemax: st.f_namemax,
-                f_fsid,
+                f_fsid: st.f_fsid,
             }
         }
     }
@@ -2251,22 +1901,17 @@ pub(super) mod _os {
     #[pyfunction]
     #[pyfunction(name = "fstatvfs")]
     fn statvfs(path: OsPathOrFd<'_>, vm: &VirtualMachine) -> PyResult {
-        let mut st: libc::statvfs = unsafe { core::mem::zeroed() };
-        let ret = match &path {
+        let st = match &path {
             OsPathOrFd::Path(p) => {
                 let cpath = p.clone().into_cstring(vm)?;
-                unsafe { libc::statvfs(cpath.as_ptr(), &mut st) }
+                crate::host_env::posix::statvfs_path(cpath.as_c_str())
             }
-            OsPathOrFd::Fd(fd) => unsafe { libc::fstatvfs(fd.as_raw(), &mut st) },
+            OsPathOrFd::Fd(fd) => crate::host_env::posix::statvfs_fd(fd.as_raw()),
         };
-        if ret != 0 {
-            return Err(OSErrorBuilder::with_filename(
-                &io::Error::last_os_error(),
-                path,
-                vm,
-            ));
+        if let Err(err) = st {
+            return Err(OSErrorBuilder::with_filename(&err, path, vm));
         }
-        Ok(StatvfsResultData::from_statvfs(st).to_pyobject(vm))
+        Ok(StatvfsResultData::from_statvfs(st.unwrap()).to_pyobject(vm))
     }
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {
@@ -2304,7 +1949,7 @@ pub(super) mod _os {
         supports
     }
 }
-pub(crate) use _os::{ftruncate, isatty, lseek};
+pub(crate) use _os::ftruncate;
 
 pub(crate) struct SupportFunc {
     name: &'static str,

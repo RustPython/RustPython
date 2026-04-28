@@ -4,7 +4,14 @@ extern crate alloc;
 mod macros;
 pub use macros::*;
 
+pub mod ctypes;
+#[cfg(any(unix, windows, target_os = "wasi"))]
+pub mod errno;
+#[cfg(any(unix, windows, target_os = "wasi"))]
+pub mod io;
 pub mod os;
+#[cfg(any(unix, windows))]
+pub mod thread;
 
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod crt_fd;
@@ -13,6 +20,8 @@ pub mod crt_fd;
 pub mod fileutils;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod fs;
+#[cfg(any(unix, windows))]
+pub mod locale;
 
 #[cfg(windows)]
 pub mod windows;
@@ -21,22 +30,46 @@ pub mod windows;
 pub mod fcntl;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod select;
+#[cfg(any(unix, windows))]
+pub mod socket;
 #[cfg(unix)]
 pub mod syslog;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
 pub mod termios;
 
 #[cfg(unix)]
+pub mod grp;
+#[cfg(unix)]
 pub mod posix;
+#[cfg(unix)]
+pub mod pwd;
+#[cfg(unix)]
+pub mod resource;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
 pub mod shm;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub mod signal;
 pub mod time;
 
 #[cfg(windows)]
+pub mod cert_store;
+#[cfg(any(unix, windows))]
+pub mod faulthandler;
+#[cfg(any(unix, windows))]
+pub mod mmap;
+#[cfg(windows)]
 pub mod msvcrt;
+#[cfg(any(unix, windows))]
+pub mod multiprocessing;
 #[cfg(windows)]
 pub mod nt;
 #[cfg(windows)]
+pub mod overlapped;
+#[cfg(windows)]
+pub mod testconsole;
+#[cfg(windows)]
 pub mod winapi;
+#[cfg(windows)]
+pub mod winreg;
+#[cfg(windows)]
+pub mod wmi;

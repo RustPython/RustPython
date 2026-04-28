@@ -42,7 +42,7 @@ mod decl {
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         #[cfg(windows)]
-        crate::vm::windows::init_winsock();
+        rustpython_host_env::windows::init_winsock();
 
         #[cfg(unix)]
         {
@@ -165,7 +165,6 @@ mod decl {
             stdlib::_io::Fildes,
         };
         use core::{convert::TryFrom, time::Duration};
-        use libc::pollfd;
         use num_traits::{Signed, ToPrimitive};
         use std::time::Instant;
 
@@ -215,34 +214,7 @@ mod decl {
         #[derive(Default, Debug, PyPayload)]
         pub struct PyPoll {
             // keep sorted
-            fds: PyMutex<Vec<pollfd>>,
-        }
-
-        #[inline]
-        fn search(fds: &[pollfd], fd: i32) -> Result<usize, usize> {
-            fds.binary_search_by_key(&fd, |pfd| pfd.fd)
-        }
-
-        fn insert_fd(fds: &mut Vec<pollfd>, fd: i32, events: i16) {
-            match search(fds, fd) {
-                Ok(i) => fds[i].events = events,
-                Err(i) => fds.insert(
-                    i,
-                    pollfd {
-                        fd,
-                        events,
-                        revents: 0,
-                    },
-                ),
-            }
-        }
-
-        fn get_fd_mut(fds: &mut [pollfd], fd: i32) -> Option<&mut pollfd> {
-            search(fds, fd).ok().map(move |i| &mut fds[i])
-        }
-
-        fn remove_fd(fds: &mut Vec<pollfd>, fd: i32) -> Option<pollfd> {
-            search(fds, fd).ok().map(|i| fds.remove(i))
+            fds: PyMutex<Vec<host_select::PollFd>>,
         }
 
         // new EventMask type
@@ -284,7 +256,7 @@ mod decl {
                     OptionalArg::Present(event_mask) => event_mask.0,
                     OptionalArg::Missing => DEFAULT_EVENTS,
                 };
-                insert_fd(&mut self.fds.lock(), fd, mask);
+                host_select::insert_poll_fd(&mut self.fds.lock(), fd, mask);
                 Ok(())
             }
 
@@ -297,7 +269,7 @@ mod decl {
             ) -> PyResult<()> {
                 let mut fds = self.fds.lock();
                 // CPython raises KeyError if fd is not registered, match that behavior
-                let pfd = get_fd_mut(&mut fds, fd)
+                let pfd = host_select::get_poll_fd_mut(&mut fds, fd)
                     .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))?;
                 pfd.events = eventmask.0;
                 Ok(())
@@ -305,7 +277,7 @@ mod decl {
 
             #[pymethod]
             fn unregister(&self, Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<()> {
-                let removed = remove_fd(&mut self.fds.lock(), fd);
+                let removed = host_select::remove_poll_fd(&mut self.fds.lock(), fd);
                 removed
                     .map(drop)
                     .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))
@@ -327,13 +299,12 @@ mod decl {
                 let deadline = timeout.map(|d| Instant::now() + d);
                 let mut poll_timeout = timeout_ms;
                 loop {
-                    let res = vm.allow_threads(|| unsafe {
-                        libc::poll(fds.as_mut_ptr(), fds.len() as _, poll_timeout)
-                    });
-                    match nix::Error::result(res) {
+                    match vm.allow_threads(|| host_select::poll_fds(&mut fds, poll_timeout)) {
                         Ok(_) => break,
-                        Err(nix::Error::EINTR) => vm.check_signals()?,
-                        Err(e) => return Err(e.into_pyexception(vm)),
+                        Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                            vm.check_signals()?
+                        }
+                        Err(err) => return Err(err.into_pyexception(vm)),
                     }
                     if let Some(d) = deadline {
                         if let Some(remaining) = d.checked_duration_since(Instant::now()) {
@@ -383,8 +354,7 @@ mod decl {
             types::Constructor,
         };
         use core::ops::Deref;
-        use rustix::event::epoll::{self, EventData, EventFlags};
-        use std::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
+        use std::os::fd::{AsRawFd, OwnedFd};
         use std::time::Instant;
 
         #[pyclass(module = "select", name = "epoll")]
@@ -426,7 +396,7 @@ mod decl {
         #[pyclass(with(Constructor))]
         impl PyEpoll {
             fn new() -> std::io::Result<Self> {
-                let epoll_fd = epoll::create(epoll::CreateFlags::CLOEXEC)?;
+                let epoll_fd = host_select::epoll::create()?;
                 let epoll_fd = Some(epoll_fd).into();
                 Ok(Self { epoll_fd })
             }
@@ -435,7 +405,7 @@ mod decl {
             fn close(&self) -> std::io::Result<()> {
                 let fd = self.epoll_fd.write().take();
                 if let Some(fd) = fd {
-                    nix::unistd::close(fd.into_raw_fd())?;
+                    host_select::epoll::close(fd)?;
                 }
                 Ok(())
             }
@@ -472,26 +442,28 @@ mod decl {
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
                 let events = match eventmask {
-                    OptionalArg::Present(mask) => EventFlags::from_bits_retain(mask),
-                    OptionalArg::Missing => EventFlags::IN | EventFlags::PRI | EventFlags::OUT,
+                    OptionalArg::Present(mask) => mask,
+                    OptionalArg::Missing => (host_select::epoll::EventFlags::IN
+                        | host_select::epoll::EventFlags::PRI
+                        | host_select::epoll::EventFlags::OUT)
+                        .bits(),
                 };
                 let epoll_fd = &*self.get_epoll(vm)?;
-                let data = EventData::new_u64(fd.as_raw_fd() as u64);
-                epoll::add(epoll_fd, fd, data, events).map_err(|e| e.into_pyexception(vm))
+                host_select::epoll::add(epoll_fd, fd, fd.as_raw_fd() as u64, events)
+                    .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
             fn modify(&self, fd: Fildes, eventmask: u32, vm: &VirtualMachine) -> PyResult<()> {
-                let events = EventFlags::from_bits_retain(eventmask);
                 let epoll_fd = &*self.get_epoll(vm)?;
-                let data = EventData::new_u64(fd.as_raw_fd() as u64);
-                epoll::modify(epoll_fd, fd, data, events).map_err(|e| e.into_pyexception(vm))
+                host_select::epoll::modify(epoll_fd, fd, fd.as_raw_fd() as u64, eventmask)
+                    .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
             fn unregister(&self, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
                 let epoll_fd = &*self.get_epoll(vm)?;
-                epoll::delete(epoll_fd, fd).map_err(|e| e.into_pyexception(vm))
+                host_select::epoll::delete(epoll_fd, fd).map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
@@ -499,11 +471,10 @@ mod decl {
                 let poll::TimeoutArg(timeout) = args.timeout;
                 let maxevents = args.maxevents;
 
-                let mut poll_timeout =
-                    timeout
-                        .map(rustix::event::Timespec::try_from)
-                        .transpose()
-                        .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
+                let mut poll_timeout = timeout
+                    .map(host_select::epoll::Timespec::try_from)
+                    .transpose()
+                    .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
 
                 let deadline = timeout.map(|d| Instant::now() + d);
                 let maxevents = match maxevents {
@@ -516,22 +487,19 @@ mod decl {
                     _ => maxevents as usize,
                 };
 
-                let mut events = Vec::<epoll::Event>::with_capacity(maxevents);
+                let mut events = Vec::<host_select::epoll::Event>::with_capacity(maxevents);
 
                 let epoll = &*self.get_epoll(vm)?;
 
                 loop {
-                    events.clear();
                     match vm.allow_threads(|| {
-                        epoll::wait(
-                            epoll,
-                            rustix::buffer::spare_capacity(&mut events),
-                            poll_timeout.as_ref(),
-                        )
+                        host_select::epoll::wait(epoll, &mut events, poll_timeout.as_ref())
                     }) {
                         Ok(_) => break,
-                        Err(rustix::io::Errno::INTR) => vm.check_signals()?,
-                        Err(e) => return Err(e.into_pyexception(vm)),
+                        Err(host_select::epoll::WaitError::Interrupted) => vm.check_signals()?,
+                        Err(host_select::epoll::WaitError::Io(e)) => {
+                            return Err(e.into_pyexception(vm));
+                        }
                     }
                     if let Some(deadline) = deadline {
                         if let Some(new_timeout) = deadline.checked_duration_since(Instant::now()) {

@@ -1372,26 +1372,17 @@ mod _ssl {
         ) -> PyResult<()> {
             #[cfg(windows)]
             {
-                // Windows: Use schannel to load from both ROOT and CA stores
-                use schannel::cert_store::CertStore;
-
                 let store_names = ["ROOT", "CA"];
-                let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
 
                 for store_name in store_names {
-                    for open_fn in &open_fns {
-                        if let Ok(cert_store) = open_fn(store_name) {
-                            for cert_ctx in cert_store.certs() {
-                                let der_bytes = cert_ctx.to_der();
-                                let cert =
-                                    rustls::pki_types::CertificateDer::from(der_bytes.to_vec());
-                                let is_ca = cert::is_ca_certificate(cert.as_ref());
-                                if store.add(cert).is_ok() {
-                                    *self.x509_cert_count.write() += 1;
-                                    if is_ca {
-                                        *self.ca_cert_count.write() += 1;
-                                    }
-                                }
+                    let certs = rustpython_host_env::cert_store::enum_certificates(store_name);
+                    for cert_ctx in certs.entries {
+                        let cert = rustls::pki_types::CertificateDer::from(cert_ctx.der.to_vec());
+                        let is_ca = cert::is_ca_certificate(cert.as_ref());
+                        if store.add(cert).is_ok() {
+                            *self.x509_cert_count.write() += 1;
+                            if is_ca {
+                                *self.ca_cert_count.write() += 1;
                             }
                         }
                     }
@@ -4972,40 +4963,29 @@ mod _ssl {
         store_name: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        use schannel::{RawPointer, cert_context::ValidUses, cert_store::CertStore};
-        use windows_sys::Win32::Security::Cryptography;
-
         let store_name_str = store_name.as_str();
-
-        // Try both Current User and Local Machine stores
-        let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
-        let stores = open_fns
-            .iter()
-            .filter_map(|open| open(store_name_str).ok())
-            .collect::<Vec<_>>();
-
-        // If no stores could be opened, raise OSError
-        if stores.is_empty() {
+        let certs = rustpython_host_env::cert_store::enum_certificates(store_name_str);
+        if !certs.had_open_store {
             return Err(vm.new_os_error(format!(
                 "failed to open certificate store {:?}",
                 store_name_str
             )));
         }
 
-        let certs = stores.iter().flat_map(|s| s.certs()).map(|c| {
-            let cert = vm.ctx.new_bytes(c.to_der().to_owned());
-            let enc_type = unsafe {
-                let ptr = c.as_ptr() as *const Cryptography::CERT_CONTEXT;
-                (*ptr).dwCertEncodingType
+        let certs = certs.entries.into_iter().map(|c| {
+            let cert = vm.ctx.new_bytes(c.der);
+            let enc_type = match c.encoding {
+                rustpython_host_env::cert_store::EncodingType::X509Asn => vm.new_pyobj("x509_asn"),
+                rustpython_host_env::cert_store::EncodingType::Pkcs7Asn => {
+                    vm.new_pyobj("pkcs_7_asn")
+                }
+                rustpython_host_env::cert_store::EncodingType::Other(other) => vm.new_pyobj(other),
             };
-            let enc_type = match enc_type {
-                Cryptography::X509_ASN_ENCODING => vm.new_pyobj("x509_asn"),
-                Cryptography::PKCS_7_ASN_ENCODING => vm.new_pyobj("pkcs_7_asn"),
-                other => vm.new_pyobj(other),
-            };
-            let usage: PyObjectRef = match c.valid_uses() {
-                Ok(ValidUses::All) => vm.ctx.new_bool(true).into(),
-                Ok(ValidUses::Oids(oids)) => {
+            let usage: PyObjectRef = match c.valid_uses {
+                Ok(rustpython_host_env::cert_store::CertificateUses::All) => {
+                    vm.ctx.new_bool(true).into()
+                }
+                Ok(rustpython_host_env::cert_store::CertificateUses::Oids(oids)) => {
                     match crate::builtins::PyFrozenSet::from_iter(
                         vm,
                         oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()),
@@ -5024,55 +5004,31 @@ mod _ssl {
     #[cfg(windows)]
     #[pyfunction]
     fn enum_crls(store_name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        use windows_sys::Win32::Security::Cryptography::{
-            CRL_CONTEXT, CertCloseStore, CertEnumCRLsInStore, CertOpenSystemStoreW,
-            X509_ASN_ENCODING,
-        };
-
         let store_name_str = store_name.as_str();
-        let store_name_wide: Vec<u16> = store_name_str
-            .encode_utf16()
-            .chain(core::iter::once(0))
-            .collect();
-
-        // Open system store
-        let store = unsafe { CertOpenSystemStoreW(0, store_name_wide.as_ptr()) };
-
-        if store.is_null() {
-            return Err(vm.new_os_error(format!(
+        let crls = rustpython_host_env::cert_store::enum_crls(store_name_str).map_err(|_| {
+            vm.new_os_error(format!(
                 "failed to open certificate store {:?}",
                 store_name_str
-            )));
-        }
+            ))
+        })?;
 
-        let mut result = Vec::new();
-
-        let mut crl_context: *const CRL_CONTEXT = core::ptr::null();
-        loop {
-            crl_context = unsafe { CertEnumCRLsInStore(store, crl_context) };
-            if crl_context.is_null() {
-                break;
-            }
-
-            let crl = unsafe { &*crl_context };
-            let crl_bytes =
-                unsafe { core::slice::from_raw_parts(crl.pbCrlEncoded, crl.cbCrlEncoded as usize) };
-
-            let enc_type = if crl.dwCertEncodingType == X509_ASN_ENCODING {
-                vm.new_pyobj("x509_asn")
-            } else {
-                vm.new_pyobj(crl.dwCertEncodingType)
-            };
-
-            result.push(
-                vm.new_tuple((vm.ctx.new_bytes(crl_bytes.to_vec()), enc_type))
-                    .into(),
-            );
-        }
-
-        unsafe { CertCloseStore(store, 0) };
-
-        Ok(result)
+        Ok(crls
+            .into_iter()
+            .map(|crl| {
+                let enc_type = match crl.encoding {
+                    rustpython_host_env::cert_store::EncodingType::X509Asn => {
+                        vm.new_pyobj("x509_asn")
+                    }
+                    rustpython_host_env::cert_store::EncodingType::Pkcs7Asn => {
+                        vm.new_pyobj("pkcs_7_asn")
+                    }
+                    rustpython_host_env::cert_store::EncodingType::Other(other) => {
+                        vm.new_pyobj(other)
+                    }
+                };
+                vm.new_tuple((vm.ctx.new_bytes(crl.der), enc_type)).into()
+            })
+            .collect())
     }
 
     // Certificate type for SSL module (pure Rust implementation)

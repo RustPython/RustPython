@@ -13,11 +13,13 @@ pub(crate) mod _signal {
         function::{ArgIntoFloat, OptionalArg},
     };
     use core::sync::atomic::{self, Ordering};
+    #[cfg(any(unix, windows))]
+    use rustpython_host_env::signal::{self as host_signal, sighandler_t};
     #[cfg(unix)]
     use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
+    #[cfg(unix)]
+    use std::os::fd::AsFd;
 
-    #[cfg(any(unix, windows))]
-    use libc::sighandler_t;
     #[allow(non_camel_case_types)]
     #[cfg(not(any(unix, windows)))]
     type sighandler_t = usize;
@@ -26,7 +28,7 @@ pub(crate) mod _signal {
         windows => {
             type WakeupFdRaw = libc::SOCKET;
             struct WakeupFd(WakeupFdRaw);
-            const INVALID_WAKEUP: libc::SOCKET = windows_sys::Win32::Networking::WinSock::INVALID_SOCKET;
+            const INVALID_WAKEUP: libc::SOCKET = host_signal::INVALID_SOCKET;
             static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
             // windows doesn't use the same fds for files and sockets like windows does, so we need
             // this to know whether to send() or write()
@@ -57,9 +59,8 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
+    #[allow(unused_imports)]
     pub use libc::SIG_ERR;
-    #[cfg(unix)]
-    pub use nix::unistd::alarm as sig_alarm;
 
     #[cfg(unix)]
     #[pyattr]
@@ -80,23 +81,6 @@ pub(crate) mod _signal {
     #[allow(dead_code)]
     pub const SIG_ERR: sighandler_t = -1 as _;
 
-    #[cfg(all(unix, not(target_os = "redox")))]
-    unsafe extern "C" {
-        fn siginterrupt(sig: i32, flag: i32) -> i32;
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    mod ffi {
-        unsafe extern "C" {
-            pub fn getitimer(which: libc::c_int, curr_value: *mut libc::itimerval) -> libc::c_int;
-            pub fn setitimer(
-                which: libc::c_int,
-                new_value: *const libc::itimerval,
-                old_value: *mut libc::itimerval,
-            ) -> libc::c_int;
-        }
-    }
-
     #[pyattr]
     use crate::signal::NSIG;
 
@@ -106,15 +90,15 @@ pub(crate) mod _signal {
 
     #[cfg(windows)]
     #[pyattr]
-    const SIGBREAK: i32 = 21; // _SIGBREAK
+    const SIGBREAK: i32 = host_signal::SIGBREAK;
 
     // Windows-specific control events for GenerateConsoleCtrlEvent
     #[cfg(windows)]
     #[pyattr]
-    const CTRL_C_EVENT: u32 = 0;
+    const CTRL_C_EVENT: u32 = host_signal::CTRL_C_EVENT;
     #[cfg(windows)]
     #[pyattr]
-    const CTRL_BREAK_EVENT: u32 = 1;
+    const CTRL_BREAK_EVENT: u32 = host_signal::CTRL_BREAK_EVENT;
 
     #[cfg(unix)]
     #[pyattr]
@@ -169,10 +153,9 @@ pub(crate) mod _signal {
             let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
             for signum in 1..NSIG {
-                let handler = unsafe { libc::signal(signum as i32, SIG_IGN) };
-                if handler != SIG_ERR {
-                    unsafe { libc::signal(signum as i32, handler) };
-                }
+                let Some(handler) = (unsafe { host_signal::probe_handler(signum as i32) }) else {
+                    continue;
+                };
                 let py_handler = if handler == SIG_DFL {
                     Some(sig_dfl.clone())
                 } else if handler == SIG_IGN {
@@ -212,16 +195,7 @@ pub(crate) mod _signal {
         signal::assert_in_range(signalnum, vm)?;
         #[cfg(windows)]
         {
-            const VALID_SIGNALS: &[i32] = &[
-                libc::SIGINT,
-                libc::SIGILL,
-                libc::SIGFPE,
-                libc::SIGSEGV,
-                libc::SIGTERM,
-                SIGBREAK,
-                libc::SIGABRT,
-            ];
-            if !VALID_SIGNALS.contains(&signalnum) {
+            if !host_signal::is_valid_signal(signalnum) {
                 return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
             }
         }
@@ -240,14 +214,13 @@ pub(crate) mod _signal {
             };
         signal::check_signals(vm)?;
 
-        let old = unsafe { libc::signal(signalnum, sig_handler) };
-        if old == SIG_ERR {
-            return Err(vm.new_os_error("Failed to set signal".to_owned()));
-        }
-        #[cfg(all(unix, not(target_os = "redox")))]
-        unsafe {
-            siginterrupt(signalnum, 1);
-        }
+        let old = unsafe { host_signal::install_handler(signalnum, sig_handler) };
+        let _old = match old {
+            Ok(old) => old,
+            Err(_) => {
+                return Err(vm.new_os_error("Failed to set signal".to_owned()));
+            }
+        };
 
         let signal_handlers = vm.signal_handlers.get_or_init(signal::new_signal_handlers);
         let old_handler = signal_handlers.borrow_mut()[signalnum as usize].replace(handler);
@@ -267,18 +240,13 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     #[pyfunction]
     fn alarm(time: u32) -> u32 {
-        let prev_time = if time == 0 {
-            sig_alarm::cancel()
-        } else {
-            sig_alarm::set(time)
-        };
-        prev_time.unwrap_or(0)
+        rustpython_host_env::signal::alarm(time)
     }
 
     #[cfg(unix)]
     #[pyfunction]
     fn pause(vm: &VirtualMachine) -> PyResult<()> {
-        unsafe { libc::pause() };
+        host_signal::pause();
         signal::check_signals(vm)?;
         Ok(())
     }
@@ -297,35 +265,25 @@ pub(crate) mod _signal {
             it_value: double_to_timeval(seconds),
             it_interval: double_to_timeval(interval),
         };
-        let mut old = core::mem::MaybeUninit::<libc::itimerval>::uninit();
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        let ret = unsafe { ffi::setitimer(which, &new, old.as_mut_ptr()) };
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
-        let ret = unsafe { libc::setitimer(which, &new, old.as_mut_ptr()) };
-        if ret != 0 {
-            let err = std::io::Error::last_os_error();
-            let itimer_error = itimer_error(vm);
-            return Err(vm.new_exception_msg(itimer_error, err.to_string().into()));
+        match host_signal::setitimer(which, &new) {
+            Ok(old) => Ok(itimerval_to_tuple(&old)),
+            Err(err) => {
+                let itimer_error = itimer_error(vm);
+                Err(vm.new_exception_msg(itimer_error, err.to_string().into()))
+            }
         }
-        let old = unsafe { old.assume_init() };
-        Ok(itimerval_to_tuple(&old))
     }
 
     #[cfg(unix)]
     #[pyfunction]
     fn getitimer(which: i32, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
-        let mut old = core::mem::MaybeUninit::<libc::itimerval>::uninit();
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        let ret = unsafe { ffi::getitimer(which, old.as_mut_ptr()) };
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
-        let ret = unsafe { libc::getitimer(which, old.as_mut_ptr()) };
-        if ret != 0 {
-            let err = std::io::Error::last_os_error();
-            let itimer_error = itimer_error(vm);
-            return Err(vm.new_exception_msg(itimer_error, err.to_string().into()));
+        match host_signal::getitimer(which) {
+            Ok(old) => Ok(itimerval_to_tuple(&old)),
+            Err(err) => {
+                let itimer_error = itimer_error(vm);
+                Err(vm.new_exception_msg(itimer_error, err.to_string().into()))
+            }
         }
-        let old = unsafe { old.assume_init() };
-        Ok(itimerval_to_tuple(&old))
     }
 
     #[pyfunction]
@@ -359,54 +317,25 @@ pub(crate) mod _signal {
 
         #[cfg(windows)]
         let is_socket = if fd != INVALID_WAKEUP {
-            use windows_sys::Win32::Networking::WinSock;
-
-            crate::windows::init_winsock();
-            let mut res = 0i32;
-            let mut res_size = core::mem::size_of::<i32>() as i32;
-            let res = unsafe {
-                WinSock::getsockopt(
-                    fd,
-                    WinSock::SOL_SOCKET,
-                    WinSock::SO_ERROR,
-                    &mut res as *mut i32 as *mut _,
-                    &mut res_size,
-                )
-            };
-            // if getsockopt succeeded, fd is for sure a socket
-            let is_socket = res == 0;
-            if !is_socket {
-                let err = std::io::Error::last_os_error();
-                // if getsockopt failed for some other reason, throw
-                if err.raw_os_error() != Some(WinSock::WSAENOTSOCK) {
-                    return Err(err.into_pyexception(vm));
+            host_signal::wakeup_fd_is_socket(fd).map_err(|err| {
+                if err.kind() == std::io::ErrorKind::InvalidInput {
+                    vm.new_value_error("invalid fd")
+                } else {
+                    err.into_pyexception(vm)
                 }
-                // Validate that fd is a valid file descriptor using fstat
-                // First check if SOCKET can be safely cast to i32 (file descriptor)
-                let fd_i32 = i32::try_from(fd).map_err(|_| vm.new_value_error("invalid fd"))?;
-                // Verify the fd is valid by trying to fstat it
-                let borrowed_fd =
-                    unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(fd_i32) }
-                        .map_err(|e| e.into_pyexception(vm))?;
-                rustpython_host_env::fileutils::fstat(borrowed_fd)
-                    .map_err(|e| e.into_pyexception(vm))?;
-            }
-            is_socket
+            })?
         } else {
             false
         };
         #[cfg(unix)]
-        if let Ok(fd) = unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(fd) } {
-            use nix::fcntl;
-            let oflags = fcntl::fcntl(fd, fcntl::F_GETFL).map_err(|e| e.into_pyexception(vm))?;
-            let nonblock =
-                fcntl::OFlag::from_bits_truncate(oflags).contains(fcntl::OFlag::O_NONBLOCK);
-            if !nonblock {
-                return Err(vm.new_value_error(format!(
-                    "the fd {} must be in non-blocking mode",
-                    fd.as_raw()
-                )));
-            }
+        if let Ok(fd) = unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(fd) }
+            && rustpython_host_env::fcntl::get_blocking(fd.as_fd())
+                .map_err(|e| e.into_pyexception(vm))?
+        {
+            return Err(vm.new_value_error(format!(
+                "the fd {} must be in non-blocking mode",
+                fd.as_raw()
+            )));
         }
 
         let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);
@@ -444,33 +373,14 @@ pub(crate) mod _signal {
         }
 
         let flags = flags.unwrap_or(0);
-        let ret = unsafe {
-            libc::syscall(
-                libc::SYS_pidfd_send_signal,
-                pidfd,
-                sig,
-                core::ptr::null::<libc::siginfo_t>(),
-                flags,
-            ) as libc::c_long
-        };
-
-        if ret == -1 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(())
-        }
+        host_signal::pidfd_send_signal(pidfd, sig, flags).map_err(|_| vm.new_last_errno_error())
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "siginterrupt")]
     fn py_siginterrupt(signum: i32, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
         signal::assert_in_range(signum, vm)?;
-        let res = unsafe { siginterrupt(signum, flag) };
-        if res < 0 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(())
-        }
+        host_signal::siginterrupt(signum, flag).map_err(|_| vm.new_last_errno_error())
     }
 
     /// CPython: signal_raise_signal (signalmodule.c)
@@ -482,25 +392,14 @@ pub(crate) mod _signal {
         // On Windows, only certain signals are supported
         #[cfg(windows)]
         {
-            // Windows supports: SIGINT(2), SIGILL(4), SIGFPE(8), SIGSEGV(11), SIGTERM(15), SIGBREAK(21), SIGABRT(22)
-            const VALID_SIGNALS: &[i32] = &[
-                libc::SIGINT,
-                libc::SIGILL,
-                libc::SIGFPE,
-                libc::SIGSEGV,
-                libc::SIGTERM,
-                SIGBREAK,
-                libc::SIGABRT,
-            ];
-            if !VALID_SIGNALS.contains(&signalnum) {
+            if !host_signal::is_valid_signal(signalnum) {
                 return Err(vm
                     .new_errno_error(libc::EINVAL, "Invalid argument")
                     .upcast());
             }
         }
 
-        let res = unsafe { libc::raise(signalnum) };
-        if res != 0 {
+        if host_signal::raise_signal(signalnum).is_err() {
             return Err(vm.new_os_error(format!("raise_signal failed for signal {}", signalnum)));
         }
 
@@ -517,13 +416,7 @@ pub(crate) mod _signal {
         if signalnum < 1 || signalnum >= signal::NSIG as i32 {
             return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
         }
-        let s = unsafe { libc::strsignal(signalnum) };
-        if s.is_null() {
-            Ok(None)
-        } else {
-            let cstr = unsafe { core::ffi::CStr::from_ptr(s) };
-            Ok(Some(cstr.to_string_lossy().into_owned()))
-        }
+        Ok(host_signal::strsignal(signalnum))
     }
 
     #[cfg(windows)]
@@ -532,18 +425,7 @@ pub(crate) mod _signal {
         if signalnum < 1 || signalnum >= signal::NSIG as i32 {
             return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
         }
-        // Windows doesn't have strsignal(), provide our own mapping
-        let name = match signalnum {
-            libc::SIGINT => "Interrupt",
-            libc::SIGILL => "Illegal instruction",
-            libc::SIGFPE => "Floating-point exception",
-            libc::SIGSEGV => "Segmentation fault",
-            libc::SIGTERM => "Terminated",
-            SIGBREAK => "Break",
-            libc::SIGABRT => "Aborted",
-            _ => return Ok(None),
-        };
-        Ok(Some(name.to_owned()))
+        Ok(host_signal::strsignal(signalnum))
     }
 
     /// CPython: signal_valid_signals (signalmodule.c)
@@ -552,35 +434,11 @@ pub(crate) mod _signal {
         use crate::PyPayload;
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
+        for signum in host_signal::valid_signals(signal::NSIG)
+            .map_err(|_| vm.new_os_error("sigfillset failed".to_owned()))?
         {
-            // Use sigfillset to get all valid signals
-            let mut mask: libc::sigset_t = unsafe { core::mem::zeroed() };
-            // SAFETY: mask is a valid pointer
-            if unsafe { libc::sigfillset(&mut mask) } != 0 {
-                return Err(vm.new_os_error("sigfillset failed".to_owned()));
-            }
-            // Convert the filled mask to a Python set
-            for signum in 1..signal::NSIG {
-                if unsafe { libc::sigismember(&mask, signum as i32) } == 1 {
-                    set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
-                }
-            }
-        }
-        #[cfg(windows)]
-        {
-            // Windows only supports a limited set of signals
-            for &signum in &[
-                libc::SIGINT,
-                libc::SIGILL,
-                libc::SIGFPE,
-                libc::SIGSEGV,
-                libc::SIGTERM,
-                SIGBREAK,
-                libc::SIGABRT,
-            ] {
-                set.add(vm.ctx.new_int(signum).into(), vm)?;
-            }
+            set.add(vm.ctx.new_int(signum).into(), vm)?;
         }
         #[cfg(not(any(unix, windows)))]
         {
@@ -596,8 +454,7 @@ pub(crate) mod _signal {
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
         for signum in 1..signal::NSIG {
-            // SAFETY: mask is a valid sigset_t
-            if unsafe { libc::sigismember(mask, signum as i32) } == 1 {
+            if host_signal::sigset_contains(mask, signum as i32) {
                 set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
             }
         }
@@ -614,11 +471,7 @@ pub(crate) mod _signal {
         use crate::convert::IntoPyException;
 
         // Initialize sigset
-        let mut sigset: libc::sigset_t = unsafe { core::mem::zeroed() };
-        // SAFETY: sigset is a valid pointer
-        if unsafe { libc::sigemptyset(&mut sigset) } != 0 {
-            return Err(std::io::Error::last_os_error().into_pyexception(vm));
-        }
+        let mut sigset = host_signal::sigemptyset().map_err(|e| e.into_pyexception(vm))?;
 
         // Add signals to the set
         for sig in mask.iter(vm)? {
@@ -638,19 +491,11 @@ pub(crate) mod _signal {
                     signal::NSIG - 1
                 )));
             }
-            // SAFETY: sigset is a valid pointer and signum is validated
-            if unsafe { libc::sigaddset(&mut sigset, signum) } != 0 {
-                return Err(std::io::Error::last_os_error().into_pyexception(vm));
-            }
+            host_signal::sigaddset(&mut sigset, signum).map_err(|e| e.into_pyexception(vm))?;
         }
 
-        // Call pthread_sigmask
-        let mut old_mask: libc::sigset_t = unsafe { core::mem::zeroed() };
-        // SAFETY: all pointers are valid
-        let err = unsafe { libc::pthread_sigmask(how, &sigset, &mut old_mask) };
-        if err != 0 {
-            return Err(std::io::Error::from_raw_os_error(err).into_pyexception(vm));
-        }
+        let old_mask =
+            host_signal::pthread_sigmask(how, &sigset).map_err(|e| e.into_pyexception(vm))?;
 
         // Check for pending signals
         signal::check_signals(vm)?;
@@ -664,31 +509,14 @@ pub(crate) mod _signal {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
         #[cfg(windows)]
-        if signum == libc::SIGINT
-            && let Some(handle) = signal::get_sigint_event()
-        {
-            unsafe {
-                windows_sys::Win32::System::Threading::SetEvent(handle as _);
-            }
-        }
-        let wakeup_fd = WAKEUP.load(Ordering::Relaxed);
-        if wakeup_fd != INVALID_WAKEUP {
-            let sigbyte = signum as u8;
-            #[cfg(windows)]
-            if WAKEUP_IS_SOCKET.load(Ordering::Relaxed) {
-                let _res = unsafe {
-                    windows_sys::Win32::Networking::WinSock::send(
-                        wakeup_fd,
-                        &sigbyte as *const u8 as *const _,
-                        1,
-                        0,
-                    )
-                };
-                return;
-            }
-            let _res = unsafe { libc::write(wakeup_fd as _, &sigbyte as *const u8 as *const _, 1) };
-            // TODO: handle _res < 1, support warn_on_full_buffer
-        }
+        host_signal::notify_signal(
+            signum,
+            WAKEUP.load(Ordering::Relaxed),
+            WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
+            signal::get_sigint_event(),
+        );
+        #[cfg(unix)]
+        host_signal::notify_signal(signum, WAKEUP.load(Ordering::Relaxed));
     }
 
     /// Reset wakeup fd after fork in child process.

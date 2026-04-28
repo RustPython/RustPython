@@ -1,11 +1,10 @@
 use super::_ctypes::CArgObject;
-use super::array::{PyCArray, WCHAR_SIZE, wchar_to_bytes};
+use super::array::PyCArray;
 use super::base::{
     CDATA_BUFFER_METHODS, FfiArgValue, PyCData, StgInfo, StgInfoFlags, buffer_to_ffi_value,
     bytes_to_pyobject,
 };
 use super::function::PyCFuncPtr;
-use super::get_size;
 use super::pointer::PyCPointer;
 use crate::builtins::{PyByteArray, PyBytes, PyInt, PyNone, PyStr, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
@@ -16,6 +15,10 @@ use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, Vir
 use alloc::borrow::Cow;
 use core::fmt::Debug;
 use num_traits::ToPrimitive;
+use rustpython_host_env::ctypes::{
+    SimpleStorageValue, simple_storage_value_to_bytes_endian, simple_type_align,
+    simple_type_pep3118_code, simple_type_size, write_simple_storage_buffer, zeroed_bytes,
+};
 
 /// Valid type codes for ctypes simple types
 #[cfg(windows)]
@@ -25,37 +28,10 @@ pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPXOv?g";
 // spell-checker: disable-next-line
 pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPOv?g";
 
-/// Convert ctypes type code to PEP 3118 format code.
-/// Some ctypes codes need to be mapped to standard-size codes based on platform.
-/// _ctypes_alloc_format_string_for_type
-fn ctypes_code_to_pep3118(code: char) -> char {
-    match code {
-        // c_int: map based on sizeof(int)
-        'i' if core::mem::size_of::<core::ffi::c_int>() == 2 => 'h',
-        'i' if core::mem::size_of::<core::ffi::c_int>() == 4 => 'i',
-        'i' if core::mem::size_of::<core::ffi::c_int>() == 8 => 'q',
-        'I' if core::mem::size_of::<core::ffi::c_int>() == 2 => 'H',
-        'I' if core::mem::size_of::<core::ffi::c_int>() == 4 => 'I',
-        'I' if core::mem::size_of::<core::ffi::c_int>() == 8 => 'Q',
-        // c_long: map based on sizeof(long)
-        'l' if core::mem::size_of::<core::ffi::c_long>() == 4 => 'l',
-        'l' if core::mem::size_of::<core::ffi::c_long>() == 8 => 'q',
-        'L' if core::mem::size_of::<core::ffi::c_long>() == 4 => 'L',
-        'L' if core::mem::size_of::<core::ffi::c_long>() == 8 => 'Q',
-        // c_bool: map based on sizeof(bool) - typically 1 byte on all platforms
-        '?' if core::mem::size_of::<bool>() == 1 => '?',
-        '?' if core::mem::size_of::<bool>() == 2 => 'H',
-        '?' if core::mem::size_of::<bool>() == 4 => 'L',
-        '?' if core::mem::size_of::<bool>() == 8 => 'Q',
-        // Default: use the same code
-        _ => code,
-    }
-}
-
 /// _ctypes_alloc_format_string_for_type
 fn alloc_format_string_for_type(code: char, big_endian: bool) -> String {
     let prefix = if big_endian { ">" } else { "<" };
-    let pep_code = ctypes_code_to_pep3118(code);
+    let pep_code = simple_type_pep3118_code(code);
     format!("{}{}", prefix, pep_code)
 }
 
@@ -91,8 +67,8 @@ fn new_simple_type(
         )));
     }
 
-    let size = get_size(&tp_str);
-    Ok(PyCSimple(PyCData::from_bytes(vec![0u8; size], None)))
+    let size = simple_type_size(&tp_str).expect("invalid ctypes simple type");
+    Ok(PyCSimple(PyCData::from_bytes(zeroed_bytes(size), None)))
 }
 
 fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -432,14 +408,11 @@ impl PyCSimpleType {
                 if let Some(funcptr) = value.downcast_ref::<PyCFuncPtr>() {
                     let ptr_val = {
                         let buffer = funcptr._base.buffer.read();
-                        buffer
-                            .first_chunk::<{ size_of::<usize>() }>()
-                            .copied()
-                            .map_or(0, usize::from_ne_bytes)
+                        rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
                     };
                     return Ok(CArgObject {
                         tag: b'P',
-                        value: FfiArgValue::Pointer(ptr_val),
+                        value: FfiArgValue::pointer(ptr_val),
                         obj: value.clone(),
                         size: 0,
                         offset: 0,
@@ -452,14 +425,11 @@ impl PyCSimpleType {
                     if matches!(value_type_code.as_deref(), Some("z") | Some("Z")) {
                         let ptr_val = {
                             let buffer = simple.0.buffer.read();
-                            buffer
-                                .first_chunk::<{ size_of::<usize>() }>()
-                                .copied()
-                                .map_or(0, usize::from_ne_bytes)
+                            rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
                         };
                         return Ok(CArgObject {
                             tag: b'Z',
-                            value: FfiArgValue::Pointer(ptr_val),
+                            value: FfiArgValue::pointer(ptr_val),
                             obj: value.clone(),
                             size: 0,
                             offset: 0,
@@ -571,8 +541,8 @@ impl Initializer for PyCSimpleType {
         }
 
         // Initialize StgInfo
-        let size = super::get_size(&type_str);
-        let align = super::get_align(&type_str);
+        let size = simple_type_size(&type_str).expect("invalid ctypes simple type");
+        let align = simple_type_align(&type_str).expect("invalid ctypes simple type");
         let mut stg_info = StgInfo::new(size, align);
 
         // Set format for PEP 3118 buffer protocol
@@ -731,210 +701,173 @@ fn value_to_bytes_endian(
     swapped: bool,
     vm: &VirtualMachine,
 ) -> Vec<u8> {
-    // Helper macro for endian conversion
-    macro_rules! to_bytes {
-        ($val:expr) => {
-            if swapped {
-                // Use opposite endianness
-                #[cfg(target_endian = "little")]
-                {
-                    $val.to_be_bytes().to_vec()
-                }
-                #[cfg(target_endian = "big")]
-                {
-                    $val.to_le_bytes().to_vec()
-                }
-            } else {
-                $val.to_ne_bytes().to_vec()
-            }
-        };
-    }
-
-    match _type_ {
+    let storage_value = match _type_ {
         "c" => {
             // c_char - single byte (bytes, bytearray, or int 0-255)
             if let Some(bytes) = value.downcast_ref::<PyBytes>()
                 && !bytes.is_empty()
             {
-                return vec![bytes.as_bytes()[0]];
-            }
-            if let Some(bytearray) = value.downcast_ref::<PyByteArray>() {
+                SimpleStorageValue::Byte(bytes.as_bytes()[0])
+            } else if let Some(bytearray) = value.downcast_ref::<PyByteArray>() {
                 let buf = bytearray.borrow_buf();
                 if !buf.is_empty() {
-                    return vec![buf[0]];
+                    SimpleStorageValue::Byte(buf[0])
+                } else {
+                    SimpleStorageValue::Zero
                 }
-            }
-            if let Ok(int_val) = value.try_int(vm)
+            } else if let Ok(int_val) = value.try_int(vm)
                 && let Some(v) = int_val.as_bigint().to_u8()
             {
-                return vec![v];
+                SimpleStorageValue::Byte(v)
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0]
         }
         "u" => {
             // c_wchar - platform-dependent size (2 on Windows, 4 on Unix)
             if let Some(s) = value.downcast_ref::<PyStr>() {
                 let mut cps = s.as_wtf8().code_points();
                 if let (Some(c), None) = (cps.next(), cps.next()) {
-                    let mut buffer = vec![0u8; WCHAR_SIZE];
-                    wchar_to_bytes(c.to_u32(), &mut buffer);
-                    if swapped {
-                        buffer.reverse();
-                    }
-                    return buffer;
+                    SimpleStorageValue::Wchar(c.to_u32())
+                } else {
+                    SimpleStorageValue::Zero
                 }
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; WCHAR_SIZE]
         }
         "b" => {
             // c_byte - signed char (1 byte)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as i8;
-                return vec![v as u8];
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0]
         }
         "B" => {
             // c_ubyte - unsigned char (1 byte)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as u8;
-                return vec![v];
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0]
         }
         "h" => {
             // c_short (2 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as i16;
-                return to_bytes!(v);
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; 2]
         }
         "H" => {
             // c_ushort (2 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as u16;
-                return to_bytes!(v);
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; 2]
         }
         "i" => {
             // c_int (4 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as i32;
-                return to_bytes!(v);
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; 4]
         }
         "I" => {
             // c_uint (4 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as u32;
-                return to_bytes!(v);
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; 4]
         }
         "l" => {
             // c_long (platform dependent)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as libc::c_long;
-                return to_bytes!(v);
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            const SIZE: usize = core::mem::size_of::<libc::c_long>();
-            vec![0; SIZE]
         }
         "L" => {
             // c_ulong (platform dependent)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as libc::c_ulong;
-                return to_bytes!(v);
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            const SIZE: usize = core::mem::size_of::<libc::c_ulong>();
-            vec![0; SIZE]
         }
         "q" => {
             // c_longlong (8 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as i64;
-                return to_bytes!(v);
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; 8]
         }
         "Q" => {
             // c_ulonglong (8 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val.as_bigint().to_i128().expect("int too large") as u64;
-                return to_bytes!(v);
+                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; 8]
         }
         "f" => {
             // c_float (4 bytes) - also accepts int
             if let Ok(float_val) = value.try_float(vm) {
-                return to_bytes!(float_val.to_f64() as f32);
-            }
-            if let Ok(int_val) = value.try_int(vm)
+                SimpleStorageValue::Float(float_val.to_f64())
+            } else if let Ok(int_val) = value.try_int(vm)
                 && let Some(v) = int_val.as_bigint().to_f64()
             {
-                return to_bytes!(v as f32);
+                SimpleStorageValue::Float(v)
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; 4]
         }
         "d" => {
             // c_double (8 bytes) - also accepts int
             if let Ok(float_val) = value.try_float(vm) {
-                return to_bytes!(float_val.to_f64());
-            }
-            if let Ok(int_val) = value.try_int(vm)
+                SimpleStorageValue::Float(float_val.to_f64())
+            } else if let Ok(int_val) = value.try_int(vm)
                 && let Some(v) = int_val.as_bigint().to_f64()
             {
-                return to_bytes!(v);
+                SimpleStorageValue::Float(v)
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; 8]
         }
         "g" => {
             // long double - platform dependent size
             // Store as f64, zero-pad to platform long double size
             // Note: This may lose precision on platforms where long double > 64 bits
-            let f64_val = if let Ok(float_val) = value.try_float(vm) {
+            let value = if let Ok(float_val) = value.try_float(vm) {
                 float_val.to_f64()
             } else if let Ok(int_val) = value.try_int(vm) {
                 int_val.as_bigint().to_f64().unwrap_or(0.0)
             } else {
                 0.0
             };
-            let f64_bytes = if swapped {
-                #[cfg(target_endian = "little")]
-                {
-                    f64_val.to_be_bytes().to_vec()
-                }
-                #[cfg(target_endian = "big")]
-                {
-                    f64_val.to_le_bytes().to_vec()
-                }
-            } else {
-                f64_val.to_ne_bytes().to_vec()
-            };
-            // Pad to long double size
-            let long_double_size = super::get_size("g");
-            let mut result = f64_bytes;
-            result.resize(long_double_size, 0);
-            result
+            SimpleStorageValue::Float(value)
         }
         "?" => {
             // c_bool (1 byte)
             if let Ok(b) = value.to_owned().try_to_bool(vm) {
-                return vec![if b { 1 } else { 0 }];
+                SimpleStorageValue::Bool(b)
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0]
         }
         "v" => {
             // VARIANT_BOOL: True = 0xFFFF (-1 as i16), False = 0x0000
             if let Ok(b) = value.to_owned().try_to_bool(vm) {
-                let val: i16 = if b { -1 } else { 0 };
-                return to_bytes!(val);
+                SimpleStorageValue::Bool(b)
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; 2]
         }
         "P" => {
             // c_void_p - pointer type (platform pointer size)
@@ -943,9 +876,10 @@ fn value_to_bytes_endian(
                     .as_bigint()
                     .to_usize()
                     .expect("int too large for pointer");
-                return to_bytes!(v);
+                SimpleStorageValue::Pointer(v)
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; core::mem::size_of::<usize>()]
         }
         "z" => {
             // c_char_p - pointer to char (stores pointer value from int)
@@ -955,9 +889,10 @@ fn value_to_bytes_endian(
                     .as_bigint()
                     .to_usize()
                     .expect("int too large for pointer");
-                return to_bytes!(v);
+                SimpleStorageValue::Pointer(v)
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; core::mem::size_of::<usize>()]
         }
         "Z" => {
             // c_wchar_p - pointer to wchar_t (stores pointer value from int)
@@ -967,19 +902,20 @@ fn value_to_bytes_endian(
                     .as_bigint()
                     .to_usize()
                     .expect("int too large for pointer");
-                return to_bytes!(v);
+                SimpleStorageValue::Pointer(v)
+            } else {
+                SimpleStorageValue::Zero
             }
-            vec![0; core::mem::size_of::<usize>()]
         }
         "O" => {
             // py_object - store object id as non-zero marker
             // The actual object is stored in _objects
             // Use object's id as a non-zero placeholder (indicates non-NULL)
-            let id = value.get_id();
-            to_bytes!(id)
+            SimpleStorageValue::ObjectId(value.get_id())
         }
-        _ => vec![0],
-    }
+        _ => SimpleStorageValue::Zero,
+    };
+    simple_storage_value_to_bytes_endian(_type_, storage_value, swapped)
 }
 
 /// Check if value is a c_char array or pointer(c_char)
@@ -1041,7 +977,7 @@ impl Constructor for PyCSimple {
             if _type_ == "z" {
                 if let Some(bytes) = v.downcast_ref::<PyBytes>() {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
-                    let buffer = ptr.to_ne_bytes().to_vec();
+                    let buffer = rustpython_host_env::ctypes::pointer_bytes(ptr);
                     let cdata = PyCData::from_bytes(buffer, Some(v.clone()));
                     *cdata.base.write() = Some(kept_alive);
                     return PyCSimple(cdata).into_ref_with_type(vm, cls).map(Into::into);
@@ -1050,7 +986,7 @@ impl Constructor for PyCSimple {
                 && let Some(s) = v.downcast_ref::<PyStr>()
             {
                 let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
-                let buffer = ptr.to_ne_bytes().to_vec();
+                let buffer = rustpython_host_env::ctypes::pointer_bytes(ptr);
                 let cdata = PyCData::from_bytes(buffer, Some(holder));
                 return PyCSimple(cdata).into_ref_with_type(vm, cls).map(Into::into);
             }
@@ -1158,58 +1094,30 @@ impl PyCSimple {
         // Special handling for c_char_p (z) and c_wchar_p (Z)
         // z_get, Z_get - dereference pointer to get string
         if type_code == "z" {
-            // c_char_p: read pointer from buffer, dereference to get bytes string
             let buffer = zelf.0.buffer.read();
-            let ptr = super::base::read_ptr_from_buffer(&buffer);
-            if ptr == 0 {
-                return Ok(vm.ctx.none());
-            }
-            // Read null-terminated string at the address
-            unsafe {
-                let cstr = core::ffi::CStr::from_ptr(ptr as _);
-                return Ok(vm.ctx.new_bytes(cstr.to_bytes().to_vec()).into());
-            }
+            return match rustpython_host_env::ctypes::decode_type_code(&type_code, &buffer) {
+                rustpython_host_env::ctypes::DecodedValue::Bytes(value) => {
+                    Ok(vm.ctx.new_bytes(value).into())
+                }
+                rustpython_host_env::ctypes::DecodedValue::None => Ok(vm.ctx.none()),
+                _ => unreachable!("decode_type_code('z') only returns bytes or None"),
+            };
         }
         if type_code == "Z" {
-            // c_wchar_p: read pointer from buffer, dereference to get wide string
             let buffer = zelf.0.buffer.read();
-            let ptr = super::base::read_ptr_from_buffer(&buffer);
-            if ptr == 0 {
-                return Ok(vm.ctx.none());
-            }
-            // Read null-terminated wide string at the address
-            // Windows: wchar_t = u16 (UTF-16) -> use Wtf8Buf::from_wide for surrogate pairs
-            // Unix: wchar_t = i32 (UTF-32) -> convert via char::from_u32
-            unsafe {
-                let w_ptr = ptr as *const libc::wchar_t;
-                let len = libc::wcslen(w_ptr);
-                let wchars = core::slice::from_raw_parts(w_ptr, len);
-                #[cfg(windows)]
-                {
-                    use rustpython_common::wtf8::Wtf8Buf;
-                    let wide: Vec<u16> = wchars.to_vec();
-                    let wtf8 = Wtf8Buf::from_wide(&wide);
-                    return Ok(vm.ctx.new_str(wtf8).into());
+            return match rustpython_host_env::ctypes::decode_type_code(&type_code, &buffer) {
+                rustpython_host_env::ctypes::DecodedValue::String(value) => {
+                    Ok(vm.ctx.new_str(value).into())
                 }
-                #[cfg(not(windows))]
-                {
-                    #[allow(
-                        clippy::useless_conversion,
-                        reason = "wchar_t is i32 on some platforms and u32 on others"
-                    )]
-                    let s: String = wchars
-                        .iter()
-                        .filter_map(|&c| u32::try_from(c).ok().and_then(char::from_u32))
-                        .collect();
-                    return Ok(vm.ctx.new_str(s).into());
-                }
-            }
+                rustpython_host_env::ctypes::DecodedValue::None => Ok(vm.ctx.none()),
+                _ => unreachable!("decode_type_code('Z') only returns string or None"),
+            };
         }
 
         // O_get: py_object - read PyObject pointer from buffer
         if type_code == "O" {
             let buffer = zelf.0.buffer.read();
-            let ptr = super::base::read_ptr_from_buffer(&buffer);
+            let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer);
             if ptr == 0 {
                 return Err(vm.new_value_error("PyObject is NULL"));
             }
@@ -1273,7 +1181,8 @@ impl PyCSimple {
         if type_code == "z" {
             if let Some(bytes) = value.downcast_ref::<PyBytes>() {
                 let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
-                *zelf.0.buffer.write() = alloc::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
+                *zelf.0.buffer.write() =
+                    alloc::borrow::Cow::Owned(rustpython_host_env::ctypes::pointer_bytes(ptr));
                 *zelf.0.objects.write() = Some(value);
                 *zelf.0.base.write() = Some(kept_alive);
                 return Ok(());
@@ -1282,7 +1191,8 @@ impl PyCSimple {
             && let Some(s) = value.downcast_ref::<PyStr>()
         {
             let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
-            *zelf.0.buffer.write() = alloc::borrow::Cow::Owned(ptr.to_ne_bytes().to_vec());
+            *zelf.0.buffer.write() =
+                alloc::borrow::Cow::Owned(rustpython_host_env::ctypes::pointer_bytes(ptr));
             *zelf.0.objects.write() = Some(holder);
             return Ok(());
         }
@@ -1302,20 +1212,7 @@ impl PyCSimple {
         // If the buffer is borrowed (from shared memory), write in-place
         // Otherwise replace with new owned buffer
         let mut buffer = zelf.0.buffer.write();
-        match &mut *buffer {
-            Cow::Borrowed(slice) => {
-                // SAFETY: For from_buffer, the slice points to writable shared memory.
-                // Python's from_buffer requires writable buffer, so this is safe.
-                let ptr = slice.as_ptr() as *mut u8;
-                let len = slice.len().min(buffer_bytes.len());
-                unsafe {
-                    core::ptr::copy_nonoverlapping(buffer_bytes.as_ptr(), ptr, len);
-                }
-            }
-            Cow::Owned(vec) => {
-                vec.copy_from_slice(&buffer_bytes);
-            }
-        }
+        write_simple_storage_buffer(&mut buffer, &buffer_bytes);
 
         // For c_char_p (type "z"), c_wchar_p (type "Z"), and py_object (type "O"),
         // keep the reference in _objects
@@ -1367,53 +1264,13 @@ impl PyCSimple {
     /// The value must be kept alive until after the FFI call completes.
     pub fn to_ffi_value(
         &self,
-        ty: libffi::middle::Type,
+        ty: rustpython_host_env::ctypes::FfiType,
         _vm: &VirtualMachine,
     ) -> Option<FfiArgValue> {
         let buffer = self.0.buffer.read();
-        let bytes: &[u8] = &buffer;
-
-        let ret = if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u8().as_raw_ptr()) {
-            let byte = *bytes.first()?;
-            FfiArgValue::U8(byte)
-        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i8().as_raw_ptr()) {
-            let byte = *bytes.first()?;
-            FfiArgValue::I8(byte as i8)
-        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u16().as_raw_ptr()) {
-            let bytes = *bytes.first_chunk::<2>()?;
-            FfiArgValue::U16(u16::from_ne_bytes(bytes))
-        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i16().as_raw_ptr()) {
-            let bytes = *bytes.first_chunk::<2>()?;
-            FfiArgValue::I16(i16::from_ne_bytes(bytes))
-        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u32().as_raw_ptr()) {
-            let bytes = *bytes.first_chunk::<4>()?;
-            FfiArgValue::U32(u32::from_ne_bytes(bytes))
-        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i32().as_raw_ptr()) {
-            let bytes = *bytes.first_chunk::<4>()?;
-            FfiArgValue::I32(i32::from_ne_bytes(bytes))
-        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::u64().as_raw_ptr()) {
-            let bytes = *bytes.first_chunk::<8>()?;
-            FfiArgValue::U64(u64::from_ne_bytes(bytes))
-        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::i64().as_raw_ptr()) {
-            let bytes = *bytes.first_chunk::<8>()?;
-            FfiArgValue::I64(i64::from_ne_bytes(bytes))
-        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::f32().as_raw_ptr()) {
-            let bytes = *bytes.first_chunk::<4>()?;
-            FfiArgValue::F32(f32::from_ne_bytes(bytes))
-        } else if core::ptr::eq(ty.as_raw_ptr(), libffi::middle::Type::f64().as_raw_ptr()) {
-            let bytes = *bytes.first_chunk::<8>()?;
-            FfiArgValue::F64(f64::from_ne_bytes(bytes))
-        } else if core::ptr::eq(
-            ty.as_raw_ptr(),
-            libffi::middle::Type::pointer().as_raw_ptr(),
-        ) {
-            let bytes = *buffer.first_chunk::<{ size_of::<usize>() }>()?;
-            let val = usize::from_ne_bytes(bytes);
-            FfiArgValue::Pointer(val)
-        } else {
-            return None;
-        };
-        Some(ret)
+        Some(FfiArgValue::Scalar(
+            rustpython_host_env::ctypes::ffi_value_from_type(&buffer, ty)?,
+        ))
     }
 }
 

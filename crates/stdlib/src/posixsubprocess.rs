@@ -4,19 +4,13 @@ use crate::vm::{
     builtins::PyListRef,
     function::ArgSequence,
     ospath::OsPath,
-    stdlib::posix,
     {PyObjectRef, PyResult, TryFromObject, VirtualMachine},
 };
-use itertools::Itertools;
-use nix::{
-    errno::Errno,
-    unistd::{self, Pid},
-};
+use rustpython_host_env::posix as host_posix;
 use std::{
     io::prelude::*,
     os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
 };
-use unistd::{Gid, Uid};
 
 use alloc::ffi::CString;
 
@@ -48,7 +42,8 @@ mod _posixsubprocess {
         let extra_groups = args
             .groups_list
             .as_ref()
-            .map(|l| Vec::<Gid>::try_from_borrowed_object(vm, l.as_object()))
+            .map(|l| Vec::<RawGid>::try_from_borrowed_object(vm, l.as_object()))
+            .map(|res| res.map(|groups| groups.into_iter().map(|gid| gid.0).collect::<Vec<_>>()))
             .transpose()?;
         let argv = CharPtrVec::from_iter(args.args.iter());
         let envp = args.env_list.as_ref().map(CharPtrVec::from_iter);
@@ -57,9 +52,9 @@ mod _posixsubprocess {
             envp: envp.as_deref(),
             extra_groups: extra_groups.as_deref(),
         };
-        match unsafe { nix::unistd::fork() }.map_err(|err| err.into_pyexception(vm))? {
-            nix::unistd::ForkResult::Child => exec(&args, procargs, vm),
-            nix::unistd::ForkResult::Parent { child } => Ok(child.as_raw()),
+        match host_posix::fork().map_err(|err| err.into_pyexception(vm))? {
+            0 => exec(&args, procargs, vm),
+            child => Ok(child),
         }
     }
 }
@@ -143,7 +138,7 @@ impl TryFromObject for Fd {
 
 impl Write for Fd {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        Ok(unistd::write(self, buf)?)
+        host_posix::write_fd(self.as_fd(), buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -201,6 +196,45 @@ impl AsRawFd for MaybeFd {
     }
 }
 
+#[derive(Copy, Clone)]
+struct RawUid(u32);
+
+#[derive(Copy, Clone)]
+struct RawGid(u32);
+
+fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
+    use core::cmp::Ordering;
+    let i = obj
+        .try_to_ref::<crate::vm::builtins::PyInt>(vm)
+        .map_err(|_| {
+            vm.new_type_error(format!(
+                "an integer is required (got type {})",
+                obj.class().name()
+            ))
+        })?
+        .try_to_primitive::<i64>(vm)?;
+
+    match i.cmp(&-1) {
+        Ordering::Greater => Ok(i
+            .try_into()
+            .map_err(|_| vm.new_overflow_error(format!("{typ_name} is larger than maximum")))?),
+        Ordering::Less => Err(vm.new_overflow_error(format!("{typ_name} is less than minimum"))),
+        Ordering::Equal => Ok(-1i32 as u32),
+    }
+}
+
+impl TryFromObject for RawUid {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        try_from_id(vm, obj, "uid").map(Self)
+    }
+}
+
+impl TryFromObject for RawGid {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        try_from_id(vm, obj, "gid").map(Self)
+    }
+}
+
 // impl
 
 gen_args! {
@@ -221,9 +255,9 @@ gen_args! {
     restore_signals: bool,
     call_setsid: bool,
     pgid_to_set: libc::pid_t,
-    gid: Option<Gid>,
+    gid: Option<RawGid>,
     groups_list: Option<PyListRef>,
-    uid: Option<Uid>,
+    uid: Option<RawUid>,
     child_umask: i32,
     preexec_fn: Option<PyObjectRef>,
 }
@@ -232,7 +266,7 @@ gen_args! {
 struct ProcArgs<'a> {
     argv: &'a CharPtrSlice<'a>,
     envp: Option<&'a CharPtrSlice<'a>>,
-    extra_groups: Option<&'a [Gid]>,
+    extra_groups: Option<&'a [u32]>,
 }
 
 fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>, vm: &VirtualMachine) -> ! {
@@ -246,7 +280,8 @@ fn exec(args: &ForkExecArgs<'_>, procargs: ProcArgs<'_>, vm: &VirtualMachine) ->
                 let _ = write!(pipe, "SubprocessError:0:{}", ctx.as_msg());
             } else {
                 // errno is written in hex format
-                let _ = write!(pipe, "OSError:{:x}:{}", e as i32, ctx.as_msg());
+                let errno = e.raw_os_error().unwrap_or(0);
+                let _ = write!(pipe, "OSError:{errno:x}:{}", ctx.as_msg());
             }
             rustpython_host_env::os::exit(255)
         }
@@ -276,94 +311,34 @@ fn exec_inner(
     procargs: ProcArgs<'_>,
     ctx: &mut ExecErrorContext,
     vm: &VirtualMachine,
-) -> nix::Result<Never> {
-    for &fd in args.fds_to_keep.as_slice() {
-        if fd.as_raw_fd() != args.errpipe_write.as_raw_fd() {
-            posix::set_inheritable(fd, true)?
-        }
-    }
-
-    for &fd in &[args.p2cwrite, args.c2pread, args.errread] {
-        if let MaybeFd::Valid(fd) = fd {
-            unistd::close(fd)?;
-        }
-    }
-    unistd::close(args.errpipe_read)?;
-
-    let c2pwrite = match args.c2pwrite {
-        MaybeFd::Valid(c2pwrite) if c2pwrite.as_raw_fd() == 0 => {
-            let fd = unistd::dup(c2pwrite)?;
-            posix::set_inheritable(fd.as_fd(), true)?;
-            MaybeFd::Valid(fd.into())
-        }
-        fd => fd,
-    };
-
-    let mut errwrite = args.errwrite;
-    loop {
-        match errwrite {
-            MaybeFd::Valid(fd) if fd.as_raw_fd() == 0 || fd.as_raw_fd() == 1 => {
-                let fd = unistd::dup(fd)?;
-                posix::set_inheritable(fd.as_fd(), true)?;
-                errwrite = MaybeFd::Valid(fd.into());
-            }
-            _ => break,
-        }
-    }
-
-    fn dup_into_stdio<F>(fd: MaybeFd, io_fd: i32, dup2_stdio: F) -> nix::Result<()>
-    where
-        F: Fn(Fd) -> nix::Result<()>,
-    {
-        match fd {
-            MaybeFd::Valid(fd) if fd.as_raw_fd() == io_fd => {
-                posix::set_inheritable(fd.as_fd(), true)
-            }
-            MaybeFd::Valid(fd) => dup2_stdio(fd),
-            MaybeFd::Invalid => Ok(()),
-        }
-    }
-    dup_into_stdio(args.p2cread, 0, unistd::dup2_stdin)?;
-    dup_into_stdio(c2pwrite, 1, unistd::dup2_stdout)?;
-    dup_into_stdio(errwrite, 2, unistd::dup2_stderr)?;
+) -> std::io::Result<Never> {
+    host_posix::setup_child_fds(
+        args.fds_to_keep.as_slice(),
+        args.errpipe_write.as_fd(),
+        args.p2cread.as_raw_fd(),
+        args.p2cwrite.as_raw_fd(),
+        args.c2pread.as_raw_fd(),
+        args.c2pwrite.as_raw_fd(),
+        args.errread.as_raw_fd(),
+        args.errwrite.as_raw_fd(),
+        args.errpipe_read.as_raw_fd(),
+    )?;
 
     if let Some(ref cwd) = args.cwd {
-        unistd::chdir(cwd.s.as_c_str()).inspect_err(|_| *ctx = ExecErrorContext::ChDir)?
+        host_posix::chdir(cwd.s.as_c_str()).inspect_err(|_| *ctx = ExecErrorContext::ChDir)?
     }
 
-    if args.child_umask >= 0 {
-        unsafe { libc::umask(args.child_umask as libc::mode_t) };
-    }
+    host_posix::set_umask(args.child_umask);
 
     if args.restore_signals {
-        unsafe {
-            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-            libc::signal(libc::SIGXFSZ, libc::SIG_DFL);
-        }
+        host_posix::restore_signals();
     }
 
-    if args.call_setsid {
-        unistd::setsid()?;
-    }
-
-    if args.pgid_to_set > -1 {
-        unistd::setpgid(Pid::from_raw(0), Pid::from_raw(args.pgid_to_set))?;
-    }
-
-    if let Some(_groups) = procargs.extra_groups {
-        #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
-        unistd::setgroups(_groups)?;
-    }
-
-    if let Some(gid) = args.gid.filter(|x| x.as_raw() != u32::MAX) {
-        let ret = unsafe { libc::setregid(gid.as_raw(), gid.as_raw()) };
-        nix::Error::result(ret)?;
-    }
-
-    if let Some(uid) = args.uid.filter(|x| x.as_raw() != u32::MAX) {
-        let ret = unsafe { libc::setreuid(uid.as_raw(), uid.as_raw()) };
-        nix::Error::result(ret)?;
-    }
+    host_posix::setsid_if_needed(args.call_setsid)?;
+    host_posix::setpgid_if_needed(args.pgid_to_set)?;
+    host_posix::setgroups_if_needed(procargs.extra_groups)?;
+    host_posix::setregid_if_needed(args.gid.map(|gid| gid.0))?;
+    host_posix::setreuid_if_needed(args.uid.map(|uid| uid.0))?;
 
     // Call preexec_fn after all process setup but before closing FDs
     if let Some(ref preexec_fn) = args.preexec_fn {
@@ -372,7 +347,7 @@ fn exec_inner(
             Err(_e) => {
                 // Cannot safely stringify exception after fork
                 *ctx = ExecErrorContext::PreExec;
-                return Err(Errno::UnknownErrno);
+                return Err(std::io::Error::from_raw_os_error(0));
             }
         }
     }
@@ -380,158 +355,13 @@ fn exec_inner(
     *ctx = ExecErrorContext::Exec;
 
     if args.close_fds {
-        close_fds(KeepFds {
-            above: 2,
-            keep: &args.fds_to_keep,
-        });
+        host_posix::close_fds(2, args.fds_to_keep.as_slice());
     }
 
-    let mut first_err = None;
-    for exec in args.exec_list.as_slice() {
-        // not using nix's versions of these functions because those allocate the char-ptr array,
-        // and we can't allocate
-        if let Some(envp) = procargs.envp {
-            unsafe { libc::execve(exec.s.as_ptr(), procargs.argv.as_ptr(), envp.as_ptr()) };
-        } else {
-            unsafe { libc::execv(exec.s.as_ptr(), procargs.argv.as_ptr()) };
-        }
-        let e = Errno::last();
-        if e != Errno::ENOENT && e != Errno::ENOTDIR && first_err.is_none() {
-            first_err = Some(e)
-        }
-    }
-    Err(first_err.unwrap_or_else(Errno::last))
-}
-
-#[derive(Copy, Clone)]
-struct KeepFds<'a> {
-    above: i32,
-    keep: &'a [BorrowedFd<'a>],
-}
-
-impl KeepFds<'_> {
-    fn should_keep(self, fd: i32) -> bool {
-        fd > self.above
-            && self
-                .keep
-                .binary_search_by_key(&fd, BorrowedFd::as_raw_fd)
-                .is_err()
-    }
-}
-
-fn close_fds(keep: KeepFds<'_>) {
-    #[cfg(not(target_os = "redox"))]
-    if close_dir_fds(keep).is_ok() {
-        return;
-    }
-    #[cfg(target_os = "redox")]
-    if close_filetable_fds(keep).is_ok() {
-        return;
-    }
-    close_fds_brute_force(keep)
-}
-
-#[cfg(not(target_os = "redox"))]
-fn close_dir_fds(keep: KeepFds<'_>) -> nix::Result<()> {
-    use nix::{dir::Dir, fcntl::OFlag};
-
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_vendor = "apple",
-    ))]
-    let fd_dir_name = c"/dev/fd";
-
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    let fd_dir_name = c"/proc/self/fd";
-
-    let mut dir = Dir::open(
-        fd_dir_name,
-        OFlag::O_RDONLY | OFlag::O_DIRECTORY,
-        nix::sys::stat::Mode::empty(),
-    )?;
-    let dirfd = dir.as_raw_fd();
-    'outer: for e in dir.iter() {
-        let e = e?;
-        let mut parser = IntParser::default();
-        for &c in e.file_name().to_bytes() {
-            if parser.feed(c).is_err() {
-                continue 'outer;
-            }
-        }
-        let fd = parser.num;
-        if fd != dirfd && keep.should_keep(fd) {
-            let _ = unistd::close(fd);
-        }
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "redox")]
-fn close_filetable_fds(keep: KeepFds<'_>) -> nix::Result<()> {
-    use nix::fcntl;
-    use std::os::fd::{FromRawFd, OwnedFd};
-    let filetable = fcntl::open(
-        c"/scheme/thisproc/current/filetable",
-        fcntl::OFlag::O_RDONLY,
-        nix::sys::stat::Mode::empty(),
-    )?;
-    let read_one = || -> nix::Result<_> {
-        let mut byte = 0;
-        let n = nix::unistd::read(&filetable, std::slice::from_mut(&mut byte))?;
-        Ok((n > 0).then_some(byte))
-    };
-    while let Some(c) = read_one()? {
-        let mut parser = IntParser::default();
-        if parser.feed(c).is_err() {
-            continue;
-        }
-        let done = loop {
-            let Some(c) = read_one()? else { break true };
-            if parser.feed(c).is_err() {
-                break false;
-            }
-        };
-
-        let fd = parser.num as i32;
-        if fd != filetable.as_raw_fd() && keep.should_keep(fd) {
-            let _ = unistd::close(fd);
-        }
-        if done {
-            break;
-        }
-    }
-    Ok(())
-}
-
-fn close_fds_brute_force(keep: KeepFds<'_>) {
-    let max_fd = nix::unistd::sysconf(nix::unistd::SysconfVar::OPEN_MAX)
-        .ok()
-        .flatten()
-        .unwrap_or(256) as i32;
-    let fds = itertools::chain![
-        Some(keep.above),
-        keep.keep.iter().map(BorrowedFd::as_raw_fd),
-        Some(max_fd)
-    ];
-    for fd in fds.tuple_windows().flat_map(|(start, end)| start + 1..end) {
-        unsafe { libc::close(fd) };
-    }
-}
-
-#[derive(Default)]
-struct IntParser {
-    num: i32,
-}
-
-struct NonDigit;
-impl IntParser {
-    fn feed(&mut self, c: u8) -> Result<(), NonDigit> {
-        let digit = (c as char).to_digit(10).ok_or(NonDigit)?;
-        self.num *= 10;
-        self.num += digit as i32;
-        Ok(())
-    }
+    let err = host_posix::exec_replace(
+        args.exec_list.as_slice(),
+        procargs.argv.as_ptr(),
+        procargs.envp.map(CharPtrSlice::as_ptr),
+    );
+    Err(std::io::Error::from_raw_os_error(err as i32))
 }

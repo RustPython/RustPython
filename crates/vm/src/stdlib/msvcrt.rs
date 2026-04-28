@@ -13,10 +13,9 @@ mod msvcrt {
     use itertools::Itertools;
     use rustpython_host_env::msvcrt as host_msvcrt;
     use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::System::Diagnostics::Debug;
 
     #[pyattr]
-    use windows_sys::Win32::System::Diagnostics::Debug::{
+    use host_msvcrt::{
         SEM_FAILCRITICALERRORS, SEM_NOALIGNMENTFAULTEXCEPT, SEM_NOGPFAULTERRORBOX,
         SEM_NOOPENFILEERRORBOX,
     };
@@ -130,7 +129,7 @@ mod msvcrt {
 
     #[allow(non_snake_case)]
     #[pyfunction]
-    fn SetErrorMode(mode: Debug::THREAD_ERROR_MODE, _: &VirtualMachine) -> u32 {
+    fn SetErrorMode(mode: host_msvcrt::ErrorMode, _: &VirtualMachine) -> u32 {
         host_msvcrt::set_error_mode(mode)
     }
 }

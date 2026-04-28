@@ -28,6 +28,8 @@ pub(crate) mod _thread {
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
     use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
+    #[cfg(any(unix, windows))]
+    use rustpython_host_env::thread as host_thread;
     use std::thread;
 
     // PYTHREAD_NAME: show current thread name
@@ -379,50 +381,17 @@ pub(crate) mod _thread {
     /// Set the name of the current thread
     #[pyfunction]
     fn set_name(name: PyUtf8StrRef) {
-        #[cfg(target_os = "linux")]
-        {
-            use alloc::ffi::CString;
-            if let Ok(c_name) = CString::new(name.as_str()) {
-                // pthread_setname_np on Linux has a 16-byte limit including null terminator
-                // TODO: Potential UTF-8 boundary issue when truncating thread name on Linux.
-                // https://github.com/RustPython/RustPython/pull/6726/changes#r2689379171
-                let truncated = if c_name.as_bytes().len() > 15 {
-                    CString::new(&c_name.as_bytes()[..15]).unwrap_or(c_name)
-                } else {
-                    c_name
-                };
-                unsafe {
-                    libc::pthread_setname_np(libc::pthread_self(), truncated.as_ptr());
-                }
-            }
-        }
-        #[cfg(target_os = "macos")]
-        {
-            use alloc::ffi::CString;
-            if let Ok(c_name) = CString::new(name.as_str()) {
-                unsafe {
-                    libc::pthread_setname_np(c_name.as_ptr());
-                }
-            }
-        }
-        #[cfg(windows)]
-        {
-            // Windows doesn't have a simple pthread_setname_np equivalent
-            // SetThreadDescription requires Windows 10+
-            let _ = name;
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-        {
-            let _ = name;
-        }
+        #[cfg(any(unix, windows))]
+        host_thread::set_current_thread_name(name.as_str());
+        #[cfg(not(any(unix, windows)))]
+        let _ = name;
     }
 
     /// Get OS-level thread ID (pthread_self on Unix)
     /// This is important for fork compatibility - the ID must remain stable after fork
     #[cfg(unix)]
     fn current_thread_id() -> u64 {
-        // pthread_self() for fork compatibility
-        unsafe { libc::pthread_self() as u64 }
+        host_thread::current_thread_id()
     }
 
     #[cfg(not(unix))]

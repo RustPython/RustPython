@@ -3,6 +3,7 @@ use std::io;
 
 #[cfg(unix)]
 mod platform {
+    pub use libc::pollfd;
     pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
     pub use std::os::unix::io::RawFd;
 
@@ -83,9 +84,8 @@ mod platform {
             }
         }
         let n = set.__nfds;
-        assert!(n < set.__fds.len(), "fd_set full");
-        set.__fds[n] = fd;
         set.__nfds = n + 1;
+        set.__fds[n] = fd;
     }
 
     #[allow(non_snake_case)]
@@ -105,6 +105,9 @@ mod platform {
 }
 
 pub use platform::{RawFd, timeval};
+
+#[cfg(unix)]
+pub type PollFd = platform::pollfd;
 
 #[repr(transparent)]
 pub struct FdSet(MaybeUninit<platform::fd_set>);
@@ -172,5 +175,105 @@ pub fn sec_to_timeval(sec: f64) -> timeval {
     timeval {
         tv_sec: sec.trunc() as _,
         tv_usec: (sec.fract() * 1e6) as _,
+    }
+}
+
+#[cfg(unix)]
+#[inline]
+pub fn search_poll_fd(fds: &[PollFd], fd: i32) -> Result<usize, usize> {
+    fds.binary_search_by_key(&fd, |pfd| pfd.fd)
+}
+
+#[cfg(unix)]
+pub fn insert_poll_fd(fds: &mut Vec<PollFd>, fd: i32, events: i16) {
+    match search_poll_fd(fds, fd) {
+        Ok(i) => fds[i].events = events,
+        Err(i) => fds.insert(
+            i,
+            PollFd {
+                fd,
+                events,
+                revents: 0,
+            },
+        ),
+    }
+}
+
+#[cfg(unix)]
+pub fn get_poll_fd_mut(fds: &mut [PollFd], fd: i32) -> Option<&mut PollFd> {
+    search_poll_fd(fds, fd).ok().map(move |i| &mut fds[i])
+}
+
+#[cfg(unix)]
+pub fn remove_poll_fd(fds: &mut Vec<PollFd>, fd: i32) -> Option<PollFd> {
+    search_poll_fd(fds, fd).ok().map(|i| fds.remove(i))
+}
+
+#[cfg(unix)]
+pub fn poll_fds(fds: &mut [PollFd], timeout: i32) -> std::io::Result<i32> {
+    let res = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, timeout) };
+    if res < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(res)
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
+pub mod epoll {
+    use std::os::fd::{AsFd, IntoRawFd, OwnedFd};
+
+    pub use rustix::event::Timespec;
+    pub use rustix::event::epoll::{Event, EventData, EventFlags};
+
+    #[derive(Debug)]
+    pub enum WaitError {
+        Interrupted,
+        Io(std::io::Error),
+    }
+
+    pub fn create() -> std::io::Result<OwnedFd> {
+        rustix::event::epoll::create(rustix::event::epoll::CreateFlags::CLOEXEC).map_err(Into::into)
+    }
+
+    pub fn close(fd: OwnedFd) -> nix::Result<()> {
+        nix::unistd::close(fd.into_raw_fd())
+    }
+
+    pub fn add<F: AsFd>(epoll: &OwnedFd, fd: F, data: u64, events: u32) -> std::io::Result<()> {
+        rustix::event::epoll::add(
+            epoll,
+            fd,
+            EventData::new_u64(data),
+            EventFlags::from_bits_retain(events),
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn modify<F: AsFd>(epoll: &OwnedFd, fd: F, data: u64, events: u32) -> std::io::Result<()> {
+        rustix::event::epoll::modify(
+            epoll,
+            fd,
+            EventData::new_u64(data),
+            EventFlags::from_bits_retain(events),
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn delete<F: AsFd>(epoll: &OwnedFd, fd: F) -> std::io::Result<()> {
+        rustix::event::epoll::delete(epoll, fd).map_err(Into::into)
+    }
+
+    pub fn wait(
+        epoll: &OwnedFd,
+        events: &mut Vec<Event>,
+        timeout: Option<&Timespec>,
+    ) -> Result<usize, WaitError> {
+        events.clear();
+        match rustix::event::epoll::wait(epoll, rustix::buffer::spare_capacity(events), timeout) {
+            Ok(n) => Ok(n),
+            Err(rustix::io::Errno::INTR) => Err(WaitError::Interrupted),
+            Err(err) => Err(WaitError::Io(err.into())),
+        }
     }
 }
