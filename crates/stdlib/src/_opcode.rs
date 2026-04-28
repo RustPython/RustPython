@@ -5,7 +5,7 @@ mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
-        bytecode::{AnyInstruction, AnyOpcode, InstructionMetadata, Opcode, PseudoOpcode},
+        bytecode::{AnyInstruction, AnyOpcode, InstructionMetadata, Opcode, PseudoOpcode, oparg},
     };
 
     fn try_from_i32(raw: i32) -> Result<AnyOpcode, ()> {
@@ -177,85 +177,36 @@ mod _opcode {
 
     #[pyfunction]
     fn get_intrinsic1_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        [
-            "INTRINSIC_1_INVALID",
-            "INTRINSIC_PRINT",
-            "INTRINSIC_IMPORT_STAR",
-            "INTRINSIC_STOPITERATION_ERROR",
-            "INTRINSIC_ASYNC_GEN_WRAP",
-            "INTRINSIC_UNARY_POSITIVE",
-            "INTRINSIC_LIST_TO_TUPLE",
-            "INTRINSIC_TYPEVAR",
-            "INTRINSIC_PARAMSPEC",
-            "INTRINSIC_TYPEVARTUPLE",
-            "INTRINSIC_SUBSCRIPT_GENERIC",
-            "INTRINSIC_TYPEALIAS",
-        ]
-        .into_iter()
-        .map(|x| vm.ctx.new_str(x).into())
-        .collect()
+        oparg::IntrinsicFunction1::iter()
+            .map(|x| vm.ctx.new_str(x.desc()).into())
+            .collect()
     }
 
     #[pyfunction]
     fn get_intrinsic2_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        [
-            "INTRINSIC_2_INVALID",
-            "INTRINSIC_PREP_RERAISE_STAR",
-            "INTRINSIC_TYPEVAR_WITH_BOUND",
-            "INTRINSIC_TYPEVAR_WITH_CONSTRAINTS",
-            "INTRINSIC_SET_FUNCTION_TYPE_PARAMS",
-            "INTRINSIC_SET_TYPEPARAM_DEFAULT",
-        ]
-        .into_iter()
-        .map(|x| vm.ctx.new_str(x).into())
-        .collect()
+        oparg::IntrinsicFunction2::iter()
+            .map(|x| vm.ctx.new_str(x.desc()).into())
+            .collect()
     }
 
     #[pyfunction]
     fn get_nb_ops(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        [
-            ("NB_ADD", "+"),
-            ("NB_AND", "&"),
-            ("NB_FLOOR_DIVIDE", "//"),
-            ("NB_LSHIFT", "<<"),
-            ("NB_MATRIX_MULTIPLY", "@"),
-            ("NB_MULTIPLY", "*"),
-            ("NB_REMAINDER", "%"),
-            ("NB_OR", "|"),
-            ("NB_POWER", "**"),
-            ("NB_RSHIFT", ">>"),
-            ("NB_SUBTRACT", "-"),
-            ("NB_TRUE_DIVIDE", "/"),
-            ("NB_XOR", "^"),
-            ("NB_INPLACE_ADD", "+="),
-            ("NB_INPLACE_AND", "&="),
-            ("NB_INPLACE_FLOOR_DIVIDE", "//="),
-            ("NB_INPLACE_LSHIFT", "<<="),
-            ("NB_INPLACE_MATRIX_MULTIPLY", "@="),
-            ("NB_INPLACE_MULTIPLY", "*="),
-            ("NB_INPLACE_REMAINDER", "%="),
-            ("NB_INPLACE_OR", "|="),
-            ("NB_INPLACE_POWER", "**="),
-            ("NB_INPLACE_RSHIFT", ">>="),
-            ("NB_INPLACE_SUBTRACT", "-="),
-            ("NB_INPLACE_TRUE_DIVIDE", "/="),
-            ("NB_INPLACE_XOR", "^="),
-            ("NB_SUBSCR", "[]"),
-        ]
-        .into_iter()
-        .map(|(a, b)| {
-            vm.ctx
-                .new_tuple(vec![vm.ctx.new_str(a).into(), vm.ctx.new_str(b).into()])
-                .into()
-        })
-        .collect()
+        oparg::BinaryOperator::iter()
+            .map(|x| {
+                vm.ctx
+                    .new_tuple(vec![
+                        vm.ctx.new_str(x.desc()).into(),
+                        vm.ctx.new_str(x.to_string()).into(),
+                    ])
+                    .into()
+            })
+            .collect()
     }
 
     #[pyfunction]
     fn get_special_method_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        ["__enter__", "__exit__", "__aenter__", "__aexit__"]
-            .into_iter()
-            .map(|x| vm.ctx.new_str(x).into())
+        oparg::SpecialMethod::iter()
+            .map(|x| vm.ctx.new_str(x.to_string()).into())
             .collect()
     }
 

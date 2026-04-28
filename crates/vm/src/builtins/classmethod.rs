@@ -66,34 +66,15 @@ impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let callable: Self::Args = args.bind(vm)?;
-        // Create a dictionary to hold copied attributes
-        let dict = vm.ctx.new_dict();
-
-        // Copy attributes from the callable to the dict
-        // This is similar to functools.wraps in CPython
-        if let Ok(doc) = callable.get_attr("__doc__", vm) {
-            dict.set_item(identifier!(vm.ctx, __doc__), doc, vm)?;
-        }
-        if let Ok(name) = callable.get_attr("__name__", vm) {
-            dict.set_item(identifier!(vm.ctx, __name__), name, vm)?;
-        }
-        if let Ok(qualname) = callable.get_attr("__qualname__", vm) {
-            dict.set_item(identifier!(vm.ctx, __qualname__), qualname, vm)?;
-        }
-        if let Ok(module) = callable.get_attr("__module__", vm) {
-            dict.set_item(identifier!(vm.ctx, __module__), module, vm)?;
-        }
-        if let Ok(annotations) = callable.get_attr("__annotations__", vm) {
-            dict.set_item(identifier!(vm.ctx, __annotations__), annotations, vm)?;
-        }
-
-        // Create PyClassMethod instance with the pre-populated dict
+        // Validate the signature here, but defer storing the callable and
+        // copying its attributes to `__init__` so that subclasses overriding
+        // `__init__` without calling `super().__init__()` see `__func__` as
+        // `None`, matching CPython.
+        let _: Self::Args = args.bind(vm)?;
         let classmethod = Self {
-            callable: PyMutex::new(callable),
+            callable: PyMutex::new(vm.ctx.none()),
         };
-
-        let result = PyRef::new_ref(classmethod, cls, Some(dict));
+        let result = PyRef::new_ref(classmethod, cls, Some(vm.ctx.new_dict()));
         Ok(PyObjectRef::from(result))
     }
 
@@ -105,8 +86,21 @@ impl Constructor for PyClassMethod {
 impl Initializer for PyClassMethod {
     type Args = PyObjectRef;
 
-    fn init(zelf: PyRef<Self>, callable: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
-        *zelf.callable.lock() = callable;
+    fn init(zelf: PyRef<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.callable.lock() = callable.clone();
+        // Copy wrapper attributes from the callable, mirroring functools.wraps.
+        let dict = zelf.as_object().dict().expect("classmethod has __dict__");
+        for attr in [
+            identifier!(vm.ctx, __doc__),
+            identifier!(vm.ctx, __name__),
+            identifier!(vm.ctx, __qualname__),
+            identifier!(vm.ctx, __module__),
+            identifier!(vm.ctx, __annotations__),
+        ] {
+            if let Ok(value) = callable.get_attr(attr, vm) {
+                dict.set_item(attr, value, vm)?;
+            }
+        }
         Ok(())
     }
 }

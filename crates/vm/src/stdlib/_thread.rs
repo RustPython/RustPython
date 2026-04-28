@@ -459,7 +459,7 @@ pub(crate) mod _thread {
         {
             // On Unix, use pthread ID from the handle
             use std::os::unix::thread::JoinHandleExt;
-            handle.as_pthread_t() as u64
+            handle.as_pthread_t() as _
         }
         #[cfg(not(unix))]
         {

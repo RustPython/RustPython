@@ -201,8 +201,6 @@ impl PyNativeFunction {
 }
 
 // PyCMethodObject in CPython
-// repr(C) ensures `func` is at offset 0, allowing safe cast from PyNativeMethod to PyNativeFunction
-#[repr(C)]
 #[pyclass(name = "builtin_function_or_method", module = false, base = PyNativeFunction, ctx = "builtin_function_or_method_type")]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
@@ -211,7 +209,6 @@ pub struct PyNativeMethod {
 
 // All Python-visible behavior (getters, slots) is registered by PyNativeFunction::extend_class.
 // PyNativeMethod only extends the Rust-side struct with the defining class reference.
-// The func field at offset 0 (#[repr(C)]) allows NativeFunctionOrMethod to read it safely.
 #[pyclass(flags(HAS_DICT, HAS_WEAKREF, DISALLOW_INSTANTIATION))]
 impl PyNativeMethod {}
 

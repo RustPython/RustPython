@@ -54,12 +54,46 @@ pub const fn decimal_point_or_empty(precision: usize, alternate_form: bool) -> &
     }
 }
 
+/// Rust's `format!("{:.*}", n, x)` panics when `n` exceeds the fmt runtime's
+/// internal precision limit. User-supplied precision can legally reach far
+/// higher values (e.g. `f"{1.5:.1000000}"`) — clamp here so we produce a
+/// (truncated-but-valid) output instead of aborting the interpreter. Harmless
+/// in practice: f64 carries only ~17 significant digits, so precision beyond
+/// 65K is padding zeros at best.
+///
+/// The two caps differ by 1: `{:.*}` (plain) accepts `u16::MAX`, but `{:.*e}`
+/// (exponential) hits a tighter assertion (`ndigits > 0` in
+/// `core::num::flt2dec`) at exactly `u16::MAX`. Keeping plain at the higher
+/// cap preserves byte-identical output with CPython up through
+/// `precision == u16::MAX` for fixed / percent / general-non-scientific paths.
+pub const FMT_MAX_PRECISION: usize = u16::MAX as usize;
+pub const FMT_MAX_EXP_PRECISION: usize = u16::MAX as usize - 1;
+
+#[inline]
+pub fn clamp_fmt_precision(precision: usize) -> usize {
+    core::cmp::min(precision, FMT_MAX_PRECISION)
+}
+
+#[inline]
+pub fn clamp_exp_precision(precision: usize) -> usize {
+    core::cmp::min(precision, FMT_MAX_EXP_PRECISION)
+}
+
 pub fn format_fixed(precision: usize, magnitude: f64, case: Case, alternate_form: bool) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
             let point = decimal_point_or_empty(precision, alternate_form);
-            let precision = core::cmp::min(precision, u16::MAX as usize);
-            format!("{magnitude:.precision$}{point}")
+            let capped = clamp_fmt_precision(precision);
+            let mut out = format!("{magnitude:.capped$}");
+            // Pad with '0's up to the requested precision to match CPython
+            // byte-identically. `f64` has at most ~767 significant decimal
+            // digits, so any digit past `capped` is deterministically '0'.
+            let missing = precision.saturating_sub(capped);
+            if missing > 0 {
+                out.extend(core::iter::repeat_n('0', missing));
+            }
+            out.push_str(point);
+            out
         }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
@@ -77,7 +111,8 @@ pub fn format_exponent(
 ) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
-            let r_exp = format!("{magnitude:.precision$e}");
+            let capped = clamp_exp_precision(precision);
+            let r_exp = format!("{magnitude:.capped$e}");
             let mut parts = r_exp.splitn(2, 'e');
             let base = parts.next().unwrap();
             let exponent = parts.next().unwrap().parse::<i64>().unwrap();
@@ -86,7 +121,15 @@ pub fn format_exponent(
                 Case::Upper => 'E',
             };
             let point = decimal_point_or_empty(precision, alternate_form);
-            format!("{base}{point}{e}{exponent:+#03}")
+            // Pad with '0's up to the requested precision to match CPython
+            // byte-identically past our internal cap; see `format_fixed`.
+            let missing = precision.saturating_sub(capped);
+            let mut mantissa = String::with_capacity(base.len() + missing);
+            mantissa.push_str(base);
+            if missing > 0 {
+                mantissa.extend(core::iter::repeat_n('0', missing));
+            }
+            format!("{mantissa}{point}{e}{exponent:+#03}")
         }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
@@ -132,7 +175,8 @@ pub fn format_general(
 ) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
-            let r_exp = format!("{:.*e}", precision.saturating_sub(1), magnitude);
+            let exp_precision = clamp_exp_precision(precision.saturating_sub(1));
+            let r_exp = format!("{:.*e}", exp_precision, magnitude);
             let mut parts = r_exp.splitn(2, 'e');
             let base = parts.next().unwrap();
             let exponent = parts.next().unwrap().parse::<i64>().unwrap();
@@ -141,12 +185,18 @@ pub fn format_general(
                     Case::Lower => 'e',
                     Case::Upper => 'E',
                 };
-                let magnitude = format!("{:.*}", precision + 1, base);
-                let base = maybe_remove_trailing_redundant_chars(magnitude, alternate_form);
-                let point = decimal_point_or_empty(precision.saturating_sub(1), alternate_form);
+                // `base` is already produced at the clamped precision via
+                // `r_exp`. The previous `format!("{:.*}", precision + 1, base)`
+                // call was a no-op (magnitude is `.abs()`-ed at the caller, so
+                // base has no sign and its length was exactly `precision + 1`)
+                // — reuse `base` directly to avoid double-clamping that would
+                // drop the last 1-2 chars at high precision.
+                let base = maybe_remove_trailing_redundant_chars(base.to_owned(), alternate_form);
+                let point = decimal_point_or_empty(exp_precision, alternate_form);
                 format!("{base}{point}{e}{exponent:+#03}")
             } else {
-                let precision = ((precision as i64) - 1 - exponent) as usize;
+                let precision =
+                    clamp_fmt_precision(((precision as i64) - 1 - exponent).max(0) as usize);
                 let magnitude = format!("{magnitude:.precision$}");
                 let base = maybe_remove_trailing_redundant_chars(magnitude, alternate_form);
                 let point = decimal_point_or_empty(precision, alternate_form);

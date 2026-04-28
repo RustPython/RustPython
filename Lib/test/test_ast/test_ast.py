@@ -604,7 +604,6 @@ class AST_Tests(unittest.TestCase):
             ):
                 compile(e, "<test>", "eval")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_empty_yield_from(self):
         # Issue 16546: yield from value is not optional.
         empty_yield_from = ast.parse("def f():\n yield from g()")
@@ -1039,7 +1038,6 @@ class AST_Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, f"^{e}$"):
                 compile(tree, "<test>", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_none_checks(self) -> None:
         tests = [
             (ast.alias, "name", "import spam as SPAM"),
@@ -1059,7 +1057,6 @@ class AST_Tests(unittest.TestCase):
             with self.subTest(test_input=test):
                 self.assertEqual(repr(ast.parse(test)), snapshot)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     def test_repr_large_input_crash(self):
         # gh-125010: Fix use-after-free in ast repr()
         source = "0x0" + "e" * 10_000
@@ -2108,7 +2105,6 @@ class ASTValidatorTests(unittest.TestCase):
         self.assertIsInstance(funcdef, ast.FunctionDef)
         self.assertTrue(matcher(funcdef))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_classdef(self):
         def cls(bases=None, keywords=None, body=None, decorator_list=None, type_params=None):
             if bases is None:
@@ -2132,14 +2128,12 @@ class ASTValidatorTests(unittest.TestCase):
         self.stmt(cls(decorator_list=[ast.Name("x", ast.Store())]),
                   "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_delete(self):
         self.stmt(ast.Delete([]), "empty targets on Delete")
         self.stmt(ast.Delete([None]), "None disallowed")
         self.stmt(ast.Delete([ast.Name("x", ast.Load())]),
                   "must have Del context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_assign(self):
         self.stmt(ast.Assign([], ast.Constant(3)), "empty targets on Assign")
         self.stmt(ast.Assign([None], ast.Constant(3)), "None disallowed")
@@ -2271,7 +2265,6 @@ class ASTValidatorTests(unittest.TestCase):
         e = ast.Expr(ast.Name("x", ast.Store()))
         self.stmt(e, "must have Load context")
 
-    @unittest.skip("TODO: RUSTPYTHON; called `Option::unwrap()` on a `None` value")
     def test_boolop(self):
         b = ast.BoolOp(ast.And(), [])
         self.expr(b, "less than 2 values")
@@ -2301,14 +2294,12 @@ class ASTValidatorTests(unittest.TestCase):
         for args in (s, l, l), (l, s, l), (l, l, s):
             self.expr(ast.IfExp(*args), "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_dict(self):
         d = ast.Dict([], [ast.Name("x", ast.Load())])
         self.expr(d, "same number of keys as values")
         d = ast.Dict([ast.Name("x", ast.Load())], [None])
         self.expr(d, "None disallowed")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_set(self):
         self.expr(ast.Set([None]), "None disallowed")
         s = ast.Set([ast.Name("x", ast.Store())])
@@ -2338,19 +2329,15 @@ class ASTValidatorTests(unittest.TestCase):
             return fac(ast.Name("x", ast.Store()), gens)
         self._check_comprehension(wrap)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_listcomp(self):
         self._simple_comp(ast.ListComp)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_setcomp(self):
         self._simple_comp(ast.SetComp)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_generatorexp(self):
         self._simple_comp(ast.GeneratorExp)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_dictcomp(self):
         g = ast.comprehension(ast.Name("y", ast.Store()),
                               ast.Name("p", ast.Load()), [], 0)
@@ -2382,7 +2369,6 @@ class ASTValidatorTests(unittest.TestCase):
         comp = ast.Compare(left, [ast.In()], [ast.Constant("blah")])
         self.expr(comp)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_call(self):
         func = ast.Name("x", ast.Load())
         args = [ast.Name("y", ast.Load())]
@@ -2428,11 +2414,9 @@ class ASTValidatorTests(unittest.TestCase):
         self.expr(fac([ast.Name("x", ast.Store())], ast.Load()),
                   "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_list(self):
         self._sequence(ast.List)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected some sort of expr, but got None
     def test_tuple(self):
         self._sequence(ast.Tuple)
 

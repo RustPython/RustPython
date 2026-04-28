@@ -135,6 +135,8 @@ impl Node for ast::Stmt {
                 source_file,
                 _object,
             )?)
+        } else if _vm.is_none(&_object) {
+            return Err(_vm.new_value_error("None disallowed in statement list"));
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of stmt, but got {}",

@@ -171,6 +171,7 @@ ruff_source_file = { package = "rustpython-ruff_source_file", version = "0.15.8"
 # ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", rev = "c2a8815842f9dc5d24ec19385eae0f1a7188b0d9" }
 # ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", rev = "c2a8815842f9dc5d24ec19385eae0f1a7188b0d9" }
 
+der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 ahash = "0.8.12"
 ascii = "1.1"
@@ -185,12 +186,12 @@ flame = "0.2.2"
 getrandom = { version = "0.3", features = ["std"] }
 glob = "0.3"
 hex = "0.4.3"
-indexmap = { version = "2.13.0", features = ["std"] }
+indexmap = { version = "2.14.0", features = ["std"] }
 insta = "1.46"
 itertools = "0.14.0"
 is-macro = "0.3.7"
 junction = "1.4.2"
-libc = "0.2.185"
+libc = "0.2.186"
 libffi = "5"
 log = "0.4.29"
 nix = { version = "0.30", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
@@ -212,7 +213,7 @@ radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.1", features = ["event"] }
-rustyline = "17.0.1"
+rustyline = "17"
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.29"
 scoped-tls = "1"
