@@ -52,6 +52,15 @@ pub extern "C" fn PyList_SetItem(list: *mut PyObject, index: isize, item: *mut P
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyList_Append(list: *mut PyObject, item: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        let item = unsafe { &*item }.to_owned();
+        Ok(list.borrow_vec_mut().push(item))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::exceptions::PyIndexError;
@@ -90,6 +99,17 @@ mod tests {
                     .unwrap_err()
                     .is_instance_of::<PyIndexError>(py)
             );
+        })
+    }
+
+    #[test]
+    fn test_list_append() {
+        Python::attach(|py| {
+            let list = PyList::empty(py);
+            assert_eq!(list.len(), 0);
+            list.append(1).unwrap();
+            assert_eq!(list.len(), 1);
+            assert_eq!(list.get_item(0).unwrap().extract::<u32>().unwrap(), 1);
         })
     }
 }
