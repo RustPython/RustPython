@@ -2661,7 +2661,10 @@ fn subtype_set_dict(obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine)
         }
     } else {
         // PyObject_GenericSetDict
-        let value = value.map(|v| v.try_into_value(vm)).transpose()?;
+        let value = match value {
+            PySetterValue::Assign(obj_val) => PySetterValue::Assign(obj_val.try_into_value(vm)?),
+            PySetterValue::Delete => PySetterValue::Delete,
+        };
         object::object_set_dict(obj, value, vm)?;
         Ok(())
     }

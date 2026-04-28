@@ -956,7 +956,8 @@ impl PyFunction {
 
     #[pygetset]
     fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
-        zelf.instance_dict()
+        zelf.as_object()
+            .instance_dict()
             .map(|d| d.get_or_insert(vm))
             .unwrap_or_else(|| vm.ctx.new_dict())
     }
@@ -965,21 +966,19 @@ impl PyFunction {
     fn set___dict__(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(obj) => {
+                let cls_name = obj.class().name().to_string();
                 let dict = obj.downcast::<PyDict>().map_err(|_| {
                     vm.new_type_error(format!(
-                        "__dict__ must be set to a dictionary, not a '{}'",
-                        obj.class().name()
+                        "__dict__ must be set to a dictionary, not a '{cls_name}'"
                     ))
                 })?;
-                zelf.set_dict(Some(dict)).map_err(|_| {
-                    vm.new_attribute_error("function object has no __dict__")
-                })
+                zelf.as_object()
+                    .set_dict(Some(dict))
+                    .map_err(|_| vm.new_attribute_error("function object has no __dict__"))
             }
             PySetterValue::Delete => Err(vm.new_type_error("cannot delete __dict__")),
         }
     }
-
-
 
     #[pygetset]
     fn __annotate__(&self, vm: &VirtualMachine) -> PyObjectRef {
