@@ -86,7 +86,9 @@ timsort = "0.1.2"
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = { workspace = true }
+icu_casemap = { workspace = true }
 icu_properties = { workspace = true }
+writeable = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }

@@ -222,6 +222,7 @@ strum = "0.28"
 strum_macros = "0.28"
 syn = "2"
 thiserror = "2.0"
+icu_casemap = "2"
 icu_properties = "2"
 icu_normalizer = "2"
 unicode-casing = "0.1.1"
@@ -230,6 +231,7 @@ unicode_names2 = "2.0.0"
 widestring = "1.2.0"
 windows-sys = "0.61.2"
 wasm-bindgen = "0.2.106"
+writeable = "0.6"
 
 # Lints
 
