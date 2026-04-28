@@ -553,7 +553,6 @@ class TestTranforms(BytecodeTestCase):
         self.check_jump_targets(f)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; KeyError: 38
     def test_elim_jump_to_uncond_jump2(self):
         # POP_JUMP_IF_FALSE to JUMP_BACKWARD --> POP_JUMP_IF_FALSE to non-jump
         def f():
@@ -598,7 +597,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(count_instr_recursively(f, 'POP_JUMP_IF_FALSE'), 1)
         self.assertEqual(count_instr_recursively(f, 'POP_JUMP_IF_TRUE'), 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; KeyError: 6
     def test_elim_jump_to_uncond_jump4(self):
         def f():
             for i in range(5):
