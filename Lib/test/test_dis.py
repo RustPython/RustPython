@@ -1021,11 +1021,9 @@ class DisTests(DisTestBase):
                     width += 1 + dis._OPARG_WIDTH
                 self.assertLessEqual(len(opname), width)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dis(self):
         self.do_disassembly_test(_f, dis_f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dis_with_offsets(self):
         self.do_disassembly_test(_f, dis_f_with_offsets, show_offsets=True)
 
@@ -1105,7 +1103,6 @@ class DisTests(DisTestBase):
         ])
         self.do_disassembly_test(f, expect, show_positions=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bug_708901(self):
         self.do_disassembly_test(bug708901, dis_bug708901)
 
@@ -1125,7 +1122,6 @@ class DisTests(DisTestBase):
         # Extended arg followed by NOP
         self.do_disassembly_test(code_bug_45757, dis_bug_45757)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bug_46724(self):
         # Test that negative operargs are handled properly
         self.do_disassembly_test(bug46724, dis_bug46724)
@@ -1179,11 +1175,9 @@ class DisTests(DisTestBase):
     def test_disassemble_bytes(self):
         self.do_disassembly_test(_f.__code__.co_code, dis_f_co_code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_class(self):
         self.do_disassembly_test(_C, dis_c)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_instance_method(self):
         self.do_disassembly_test(_C(1).__init__, dis_c_instance_method)
 
@@ -1191,11 +1185,9 @@ class DisTests(DisTestBase):
         method_bytecode = _C(1).__init__.__code__.co_code
         self.do_disassembly_test(method_bytecode, dis_c_instance_method_bytes)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_static_method(self):
         self.do_disassembly_test(_C.sm, dis_c_static_method)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_class_method(self):
         self.do_disassembly_test(_C.cm, dis_c_class_method)
 
@@ -1216,7 +1208,6 @@ class DisTests(DisTestBase):
         coro_disas = self.get_disassembly(coro)
         self.assertEqual(coro_disas, coro_func_disas)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_fstring(self):
         self.do_disassembly_test(_fstring, dis_fstring)
 
@@ -1284,7 +1275,6 @@ class DisTests(DisTestBase):
         except Exception as e:
             self.assertIsNone(e.__context__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: No END_ASYNC_FOR in disassembly of async for
     def test_async_for_presentation(self):
 
         async def afunc():
@@ -1468,10 +1458,6 @@ class DisWithFileTests(DisTests):
         else:
             dis.disassemble(func, lasti, file=output, **kwargs)
         return output.getvalue()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: No END_ASYNC_FOR in disassembly of async for
-    def test_async_for_presentation(self):
-        return super().test_async_for_presentation()
 
 
 if dis.code_info.__doc__ is None:
@@ -2164,7 +2150,6 @@ class InstructionTests(InstructionTestCase):
             self.assertIn(name, opcode._specializations[baseopname])
             self.assertEqual(opcode.opmap[baseopname], baseopcode)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - JUMP_BACKWARD/JUMP_FORWARD are placeholders
     def test_jump_target(self):
         # Non-jump instructions should return None
         instruction = make_inst(opname="NOP", arg=None, argval=None,
@@ -2190,7 +2175,6 @@ class InstructionTests(InstructionTestCase):
                                   positions=None)
         self.assertEqual(10 + 2 + 1*2 + 100*2, instruction.jump_target)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - JUMP_BACKWARD is a placeholder
     def test_argval_argrepr(self):
         def f(opcode, oparg, offset, *init_args):
             arg_resolver = dis.ArgResolver(*init_args)
@@ -2211,7 +2195,6 @@ class InstructionTests(InstructionTestCase):
         self.assertEqual(f(opcode.opmap["BINARY_OP"], 3, *args), (3, '<<'))
         self.assertEqual(f(opcode.opmap["CALL_INTRINSIC_1"], 2, *args), (2, 'INTRINSIC_IMPORT_STAR'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - JUMP_BACKWARD is a placeholder
     def test_custom_arg_resolver(self):
         class MyArgResolver(dis.ArgResolver):
             def offset_from_jump_arg(self, op, arg, offset):
@@ -2354,7 +2337,6 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
             b = dis.Bytecode(x)
             self.assertRegex(b.info(), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassembled(self):
         actual = dis.Bytecode(_f).dis()
         self.do_disassembly_compare(actual, dis_f)
@@ -2366,7 +2348,6 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
 
         self.assertEqual(b.current_offset, tb.tb_lasti)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_from_traceback_dis(self):
         self.maxDiff = None
         tb = get_tb()
@@ -2472,7 +2453,6 @@ class TestDisTraceback(DisTestBase):
         with self.assertRaises(RuntimeError):
             dis.distb()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_distb_last_traceback(self):
         self.maxDiff = None
         # We need to have an existing last traceback in `sys`:
@@ -2481,7 +2461,6 @@ class TestDisTraceback(DisTestBase):
 
         self.do_disassembly_compare(self.get_disassembly(None), dis_traceback)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_distb_explicit_arg(self):
         self.maxDiff = None
         tb = get_tb()
