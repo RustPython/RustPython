@@ -2,9 +2,42 @@ use crate::with_vm;
 use alloc::slice;
 use core::ffi::c_int;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
+use rustpython_vm::function::{FuncArgs, KwArgs};
 use rustpython_vm::{AsObject, PyObject, PyObjectRef};
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyObject_Call(
+    callable: *mut PyObject,
+    args: *mut PyObject,
+    kwargs: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let callable = unsafe { &*callable };
+        let args = unsafe { &*args }
+            .try_downcast_ref::<PyTuple>(vm)?
+            .iter()
+            .cloned()
+            .collect::<Vec<PyObjectRef>>();
+
+        let kwargs: KwArgs = unsafe { kwargs.as_ref() }
+            .map(|kwargs| kwargs.try_downcast_ref::<PyDict>(vm))
+            .transpose()?
+            .map_or_else(
+                || KwArgs::default(),
+                |kwargs| {
+                    kwargs
+                        .items_vec()
+                        .iter()
+                        .map(|(key, value)| todo!())
+                        .collect()
+                },
+            );
+
+        callable.call_with_args(FuncArgs::new(args, kwargs), vm)
+    })
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyObject_CallNoArgs(callable: *mut PyObject) -> *mut PyObject {
