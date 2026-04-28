@@ -31,18 +31,11 @@ pub(crate) mod _thread {
     use std::thread;
 
     // PYTHREAD_NAME: show current thread name
-    pub const PYTHREAD_NAME: Option<&str> = {
-        cfg_if::cfg_if! {
-            if #[cfg(windows)] {
-                Some("nt")
-            } else if #[cfg(unix)] {
-                Some("pthread")
-            } else if #[cfg(any(target_os = "solaris", target_os = "illumos"))] {
-                Some("solaris")
-            } else {
-                None
-            }
-        }
+    pub const PYTHREAD_NAME: Option<&str> = cfg_select! {
+        windows => Some("nt"),
+        unix => Some("pthread"),
+        any(target_os = "solaris", target_os = "illumos") => Some("solaris"),
+        _ => None,
     };
 
     // TIMEOUT_MAX_IN_MICROSECONDS is a value in microseconds
@@ -467,7 +460,7 @@ pub(crate) mod _thread {
         {
             // On Unix, use pthread ID from the handle
             use std::os::unix::thread::JoinHandleExt;
-            handle.as_pthread_t() as u64
+            handle.as_pthread_t() as _
         }
         #[cfg(not(unix))]
         {

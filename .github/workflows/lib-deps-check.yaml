@@ -71,14 +71,14 @@ jobs:
               # Lib files: Lib/foo.py -> foo, Lib/foo/__init__.py -> foo
               module=$(echo "$file" | sed -E 's|^Lib/||; s|/__init__\.py$||; s|\.py$||; s|/.*||')
             fi
-            if [[ -n "$module" && ! " $modules " =~ " $module " ]]; then
+            if [[ -n "$module" && " $modules " != *" $module "* ]]; then
               modules="$modules $module"
             fi
           done
 
           modules=$(echo "$modules" | xargs)  # trim whitespace
           echo "Detected modules: $modules"
-          echo "modules=$modules" >> $GITHUB_OUTPUT
+          echo "modules=$modules" >> "$GITHUB_OUTPUT"
 
       - name: Setup Python
         if: steps.changed-files.outputs.modules != ''

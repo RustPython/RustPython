@@ -33,6 +33,7 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # TODO: Remove on 2026/06/02
 
 jobs:
   rust_tests:
@@ -56,7 +57,7 @@ jobs:
           components: clippy
 
       - name: Restore cache
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cargo/bin/
@@ -166,7 +167,7 @@ jobs:
           gcc-aarch64-linux-gnu: ${{ matrix.dependencies.gcc-aarch64-linux-gnu || false }}
 
       - name: Restore cache
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cargo/bin/
@@ -189,7 +190,7 @@ jobs:
       - name: Setup Android NDK
         if: ${{ matrix.target == 'aarch64-linux-android' }}
         id: setup-ndk
-        uses: nttld/setup-ndk@v1
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         with:
           ndk-version: r27
           add-to-path: true
@@ -256,7 +257,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cache
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cargo/bin/
@@ -391,7 +392,7 @@ jobs:
         with:
           components: rustfmt
 
-      - uses: cargo-bins/cargo-binstall@0b24824336e2b3800b0f89d9e08b2c08bfa3dcdd # v1.17.9
+      - uses: cargo-bins/cargo-binstall@dc19f1e48450eefe5a29b8da6c6b00a87d730b37 # v1.18.1
 
       - name: cargo shear
         run: |
@@ -402,31 +403,37 @@ jobs:
         uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
+        uses: zizmorcore/zizmor-action@b1d7e1fb5de872772f31590499237e7cce841e8e # v0.5.3
 
       - name: restore prek cache
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
 
+      # TODO: Remove on 2026/06/02 when node24 is the default
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          package-manager-cache: false
+          node-version: "24"
+
       - name: prek
         id: prek
-        uses: j178/prek-action@53276d8b0d10f8b6672aa85b4588c6921d0370cc # v2.0.1
+        uses: j178/prek-action@cbc2f23eb5539cf20d82d1aabd0d0ecbcc56f4e3 # v2.0.2
         with:
           cache: false
           show-verbose-logs: false
 
       - name: save prek cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
-        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # 1.24.0
+        uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # v1.24.0
         with:
           level: warning
           fail_level: error
@@ -449,7 +456,7 @@ jobs:
           components: miri
 
       - name: Restore cache
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cargo/bin/
@@ -483,7 +490,7 @@ jobs:
           components: clippy
 
       - name: Restore cache
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cargo/bin/
@@ -512,10 +519,12 @@ jobs:
 
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
+
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           cache: "npm"
           cache-dependency-path: "wasm/demo/package-lock.json"
+
       - name: run test
         run: |
           driver_path="$(pwd)/../../geckodriver"
@@ -525,8 +534,11 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/demo
-      - uses: mwilliamson/setup-wabt-action@v3
-        with: { wabt-version: "1.0.36" }
+
+      - uses: mwilliamson/setup-wabt-action@427f2fdd70bc4dbc2e53c2eb4f19f66162d71bd2 # v4.0.0
+        with:
+          wabt-version: "1.0.36"
+
       - name: check wasm32-unknown without js
         run: |
           cd example_projects/wasm32_without_js/rustpython-without-js
@@ -536,6 +548,7 @@ jobs:
             echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
           fi
           cargo run --release --manifest-path wasm-runtime/Cargo.toml rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
+
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
         run: |
@@ -545,9 +558,10 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/notebook
+
       - name: Deploy demo to Github Pages
         if: success() && github.ref == 'refs/heads/release'
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
         env:
           ACTIONS_DEPLOY_KEY: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
           PUBLISH_DIR: ./wasm/demo/dist
@@ -569,7 +583,7 @@ jobs:
           target: wasm32-wasip1
 
       - name: Restore cache
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cargo/bin/
@@ -585,7 +599,7 @@ jobs:
             ${{ runner.os }}-stable--
 
       - name: Setup Wasmer
-        uses: wasmerio/setup-wasmer@v3
+        uses: wasmerio/setup-wasmer@24b15c95293d23f89c68bd40dac76338f773e924 # v3.1
 
       - name: Install clang
         uses: ./.github/actions/install-linux-deps

@@ -5,7 +5,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
         PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyTupleRef,
-        PyType, PyTypeRef, PyUtf8Str, pystr::AsPyStr,
+        PyType, PyTypeRef, PyUtf8Str, int::check_int_to_str_digits, pystr::AsPyStr,
     },
     common::{hash::PyHash, str::to_ascii},
     convert::{ToPyObject, ToPyResult},
@@ -392,6 +392,7 @@ impl PyObject {
         // Fast path for exact int: skip __str__ method resolution
         let obj = match obj.downcast_exact::<PyInt>(vm) {
             Ok(int) => {
+                check_int_to_str_digits(int.as_bigint(), vm)?;
                 return Ok(vm.ctx.new_str(int.to_str_radix_10()));
             }
             Err(obj) => obj,

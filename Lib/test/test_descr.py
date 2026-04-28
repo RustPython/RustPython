@@ -4952,7 +4952,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             a + a
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slot_shadows_class_variable(self):
         with self.assertRaises(ValueError) as cm:
             class X:
@@ -4961,7 +4960,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         m = str(cm.exception)
         self.assertEqual("'foo' in __slots__ conflicts with class variable", m)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_doc(self):
         class X:
             "elephant"
@@ -5193,7 +5191,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaisesRegex(NotImplementedError, "BAR"):
             B().foo
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_staticmethod_new(self):
         class MyStaticMethod(staticmethod):
             def __init__(self, func):
@@ -5204,7 +5201,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertIsNone(sm.__func__)
         self.assertIsNone(sm.__wrapped__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_classmethod_new(self):
         class MyClassMethod(classmethod):
             def __init__(self, func):

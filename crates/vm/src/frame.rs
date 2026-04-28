@@ -9458,6 +9458,9 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         match func {
+            bytecode::IntrinsicFunction1::Invalid => {
+                unreachable!("This is a bug in RustPython compiler")
+            }
             bytecode::IntrinsicFunction1::Print => {
                 let displayhook = vm
                     .sys_module
@@ -9573,6 +9576,9 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> PyResult {
         match func {
+            bytecode::IntrinsicFunction2::Invalid => {
+                unreachable!("This is a bug in RustPython compiler")
+            }
             bytecode::IntrinsicFunction2::SetTypeparamDefault => {
                 crate::stdlib::_typing::set_typeparam_default(arg1, arg2, vm)
             }

@@ -146,8 +146,8 @@ impl<'vm> ShellHelper<'vm> {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(not(target_arch = "wasm32"))] {
+cfg_select! {
+    not(target_arch = "wasm32") => {
         use rustyline::{
             completion::Completer, highlight::Highlighter, hint::Hinter, validate::Validator, Context,
             Helper,
@@ -176,4 +176,5 @@ cfg_if::cfg_if! {
         impl Validator for ShellHelper<'_> {}
         impl Helper for ShellHelper<'_> {}
     }
+    _ => {}
 }

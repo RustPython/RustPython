@@ -1720,16 +1720,17 @@ pub mod module {
 
             if self.setsid {
                 // Note: POSIX_SPAWN_SETSID may not be available on all platforms
-                cfg_if::cfg_if! {
-                    if #[cfg(any(
+                cfg_select! {
+                    any(
                         target_os = "linux",
                         target_os = "haiku",
                         target_os = "solaris",
                         target_os = "illumos",
                         target_os = "hurd",
-                    ))] {
+                    ) => {
                         flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(libc::POSIX_SPAWN_SETSID));
-                    } else {
+                    }
+                    _ => {
                         return Err(vm.new_not_implemented_error(
                             "setsid parameter is not supported on this platform",
                         ));
@@ -2047,21 +2048,16 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
-    cfg_if::cfg_if! {
-        if #[cfg(all(target_os = "linux", target_env = "gnu"))] {
-            type PriorityWhichType = libc::__priority_which_t;
-        } else {
-            type PriorityWhichType = libc::c_int;
-        }
-    }
+    type PriorityWhichType = cfg_select! {
+        all(target_os = "linux", target_env = "gnu") => libc::__priority_which_t,
+        _ => libc::c_int,
+    };
+
     #[cfg(not(target_os = "redox"))]
-    cfg_if::cfg_if! {
-        if #[cfg(target_os = "freebsd")] {
-            type PriorityWhoType = i32;
-        } else {
-            type PriorityWhoType = u32;
-        }
-    }
+    type PriorityWhoType = cfg_select! {
+        target_os = "freebsd" => i32,
+        _ => u32,
+    };
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]

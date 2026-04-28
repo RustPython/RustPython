@@ -6,7 +6,6 @@ use super::{
         builtins_iter,
     },
 };
-use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
@@ -14,6 +13,7 @@ use crate::{
     atomic_func,
     cformat::cformat_string,
     class::PyClassImpl,
+    common::lock::LazyLock,
     common::str::{PyKindStr, StrData, StrKind},
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
@@ -46,7 +46,7 @@ use rustpython_common::{
 
 use icu_properties::props::{
     BidiClass, BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
-    NumericType, XidContinue, XidStart,
+    Lowercase, NumericType, Uppercase, XidContinue, XidStart,
 };
 use unicode_casing::CharExt;
 
@@ -2330,6 +2330,14 @@ impl AnyStr for str {
         }
         splits
     }
+
+    fn py_islower(&self) -> bool {
+        self.is_cased::<Lowercase, Uppercase>()
+    }
+
+    fn py_isupper(&self) -> bool {
+        self.is_cased::<Uppercase, Lowercase>()
+    }
 }
 
 impl AnyStrContainer<Wtf8> for Wtf8Buf {
@@ -2441,6 +2449,14 @@ impl AnyStr for Wtf8 {
             splits.push(convert(&self[..last_offset]));
         }
         splits
+    }
+
+    fn py_islower(&self) -> bool {
+        self.is_cased::<Lowercase, Uppercase>()
+    }
+
+    fn py_isupper(&self) -> bool {
+        self.is_cased::<Uppercase, Lowercase>()
     }
 }
 

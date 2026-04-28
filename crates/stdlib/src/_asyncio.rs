@@ -114,7 +114,6 @@ pub(crate) mod _asyncio {
     #[pyattr]
     #[pyclass(name = "Future", module = "_asyncio", traverse)]
     #[derive(Debug, PyPayload)]
-    #[repr(C)] // Required for inheritance - ensures base field is at offset 0 in subclasses
     struct PyFuture {
         fut_loop: PyRwLock<Option<PyObjectRef>>,
         fut_callback0: PyRwLock<Option<PyObjectRef>>,
@@ -1098,9 +1097,7 @@ pub(crate) mod _asyncio {
     #[pyattr]
     #[pyclass(name = "Task", module = "_asyncio", base = PyFuture, traverse)]
     #[derive(Debug)]
-    #[repr(C)]
     struct PyTask {
-        // Base class (must be first field for inheritance)
         base: PyFuture,
         // Task-specific fields
         task_coro: PyRwLock<Option<PyObjectRef>>,

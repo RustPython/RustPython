@@ -5,19 +5,15 @@ pub(crate) use _io::module_def;
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) use _io::reinit_std_streams_after_fork;
 
-cfg_if::cfg_if! {
-    if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
+cfg_select! {
+    any(not(target_arch = "wasm32"), target_os = "wasi") => {
         use rustpython_host_env::crt_fd::Offset;
-    } else {
-        type Offset = i64;
-    }
-}
-
-// EAGAIN constant for BlockingIOError
-cfg_if::cfg_if! {
-    if #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))] {
+        // EAGAIN constant for BlockingIOError
         const EAGAIN: i32 = libc::EAGAIN;
-    } else {
+    }
+    _ => {
+        type Offset = i64;
+        // EAGAIN constant for BlockingIOError
         const EAGAIN: i32 = 11; // Standard POSIX value
     }
 }
@@ -152,12 +148,11 @@ mod _io {
     #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
         let x = (0..=2).contains(&whence);
-        cfg_if::cfg_if! {
-            if #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))] {
+        cfg_select! {
+            any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux") => {
                 x || matches!(whence, libc::SEEK_DATA | libc::SEEK_HOLE)
-            } else {
-                x
             }
+            _ => x
         }
     }
 
@@ -5089,18 +5084,16 @@ mod _io {
         let is_console = false;
 
         let file_io_class: &Py<PyType> = {
-            cfg_if::cfg_if! {
-                if #[cfg(all(feature = "host_env", windows))] {
+            cfg_select! {
+                all(feature = "host_env", windows) =>  {
                     if is_console {
                         Some(super::winconsoleio::WindowsConsoleIO::static_type())
                     } else {
                         Some(super::fileio::FileIO::static_type())
                     }
-                } else if #[cfg(feature = "host_env")] {
-                    Some(super::fileio::FileIO::static_type())
-                } else {
-                    None
                 }
+                feature = "host_env" => Some(super::fileio::FileIO::static_type()),
+                _ => None,
             }
         }
         .ok_or_else(|| {
