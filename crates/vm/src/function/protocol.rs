@@ -107,7 +107,10 @@ where
         let cls = obj.class();
         let iter_fn = cls.slots.iter.load();
         if iter_fn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
-            return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
+            return Err(vm.new_type_error(format!(
+                "argument of type \'{}\' is not a container or iterable",
+                cls.name()
+            )));
         }
         Ok(Self {
             iterable: obj,

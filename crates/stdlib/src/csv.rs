@@ -1095,7 +1095,13 @@ mod _csv {
             }
 
             let row = ArgIterable::try_from_object(vm, row.clone()).map_err(|_e| {
-                new_csv_error(vm, format!("\'{}\' object is not iterable", row.class()))
+                new_csv_error(
+                    vm,
+                    format!(
+                        "argument of type \'{}\' is not a container or iterable",
+                        row.class()
+                    ),
+                )
             })?;
             let mut first_flag = true;
             for field in row.iter(vm)? {
