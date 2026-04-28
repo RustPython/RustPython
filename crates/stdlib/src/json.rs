@@ -6,7 +6,7 @@ mod _json {
     use super::machinery;
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyUtf8StrRef},
+        builtins::{PyBaseExceptionRef, PyStrRef, PyType},
         convert::ToPyResult,
         function::{IntoFuncArgs, OptionalArg},
         protocol::PyIterReturn,
@@ -91,7 +91,7 @@ mod _json {
     impl JsonScanner {
         fn parse(
             &self,
-            pystr: PyUtf8StrRef,
+            pystr: PyStrRef,
             char_idx: usize,
             byte_idx: usize,
             scan_once: PyObjectRef,
@@ -115,7 +115,7 @@ mod _json {
                     // Parse string - pass slice starting after the quote
                     let (wtf8_result, chars_consumed, _bytes_consumed) =
                         machinery::scanstring(&wtf8[byte_idx + 1..], char_idx + 1, self.strict)
-                            .map_err(|e| py_decode_error(e, pystr.clone().into_wtf8(), vm))?;
+                            .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
                     let end_char_idx = char_idx + 1 + chars_consumed;
                     return Ok(PyIterReturn::Return(
                         vm.new_tuple((wtf8_result, end_char_idx)).into(),
@@ -142,11 +142,11 @@ mod _json {
                 _ => {}
             }
 
-            let s = &pystr.as_str()[byte_idx..];
+            let rest = &bytes[byte_idx..];
 
             macro_rules! parse_const {
                 ($s:literal, $val:expr) => {
-                    if s.starts_with($s) {
+                    if rest.starts_with($s.as_bytes()) {
                         return Ok(PyIterReturn::Return(
                             vm.new_tuple(($val, char_idx + $s.len())).into(),
                         ));
@@ -158,7 +158,7 @@ mod _json {
             parse_const!("true", true);
             parse_const!("false", false);
 
-            if let Some((res, len)) = self.parse_number(s, vm) {
+            if let Some((res, len)) = self.parse_number(rest, vm) {
                 return Ok(PyIterReturn::Return(
                     vm.new_tuple((res?, char_idx + len)).into(),
                 ));
@@ -166,7 +166,7 @@ mod _json {
 
             macro_rules! parse_constant {
                 ($s:literal) => {
-                    if s.starts_with($s) {
+                    if rest.starts_with($s.as_bytes()) {
                         return Ok(PyIterReturn::Return(
                             vm.new_tuple((
                                 self.parse_constant.call(($s,), vm)?,
@@ -187,20 +187,22 @@ mod _json {
             )))
         }
 
-        fn parse_number(&self, s: &str, vm: &VirtualMachine) -> Option<(PyResult, usize)> {
+        fn parse_number(&self, bytes: &[u8], vm: &VirtualMachine) -> Option<(PyResult, usize)> {
             flame_guard!("JsonScanner::parse_number");
             let mut has_neg = false;
             let mut has_decimal = false;
             let mut has_exponent = false;
             let mut has_e_sign = false;
             let mut i = 0;
-            for c in s.chars() {
-                match c {
-                    '-' if i == 0 => has_neg = true,
-                    n if n.is_ascii_digit() => {}
-                    '.' if !has_decimal => has_decimal = true,
-                    'e' | 'E' if !has_exponent => has_exponent = true,
-                    '+' | '-' if !has_e_sign => has_e_sign = true,
+            // JSON numbers are ASCII per RFC 8259 (digits, '-', '+', '.', 'e', 'E'),
+            // so byte iteration is equivalent to char iteration here.
+            for &b in bytes {
+                match b {
+                    b'-' if i == 0 => has_neg = true,
+                    b'0'..=b'9' => {}
+                    b'.' if !has_decimal => has_decimal = true,
+                    b'e' | b'E' if !has_exponent => has_exponent = true,
+                    b'+' | b'-' if !has_e_sign => has_e_sign = true,
                     _ => break,
                 }
                 i += 1;
@@ -208,7 +210,8 @@ mod _json {
             if i == 0 || (i == 1 && has_neg) {
                 return None;
             }
-            let buf = &s[..i];
+            // SAFETY: the loop above accepts only ASCII bytes, so bytes[..i] is valid UTF-8.
+            let buf = unsafe { core::str::from_utf8_unchecked(&bytes[..i]) };
             let ret = if has_decimal || has_exponent {
                 // float
                 if let Some(ref parse_float) = self.parse_float {
@@ -228,11 +231,11 @@ mod _json {
         /// Returns (parsed_object, end_char_index, end_byte_index).
         fn parse_object(
             &self,
-            pystr: PyUtf8StrRef,
+            pystr: PyStrRef,
             start_char_idx: usize,
             start_byte_idx: usize,
             scan_once: &PyObjectRef,
-            memo: &mut HashMap<String, PyStrRef>,
+            memo: &mut HashMap<Wtf8Buf, PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, usize, usize)> {
             flame_guard!("JsonScanner::parse_object");
@@ -275,18 +278,19 @@ mod _json {
                 // Parse key string using scanstring with byte slice
                 let (key_wtf8, chars_consumed, bytes_consumed) =
                     machinery::scanstring(&wtf8[byte_idx..], char_idx, self.strict)
-                        .map_err(|e| py_decode_error(e, pystr.clone().into_wtf8(), vm))?;
+                        .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
 
                 char_idx += chars_consumed;
                 byte_idx += bytes_consumed;
 
-                // Key memoization - reuse existing key strings
-                let key_str = key_wtf8.to_string();
-                let key: PyObjectRef = match memo.get(&key_str) {
+                // Key memoization - reuse existing key strings.
+                // Keyed by Wtf8Buf so lone surrogates in keys (legal per Python str)
+                // are preserved; using String here would lossy-collapse surrogates to U+FFFD.
+                let key: PyObjectRef = match memo.get(&key_wtf8) {
                     Some(cached) => cached.clone().into(),
                     None => {
-                        let py_key = vm.ctx.new_str(key_str.clone());
-                        memo.insert(key_str, py_key.clone());
+                        let py_key = vm.ctx.new_str(key_wtf8.clone());
+                        memo.insert(key_wtf8, py_key.clone());
                         py_key.into()
                     }
                 };
@@ -389,11 +393,11 @@ mod _json {
         /// Returns (parsed_array, end_char_index, end_byte_index).
         fn parse_array(
             &self,
-            pystr: PyUtf8StrRef,
+            pystr: PyStrRef,
             start_char_idx: usize,
             start_byte_idx: usize,
             scan_once: &PyObjectRef,
-            memo: &mut HashMap<String, PyStrRef>,
+            memo: &mut HashMap<Wtf8Buf, PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, usize, usize)> {
             flame_guard!("JsonScanner::parse_array");
@@ -507,10 +511,10 @@ mod _json {
         fn call_scan_once(
             &self,
             scan_once: &PyObjectRef,
-            pystr: PyUtf8StrRef,
+            pystr: PyStrRef,
             char_idx: usize,
             byte_idx: usize,
-            memo: &mut HashMap<String, PyStrRef>,
+            memo: &mut HashMap<Wtf8Buf, PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, usize, usize)> {
             // Recursion guard: parse_object/parse_array recurse into call_scan_once
@@ -521,7 +525,6 @@ mod _json {
             vm.with_recursion("while decoding a JSON object from a string", || {
                 let bytes = pystr.as_bytes();
                 let wtf8 = pystr.as_wtf8();
-                let s = pystr.as_str();
 
                 let first_byte = match bytes.get(byte_idx) {
                     Some(&b) => b,
@@ -532,11 +535,13 @@ mod _json {
 
                 match first_byte {
                     b'"' => {
-                        // String - pass slice starting after the quote
+                        // String - pass slice starting after the quote.
+                        // Feed the Wtf8Buf directly to new_str; routing through
+                        // .to_string() here would lossy-collapse surrogates to U+FFFD.
                         let (wtf8_result, chars_consumed, bytes_consumed) =
                             machinery::scanstring(&wtf8[byte_idx + 1..], char_idx + 1, self.strict)
-                                .map_err(|e| py_decode_error(e, pystr.clone().into_wtf8(), vm))?;
-                        let py_str = vm.ctx.new_str(wtf8_result.to_string());
+                                .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
+                        let py_str = vm.ctx.new_str(wtf8_result);
                         Ok((
                             py_str.into(),
                             char_idx + 1 + chars_consumed,
@@ -580,14 +585,14 @@ mod _json {
                             return Ok((result, char_idx + 9, byte_idx + 9));
                         }
                         // Negative number - numbers are ASCII so len == bytes
-                        if let Some((result, len)) = self.parse_number(&s[byte_idx..], vm) {
+                        if let Some((result, len)) = self.parse_number(&bytes[byte_idx..], vm) {
                             return Ok((result?, char_idx + len, byte_idx + len));
                         }
                         Err(self.make_decode_error("Expecting value", pystr, char_idx, vm))
                     }
                     b'0'..=b'9' => {
                         // Positive number - numbers are ASCII so len == bytes
-                        if let Some((result, len)) = self.parse_number(&s[byte_idx..], vm) {
+                        if let Some((result, len)) = self.parse_number(&bytes[byte_idx..], vm) {
                             return Ok((result?, char_idx + len, byte_idx + len));
                         }
                         Err(self.make_decode_error("Expecting value", pystr, char_idx, vm))
@@ -608,11 +613,11 @@ mod _json {
                                 let end_char_idx: isize = tuple.as_slice()[1].try_to_value(vm)?;
                                 // For fallback, we need to calculate byte_idx from char_idx
                                 // This is expensive but fallback should be rare
-                                let end_byte_idx = s
-                                    .char_indices()
+                                let end_byte_idx = wtf8
+                                    .code_point_indices()
                                     .nth(end_char_idx as usize)
                                     .map(|(i, _)| i)
-                                    .unwrap_or(s.len());
+                                    .unwrap_or(wtf8.len());
                                 Ok((value, end_char_idx as usize, end_byte_idx))
                             }
                             Err(err) if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) => {
@@ -629,12 +634,12 @@ mod _json {
         fn make_decode_error(
             &self,
             msg: &str,
-            s: PyUtf8StrRef,
+            s: PyStrRef,
             pos: usize,
             vm: &VirtualMachine,
         ) -> PyBaseExceptionRef {
             let err = machinery::DecodeError::new(msg, pos);
-            py_decode_error(err, s.into_wtf8(), vm)
+            py_decode_error(err, s, vm)
         }
     }
 
@@ -645,14 +650,13 @@ mod _json {
                 return Err(vm.new_value_error("idx cannot be negative"));
             }
             let char_idx = char_idx as usize;
-            let pystr = pystr.try_into_utf8(vm)?;
-            let s = pystr.as_str();
+            let wtf8 = pystr.as_wtf8();
 
             // Calculate byte index from char index (O(char_idx) but only at entry point)
             let byte_idx = if char_idx == 0 {
                 0
             } else {
-                match s.char_indices().nth(char_idx) {
+                match wtf8.code_point_indices().nth(char_idx) {
                     Some((byte_i, _)) => byte_i,
                     None => {
                         // char_idx is beyond the string length
@@ -667,24 +671,30 @@ mod _json {
         }
     }
 
-    fn encode_string(s: &str, ascii_only: bool) -> String {
+    fn encode_string(wtf8: &rustpython_common::wtf8::Wtf8, ascii_only: bool) -> Wtf8Buf {
         flame_guard!("_json::encode_string");
-        let mut buf = Vec::<u8>::with_capacity(s.len() + 2);
-        machinery::write_json_string(s, ascii_only, &mut buf)
+        let mut buf = Vec::<u8>::with_capacity(wtf8.len() + 2);
+        machinery::write_json_string(wtf8, ascii_only, &mut buf)
             // SAFETY: writing to a vec can't fail
             .unwrap_or_else(|_| unsafe { core::hint::unreachable_unchecked() });
-        // SAFETY: we only output valid utf8 from write_json_string
-        unsafe { String::from_utf8_unchecked(buf) }
+        // write_json_string is designed to produce valid WTF-8 bytes:
+        // - ASCII control characters and JSON-specials are written as ASCII escapes
+        // - Valid Unicode scalars are written as UTF-8 (a subset of WTF-8)
+        // - Lone surrogates (ascii_only=false branch only) pass through as the
+        //   input's WTF-8 byte sequences unchanged
+        // Use the checked constructor so any violation of that invariant
+        // surfaces as a panic during testing instead of undefined behavior.
+        Wtf8Buf::from_bytes(buf).expect("write_json_string produced invalid WTF-8")
     }
 
     #[pyfunction]
-    fn encode_basestring(s: PyUtf8StrRef) -> String {
-        encode_string(s.as_str(), false)
+    fn encode_basestring(s: PyStrRef) -> Wtf8Buf {
+        encode_string(s.as_wtf8(), false)
     }
 
     #[pyfunction]
-    fn encode_basestring_ascii(s: PyUtf8StrRef) -> String {
-        encode_string(s.as_str(), true)
+    fn encode_basestring_ascii(s: PyStrRef) -> Wtf8Buf {
+        encode_string(s.as_wtf8(), true)
     }
 
     fn py_decode_error(

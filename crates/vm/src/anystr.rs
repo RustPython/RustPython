@@ -4,9 +4,8 @@ use crate::{
     convert::TryFromBorrowedObject,
     function::OptionalOption,
 };
-use icu_properties::{
-    CodePointSetData,
-    props::{Alphabetic, ChangesWhenLowercased, ChangesWhenUppercased},
+use icu_properties::props::{
+    BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
@@ -405,42 +404,64 @@ pub trait AnyStr {
         rustpython_common::str::zfill(self.as_bytes(), width)
     }
 
-    // Unified form of CPython functions:
-    //  _Py_bytes_islower
-    //  unicode_islower_impl
+    // _Py_bytes_islower
     fn py_islower(&self) -> bool {
-        let case_change = CodePointSetData::new::<ChangesWhenLowercased>();
-        let alphabetic = CodePointSetData::new::<Alphabetic>();
         let mut lower = false;
-        for chunk in self.as_bytes().utf8_chunks().map(|c| c.valid()) {
-            if chunk.chars().any(|c| case_change.contains(c)) {
+        for byte in self
+            .as_bytes()
+            .iter()
+            .copied()
+            .filter(u8::is_ascii_alphabetic)
+        {
+            if byte.is_ascii_uppercase() {
                 return false;
             }
-
-            if !lower && chunk.chars().any(|c| alphabetic.contains(c)) {
-                lower = true;
-            }
+            lower = true;
         }
         lower
     }
 
-    // Unified form of CPython functions:
-    //   Py_bytes_isupper
-    //  unicode_isupper_impl
+    // Py_bytes_isupper
     fn py_isupper(&self) -> bool {
-        let case_change = CodePointSetData::new::<ChangesWhenUppercased>();
-        let alphabetic = CodePointSetData::new::<Alphabetic>();
         let mut upper = false;
-        for chunk in self.as_bytes().utf8_chunks().map(|c| c.valid()) {
-            if chunk.chars().any(|c| case_change.contains(c)) {
+        for byte in self
+            .as_bytes()
+            .iter()
+            .copied()
+            .filter(u8::is_ascii_alphabetic)
+        {
+            if byte.is_ascii_lowercase() {
                 return false;
             }
-
-            if !upper && chunk.chars().any(|c| alphabetic.contains(c)) {
-                upper = true;
-            }
+            upper = true;
         }
         upper
+    }
+
+    // Unified form of CPython functions:
+    //  unicode_isupper_impl
+    //  unicode_islower_impl
+    fn is_cased<VALID, INVALID>(&self) -> bool
+    where
+        VALID: BinaryProperty,
+        INVALID: BinaryProperty,
+    {
+        let mut all_cased = false;
+        for c in self
+            .as_bytes()
+            .utf8_chunks()
+            .flat_map(|c| c.valid().chars())
+        {
+            if INVALID::for_char(c)
+                || GeneralCategoryGroup::TitlecaseLetter.contains(GeneralCategory::for_char(c))
+            {
+                return false;
+            }
+            if !all_cased && VALID::for_char(c) {
+                all_cased = true;
+            }
+        }
+        all_cased
     }
 }
 

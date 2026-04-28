@@ -2,7 +2,9 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - "/"
+      - "crates/*"
     schedule:
       interval: weekly
     cooldown:
@@ -19,6 +21,7 @@ updates:
           - "digest"
           - "md-5"
           - "sha-1"
+          - "sha1"
           - "sha2"
           - "sha3"
           - "blake2"
@@ -82,6 +85,7 @@ updates:
           - "quote-use*"
       random:
         patterns:
+          - "ahash"
           - "getrandom"
           - "mt19937"
           - "rand*"
@@ -120,6 +124,11 @@ updates:
       toml:
         patterns:
           - "toml*"
+      unix:
+        patterns:
+          - "mac_address"
+          - "nix"
+          - "rustyline"
       wasm-bindgen:
         patterns:
           - "wasm-bindgen*"

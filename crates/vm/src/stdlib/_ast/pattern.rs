@@ -34,7 +34,7 @@ impl Node for ast::MatchCase {
             pattern: Node::ast_from_object(
                 vm,
                 source_file,
-                get_node_field(vm, &object, "pattern", "match_case")?,
+                get_node_field_required(vm, &object, "pattern", "match_case")?,
             )?,
             guard: get_node_field_opt(vm, &object, "guard")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))

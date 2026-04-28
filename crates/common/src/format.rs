@@ -478,6 +478,17 @@ impl FormatSpec {
         matches!(self.format_type, Some(FormatType::Number(Case::Lower)))
     }
 
+    /// Returns true if this format spec produces a decimal int representation
+    /// subject to `sys.get_int_max_str_digits()` (no spec, 'd', or 'n').
+    /// Binary bases ('b', 'o', 'x', 'X') are exempt per CPython. 'N' is rejected
+    /// later in `format_int` as `UnknownFormatCode`, so it is not included here.
+    pub fn is_decimal_int_format(&self) -> bool {
+        matches!(
+            self.format_type,
+            None | Some(FormatType::Decimal) | Some(FormatType::Number(Case::Lower))
+        )
+    }
+
     /// Insert locale-aware thousands separators into an integer string.
     /// Follows CPython's GroupGenerator logic for variable-width grouping.
     fn insert_locale_grouping(int_part: &str, locale: &LocaleInfo) -> String {
@@ -722,9 +733,24 @@ impl FormatSpec {
                 magnitude if magnitude.is_nan() => Ok("nan%".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
                 _ => {
-                    let result = format!("{:.*}", precision, magnitude * 100.0);
-                    let point = float::decimal_point_or_empty(precision, self.alternate_form);
-                    Ok(format!("{result}{point}%"))
+                    let scaled = magnitude * 100.0;
+                    // `magnitude * 100` can overflow a finite input to +inf
+                    // (e.g. f64::MAX). Emit "inf%" so the outer sign handler
+                    // produces "-inf%" or "inf%" consistently with CPython.
+                    if scaled.is_infinite() {
+                        Ok("inf%".to_owned())
+                    } else {
+                        let capped = float::clamp_fmt_precision(precision);
+                        let mut result = format!("{:.*}", capped, scaled);
+                        // Pad with '0's up to the requested precision to match
+                        // CPython byte-identically past the internal cap.
+                        let missing = precision.saturating_sub(capped);
+                        if missing > 0 {
+                            result.extend(core::iter::repeat_n('0', missing));
+                        }
+                        let point = float::decimal_point_or_empty(precision, self.alternate_form);
+                        Ok(format!("{result}{point}%"))
+                    }
                 }
             },
             None => match magnitude {
