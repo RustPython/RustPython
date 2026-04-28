@@ -1468,7 +1468,6 @@ class StrTest(string_tests.StringLikeTest,
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: tuple index out of range
     def test_format_huge_item_number(self):
         format_string = "{{{}:.6f}}".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
