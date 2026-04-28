@@ -1,6 +1,5 @@
 use super::StgInfo;
 use super::base::{CDATA_BUFFER_METHODS, PyCData};
-use super::type_info;
 use crate::common::lock::LazyLock;
 use crate::sliceable::SaturatedSliceIter;
 use crate::{
@@ -17,6 +16,13 @@ use crate::{
 use alloc::borrow::Cow;
 use num_traits::{Signed, ToPrimitive};
 
+use rustpython_host_env::ctypes::{
+    ArrayElementWriteValue, DecodedValue, WCHAR_SIZE, WCharArrayWriteError, char_array_field_value,
+    int_to_sized_bytes, read_array_element, simple_type_size, uint_to_sized_bytes,
+    wchar_from_bytes, write_array_element, write_char_array_raw, write_char_array_value,
+    write_wchar_array_value, wstring_from_bytes, zeroed_bytes,
+};
+
 /// Get itemsize from a PEP 3118 format string
 /// Extracts the type code (last char after endianness prefix) and returns its size
 fn get_size_from_format(fmt: &str) -> usize {
@@ -26,8 +32,7 @@ fn get_size_from_format(fmt: &str) -> usize {
         .chars()
         .next()
         .map(|c| c.to_string());
-    code.map(|c| type_info(&c).map(|t| t.size).unwrap_or(1))
-        .unwrap_or(1)
+    code.map(|c| simple_type_size(&c).unwrap_or(1)).unwrap_or(1)
 }
 
 /// Creates array type for (element_type, length)
@@ -523,75 +528,19 @@ impl PyCArray {
                     vec![i.to_i8().unwrap_or(0) as u8]
                 }
             }
-            2 => {
-                if let Some(v) = i.to_u16() {
-                    v.to_ne_bytes().to_vec()
-                } else {
-                    i.to_i16().unwrap_or(0).to_ne_bytes().to_vec()
-                }
-            }
-            4 => {
-                if let Some(v) = i.to_u32() {
-                    v.to_ne_bytes().to_vec()
-                } else {
-                    i.to_i32().unwrap_or(0).to_ne_bytes().to_vec()
-                }
-            }
-            8 => {
-                if let Some(v) = i.to_u64() {
-                    v.to_ne_bytes().to_vec()
-                } else {
-                    i.to_i64().unwrap_or(0).to_ne_bytes().to_vec()
-                }
-            }
-            _ => vec![0u8; size],
-        }
-    }
-
-    fn bytes_to_int(
-        bytes: &[u8],
-        size: usize,
-        type_code: Option<&str>,
-        vm: &VirtualMachine,
-    ) -> PyObjectRef {
-        // Unsigned type codes: B (uchar), H (ushort), I (uint), L (ulong), Q (ulonglong)
-        let is_unsigned = matches!(
-            type_code,
-            Some("B") | Some("H") | Some("I") | Some("L") | Some("Q")
-        );
-
-        match (size, is_unsigned) {
-            (1, false) => vm.ctx.new_int(bytes[0] as i8).into(),
-            (1, true) => vm.ctx.new_int(bytes[0]).into(),
-            (2, false) => {
-                let val = i16::from_ne_bytes([bytes[0], bytes[1]]);
-                vm.ctx.new_int(val).into()
-            }
-            (2, true) => {
-                let val = u16::from_ne_bytes([bytes[0], bytes[1]]);
-                vm.ctx.new_int(val).into()
-            }
-            (4, false) => {
-                let val = i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-                vm.ctx.new_int(val).into()
-            }
-            (4, true) => {
-                let val = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-                vm.ctx.new_int(val).into()
-            }
-            (8, false) => {
-                let val = i64::from_ne_bytes([
-                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-                ]);
-                vm.ctx.new_int(val).into()
-            }
-            (8, true) => {
-                let val = u64::from_ne_bytes([
-                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-                ]);
-                vm.ctx.new_int(val).into()
-            }
-            _ => vm.ctx.new_int(0).into(),
+            2 => i
+                .to_u16()
+                .map(|v| uint_to_sized_bytes(v.into(), 2))
+                .unwrap_or_else(|| int_to_sized_bytes(i.to_i16().unwrap_or(0).into(), 2)),
+            4 => i
+                .to_u32()
+                .map(|v| uint_to_sized_bytes(v.into(), 4))
+                .unwrap_or_else(|| int_to_sized_bytes(i.to_i32().unwrap_or(0).into(), 4)),
+            8 => i
+                .to_u64()
+                .map(|v| uint_to_sized_bytes(v, 8))
+                .unwrap_or_else(|| int_to_sized_bytes(i.to_i64().unwrap_or(0), 8)),
+            _ => zeroed_bytes(size),
         }
     }
 
@@ -636,113 +585,15 @@ impl PyCArray {
         type_code: Option<&str>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match type_code {
-            Some("c") => {
-                // Return single byte as bytes
-                if offset < buffer.len() {
-                    Ok(vm.ctx.new_bytes(vec![buffer[offset]]).into())
-                } else {
-                    Ok(vm.ctx.new_bytes(vec![0]).into())
-                }
-            }
-            Some("u") => {
-                // Return single wchar as str
-                if let Some(code) = wchar_from_bytes(&buffer[offset..]) {
-                    let s = char::from_u32(code)
-                        .map(|c| c.to_string())
-                        .unwrap_or_default();
-                    Ok(vm.ctx.new_str(s).into())
-                } else {
-                    Ok(vm.ctx.new_str("").into())
-                }
-            }
-            Some("z") => {
-                // c_char_p: pointer to bytes - dereference to get string
-                if offset + element_size > buffer.len() {
-                    return Ok(vm.ctx.none());
-                }
-                let ptr_bytes = &buffer[offset..offset + element_size];
-                let ptr_val = usize::from_ne_bytes(
-                    ptr_bytes
-                        .try_into()
-                        .unwrap_or([0; core::mem::size_of::<usize>()]),
-                );
-                if ptr_val == 0 {
-                    return Ok(vm.ctx.none());
-                }
-                // Read null-terminated string from pointer address
-                unsafe {
-                    let ptr = ptr_val as *const u8;
-                    let mut len = 0;
-                    while *ptr.add(len) != 0 {
-                        len += 1;
-                    }
-                    let bytes = core::slice::from_raw_parts(ptr, len);
-                    Ok(vm.ctx.new_bytes(bytes.to_vec()).into())
-                }
-            }
-            Some("Z") => {
-                // c_wchar_p: pointer to wchar_t - dereference to get string
-                if offset + element_size > buffer.len() {
-                    return Ok(vm.ctx.none());
-                }
-                let ptr_bytes = &buffer[offset..offset + element_size];
-                let ptr_val = usize::from_ne_bytes(
-                    ptr_bytes
-                        .try_into()
-                        .unwrap_or([0; core::mem::size_of::<usize>()]),
-                );
-                if ptr_val == 0 {
-                    return Ok(vm.ctx.none());
-                }
-                // Read null-terminated wide string using WCHAR_SIZE
-                unsafe {
-                    let ptr = ptr_val as *const u8;
-                    let mut chars = Vec::new();
-                    let mut pos = 0usize;
-                    loop {
-                        let code = if WCHAR_SIZE == 2 {
-                            let bytes = core::slice::from_raw_parts(ptr.add(pos), 2);
-                            u16::from_ne_bytes([bytes[0], bytes[1]]) as u32
-                        } else {
-                            let bytes = core::slice::from_raw_parts(ptr.add(pos), 4);
-                            u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-                        };
-                        if code == 0 {
-                            break;
-                        }
-                        if let Some(ch) = char::from_u32(code) {
-                            chars.push(ch);
-                        }
-                        pos += WCHAR_SIZE;
-                    }
-                    let s: String = chars.into_iter().collect();
-                    Ok(vm.ctx.new_str(s).into())
-                }
-            }
-            Some("f") => {
-                // c_float
-                let val = buffer[offset..]
-                    .first_chunk::<4>()
-                    .copied()
-                    .map_or(0.0, f32::from_ne_bytes);
-                Ok(vm.ctx.new_float(val as f64).into())
-            }
-            Some("d") | Some("g") => {
-                // c_double / c_longdouble - read f64 from first 8 bytes
-                let val = buffer[offset..]
-                    .first_chunk::<8>()
-                    .copied()
-                    .map_or(0.0, f64::from_ne_bytes);
-                Ok(vm.ctx.new_float(val).into())
-            }
-            _ => {
-                if let Some(bytes) = buffer[offset..].get(..element_size) {
-                    Ok(Self::bytes_to_int(bytes, element_size, type_code, vm))
-                } else {
-                    Ok(vm.ctx.new_int(0).into())
-                }
-            }
+        match read_array_element(buffer, offset, element_size, type_code) {
+            DecodedValue::Bytes(bytes) => Ok(vm.ctx.new_bytes(bytes).into()),
+            DecodedValue::String(value) => Ok(vm.ctx.new_str(value).into()),
+            DecodedValue::Float(value) => Ok(vm.ctx.new_float(value).into()),
+            DecodedValue::Signed(value) => Ok(vm.ctx.new_int(value).into()),
+            DecodedValue::Unsigned(value) => Ok(vm.ctx.new_int(value).into()),
+            DecodedValue::None => Ok(vm.ctx.none()),
+            DecodedValue::Pointer(value) => Ok(vm.ctx.new_int(value).into()),
+            DecodedValue::Bool(value) => Ok(vm.ctx.new_bool(value).into()),
         }
     }
 
@@ -762,13 +613,17 @@ impl PyCArray {
         match type_code {
             Some("c") => {
                 if let Some(b) = value.downcast_ref::<PyBytes>() {
-                    if offset < buffer.len() {
-                        buffer[offset] = b.as_bytes().first().copied().unwrap_or(0);
-                    }
+                    write_array_element(
+                        buffer,
+                        offset,
+                        ArrayElementWriteValue::Byte(b.as_bytes().first().copied().unwrap_or(0)),
+                    );
                 } else if let Ok(int_val) = value.try_int(vm) {
-                    if offset < buffer.len() {
-                        buffer[offset] = int_val.as_bigint().to_u8().unwrap_or(0);
-                    }
+                    write_array_element(
+                        buffer,
+                        offset,
+                        ArrayElementWriteValue::Byte(int_val.as_bigint().to_u8().unwrap_or(0)),
+                    );
                 } else {
                     return Err(vm.new_type_error("an integer or bytes of length 1 is required"));
                 }
@@ -781,9 +636,7 @@ impl PyCArray {
                         .next()
                         .map(|c| c.to_u32())
                         .unwrap_or(0);
-                    if offset + WCHAR_SIZE <= buffer.len() {
-                        wchar_to_bytes(code, &mut buffer[offset..]);
-                    }
+                    write_array_element(buffer, offset, ArrayElementWriteValue::Wchar(code));
                 } else {
                     return Err(vm.new_type_error("unicode string expected"));
                 }
@@ -803,9 +656,14 @@ impl PyCArray {
                         value.class().name()
                     )));
                 };
-                if offset + element_size <= buffer.len() {
-                    buffer[offset..offset + element_size].copy_from_slice(&ptr_val.to_ne_bytes());
-                }
+                write_array_element(
+                    buffer,
+                    offset,
+                    ArrayElementWriteValue::Pointer {
+                        value: ptr_val,
+                        size: element_size,
+                    },
+                );
                 if let Some(c) = converted {
                     return zelf.0.keep_ref(index, c, vm);
                 }
@@ -821,9 +679,14 @@ impl PyCArray {
                 } else {
                     return Err(vm.new_type_error("unicode string or integer address expected"));
                 };
-                if offset + element_size <= buffer.len() {
-                    buffer[offset..offset + element_size].copy_from_slice(&ptr_val.to_ne_bytes());
-                }
+                write_array_element(
+                    buffer,
+                    offset,
+                    ArrayElementWriteValue::Pointer {
+                        value: ptr_val,
+                        size: element_size,
+                    },
+                );
                 if let Some(c) = converted {
                     return zelf.0.keep_ref(index, c, vm);
                 }
@@ -837,9 +700,14 @@ impl PyCArray {
                 } else {
                     return Err(vm.new_type_error("a float is required"));
                 };
-                if offset + 4 <= buffer.len() {
-                    buffer[offset..offset + 4].copy_from_slice(&f32_val.to_ne_bytes());
-                }
+                write_array_element(
+                    buffer,
+                    offset,
+                    ArrayElementWriteValue::Float {
+                        value: f32_val.into(),
+                        size: 4,
+                    },
+                );
             }
             Some("d") | Some("g") => {
                 // c_double / c_longdouble: convert int/float to f64 bytes
@@ -850,25 +718,39 @@ impl PyCArray {
                 } else {
                     return Err(vm.new_type_error("a float is required"));
                 };
-                if offset + 8 <= buffer.len() {
-                    buffer[offset..offset + 8].copy_from_slice(&f64_val.to_ne_bytes());
-                }
+                write_array_element(
+                    buffer,
+                    offset,
+                    ArrayElementWriteValue::Float {
+                        value: f64_val,
+                        size: 8,
+                    },
+                );
                 // For "g" type, remaining bytes stay zero
             }
             _ => {
                 // Handle ctypes instances (copy their buffer)
                 if let Some(cdata) = value.downcast_ref::<PyCData>() {
                     let src_buffer = cdata.buffer.read();
-                    let copy_len = src_buffer.len().min(element_size);
-                    if offset + copy_len <= buffer.len() {
-                        buffer[offset..offset + copy_len].copy_from_slice(&src_buffer[..copy_len]);
-                    }
+                    write_array_element(
+                        buffer,
+                        offset,
+                        ArrayElementWriteValue::Bytes {
+                            bytes: &src_buffer,
+                            size: element_size,
+                        },
+                    );
                 // Other types: use int_to_bytes
                 } else if let Ok(int_val) = value.try_int(vm) {
                     let bytes = Self::int_to_bytes(int_val.as_bigint(), element_size);
-                    if offset + element_size <= buffer.len() {
-                        buffer[offset..offset + element_size].copy_from_slice(&bytes);
-                    }
+                    write_array_element(
+                        buffer,
+                        offset,
+                        ArrayElementWriteValue::Bytes {
+                            bytes: &bytes,
+                            size: element_size,
+                        },
+                    );
                 } else {
                     return Err(vm.new_type_error(format!(
                         "expected {} instance, not {}",
@@ -924,9 +806,8 @@ impl PyCArray {
             Cow::Borrowed(slice) => {
                 // SAFETY: For from_buffer, the slice points to writable shared memory.
                 // Python's from_buffer requires writable buffer, so this is safe.
-                let ptr = slice.as_ptr() as *mut u8;
-                let len = slice.len();
-                let owned_slice = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
+                let owned_slice =
+                    unsafe { rustpython_host_env::ctypes::borrowed_slice_as_mut(slice) };
                 Self::write_element_to_buffer(
                     owned_slice,
                     final_offset,
@@ -1183,8 +1064,10 @@ impl AsBuffer for PyCArray {
 fn char_array_get_value(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let zelf = obj.downcast_ref::<PyCArray>().unwrap();
     let buffer = zelf.0.buffer.read();
-    let len = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
-    Ok(vm.ctx.new_bytes(buffer[..len].to_vec()).into())
+    Ok(vm
+        .ctx
+        .new_bytes(char_array_field_value(&buffer).to_vec())
+        .into())
 }
 
 // CharArray_set_value
@@ -1200,10 +1083,7 @@ fn char_array_set_value(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachin
         return Err(vm.new_value_error("byte string too long"));
     }
 
-    buffer.to_mut()[..src.len()].copy_from_slice(src);
-    if src.len() < buffer.len() {
-        buffer.to_mut()[src.len()] = 0;
-    }
+    write_char_array_value(buffer.to_mut(), src);
     Ok(())
 }
 
@@ -1228,7 +1108,7 @@ fn char_array_set_raw(
     if src.len() > buffer.len() {
         return Err(vm.new_value_error("byte string too long"));
     }
-    buffer.to_mut()[..src.len()].copy_from_slice(&src);
+    write_char_array_raw(buffer.to_mut(), &src);
     Ok(())
 }
 
@@ -1250,22 +1130,9 @@ fn wchar_array_set_value(
         .downcast_ref::<PyStr>()
         .ok_or_else(|| vm.new_type_error("unicode string expected"))?;
     let mut buffer = zelf.0.buffer.write();
-    let wchar_count = buffer.len() / WCHAR_SIZE;
-    let char_count = s.as_wtf8().code_points().count();
-
-    if char_count > wchar_count {
-        return Err(vm.new_value_error("string too long"));
-    }
-
-    for (i, ch) in s.as_wtf8().code_points().enumerate() {
-        let offset = i * WCHAR_SIZE;
-        wchar_to_bytes(ch.to_u32(), &mut buffer.to_mut()[offset..]);
-    }
-
-    let terminator_offset = char_count * WCHAR_SIZE;
-    if terminator_offset + WCHAR_SIZE <= buffer.len() {
-        wchar_to_bytes(0, &mut buffer.to_mut()[terminator_offset..]);
-    }
+    write_wchar_array_value(buffer.to_mut(), s.as_wtf8()).map_err(|err| match err {
+        WCharArrayWriteError::TooLong => vm.new_value_error("string too long"),
+    })?;
     Ok(())
 }
 
@@ -1312,58 +1179,4 @@ fn add_wchar_array_getsets(array_type: &Py<PyType>, vm: &VirtualMachine) {
         .attributes
         .write()
         .insert(vm.ctx.intern_str("value"), value_getset.into());
-}
-
-// wchar_t helpers - Platform-independent wide character handling
-// Windows: sizeof(wchar_t) == 2 (UTF-16)
-// Linux/macOS: sizeof(wchar_t) == 4 (UTF-32)
-
-/// Size of wchar_t on this platform
-pub(super) const WCHAR_SIZE: usize = core::mem::size_of::<libc::wchar_t>();
-
-/// Read a single wchar_t from bytes (platform-endian)
-#[inline]
-pub(super) fn wchar_from_bytes(bytes: &[u8]) -> Option<u32> {
-    if bytes.len() < WCHAR_SIZE {
-        return None;
-    }
-    Some(if WCHAR_SIZE == 2 {
-        u16::from_ne_bytes([bytes[0], bytes[1]]) as u32
-    } else {
-        u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-    })
-}
-
-/// Write a single wchar_t to bytes (platform-endian)
-#[inline]
-pub(super) fn wchar_to_bytes(ch: u32, buffer: &mut [u8]) {
-    if WCHAR_SIZE == 2 {
-        if buffer.len() >= 2 {
-            buffer[..2].copy_from_slice(&(ch as u16).to_ne_bytes());
-        }
-    } else if buffer.len() >= 4 {
-        buffer[..4].copy_from_slice(&ch.to_ne_bytes());
-    }
-}
-
-/// Read a null-terminated wchar_t string from bytes, returns String
-fn wstring_from_bytes(buffer: &[u8]) -> String {
-    let mut chars = Vec::new();
-    for chunk in buffer.chunks(WCHAR_SIZE) {
-        if chunk.len() < WCHAR_SIZE {
-            break;
-        }
-        let code = if WCHAR_SIZE == 2 {
-            u16::from_ne_bytes([chunk[0], chunk[1]]) as u32
-        } else {
-            u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
-        };
-        if code == 0 {
-            break; // null terminator
-        }
-        if let Some(ch) = char::from_u32(code) {
-            chars.push(ch);
-        }
-    }
-    chars.into_iter().collect()
 }
