@@ -114,6 +114,9 @@ impl ToPyException for FormatParseError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
             Self::UnmatchedBracket => vm.new_value_error("expected '}' before end of string"),
+            Self::TooManyDecimalDigits => {
+                vm.new_value_error("Too many decimal digits in format string")
+            }
             _ => vm.new_value_error("Unexpected error parsing format string"),
         }
     }
