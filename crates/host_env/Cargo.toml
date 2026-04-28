@@ -34,6 +34,9 @@ termios = { workspace = true }
 memmap2 = "0.9.10"
 libloading = "0.9"
 
+[target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
+libffi = { workspace = true, features = ["system"] }
+
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }
 schannel = { workspace = true }

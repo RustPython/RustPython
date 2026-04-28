@@ -1,4 +1,3 @@
-use super::array::{WCHAR_SIZE, wchar_from_bytes, wchar_to_bytes};
 use crate::builtins::{
     PyBytes, PyDict, PyList, PyMemoryView, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str,
 };
@@ -11,16 +10,15 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use alloc::borrow::Cow;
-use core::ffi::{
-    c_double, c_float, c_int, c_long, c_longlong, c_short, c_uint, c_ulong, c_ulonglong, c_ushort,
-};
 use core::fmt::Debug;
-use core::mem;
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
 use rustpython_common::wtf8::Wtf8;
-use widestring::WideChar;
+use rustpython_host_env::ctypes::{
+    CTypeParamKind, FfiArg, FfiType, FfiValue, char_array_assignment_bytes, char_array_field_value,
+    ffi_arg_from_value, ffi_type_for_layout, wchar_array_field_value, write_cow_bytes_at_offset,
+};
 
 // StgInfo - Storage information for ctypes types
 // Stored in TypeDataSlot of heap types (PyType::init_type_data/get_type_data)
@@ -77,7 +75,7 @@ pub(super) enum ParamFunc {
 }
 
 #[derive(Clone)]
-pub(crate) struct StgInfo {
+pub struct StgInfo {
     pub initialized: bool,
     pub size: usize,              // number of bytes
     pub align: usize,             // alignment requirements
@@ -100,7 +98,7 @@ pub(crate) struct StgInfo {
     pub big_endian: bool, // true if big endian, false if little endian
 
     // FFI field types for structure/union passing (inherited from base class)
-    pub ffi_field_types: Vec<libffi::middle::Type>,
+    pub ffi_field_types: Vec<FfiType>,
 
     // Cached pointer type (non-inheritable via descriptor)
     pub pointer_type: Option<PyObjectRef>,
@@ -154,7 +152,7 @@ impl Default for StgInfo {
 }
 
 impl StgInfo {
-    pub(crate) fn new(size: usize, align: usize) -> Self {
+    pub fn new(size: usize, align: usize) -> Self {
         StgInfo {
             initialized: true,
             size,
@@ -178,7 +176,7 @@ impl StgInfo {
     /// item_shape: the element's shape (will be prepended with length)
     /// item_flags: the element type's flags (for HASPOINTER inheritance)
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_array(
+    pub fn new_array(
         size: usize,
         align: usize,
         length: usize,
@@ -227,78 +225,30 @@ impl StgInfo {
 
     /// Get libffi type for this StgInfo
     /// Note: For very large types, returns pointer type to avoid overflow
-    pub(crate) fn to_ffi_type(&self) -> libffi::middle::Type {
-        // Limit to avoid overflow in libffi (MAX_STRUCT_SIZE is platform-dependent)
-        const MAX_FFI_STRUCT_SIZE: usize = 1024 * 1024; // 1MB limit for safety
-
-        match self.paramfunc {
-            ParamFunc::Structure | ParamFunc::Union => {
-                if !self.ffi_field_types.is_empty() {
-                    libffi::middle::Type::structure(self.ffi_field_types.iter().cloned())
-                } else if self.size <= MAX_FFI_STRUCT_SIZE {
-                    // Small struct without field types: use bytes array
-                    libffi::middle::Type::structure(core::iter::repeat_n(
-                        libffi::middle::Type::u8(),
-                        self.size,
-                    ))
-                } else {
-                    // Large struct: treat as pointer (passed by reference)
-                    libffi::middle::Type::pointer()
-                }
-            }
-            ParamFunc::Array => {
-                if self.size > MAX_FFI_STRUCT_SIZE || self.length > MAX_FFI_STRUCT_SIZE {
-                    // Large array: treat as pointer
-                    libffi::middle::Type::pointer()
-                } else if let Some(ref fmt) = self.format {
-                    let elem_type = Self::format_to_ffi_type(fmt);
-                    libffi::middle::Type::structure(core::iter::repeat_n(elem_type, self.length))
-                } else {
-                    libffi::middle::Type::structure(core::iter::repeat_n(
-                        libffi::middle::Type::u8(),
-                        self.size,
-                    ))
-                }
-            }
-            ParamFunc::Pointer => libffi::middle::Type::pointer(),
-            _ => {
-                // Simple type: derive from format
-                if let Some(ref fmt) = self.format {
-                    Self::format_to_ffi_type(fmt)
-                } else {
-                    libffi::middle::Type::u8()
-                }
-            }
-        }
-    }
-
-    /// Convert format string to libffi type
-    fn format_to_ffi_type(fmt: &str) -> libffi::middle::Type {
-        // Strip endian prefix if present
-        let code = fmt.trim_start_matches(['<', '>', '!', '@', '=']);
-        match code {
-            "b" => libffi::middle::Type::i8(),
-            "B" => libffi::middle::Type::u8(),
-            "h" => libffi::middle::Type::i16(),
-            "H" => libffi::middle::Type::u16(),
-            "i" | "l" => libffi::middle::Type::i32(),
-            "I" | "L" => libffi::middle::Type::u32(),
-            "q" => libffi::middle::Type::i64(),
-            "Q" => libffi::middle::Type::u64(),
-            "f" => libffi::middle::Type::f32(),
-            "d" => libffi::middle::Type::f64(),
-            "P" | "z" | "Z" | "O" => libffi::middle::Type::pointer(),
-            _ => libffi::middle::Type::u8(), // default
-        }
+    pub fn to_ffi_type(&self) -> FfiType {
+        let kind = match self.paramfunc {
+            ParamFunc::Structure => CTypeParamKind::Structure,
+            ParamFunc::Union => CTypeParamKind::Union,
+            ParamFunc::Array => CTypeParamKind::Array,
+            ParamFunc::Pointer => CTypeParamKind::Pointer,
+            _ => CTypeParamKind::Simple,
+        };
+        ffi_type_for_layout(
+            kind,
+            &self.ffi_field_types,
+            self.size,
+            self.length,
+            self.format.as_deref(),
+        )
     }
 
     /// Check if this type is finalized (cannot set _fields_ again)
-    pub(crate) fn is_final(&self) -> bool {
+    pub fn is_final(&self) -> bool {
         self.flags.contains(StgInfoFlags::DICTFLAG_FINAL)
     }
 
     /// Get proto type reference (for Pointer/Array types)
-    pub(crate) fn proto(&self) -> &Py<PyType> {
+    pub fn proto(&self) -> &Py<PyType> {
         self.proto.as_deref().expect("type has proto")
     }
 }
@@ -408,26 +358,13 @@ pub(super) static CDATA_BUFFER_METHODS: BufferMethods = BufferMethods {
     retain: |_| {},
 };
 
-/// Convert Vec<T> to Vec<u8> by reinterpreting the memory (same allocation).
-fn vec_to_bytes<T>(vec: Vec<T>) -> Vec<u8> {
-    let len = vec.len() * core::mem::size_of::<T>();
-    let cap = vec.capacity() * core::mem::size_of::<T>();
-    let ptr = vec.as_ptr() as *mut u8;
-    core::mem::forget(vec);
-    unsafe { Vec::from_raw_parts(ptr, len, cap) }
-}
-
 /// Ensure PyBytes data is null-terminated. Returns (kept_alive_obj, pointer).
 /// The caller must keep the returned object alive to keep the pointer valid.
 pub(super) fn ensure_z_null_terminated(
     bytes: &PyBytes,
     vm: &VirtualMachine,
 ) -> (PyObjectRef, usize) {
-    let data = bytes.as_bytes();
-    let mut buffer = data.to_vec();
-    if !buffer.ends_with(&[0]) {
-        buffer.push(0);
-    }
+    let buffer = rustpython_host_env::ctypes::null_terminated_bytes(bytes.as_bytes());
     let ptr = buffer.as_ptr() as usize;
     let kept_alive: PyObjectRef = vm.ctx.new_bytes(buffer).into();
     (kept_alive, ptr)
@@ -435,13 +372,8 @@ pub(super) fn ensure_z_null_terminated(
 
 /// Convert str to null-terminated wchar_t buffer. Returns (PyBytes holder, pointer).
 pub(super) fn str_to_wchar_bytes(s: &Wtf8, vm: &VirtualMachine) -> (PyObjectRef, usize) {
-    let wchars: Vec<libc::wchar_t> = s
-        .code_points()
-        .map(|cp| cp.to_u32() as libc::wchar_t)
-        .chain(core::iter::once(0))
-        .collect();
-    let ptr = wchars.as_ptr() as usize;
-    let bytes = vec_to_bytes(wchars);
+    let bytes = rustpython_host_env::ctypes::wchar_null_terminated_bytes(s);
+    let ptr = bytes.as_ptr() as usize;
     let holder: PyObjectRef = vm.ctx.new_bytes(bytes).into();
     (holder, ptr)
 }
@@ -449,7 +381,7 @@ pub(super) fn str_to_wchar_bytes(s: &Wtf8, vm: &VirtualMachine) -> (PyObjectRef,
 /// PyCData - base type for all ctypes data types
 #[pyclass(name = "_CData", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
-pub(crate) struct PyCData {
+pub struct PyCData {
     /// Memory buffer - Owned (self-owned) or Borrowed (external reference)
     ///
     /// SAFETY: Borrowed variant's 'static lifetime is not actually static.
@@ -475,7 +407,7 @@ pub(crate) struct PyCData {
 
 impl PyCData {
     /// Create from StgInfo (PyCData_MallocBuffer pattern)
-    pub(crate) fn from_stg_info(stg_info: &StgInfo) -> Self {
+    pub fn from_stg_info(stg_info: &StgInfo) -> Self {
         PyCData {
             buffer: PyRwLock::new(Cow::Owned(vec![0u8; stg_info.size])),
             base: PyRwLock::new(None),
@@ -488,7 +420,7 @@ impl PyCData {
     }
 
     /// Create from existing bytes (copies data)
-    pub(crate) fn from_bytes(data: Vec<u8>, objects: Option<PyObjectRef>) -> Self {
+    pub fn from_bytes(data: Vec<u8>, objects: Option<PyObjectRef>) -> Self {
         PyCData {
             buffer: PyRwLock::new(Cow::Owned(data)),
             base: PyRwLock::new(None),
@@ -501,7 +433,7 @@ impl PyCData {
     }
 
     /// Create from bytes with specified length (for arrays)
-    pub(crate) fn from_bytes_with_length(
+    pub fn from_bytes_with_length(
         data: Vec<u8>,
         objects: Option<PyObjectRef>,
         length: usize,
@@ -523,10 +455,10 @@ impl PyCData {
     /// The returned slice's 'static lifetime is a lie.
     /// Actually only valid for the lifetime of the memory pointed to by ptr.
     /// PyCData_AtAddress
-    pub(crate) unsafe fn at_address(ptr: *const u8, size: usize) -> Self {
+    pub unsafe fn at_address(ptr: *const u8, size: usize) -> Self {
         // = PyCData_AtAddress
         // SAFETY: Caller must ensure ptr is valid for the lifetime of returned PyCData
-        let slice: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, size) };
+        let slice = unsafe { rustpython_host_env::ctypes::borrow_memory(ptr, size) };
         PyCData {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(None),
@@ -543,7 +475,7 @@ impl PyCData {
     /// Similar to from_base_with_offset, but also stores a copy of the data.
     /// This is used for arrays where we need our own buffer for the buffer protocol,
     /// but still maintain the base reference for KeepRef and tracking.
-    pub(crate) fn from_base_with_data(
+    pub fn from_base_with_data(
         base_obj: PyObjectRef,
         offset: usize,
         idx: usize,
@@ -568,7 +500,7 @@ impl PyCData {
     ///
     /// # Safety
     /// ptr must point into base_obj's buffer and remain valid as long as base_obj is alive.
-    pub(crate) unsafe fn from_base_obj(
+    pub unsafe fn from_base_obj(
         ptr: *mut u8,
         size: usize,
         base_obj: PyObjectRef,
@@ -576,7 +508,7 @@ impl PyCData {
     ) -> Self {
         // = PyCData_FromBaseObj
         // SAFETY: ptr points into base_obj's buffer, kept alive via base reference
-        let slice: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, size) };
+        let slice = unsafe { rustpython_host_env::ctypes::borrow_memory(ptr, size) };
         PyCData {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(Some(base_obj)),
@@ -596,7 +528,7 @@ impl PyCData {
     ///
     /// # Safety
     /// ptr must point to valid memory that remains valid as long as source is alive.
-    pub(crate) unsafe fn from_buffer_shared(
+    pub unsafe fn from_buffer_shared(
         ptr: *const u8,
         size: usize,
         length: usize,
@@ -604,7 +536,7 @@ impl PyCData {
         vm: &VirtualMachine,
     ) -> Self {
         // SAFETY: Caller must ensure ptr is valid for the lifetime of source
-        let slice: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, size) };
+        let slice = unsafe { rustpython_host_env::ctypes::borrow_memory(ptr, size) };
 
         // Python stores the reference in a dict with key "-1" (unique_key pattern)
         let objects_dict = vm.ctx.new_dict();
@@ -627,7 +559,7 @@ impl PyCData {
     /// Validates buffer, creates memoryview, and returns PyCData sharing memory with source.
     ///
     /// CDataType_from_buffer_impl
-    pub(crate) fn from_buffer_impl(
+    pub fn from_buffer_impl(
         cls: &Py<PyType>,
         source: PyObjectRef,
         offset: isize,
@@ -687,7 +619,7 @@ impl PyCData {
     /// Copies data from buffer and creates new independent instance.
     ///
     /// CDataType_from_buffer_copy_impl
-    pub(crate) fn from_buffer_copy_impl(
+    pub fn from_buffer_copy_impl(
         cls: &Py<PyType>,
         source: &[u8],
         offset: isize,
@@ -721,13 +653,13 @@ impl PyCData {
     }
 
     #[inline]
-    pub(crate) fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.buffer.read().len()
     }
 
     /// Check if this buffer is borrowed (external memory reference)
     #[inline]
-    pub(crate) fn is_borrowed(&self) -> bool {
+    pub fn is_borrowed(&self) -> bool {
         matches!(&*self.buffer.read(), Cow::Borrowed(_))
     }
 
@@ -738,35 +670,15 @@ impl PyCData {
     ///
     /// # Safety
     /// For borrowed buffers, caller must ensure the memory is writable.
-    pub(crate) fn write_bytes_at_offset(&self, offset: usize, bytes: &[u8]) {
-        let buffer = self.buffer.read();
-        if offset + bytes.len() > buffer.len() {
-            return; // Out of bounds
-        }
-
-        match &*buffer {
-            Cow::Borrowed(slice) => {
-                // For borrowed memory, write directly
-                // SAFETY: We assume the caller knows this memory is writable
-                // (e.g., from from_address pointing to a ctypes buffer)
-                unsafe {
-                    let ptr = slice.as_ptr() as *mut u8;
-                    core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.add(offset), bytes.len());
-                }
-            }
-            Cow::Owned(_) => {
-                // For owned memory, use to_mut() through write lock
-                drop(buffer);
-                let mut buffer = self.buffer.write();
-                buffer.to_mut()[offset..offset + bytes.len()].copy_from_slice(bytes);
-            }
-        }
+    pub fn write_bytes_at_offset(&self, offset: usize, bytes: &[u8]) {
+        let mut buffer = self.buffer.write();
+        write_cow_bytes_at_offset(&mut buffer, offset, bytes);
     }
 
     /// Generate unique key for nested references (unique_key)
     /// Creates a hierarchical key by walking up the b_base chain.
     /// Format: "index:parent_index:grandparent_index:..."
-    pub(crate) fn unique_key(&self, index: usize) -> String {
+    pub fn unique_key(&self, index: usize) -> String {
         let mut key = format!("{index:x}");
         // Walk up the base chain to build hierarchical key
         if self.base.read().is_some() {
@@ -785,12 +697,7 @@ impl PyCData {
     ///
     /// If this object has a base (is embedded in another structure/union/array),
     /// the reference is stored in the root object's b_objects with a hierarchical key.
-    pub(crate) fn keep_ref(
-        &self,
-        index: usize,
-        keep: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    pub fn keep_ref(&self, index: usize, keep: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Optimization: no need to store None
         if vm.is_none(&keep) {
             return Ok(());
@@ -850,7 +757,7 @@ impl PyCData {
     /// Walks up to root object (same as keep_ref) so the reference
     /// lives as long as the owning ctypes object.
     /// Uses unique_key (hierarchical) so nested fields don't collide.
-    pub(crate) fn keep_alive(&self, index: usize, obj: PyObjectRef) {
+    pub fn keep_alive(&self, index: usize, obj: PyObjectRef) {
         let key = self.unique_key(index);
         if let Some(base_obj) = self.base.read().clone() {
             let root = Self::find_root_object(&base_obj);
@@ -923,7 +830,7 @@ impl PyCData {
 
     /// Get kept objects from a CData instance
     /// Returns the _objects of the CData, or an empty dict if None.
-    pub(crate) fn get_kept_objects(value: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn get_kept_objects(value: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
         value
             .downcast_ref::<PyCData>()
             .and_then(|cdata| cdata.objects.read().clone())
@@ -932,14 +839,14 @@ impl PyCData {
 
     /// Check if a value should be stored in _objects
     /// Returns true for ctypes objects and bytes (for c_char_p)
-    pub(crate) fn should_keep_ref(value: &PyObject) -> bool {
+    pub fn should_keep_ref(value: &PyObject) -> bool {
         value.downcast_ref::<PyCData>().is_some() || value.downcast_ref::<PyBytes>().is_some()
     }
 
     /// PyCData_set
     /// Sets a field value at the given offset, handling type conversion and KeepRef
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn set_field(
+    pub fn set_field(
         &self,
         proto: &PyObject,
         value: PyObjectRef,
@@ -957,7 +864,7 @@ impl PyCData {
         if is_char_array {
             if let Some(bytes_val) = value.downcast_ref::<PyBytes>() {
                 let src = bytes_val.as_bytes();
-                let to_copy = PyCField::bytes_for_char_array(src);
+                let to_copy = char_array_assignment_bytes(src);
                 let copy_len = core::cmp::min(to_copy.len(), size);
                 self.write_bytes_at_offset(offset, &to_copy[..copy_len]);
                 self.keep_ref(index, value, vm)?;
@@ -970,17 +877,10 @@ impl PyCData {
         // For c_wchar arrays with str input, convert to wchar_t
         if is_wchar_array {
             if let Some(str_val) = value.downcast_ref::<PyStr>() {
-                // Convert str to wchar_t bytes (platform-dependent size)
-                let mut wchar_bytes = Vec::with_capacity(size);
-                for cp in str_val.as_wtf8().code_points().take(size / WCHAR_SIZE) {
-                    let mut bytes = [0u8; 4];
-                    wchar_to_bytes(cp.to_u32(), &mut bytes);
-                    wchar_bytes.extend_from_slice(&bytes[..WCHAR_SIZE]);
-                }
-                // Pad with nulls to fill the array
-                while wchar_bytes.len() < size {
-                    wchar_bytes.push(0);
-                }
+                let wchar_bytes = rustpython_host_env::ctypes::encode_wtf8_to_wchar_padded(
+                    str_val.as_wtf8(),
+                    size,
+                );
                 self.write_bytes_at_offset(offset, &wchar_bytes);
                 self.keep_ref(index, value, vm)?;
                 return Ok(());
@@ -1000,9 +900,8 @@ impl PyCData {
                 let array_buffer = array.0.buffer.read();
                 array_buffer.as_ptr() as usize
             };
-            let addr_bytes = buffer_addr.to_ne_bytes();
-            let len = core::cmp::min(addr_bytes.len(), size);
-            self.write_bytes_at_offset(offset, &addr_bytes[..len]);
+            let addr_bytes = rustpython_host_env::ctypes::pointer_to_sized_bytes(buffer_addr, size);
+            self.write_bytes_at_offset(offset, &addr_bytes);
             self.keep_ref(index, value, vm)?;
             return Ok(());
         }
@@ -1056,13 +955,8 @@ impl PyCData {
             && let Some(bytes_val) = value.downcast_ref::<PyBytes>()
         {
             let (kept_alive, ptr) = ensure_z_null_terminated(bytes_val, vm);
-            let mut result = vec![0u8; size];
-            let addr_bytes = ptr.to_ne_bytes();
-            let len = core::cmp::min(addr_bytes.len(), size);
-            result[..len].copy_from_slice(&addr_bytes[..len]);
-            if needs_swap {
-                result.reverse();
-            }
+            let result =
+                rustpython_host_env::ctypes::pointer_to_sized_bytes_endian(ptr, size, needs_swap);
             self.write_bytes_at_offset(offset, &result);
             self.keep_ref(index, value, vm)?;
             self.keep_alive(index, kept_alive);
@@ -1095,7 +989,7 @@ impl PyCData {
 
     /// PyCData_get
     /// Gets a field value at the given offset
-    pub(crate) fn get_field(
+    pub fn get_field(
         &self,
         proto: &PyObject,
         index: usize,
@@ -1118,24 +1012,16 @@ impl PyCData {
             // c_char array → return bytes
             if PyCField::is_char_array(proto, vm) {
                 let data = &buffer[offset..offset + size];
-                // Find first null terminator (or use full length)
-                let end = data.iter().position(|&b| b == 0).unwrap_or(data.len());
-                return Ok(vm.ctx.new_bytes(data[..end].to_vec()).into());
+                return Ok(vm
+                    .ctx
+                    .new_bytes(char_array_field_value(data).to_vec())
+                    .into());
             }
 
             // c_wchar array → return str
             if PyCField::is_wchar_array(proto, vm) {
                 let data = &buffer[offset..offset + size];
-                // wchar_t → char conversion, skip null
-                let chars: String = data
-                    .chunks(WCHAR_SIZE)
-                    .filter_map(|chunk| {
-                        wchar_from_bytes(chunk)
-                            .filter(|&wchar| wchar != 0)
-                            .and_then(char::from_u32)
-                    })
-                    .collect();
-                return Ok(vm.ctx.new_str(chars).into());
+                return Ok(vm.ctx.new_str(wchar_array_field_value(data)).into());
             }
 
             // Other array types - create array with a copy of data from the base's buffer
@@ -1334,7 +1220,7 @@ impl PyCData {
 /// CField descriptor for Structure/Union field access
 #[pyclass(name = "CField", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
-pub(crate) struct PyCField {
+pub struct PyCField {
     /// Field name
     pub(crate) name: String,
     /// Byte offset of the field within the structure/union
@@ -1355,7 +1241,7 @@ pub(crate) struct PyCField {
 
 impl PyCField {
     /// Create a new CField descriptor (non-bitfield)
-    pub(crate) fn new(
+    pub fn new(
         name: String,
         proto: PyTypeRef,
         offset: isize,
@@ -1375,7 +1261,7 @@ impl PyCField {
     }
 
     /// Create a new CField descriptor for a bitfield
-    pub(crate) fn new_bitfield(
+    pub fn new_bitfield(
         name: String,
         proto: PyTypeRef,
         offset: isize,
@@ -1397,17 +1283,13 @@ impl PyCField {
     }
 
     /// Get the byte size of the field's underlying type
-    pub(crate) fn get_byte_size(&self) -> usize {
+    pub fn get_byte_size(&self) -> usize {
         self.byte_size_val as usize
     }
 
     /// Create a new CField from an existing field with adjusted offset and index
     /// Used by MakeFields to promote anonymous fields
-    pub(crate) fn new_from_field(
-        fdescr: &PyCField,
-        index_offset: usize,
-        offset_delta: isize,
-    ) -> Self {
+    pub fn new_from_field(fdescr: &PyCField, index_offset: usize, offset_delta: isize) -> Self {
         Self {
             name: fdescr.name.clone(),
             offset: fdescr.offset + offset_delta,
@@ -1421,7 +1303,7 @@ impl PyCField {
     }
 
     /// Set anonymous flag
-    pub(crate) fn set_anonymous(&mut self, anonymous: bool) {
+    pub fn set_anonymous(&mut self, anonymous: bool) {
         self.anonymous = anonymous;
     }
 }
@@ -1588,29 +1470,24 @@ impl PyCField {
     fn value_to_bytes(value: &PyObject, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         // 1. Handle bytes objects
         if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-            let src = bytes.as_bytes();
-            let mut result = vec![0u8; size];
-            let len = core::cmp::min(src.len(), size);
-            result[..len].copy_from_slice(&src[..len]);
-            Ok(result)
+            Ok(rustpython_host_env::ctypes::copy_to_sized_bytes(
+                bytes.as_bytes(),
+                size,
+            ))
         }
         // 2. Handle ctypes array instances (copy their buffer)
         else if let Some(cdata) = value.downcast_ref::<super::PyCData>() {
             let buffer = cdata.buffer.read();
-            let mut result = vec![0u8; size];
-            let len = core::cmp::min(buffer.len(), size);
-            result[..len].copy_from_slice(&buffer[..len]);
-            Ok(result)
+            Ok(rustpython_host_env::ctypes::copy_to_sized_bytes(
+                &buffer, size,
+            ))
         }
         // 4. Handle float values (check before int, since float.try_int would truncate)
         else if let Some(float_val) = value.downcast_ref::<crate::builtins::PyFloat>() {
             let f = float_val.to_f64();
             match size {
-                4 => {
-                    let val = f as f32;
-                    Ok(val.to_ne_bytes().to_vec())
-                }
-                8 => Ok(f.to_ne_bytes().to_vec()),
+                4 | 8 => Ok(rustpython_host_env::ctypes::float_to_sized_bytes(f, size)
+                    .expect("float size checked")),
                 _ => unreachable!("wrong payload size"),
             }
         }
@@ -1618,26 +1495,26 @@ impl PyCField {
         else if let Ok(int_val) = value.try_int(vm) {
             let i = int_val.as_bigint();
             match size {
-                1 => {
-                    let val = i.to_i8().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
-                }
-                2 => {
-                    let val = i.to_i16().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
-                }
-                4 => {
-                    let val = i.to_i32().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
-                }
-                8 => {
-                    let val = i.to_i64().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
-                }
-                _ => Ok(vec![0u8; size]),
+                1 => Ok(rustpython_host_env::ctypes::int_to_sized_bytes(
+                    i.to_i8().unwrap_or(0).into(),
+                    size,
+                )),
+                2 => Ok(rustpython_host_env::ctypes::int_to_sized_bytes(
+                    i.to_i16().unwrap_or(0).into(),
+                    size,
+                )),
+                4 => Ok(rustpython_host_env::ctypes::int_to_sized_bytes(
+                    i.to_i32().unwrap_or(0).into(),
+                    size,
+                )),
+                8 => Ok(rustpython_host_env::ctypes::int_to_sized_bytes(
+                    i.to_i64().unwrap_or(0),
+                    size,
+                )),
+                _ => Ok(rustpython_host_env::ctypes::zeroed_bytes(size)),
             }
         } else {
-            Ok(vec![0u8; size])
+            Ok(rustpython_host_env::ctypes::zeroed_bytes(size))
         }
     }
 
@@ -1662,8 +1539,11 @@ impl PyCField {
                         value.class().name()
                     )));
                 };
-                let val = f as f32;
-                Ok((val.to_ne_bytes().to_vec(), None))
+                Ok((
+                    rustpython_host_env::ctypes::float_to_sized_bytes(f, 4)
+                        .expect("c_float size is fixed"),
+                    None,
+                ))
             }
             // c_double: always convert to float first (d_set)
             "d" => {
@@ -1677,7 +1557,11 @@ impl PyCField {
                         value.class().name()
                     )));
                 };
-                Ok((f.to_ne_bytes().to_vec(), None))
+                Ok((
+                    rustpython_host_env::ctypes::float_to_sized_bytes(f, 8)
+                        .expect("c_double size is fixed"),
+                    None,
+                ))
             }
             // c_longdouble: convert to float (treated as f64 in RustPython)
             "g" => {
@@ -1691,7 +1575,11 @@ impl PyCField {
                         value.class().name()
                     )));
                 };
-                Ok((f.to_ne_bytes().to_vec(), None))
+                Ok((
+                    rustpython_host_env::ctypes::float_to_sized_bytes(f, 8)
+                        .expect("c_longdouble bytes are stored as f64"),
+                    None,
+                ))
             }
             "z" => {
                 // c_char_p with bytes is handled in set_field before this call.
@@ -1699,15 +1587,14 @@ impl PyCField {
                 // Integer address
                 if let Ok(int_val) = value.try_index(vm) {
                     let v = int_val.as_bigint().to_usize().unwrap_or(0);
-                    let mut result = vec![0u8; size];
-                    let bytes = v.to_ne_bytes();
-                    let len = core::cmp::min(bytes.len(), size);
-                    result[..len].copy_from_slice(&bytes[..len]);
-                    return Ok((result, None));
+                    return Ok((
+                        rustpython_host_env::ctypes::pointer_to_sized_bytes(v, size),
+                        None,
+                    ));
                 }
                 // None -> NULL pointer
                 if vm.is_none(value) {
-                    return Ok((vec![0u8; size], None));
+                    return Ok((rustpython_host_env::ctypes::zeroed_bytes(size), None));
                 }
                 Ok((PyCField::value_to_bytes(value, size, vm)?, None))
             }
@@ -1715,24 +1602,22 @@ impl PyCField {
                 // c_wchar_p: store pointer to null-terminated wchar_t buffer
                 if let Some(s) = value.downcast_ref::<PyStr>() {
                     let (holder, ptr) = str_to_wchar_bytes(s.as_wtf8(), vm);
-                    let mut result = vec![0u8; size];
-                    let addr_bytes = ptr.to_ne_bytes();
-                    let len = core::cmp::min(addr_bytes.len(), size);
-                    result[..len].copy_from_slice(&addr_bytes[..len]);
-                    return Ok((result, Some(holder)));
+                    return Ok((
+                        rustpython_host_env::ctypes::pointer_to_sized_bytes(ptr, size),
+                        Some(holder),
+                    ));
                 }
                 // Integer address
                 if let Ok(int_val) = value.try_index(vm) {
                     let v = int_val.as_bigint().to_usize().unwrap_or(0);
-                    let mut result = vec![0u8; size];
-                    let bytes = v.to_ne_bytes();
-                    let len = core::cmp::min(bytes.len(), size);
-                    result[..len].copy_from_slice(&bytes[..len]);
-                    return Ok((result, None));
+                    return Ok((
+                        rustpython_host_env::ctypes::pointer_to_sized_bytes(v, size),
+                        None,
+                    ));
                 }
                 // None -> NULL pointer
                 if vm.is_none(value) {
-                    return Ok((vec![0u8; size], None));
+                    return Ok((rustpython_host_env::ctypes::zeroed_bytes(size), None));
                 }
                 Ok((PyCField::value_to_bytes(value, size, vm)?, None))
             }
@@ -1740,15 +1625,14 @@ impl PyCField {
                 // c_void_p: store integer as pointer
                 if let Ok(int_val) = value.try_index(vm) {
                     let v = int_val.as_bigint().to_usize().unwrap_or(0);
-                    let mut result = vec![0u8; size];
-                    let bytes = v.to_ne_bytes();
-                    let len = core::cmp::min(bytes.len(), size);
-                    result[..len].copy_from_slice(&bytes[..len]);
-                    return Ok((result, None));
+                    return Ok((
+                        rustpython_host_env::ctypes::pointer_to_sized_bytes(v, size),
+                        None,
+                    ));
                 }
                 // None -> NULL pointer
                 if vm.is_none(value) {
-                    return Ok((vec![0u8; size], None));
+                    return Ok((rustpython_host_env::ctypes::zeroed_bytes(size), None));
                 }
                 Ok((PyCField::value_to_bytes(value, size, vm)?, None))
             }
@@ -1788,17 +1672,6 @@ impl PyCField {
             }
         }
         false
-    }
-
-    /// Convert bytes for c_char array assignment (stops at first null terminator)
-    /// Returns (bytes_to_copy, copy_len)
-    fn bytes_for_char_array(src: &[u8]) -> &[u8] {
-        // Find first null terminator and include it
-        if let Some(null_pos) = src.iter().position(|&b| b == 0) {
-            &src[..=null_pos]
-        } else {
-            src
-        }
     }
 }
 
@@ -1991,7 +1864,7 @@ fn array_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject> 
 
     Ok(CArgObject {
         tag: b'P',
-        value: FfiArgValue::Pointer(ptr_val),
+        value: FfiArgValue::pointer(ptr_val),
         obj: obj.to_owned(),
         size: 0,
         offset: 0,
@@ -2011,7 +1884,7 @@ fn pointer_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject
 
     Ok(CArgObject {
         tag: b'P',
-        value: FfiArgValue::Pointer(ptr_val),
+        value: FfiArgValue::pointer(ptr_val),
         obj: obj.to_owned(),
         size: 0,
         offset: 0,
@@ -2032,7 +1905,7 @@ fn struct_union_paramfunc(
     } else {
         return Ok(CArgObject {
             tag: b'V',
-            value: FfiArgValue::Pointer(0),
+            value: FfiArgValue::pointer(0),
             obj: obj.to_owned(),
             size: stg_info.size,
             offset: 0,
@@ -2044,7 +1917,7 @@ fn struct_union_paramfunc(
 
     Ok(CArgObject {
         tag: b'V',
-        value: FfiArgValue::Pointer(ptr_val),
+        value: FfiArgValue::pointer(ptr_val),
         obj: obj.to_owned(),
         size,
         offset: 0,
@@ -2055,117 +1928,33 @@ fn struct_union_paramfunc(
 
 /// Owned FFI argument value. Keeps the value alive for the duration of the FFI call.
 #[derive(Debug, Clone)]
-pub(crate) enum FfiArgValue {
-    U8(u8),
-    I8(i8),
-    U16(u16),
-    I16(i16),
-    U32(u32),
-    I32(i32),
-    U64(u64),
-    I64(i64),
-    F32(f32),
-    F64(f64),
-    Pointer(usize),
+pub enum FfiArgValue {
+    Scalar(FfiValue),
     /// Pointer with owned data. The PyObjectRef keeps the pointed data alive.
     OwnedPointer(usize, #[allow(dead_code)] PyObjectRef),
 }
 
 impl FfiArgValue {
+    pub fn pointer(value: usize) -> Self {
+        Self::Scalar(FfiValue::Pointer(value))
+    }
+
     /// Create an Arg reference to this owned value
-    pub(crate) fn as_arg(&self) -> libffi::middle::Arg<'_> {
+    pub fn as_arg(&self) -> FfiArg<'_> {
         match self {
-            FfiArgValue::U8(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::I8(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::U16(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::I16(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::U32(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::I32(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::U64(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::I64(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::F32(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::F64(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::Pointer(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::OwnedPointer(v, _) => libffi::middle::Arg::new(v),
+            FfiArgValue::Scalar(value) => ffi_arg_from_value(value),
+            FfiArgValue::OwnedPointer(v, _) => rustpython_host_env::ctypes::ffi_arg(
+                rustpython_host_env::ctypes::FfiArgRef::Pointer(v),
+            ),
         }
     }
 }
 
 /// Convert buffer bytes to FfiArgValue based on type code
 pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue {
-    match type_code {
-        "c" | "b" => {
-            let v = buffer.first().map(|&b| b as i8).unwrap_or(0);
-            FfiArgValue::I8(v)
-        }
-        "B" => {
-            let v = buffer.first().copied().unwrap_or(0);
-            FfiArgValue::U8(v)
-        }
-        "h" => {
-            let v = buffer.first_chunk().copied().map_or(0, i16::from_ne_bytes);
-            FfiArgValue::I16(v)
-        }
-        "H" => {
-            let v = buffer.first_chunk().copied().map_or(0, u16::from_ne_bytes);
-            FfiArgValue::U16(v)
-        }
-        "i" => {
-            let v = buffer.first_chunk().copied().map_or(0, i32::from_ne_bytes);
-            FfiArgValue::I32(v)
-        }
-        "I" => {
-            let v = buffer.first_chunk().copied().map_or(0, u32::from_ne_bytes);
-            FfiArgValue::U32(v)
-        }
-        "l" | "q" => {
-            let v = if let Some(&bytes) = buffer.first_chunk::<8>() {
-                i64::from_ne_bytes(bytes)
-            } else if let Some(&bytes) = buffer.first_chunk::<4>() {
-                i32::from_ne_bytes(bytes).into()
-            } else {
-                0
-            };
-            FfiArgValue::I64(v)
-        }
-        "L" | "Q" => {
-            let v = if let Some(&bytes) = buffer.first_chunk::<8>() {
-                u64::from_ne_bytes(bytes)
-            } else if let Some(&bytes) = buffer.first_chunk::<4>() {
-                u32::from_ne_bytes(bytes).into()
-            } else {
-                0
-            };
-            FfiArgValue::U64(v)
-        }
-        "f" => {
-            let v = buffer
-                .first_chunk::<4>()
-                .copied()
-                .map_or(0.0, f32::from_ne_bytes);
-            FfiArgValue::F32(v)
-        }
-        "d" | "g" => {
-            let v = buffer
-                .first_chunk::<8>()
-                .copied()
-                .map_or(0.0, f64::from_ne_bytes);
-            FfiArgValue::F64(v)
-        }
-        "z" | "Z" | "P" | "O" => FfiArgValue::Pointer(
-            rustpython_host_env::ctypes::read_pointer_from_buffer(buffer),
-        ),
-        "?" => {
-            let v = buffer.first().map(|&b| b != 0).unwrap_or(false);
-            FfiArgValue::U8(if v { 1 } else { 0 })
-        }
-        "u" => {
-            // wchar_t - 4 bytes on most platforms
-            let v = buffer.first_chunk().copied().map_or(0, u32::from_ne_bytes);
-            FfiArgValue::U32(v)
-        }
-        _ => FfiArgValue::Pointer(0),
-    }
+    FfiArgValue::Scalar(rustpython_host_env::ctypes::ffi_value_from_type_code(
+        type_code, buffer,
+    ))
 }
 
 /// Convert bytes to appropriate Python object based on ctypes type
@@ -2179,177 +1968,33 @@ pub(super) fn bytes_to_pyobject(
         && let Ok(s) = type_attr.str(vm)
     {
         let ty = s.to_string();
-        return match ty.as_str() {
-            "c" => Ok(vm.ctx.new_bytes(bytes.to_vec()).into()),
-            "b" => {
-                let val = if !bytes.is_empty() { bytes[0] as i8 } else { 0 };
-                Ok(vm.ctx.new_int(val).into())
+        return match rustpython_host_env::ctypes::decode_type_code(ty.as_str(), bytes) {
+            rustpython_host_env::ctypes::DecodedValue::Bytes(value) => {
+                Ok(vm.ctx.new_bytes(value).into())
             }
-            "B" => {
-                let val = if !bytes.is_empty() { bytes[0] } else { 0 };
-                Ok(vm.ctx.new_int(val).into())
+            rustpython_host_env::ctypes::DecodedValue::Signed(value) => {
+                Ok(vm.ctx.new_int(value).into())
             }
-            "h" => {
-                const SIZE: usize = mem::size_of::<c_short>();
-                let val = if bytes.len() >= SIZE {
-                    c_short::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
+            rustpython_host_env::ctypes::DecodedValue::Unsigned(value) => {
+                Ok(vm.ctx.new_int(value).into())
+            }
+            rustpython_host_env::ctypes::DecodedValue::Float(value) => {
+                Ok(vm.ctx.new_float(value).into())
+            }
+            rustpython_host_env::ctypes::DecodedValue::Bool(value) => {
+                Ok(vm.ctx.new_bool(value).into())
+            }
+            rustpython_host_env::ctypes::DecodedValue::Pointer(value) => {
+                if value == 0 {
+                    Ok(vm.ctx.none())
                 } else {
-                    0
-                };
-                Ok(vm.ctx.new_int(val).into())
-            }
-            "H" => {
-                const SIZE: usize = mem::size_of::<c_ushort>();
-                let val = if bytes.len() >= SIZE {
-                    c_ushort::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0
-                };
-                Ok(vm.ctx.new_int(val).into())
-            }
-            "i" => {
-                const SIZE: usize = mem::size_of::<c_int>();
-                let val = if bytes.len() >= SIZE {
-                    c_int::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0
-                };
-                Ok(vm.ctx.new_int(val).into())
-            }
-            "I" => {
-                const SIZE: usize = mem::size_of::<c_uint>();
-                let val = if bytes.len() >= SIZE {
-                    c_uint::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0
-                };
-                Ok(vm.ctx.new_int(val).into())
-            }
-            "l" => {
-                const SIZE: usize = mem::size_of::<c_long>();
-                let val = if bytes.len() >= SIZE {
-                    c_long::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0
-                };
-                Ok(vm.ctx.new_int(val).into())
-            }
-            "L" => {
-                const SIZE: usize = mem::size_of::<c_ulong>();
-                let val = if bytes.len() >= SIZE {
-                    c_ulong::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0
-                };
-                Ok(vm.ctx.new_int(val).into())
-            }
-            "q" => {
-                const SIZE: usize = mem::size_of::<c_longlong>();
-                let val = if bytes.len() >= SIZE {
-                    c_longlong::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0
-                };
-                Ok(vm.ctx.new_int(val).into())
-            }
-            "Q" => {
-                const SIZE: usize = mem::size_of::<c_ulonglong>();
-                let val = if bytes.len() >= SIZE {
-                    c_ulonglong::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0
-                };
-                Ok(vm.ctx.new_int(val).into())
-            }
-            "f" => {
-                const SIZE: usize = mem::size_of::<c_float>();
-                let val = if bytes.len() >= SIZE {
-                    c_float::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0.0
-                };
-                Ok(vm.ctx.new_float(val as f64).into())
-            }
-            "d" => {
-                const SIZE: usize = mem::size_of::<c_double>();
-                let val = if bytes.len() >= SIZE {
-                    c_double::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0.0
-                };
-                Ok(vm.ctx.new_float(val).into())
-            }
-            "g" => {
-                // long double - read as f64 for now since Rust doesn't have native long double
-                // This may lose precision on platforms where long double > 64 bits
-                const SIZE: usize = mem::size_of::<c_double>();
-                let val = if bytes.len() >= SIZE {
-                    c_double::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0.0
-                };
-                Ok(vm.ctx.new_float(val).into())
-            }
-            "?" => {
-                let val = !bytes.is_empty() && bytes[0] != 0;
-                Ok(vm.ctx.new_bool(val).into())
-            }
-            "v" => {
-                // VARIANT_BOOL: non-zero = True, zero = False
-                const SIZE: usize = mem::size_of::<c_short>();
-                let val = if bytes.len() >= SIZE {
-                    c_short::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                } else {
-                    0
-                };
-                Ok(vm.ctx.new_bool(val != 0).into())
-            }
-            "z" => {
-                // c_char_p: read NULL-terminated string from pointer
-                let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(bytes);
-                if ptr == 0 {
-                    return Ok(vm.ctx.none());
+                    Ok(vm.ctx.new_int(value).into())
                 }
-                Ok(vm
-                    .ctx
-                    .new_bytes(unsafe {
-                        rustpython_host_env::ctypes::read_c_string_bytes(ptr as _)
-                    })
-                    .into())
             }
-            "Z" => {
-                // c_wchar_p: read NULL-terminated wide string from pointer
-                let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(bytes);
-                if ptr == 0 {
-                    return Ok(vm.ctx.none());
-                }
-                Ok(vm
-                    .ctx
-                    .new_str(unsafe { rustpython_host_env::ctypes::read_wide_string(ptr as _) })
-                    .into())
+            rustpython_host_env::ctypes::DecodedValue::String(value) => {
+                Ok(vm.ctx.new_str(value).into())
             }
-            "P" => {
-                // c_void_p: return pointer value as integer
-                let val = rustpython_host_env::ctypes::read_pointer_from_buffer(bytes);
-                if val == 0 {
-                    return Ok(vm.ctx.none());
-                }
-                Ok(vm.ctx.new_int(val).into())
-            }
-            "u" => {
-                let val = if bytes.len() >= mem::size_of::<WideChar>() {
-                    let wc = if mem::size_of::<WideChar>() == 2 {
-                        u16::from_ne_bytes([bytes[0], bytes[1]]) as u32
-                    } else {
-                        u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-                    };
-                    char::from_u32(wc).unwrap_or('\0')
-                } else {
-                    '\0'
-                };
-                Ok(vm.ctx.new_str(val).into())
-            }
-            _ => Ok(vm.ctx.none()),
+            rustpython_host_env::ctypes::DecodedValue::None => Ok(vm.ctx.none()),
         };
     }
     // Default: return bytes as-is
@@ -2452,8 +2097,9 @@ pub(super) fn get_field_size(field_type: &PyObject, vm: &VirtualMachine) -> PyRe
         .and_then(|type_attr| type_attr.str(vm).ok())
         .and_then(|type_str| {
             let s = type_str.to_string();
-            (s.len() == 1).then(|| super::get_size(&s))
+            (s.len() == 1).then(|| rustpython_host_env::ctypes::simple_type_size(&s))
         })
+        .flatten()
     {
         return Ok(size);
     }
@@ -2468,7 +2114,7 @@ pub(super) fn get_field_size(field_type: &PyObject, vm: &VirtualMachine) -> PyRe
         return Ok(s);
     }
 
-    Ok(core::mem::size_of::<usize>())
+    Ok(rustpython_host_env::ctypes::pointer_size())
 }
 
 /// Get the alignment of a ctypes field type
@@ -2486,8 +2132,9 @@ pub(super) fn get_field_align(field_type: &PyObject, vm: &VirtualMachine) -> usi
         .and_then(|type_attr| type_attr.str(vm).ok())
         .and_then(|type_str| {
             let s = type_str.to_string();
-            (s.len() == 1).then(|| super::get_size(&s))
+            (s.len() == 1).then(|| rustpython_host_env::ctypes::simple_type_align(&s))
         })
+        .flatten()
     {
         return align;
     }

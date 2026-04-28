@@ -14,12 +14,6 @@ use crate::{
     class::PyClassImpl,
     types::TypeDataRef,
 };
-use core::ffi::{
-    c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong,
-    c_ulonglong, c_ushort,
-};
-use core::mem;
-use widestring::WideChar;
 
 pub(super) use array::PyCArray;
 pub(super) use base::{FfiArgValue, PyCData, PyCField, StgInfo, StgInfoFlags};
@@ -96,142 +90,6 @@ pub(crate) use _ctypes::module_def;
 
 // These check if an object's type's metaclass is a subclass of a specific metaclass
 
-/// Size of long double - platform dependent
-/// x86_64 macOS/Linux: 16 bytes (80-bit extended + padding)
-/// ARM64: 16 bytes (128-bit)
-/// Windows: 8 bytes (same as double)
-#[cfg(all(
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(target_os = "windows")
-))]
-const LONG_DOUBLE_SIZE: usize = 16;
-
-#[cfg(target_os = "windows")]
-const LONG_DOUBLE_SIZE: usize = mem::size_of::<c_double>();
-
-#[cfg(not(any(
-    all(
-        any(target_arch = "x86_64", target_arch = "aarch64"),
-        not(target_os = "windows")
-    ),
-    target_os = "windows"
-)))]
-const LONG_DOUBLE_SIZE: usize = mem::size_of::<c_double>();
-
-/// Type information for ctypes simple types
-struct TypeInfo {
-    pub size: usize,
-    pub ffi_type_fn: fn() -> libffi::middle::Type,
-}
-
-/// Get type information (size and ffi_type) for a ctypes type code
-fn type_info(ty: &str) -> Option<TypeInfo> {
-    use libffi::middle::Type;
-    match ty {
-        "c" => Some(TypeInfo {
-            size: mem::size_of::<c_schar>(),
-            ffi_type_fn: Type::u8,
-        }),
-        "u" => Some(TypeInfo {
-            size: mem::size_of::<WideChar>(),
-            ffi_type_fn: if mem::size_of::<WideChar>() == 2 {
-                Type::u16
-            } else {
-                Type::u32
-            },
-        }),
-        "b" => Some(TypeInfo {
-            size: mem::size_of::<c_schar>(),
-            ffi_type_fn: Type::i8,
-        }),
-        "B" => Some(TypeInfo {
-            size: mem::size_of::<c_uchar>(),
-            ffi_type_fn: Type::u8,
-        }),
-        "h" | "v" => Some(TypeInfo {
-            size: mem::size_of::<c_short>(),
-            ffi_type_fn: Type::i16,
-        }),
-        "H" => Some(TypeInfo {
-            size: mem::size_of::<c_ushort>(),
-            ffi_type_fn: Type::u16,
-        }),
-        "i" => Some(TypeInfo {
-            size: mem::size_of::<c_int>(),
-            ffi_type_fn: Type::i32,
-        }),
-        "I" => Some(TypeInfo {
-            size: mem::size_of::<c_uint>(),
-            ffi_type_fn: Type::u32,
-        }),
-        "l" => Some(TypeInfo {
-            size: mem::size_of::<c_long>(),
-            ffi_type_fn: if mem::size_of::<c_long>() == 8 {
-                Type::i64
-            } else {
-                Type::i32
-            },
-        }),
-        "L" => Some(TypeInfo {
-            size: mem::size_of::<c_ulong>(),
-            ffi_type_fn: if mem::size_of::<c_ulong>() == 8 {
-                Type::u64
-            } else {
-                Type::u32
-            },
-        }),
-        "q" => Some(TypeInfo {
-            size: mem::size_of::<c_longlong>(),
-            ffi_type_fn: Type::i64,
-        }),
-        "Q" => Some(TypeInfo {
-            size: mem::size_of::<c_ulonglong>(),
-            ffi_type_fn: Type::u64,
-        }),
-        "f" => Some(TypeInfo {
-            size: mem::size_of::<c_float>(),
-            ffi_type_fn: Type::f32,
-        }),
-        "d" => Some(TypeInfo {
-            size: mem::size_of::<c_double>(),
-            ffi_type_fn: Type::f64,
-        }),
-        "g" => Some(TypeInfo {
-            // long double - platform dependent size
-            // x86_64 macOS/Linux: 16 bytes (80-bit extended + padding)
-            // ARM64: 16 bytes (128-bit)
-            // Windows: 8 bytes (same as double)
-            // Note: Use f64 as FFI type since Rust doesn't support long double natively
-            size: LONG_DOUBLE_SIZE,
-            ffi_type_fn: Type::f64,
-        }),
-        "?" => Some(TypeInfo {
-            size: mem::size_of::<c_uchar>(),
-            ffi_type_fn: Type::u8,
-        }),
-        "z" | "Z" | "P" | "X" | "O" => Some(TypeInfo {
-            size: mem::size_of::<usize>(),
-            ffi_type_fn: Type::pointer,
-        }),
-        "void" => Some(TypeInfo {
-            size: 0,
-            ffi_type_fn: Type::void,
-        }),
-        _ => None,
-    }
-}
-
-/// Get size for a ctypes type code
-fn get_size(ty: &str) -> usize {
-    type_info(ty).map(|t| t.size).expect("invalid type code")
-}
-
-/// Get alignment for simple type codes from type_info().
-/// For primitive C types (c_int, c_long, etc.), alignment equals size.
-fn get_align(ty: &str) -> usize {
-    get_size(ty)
-}
-
 #[pymodule]
 pub(crate) mod _ctypes {
     use super::{PyCArray, PyCData, PyCPointer, PyCSimple, PyCStructure, PyCUnion};
@@ -278,10 +136,16 @@ pub(crate) mod _ctypes {
                 b'b' | b'h' | b'i' | b'l' | b'q' => {
                     // Signed integers
                     let n = match zelf.value {
-                        FfiArgValue::I8(v) => v as i64,
-                        FfiArgValue::I16(v) => v as i64,
-                        FfiArgValue::I32(v) => v as i64,
-                        FfiArgValue::I64(v) => v,
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I8(v)) => {
+                            v as i64
+                        }
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I16(v)) => {
+                            v as i64
+                        }
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I32(v)) => {
+                            v as i64
+                        }
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I64(v)) => v,
                         _ => 0,
                     };
                     Ok(format!("<cparam '{}' ({})>", tag_char, n))
@@ -289,25 +153,35 @@ pub(crate) mod _ctypes {
                 b'B' | b'H' | b'I' | b'L' | b'Q' => {
                     // Unsigned integers
                     let n = match zelf.value {
-                        FfiArgValue::U8(v) => v as u64,
-                        FfiArgValue::U16(v) => v as u64,
-                        FfiArgValue::U32(v) => v as u64,
-                        FfiArgValue::U64(v) => v,
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U8(v)) => {
+                            v as u64
+                        }
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U16(v)) => {
+                            v as u64
+                        }
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U32(v)) => {
+                            v as u64
+                        }
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U64(v)) => v,
                         _ => 0,
                     };
                     Ok(format!("<cparam '{}' ({})>", tag_char, n))
                 }
                 b'f' => {
                     let v = match zelf.value {
-                        FfiArgValue::F32(v) => v as f64,
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::F32(v)) => {
+                            v as f64
+                        }
                         _ => 0.0,
                     };
                     Ok(format!("<cparam '{}' ({})>", tag_char, v))
                 }
                 b'd' | b'g' => {
                     let v = match zelf.value {
-                        FfiArgValue::F64(v) => v,
-                        FfiArgValue::F32(v) => v as f64,
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::F64(v)) => v,
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::F32(v)) => {
+                            v as f64
+                        }
                         _ => 0.0,
                     };
                     Ok(format!("<cparam '{}' ({})>", tag_char, v))
@@ -315,8 +189,10 @@ pub(crate) mod _ctypes {
                 b'c' => {
                     // c_char - single byte
                     let byte = match zelf.value {
-                        FfiArgValue::I8(v) => v as u8,
-                        FfiArgValue::U8(v) => v,
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I8(v)) => {
+                            v as u8
+                        }
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U8(v)) => v,
                         _ => 0,
                     };
                     if is_literal_char(byte) {
@@ -328,7 +204,8 @@ pub(crate) mod _ctypes {
                 b'z' | b'Z' | b'P' | b'V' => {
                     // Pointer types
                     let ptr = match zelf.value {
-                        FfiArgValue::Pointer(v) => v,
+                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::Pointer(v)) => v,
+                        FfiArgValue::OwnedPointer(v, _) => v,
                         _ => 0,
                     };
                     if ptr == 0 {
@@ -363,14 +240,14 @@ pub(crate) mod _ctypes {
 
     // TODO: get properly
     #[pyattr]
-    const RTLD_LOCAL: i32 = 0;
+    const RTLD_LOCAL: i32 = rustpython_host_env::ctypes::RTLD_LOCAL;
 
     // TODO: get properly
     #[pyattr]
-    const RTLD_GLOBAL: i32 = 0;
+    const RTLD_GLOBAL: i32 = rustpython_host_env::ctypes::RTLD_GLOBAL;
 
     #[pyattr]
-    const SIZEOF_TIME_T: usize = core::mem::size_of::<libc::time_t>();
+    const SIZEOF_TIME_T: usize = rustpython_host_env::ctypes::SIZEOF_TIME_T;
 
     #[pyattr]
     const CTYPES_MAX_ARGCOUNT: usize = 1024;
@@ -516,13 +393,16 @@ pub(crate) mod _ctypes {
                 if let Ok(type_attr) = type_obj.as_object().get_attr("_type_", vm)
                     && let Ok(type_str) = type_attr.str(vm)
                 {
-                    return Ok(super::get_size(type_str.as_ref()));
+                    return Ok(
+                        rustpython_host_env::ctypes::simple_type_size(type_str.as_ref())
+                            .expect("invalid ctypes simple type"),
+                    );
                 }
-                return Ok(core::mem::size_of::<usize>());
+                return Ok(rustpython_host_env::ctypes::pointer_size());
             }
             // Pointer types
             if type_obj.fast_issubclass(PyCPointer::static_type()) {
-                return Ok(core::mem::size_of::<usize>());
+                return Ok(rustpython_host_env::ctypes::pointer_size());
             }
             return Err(vm.new_type_error("this type has no size"));
         }
@@ -533,7 +413,7 @@ pub(crate) mod _ctypes {
             return Ok(cdata.size());
         }
         if obj.fast_isinstance(PyCPointer::static_type()) {
-            return Ok(core::mem::size_of::<usize>());
+            return Ok(rustpython_host_env::ctypes::pointer_size());
         }
 
         Err(vm.new_type_error("this type has no size"))
@@ -558,8 +438,7 @@ pub(crate) mod _ctypes {
         load_flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        // Default mode: RTLD_NOW | RTLD_LOCAL, always force RTLD_NOW
-        let mode = load_flags.unwrap_or(libc::RTLD_NOW | libc::RTLD_LOCAL) | libc::RTLD_NOW;
+        let mode = rustpython_host_env::ctypes::dlopen_mode(load_flags.into_option());
 
         match name {
             Some(name) => {
@@ -741,10 +620,10 @@ pub(crate) mod _ctypes {
         // Get buffer address: (char *)((CDataObject *)obj)->b_ptr + offset
         let ptr_val = if let Some(simple) = obj.downcast_ref::<PyCSimple>() {
             let buffer = simple.0.buffer.read();
-            (buffer.as_ptr() as isize + offset_val) as usize
+            rustpython_host_env::ctypes::offset_address(buffer.as_ptr() as usize, offset_val)
         } else if let Some(cdata) = obj.downcast_ref::<PyCData>() {
             let buffer = cdata.buffer.read();
-            (buffer.as_ptr() as isize + offset_val) as usize
+            rustpython_host_env::ctypes::offset_address(buffer.as_ptr() as usize, offset_val)
         } else {
             0
         };
@@ -752,7 +631,7 @@ pub(crate) mod _ctypes {
         // Create CArgObject to hold the reference
         Ok(CArgObject {
             tag: b'P',
-            value: FfiArgValue::Pointer(ptr_val),
+            value: FfiArgValue::pointer(ptr_val),
             obj,
             size: 0,
             offset: offset_val,
@@ -823,7 +702,8 @@ pub(crate) mod _ctypes {
             if let Ok(s) = type_attr.str(vm) {
                 let ty = s.to_string();
                 if ty.len() == 1 && super::simple::SIMPLE_TYPE_CHARS.contains(ty.as_str()) {
-                    return Ok(super::get_align(&ty));
+                    return Ok(rustpython_host_env::ctypes::simple_type_align(&ty)
+                        .expect("invalid ctypes simple type"));
                 }
             }
         }
@@ -894,34 +774,33 @@ pub(crate) mod _ctypes {
         let new_size = size as usize;
         let mut buffer = cdata.buffer.write();
         let old_data = buffer.to_vec();
-        let mut new_data = vec![0u8; new_size];
-        let copy_len = old_data.len().min(new_size);
-        new_data[..copy_len].copy_from_slice(&old_data[..copy_len]);
-        *buffer = Cow::Owned(new_data);
+        *buffer = Cow::Owned(rustpython_host_env::ctypes::resize_owned_bytes(
+            &old_data, new_size,
+        ));
 
         Ok(())
     }
 
     #[pyfunction]
     fn get_errno() -> i32 {
-        super::function::get_errno_value()
+        rustpython_host_env::ctypes::get_errno()
     }
 
     #[pyfunction]
     fn set_errno(value: i32) -> i32 {
-        super::function::set_errno_value(value)
+        rustpython_host_env::ctypes::set_errno(value)
     }
 
     #[cfg(windows)]
     #[pyfunction]
     fn get_last_error() -> PyResult<u32> {
-        Ok(super::function::get_last_error_value())
+        Ok(rustpython_host_env::ctypes::get_last_error())
     }
 
     #[cfg(windows)]
     #[pyfunction]
     fn set_last_error(value: u32) -> u32 {
-        super::function::set_last_error_value(value)
+        rustpython_host_env::ctypes::set_last_error(value)
     }
 
     #[pyattr]
@@ -1047,32 +926,24 @@ pub(crate) mod _ctypes {
         _flags: u32,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use libffi::middle::{Arg, Cif, CodePtr, Type};
-
         if func_addr == 0 {
             return Err(vm.new_value_error("NULL function pointer"));
         }
 
-        let mut ffi_args: Vec<Arg<'_>> = Vec::with_capacity(args.len());
-        let mut arg_values: Vec<isize> = Vec::with_capacity(args.len());
-        let mut arg_types: Vec<Type> = Vec::with_capacity(args.len());
+        let mut call_args = Vec::with_capacity(args.len());
 
         for arg in args.iter() {
             if vm.is_none(arg) {
-                arg_values.push(0);
-                arg_types.push(Type::pointer());
+                call_args.push(rustpython_host_env::ctypes::CdeclArgValue::Pointer(0));
             } else if let Ok(int_val) = arg.try_int(vm) {
                 let val = int_val.as_bigint().to_i64().unwrap_or(0) as isize;
-                arg_values.push(val);
-                arg_types.push(Type::isize());
+                call_args.push(rustpython_host_env::ctypes::CdeclArgValue::Int(val));
             } else if let Some(bytes) = arg.downcast_ref::<crate::builtins::PyBytes>() {
                 let ptr = bytes.as_bytes().as_ptr() as isize;
-                arg_values.push(ptr);
-                arg_types.push(Type::pointer());
+                call_args.push(rustpython_host_env::ctypes::CdeclArgValue::Pointer(ptr));
             } else if let Some(s) = arg.downcast_ref::<crate::builtins::PyStr>() {
                 let ptr = s.as_bytes().as_ptr() as isize;
-                arg_values.push(ptr);
-                arg_types.push(Type::pointer());
+                call_args.push(rustpython_host_env::ctypes::CdeclArgValue::Pointer(ptr));
             } else {
                 return Err(vm.new_type_error(format!(
                     "Don't know how to convert parameter of type '{}'",
@@ -1081,13 +952,7 @@ pub(crate) mod _ctypes {
             }
         }
 
-        for val in &arg_values {
-            ffi_args.push(Arg::new(val));
-        }
-
-        let cif = Cif::new(arg_types, Type::c_int());
-        let code_ptr = CodePtr::from_ptr(func_addr as *const _);
-        let result: libc::c_int = unsafe { cif.call(code_ptr, &ffi_args) };
+        let result = rustpython_host_env::ctypes::call_cdecl_i32_values(func_addr, &call_args);
         Ok(vm.ctx.new_int(result).into())
     }
 
@@ -1123,30 +988,21 @@ pub(crate) mod _ctypes {
         path: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        use alloc::ffi::CString;
-
         let path = match path {
             Some(p) if !vm.is_none(&p) => p,
             _ => return Ok(false),
         };
 
         let path_str = path.str(vm)?.to_string();
-        let c_path =
-            CString::new(path_str).map_err(|_| vm.new_value_error("path contains null byte"))?;
-
-        unsafe extern "C" {
-            fn _dyld_shared_cache_contains_path(path: *const libc::c_char) -> bool;
-        }
-
-        let result = unsafe { _dyld_shared_cache_contains_path(c_path.as_ptr()) };
-        Ok(result)
+        rustpython_host_env::ctypes::dyld_shared_cache_contains_path(&path_str)
+            .map_err(|_| vm.new_value_error("path contains null byte"))
     }
 
     #[cfg(windows)]
     #[pyfunction(name = "FormatError")]
     fn format_error_func(code: OptionalArg<u32>, _vm: &VirtualMachine) -> PyResult<String> {
         Ok(
-            rustpython_host_env::windows::format_error_message(code.into_option())
+            rustpython_host_env::ctypes::format_error_message(code.into_option())
                 .unwrap_or_else(|| "<no description>".to_string()),
         )
     }
@@ -1160,15 +1016,15 @@ pub(crate) mod _ctypes {
             let base = if let Some(cdata) = carg.obj.downcast_ref::<PyCData>() {
                 cdata.buffer.read().as_ptr() as usize
             } else {
-                return Ok(rustpython_host_env::windows::HRESULT_E_POINTER);
+                return Ok(rustpython_host_env::ctypes::HRESULT_E_POINTER);
             };
             (base as isize + carg.offset) as usize
         } else {
-            return Ok(rustpython_host_env::windows::HRESULT_E_POINTER);
+            return Ok(rustpython_host_env::ctypes::HRESULT_E_POINTER);
         };
 
         if pdst == 0 {
-            return Ok(rustpython_host_env::windows::HRESULT_E_POINTER);
+            return Ok(rustpython_host_env::ctypes::HRESULT_E_POINTER);
         }
 
         // 2. Extract COM pointer value from src
@@ -1177,38 +1033,12 @@ pub(crate) mod _ctypes {
         } else if let Some(cdata) = src.downcast_ref::<PyCData>() {
             // c_void_p etc: read pointer value from buffer
             let buffer = cdata.buffer.read();
-            if buffer.len() >= core::mem::size_of::<usize>() {
-                usize::from_ne_bytes(
-                    buffer[..core::mem::size_of::<usize>()]
-                        .try_into()
-                        .unwrap_or([0; core::mem::size_of::<usize>()]),
-                )
-            } else {
-                0
-            }
+            rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
         } else {
-            return Ok(rustpython_host_env::windows::HRESULT_E_POINTER);
+            return Ok(rustpython_host_env::ctypes::HRESULT_E_POINTER);
         };
 
-        // 3. Call IUnknown::AddRef if src is non-NULL
-        if src_ptr != 0 {
-            unsafe {
-                // IUnknown vtable: [QueryInterface, AddRef, Release, ...]
-                let iunknown = src_ptr as *mut *const usize;
-                let vtable = *iunknown;
-                debug_assert!(!vtable.is_null(), "IUnknown vtable is null");
-                let addref_fn: extern "system" fn(*mut core::ffi::c_void) -> u32 =
-                    core::mem::transmute(*vtable.add(1)); // AddRef is index 1
-                addref_fn(src_ptr as *mut core::ffi::c_void);
-            }
-        }
-
-        // 4. Copy pointer: *pdst = src
-        unsafe {
-            *(pdst as *mut usize) = src_ptr;
-        }
-
-        Ok(rustpython_host_env::windows::HRESULT_S_OK)
+        Ok(rustpython_host_env::ctypes::copy_com_pointer(src_ptr, pdst))
     }
 
     pub(crate) fn module_exec(
