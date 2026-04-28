@@ -966,10 +966,11 @@ impl PyFunction {
     fn set___dict__(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(obj) => {
-                let cls_name = obj.class().name().to_string();
+                let class_name = obj.clone().class().name().to_string(); // capture before move
                 let dict = obj.downcast::<PyDict>().map_err(|_| {
                     vm.new_type_error(format!(
-                        "__dict__ must be set to a dictionary, not a '{cls_name}'"
+                        "__dict__ must be set to a dictionary, not a '{}'",
+                        class_name
                     ))
                 })?;
                 zelf.as_object()
