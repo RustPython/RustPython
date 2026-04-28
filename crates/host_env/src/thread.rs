@@ -1,3 +1,4 @@
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use alloc::ffi::CString;
 
 #[cfg(unix)]

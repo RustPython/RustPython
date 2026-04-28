@@ -1,4 +1,4 @@
-#[cfg(any(unix, windows))]
+#[cfg(unix)]
 use alloc::ffi::CString;
 use core::time::Duration;
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};

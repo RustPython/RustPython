@@ -81,8 +81,31 @@ pub type FfiCodePtr = CodePtr;
 ))]
 pub type FfiCif = low::ffi_cif;
 
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
+type CallbackIntResult = low::ffi_arg;
+
+#[cfg(not(all(
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
+    not(any(target_env = "musl", target_env = "sgx"))
+)))]
+type CallbackIntResult = c_int;
+
 std::thread_local! {
     /// Thread-local ctypes errno, separate from the platform errno.
+    #[allow(clippy::missing_const_for_thread_local)]
     static CTYPES_LOCAL_ERRNO: core::cell::Cell<i32> = const { core::cell::Cell::new(0) };
 }
 
@@ -301,9 +324,14 @@ pub const RTLD_LOCAL: i32 = 0;
 pub const RTLD_GLOBAL: i32 = 0;
 pub const SIZEOF_TIME_T: usize = core::mem::size_of::<libc::time_t>();
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "wasi")))]
 pub fn dlopen_mode(load_flags: Option<i32>) -> i32 {
     load_flags.unwrap_or(libc::RTLD_NOW | libc::RTLD_LOCAL) | libc::RTLD_NOW
+}
+
+#[cfg(all(not(windows), target_os = "wasi"))]
+pub fn dlopen_mode(load_flags: Option<i32>) -> i32 {
+    load_flags.unwrap_or(0)
 }
 
 #[cfg(target_os = "macos")]
@@ -328,7 +356,11 @@ pub unsafe fn strlen(ptr: *const libc::c_char) -> usize {
 ///
 /// `ptr` must be valid to read until the first NUL wide character.
 pub unsafe fn wcslen(ptr: *const libc::wchar_t) -> usize {
-    unsafe { libc::wcslen(ptr) }
+    let mut len = 0;
+    while unsafe { *ptr.add(len) } != 0 as libc::wchar_t {
+        len += 1;
+    }
+    len
 }
 
 /// # Safety
@@ -1285,7 +1317,7 @@ pub unsafe fn write_callback_result(
             *(result as *mut u16) = v as u16
         },
         (Some("i"), CallbackResultValue::Signed(v)) => unsafe {
-            *(result as *mut low::ffi_arg) = v as i32 as low::ffi_arg
+            *(result as *mut CallbackIntResult) = v as i32 as CallbackIntResult
         },
         (Some("I"), CallbackResultValue::Unsigned(v)) => unsafe {
             *(result as *mut u32) = v as u32
@@ -2554,7 +2586,7 @@ pub fn lookup_function_symbol_addr(
         .lookup_function_symbol_addr(symbol_name)
 }
 
-#[cfg(not(windows))]
+#[cfg(all(unix, not(target_os = "wasi")))]
 pub fn dlopen_self(mode: libc::c_int) -> Result<*mut c_void, String> {
     let handle = unsafe { libc::dlopen(core::ptr::null(), mode) };
     if handle.is_null() {
@@ -2571,7 +2603,12 @@ pub fn dlopen_self(mode: libc::c_int) -> Result<*mut c_void, String> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, all(unix, not(target_os = "wasi")))))]
+pub fn dlopen_self(_mode: libc::c_int) -> Result<*mut c_void, String> {
+    Err("dlopen() error".to_string())
+}
+
+#[cfg(all(unix, not(target_os = "wasi")))]
 pub fn dlsym_checked(handle: usize, symbol_name: &CStr) -> Result<*mut c_void, String> {
     unsafe {
         libc::dlerror();
@@ -2591,4 +2628,12 @@ pub fn dlsym_checked(handle: usize, symbol_name: &CStr) -> Result<*mut c_void, S
         ));
     }
     Ok(ptr)
+}
+
+#[cfg(not(any(windows, all(unix, not(target_os = "wasi")))))]
+pub fn dlsym_checked(_handle: usize, symbol_name: &CStr) -> Result<*mut c_void, String> {
+    Err(format!(
+        "symbol '{}' not found",
+        symbol_name.to_string_lossy()
+    ))
 }

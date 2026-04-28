@@ -164,7 +164,8 @@ pub fn get_file_len(handle: Handle) -> io::Result<i64> {
 
 #[cfg(unix)]
 pub fn file_len(fd: crt_fd::Borrowed<'_>) -> io::Result<i64> {
-    Ok(fileutils::fstat(fd)?.st_size)
+    #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
+    Ok(fileutils::fstat(fd)?.st_size.into())
 }
 
 #[cfg(unix)]

@@ -398,8 +398,8 @@ pub fn uname_info() -> std::io::Result<UnameInfo> {
     target_os = "netbsd",
     target_os = "openbsd"
 ))]
-pub fn pipe2(flags: libc::c_int) -> nix::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
-    nix::unistd::pipe2(nix::fcntl::OFlag::from_bits_truncate(flags))
+pub fn pipe2(flags: libc::c_int) -> std::io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    nix::unistd::pipe2(nix::fcntl::OFlag::from_bits_truncate(flags)).map_err(std::io::Error::from)
 }
 
 #[cfg(not(target_os = "redox"))]
@@ -1241,6 +1241,9 @@ pub fn sysconf(name: i32) -> std::io::Result<libc::c_long> {
 }
 
 #[cfg(target_os = "linux")]
+/// # Safety
+///
+/// `buf` must be valid for writes of `buflen` bytes.
 pub unsafe fn getrandom(
     buf: *mut libc::c_void,
     buflen: usize,

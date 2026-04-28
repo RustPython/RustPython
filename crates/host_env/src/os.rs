@@ -5,9 +5,11 @@
 use crate::crt_fd;
 #[cfg(windows)]
 use crate::fs;
+#[cfg(any(unix, windows))]
+use core::ffi::CStr;
+use core::str::Utf8Error;
 #[cfg(windows)]
 use core::time::Duration;
-use core::{ffi::CStr, str::Utf8Error};
 use std::{
     env,
     ffi::{OsStr, OsString},
@@ -126,14 +128,13 @@ pub fn cpu_count() -> usize {
 }
 
 pub fn device_encoding(_fd: i32) -> Option<String> {
-    #[cfg(any(target_os = "android", target_os = "redox"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "redox",
+        all(target_arch = "wasm32", not(target_os = "wasi"))
+    ))]
     {
-        return Some("UTF-8".to_owned());
-    }
-
-    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-    {
-        return Some("UTF-8".to_owned());
+        Some("UTF-8".to_owned())
     }
 
     #[cfg(windows)]
@@ -178,6 +179,7 @@ pub fn isatty(fd: i32) -> bool {
     unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
 }
 
+#[cfg(any(unix, windows))]
 pub fn system(command: &CStr) -> libc::c_int {
     unsafe { libc::system(command.as_ptr()) }
 }
@@ -351,6 +353,13 @@ pub fn set_errno(value: i32) {
 #[cfg(unix)]
 pub fn set_errno(value: i32) {
     nix::errno::Errno::from_raw(value).set();
+}
+
+#[cfg(target_os = "wasi")]
+pub fn set_errno(value: i32) {
+    unsafe {
+        *libc::__errno_location() = value;
+    }
 }
 
 #[cfg(unix)]

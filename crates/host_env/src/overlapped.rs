@@ -34,8 +34,7 @@ pub type SocketAddrV4 = SOCKADDR_IN;
 pub type SocketAddrV6 = SOCKADDR_IN6;
 pub const AF_INET_FAMILY: i32 = AF_INET as i32;
 pub const AF_INET6_FAMILY: i32 = AF_INET6 as i32;
-pub const INVALID_HANDLE_VALUE_ISIZE: isize =
-    windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE as isize;
+pub const INVALID_HANDLE_VALUE_ISIZE: isize = -1;
 pub const SO_UPDATE_ACCEPT_CONTEXT_VALUE: i32 =
     windows_sys::Win32::Networking::WinSock::SO_UPDATE_ACCEPT_CONTEXT;
 pub const SO_UPDATE_CONNECT_CONTEXT_VALUE: i32 =
@@ -1060,18 +1059,20 @@ pub fn unparse_address(addr: &SOCKADDR_IN6, _addr_len: i32) -> io::Result<Socket
     let family = addr.sin6_family;
     if family == AF_INET {
         let addr_in = unsafe { &*(addr as *const SOCKADDR_IN6 as *const SOCKADDR_IN) };
-        let ip_bytes = addr_in.sin_addr.S_un.S_un_b;
+        let ip_bytes = unsafe { addr_in.sin_addr.S_un.S_un_b };
         Ok(SocketAddress::V4 {
             host: Ipv4Addr::new(ip_bytes.s_b1, ip_bytes.s_b2, ip_bytes.s_b3, ip_bytes.s_b4)
                 .to_string(),
             port: u16::from_be(addr_in.sin_port),
         })
     } else if family == AF_INET6 {
+        let ip_bytes = unsafe { addr.sin6_addr.u.Byte };
+        let scope_id = unsafe { addr.Anonymous.sin6_scope_id };
         Ok(SocketAddress::V6 {
-            host: Ipv6Addr::from(addr.sin6_addr.u.Byte).to_string(),
+            host: Ipv6Addr::from(ip_bytes).to_string(),
             port: u16::from_be(addr.sin6_port),
             flowinfo: u32::from_be(addr.sin6_flowinfo),
-            scope_id: addr.Anonymous.sin6_scope_id,
+            scope_id,
         })
     } else {
         Err(io::Error::new(
