@@ -13,12 +13,19 @@ type PyCFunctionWithKeywords = unsafe extern "C" fn(
     args: *mut PyObject,
     kwargs: *mut PyObject,
 ) -> *mut PyObject;
+type PyCFunctionFastWithKeywords = unsafe extern "C" fn(
+    slf: *mut PyObject,
+    args: *const *mut PyObject,
+    nargs: isize,
+    kwnames: *mut PyObject,
+) -> *mut PyObject;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union PyMethodPointer {
     function: PyCFunction,
     function_with_keywords: PyCFunctionWithKeywords,
+    function_fast_with_keywords: PyCFunctionFastWithKeywords,
 }
 
 #[repr(C)]
@@ -48,29 +55,17 @@ pub(crate) fn build_method_def(
         PyMethodFlags::from_bits(ml.ml_flags as u32).expect("PyMethodDef contains unknown flags");
 
     assert!(
-        !flags.intersects(
-            PyMethodFlags::METHOD
-                | PyMethodFlags::FASTCALL
-                | PyMethodFlags::CLASS
-                | PyMethodFlags::STATIC
-        ),
+        !flags.intersects(PyMethodFlags::METHOD),
         "These flags are not yet supported: {:?}",
         flags
     );
 
     let method = ml.ml_meth;
     let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-        if slf.is_some() {
-            c_function_wrapper(vm, slf.as_ref(), args, method, flags)
-        } else {
-            let slf = if args.args.len() > 0 {
-                Some(args.args.remove(0))
-            } else {
-                None
-            };
-
-            c_function_wrapper(vm, slf.as_ref(), args, method, flags)
+        if let Some(slf) = slf.as_ref() {
+            args.args.insert(0, slf.clone());
         }
+        c_function_wrapper(vm, args, method, flags)
     };
 
     vm.ctx.new_method_def(name, callable, flags, doc)
@@ -78,39 +73,83 @@ pub(crate) fn build_method_def(
 
 fn c_function_wrapper(
     vm: &VirtualMachine,
-    slf: Option<&PyObjectRef>,
     mut args: FuncArgs,
     method: PyMethodPointer,
-    flags: PyMethodFlags,
+    mut flags: PyMethodFlags,
 ) -> PyResult {
+    let slf = if flags.contains(PyMethodFlags::STATIC) {
+        None
+    } else {
+        if !args.args.is_empty() {
+            Some(args.args.remove(0))
+        } else {
+            None
+        }
+    };
+
+    flags.remove(PyMethodFlags::STATIC | PyMethodFlags::CLASS);
+
     let slf_ptr = slf
         .map(|slf| slf.as_object().as_raw().cast_mut())
         .unwrap_or_default();
 
-    let arg_tuple = vm.ctx.new_tuple(core::mem::take(&mut args.args));
-    let arg_tuple_ptr = arg_tuple.as_object().as_raw().cast_mut();
+    let ret_ptr = {
+        if flags.contains(PyMethodFlags::FASTCALL) {
+            bitflags_match!(flags, {
+                PyMethodFlags::KEYWORDS | PyMethodFlags::FASTCALL => {
+                    let f = unsafe { method.function_fast_with_keywords };
+                    let nargs = args.args.len();
+                    let mut fastcall_args = args.args;
+                    let mut kwnames_tuple = None;
+                    if !args.kwargs.is_empty() {
+                        let mut kwnames = Vec::with_capacity(args.kwargs.len());
+                        for (k, v) in args.kwargs {
+                            kwnames.push(vm.ctx.new_str(k).into());
+                            fastcall_args.push(v);
+                        }
+                        kwnames_tuple = Some(vm.ctx.new_tuple(kwnames));
+                    }
 
-    let ret_ptr = bitflags_match!(flags, {
-        PyMethodFlags::NOARGS => {
-            debug_assert!(arg_tuple.is_empty(), "Expected no arguments, but got some");
-            let f = unsafe { method.function };
-            unsafe { Ok(f(slf_ptr, arg_tuple_ptr)) }
-        },
-        PyMethodFlags::VARARGS => {
-            let f = unsafe { method.function };
-            unsafe { Ok(f(slf_ptr, arg_tuple_ptr)) }
-        },
-        PyMethodFlags::VARARGS | PyMethodFlags::KEYWORDS => {
-            let f = unsafe { method.function_with_keywords };
-            let kwargs = vm.ctx.new_dict();
-            for (k, v) in args.kwargs {
-                kwargs.set_item(&*k, v, vm)?;
-            }
-            let kwargs_ptr = kwargs.as_object().as_raw().cast_mut();
-            unsafe { Ok(f(slf_ptr, arg_tuple_ptr, kwargs_ptr)) }
-        },
-        _ => panic!("Unexpected flags value: {flags:?}"),
-    })?;
+                    let fastcall_arg_ptrs = fastcall_args
+                        .iter()
+                        .map(|obj| obj.as_object().as_raw().cast_mut())
+                        .collect::<Vec<_>>();
+                    let kwnames_ptr = kwnames_tuple
+                        .as_ref()
+                        .map(|tuple| tuple.as_object().as_raw().cast_mut())
+                        .unwrap_or(core::ptr::null_mut());
+
+                    unsafe { Ok(f(slf_ptr, fastcall_arg_ptrs.as_ptr(), nargs as isize, kwnames_ptr)) }
+                }
+                _ => panic!("Unexpected flags value: {flags:?}"),
+            })?
+        } else {
+            let arg_tuple = vm.ctx.new_tuple(core::mem::take(&mut args.args));
+            let arg_tuple_ptr = arg_tuple.as_object().as_raw().cast_mut();
+
+            bitflags_match!(flags, {
+                PyMethodFlags::NOARGS => {
+                    debug_assert!(arg_tuple.is_empty(), "Expected no arguments, but got some");
+                    let f = unsafe { method.function };
+                    unsafe { Ok(f(slf_ptr, arg_tuple_ptr)) }
+                },
+                PyMethodFlags::VARARGS => {
+                    let f = unsafe { method.function };
+                    unsafe { Ok(f(slf_ptr, arg_tuple_ptr)) }
+                },
+                PyMethodFlags::VARARGS | PyMethodFlags::KEYWORDS => {
+                    let f = unsafe { method.function_with_keywords };
+                    let kwargs = vm.ctx.new_dict();
+                    for (k, v) in args.kwargs {
+                        kwargs.set_item(&*k, v, vm)?;
+                    }
+                    let kwargs_ptr = kwargs.as_object().as_raw().cast_mut();
+                    unsafe { Ok(f(slf_ptr, arg_tuple_ptr, kwargs_ptr)) }
+                },
+                _ => panic!("Unexpected flags value: {flags:?}"),
+            })?
+        }
+    };
 
     let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
         vm.take_raised_exception()
