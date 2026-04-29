@@ -1362,7 +1362,6 @@ class MappingProxyTests(unittest.TestCase):
         self.assertEqual(view['key1'], 70)
         self.assertEqual(copy['key1'], 27)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: unsupported operand type(s) for |: 'dict' and 'mappingproxy'
     def test_union(self):
         mapping = {'a': 0, 'b': 1, 'c': 2}
         view = self.mappingproxy(mapping)
