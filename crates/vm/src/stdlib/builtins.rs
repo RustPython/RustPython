@@ -21,8 +21,8 @@ mod builtins {
         common::hash::PyHash,
         function::{
             ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
-            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            ArgPrimitiveIndex, ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg,
+            OptionalOption, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -99,12 +99,15 @@ mod builtins {
         source: PyObjectRef,
         filename: FsPath,
         mode: PyUtf8StrRef,
+        // CPython parity: flags / optimize accept any object with __index__,
+        // not just exact int. Matches the behavior of `int(x)` arg conversion
+        // used by Python/Python-ast.c::compile.
         #[pyarg(any, optional)]
-        flags: OptionalArg<PyIntRef>,
+        flags: OptionalArg<ArgPrimitiveIndex<i32>>,
         #[pyarg(any, optional)]
         dont_inherit: OptionalArg<bool>,
         #[pyarg(any, optional)]
-        optimize: OptionalArg<PyIntRef>,
+        optimize: OptionalArg<ArgPrimitiveIndex<i32>>,
         #[pyarg(any, optional)]
         _feature_version: OptionalArg<i32>,
     }
@@ -264,7 +267,7 @@ mod builtins {
 
             let mode_str = args.mode.as_str();
 
-            let optimize: i32 = args.optimize.map_or(Ok(-1), |v| v.try_to_primitive(vm))?;
+            let optimize: i32 = args.optimize.map_or(-1, |v| v.value);
             let optimize: u8 = if optimize == -1 {
                 vm.state.config.settings.optimize
             } else {
@@ -277,7 +280,7 @@ mod builtins {
                 .source
                 .fast_isinstance(&_ast::NodeAst::make_static_type())
             {
-                let flags: i32 = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
+                let flags: i32 = args.flags.map_or(0, |v| v.value);
                 let is_ast_only = !(flags & _ast::PY_CF_ONLY_AST).is_zero();
 
                 // func_type mode requires PyCF_ONLY_AST
@@ -342,7 +345,7 @@ mod builtins {
                 let source = decode_source_bytes(&source, &args.filename.to_string_lossy(), vm)?;
                 let source = source.as_str();
 
-                let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
+                let flags: i32 = args.flags.map_or(0, |v| v.value);
 
                 if !(flags & !_ast::PY_COMPILE_FLAGS_MASK).is_zero() {
                     return Err(vm.new_value_error("compile() unrecognized flags"));
