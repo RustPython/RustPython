@@ -164,7 +164,7 @@ fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
 
     let ans = powc(v1, v2);
     if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
-        Err(vm.new_overflow_error("complex exponentiation overflow"))
+        Err(vm.new_overflow_error("complex exponentiation"))
     } else {
         Ok(ans)
     }
