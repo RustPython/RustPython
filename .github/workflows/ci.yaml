@@ -136,10 +136,12 @@ jobs:
           target: i686-unknown-linux-musl
           dependencies:
             musl-tools: true
+          skip_ssl: true
         - os: ubuntu-latest
           target: wasm32-wasip2
         - os: ubuntu-latest
           target: x86_64-unknown-freebsd
+          skip_ssl: true
         - os: ubuntu-latest
           target: aarch64-unknown-linux-gnu
           dependencies:
@@ -216,10 +218,11 @@ jobs:
       #     command: check
       #     args: --ignore-rust-version
 
-      - name: Check compilation without ssl
-        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }}
+      - name: Check compilation with threading
+        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
 
-      - name: Check compilation with
+      - name: Check compilation with ssl
+        if: ${{ !matrix.skip_ssl }}
         run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
 
   snippets_cpython:
