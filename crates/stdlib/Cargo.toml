@@ -122,7 +122,7 @@ openssl-probe = { version = "0.2.1", optional = true }
 foreign-types-shared = { version = "0.3.1", optional = true }
 
 # Rustls dependencies (optional, for ssl-rustls feature)
-rustls = { version = "0.23.38", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
+rustls = { version = "0.23.39", default-features = false, features = ["std", "tls12", "aws_lc_rs"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 rustls-pemfile = { version = "2.2", optional = true }
 rustls-platform-verifier = { version = "0.7", optional = true }

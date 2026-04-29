@@ -138,12 +138,16 @@ impl Coro {
                 if e.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
                     let err =
                         vm.new_runtime_error(format!("{} raised StopIteration", gen_name(jen, vm)));
+                    // PEP 479: chain __context__ as well as __cause__ to match
+                    // CPython, which sets both to the original StopIteration.
+                    err.set___context__(Some(e.clone()));
                     err.set___cause__(Some(e));
                     Err(err)
                 } else if jen.class().is(vm.ctx.types.async_generator)
                     && e.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
                 {
                     let err = vm.new_runtime_error("async generator raised StopAsyncIteration");
+                    err.set___context__(Some(e.clone()));
                     err.set___cause__(Some(e));
                     Err(err)
                 } else {

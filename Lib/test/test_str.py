@@ -1463,13 +1463,11 @@ class StrTest(string_tests.StringLikeTest,
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     def test_format_huge_width(self):
         format_string = "{}f".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
             result = format(2.34, format_string)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: tuple index out of range
     def test_format_huge_item_number(self):
         format_string = "{{{}:.6f}}".format(sys.maxsize + 1)
         with self.assertRaises(ValueError):
@@ -2414,7 +2412,6 @@ class StrTest(string_tests.StringLikeTest,
         else:
             self.fail("Should have raised UnicodeDecodeError")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'str'> is not <class 'test.test_str.StrSubclass'>
     def test_conversion(self):
         # Make sure __str__() works properly
         class StrWithStr(str):

@@ -395,6 +395,9 @@ impl PyInt {
     }
 
     fn modpow(&self, other: PyObjectRef, modulus: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if other.downcast_ref::<Self>().is_none() {
+            return Ok(vm.ctx.not_implemented());
+        }
         let modulus = match modulus.downcast_ref::<Self>() {
             Some(val) => val.as_bigint(),
             None => return Ok(vm.ctx.not_implemented()),
