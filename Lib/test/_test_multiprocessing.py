@@ -3262,7 +3262,6 @@ class _TestRemoteManager(BaseTestCase):
         # Note that xmlrpclib will deserialize object as a list not a tuple
         queue.put(tuple(cls.values))
 
-    @unittest.expectedFailure
     def test_remote(self):
         authkey = os.urandom(32)
 
