@@ -127,6 +127,7 @@ jobs:
         run: |
           git status
           git diff --name-only
+          git diff
 
   cargo_check:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
