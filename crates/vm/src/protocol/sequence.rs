@@ -1,5 +1,5 @@
 use crate::{
-    PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     convert::ToPyObject,
     function::PyArithmeticValue,
@@ -398,7 +398,19 @@ impl PySequence<'_> {
             return f(self, target, vm);
         }
 
-        let iter = self.obj.to_owned().get_iter(vm)?;
+        // CPython parity: when neither __contains__ nor __iter__ is available,
+        // `PySequence_Contains` rewords the get_iter TypeError into the
+        // membership-test wording. Other exception types propagate unchanged.
+        let iter = self.obj.to_owned().get_iter(vm).map_err(|e| {
+            if e.fast_isinstance(vm.ctx.exceptions.type_error) {
+                vm.new_type_error(format!(
+                    "argument of type '{}' is not a container or iterable",
+                    self.obj.class().name()
+                ))
+            } else {
+                e
+            }
+        })?;
         let iter = iter.iter::<PyObjectRef>(vm)?;
 
         for elem in iter {
