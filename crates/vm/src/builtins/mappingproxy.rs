@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::{hash, lock::LazyLock},
     convert::ToPyObject,
-    function::{ArgMapping, OptionalArg, PyComparisonValue},
+    function::{ArgMapping, OptionalArg, PyArithmeticValue, PyComparisonValue},
     object::{Traverse, TraverseFn},
     protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
@@ -211,9 +211,12 @@ impl Comparable for PyMappingProxy {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         let obj = zelf.to_object(vm)?;
-        Ok(PyComparisonValue::Implemented(
-            obj.rich_compare_bool(other, op, vm)?,
-        ))
+        // CPython parity (Objects/descrobject.c::mappingproxy_richcompare):
+        // delegate to PyObject_RichCompare on the underlying mapping.
+        let res = obj.rich_compare(other.to_owned(), op, vm)?;
+        PyArithmeticValue::from_object(vm, res)
+            .map(|o| o.try_to_bool(vm))
+            .transpose()
     }
 }
 
