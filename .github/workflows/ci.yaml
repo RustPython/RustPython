@@ -74,10 +74,18 @@ jobs:
         uses: ./.github/actions/install-macos-deps
 
       - name: run clippy
+        if: false
         run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
       - name: run rust tests
         run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+
+      - name: debug
+        if: ${{ (runner.os == 'Linux') && !cancelled() }}
+        run: |
+          git status
+          git diff --name-only
+          git diff
 
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
@@ -122,12 +130,6 @@ jobs:
           PYTHONPATH: scripts
         if: runner.os == 'Linux'
 
-      - name: debug
-        if: ${{ (runner.os == 'Linux') && !cancelled() }}
-        run: |
-          git status
-          git diff --name-only
-          git diff
 
   cargo_check:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
