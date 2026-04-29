@@ -173,12 +173,16 @@ ruff_source_file = { package = "rustpython-ruff_source_file", version = "0.15.8"
 der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 ahash = "0.8.12"
+approx = "0.5.1"
 ascii = "1.1"
 bitflags = "2.11.0"
 bitflagset = "0.0.3"
 bstr = "1"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
+cranelift = "0.131.0"
+cranelift-jit = "0.131.0"
+cranelift-module = "0.131.0"
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 flame = "0.2.2"
