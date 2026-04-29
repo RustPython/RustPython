@@ -1,6 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use core::ffi::{c_char, c_void};
+use core::ffi::{c_char, c_int, c_void};
 use rustpython_vm::builtins::PyCapsule;
 
 #[allow(non_camel_case_types)]
@@ -27,6 +27,19 @@ pub extern "C" fn PyCapsule_GetPointer(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyCapsule_IsValid(capsule: *mut PyObject, _name: *const c_char) -> c_int {
+    with_vm(|vm| {
+        let Some(capsule) =
+            unsafe { capsule.as_ref() }.and_then(|obj| obj.downcast_ref_if_exact::<PyCapsule>(vm))
+        else {
+            return false;
+        };
+
+        !capsule.pointer().is_null()
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyCapsule_GetName(_capsule: *mut PyObject) -> *const c_char {
     core::ptr::null_mut()
 }
@@ -41,6 +54,7 @@ mod tests {
         Python::attach(|py| {
             let value = String::from("Some data");
             let capsule = PyCapsule::new_with_value(py, value, c"my_capsule").unwrap();
+            assert!(capsule.is_valid_checked(Some(c"my_capsule")));
             let ptr = capsule.pointer_checked(Some(c"my_capsule")).unwrap();
             assert_eq!(unsafe { ptr.cast::<String>().as_ref() }, "Some data");
         })
