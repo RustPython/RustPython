@@ -43,4 +43,3 @@ try:
 except TypeError:
     pass
 
-print("OK")
