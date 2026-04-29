@@ -18,7 +18,7 @@ num-traits = { workspace = true }
 nix = { workspace = true }
 
 [target.'cfg(all(unix, not(target_os = "ios"), not(target_os = "redox")))'.dependencies]
-termios = "0.3.3"
+termios = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 widestring = { workspace = true }

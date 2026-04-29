@@ -173,12 +173,16 @@ ruff_source_file = { package = "rustpython-ruff_source_file", version = "0.15.8"
 der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 ahash = "0.8.12"
+approx = "0.5.1"
 ascii = "1.1"
 bitflags = "2.11.0"
 bitflagset = "0.0.3"
 bstr = "1"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "oldtime", "std"] }
 constant_time_eq = "0.4"
+cranelift = "0.131.0"
+cranelift-jit = "0.131.0"
+cranelift-module = "0.131.0"
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 flame = "0.2.2"
@@ -193,7 +197,7 @@ junction = "1.4.2"
 libc = "0.2.186"
 libffi = "5"
 log = "0.4.29"
-nix = { version = "0.30", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
+nix = { version = "0.31", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
 malachite-bigint = "0.9.1"
 malachite-q = "0.9.1"
 malachite-base = "0.9.1"
@@ -213,7 +217,7 @@ radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "1.1", features = ["event"] }
-rustyline = "17"
+rustyline = "18"
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.29"
 scoped-tls = "1"
@@ -224,6 +228,7 @@ strum_macros = "0.28"
 syn = "2"
 syn-ext = "0.5.0"
 textwrap = { version = "0.16.2", default-features = false }
+termios = "0.3.3"
 thiserror = "2.0"
 icu_properties = "2"
 icu_normalizer = "2"

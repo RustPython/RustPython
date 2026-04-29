@@ -17,6 +17,10 @@ class defaultdict(dict):
             val = self.default_factory()
         else:
             raise KeyError(key)
+        # CPython parity: a recursive __missing__ via factory() may have
+        # already populated key; preserve that value instead of overwriting.
+        if key in self:
+            return self[key]
         self[key] = val
         return val
 
