@@ -380,7 +380,6 @@ class IntTestCases(unittest.TestCase):
     def test_string_float(self):
         self.assertRaises(ValueError, int, '1.2')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_intconversion(self):
         # Test __int__()
         class ClassicMissingMethods:

@@ -22,6 +22,9 @@ assert_raises(TypeError, pow, 2.0, 4, 5)
 assert pow(2, -1, 5) == 3
 assert_raises(ValueError, pow, 2, 2, 0)
 
+assert_raises(TypeError, pow, 1, None, 0)
+assert_raises(TypeError, pow, True, 1.5, False)
+
 
 assert_almost_equal = assert_equal
 

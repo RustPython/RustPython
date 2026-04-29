@@ -315,6 +315,11 @@ impl FormatSpec {
         let (alternate_form, text) = parse_alternate_form(text);
         let (zero, text) = parse_zero(text);
         let (width, text) = parse_number(text)?;
+        if let Some(w) = width
+            && w > i32::MAX as usize
+        {
+            return Err(FormatSpecError::DecimalDigitsTooMany);
+        }
         let (grouping_option, text) = FormatGrouping::parse(text);
         if let Some(grouping) = &grouping_option {
             Self::validate_separator(grouping, text)?;
@@ -1102,6 +1107,7 @@ pub enum FormatParseError {
     EmptyAttribute,
     MissingRightBracket,
     InvalidCharacterAfterRightBracket,
+    TooManyDecimalDigits,
 }
 
 impl FromStr for FormatSpec {
@@ -1185,7 +1191,19 @@ impl FieldName {
         let field_type = if first.is_empty() {
             FieldType::Auto
         } else if let Some(index) = parse_usize(&first) {
+            // Match CPython's get_integer: digits-only segment must fit in
+            // Py_ssize_t. Above that, raise ValueError at parse time.
+            if index > isize::MAX as usize {
+                return Err(FormatParseError::TooManyDecimalDigits);
+            }
             FieldType::Index(index)
+        } else if first
+            .as_str()
+            .ok()
+            .is_some_and(|s| s.bytes().all(|b| b.is_ascii_digit()))
+        {
+            // All-digit segment whose value overflows usize itself.
+            return Err(FormatParseError::TooManyDecimalDigits);
         } else {
             FieldType::Keyword(first)
         };

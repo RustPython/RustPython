@@ -1069,7 +1069,6 @@ class TestInterestingEdgeCases(unittest.TestCase):
     def assert_generator_ignored_generator_exit(self):
         return self.assertRaisesRegex(RuntimeError, r"^generator ignored GeneratorExit$")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_close_and_throw_work(self):
 
         yielded_first = object()
@@ -1207,7 +1206,6 @@ class TestInterestingEdgeCases(unittest.TestCase):
             self.assertIsNone(caught.exception.__context__.__context__)
             self.assert_stop_iteration(g)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
     def test_close_and_throw_raise_stop_iteration(self):
 
         yielded_first = object()
@@ -1447,7 +1445,6 @@ class TestInterestingEdgeCases(unittest.TestCase):
             self.assertIsNone(caught.exception.__context__.__context__)
             self.assert_stop_iteration(g)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None is not StopIteration()
     def test_close_and_throw_yield(self):
 
         yielded_first = object()

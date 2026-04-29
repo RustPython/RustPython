@@ -2028,7 +2028,6 @@ class TestCollectionABCs(ABCTestCase):
         self.assertEqual(len(mss), len(mss2))
         self.assertEqual(list(mss), list(mss2))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_illegal_patma_flags(self):
         with self.assertRaises(TypeError):
             class Both(Collection):
