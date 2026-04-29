@@ -224,6 +224,7 @@ strum_macros = "0.28"
 syn = "2"
 syn-ext = "0.5.0"
 textwrap = { version = "0.16.2", default-features = false }
+termios = "0.3.3"
 thiserror = "2.0"
 icu_properties = "2"
 icu_normalizer = "2"
