@@ -73,6 +73,21 @@ pub extern "C" fn PyTuple_GetItem(tuple: *mut PyObject, pos: isize) -> *mut PyOb
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyTuple_GetSlice(tuple: *mut PyObject, low: isize, high: isize) -> *mut PyObject {
+    with_vm(|vm| {
+        let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
+        let view = tuple
+            .iter()
+            .skip(low as usize)
+            .take((high - low) as usize)
+            .cloned()
+            .collect();
+
+        Ok(vm.ctx.new_tuple(view))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
@@ -91,6 +106,15 @@ mod tests {
         Python::attach(|py| {
             let tuple = (1, 2, 3).into_pyobject(py).unwrap();
             assert_eq!(tuple.len(), 3);
+        })
+    }
+
+    #[test]
+    fn test_tuple_get_slice() {
+        Python::attach(|py| {
+            let tuple = (1, 2, 3).into_pyobject(py).unwrap();
+            let slice = tuple.get_slice(1, 2);
+            assert_eq!(slice.extract::<(u32,)>().unwrap(), (2,));
         })
     }
 }
