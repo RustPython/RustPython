@@ -150,7 +150,11 @@ fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
     Ok(v1.fdiv(v2))
 }
 
-fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
+pub(crate) fn complex_pow(
+    v1: Complex64,
+    v2: Complex64,
+    vm: &VirtualMachine,
+) -> PyResult<Complex64> {
     if v1.is_zero() {
         return if v2.re < 0.0 || v2.im != 0.0 {
             let msg = format!("{v1} cannot be raised to a negative or complex power");
@@ -164,7 +168,7 @@ fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
 
     let ans = powc(v1, v2);
     if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
-        Err(vm.new_overflow_error("complex exponentiation overflow"))
+        Err(vm.new_overflow_error("complex exponentiation"))
     } else {
         Ok(ans)
     }
@@ -471,7 +475,7 @@ impl AsNumber for PyComplex {
             multiply: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)),
             power: Some(|a, b, c, vm| {
                 if vm.is_none(c) {
-                    PyComplex::number_op(a, b, inner_pow, vm)
+                    PyComplex::number_op(a, b, complex_pow, vm)
                 } else {
                     Err(vm.new_value_error(String::from("complex modulo")))
                 }
