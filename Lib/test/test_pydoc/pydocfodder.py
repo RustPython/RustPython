@@ -5,6 +5,7 @@ import types
 def global_func(x, y):
     """Module global function"""
 
+
 def global_func2(x, y):
     """Module global function 2"""
 
