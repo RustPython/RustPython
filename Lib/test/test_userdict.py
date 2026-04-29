@@ -244,7 +244,6 @@ class UserDictTest(mapping_tests.TestHashMappingProtocol):
 
     test_repr_deep = mapping_tests.TestHashMappingProtocol.test_repr_deep
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: unsupported operand type(s) for |: 'UserDict' and 'mappingproxy'
     def test_mixed_or(self):
         for t in UserDict, dict, types.MappingProxyType:
             with self.subTest(t.__name__):
