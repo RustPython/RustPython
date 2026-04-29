@@ -79,9 +79,6 @@ jobs:
       - name: run rust tests
         run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --verbose --features threading ${{ env.CARGO_ARGS }}
 
-      - name: check compilation without threading
-        run: cargo check ${{ env.CARGO_ARGS }}
-
       - run: cargo doc --locked
         if: runner.os == 'Linux'
 
@@ -151,6 +148,8 @@ jobs:
           target: aarch64-apple-ios
         - os: macos-latest
           target: x86_64-apple-darwin
+        - os: windows-latest
+          target: x86_64-pc-windows-msvc
       fail-fast: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -204,7 +203,14 @@ jobs:
       #     args: --ignore-rust-version
 
       - name: Check compilation
-        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }}
+        run: |
+          echo "::group::no ssl"
+          cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }}
+          echo "::endgroup::"
+
+          echo "::group::no threading"
+          cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
+          echo "::endgroup::"
         env:
           CC_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           AR_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
