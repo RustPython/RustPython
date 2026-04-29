@@ -80,6 +80,8 @@ jobs:
               # Lib/foo.py -> foo
               # Lib/foo/__init__.py -> foo
               module = file.removeprefix("Lib/").split("/")[0]
+            
+            modules.add(module)
 
           print(f"{modules=}")
           output = " ".join(sorted(modules))
