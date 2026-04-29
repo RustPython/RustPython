@@ -348,6 +348,20 @@ impl PyObject {
         op_id: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
+        // CPython parity: PyObject_RichCompareBool guarantees identity implies
+        // equality (and inequality is false on identity), short-circuiting
+        // before dispatch. Collection membership / equality (e.g. `x in [x]`,
+        // `[nan] == [nan]`) depend on this even when `__eq__` would raise
+        // or return False. Only Eq/Ne are decidable from identity; ordering
+        // ops fall through to `_cmp` because Python does not guarantee
+        // reflexivity for `<`/`<=`/`>`/`>=`.
+        if self.is(other) {
+            match op_id {
+                PyComparisonOp::Eq => return Ok(true),
+                PyComparisonOp::Ne => return Ok(false),
+                _ => {}
+            }
+        }
         match self._cmp(other, op_id, vm)? {
             Either::A(obj) => obj.try_to_bool(vm),
             Either::B(other) => Ok(other),
