@@ -9551,7 +9551,13 @@ impl ExecutingFrame<'_> {
                         "generator raised StopIteration"
                     };
                     let err = vm.new_runtime_error(msg);
-                    err.set___cause__(arg.downcast().ok());
+                    // PEP 479 chains both __cause__ and __context__ to the
+                    // original StopIteration; the explicit cause is what users
+                    // see in tracebacks (suppress_context becomes true), but
+                    // assertions that inspect __context__ also expect it set.
+                    let cause: Option<PyBaseExceptionRef> = arg.downcast().ok();
+                    err.set___context__(cause.clone());
+                    err.set___cause__(cause);
                     Ok(err.into())
                 } else {
                     // Not StopIteration, pass through for RERAISE
