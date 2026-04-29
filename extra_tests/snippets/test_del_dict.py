@@ -21,9 +21,11 @@ try:
 except AttributeError:
     pass
 
+
 # Function __dict__ deletion should fail
 def f():
     pass
+
 
 try:
     del f.__dict__
