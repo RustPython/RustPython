@@ -5322,9 +5322,9 @@ mod fileio {
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
-        convert::{IntoPyException, ToPyException},
+        convert::{IntoPyException, ToPyException, ToPyObject},
         exceptions::OSErrorBuilder,
-        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
+        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, OptionalArg, OptionalOption},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
@@ -5499,6 +5499,17 @@ mod fileio {
                 None
             };
 
+            // CPython parity (Modules/_io/fileio.c::fileio_init): when name is
+            // not an fd, resolve it through os.fspath() exactly once. The
+            // resolved str/bytes is reused for the actual open (or the
+            // user-supplied opener) and stored as self.name, matching CPython's
+            // single PyUnicode_FSConverter call.
+            let name = if arg_fd.is_some() {
+                name
+            } else {
+                FsPath::try_from_path_like(name, true, vm)?.to_pyobject(vm)
+            };
+
             let mode_obj = args
                 .mode
                 .unwrap_or_else(|| PyUtf8Str::from("rb").into_ref(&vm.ctx));
@@ -5595,18 +5606,7 @@ mod fileio {
 
             #[cfg(windows)]
             crate::stdlib::msvcrt::setmode_binary(fd);
-            // CPython parity (Modules/_io/fileio.c::fileio_init): store the
-            // os.fspath()-resolved string for PathLike inputs, not the raw
-            // PathLike object. fd / str / bytes are stored as-is.
-            let name_to_store = if name.fast_isinstance(vm.ctx.types.int_type)
-                || name.fast_isinstance(vm.ctx.types.str_type)
-                || name.fast_isinstance(vm.ctx.types.bytes_type)
-            {
-                name
-            } else {
-                vm.call_method(&name, "__fspath__", ())?
-            };
-            if let Err(e) = zelf.as_object().set_attr("name", name_to_store, vm) {
+            if let Err(e) = zelf.as_object().set_attr("name", name, vm) {
                 // If fd was passed by user, don't close it on error
                 if !fd_is_own {
                     zelf.fd.store(-1);
