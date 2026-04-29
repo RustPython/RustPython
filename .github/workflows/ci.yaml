@@ -34,6 +34,7 @@ env:
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # TODO: Remove on 2026/06/02
+  CI: true
 
 jobs:
   rust_tests:
