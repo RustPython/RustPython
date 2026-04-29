@@ -161,12 +161,7 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
         let v1 = Complex64::new(v1, 0.);
         let v2 = Complex64::new(v2, 0.);
-        let ans = v1.powc(v2);
-        if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
-            Err(vm.new_overflow_error("complex exponentiation"))
-        } else {
-            Ok(ans.to_pyobject(vm))
-        }
+        Ok(super::complex::complex_pow(v1, v2, vm)?.to_pyobject(vm))
     } else {
         Ok(v1.powf(v2).to_pyobject(vm))
     }
