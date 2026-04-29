@@ -57,6 +57,7 @@ jobs:
 
           changed=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py' | head -50)
           echo "$changed" >> "$GITHUB_OUTPUT"
+          echo 'EOF' >> "$GITHUB_OUTPUT"
 
       - name: Parse changed files
         id: changed-files
