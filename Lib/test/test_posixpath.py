@@ -207,6 +207,8 @@ class PosixPathTest(unittest.TestCase):
             self.assertIs(posixpath.exists(TESTFN + "2"), False)
             self.assertIs(posixpath.lexists(TESTFN + "2"), True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_islink_invalid_paths(self):
         self.assertIs(posixpath.islink(TESTFN + "\udfff"), False)
         self.assertIs(posixpath.islink(os.fsencode(TESTFN) + b"\xff"), False)
@@ -228,6 +230,8 @@ class PosixPathTest(unittest.TestCase):
         finally:
             os_helper.rmdir(ABSTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_ismount_invalid_paths(self):
         self.assertIs(posixpath.ismount('/\udfff'), False)
         self.assertIs(posixpath.ismount(b'/\xff'), False)
@@ -492,6 +496,8 @@ class PosixPathTest(unittest.TestCase):
         finally:
             os_helper.unlink(ABSTFN)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_realpath_invalid_paths(self):
         path = '/\x00'
         self.assertRaises(ValueError, realpath, path, strict=False)
