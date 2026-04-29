@@ -203,11 +203,11 @@ jobs:
         run: |
           {
             echo "[env]"
-            echo "CC_aarch64_linux_android = \"${{ env.NDK_PATH }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang\""
+            echo "CC_aarch64_linux_android = \"${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang\""
 
-            echo "AR_aarch64_linux_android = \"${{ env.NDK_PATH }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar\""
+            echo "AR_aarch64_linux_android = \"${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar\""
 
-          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = \"${{ env.NDK_PATH }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang\""
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = \"${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang\""
           } >> .cargo/config.toml
 
       # - name: Prepare repository for redox compilation
