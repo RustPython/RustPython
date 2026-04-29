@@ -1,10 +1,11 @@
 use crate::log_stub;
 use crate::pyerrors::init_exception_statics;
 use crate::pystate::attach_vm_to_thread;
-use core::ffi::c_int;
+use core::ffi::{c_char, c_int};
+use rustpython_vm::version::get_version;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
 use rustpython_vm::{Context, Interpreter};
-use std::sync::{Once, OnceLock, mpsc};
+use std::sync::{LazyLock, Once, OnceLock, mpsc};
 
 static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::SyncSender<ThreadedVirtualMachine>>> =
     OnceLock::new();
@@ -91,4 +92,23 @@ pub extern "C" fn Py_FinalizeEx() -> c_int {
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_IsFinalizing() -> c_int {
     0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetVersion() -> *const c_char {
+    static VERSION: LazyLock<String> = LazyLock::new(get_version);
+    VERSION.as_str().as_ptr() as *const c_char
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+
+    #[test]
+    fn test_get_version() {
+        Python::attach(|py| {
+            let version = py.version_info();
+            assert!(version >= (3, 14));
+        });
+    }
 }
