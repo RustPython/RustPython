@@ -5595,7 +5595,18 @@ mod fileio {
 
             #[cfg(windows)]
             crate::stdlib::msvcrt::setmode_binary(fd);
-            if let Err(e) = zelf.as_object().set_attr("name", name, vm) {
+            // CPython parity (Modules/_io/fileio.c::fileio_init): store the
+            // os.fspath()-resolved string for PathLike inputs, not the raw
+            // PathLike object. fd / str / bytes are stored as-is.
+            let name_to_store = if name.fast_isinstance(vm.ctx.types.int_type)
+                || name.fast_isinstance(vm.ctx.types.str_type)
+                || name.fast_isinstance(vm.ctx.types.bytes_type)
+            {
+                name
+            } else {
+                vm.call_method(&name, "__fspath__", ())?
+            };
+            if let Err(e) = zelf.as_object().set_attr("name", name_to_store, vm) {
                 // If fd was passed by user, don't close it on error
                 if !fd_is_own {
                     zelf.fd.store(-1);
