@@ -585,7 +585,6 @@ class FastCallTests(unittest.TestCase):
                 result = _testcapi.pyobject_vectorcall(func, args, kwnames)
                 self.check_result(result, expected)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'IntWithDict' found.
     def test_fastcall_clearing_dict(self):
         # Test bpo-36907: the point of the test is just checking that this
         # does not crash.
