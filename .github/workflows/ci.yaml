@@ -122,6 +122,12 @@ jobs:
           PYTHONPATH: scripts
         if: runner.os == 'Linux'
 
+      - name: debug
+        if: ${{ (runner.os == 'Linux') && !cancelled() }}
+        run: |
+          git status
+          git diff --name-only
+
   cargo_check:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: cargo check
