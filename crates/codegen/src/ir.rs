@@ -2559,9 +2559,7 @@ impl CodeInfo {
             )
         }
 
-        let jump_targets: Vec<_> = (0..self.blocks.len())
-            .map(|target_idx| has_jump_predecessor(&self.blocks, BlockIdx(target_idx as u32)))
-            .collect();
+        let jump_targets = compute_target_predecessor_flags(&self.blocks).jump;
         let mut fallthrough_predecessors = vec![None; self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
             if block.next != BlockIdx::NULL {
@@ -6417,24 +6415,40 @@ fn inline_single_predecessor_artificial_expr_exit_blocks(blocks: &mut [Block]) {
     }
 }
 
-fn has_jump_predecessor(blocks: &[Block], target: BlockIdx) -> bool {
-    blocks.iter().any(|block| {
-        block.instructions.iter().any(|instr| {
-            is_jump_instruction(instr)
-                && instr.target != BlockIdx::NULL
-                && next_nonempty_block(blocks, instr.target) == target
-        })
-    })
+struct TargetPredecessorFlags {
+    targeted: Vec<bool>,
+    jump: Vec<bool>,
+    plain_jump: Vec<bool>,
 }
 
-fn has_plain_jump_predecessor(blocks: &[Block], target: BlockIdx) -> bool {
-    blocks.iter().any(|block| {
-        block.instructions.iter().any(|instr| {
-            matches!(jump_thread_kind(instr.instr), Some(JumpThreadKind::Plain))
-                && instr.target != BlockIdx::NULL
-                && next_nonempty_block(blocks, instr.target) == target
-        })
-    })
+fn compute_target_predecessor_flags(blocks: &[Block]) -> TargetPredecessorFlags {
+    let mut targeted = vec![false; blocks.len()];
+    let mut jump = vec![false; blocks.len()];
+    let mut plain_jump = vec![false; blocks.len()];
+    for block in blocks {
+        for instr in &block.instructions {
+            if instr.target == BlockIdx::NULL {
+                continue;
+            }
+            let target = next_nonempty_block(blocks, instr.target);
+            if target == BlockIdx::NULL {
+                continue;
+            }
+            let idx = target.idx();
+            targeted[idx] = true;
+            if is_jump_instruction(instr) {
+                jump[idx] = true;
+            }
+            if matches!(jump_thread_kind(instr.instr), Some(JumpThreadKind::Plain)) {
+                plain_jump[idx] = true;
+            }
+        }
+    }
+    TargetPredecessorFlags {
+        targeted,
+        jump,
+        plain_jump,
+    }
 }
 
 fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
@@ -6451,23 +6465,11 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
     }
 
     let mut changes = 0;
-    let targeted_blocks: Vec<_> = (0..blocks.len())
-        .map(|target_idx| {
-            let target = BlockIdx(target_idx as u32);
-            blocks.iter().any(|block| {
-                block.instructions.iter().any(|instr| {
-                    instr.target != BlockIdx::NULL
-                        && next_nonempty_block(blocks, instr.target) == target
-                })
-            })
-        })
-        .collect();
-    let jump_targets: Vec<_> = (0..blocks.len())
-        .map(|target_idx| has_jump_predecessor(blocks, BlockIdx(target_idx as u32)))
-        .collect();
-    let plain_jump_targets: Vec<_> = (0..blocks.len())
-        .map(|target_idx| has_plain_jump_predecessor(blocks, BlockIdx(target_idx as u32)))
-        .collect();
+    let TargetPredecessorFlags {
+        targeted: targeted_blocks,
+        jump: jump_targets,
+        plain_jump: plain_jump_targets,
+    } = compute_target_predecessor_flags(blocks);
     let mut block_order = Vec::new();
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
