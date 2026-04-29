@@ -22,6 +22,10 @@ assert_raises(TypeError, pow, 2.0, 4, 5)
 assert pow(2, -1, 5) == 3
 assert_raises(ValueError, pow, 2, 2, 0)
 
+assert_raises(OverflowError, pow, -2, 2000.5)
+assert_raises(OverflowError, pow, -2.0, 2000.5)
+assert_raises(OverflowError, complex(-2).__pow__, complex(2000.5))
+
 
 assert_almost_equal = assert_equal
 
