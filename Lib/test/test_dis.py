@@ -2410,7 +2410,6 @@ class TestFinderMethods(unittest.TestCase):
                 res = tuple(dis._find_store_names(code))
                 self.assertEqual(res, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_findlabels(self):
         labels = dis.findlabels(jumpy.__code__.co_code)
         jumps = [
