@@ -4,7 +4,10 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
-pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
+    pub(crate) use sys::{
+        DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, cpython_ext_platform_tag,
+        module_def, multiarch,
+    };
 
 #[pymodule(name = "_jit")]
 mod sys_jit {
@@ -73,6 +76,20 @@ mod sys {
     /// e.g., "x86_64-unknown-linux-gnu" -> "x86_64-linux-gnu"
     pub(crate) fn multiarch() -> String {
         RUST_MULTIARCH.replace("-unknown", "")
+    }
+
+    /// Platform tag shape used by standard CPython extension filenames emitted by PyO3/maturin.
+    /// e.g.:
+    /// - "aarch64-apple-darwin" -> "aarch64-darwin-unknown"
+    /// - "x86_64-unknown-linux-gnu" -> "x86_64-linux-gnu"
+    pub(crate) fn cpython_ext_platform_tag() -> String {
+        let parts: Vec<_> = RUST_MULTIARCH.split('-').collect();
+        match parts.as_slice() {
+            [arch, _vendor, os, env] => format!("{arch}-{os}-{env}"),
+            [arch, _vendor, os] => format!("{arch}-{os}-unknown"),
+            [arch, os] => format!("{arch}-{os}-unknown"),
+            _ => multiarch(),
+        }
     }
 
     #[pymodule(name = "monitoring", with(super::monitoring::sys_monitoring))]

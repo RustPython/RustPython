@@ -1263,7 +1263,7 @@ impl PyType {
 }
 
 impl Py<PyType> {
-    pub(crate) fn is_subtype(&self, other: &Self) -> bool {
+    pub fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }
 
@@ -2549,7 +2549,9 @@ impl Callable for PyType {
             return Err(vm.new_type_error(format!("cannot create '{}' instances", zelf.slots.name)));
         };
 
-        if !obj.class().fast_issubclass(zelf) {
+        let issubclass = obj.class().fast_issubclass(zelf);
+
+        if !issubclass {
             return Ok(obj);
         }
 

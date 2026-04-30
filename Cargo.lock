@@ -3142,6 +3142,7 @@ dependencies = [
  "libc",
  "log",
  "pyo3",
+ "rustpython-capi",
  "rustpython-compiler",
  "rustpython-pylib",
  "rustpython-ruff_python_parser",
@@ -3149,6 +3150,19 @@ dependencies = [
  "rustpython-vm",
  "rustyline",
  "winresource",
+]
+
+[[package]]
+name = "rustpython-capi"
+version = "0.5.0"
+dependencies = [
+ "bitflags 2.11.0",
+ "cc",
+ "libc",
+ "libloading 0.9.0",
+ "num-complex",
+ "pyo3",
+ "rustpython-vm",
 ]
 
 [[package]]

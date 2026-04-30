@@ -1,0 +1,414 @@
+use crate::handles::{exported_object_handle, resolve_object_handle};
+use crate::{PyObject, with_vm};
+use core::convert::Infallible;
+use core::ffi::{CStr, c_char, c_int};
+use core::mem::MaybeUninit;
+use rustpython_vm::builtins::{PyTuple, PyType};
+use rustpython_vm::convert::IntoObject;
+use rustpython_vm::exceptions::ExceptionZoo;
+use rustpython_vm::{AsObject, PyObjectRef, PyResult};
+use std::sync::{Mutex, OnceLock};
+
+fn retained_exception_objects() -> &'static Mutex<Vec<PyObjectRef>> {
+    static RETAINED_EXCEPTIONS: OnceLock<Mutex<Vec<PyObjectRef>>> = OnceLock::new();
+    RETAINED_EXCEPTIONS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+macro_rules! define_exception_statics {
+    ($( $(#[$meta:meta])* $export:ident => $zoo:ident ),* $(,)?) => {
+        $(
+            $(#[$meta])*
+            #[unsafe(no_mangle)]
+            pub static mut $export: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+        )*
+
+        #[allow(static_mut_refs)]
+        pub(crate) unsafe fn init_exception_statics(exc: &ExceptionZoo) {
+            let mut retained = Vec::new();
+            unsafe {
+                $(
+                    let obj: PyObjectRef = exc.$zoo.to_owned().into();
+                    $export.write(obj.as_raw().cast_mut());
+                    retained.push(obj);
+                )*
+            }
+            let retained_store = retained_exception_objects();
+            let mut retained_store = retained_store.lock().unwrap();
+            *retained_store = retained;
+        }
+    };
+}
+
+define_exception_statics! {
+    PyExc_BaseException => base_exception_type,
+    PyExc_BaseExceptionGroup => base_exception_group,
+    PyExc_SystemExit => system_exit,
+    PyExc_KeyboardInterrupt => keyboard_interrupt,
+    PyExc_GeneratorExit => generator_exit,
+    PyExc_Exception => exception_type,
+    PyExc_StopIteration => stop_iteration,
+    PyExc_StopAsyncIteration => stop_async_iteration,
+    PyExc_ArithmeticError => arithmetic_error,
+    PyExc_FloatingPointError => floating_point_error,
+    PyExc_SystemError => system_error,
+    PyExc_TypeError => type_error,
+    PyExc_OverflowError => overflow_error,
+    PyExc_ZeroDivisionError => zero_division_error,
+    PyExc_AssertionError => assertion_error,
+    PyExc_IndexError => index_error,
+    PyExc_KeyError => key_error,
+    PyExc_LookupError => lookup_error,
+    PyExc_AttributeError => attribute_error,
+    PyExc_BufferError => buffer_error,
+    PyExc_EOFError => eof_error,
+    PyExc_ImportError => import_error,
+    PyExc_ModuleNotFoundError => module_not_found_error,
+    PyExc_MemoryError => memory_error,
+    PyExc_NameError => name_error,
+    PyExc_UnboundLocalError => unbound_local_error,
+    PyExc_OSError => os_error,
+    PyExc_BlockingIOError => blocking_io_error,
+    PyExc_ChildProcessError => child_process_error,
+    PyExc_ConnectionError => connection_error,
+    PyExc_BrokenPipeError => broken_pipe_error,
+    PyExc_ConnectionAbortedError => connection_aborted_error,
+    PyExc_ConnectionRefusedError => connection_refused_error,
+    PyExc_ConnectionResetError => connection_reset_error,
+    PyExc_FileExistsError => file_exists_error,
+    PyExc_FileNotFoundError => file_not_found_error,
+    PyExc_InterruptedError => interrupted_error,
+    PyExc_IsADirectoryError => is_a_directory_error,
+    PyExc_NotADirectoryError => not_a_directory_error,
+    PyExc_PermissionError => permission_error,
+    PyExc_ProcessLookupError => process_lookup_error,
+    PyExc_TimeoutError => timeout_error,
+    PyExc_ReferenceError => reference_error,
+    PyExc_RuntimeError => runtime_error,
+    PyExc_NotImplementedError => not_implemented_error,
+    PyExc_RecursionError => recursion_error,
+    PyExc_SyntaxError => syntax_error,
+    PyExc_IndentationError => indentation_error,
+    PyExc_TabError => tab_error,
+    PyExc_ValueError => value_error,
+    PyExc_UnicodeError => unicode_error,
+    PyExc_UnicodeDecodeError => unicode_decode_error,
+    PyExc_UnicodeEncodeError => unicode_encode_error,
+    PyExc_UnicodeTranslateError => unicode_translate_error,
+    PyExc_Warning => warning,
+    PyExc_DeprecationWarning => deprecation_warning,
+    PyExc_PendingDeprecationWarning => pending_deprecation_warning,
+    PyExc_RuntimeWarning => runtime_warning,
+    PyExc_SyntaxWarning => syntax_warning,
+    PyExc_UserWarning => user_warning,
+    PyExc_FutureWarning => future_warning,
+    PyExc_ImportWarning => import_warning,
+    PyExc_UnicodeWarning => unicode_warning,
+    PyExc_BytesWarning => bytes_warning,
+    PyExc_ResourceWarning => resource_warning,
+    PyExc_EncodingWarning => encoding_warning,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
+    with_vm(|vm| vm.take_raised_exception())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_Occurred() -> *mut PyObject {
+    with_vm(|vm| {
+        Ok(vm
+            .current_exception()
+            .map(|exc| unsafe { exported_object_handle(exc.class().as_object().as_raw().cast_mut()) })
+            .unwrap_or(core::ptr::null_mut()))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
+    with_vm::<PyResult<Infallible>, _>(|_vm| {
+        let exception = unsafe { (&*resolve_object_handle(exc)).to_owned().downcast_unchecked() };
+        Err(exception)
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject) {
+    with_vm::<PyResult<Infallible>, _>(|vm| {
+        let exc_type = unsafe { (&*resolve_object_handle(exception)).to_owned() };
+        let exc_val = unsafe { (&*resolve_object_handle(value)).to_owned() };
+
+        let normalized = vm.normalize_exception(exc_type, exc_val, vm.ctx.none())?;
+
+        Err(normalized)
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_char) {
+    with_vm::<PyResult<Infallible>, _>(|vm| {
+        let exc_type = unsafe { &*resolve_object_handle(exception) }.try_downcast_ref::<PyType>(vm)?;
+
+        let message = unsafe { CStr::from_ptr(message) }
+            .to_str()
+            .expect("Exception message is not valid UTF-8");
+
+        let exc = vm.invoke_exception(
+            exc_type.to_owned(),
+            vec![vm.ctx.new_str(message).into_object()],
+        )?;
+
+        Err(exc)
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_PrintEx(_set_sys_last_vars: c_int) {
+    with_vm(|vm| {
+        let exception = vm
+            .take_raised_exception()
+            .expect("No exception set in PyErr_PrintEx");
+
+        vm.print_exception(exception);
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
+    with_vm(|vm| {
+        let exception = vm
+            .take_raised_exception()
+            .expect("No exception set in PyErr_WriteUnraisable");
+
+        let object = unsafe {
+            vm.unwrap_or_none(resolve_object_handle(obj).as_ref().map(|obj| obj.to_owned()))
+        };
+
+        vm.run_unraisable(exception, None, object)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_NewException(
+    name: *const c_char,
+    base: *mut PyObject,
+    dict: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let (module, name) = unsafe {
+            CStr::from_ptr(name)
+                .to_str()
+                .expect("Exception name is not valid UTF-8")
+                .rsplit_once('.')
+                .expect("Exception name must be of the form 'module.ExceptionName'")
+        };
+
+        let bases = unsafe { resolve_object_handle(base).as_ref() }.map(|bases| {
+            if let Some(ty) = bases.downcast_ref::<PyType>() {
+                vec![ty.to_owned()]
+            } else if let Some(tuple) = bases.downcast_ref::<PyTuple>() {
+                tuple
+                    .iter()
+                    .map(|item| item.to_owned().downcast())
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("PyErr_NewException base tuple must contain only types")
+            } else {
+                panic!("PyErr_NewException base must be a type or a tuple of types");
+            }
+        });
+
+        assert!(
+            dict.is_null(),
+            "PyErr_NewException with non-null dict is not supported yet"
+        );
+
+        vm.ctx.new_exception_type(module, name, bases)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_NewExceptionWithDoc(
+    name: *const c_char,
+    _doc: *const c_char,
+    base: *mut PyObject,
+    dict: *mut PyObject,
+) -> *mut PyObject {
+    PyErr_NewException(name, base, dict)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyException_GetCause(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*resolve_object_handle(exc) };
+        exc.get_attr("__cause__", vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*resolve_object_handle(exc) };
+        exc.get_attr("__traceback__", vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut PyObject) {
+    with_vm(|vm| {
+        let exc = unsafe { &*resolve_object_handle(exc) };
+        let cause = unsafe { resolve_object_handle(cause).as_ref() }.map(|obj| obj.to_owned());
+        exc.set_attr("__cause__", vm.unwrap_or_none(cause), vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let exc = unsafe { &*resolve_object_handle(exc) };
+        let traceback = unsafe { resolve_object_handle(tb).as_ref() }.map(|obj| obj.to_owned());
+        exc.set_attr("__traceback__", vm.unwrap_or_none(traceback), vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_GivenExceptionMatches(given: *mut PyObject, exc: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let given = unsafe { &*resolve_object_handle(given) };
+        let exc = unsafe { &*resolve_object_handle(exc) };
+
+        if let Some(exc_type) = exc.downcast_ref::<PyType>() {
+            given.is_subclass(exc_type.as_ref(), vm)
+        } else if let Some(exc_tuple) = exc.downcast_ref::<PyTuple>() {
+            Ok(exc_tuple
+                .iter()
+                .any(|ty| given.is_subclass(ty, vm).unwrap_or_default()))
+        } else {
+            Ok(false)
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_Fetch(
+    ptype: *mut *mut PyObject,
+    pvalue: *mut *mut PyObject,
+    ptraceback: *mut *mut PyObject,
+) {
+    let _: () = with_vm::<PyResult<()>, ()>(|vm| {
+        let exc = vm.take_raised_exception();
+        unsafe {
+            if let Some(exc) = exc {
+                *ptype = exported_object_handle(exc.class().as_object().as_raw().cast_mut());
+                *pvalue = exported_object_handle(exc.as_object().as_raw().cast_mut());
+                *ptraceback = exc
+                    .as_object()
+                    .get_attr("__traceback__", vm)
+                    .ok()
+                    .map(|tb| exported_object_handle(tb.as_object().as_raw().cast_mut()))
+                    .unwrap_or(core::ptr::null_mut());
+            } else {
+                *ptype = core::ptr::null_mut();
+                *pvalue = core::ptr::null_mut();
+                *ptraceback = core::ptr::null_mut();
+            }
+        }
+        Ok(())
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_Restore(
+    ptype: *mut PyObject,
+    pvalue: *mut PyObject,
+    ptraceback: *mut PyObject,
+) {
+    if ptype.is_null() && pvalue.is_null() && ptraceback.is_null() {
+        return;
+    }
+    with_vm::<PyResult<Infallible>, _>(|vm| {
+        let typ = if ptype.is_null() {
+            vm.ctx.exceptions.exception_type.to_owned().into_object()
+        } else {
+            unsafe { (&*resolve_object_handle(ptype)).to_owned() }
+        };
+        let value = if pvalue.is_null() {
+            vm.ctx.none()
+        } else {
+            unsafe { (&*resolve_object_handle(pvalue)).to_owned() }
+        };
+        let tb = if ptraceback.is_null() {
+            vm.ctx.none()
+        } else {
+            unsafe { (&*resolve_object_handle(ptraceback)).to_owned() }
+        };
+        let normalized = vm.normalize_exception(typ, value, tb)?;
+        Err(normalized)
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_NormalizeException(
+    ptype: *mut *mut PyObject,
+    pvalue: *mut *mut PyObject,
+    ptraceback: *mut *mut PyObject,
+) {
+    let _: () = with_vm::<PyResult<()>, ()>(|vm| {
+        unsafe {
+            let typ = if (*ptype).is_null() {
+                vm.ctx.exceptions.exception_type.to_owned().into_object()
+            } else {
+                (&*resolve_object_handle(*ptype)).to_owned()
+            };
+            let value = if (*pvalue).is_null() {
+                vm.ctx.none()
+            } else {
+                (&*resolve_object_handle(*pvalue)).to_owned()
+            };
+            let tb = if (*ptraceback).is_null() {
+                vm.ctx.none()
+            } else {
+                (&*resolve_object_handle(*ptraceback)).to_owned()
+            };
+            let normalized = vm.normalize_exception(typ, value, tb)?;
+            *ptype = exported_object_handle(normalized.class().as_object().as_raw().cast_mut());
+            *pvalue = exported_object_handle(normalized.as_object().as_raw().cast_mut());
+            *ptraceback = normalized
+                .as_object()
+                .get_attr("__traceback__", vm)
+                .ok()
+                .map(|tb| exported_object_handle(tb.as_object().as_raw().cast_mut()))
+                .unwrap_or(core::ptr::null_mut());
+        }
+        Ok(())
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::PyTypeInfo;
+    use pyo3::create_exception;
+    use pyo3::exceptions::{PyException, PyTypeError};
+    use pyo3::prelude::*;
+
+    #[test]
+    fn test_raised_exception() {
+        Python::attach(|py| {
+            PyTypeError::new_err("This is a type error").restore(py);
+            assert!(PyErr::take(py).is_some());
+        })
+    }
+
+    #[test]
+    fn test_new_exception_type() {
+        create_exception!(my_module, MyError, PyException, "Some description.");
+
+        Python::attach(|py| {
+            let exc = MyError::new_err("This is a new exception");
+            assert!(exc.is_instance_of::<MyError>(py));
+            let exc_type = MyError::type_object(py);
+            assert_eq!(
+                exc_type.fully_qualified_name().unwrap(),
+                "my_module.MyError"
+            );
+        })
+    }
+}

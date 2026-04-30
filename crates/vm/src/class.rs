@@ -15,9 +15,26 @@ use rustpython_common::static_cell;
 /// Iterates SLOT_DEFS and creates a PyWrapper for each slot that:
 /// 1. Has a function set in the type's slots
 /// 2. Doesn't already have an attribute in the type's dict
-pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
+pub fn add_operators(class: &'static Py<PyType>, ctx: &'static Context) {
+    // Don't add __new__ attribute if slot_new is inherited from object
+    // (Python doesn't add __new__ to __dict__ for inherited slots)
+    // Exception: object itself should have __new__ in its dict
+    if let Some(slot_new) = class.slots.new.load() {
+        let object_new = ctx.types.object_type.slots.new.load();
+        let is_object_itself = core::ptr::eq(class, ctx.types.object_type);
+        let is_inherited_from_object =
+            !is_object_itself && object_new.is_some_and(|obj_new| slot_new as usize == obj_new as usize);
+
+        if !is_inherited_from_object {
+            let bound_new = ctx
+                .slot_new_wrapper
+                .build_bound_method(ctx, class.to_owned().into(), class);
+            class.set_attr(identifier!(ctx, __new__), bound_new.into());
+        }
+    }
+
     for def in SLOT_DEFS.iter() {
-        // Skip __new__ - it has special handling
+        // __new__ is handled above.
         if def.name == "__new__" {
             continue;
         }
@@ -175,23 +192,6 @@ pub trait PyClassImpl: PyClassDef {
                 .is_some_and(|v| v.downcastable::<crate::builtins::PyGetSet>());
             if !has_getset {
                 class.set_attr(module_key, ctx.new_str(module_name).into());
-            }
-        }
-
-        // Don't add __new__ attribute if slot_new is inherited from object
-        // (Python doesn't add __new__ to __dict__ for inherited slots)
-        // Exception: object itself should have __new__ in its dict
-        if let Some(slot_new) = class.slots.new.load() {
-            let object_new = ctx.types.object_type.slots.new.load();
-            let is_object_itself = core::ptr::eq(class, ctx.types.object_type);
-            let is_inherited_from_object = !is_object_itself
-                && object_new.is_some_and(|obj_new| slot_new as usize == obj_new as usize);
-
-            if !is_inherited_from_object {
-                let bound_new =
-                    ctx.slot_new_wrapper
-                        .build_bound_method(ctx, class.to_owned().into(), class);
-                class.set_attr(identifier!(ctx, __new__), bound_new.into());
             }
         }
 
