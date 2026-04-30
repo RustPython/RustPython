@@ -83,6 +83,7 @@ jobs:
               # Lib/foo/__init__.py -> foo
               module = file.removeprefix("Lib/").split("/")[0]
             
+            module = module.removesuffix(".py")
             modules.add(module)
 
           print(f"{modules=}")
