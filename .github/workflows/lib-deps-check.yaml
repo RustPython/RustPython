@@ -53,11 +53,13 @@ jobs:
         id: all-changed-files
         run: |
           # Get the list of changed files under Lib/
-          echo 'changed<<EOF' >> "$GITHUB_OUTPUT"
+          {
+            echo 'changed<<EOF'
 
-          changed=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py' | head -50)
-          echo "$changed" >> "$GITHUB_OUTPUT"
-          echo 'EOF' >> "$GITHUB_OUTPUT"
+            git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py' | head -50
+
+            echo 'EOF' 
+          } >> "$GITHUB_OUTPUT"
 
       - name: Parse changed files
         id: changed-files
