@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef,
-    PyTuple, PyTupleRef, PyType,
+    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef, PyTuple,
+    PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -955,30 +955,13 @@ impl PyFunction {
     }
 
     #[pygetset]
-    fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
-        zelf.as_object()
-            .instance_dict()
-            .map(|d| d.get_or_insert(vm))
-            .unwrap_or_else(|| vm.ctx.new_dict())
+    fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        object::object_get_dict(zelf.as_object().to_owned(), vm)
     }
 
     #[pygetset(setter)]
     fn set___dict__(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(obj) => {
-                let class_name = obj.clone().class().name().to_string(); // capture before move
-                let dict = obj.downcast::<PyDict>().map_err(|_| {
-                    vm.new_type_error(format!(
-                        "__dict__ must be set to a dictionary, not a '{}'",
-                        class_name
-                    ))
-                })?;
-                zelf.as_object()
-                    .set_dict(Some(dict))
-                    .map_err(|_| vm.new_attribute_error("function object has no __dict__"))
-            }
-            PySetterValue::Delete => Err(vm.new_type_error("cannot delete __dict__")),
-        }
+        object::object_generic_set_dict(zelf.as_object().to_owned(), value, vm)
     }
 
     #[pygetset]

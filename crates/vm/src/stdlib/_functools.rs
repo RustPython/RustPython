@@ -4,7 +4,9 @@ pub(crate) use _functools::module_def;
 mod _functools {
     use crate::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef},
+        builtins::{
+            PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
+        },
         common::lock::PyRwLock,
         function::{FuncArgs, KwArgs, OptionalOption, PySetterValue},
         object::AsObject,
@@ -172,21 +174,7 @@ mod _functools {
             value: PySetterValue,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            match value {
-                PySetterValue::Assign(obj) => {
-                    let class_name = obj.clone().class().name().to_string(); // capture before move
-                    let dict = obj.downcast::<PyDict>().map_err(|_| {
-                        vm.new_type_error(format!(
-                            "__dict__ must be set to a dictionary, not a '{}'",
-                            class_name
-                        ))
-                    })?;
-                    zelf.as_object()
-                        .set_dict(Some(dict))
-                        .map_err(|_| vm.new_attribute_error("partial object has no __dict__"))
-                }
-                PySetterValue::Delete => Err(vm.new_type_error("cannot delete __dict__")),
-            }
+            object::object_generic_set_dict(zelf.as_object().to_owned(), value, vm)
         }
 
         #[pymethod]
