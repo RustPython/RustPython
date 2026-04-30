@@ -74,7 +74,7 @@ jobs:
               # Test files:
               # Lib/test/test_pydoc.py -> test_pydoc
               # Lib/test/test_pydoc/foo.py -> test_pydoc
-              module = file.removeprefix("Lib/test").split("/")[0]
+              module = file.removeprefix("Lib/test/").split("/")[0]
               if not module.startswith("test_"):
                 continue
             else:
