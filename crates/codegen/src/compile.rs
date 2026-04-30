@@ -10172,33 +10172,6 @@ impl Compiler {
         self.emit_arg(idx, |consti| Instruction::LoadConst { consti })
     }
 
-    fn try_fold_slice_constant_part(
-        &mut self,
-        expr: &ast::Expr,
-    ) -> CompileResult<Option<ConstantData>> {
-        Ok(Some(match expr {
-            ast::Expr::NumberLiteral(num) => match &num.value {
-                ast::Number::Int(int) => ConstantData::Integer {
-                    value: ruff_int_to_bigint(int).map_err(|e| self.error(e))?,
-                },
-                ast::Number::Float(f) => ConstantData::Float { value: *f },
-                ast::Number::Complex { real, imag } => ConstantData::Complex {
-                    value: Complex::new(*real, *imag),
-                },
-            },
-            ast::Expr::StringLiteral(s) => ConstantData::Str {
-                value: self.compile_string_value(s),
-            },
-            ast::Expr::BytesLiteral(b) => ConstantData::Bytes {
-                value: b.value.bytes().collect(),
-            },
-            ast::Expr::BooleanLiteral(b) => ConstantData::Boolean { value: b.value },
-            ast::Expr::NoneLiteral(_) => ConstantData::None,
-            ast::Expr::EllipsisLiteral(_) => ConstantData::Ellipsis,
-            _ => return Ok(None),
-        }))
-    }
-
     fn try_fold_constant_slice(
         &mut self,
         lower: Option<&ast::Expr>,
@@ -10207,7 +10180,7 @@ impl Compiler {
     ) -> CompileResult<Option<ConstantData>> {
         let start = match lower {
             Some(expr) => {
-                let Some(constant) = self.try_fold_slice_constant_part(expr)? else {
+                let Some(constant) = self.try_fold_constant_expr(expr)? else {
                     return Ok(None);
                 };
                 constant
@@ -10216,7 +10189,7 @@ impl Compiler {
         };
         let stop = match upper {
             Some(expr) => {
-                let Some(constant) = self.try_fold_slice_constant_part(expr)? else {
+                let Some(constant) = self.try_fold_constant_expr(expr)? else {
                     return Ok(None);
                 };
                 constant
@@ -10225,7 +10198,7 @@ impl Compiler {
         };
         let step = match step {
             Some(expr) => {
-                let Some(constant) = self.try_fold_slice_constant_part(expr)? else {
+                let Some(constant) = self.try_fold_constant_expr(expr)? else {
                     return Ok(None);
                 };
                 constant

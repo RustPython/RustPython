@@ -2562,8 +2562,9 @@ impl CodeInfo {
         let jump_targets = compute_target_predecessor_flags(&self.blocks).jump;
         let mut fallthrough_predecessors = vec![None; self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
-            if block.next != BlockIdx::NULL {
-                fallthrough_predecessors[block.next.idx()] = Some(pred_idx);
+            let next = next_nonempty_block(&self.blocks, block.next);
+            if next != BlockIdx::NULL {
+                fallthrough_predecessors[next.idx()] = Some(pred_idx);
             }
         }
         let starts_after_for_cleanup: Vec<_> = fallthrough_predecessors
@@ -4407,7 +4408,7 @@ impl CodeInfo {
                 Some(Instruction::GetIter) => Some(DeoptKind::ReturnIter {
                     tail_start_idx: cursor + 1,
                 }),
-                Some(Instruction::Call { .. }) => real_instrs
+                Some(Instruction::Call { .. } | Instruction::CallKw { .. }) => real_instrs
                     .get(cursor + 1)
                     .and_then(|(_, info)| info.instr.real())
                     .and_then(|instr| {
