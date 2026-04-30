@@ -34,6 +34,7 @@ env:
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # TODO: Remove on 2026/06/02
+  CI: true
 
 jobs:
   rust_tests:
@@ -77,7 +78,7 @@ jobs:
         run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
       - name: run rust tests
-        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --verbose --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
 
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
