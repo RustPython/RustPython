@@ -13665,36 +13665,19 @@ def f(filters, text, category, module, lineno, defaultaction, _wm):
     fn test_try_except_else_with_finally_keeps_with_handler_before_outer_except() {
         let code = compile_exec(
             "\
-def jumpy(i):
-    for i in range(10):
-        print(i)
-        if i < 4:
-            continue
-        if i > 6:
-            break
-    else:
-        print('I can haz else clause?')
-    while i:
-        print(i)
-        i -= 1
-        if i > 6:
-            continue
-        if i < 4:
-            break
-    else:
-        print('Who let lolcatz into this test suite?')
+def f(i):
     try:
         1 / 0
     except ZeroDivisionError:
-        print('Here we go, here we go, here we go...')
+        print('e')
     else:
         with i as dodgy:
-            print('Never reach this')
+            print('w')
     finally:
-        print('OK, now we\\'re done')
+        print('d')
 ",
         );
-        let jumpy = find_code(&code, "jumpy").expect("missing jumpy code");
+        let jumpy = find_code(&code, "f").expect("missing f code");
         let ops: Vec<_> = jumpy
             .instructions
             .iter()
