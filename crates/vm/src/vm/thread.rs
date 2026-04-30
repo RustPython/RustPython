@@ -66,7 +66,7 @@ thread_local! {
 
 }
 
-scoped_tls::scoped_thread_local!(static VM_CURRENT: VirtualMachine);
+scoped_tls::scoped_thread_local!(pub static VM_CURRENT: VirtualMachine);
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
     if !VM_CURRENT.is_set() {
@@ -441,7 +441,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 
     // Guard against OS thread-id reuse races: only remove the registry entry
     // if it still points at this thread's own slot.
-    let removed = if let Some(slot) = &current_slot {
+    let _removed = if let Some(slot) = &current_slot {
         let mut registry = vm.state.thread_frames.lock();
         match registry.get(&thread_id) {
             Some(registered) if Arc::ptr_eq(registered, slot) => registry.remove(&thread_id),
@@ -451,7 +451,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
         None
     };
     #[cfg(all(unix, feature = "threading"))]
-    if let Some(slot) = &removed
+    if let Some(slot) = &_removed
         && vm.state.stop_the_world.requested.load(Ordering::Acquire)
         && thread_id != vm.state.stop_the_world.requester_ident()
         && slot.state.load(Ordering::Relaxed) != THREAD_SUSPENDED
