@@ -48,10 +48,9 @@ use rustpython_common::{
 use icu_casemap::TitlecaseMapper;
 use icu_locale::LanguageIdentifier;
 use icu_properties::props::{
-    BidiClass, BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
-    Lowercase, NumericType, Uppercase, XidContinue, XidStart,
+    BidiClass, BinaryProperty, CaseIgnorable, Cased, EnumeratedProperty, GeneralCategory,
+    GeneralCategoryGroup, Lowercase, NumericType, Uppercase, XidContinue, XidStart,
 };
-use unicode_casing::CharExt;
 use writeable::Writeable;
 
 impl<'a> TryFromBorrowedObject<'a> for String {
@@ -780,25 +779,33 @@ impl PyStr {
                 s.into()
             }
             PyKindStr::Utf8(s) => {
-                let mut chars = s.chars();
-                let mut out = String::with_capacity(s.len());
-                if let Some(c) = chars.next() {
-                    out.extend(c.to_titlecase());
-                    out.push_str(&chars.as_str().to_lowercase());
-                }
-                out.into()
+                let mut chars = s.char_indices();
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                titlecase_first(s, &mut chars, &mut out);
+                lowercase_and_sigma(s, &mut chars, &mut out);
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
             }
             PyKindStr::Wtf8(s) => {
-                let mut out = Wtf8Buf::with_capacity(s.len());
-                let mut chars = s.code_points();
-                if let Some(ch) = chars.next() {
-                    match ch.to_char() {
-                        Some(ch) => out.extend(ch.to_titlecase()),
-                        None => out.push(ch),
-                    }
-                    out.push_wtf8(&chars.as_wtf8().to_lowercase());
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                let mut chunks = s.as_bytes().utf8_chunks();
+
+                if let Some(first) = chunks.next() {
+                    let s = first.valid();
+                    let mut chars = s.char_indices();
+                    titlecase_first(s, &mut chars, &mut out);
+                    lowercase_and_sigma(s, &mut chars, &mut out);
+                    out.0.extend(first.invalid());
                 }
-                out
+                // This loop is only hit if the WTF-8 buffer contains invalid Unicode. Otherwise,
+                // everything is handled above without chunking.
+                for chunk in chunks {
+                    let s = chunk.valid();
+                    let mut chars = s.char_indices();
+                    lowercase_and_sigma(s, &mut chars, &mut out);
+                    out.0.extend(chunk.invalid());
+                }
+
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
             }
         }
     }
@@ -1095,33 +1102,6 @@ impl PyStr {
         }
     }
 
-    fn title_non_ascii(&self) -> Wtf8Buf {
-        let mut title = Wtf8Buf::with_capacity(self.data.len());
-        let mut previous_is_cased = false;
-        for c_orig in self.as_wtf8().code_points() {
-            let c = c_orig.to_char_lossy();
-            if c.is_lowercase() {
-                if !previous_is_cased {
-                    title.extend(c.to_titlecase());
-                } else {
-                    title.push_char(c);
-                }
-                previous_is_cased = true;
-            } else if c.is_uppercase() || c.is_titlecase() {
-                if previous_is_cased {
-                    title.extend(c.to_lowercase());
-                } else {
-                    title.extend(c.to_titlecase());
-                }
-                previous_is_cased = true;
-            } else {
-                previous_is_cased = false;
-                title.push(c_orig);
-            }
-        }
-        title
-    }
-
     #[pymethod]
     fn swapcase(&self) -> Wtf8Buf {
         let mut swapped_str = Wtf8Buf::with_capacity(self.data.len());
@@ -1351,7 +1331,9 @@ impl PyStr {
         let mut cased = false;
         let mut previous_is_cased = false;
         for c in self.as_wtf8().code_points().map(CodePoint::to_char_lossy) {
-            if c.is_uppercase() || c.is_titlecase() {
+            if c.is_uppercase()
+                || GeneralCategoryGroup::TitlecaseLetter.contains(GeneralCategory::for_char(c))
+            {
                 if previous_is_cased {
                     return false;
                 }
@@ -1588,6 +1570,56 @@ impl PyStr {
             Ok(PyStr::from(zelf.data.clone()).into_ref(&vm.ctx))
         }
     }
+}
+
+fn titlecase_first(s: &str, chars: &mut core::str::CharIndices<'_>, out: &mut VecFmtWriter) {
+    if let Some((first_pos, first_ch)) = chars.next() {
+        let first = &s[..first_pos + first_ch.len_utf8()];
+        let tm = TitlecaseMapper::new();
+        tm.titlecase_segment(first, &LanguageIdentifier::UNKNOWN, Default::default())
+            .write_to(out)
+            .expect("Writing to an in-memory buffer cannot fail.");
+    }
+}
+
+fn lowercase_and_sigma(s: &str, chars: &mut core::str::CharIndices<'_>, out: &mut VecFmtWriter) {
+    let sigma = 'Σ';
+    for (i, ch) in chars {
+        if ch == sigma {
+            let sigma_cased = handle_capital_sigma(s, i);
+            let mut buf = [0u8; 4];
+            let s = sigma_cased.encode_utf8(&mut buf);
+            out.0.extend(s.as_bytes());
+        } else {
+            for ch in ch.to_lowercase() {
+                let mut buf = [0u8; 4];
+                let s = ch.encode_utf8(&mut buf);
+                out.0.extend(s.as_bytes());
+            }
+        }
+    }
+}
+
+// Handle context-sensitive sigma.
+//
+// CPython handles sigma as a special case. This is more efficient than using icu4x to scan the
+// entire string with CaseMapper because CaseMapper would allocate to produce a new string. The
+// icu4x crates are robust but CPython's capitalize() is NOT so we can skip the extra allocs.
+fn handle_capital_sigma(s: &str, i: usize) -> char {
+    let (left, rest) = s.split_at(i);
+    let right = &rest['Σ'.len_utf8()..];
+
+    // Check if any chars before or after sigma are cased.
+    let before = left
+        .chars()
+        .rev()
+        .find(|&ch| !CaseIgnorable::for_char(ch))
+        .is_some_and(Cased::for_char);
+    let after = right
+        .chars()
+        .find(|&ch| !CaseIgnorable::for_char(ch))
+        .is_some_and(Cased::for_char);
+    if before && !after { 'ς' } else { 'σ' }
 }
 
 impl PyRef<PyStr> {

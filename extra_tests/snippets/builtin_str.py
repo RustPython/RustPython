@@ -124,6 +124,12 @@ assert_raises(TypeError, lambda: s.rjust(12, "__"))
 
 c = "hallo"
 assert c.capitalize() == "Hallo"
+assert "ßello".capitalize() == "Ssello"
+assert "İstanbul".capitalize() == "İstanbul"
+assert "a\u0301bc".capitalize() == "Ábc"
+assert "ΣΙΓΜΑ".capitalize() == "Σιγμα"
+assert "😀hello".capitalize() == "😀hello"
+assert "élan".capitalize() == "Élan"
 assert c.center(11, "-") == "---hallo---"
 assert ["koki".center(i, "|") for i in range(3, 10)] == [
     "koki",

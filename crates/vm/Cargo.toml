@@ -82,9 +82,6 @@ result-like = { workspace = true }
 timsort = { workspace = true }
 
 ## unicode stuff
-# TODO: use unic for this; needed for title case:
-# https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
-unicode-casing = { workspace = true }
 icu_casemap = { workspace = true }
 icu_locale = { workspace = true }
 icu_properties = { workspace = true }

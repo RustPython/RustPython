@@ -3619,7 +3619,6 @@ dependencies = [
  "thiserror 2.0.18",
  "timsort",
  "uname",
- "unicode-casing",
  "wasm-bindgen",
  "which",
  "widestring",
@@ -4357,12 +4356,6 @@ checksum = "96bd2f2237fe450fcd0a1d2f5f4e91711124f7857ba2e964247776ebeeb7b0c4"
 dependencies = [
  "unic-common",
 ]
-
-[[package]]
-name = "unicode-casing"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061dbb8cc7f108532b6087a0065eff575e892a4bcb503dc57323a197457cc202"
 
 [[package]]
 name = "unicode-ident"
