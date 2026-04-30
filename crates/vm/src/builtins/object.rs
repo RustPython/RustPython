@@ -1,4 +1,4 @@
-use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef};
+use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef};
 use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
@@ -554,12 +554,46 @@ impl PyBaseObject {
 }
 
 pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-    obj.dict()
-        .ok_or_else(|| vm.new_attribute_error("This object has no __dict__"))
+    if let Some(dict) = obj.dict() {
+        Ok(dict)
+    } else {
+        match obj.instance_dict() {
+            Some(d) => Ok(d.get_or_insert(vm)),
+            None => Err(vm.new_attribute_error("This object has no __dict__")),
+        }
+    }
 }
-pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+pub fn object_set_dict(
+    obj: PyObjectRef,
+    value: PySetterValue<PyDictRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let dict = match value {
+        PySetterValue::Assign(dict) => Some(dict),
+        PySetterValue::Delete => None,
+    };
     obj.set_dict(dict)
         .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
+}
+
+pub fn object_generic_set_dict(
+    obj: PyObjectRef,
+    value: PySetterValue,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let dict = match value {
+        PySetterValue::Assign(value) => {
+            let dict = value.downcast::<PyDict>().map_err(|value| {
+                vm.new_type_error(format!(
+                    "__dict__ must be set to a dictionary, not a '{}'",
+                    value.class().name()
+                ))
+            })?;
+            PySetterValue::Assign(dict)
+        }
+        PySetterValue::Delete => return Err(vm.new_type_error("cannot delete __dict__")),
+    };
+    object_set_dict(obj, dict, vm)
 }
 
 pub fn init(ctx: &'static Context) {
