@@ -522,8 +522,22 @@ jobs:
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          cache: "npm"
-          cache-dependency-path: "wasm/demo/package-lock.json"
+          package-manager-cache: false
+
+      - name: Get npm cache directory
+        id: npm-cache-dir
+        shell: bash
+        run: echo "dir=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore npm cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        # don't restore on main or release
+        if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release'
+        with:
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
+          key: node-${{ runner.os }}-wasm-demo-
+          restore-keys: |
+            node-${{ runner.os }}-wasm-demo-
 
       - name: run test
         run: |
@@ -567,6 +581,14 @@ jobs:
           PUBLISH_DIR: ./wasm/demo/dist
           EXTERNAL_REPOSITORY: RustPython/demo
           PUBLISH_BRANCH: master
+
+      - name: Save npm cache
+        # Save only on main or release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
+          key: node-${{ runner.os }}-wasm-demo-${{ hashFiles('wasm/demo/package-lock.json') }}
 
   wasm-wasi:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
