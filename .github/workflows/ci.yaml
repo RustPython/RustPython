@@ -532,7 +532,7 @@ jobs:
       - name: Restore npm cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         # don't restore on main or release
-        if: github.ref != 'refs/heads/main' || github.ref != 'refs/heads/release'
+        if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release'
         with:
           path: ${{ steps.npm-cache-dir-path.outputs.dir }}
           key: node-${{ runner.os }}-wasm-demo-
@@ -584,7 +584,7 @@ jobs:
 
       - name: Save npm cache
         # Save only on main or release
-        if: github.ref != 'refs/heads/main' || github.ref != 'refs/heads/release'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ steps.npm-cache-dir-path.outputs.dir }}
