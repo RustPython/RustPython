@@ -938,7 +938,6 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('\U0008fffe'.upper(), '\U0008fffe')
         self.assertEqual('\u2177'.upper(), '\u2167')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?   ^
     def test_capitalize(self):
         string_tests.StringLikeTest.test_capitalize(self)
         self.assertEqual('\U0001044F'.capitalize(), '\U00010427')
