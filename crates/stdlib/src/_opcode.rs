@@ -262,13 +262,7 @@ mod tests {
 
     macro_rules! assert_dis_snapshot {
         ($value:expr) => {
-            insta::with_settings!({snapshot_path => "./snapshots"}, {
-                insta::assert_snapshot!(
-                    insta::internals::AutoName,
-                    dis($value.trim()),
-                    stringify!($value).trim()
-                )
-            })
+            insta::assert_snapshot!(dis($value))
         };
     }
 
