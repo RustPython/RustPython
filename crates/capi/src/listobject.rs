@@ -75,6 +75,14 @@ pub extern "C" fn PyList_Insert(list: *mut PyObject, index: isize, item: *mut Py
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyList_Reverse(list: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        Ok(list.borrow_vec_mut().reverse())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::exceptions::PyIndexError;
@@ -135,6 +143,16 @@ mod tests {
             list.insert(0, 1).unwrap();
             assert_eq!(list.len(), 1);
             assert!(list.insert(2, 3).is_err());
+        })
+    }
+
+    #[test]
+    fn test_list_reverse() {
+        Python::attach(|py| {
+            let list = PyList::new(py, &[1, 2, 3]).unwrap();
+            list.reverse().unwrap();
+            assert_eq!(list.get_item(0).unwrap().extract::<u32>().unwrap(), 3);
+            assert_eq!(list.get_item(2).unwrap().extract::<u32>().unwrap(), 1);
         })
     }
 }
