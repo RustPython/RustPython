@@ -18,12 +18,12 @@ use core::fmt::Debug;
 use num_traits::ToPrimitive;
 
 /// Valid type codes for ctypes simple types
-#[cfg(windows)]
-// spell-checker: disable-next-line
-pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPXOv?g";
-#[cfg(not(windows))]
-// spell-checker: disable-next-line
-pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPOv?g";
+pub(super) const SIMPLE_TYPE_CHARS: &str = cfg_select! {
+    // spell-checker: disable-next-line
+    windows => "cbBhHiIlLdfuzZqQPXOv?g",
+    // spell-checker: disable-next-line
+    _ => "cbBhHiIlLdfuzZqQPOv?g",
+};
 
 /// Convert ctypes type code to PEP 3118 format code.
 /// Some ctypes codes need to be mapped to standard-size codes based on platform.

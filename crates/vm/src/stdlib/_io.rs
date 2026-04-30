@@ -152,7 +152,7 @@ mod _io {
             any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux") => {
                 x || matches!(whence, libc::SEEK_DATA | libc::SEEK_HOLE)
             }
-            _ => x
+            _ => x,
         }
     }
 
@@ -5078,23 +5078,23 @@ mod _io {
         // Construct a RawIO (subclass of RawIOBase)
         // On Windows, use _WindowsConsoleIO for console handles.
         // This is subsequently consumed by a Buffered Class.
-        #[cfg(all(feature = "host_env", windows))]
-        let is_console = super::winconsoleio::pyio_get_console_type(&file, vm) != '\0';
-        #[cfg(not(all(feature = "host_env", windows)))]
-        let is_console = false;
-
-        let file_io_class: &Py<PyType> = {
-            cfg_select! {
-                all(feature = "host_env", windows) =>  {
-                    if is_console {
-                        Some(super::winconsoleio::WindowsConsoleIO::static_type())
-                    } else {
-                        Some(super::fileio::FileIO::static_type())
-                    }
-                }
-                feature = "host_env" => Some(super::fileio::FileIO::static_type()),
-                _ => None,
+        let is_console = cfg_select! {
+            all(feature = "host_env", windows) => {
+                super::winconsoleio::pyio_get_console_type(&file, vm) != '\0'
             }
+            _ => false,
+        };
+
+        let file_io_class: &Py<PyType> = cfg_select! {
+            all(feature = "host_env", windows) => {
+                if is_console {
+                    Some(super::winconsoleio::WindowsConsoleIO::static_type())
+                } else {
+                    Some(super::fileio::FileIO::static_type())
+                }
+            }
+            feature = "host_env" => Some(super::fileio::FileIO::static_type()),
+            _ => None,
         }
         .ok_or_else(|| {
             new_unsupported_operation(

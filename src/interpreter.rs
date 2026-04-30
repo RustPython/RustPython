@@ -15,15 +15,14 @@ impl InterpreterBuilderExt for InterpreterBuilder {
         let defs = rustpython_stdlib::stdlib_module_defs(&self.ctx);
         let builder = self.add_native_modules(&defs);
 
-        #[cfg(feature = "freeze-stdlib")]
-        let builder = builder
-            .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
-            .init_hook(set_frozen_stdlib_dir);
-
-        #[cfg(not(feature = "freeze-stdlib"))]
-        let builder = builder.init_hook(setup_dynamic_stdlib);
-
-        builder
+        cfg_select! {
+            feature = "freeze-stdlib" => {
+                builder
+                    .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+                    .init_hook(set_frozen_stdlib_dir)
+            }
+            _ => builder.init_hook(setup_dynamic_stdlib),
+        }
     }
 }
 
@@ -64,13 +63,9 @@ fn collect_stdlib_paths() -> Vec<String> {
             .map(|path| path.into_os_string().into_string().unwrap())
             .collect()
     } else {
-        #[cfg(feature = "rustpython-pylib")]
-        {
-            vec![rustpython_pylib::LIB_PATH.to_owned()]
-        }
-        #[cfg(not(feature = "rustpython-pylib"))]
-        {
-            vec![]
-        }
+        vec![
+            #[cfg(feature = "rustpython-pylib")]
+            rustpython_pylib::LIB_PATH.to_owned(),
+        ]
     }
 }

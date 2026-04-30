@@ -824,10 +824,10 @@ pub(super) mod _os {
                     .map_err(|e| e.into_pyexception(vm))?
                     .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
                     // On Windows, combine st_ino and st_ino_high into 128-bit value
-                    #[cfg(windows)]
-                    let ino: u128 = stat.st_ino as u128 | ((stat.st_ino_high as u128) << 64);
-                    #[cfg(not(windows))]
-                    let ino: u128 = stat.st_ino as u128;
+                    let ino: u128 = cfg_select! {
+                        windows => stat.st_ino as u128 | ((stat.st_ino_high as u128) << 64),
+                        _ => stat.st_ino as u128,
+                    };
                     // Err(T) means other thread set `ino` at the mean time which is safe to ignore
                     let _ = self.ino.compare_exchange(None, Some(ino));
                     Ok(ino)

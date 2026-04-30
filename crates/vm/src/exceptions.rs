@@ -1354,10 +1354,10 @@ impl OSErrorBuilder {
         } = self;
 
         let args = if let Some(errno) = errno {
-            #[cfg(windows)]
-            let winerror = winerror.to_pyobject(vm);
-            #[cfg(not(windows))]
-            let winerror = vm.ctx.none();
+            let winerror = cfg_select! {
+                windows => winerror.to_pyobject(vm),
+                _ => vm.ctx.none(),
+            };
 
             vec![
                 errno.to_pyobject(vm),
@@ -2085,21 +2085,19 @@ pub(super) mod types {
                             .get_attr("filename2", vm)
                             .ok()
                             .filter(|f| !vm.is_none(f));
-                        #[cfg(windows)]
-                        let winerror = obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w));
+
+                        let winerror: Option<PyObjectRef> = cfg_select! {
+                            windows => obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w)),
+                            _ => None,
+                        };
 
                         if let Some(filename2) = filename2 {
-                            #[cfg(windows)]
-                            {
-                                args_reduced.push(winerror.unwrap_or_else(|| vm.ctx.none()));
-                            }
-                            #[cfg(not(windows))]
-                            args_reduced.push(vm.ctx.none());
-                            args_reduced.push(filename2);
+                            #[allow(clippy::unnecessary_literal_unwrap)]
+                            let winerror = winerror.unwrap_or_else(|| vm.ctx.none());
+                            args_reduced.extend([winerror, filename2]);
                         } else {
                             // Diverges from CPython: include winerror even without
                             // filename2 so it survives pickle round-trips.
-                            #[cfg(windows)]
                             if let Some(winerror) = winerror {
                                 args_reduced.push(winerror);
                             }
