@@ -61,6 +61,20 @@ pub extern "C" fn PyList_Append(list: *mut PyObject, item: *mut PyObject) -> c_i
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyList_Insert(list: *mut PyObject, index: isize, item: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        let item = unsafe { &*item }.to_owned();
+        let mut vec = list.borrow_vec_mut();
+        if index as usize > vec.len() {
+            Err(vm.new_index_error(format!("list index out of range: {index}")))
+        } else {
+            Ok(vec.insert(index as _, item))
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::exceptions::PyIndexError;
@@ -110,6 +124,17 @@ mod tests {
             list.append(1).unwrap();
             assert_eq!(list.len(), 1);
             assert_eq!(list.get_item(0).unwrap().extract::<u32>().unwrap(), 1);
+        })
+    }
+
+    #[test]
+    fn test_list_insert() {
+        Python::attach(|py| {
+            let list = PyList::empty(py);
+            assert_eq!(list.len(), 0);
+            list.insert(0, 1).unwrap();
+            assert_eq!(list.len(), 1);
+            assert!(list.insert(2, 3).is_err());
         })
     }
 }
