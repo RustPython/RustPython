@@ -56,7 +56,7 @@ jobs:
           {
             echo 'changed<<EOF'
 
-            git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py' | head -50
+            git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py'
 
             echo 'EOF' 
           } >> "$GITHUB_OUTPUT"
@@ -70,6 +70,7 @@ jobs:
           modules = set()
           for file in files.splitlines():
             file = file.strip()
+
             if file.startswith("Lib/test/"):
               # Test files:
               # Lib/test/test_pydoc.py -> test_pydoc
@@ -83,7 +84,7 @@ jobs:
               # Lib/foo/__init__.py -> foo
               module = file.removeprefix("Lib/").split("/")[0]
             
-            module = module.removesuffix(".py")
+            module = module.split(".")[0]
             modules.add(module)
 
           print(f"{modules=}")
