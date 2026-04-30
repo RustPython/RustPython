@@ -272,7 +272,7 @@ mod tests {
     ///
     /// Memory addresses in the output are replaced with `0xdeadbeef` for consistency.
     fn dis(source: &str) -> String {
-        let fname = String::from("<embedded>");
+        let fname = String::from("<?>");
 
         let builder = vm::Interpreter::builder(Default::default());
         let stdlib_defs = crate::stdlib_module_defs(&builder.ctx);
@@ -284,7 +284,7 @@ mod tests {
         interp.enter(|vm| {
             let scope = vm.new_scope_with_builtins();
             let code_obj = vm
-                .compile(source, Mode::Exec, fname.clone())
+                .compile(source.trim(), Mode::Exec, fname.clone())
                 .map_err(|err| vm.new_syntax_error(&err, Some(source)))
                 .unwrap();
             scope.globals.set_item("code", code_obj.into(), vm).unwrap();
@@ -320,57 +320,65 @@ output = re.sub(r'(<code object \w+ at )0x[0-9a-fA-F]+', r'\g<1>0xdeadbeef', tmp
     #[test]
     fn test_if_ors() {
         assert_dis_snapshot!(
-            "
+            r#"
 if True or False or False:
     pass
-"
+"#
         )
     }
 
     #[test]
     fn test_if_ands() {
         assert_dis_snapshot!(
-            "
+            r#"
 if True and False and False:
     pass
-"
+"#
         )
     }
 
     #[test]
     fn test_if_mixed() {
         assert_dis_snapshot!(
-            "
+            r#"
 if (True and False) or (False and True):
     pass
-"
+"#
         )
     }
 
     #[test]
     fn test_nested_bool_op() {
-        assert_dis_snapshot!("x = Test() and False or False")
+        assert_dis_snapshot!(
+            r#"
+x = Test() and False or False
+"#
+        )
     }
 
     #[test]
     fn test_const_no_op() {
-        assert_dis_snapshot!("x = not True")
+        assert_dis_snapshot!(
+            r#"
+x = not True
+"#
+        )
     }
 
     #[test]
     fn test_constant_true_if_pass_keeps_line_anchor_nop() {
         assert_dis_snapshot!(
-            "
+            r#"
 if 1:
     pass
-"
+"#
         )
     }
 
     #[test]
     fn test_nested_double_async_with() {
         assert_dis_snapshot!(
-            "
+            r#"
 async def test():
     for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
         with self.subTest(type=type(stop_exc)):
@@ -381,21 +389,21 @@ async def test():
                 self.assertIs(ex, stop_exc)
             else:
                 self.fail(f'{stop_exc} was suppressed')
-"
+"#
         )
     }
 
     #[test]
     fn test_bare_function_annotations_check_attribute_and_subscript_expressions() {
         assert_dis_snapshot!(
-            "
+            r#"
 def f(one: int):
     int.new_attr: int
     [list][0].new_attr: [int, str]
     my_lst = [1]
     my_lst[one]: int
     return my_lst
-"
+"#
         )
     }
 }

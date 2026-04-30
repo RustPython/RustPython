@@ -1,19 +1,19 @@
 ---
 source: crates/stdlib/src/_opcode.rs
-expression: "\"\ndef f(one: int):\n    int.new_attr: int\n    [list][0].new_attr: [int, str]\n    my_lst = [1]\n    my_lst[one]: int\n    return my_lst\n\""
+expression: "dis(r#\"\ndef f(one: int):\n    int.new_attr: int\n    [list][0].new_attr: [int, str]\n    my_lst = [1]\n    my_lst[one]: int\n    return my_lst\n\"#)"
 ---
   0           RESUME                   0
 
-  1           LOAD_CONST               0 (<code object __annotate__ at 0xdeadbeef file "<embedded>", line 1>)
+  1           LOAD_CONST               0 (<code object __annotate__ at 0xdeadbeef file "<?>", line 1>)
               MAKE_FUNCTION
-              LOAD_CONST               1 (<code object f at 0xdeadbeef file "<embedded>", line 1>)
+              LOAD_CONST               1 (<code object f at 0xdeadbeef file "<?>", line 1>)
               MAKE_FUNCTION
               SET_FUNCTION_ATTRIBUTE  16 (annotate)
               STORE_NAME               0 (f)
               LOAD_CONST               2 (None)
               RETURN_VALUE
 
-Disassembly of <code object __annotate__ at 0xdeadbeef file "<embedded>", line 1>:
+Disassembly of <code object __annotate__ at 0xdeadbeef file "<?>", line 1>:
   1           RESUME                   0
               LOAD_FAST_BORROW         0 (format)
               LOAD_SMALL_INT           2
@@ -27,7 +27,7 @@ Disassembly of <code object __annotate__ at 0xdeadbeef file "<embedded>", line 1
               BUILD_MAP                1
               RETURN_VALUE
 
-Disassembly of <code object f at 0xdeadbeef file "<embedded>", line 1>:
+Disassembly of <code object f at 0xdeadbeef file "<?>", line 1>:
   1           RESUME                   0
 
   2           LOAD_GLOBAL              0 (int)

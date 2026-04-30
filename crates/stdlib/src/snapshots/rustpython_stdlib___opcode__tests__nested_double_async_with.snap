@@ -1,16 +1,16 @@
 ---
 source: crates/stdlib/src/_opcode.rs
-expression: "\"\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\""
+expression: "dis(r#\"\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\"#)"
 ---
   0           RESUME                   0
 
-  1           LOAD_CONST               0 (<code object test at 0xdeadbeef file "<embedded>", line 1>)
+  1           LOAD_CONST               0 (<code object test at 0xdeadbeef file "<?>", line 1>)
               MAKE_FUNCTION
               STORE_NAME               0 (test)
               LOAD_CONST               1 (None)
               RETURN_VALUE
 
-Disassembly of <code object test at 0xdeadbeef file "<embedded>", line 1>:
+Disassembly of <code object test at 0xdeadbeef file "<?>", line 1>:
    1            RETURN_GENERATOR
                 POP_TOP
                 RESUME                   0
