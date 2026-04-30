@@ -18,8 +18,6 @@ try:
 except ImportError:
     _pylong = None
 
-
-
 try:
     import _decimal
 except ImportError:
