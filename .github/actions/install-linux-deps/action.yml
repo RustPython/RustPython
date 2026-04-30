@@ -33,6 +33,10 @@ inputs:
     description: Install clang (clang)
     required: false
     default: "false"
+  tk:
+    description: Install tk-dev
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
@@ -47,3 +51,4 @@ runs:
         ${{ fromJSON(inputs.musl-tools) && 'musl-tools' || '' }}
         ${{ fromJSON(inputs.clang) && 'clang' || '' }}
         ${{ fromJSON(inputs.gcc-aarch64-linux-gnu) && 'gcc-aarch64-linux-gnu linux-libc-dev-arm64-cross libc6-dev-arm64-cross' || '' }}
+        ${{ fromJSON(inputs.tk) && 'tk-dev' || '' }}

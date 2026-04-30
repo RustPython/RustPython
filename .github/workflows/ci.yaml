@@ -399,6 +399,11 @@ jobs:
             ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
             ${{ runner.os }}-stable--
 
+      - name: Install dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          tk: true
+
       - name: Clippy
         run: |
           cargo clippy \
