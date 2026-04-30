@@ -2040,7 +2040,7 @@ impl VirtualMachine {
     }
 
     /// Push a new exc_info slot (for generator/coroutine resume).
-    pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
+    pub fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
         self.exceptions.borrow_mut().stack.push(exc);
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
@@ -2081,6 +2081,19 @@ impl VirtualMachine {
         }
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
+    }
+
+    pub fn take_raised_exception(&self) -> Option<PyBaseExceptionRef> {
+        let mut excs = self.exceptions.borrow_mut();
+        if let Some(top) = excs.stack.last_mut() {
+            let exc = top.take();
+            drop(excs);
+            #[cfg(feature = "threading")]
+            thread::update_thread_exception(self.topmost_exception());
+            exc
+        } else {
+            None
+        }
     }
 
     pub(crate) fn contextualize_exception(&self, exception: &Py<PyBaseException>) {
