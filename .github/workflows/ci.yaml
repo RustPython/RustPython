@@ -534,7 +534,7 @@ jobs:
         # don't restore on main or release
         if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release'
         with:
-          path: ${{ steps.npm-cache-dir-path.outputs.dir }}
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
           key: node-${{ runner.os }}-wasm-demo-
           restore-keys: |
             node-${{ runner.os }}-wasm-demo-
@@ -587,7 +587,7 @@ jobs:
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ${{ steps.npm-cache-dir-path.outputs.dir }}
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
           key: node-${{ runner.os }}-wasm-demo-${{ hashFiles('wasm/demo/package-lock.json') }}
 
   wasm-wasi:
