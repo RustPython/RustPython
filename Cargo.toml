@@ -258,6 +258,8 @@ inefficient_to_string = "warn"
 redundant_clone = "warn"
 debug_assert_with_mut_call = "warn"
 unused_peekable = "warn"
+manual_is_variant_and = "warn"
+or_fun_call = "warn"
 
 perf = "warn"
 style = "warn"

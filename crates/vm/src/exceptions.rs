@@ -1960,7 +1960,11 @@ pub(super) mod types {
 
             // args are truncated to 2 for compatibility (only when 2-5 args and filename is not None)
             // truncation happens inside "if (filename && filename != Py_None)" block
-            let has_filename = exc.filename.to_owned().filter(|f| !vm.is_none(f)).is_some();
+            let has_filename = exc
+                .filename
+                .to_owned()
+                .as_ref()
+                .is_some_and(|f| !vm.is_none(f));
             if (3..=5).contains(&len) && has_filename {
                 new_args.args.truncate(2);
             }
