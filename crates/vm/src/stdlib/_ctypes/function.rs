@@ -2108,12 +2108,12 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                     *(result as *mut u32) = i.as_bigint().to_u32().unwrap_or(0);
                 }
             }
-            Some("l") | Some("q") => {
+            Some("l" | "q") => {
                 if let Ok(i) = obj.try_int(vm) {
                     *(result as *mut i64) = i.as_bigint().to_i64().unwrap_or(0);
                 }
             }
-            Some("L") | Some("Q") => {
+            Some("L" | "Q") => {
                 if let Ok(i) = obj.try_int(vm) {
                     *(result as *mut u64) = i.as_bigint().to_u64().unwrap_or(0);
                 }
@@ -2128,7 +2128,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                     *(result as *mut f64) = f.to_f64();
                 }
             }
-            Some("P") | Some("z") | Some("Z") => {
+            Some("P" | "z" | "Z") => {
                 if let Ok(i) = obj.try_int(vm) {
                     *(result as *mut usize) = i.as_bigint().to_usize().unwrap_or(0);
                 }

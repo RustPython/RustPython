@@ -14487,8 +14487,8 @@ def outer():
         assert!(
             matches!(
                 ops.get(cleanup_idx + 1),
-                Some(Instruction::JumpBackwardNoInterrupt { .. })
-                    | Some(Instruction::JumpForward { .. })
+                Some(Instruction::JumpBackwardNoInterrupt { .. } | Instruction::JumpForward {
+.. })
             ),
             "expected CLEANUP_THROW to jump to shared END_SEND block, got ops={ops:?}"
         );
@@ -14533,7 +14533,7 @@ def f():
         assert!(
             matches!(
                 ops.get(first_pop_except + 1),
-                Some(Instruction::LoadSmallInt { .. }) | Some(Instruction::LoadConst { .. })
+                Some(Instruction::LoadSmallInt { .. } | Instruction::LoadConst { .. })
             ),
             "expected line-after-except code immediately after POP_EXCEPT, got ops={ops:?}"
         );
@@ -16145,8 +16145,8 @@ _pathseps_with_colon = {f':{s}' for s in path_separators}
         assert!(
             !ops.windows(2).any(|window| matches!(
                 window,
-                [Instruction::LoadFast { .. }, Instruction::GetIter]
-                    | [Instruction::LoadFastCheck { .. }, Instruction::GetIter]
+                [Instruction::LoadFast { .. } | Instruction::LoadFastCheck { .. },
+Instruction::GetIter]
             )),
             "module local outer iterable should not become a fast local, got ops={ops:?}"
         );

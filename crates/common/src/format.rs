@@ -490,7 +490,7 @@ impl FormatSpec {
     pub fn is_decimal_int_format(&self) -> bool {
         matches!(
             self.format_type,
-            None | Some(FormatType::Decimal) | Some(FormatType::Number(Case::Lower))
+            None | Some(FormatType::Decimal | FormatType::Number(Case::Lower))
         )
     }
 
@@ -707,18 +707,13 @@ impl FormatSpec {
                 *case,
                 self.alternate_form,
             )),
-            Some(FormatType::Decimal)
-            | Some(FormatType::Binary)
-            | Some(FormatType::Octal)
-            | Some(FormatType::Hex(_))
-            | Some(FormatType::String)
-            | Some(FormatType::Character)
-            | Some(FormatType::Number(Case::Upper))
-            | Some(FormatType::Unknown(_)) => {
+            Some(FormatType::Decimal | FormatType::Binary | FormatType::Octal |
+FormatType::Hex(_) | FormatType::String | FormatType::Character |
+FormatType::Number(Case::Upper) | FormatType::Unknown(_)) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "float"))
             }
-            Some(FormatType::GeneralFormat(case)) | Some(FormatType::Number(case)) => {
+            Some(FormatType::GeneralFormat(case) | FormatType::Number(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
                 Ok(float::format_general(
                     precision,
@@ -835,10 +830,8 @@ impl FormatSpec {
                     Some(_) | None => Err(FormatSpecError::CodeNotInRange),
                 },
             },
-            Some(FormatType::GeneralFormat(_))
-            | Some(FormatType::FixedPoint(_))
-            | Some(FormatType::Exponent(_))
-            | Some(FormatType::Percentage) => match num.to_f64() {
+            Some(FormatType::GeneralFormat(_) | FormatType::FixedPoint(_) |
+FormatType::Exponent(_) | FormatType::Percentage) => match num.to_f64() {
                 Some(float) => return self.format_float(float),
                 _ => Err(FormatSpecError::UnableToConvert),
             },
@@ -934,15 +927,10 @@ impl FormatSpec {
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
         let magnitude_str = match &self.format_type {
-            Some(FormatType::Decimal)
-            | Some(FormatType::Binary)
-            | Some(FormatType::Octal)
-            | Some(FormatType::Hex(_))
-            | Some(FormatType::String)
-            | Some(FormatType::Character)
-            | Some(FormatType::Number(Case::Upper))
-            | Some(FormatType::Percentage)
-            | Some(FormatType::Unknown(_)) => {
+            Some(FormatType::Decimal | FormatType::Binary | FormatType::Octal |
+FormatType::Hex(_) | FormatType::String | FormatType::Character |
+FormatType::Number(Case::Upper) | FormatType::Percentage |
+FormatType::Unknown(_)) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "complex"))
             }
@@ -952,7 +940,7 @@ impl FormatSpec {
                 *case,
                 self.alternate_form,
             )),
-            Some(FormatType::GeneralFormat(case)) | Some(FormatType::Number(case)) => {
+            Some(FormatType::GeneralFormat(case) | FormatType::Number(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
                 Ok(float::format_general(
                     precision,

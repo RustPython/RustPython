@@ -675,11 +675,11 @@ impl PyCPointer {
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const u16) as i32)
                     .into()),
-                Some("i") | Some("l") => Ok(vm
+                Some("i" | "l") => Ok(vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const i32))
                     .into()),
-                Some("I") | Some("L") => Ok(vm
+                Some("I" | "L") => Ok(vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const u32))
                     .into()),
@@ -695,11 +695,11 @@ impl PyCPointer {
                     .ctx
                     .new_float(core::ptr::read_unaligned(ptr as *const f32) as f64)
                     .into()),
-                Some("d") | Some("g") => Ok(vm
+                Some("d" | "g") => Ok(vm
                     .ctx
                     .new_float(core::ptr::read_unaligned(ptr as *const f64))
                     .into()),
-                Some("P") | Some("z") | Some("Z") => Ok(vm
+                Some("P" | "z" | "Z") => Ok(vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const usize))
                     .into()),
@@ -725,19 +725,16 @@ impl PyCPointer {
 
             // Handle c_char_p (z) and c_wchar_p (Z) - store pointer address
             // Note: PyBytes/PyStr cases are handled by caller (setitem_by_index)
-            match type_code {
-                Some("z") | Some("Z") => {
-                    let ptr_val = if vm.is_none(value) {
-                        0usize
-                    } else if let Ok(int_val) = value.try_index(vm) {
-                        int_val.as_bigint().to_usize().unwrap_or(0)
-                    } else {
-                        return Err(vm.new_type_error("bytes/string or integer address expected"));
-                    };
-                    core::ptr::write_unaligned(ptr as *mut usize, ptr_val);
-                    return Ok(());
-                }
-                _ => {}
+            if let Some("z" | "Z") = type_code {
+                let ptr_val = if vm.is_none(value) {
+                    0usize
+                } else if let Ok(int_val) = value.try_index(vm) {
+                    int_val.as_bigint().to_usize().unwrap_or(0)
+                } else {
+                    return Err(vm.new_type_error("bytes/string or integer address expected"));
+                };
+                core::ptr::write_unaligned(ptr as *mut usize, ptr_val);
+                return Ok(());
             }
 
             // Try to get value as integer

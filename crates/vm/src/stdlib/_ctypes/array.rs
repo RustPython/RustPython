@@ -555,7 +555,7 @@ impl PyCArray {
         // Unsigned type codes: B (uchar), H (ushort), I (uint), L (ulong), Q (ulonglong)
         let is_unsigned = matches!(
             type_code,
-            Some("B") | Some("H") | Some("I") | Some("L") | Some("Q")
+            Some("B" | "H" | "I" | "L" | "Q")
         );
 
         match (size, is_unsigned) {
@@ -726,7 +726,7 @@ impl PyCArray {
                     .map_or(0.0, f32::from_ne_bytes);
                 Ok(vm.ctx.new_float(val as f64).into())
             }
-            Some("d") | Some("g") => {
+            Some("d" | "g") => {
                 // c_double / c_longdouble - read f64 from first 8 bytes
                 let val = buffer[offset..]
                     .first_chunk::<8>()
@@ -839,7 +839,7 @@ impl PyCArray {
                     buffer[offset..offset + 4].copy_from_slice(&f32_val.to_ne_bytes());
                 }
             }
-            Some("d") | Some("g") => {
+            Some("d" | "g") => {
                 // c_double / c_longdouble: convert int/float to f64 bytes
                 let f64_val = if let Ok(float_val) = value.try_float(vm) {
                     float_val.to_f64()
