@@ -893,6 +893,7 @@ mod _socket {
             c::$e
         };
     }
+
     #[cfg(windows)]
     macro_rules! errcode {
     ($e:ident) => {
@@ -1528,7 +1529,7 @@ mod _socket {
                         if family == -1
                             || matches!(
                                 e.raw_os_error(),
-                                Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
+                                Some(errcode!(ENOTSOCK) | errcode!(EBADF))
                             ) =>
                     {
                         core::mem::forget(sock);
