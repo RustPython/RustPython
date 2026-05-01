@@ -1,12 +1,13 @@
 import io
 import os
+import sys
 import pickle
 import subprocess
-import sys
+from test import support
+
 import unittest
 from unittest.case import _Outcome
 
-from test import support
 from test.test_unittest.support import (
     BufferedWriter,
     LoggingResult,

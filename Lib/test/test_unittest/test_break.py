@@ -1,10 +1,10 @@
 import gc
 import io
 import os
-import signal
 import sys
-import unittest
+import signal
 import weakref
+import unittest
 
 from test import support
 
