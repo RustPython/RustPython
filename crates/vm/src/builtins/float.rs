@@ -163,7 +163,12 @@ pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
         let v2 = Complex64::new(v2, 0.);
         Ok(super::complex::complex_pow(v1, v2, vm)?.to_pyobject(vm))
     } else {
-        Ok(v1.powf(v2).to_pyobject(vm))
+        let ans = v1.powf(v2);
+        if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
+            Err(vm.new_overflow_error("math range error"))
+        } else {
+            Ok(ans.to_pyobject(vm))
+        }
     }
 }
 
