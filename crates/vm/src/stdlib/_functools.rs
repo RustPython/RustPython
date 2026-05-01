@@ -4,9 +4,11 @@ pub(crate) use _functools::module_def;
 mod _functools {
     use crate::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBoundMethod, PyDict, PyGenericAlias, PyTuple, PyType, PyTypeRef},
+        builtins::{
+            PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
+        },
         common::lock::PyRwLock,
-        function::{FuncArgs, KwArgs, OptionalOption},
+        function::{FuncArgs, KwArgs, OptionalOption, PySetterValue},
         object::AsObject,
         protocol::PyIter,
         pyclass,
@@ -156,6 +158,23 @@ mod _functools {
         #[pygetset]
         fn keywords(&self) -> PyRef<PyDict> {
             self.inner.read().keywords.clone()
+        }
+
+        #[pygetset]
+        fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
+            zelf.as_object()
+                .instance_dict()
+                .map(|d| d.get_or_insert(vm))
+                .unwrap_or_else(|| vm.ctx.new_dict())
+        }
+
+        #[pygetset(setter)]
+        fn set___dict__(
+            zelf: &Py<Self>,
+            value: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            object::object_generic_set_dict(zelf.as_object().to_owned(), value, vm)
         }
 
         #[pymethod]

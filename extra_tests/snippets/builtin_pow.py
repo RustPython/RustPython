@@ -22,6 +22,40 @@ assert_raises(TypeError, pow, 2.0, 4, 5)
 assert pow(2, -1, 5) == 3
 assert_raises(ValueError, pow, 2, 2, 0)
 
+assert_raises(OverflowError, pow, -2, 2000.5)
+assert_raises(OverflowError, pow, -2.0, 2000.5)
+assert_raises(OverflowError, complex(-2).__pow__, complex(2000.5))
+
+# float pow overflow (positive base or negative^integer) — finite inputs
+# producing a result outside f64 range must raise OverflowError, not silently
+# return inf.
+assert_raises(OverflowError, pow, 2.0, 2000)
+assert_raises(OverflowError, pow, 2.0, 2000.0)
+assert_raises(OverflowError, pow, 10.0, 400)
+assert_raises(OverflowError, pow, 1.5, 10000)
+assert_raises(OverflowError, pow, -2.0, 2000)
+assert_raises(OverflowError, pow, -2.0, 2001)
+assert_raises(OverflowError, pow, 1e150, 3)
+assert_raises(OverflowError, pow, 0.5, -2000)
+
+# Intentional infinities — when an input is already inf, the result inf is
+# expected and must NOT raise OverflowError.
+import math
+
+assert pow(math.inf, 2.0) == math.inf
+assert pow(2.0, math.inf) == math.inf
+assert pow(math.inf, math.inf) == math.inf
+
+# Underflow yields exact zero (not OverflowError).
+assert pow(2.0, -2000) == 0.0
+
+# pow(1.0, anything) == 1.0 — must not trigger overflow path.
+assert pow(1.0, 1e308) == 1.0
+
+# NaN propagates without raising.
+assert math.isnan(pow(math.nan, 2.0))
+assert math.isnan(pow(2.0, math.nan))
+
 assert_raises(TypeError, pow, 1, None, 0)
 assert_raises(TypeError, pow, True, 1.5, False)
 

@@ -555,7 +555,6 @@ class FileTestCase(unittest.TestCase):
             self.assertIsInstance(f, LZMAFile)
             self.assertEqual(f.mode, "wb")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <FakePath '@test_23396_tmp챈'> != '@test_23396_tmp챈'
     def test_init_with_PathLike_filename(self):
         filename = FakePath(TESTFN)
         with TempFile(filename, COMPRESSED_XZ):
@@ -1438,7 +1437,6 @@ class OpenTestCase(unittest.TestCase):
             with lzma.open(TESTFN, "rb") as f:
                 self.assertEqual(f.read(), INPUT * 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <FakePath '@test_23396_tmp챈'> != '@test_23396_tmp챈'
     def test_with_pathlike_filename(self):
         filename = FakePath(TESTFN)
         with TempFile(filename):

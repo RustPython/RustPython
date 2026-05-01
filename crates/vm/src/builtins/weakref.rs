@@ -6,7 +6,7 @@ use crate::common::{
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::{FuncArgs, OptionalArg},
+    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     types::{
         Callable, Comparable, Constructor, Hashable, Initializer, PyComparisonOp, Representable,
     },
@@ -127,15 +127,22 @@ impl Comparable for PyWeak {
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
-    ) -> PyResult<crate::function::PyComparisonValue> {
+    ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
             let both = zelf.upgrade().and_then(|s| other.upgrade().map(|o| (s, o)));
-            let eq = match both {
-                Some((a, b)) => vm.bool_eq(&a, &b)?,
-                None => zelf.is(other),
-            };
-            Ok(eq.into())
+            match both {
+                // CPython parity (Objects/weakref.c::weakref_richcompare): use
+                // PyObject_RichCompare on the referents, not the bool variant,
+                // so referent __eq__ runs even when referents share identity.
+                Some((a, b)) => {
+                    let res = a.rich_compare(b, PyComparisonOp::Eq, vm)?;
+                    PyArithmeticValue::from_object(vm, res)
+                        .map(|obj| obj.try_to_bool(vm))
+                        .transpose()
+                }
+                None => Ok(zelf.is(other).into()),
+            }
         })
     }
 }

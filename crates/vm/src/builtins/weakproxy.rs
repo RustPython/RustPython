@@ -4,7 +4,7 @@ use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
-    function::{OptionalArg, PyComparisonValue, PySetterValue},
+    function::{OptionalArg, PyArithmeticValue, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
@@ -301,9 +301,12 @@ impl Comparable for PyWeakProxy {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         let obj = zelf.try_upgrade(vm)?;
-        Ok(PyComparisonValue::Implemented(
-            obj.rich_compare_bool(other, op, vm)?,
-        ))
+        // CPython parity (Objects/weakref.c::proxy_richcompare): delegate to
+        // PyObject_RichCompare on the referent, not the bool variant.
+        let res = obj.rich_compare(other.to_owned(), op, vm)?;
+        PyArithmeticValue::from_object(vm, res)
+            .map(|o| o.try_to_bool(vm))
+            .transpose()
     }
 }
 

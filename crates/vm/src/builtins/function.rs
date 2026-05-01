@@ -3,7 +3,7 @@ mod jit;
 
 use super::{
     PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef, PyTuple,
-    PyTupleRef, PyType,
+    PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -952,6 +952,16 @@ impl PyFunction {
             }
         }
         Ok(())
+    }
+
+    #[pygetset]
+    fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        object::object_get_dict(zelf.as_object().to_owned(), vm)
+    }
+
+    #[pygetset(setter)]
+    fn set___dict__(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        object::object_generic_set_dict(zelf.as_object().to_owned(), value, vm)
     }
 
     #[pygetset]

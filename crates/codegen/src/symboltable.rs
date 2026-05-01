@@ -1768,7 +1768,7 @@ impl SymbolTableBuilder {
             }) => {
                 let Some(name_expr) = name.as_name_expr() else {
                     return Err(SymbolTableError {
-                        error: "type alias expect name".to_owned(),
+                        error: "type alias expects name".to_owned(),
                         location: Some(
                             self.source_file
                                 .to_source_code()

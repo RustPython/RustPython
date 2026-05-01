@@ -1,4 +1,4 @@
-from functools import reduce
+from functools import partial, reduce
 
 from testutils import assert_raises
 
@@ -90,3 +90,10 @@ assert reduce(add, SequenceClass(1), 42) == 42
 
 d = {"one": 1, "two": 2, "three": 3}
 assert reduce(add, d) == "".join(d.keys())
+
+p = partial(add)
+try:
+    del p.__dict__
+    assert False, "TypeError expected for partial dict deletion"
+except TypeError:
+    pass
