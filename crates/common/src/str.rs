@@ -415,9 +415,7 @@ pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
         bytes.to_vec()
     } else {
         let (sign, s) = match bytes.first() {
-            Some(_sign @ (b'+' | b'-')) => {
-                (unsafe { bytes.get_unchecked(..1) }, &bytes[1..])
-            }
+            Some(_sign @ (b'+' | b'-')) => (unsafe { bytes.get_unchecked(..1) }, &bytes[1..]),
             _ => (&b""[..], bytes),
         };
         let mut filled = Vec::new();

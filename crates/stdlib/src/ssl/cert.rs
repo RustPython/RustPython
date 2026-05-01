@@ -929,8 +929,10 @@ impl ServerCertVerifier for HostnameIgnoringVerifier {
                 // Check if the error is a hostname mismatch
                 // If so, ignore it (that's the whole point of HostnameIgnoringVerifier)
                 match e {
-                    rustls::Error::InvalidCertificate(rustls::CertificateError::NotValidForName |
-rustls::CertificateError::NotValidForNameContext { .. }) => {
+                    rustls::Error::InvalidCertificate(
+                        rustls::CertificateError::NotValidForName
+                        | rustls::CertificateError::NotValidForNameContext { .. },
+                    ) => {
                         // Hostname mismatch - this is expected and acceptable
                         // The certificate chain, trust anchor, and expiry are valid
                         Ok(ServerCertVerified::assertion())

@@ -553,10 +553,7 @@ impl PyCArray {
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         // Unsigned type codes: B (uchar), H (ushort), I (uint), L (ulong), Q (ulonglong)
-        let is_unsigned = matches!(
-            type_code,
-            Some("B" | "H" | "I" | "L" | "Q")
-        );
+        let is_unsigned = matches!(type_code, Some("B" | "H" | "I" | "L" | "Q"));
 
         match (size, is_unsigned) {
             (1, false) => vm.ctx.new_int(bytes[0] as i8).into(),

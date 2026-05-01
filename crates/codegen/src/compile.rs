@@ -14487,8 +14487,7 @@ def outer():
         assert!(
             matches!(
                 ops.get(cleanup_idx + 1),
-                Some(Instruction::JumpBackwardNoInterrupt { .. } | Instruction::JumpForward {
-.. })
+                Some(Instruction::JumpBackwardNoInterrupt { .. } | Instruction::JumpForward { .. })
             ),
             "expected CLEANUP_THROW to jump to shared END_SEND block, got ops={ops:?}"
         );
@@ -16145,8 +16144,10 @@ _pathseps_with_colon = {f':{s}' for s in path_separators}
         assert!(
             !ops.windows(2).any(|window| matches!(
                 window,
-                [Instruction::LoadFast { .. } | Instruction::LoadFastCheck { .. },
-Instruction::GetIter]
+                [
+                    Instruction::LoadFast { .. } | Instruction::LoadFastCheck { .. },
+                    Instruction::GetIter
+                ]
             )),
             "module local outer iterable should not become a fast local, got ops={ops:?}"
         );

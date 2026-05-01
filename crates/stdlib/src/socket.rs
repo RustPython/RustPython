@@ -1555,10 +1555,7 @@ mod _socket {
                     Ok(addr) if family == -1 => family = addr.family() as i32,
                     Err(e)
                         if family == -1
-                            || matches!(
-                                e.raw_os_error(),
-                                Some(c::ENOTSOCK | c::EBADF)
-                            ) =>
+                            || matches!(e.raw_os_error(), Some(c::ENOTSOCK | c::EBADF)) =>
                     {
                         core::mem::forget(sock);
                         return Err(e.into());

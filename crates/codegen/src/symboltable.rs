@@ -1410,8 +1410,12 @@ impl SymbolTableBuilder {
                 let parent_scope_typ = self.tables.last().map(|t| t.typ);
                 let should_save_annotation_block = matches!(
                     parent_scope_typ,
-                    Some(CompilerScope::Class | CompilerScope::Module | CompilerScope::Function |
-CompilerScope::AsyncFunction)
+                    Some(
+                        CompilerScope::Class
+                            | CompilerScope::Module
+                            | CompilerScope::Function
+                            | CompilerScope::AsyncFunction
+                    )
                 );
                 let saved_annotation_block = if should_save_annotation_block {
                     self.tables.last_mut().unwrap().annotation_block.take()

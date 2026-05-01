@@ -2036,7 +2036,9 @@ impl CodeInfo {
                 let idx = i as usize;
                 let swap_arg = match instructions[idx].instr.real() {
                     Some(Instruction::Swap { .. }) => u32::from(instructions[idx].arg),
-                    Some(Instruction::Nop | Instruction::PopTop | Instruction::StoreFast { .. }) => {
+                    Some(
+                        Instruction::Nop | Instruction::PopTop | Instruction::StoreFast { .. },
+                    ) => {
                         i -= 1;
                         continue;
                     }
@@ -2331,8 +2333,10 @@ impl CodeInfo {
                     match (curr_instr, next_instr) {
                         // Note: StoreFast + LoadFast → StoreFastLoadFast is done in a
                         // later pass aligned with CPython insert_superinstructions().
-                        (Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
-Instruction::ToBool) => {
+                        (
+                            Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
+                            Instruction::ToBool,
+                        ) => {
                             if let Some(value) =
                                 const_truthiness(curr_instr, curr.arg, &self.metadata)
                             {
@@ -2354,10 +2358,10 @@ Instruction::ToBool) => {
                             curr_instr,
                             OpArg::new(u32::from(curr.arg) | oparg::COMPARE_OP_BOOL_MASK),
                         )),
-                        (Instruction::ContainsOp { .. } | Instruction::IsOp { .. },
-Instruction::ToBool) => {
-                            Some((curr_instr, curr.arg))
-                        }
+                        (
+                            Instruction::ContainsOp { .. } | Instruction::IsOp { .. },
+                            Instruction::ToBool,
+                        ) => Some((curr_instr, curr.arg)),
                         (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
                             let constant = &self.metadata.consts[consti.get(curr.arg).as_usize()];
                             match constant {
@@ -2433,8 +2437,10 @@ Instruction::ToBool) => {
 
                 let redundant = matches!(
                     (curr_instr, next_instr),
-                    (Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
-Instruction::PopTop)
+                    (
+                        Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
+                        Instruction::PopTop
+                    )
                 ) || matches!(curr_instr, Instruction::Copy { i } if i.get(curr.arg) == 1)
                     && matches!(next_instr, Instruction::PopTop);
 
@@ -4454,9 +4460,13 @@ Instruction::PopTop)
                 for info in block.instructions.iter().skip(current_start) {
                     match info.instr.real() {
                         Some(Instruction::ReturnValue) => return true,
-                        Some(Instruction::StoreFast { .. } | Instruction::StoreFastLoadFast { .. } |
-Instruction::StoreFastStoreFast { .. } | Instruction::DeleteFast { .. } |
-Instruction::LoadFastAndClear { .. }) => return false,
+                        Some(
+                            Instruction::StoreFast { .. }
+                            | Instruction::StoreFastLoadFast { .. }
+                            | Instruction::StoreFastStoreFast { .. }
+                            | Instruction::DeleteFast { .. }
+                            | Instruction::LoadFastAndClear { .. },
+                        ) => return false,
                         _ => {}
                     }
                 }
@@ -4608,8 +4618,10 @@ Instruction::LoadFastAndClear { .. }) => return false,
                         {
                             if matches!(
                                 extra_info.instr.real(),
-                                Some(Instruction::LoadFastBorrow { .. } |
-Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                                Some(
+                                    Instruction::LoadFastBorrow { .. }
+                                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                                )
                             ) {
                                 to_deopt.push(*extra_instr_idx);
                             }
@@ -4637,8 +4649,10 @@ Instruction::LoadFastBorrowLoadFastBorrow { .. })
                             {
                                 if matches!(
                                     tail_info.instr.real(),
-                                    Some(Instruction::LoadFastBorrow { .. } |
-Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                                    Some(
+                                        Instruction::LoadFastBorrow { .. }
+                                            | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                                    )
                                 ) {
                                     cross_block_deopts.push((tail_block_idx, tail_instr_idx));
                                 }
@@ -4901,8 +4915,9 @@ Instruction::LoadFastBorrowLoadFastBorrow { .. })
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num
-}) => {
+                    Some(
+                        Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num },
+                    ) => {
                         let var_idx = usize::from(var_num.get(info.arg));
                         if var_idx < nlocals && unsafe_mask[var_idx] {
                             info.instr = Opcode::LoadFastCheck.into();
@@ -4913,8 +4928,10 @@ Instruction::LoadFastBorrowLoadFastBorrow { .. })
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFastLoadFast { var_nums } |
-Instruction::LoadFastBorrowLoadFastBorrow { var_nums }) => {
+                    Some(
+                        Instruction::LoadFastLoadFast { var_nums }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { var_nums },
+                    ) => {
                         let packed = var_nums.get(info.arg);
                         let (idx1, idx2) = packed.indexes();
                         let idx1 = usize::from(idx1);

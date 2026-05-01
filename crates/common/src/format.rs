@@ -707,9 +707,16 @@ impl FormatSpec {
                 *case,
                 self.alternate_form,
             )),
-            Some(FormatType::Decimal | FormatType::Binary | FormatType::Octal |
-FormatType::Hex(_) | FormatType::String | FormatType::Character |
-FormatType::Number(Case::Upper) | FormatType::Unknown(_)) => {
+            Some(
+                FormatType::Decimal
+                | FormatType::Binary
+                | FormatType::Octal
+                | FormatType::Hex(_)
+                | FormatType::String
+                | FormatType::Character
+                | FormatType::Number(Case::Upper)
+                | FormatType::Unknown(_),
+            ) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "float"))
             }
@@ -830,8 +837,12 @@ FormatType::Number(Case::Upper) | FormatType::Unknown(_)) => {
                     Some(_) | None => Err(FormatSpecError::CodeNotInRange),
                 },
             },
-            Some(FormatType::GeneralFormat(_) | FormatType::FixedPoint(_) |
-FormatType::Exponent(_) | FormatType::Percentage) => match num.to_f64() {
+            Some(
+                FormatType::GeneralFormat(_)
+                | FormatType::FixedPoint(_)
+                | FormatType::Exponent(_)
+                | FormatType::Percentage,
+            ) => match num.to_f64() {
                 Some(float) => return self.format_float(float),
                 _ => Err(FormatSpecError::UnableToConvert),
             },
@@ -927,10 +938,17 @@ FormatType::Exponent(_) | FormatType::Percentage) => match num.to_f64() {
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
         let magnitude_str = match &self.format_type {
-            Some(FormatType::Decimal | FormatType::Binary | FormatType::Octal |
-FormatType::Hex(_) | FormatType::String | FormatType::Character |
-FormatType::Number(Case::Upper) | FormatType::Percentage |
-FormatType::Unknown(_)) => {
+            Some(
+                FormatType::Decimal
+                | FormatType::Binary
+                | FormatType::Octal
+                | FormatType::Hex(_)
+                | FormatType::String
+                | FormatType::Character
+                | FormatType::Number(Case::Upper)
+                | FormatType::Percentage
+                | FormatType::Unknown(_),
+            ) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "complex"))
             }
