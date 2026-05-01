@@ -2643,7 +2643,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 // = subtype_setdict
-fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+fn subtype_set_dict(obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
     let base = get_builtin_base_with_dict(obj.class(), vm);
 
     if let Some(base_type) = base {
@@ -2655,13 +2655,17 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
                 .descr_set
                 .load()
                 .ok_or_else(|| raise_dict_descriptor_error(&obj, vm))?;
-            descr_set(&descr, obj, PySetterValue::Assign(value), vm)
+            descr_set(&descr, obj, value, vm)
         } else {
             Err(raise_dict_descriptor_error(&obj, vm))
         }
     } else {
-        // PyObject_GenericSetDict
-        object::object_set_dict(obj, value.try_into_value(vm)?, vm)?;
+        // _PyObject_SetDict
+        let value = match value {
+            PySetterValue::Assign(obj) => PySetterValue::Assign(obj.try_into_value(vm)?),
+            PySetterValue::Delete => PySetterValue::Delete,
+        };
+        object::object_set_dict(obj, value, vm)?;
         Ok(())
     }
 }
