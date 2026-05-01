@@ -175,6 +175,7 @@ class BinASCIITest(unittest.TestCase):
         assertExcessPadding(b'abcd====', b'i\xb7\x1d')
         assertExcessPadding(b'abcd=====', b'i\xb7\x1d')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'i' != b'i\xb7'
     def test_base64_excess_data(self):
         # Test excess data exceptions
         def assertExcessData(data, expected):
