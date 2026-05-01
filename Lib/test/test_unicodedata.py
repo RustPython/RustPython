@@ -94,7 +94,6 @@ class UnicodeFunctionsTest(unittest.TestCase):
                         if quicktest else
                         '46ca89d9fe34881d0be3a4a4b29f5aa8c019640c')
 
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'digit'
     def test_function_checksum(self):
         db = self.db
@@ -678,6 +677,10 @@ class Unicode_3_2_0_FunctionsTest(UnicodeFunctionsTest):
                         if quicktest else
                         'caf1a7f2f380f927461837f1901ef20683f98683')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_normalization(self):
+        return super().test_normalization()
+
     @unittest.expectedSuccess  # TODO: RUSTPYTHON
     def test_combining(self):
         return super().test_combining()
@@ -685,10 +688,6 @@ class Unicode_3_2_0_FunctionsTest(UnicodeFunctionsTest):
     @unittest.expectedSuccess  # TODO: RUSTPYTHON
     def test_name(self):
         return super().test_name()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_normalization(self):
-        return super().test_normalization()
 
 
 class UnicodeMiscTest(unittest.TestCase):
@@ -827,7 +826,7 @@ class NormalizationTest(unittest.TestCase):
         with testdata:
             self.run_normalization_tests(testdata, unicodedata)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : 2F868;2136A;2136A;2136A;2136A;
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : 2F868;2136A;2136A;2136A;2136A
     @requires_resource('cpu')
     def test_normalization_3_2_0(self):
         testdatafile = findfile('NormalizationTest-3.2.0.txt')
