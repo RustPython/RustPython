@@ -1584,10 +1584,7 @@ fn check_hresult(hresult: i32, zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> Py
             .new_str(format!("HRESULT: 0x{:08X}", hresult as u32))
             .into();
         let details: PyObjectRef = vm.ctx.none();
-        let exc = vm.invoke_exception(
-            com_error_type.to_owned(),
-            vec![text.clone(), details.clone()],
-        )?;
+        let exc = vm.invoke_exception(com_error_type, vec![text.clone(), details.clone()])?;
         let _ = exc.as_object().set_attr("hresult", hresult_obj, vm);
         let _ = exc.as_object().set_attr("text", text, vm);
         let _ = exc.as_object().set_attr("details", details, vm);

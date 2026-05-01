@@ -427,7 +427,7 @@ pub(crate) mod _ctypes {
             let details = details.unwrap_or_else(|| vm.ctx.none());
 
             // Set instance attributes
-            zelf.set_attr("hresult", hresult.clone(), vm)?;
+            zelf.set_attr("hresult", hresult, vm)?;
             zelf.set_attr("text", text.clone(), vm)?;
             zelf.set_attr("details", details.clone(), vm)?;
 
