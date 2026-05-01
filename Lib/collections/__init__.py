@@ -16,8 +16,24 @@ list, set, and tuple.
 
 __all__ = [
     'ChainMap',
+    'Collection',
+    'Container',
     'Counter',
+    'Callable',
+    'Iterable',
+    'Iterator',
+    'ItemsView',
+    'KeysView',
     'OrderedDict',
+    'Mapping',
+    'MappingView',
+    'MutableMapping',
+    'MutableSet',
+    'Reversible',
+    'Sequence',
+    'Set',
+    'Sized',
+    'ValuesView',
     'UserDict',
     'UserList',
     'UserString',
@@ -31,6 +47,25 @@ import sys as _sys
 
 _sys.modules['collections.abc'] = _collections_abc
 abc = _collections_abc
+
+# Compatibility aliases for packages which still import ABCs from
+# `collections` instead of `collections.abc`.
+Collection = _collections_abc.Collection
+Container = _collections_abc.Container
+Callable = _collections_abc.Callable
+Iterable = _collections_abc.Iterable
+Iterator = _collections_abc.Iterator
+ItemsView = _collections_abc.ItemsView
+KeysView = _collections_abc.KeysView
+Mapping = _collections_abc.Mapping
+MappingView = _collections_abc.MappingView
+MutableMapping = _collections_abc.MutableMapping
+MutableSet = _collections_abc.MutableSet
+Reversible = _collections_abc.Reversible
+Sequence = _collections_abc.Sequence
+Set = _collections_abc.Set
+Sized = _collections_abc.Sized
+ValuesView = _collections_abc.ValuesView
 
 from itertools import chain as _chain
 from itertools import repeat as _repeat

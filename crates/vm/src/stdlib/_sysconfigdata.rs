@@ -4,7 +4,7 @@ pub(crate) use _sysconfigdata::module_def;
 
 #[pymodule]
 mod _sysconfigdata {
-    use crate::stdlib::sys::{RUST_MULTIARCH, multiarch, sysconfigdata_name};
+    use crate::stdlib::sys::{RUST_MULTIARCH, cpython_ext_platform_tag, multiarch, sysconfigdata_name};
     use crate::{
         Py, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyModule},
@@ -43,8 +43,13 @@ mod _sysconfigdata {
             }};
         }
         sysvars! {
-            // Extension module suffix in CPython-compatible format
-            "EXT_SUFFIX" => format!(".rustpython313-{multiarch}.so"),
+            // Prefer the CPython-compatible suffix that PyO3 tooling emits.
+            "EXT_SUFFIX" => format!(
+                ".cpython-{}{}-{}.so",
+                crate::version::MAJOR,
+                crate::version::MINOR,
+                cpython_ext_platform_tag()
+            ),
             "MULTIARCH" => multiarch.clone(),
             "RUST_MULTIARCH" => RUST_MULTIARCH,
             // enough for tests to stop expecting urandom() to fail after restricting file resources

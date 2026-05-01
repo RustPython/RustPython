@@ -165,12 +165,17 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 #[pymodule(with(lock))]
 mod _imp {
     use crate::{
+        AsObject,
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
+        builtins::{
+            PyBaseException, PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef,
+        },
         convert::TryFromBorrowedObject,
         function::OptionalArg,
         import, version,
     };
+    use alloc::ffi::CString;
+    use core::ffi::c_int;
 
     #[pyattr]
     fn check_hash_based_pycs(vm: &VirtualMachine) -> PyStrRef {
@@ -182,8 +187,18 @@ mod _imp {
     use version::PYC_MAGIC_NUMBER_TOKEN;
 
     #[pyfunction]
-    const fn extension_suffixes() -> PyResult<Vec<PyObjectRef>> {
-        Ok(Vec::new())
+    fn extension_suffixes(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let version = format!("{}{}", crate::version::MAJOR, crate::version::MINOR);
+        let rustpython_suffix = format!(".rustpython{version}-{}.so", crate::stdlib::sys::multiarch());
+        let cpython_suffix = format!(
+            ".cpython-{version}-{}.so",
+            crate::stdlib::sys::cpython_ext_platform_tag()
+        );
+        Ok(vec![
+            vm.ctx.new_str(cpython_suffix).into(),
+            vm.ctx.new_str(".abi3.so").into(),
+            vm.ctx.new_str(rustpython_suffix).into(),
+        ])
     }
 
     #[pyfunction]
@@ -240,6 +255,85 @@ mod _imp {
     fn exec_builtin(_mod: PyRef<PyModule>) -> i32 {
         // For multi-phase init modules, exec is already called in create_builtin
         0
+    }
+
+    #[pyfunction]
+    fn create_dynamic(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        type CreateDynamicFn = unsafe extern "C" fn(*mut crate::PyObject) -> *mut crate::PyObject;
+        type TakeDynamicErrorFn = unsafe extern "C" fn() -> *mut crate::PyObject;
+        let name: PyUtf8StrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
+        let symbol_name = CString::new("RustPython_CreateDynamicExtension").unwrap();
+        let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, symbol_name.as_ptr()) };
+        if symbol.is_null() {
+            return Err(vm.new_import_error(
+                "no external dynamic extension loader registered",
+                name.clone().into_wtf8(),
+            ));
+        }
+        let create_dynamic: CreateDynamicFn = unsafe { core::mem::transmute(symbol) };
+        let raw_module = unsafe { create_dynamic(spec.as_raw().cast_mut()) };
+        if raw_module.is_null() {
+            let err_symbol_name = CString::new("RustPython_TakeDynamicExtensionError").unwrap();
+            let err_symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, err_symbol_name.as_ptr()) };
+            if !err_symbol.is_null() {
+                let take_error: TakeDynamicErrorFn = unsafe { core::mem::transmute(err_symbol) };
+                let raw_err = unsafe { take_error() };
+                if !raw_err.is_null() {
+                    let err_obj = unsafe { (&*raw_err).to_owned() };
+                    if let Ok(err) =
+                        err_obj.downcast::<PyBaseException>()
+                    {
+                        return Err(err);
+                    }
+                }
+            }
+            return Err(vm
+                .take_raised_exception()
+                .or_else(|| vm.current_exception())
+                .unwrap_or_else(|| {
+                    vm.new_import_error(
+                        format!("native module create failed for {}", name.as_str()),
+                        name.clone().into_wtf8(),
+                    )
+                }));
+        }
+        Ok(unsafe { (&*raw_module).to_owned() })
+    }
+
+    #[pyfunction]
+    fn exec_dynamic(mod_: PyRef<PyModule>, vm: &VirtualMachine) -> PyResult<c_int> {
+        type ExecDynamicFn = unsafe extern "C" fn(*mut crate::PyObject) -> c_int;
+        type TakeDynamicErrorFn = unsafe extern "C" fn() -> *mut crate::PyObject;
+        let symbol_name = CString::new("RustPython_ExecDynamicExtension").unwrap();
+        let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, symbol_name.as_ptr()) };
+        if symbol.is_null() {
+            return Ok(0);
+        }
+        let exec_dynamic: ExecDynamicFn = unsafe { core::mem::transmute(symbol) };
+        let rc = unsafe { exec_dynamic(mod_.as_object().as_raw().cast_mut()) };
+        if rc != 0 {
+            let err_symbol_name = CString::new("RustPython_TakeDynamicExtensionError").unwrap();
+            let err_symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, err_symbol_name.as_ptr()) };
+            if !err_symbol.is_null() {
+                let take_error: TakeDynamicErrorFn = unsafe { core::mem::transmute(err_symbol) };
+                let raw_err = unsafe { take_error() };
+                if !raw_err.is_null() {
+                    if let Ok(err) =
+                        unsafe { (&*raw_err).to_owned() }.downcast::<PyBaseException>()
+                    {
+                        return Err(err);
+                    }
+                }
+            }
+            if let Some(err) = vm.take_raised_exception().or_else(|| vm.current_exception()) {
+                return Err(err);
+            }
+            return Err(vm.new_import_error(
+                "native module exec failed",
+                vm.ctx.new_utf8_str("<extension>"),
+            ));
+        }
+        Ok(0)
     }
 
     #[pyfunction]
