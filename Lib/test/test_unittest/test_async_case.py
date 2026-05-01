@@ -1,7 +1,6 @@
 import asyncio
 import contextvars
 import unittest
-
 from test import support
 from test.support import force_not_colorized
 
@@ -297,7 +296,7 @@ class TestAsyncCase(unittest.TestCase):
         test.doCleanups()
         self.assertEqual(events, ['asyncSetUp', 'test', 'asyncTearDown', 'cleanup2', 'cleanup1'])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_deprecation_of_return_val_from_test(self):
         # Issue 41322 - deprecate return of value that is not None from a test
         class Nothing:

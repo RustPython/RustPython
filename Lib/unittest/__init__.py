@@ -53,30 +53,15 @@ __all__ = ['TestResult', 'TestCase', 'IsolatedAsyncioTestCase', 'TestSuite',
 
 __unittest = True
 
-from .case import (
-    FunctionTestCase,
-    SkipTest,
-    TestCase,
-    addModuleCleanup,
-    doModuleCleanups,
-    enterModuleContext,
-    expectedFailure,
-    skip,
-    skipIf,
-    skipUnless,
-)
+from .result import TestResult
+from .case import (addModuleCleanup, TestCase, FunctionTestCase, SkipTest, skip,
+                   skipIf, skipUnless, expectedFailure, doModuleCleanups,
+                   enterModuleContext)
+from .suite import BaseTestSuite, TestSuite  # noqa: F401
 from .loader import TestLoader, defaultTestLoader
 from .main import TestProgram, main  # noqa: F401
-from .result import TestResult
-from .runner import TextTestResult, TextTestRunner
-from .signals import (
-    installHandler,
-    registerResult,
-    removeHandler,
-    removeResult,
-)
-from .suite import BaseTestSuite, TestSuite  # noqa: F401
-
+from .runner import TextTestRunner, TextTestResult
+from .signals import installHandler, registerResult, removeResult, removeHandler
 # IsolatedAsyncioTestCase will be imported lazily.
 
 
