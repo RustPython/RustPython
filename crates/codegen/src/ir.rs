@@ -4305,11 +4305,11 @@ impl CodeInfo {
 
             let (_, next_info) = real_instrs.get(cursor)?;
 
-            match next_info.instr.real() {
-                Some(Instruction::GetIter) => Some(DeoptKind::ReturnIter {
+            match next_info.instr.real_opcode() {
+                Some(Opcode::GetIter) => Some(DeoptKind::ReturnIter {
                     tail_start_idx: cursor + 1,
                 }),
-                Some(Instruction::Call { .. } | Instruction::CallKw { .. }) => real_instrs
+                Some(Opcode::Call | Opcode::CallKw) => real_instrs
                     .get(cursor + 1)
                     .and_then(|(_, info)| info.instr.real())
                     .and_then(|instr| {
@@ -4354,18 +4354,21 @@ impl CodeInfo {
                 }
                 let block = &blocks[block_idx.idx()];
                 for info in block.instructions.iter().skip(current_start) {
-                    match info.instr.real() {
-                        Some(Instruction::ReturnValue) => return true,
-                        Some(
-                            Instruction::StoreFast { .. }
-                            | Instruction::StoreFastLoadFast { .. }
-                            | Instruction::StoreFastStoreFast { .. },
-                        )
-                        | Some(Instruction::DeleteFast { .. })
-                        | Some(Instruction::LoadFastAndClear { .. }) => return false,
+                    let Some(opcode) = info.instr.real_opcode() else {
+                        continue;
+                    };
+
+                    match opcode {
+                        Opcode::ReturnValue => return true,
+                        Opcode::StoreFast
+                        | Opcode::StoreFastLoadFast
+                        | Opcode::StoreFastStoreFast
+                        | Opcode::DeleteFast
+                        | Opcode::LoadFastAndClear => return false,
                         _ => {}
                     }
                 }
+
                 block_idx = block.next;
                 current_start = 0;
             }
@@ -4486,9 +4489,11 @@ impl CodeInfo {
                 {
                     continue;
                 }
-                if matches!(info.instr.real(), Some(Instruction::LoadFastBorrow { .. })) {
+
+                if matches!(info.instr.real_opcode(), Some(Opcode::LoadFastBorrow)) {
                     to_deopt.push(*instr_idx);
                 }
+
                 if let DeoptKind::Subscript { binary_op_idx } = deopt_kind {
                     for (extra_instr_idx, extra_info) in real_instrs
                         .iter()
@@ -4496,26 +4501,22 @@ impl CodeInfo {
                         .take(binary_op_idx.saturating_sub(real_idx + 1))
                         .map(|(idx, info)| (*idx, *info))
                     {
-                        if matches!(
-                            extra_info.instr.real(),
-                            Some(Instruction::LoadFastBorrow { .. })
-                        ) {
+                        if matches!(extra_info.instr.real_opcode(), Some(Opcode::LoadFastBorrow)) {
                             to_deopt.push(extra_instr_idx);
                         }
                     }
                     if matches!(
                         real_instrs
                             .get(binary_op_idx + 1)
-                            .and_then(|(_, info)| info.instr.real()),
-                        Some(Instruction::StoreFast { .. })
+                            .and_then(|(_, info)| info.instr.real_opcode()),
+                        Some(Opcode::StoreFast)
                     ) {
                         for (extra_instr_idx, extra_info) in
                             real_instrs.iter().skip(binary_op_idx + 2)
                         {
                             if matches!(
-                                extra_info.instr.real(),
-                                Some(Instruction::LoadFastBorrow { .. })
-                                    | Some(Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                                extra_info.instr.real_opcode(),
+                                Some(Opcode::LoadFastBorrow | Opcode::LoadFastBorrowLoadFastBorrow)
                             ) {
                                 to_deopt.push(*extra_instr_idx);
                             }
@@ -4542,9 +4543,11 @@ impl CodeInfo {
                                 .enumerate()
                             {
                                 if matches!(
-                                    tail_info.instr.real(),
-                                    Some(Instruction::LoadFastBorrow { .. })
-                                        | Some(Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                                    tail_info.instr.real_opcode(),
+                                    Some(
+                                        Opcode::LoadFastBorrow
+                                            | Opcode::LoadFastBorrowLoadFastBorrow
+                                    )
                                 ) {
                                     cross_block_deopts.push((tail_block_idx, tail_instr_idx));
                                 }
@@ -4566,17 +4569,12 @@ impl CodeInfo {
                 continue;
             };
 
-            match opcode {
-                Opcode::LoadFastBorrow => {
-                    self.blocks[block_idx.idx()].instructions[instr_idx].instr =
-                        Opcode::LoadFast.into();
-                }
-                Opcode::LoadFastBorrowLoadFastBorrow => {
-                    self.blocks[block_idx.idx()].instructions[instr_idx].instr =
-                        Opcode::LoadFastLoadFast.into();
-                }
-                _ => {}
+            self.blocks[block_idx.idx()].instructions[instr_idx].instr = match opcode {
+                Opcode::LoadFastBorrow => Opcode::LoadFast,
+                Opcode::LoadFastBorrowLoadFastBorrow => Opcode::LoadFastLoadFast,
+                _ => continue,
             }
+            .into();
         }
     }
 
