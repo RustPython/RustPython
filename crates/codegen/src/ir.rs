@@ -4460,8 +4460,8 @@ impl CodeInfo {
             let mut to_deopt = Vec::new();
             for (real_idx, (instr_idx, info)) in real_instrs.iter().enumerate() {
                 let is_attr_chain_root = matches!(
-                    info.instr.real(),
-                    Some(Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. })
+                    info.instr.real_opcode(),
+                    Some(Opcode::LoadFast | Opcode::LoadFastBorrow)
                 );
                 if info.except_handler.is_some() || !is_attr_chain_root {
                     continue;
@@ -4631,16 +4631,14 @@ impl CodeInfo {
             for (i, info) in block.instructions.iter().copied().enumerate() {
                 if !in_restore_prefix
                     && matches!(
-                        info.instr.real(),
-                        Some(
-                            Instruction::StoreFast { .. } | Instruction::StoreFastStoreFast { .. }
-                        )
+                        info.instr.real_opcode(),
+                        Some(Opcode::StoreFast | Opcode::StoreFastStoreFast)
                     )
                     && !new_instructions.is_empty()
                     && (new_instructions.iter().all(|prev: &InstructionInfo| {
                         matches!(
-                            prev.instr.real(),
-                            Some(Instruction::Swap { .. }) | Some(Instruction::PopTop)
+                            prev.instr.real_opcode(),
+                            Some(Opcode::Swap | Opcode::PopTop)
                         )
                     }) || is_cleanup_restore_prefix(&new_instructions))
                 {
@@ -4730,7 +4728,7 @@ impl CodeInfo {
                         worklist.push(target);
                     }
                 }
-                if matches!(info.instr.real(), Some(Instruction::ForIter { .. }))
+                if matches!(info.instr.real_opcode(), Some(Opcode::ForIter))
                     && info.target != BlockIdx::NULL
                     && merge_unsafe_mask(&mut in_masks[info.target.idx()], &unsafe_mask)
                 {
@@ -4828,10 +4826,11 @@ impl CodeInfo {
 
                             let mut second = info;
                             second.instr = if needs_check_2 {
-                                Opcode::LoadFastCheck.into()
+                                Opcode::LoadFastCheck
                             } else {
-                                Opcode::LoadFast.into()
-                            };
+                                Opcode::LoadFast
+                            }
+                            .into();
                             second.arg = OpArg::new(idx2 as u32);
 
                             new_instructions.push(first);
@@ -6724,7 +6723,7 @@ fn next_nonempty_block(blocks: &[Block], mut idx: BlockIdx) -> BlockIdx {
 }
 
 fn is_load_const_none(instr: &InstructionInfo, metadata: &CodeUnitMetadata) -> bool {
-    matches!(instr.instr.real(), Some(Instruction::LoadConst { .. }))
+    matches!(instr.instr.real_opcode(), Some(Opcode::LoadConst))
         && matches!(
             metadata.consts.get_index(u32::from(instr.arg) as usize),
             Some(ConstantData::None)
@@ -6873,7 +6872,7 @@ fn is_exception_cleanup_block(block: &Block) -> bool {
         && block
             .instructions
             .last()
-            .is_some_and(|instr| matches!(instr.instr.real(), Some(Instruction::Reraise { .. })))
+            .is_some_and(|instr| matches!(instr.instr.real_opcode(), Some(Opcode::Reraise)))
 }
 
 fn is_with_suppress_exit_block(block: &Block) -> bool {
@@ -6906,14 +6905,11 @@ fn block_contains_suspension_point(block: &Block) -> bool {
     block
         .instructions
         .iter()
-        .filter_map(|info| info.instr.real())
+        .filter_map(|info| info.instr.real_opcode())
         .any(|instr| {
             matches!(
                 instr,
-                Instruction::YieldValue { .. }
-                    | Instruction::GetAwaitable { .. }
-                    | Instruction::GetANext
-                    | Instruction::EndAsyncFor
+                Opcode::YieldValue | Opcode::GetAwaitable | Opcode::GetANext | Opcode::EndAsyncFor
             )
         })
 }
@@ -7078,8 +7074,8 @@ fn reorder_conditional_exit_and_jump_blocks(blocks: &mut [Block]) {
             continue;
         }
         if !matches!(
-            blocks[jump_block.idx()].instructions[0].instr.real(),
-            Some(Instruction::JumpForward { .. })
+            blocks[jump_block.idx()].instructions[0].instr.real_opcode(),
+            Some(Opcode::JumpForward)
         ) {
             current = next;
             continue;
@@ -7146,10 +7142,7 @@ fn reorder_conditional_jump_and_exit_blocks(blocks: &mut [Block]) {
             continue;
         }
         let jump_instr = blocks[jump_block.idx()].instructions[0];
-        if !matches!(
-            jump_instr.instr.real(),
-            Some(Instruction::JumpForward { .. })
-        ) {
+        if !matches!(jump_instr.instr.real_opcode(), Some(Opcode::JumpForward)) {
             current = next;
             continue;
         }
@@ -7262,7 +7255,7 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
                 blocks,
             );
         let allow_true_path_jump_back_reorder =
-            matches!(last.instr.real(), Some(Instruction::PopJumpIfTrue { .. }))
+            matches!(last.instr.real_opcode(), Some(Opcode::PopJumpIfTrue))
                 && (chain_has_suspension_point
                     || chain_starts_with_false_path_jump
                     || chain_is_single_exit_block
@@ -7398,7 +7391,7 @@ fn reorder_jump_over_exception_cleanup_blocks(blocks: &mut [Block]) {
             current = next;
             continue;
         };
-        if !matches!(last.instr.real(), Some(Instruction::JumpForward { .. }))
+        if !matches!(last.instr.real_opcode(), Some(Opcode::JumpForward))
             || last.target == BlockIdx::NULL
         {
             current = next;
@@ -7908,15 +7901,9 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
     let last_insts = &blocks[last_block.idx()].instructions;
     // Only apply when the last block is EXACTLY a return-None epilogue.
     let is_return_block = last_insts.len() == 2
-        && matches!(
-            last_insts[0].instr,
-            AnyInstruction::Real(Instruction::LoadConst { .. })
-        )
+        && matches!(last_insts[0].instr.real_opcode(), Some(Opcode::LoadConst))
         && is_load_const_none(&last_insts[0], metadata)
-        && matches!(
-            last_insts[1].instr,
-            AnyInstruction::Real(Instruction::ReturnValue)
-        );
+        && matches!(last_insts[1].instr.real(), Some(Instruction::ReturnValue));
     if !is_return_block {
         return;
     }
@@ -7943,11 +7930,11 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
             let already_has_return = block.instructions.len() >= 2 && {
                 let n = block.instructions.len();
                 matches!(
-                    block.instructions[n - 2].instr,
-                    AnyInstruction::Real(Instruction::LoadConst { .. })
+                    block.instructions[n - 2].instr.real_opcode(),
+                    Some(Opcode::LoadConst)
                 ) && matches!(
-                    block.instructions[n - 1].instr,
-                    AnyInstruction::Real(Instruction::ReturnValue)
+                    block.instructions[n - 1].instr.real(),
+                    Some(Instruction::ReturnValue)
                 )
             };
             if !block.except_handler
@@ -8080,12 +8067,12 @@ fn is_named_except_cleanup_return_block(block: &Block, metadata: &CodeUnitMetada
             if matches!(pop_except.instr.real(), Some(Instruction::PopExcept))
                 && is_load_const_none(load_none1, metadata)
                 && matches!(
-                    store.instr.real(),
-                    Some(Instruction::StoreFast { .. } | Instruction::StoreName { .. })
+                    store.instr.real_opcode(),
+                    Some(Opcode::StoreFast | Opcode::StoreName )
                 )
                 && matches!(
-                    delete.instr.real(),
-                    Some(Instruction::DeleteFast { .. } | Instruction::DeleteName { .. })
+                    delete.instr.real_opcode(),
+                    Some(Opcode::DeleteFast  | Opcode::DeleteName )
                 )
                 && is_load_const_none(load_none2, metadata)
                 && matches!(ret.instr.real(), Some(Instruction::ReturnValue))
@@ -8159,8 +8146,8 @@ fn duplicate_named_except_cleanup_returns(blocks: &mut Vec<Block>, metadata: &Co
 fn is_const_return_block(block: &Block) -> bool {
     block.instructions.len() == 2
         && matches!(
-            block.instructions[0].instr.real(),
-            Some(Instruction::LoadConst { .. })
+            block.instructions[0].instr.real_opcode(),
+            Some(Opcode::LoadConst)
         )
         && matches!(
             block.instructions[1].instr.real(),
@@ -8243,11 +8230,8 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
             if is_push {
                 // Determine preserve_lasti from instruction type (push_except_block)
                 let preserve_lasti = matches!(
-                    blocks[bi].instructions[i].instr.pseudo(),
-                    Some(
-                        PseudoInstruction::SetupWith { .. }
-                            | PseudoInstruction::SetupCleanup { .. }
-                    )
+                    blocks[bi].instructions[i].instr.pseudo_opcode(),
+                    Some(PseudoOpcode::SetupWith | PseudoOpcode::SetupCleanup)
                 );
 
                 // Set preserve_lasti on handler block
