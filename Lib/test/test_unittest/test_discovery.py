@@ -1,16 +1,16 @@
 import os.path
-import pickle
+from os.path import abspath
 import re
 import sys
 import types
-import unittest
-import unittest.mock
+import pickle
 from importlib._bootstrap_external import NamespaceLoader
-from os.path import abspath
-
-import test.test_unittest
 from test import support
 from test.support import import_helper
+
+import unittest
+import unittest.mock
+import test.test_unittest
 from test.test_importlib import util as test_util
 
 
