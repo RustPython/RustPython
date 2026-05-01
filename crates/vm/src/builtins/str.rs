@@ -1053,7 +1053,7 @@ impl PyStr {
                 if previous_is_cased {
                     title.extend(c.to_lowercase());
                 } else {
-                    title.push_char(c);
+                    title.extend(c.to_titlecase());
                 }
                 previous_is_cased = true;
             } else {
@@ -2661,6 +2661,10 @@ mod tests {
             ("Greek Ωppercases ...", "greek ωppercases ..."),
             // spell-checker:disable-next-line
             ("Greek ῼitlecases ...", "greek ῳitlecases ..."),
+            // Latin Extended-B digraphs: uppercase forms map to titlecase forms
+            // (e.g. U+01F1 'DZ' -> U+01F2 'Dz', U+01C4 'DŽ' -> U+01C5 'Dž').
+            ("\u{01F2}", "\u{01F1}"),
+            ("\u{01C5}", "\u{01C4}"),
         ];
         for (title, input) in tests {
             assert_eq!(PyStr::from(input).title().as_str(), Ok(title));

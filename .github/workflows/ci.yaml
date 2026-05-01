@@ -82,9 +82,6 @@ jobs:
         env:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
-      - name: check compilation without threading
-        run: cargo check ${{ env.CARGO_ARGS }}
-
       - run: cargo doc --locked
         if: runner.os == 'Linux'
 
@@ -142,10 +139,12 @@ jobs:
           target: i686-unknown-linux-musl
           dependencies:
             musl-tools: true
+          skip_ssl: true
         - os: ubuntu-latest
           target: wasm32-wasip2
         - os: ubuntu-latest
           target: x86_64-unknown-freebsd
+          skip_ssl: true
         - os: ubuntu-latest
           target: aarch64-unknown-linux-gnu
           dependencies:
@@ -198,6 +197,20 @@ jobs:
           ndk-version: r27
           add-to-path: true
 
+      - name: Append env conf to cargo
+        if: ${{ matrix.target == 'aarch64-linux-android' }}
+        env:
+          NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          {
+            echo "[env]"
+            echo "CC_aarch64_linux_android = \"${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang\""
+
+            echo "AR_aarch64_linux_android = \"${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar\""
+
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = \"${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang\""
+          } >> .cargo/config.toml
+
       # - name: Prepare repository for redox compilation
       #   run: bash scripts/redox/uncomment-cargo.sh
       # - name: Check compilation for Redox
@@ -206,12 +219,12 @@ jobs:
       #     command: check
       #     args: --ignore-rust-version
 
-      - name: Check compilation
-        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }}
-        env:
-          CC_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-          AR_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+      - name: Check compilation with threading
+        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+
+      - name: Check compilation with ssl
+        if: ${{ !matrix.skip_ssl }}
+        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
