@@ -32,7 +32,7 @@ class UtMethod(enum.StrEnum):
         return name[0].lower() + name[1:]
 
     def has_args(self) -> bool:
-        return self != self.ExpectedFailure
+        return self not in (self.ExpectedFailure, self.ExpectedSuccess)
 
     def has_cond(self) -> bool:
         return self.endswith(("If", "Unless"))
@@ -40,6 +40,7 @@ class UtMethod(enum.StrEnum):
     ExpectedFailure = enum.auto()
     ExpectedFailureIf = enum.auto()
     ExpectedFailureIfWindows = enum.auto()
+    ExpectedSuccess = enum.auto()
     Skip = enum.auto()
     SkipIf = enum.auto()
     SkipUnless = enum.auto()

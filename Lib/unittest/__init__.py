@@ -110,3 +110,10 @@ def expectedFailureIf(condition, reason):
 def expectedFailureIfWindows(reason):
     import sys
     return expectedFailureIf(sys.platform == 'win32', reason)
+
+# XXX: RUSTPYTHON
+# For a rare case when the parent class test fails but the child pass.
+def expectedSuccess(test_item):
+    test_item.__unittest_expecting_failure__ = False
+    return test_item
+
