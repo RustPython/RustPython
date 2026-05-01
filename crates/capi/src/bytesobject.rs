@@ -5,13 +5,14 @@ use rustpython_vm::builtins::PyBytes;
 #[unsafe(no_mangle)]
 pub extern "C" fn PyBytes_FromStringAndSize(bytes: *mut c_char, len: isize) -> *mut PyObject {
     with_vm(|vm| {
-        if bytes.is_null() {
-            todo!("PyBytes_FromStringAndSize with null bytes is not yet implemented");
+        let data = if bytes.is_null() {
+            let mut data = Vec::with_capacity(len as usize);
+            unsafe { data.set_len(len as usize) };
+            data
         } else {
-            let bytes_slice =
-                unsafe { core::slice::from_raw_parts(bytes as *const u8, len as usize) };
-            vm.ctx.new_bytes(bytes_slice.to_vec())
-        }
+            unsafe { core::slice::from_raw_parts(bytes as *const u8, len as usize) }.to_vec()
+        };
+        vm.ctx.new_bytes(data)
     })
 }
 
@@ -40,6 +41,18 @@ mod tests {
     fn test_bytes() {
         Python::attach(|py| {
             let bytes = PyBytes::new(py, b"Hello, World!");
+            assert_eq!(bytes.as_bytes(), b"Hello, World!");
+        })
+    }
+
+    #[test]
+    fn test_bytes_uninit() {
+        Python::attach(|py| {
+            let bytes = PyBytes::new_with(py, 13, |data| {
+                data.copy_from_slice(b"Hello, World!");
+                Ok(())
+            })
+            .unwrap();
             assert_eq!(bytes.as_bytes(), b"Hello, World!");
         })
     }
