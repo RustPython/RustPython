@@ -2012,7 +2012,6 @@ class PatchTest(unittest.TestCase):
         self.assertEqual(dic2, origdic2)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_special_attrs(self):
         def foo(x=0):
             """TEST"""
