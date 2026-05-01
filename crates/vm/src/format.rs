@@ -58,8 +58,7 @@ unsafe fn parse_grouping(grouping: *const libc::c_char) -> Vec<u8> {
     unsafe {
         let mut ptr = grouping;
         while ![0, libc::c_char::MAX].contains(&*ptr) {
-            #[allow(clippy::unnecessary_cast, reason = "ptr is not u8 on all platforms")]
-            result.push(*ptr as u8);
+            result.push(*ptr as _);
             ptr = ptr.add(1);
         }
     }
