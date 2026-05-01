@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef, PyTuple,
-    PyTupleRef, PyType, object,
+    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr, PyStrRef,
+    PyTuple, PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -788,7 +788,17 @@ impl PyFunction {
     }
 
     #[pygetset(setter)]
-    fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) {
+    fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) -> PyResult<()> {
+        let n_free = code.freevars.len();
+        let n_closure = self.closure.as_ref().map_or(0, |c| c.len());
+        if n_closure != n_free {
+            return Err(vm.new_value_error(format!(
+                "{}() requires a code object with {} free vars, not {}",
+                self.qualname.lock(),
+                n_closure,
+                n_free,
+            )));
+        }
         #[cfg(feature = "jit")]
         let mut jit_guard = self.jitted_code.lock();
         self.code.swap_to_temporary_refs(code, vm);
@@ -797,6 +807,7 @@ impl PyFunction {
             *jit_guard = None;
         }
         self.func_version.store(0, Relaxed);
+        Ok(())
     }
 
     #[pygetset]
@@ -804,8 +815,11 @@ impl PyFunction {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
     #[pygetset(setter)]
-    fn set___defaults__(&self, defaults: Option<PyTupleRef>) {
-        self.defaults_and_kwdefaults.lock().0 = defaults;
+    fn set___defaults__(&self, defaults: PySetterValue<Option<PyTupleRef>>) {
+        self.defaults_and_kwdefaults.lock().0 = match defaults {
+            PySetterValue::Assign(d) => d,
+            PySetterValue::Delete => None,
+        };
         self.func_version.store(0, Relaxed);
     }
 
@@ -814,8 +828,11 @@ impl PyFunction {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
     #[pygetset(setter)]
-    fn set___kwdefaults__(&self, kwdefaults: Option<PyDictRef>) {
-        self.defaults_and_kwdefaults.lock().1 = kwdefaults;
+    fn set___kwdefaults__(&self, kwdefaults: PySetterValue<Option<PyDictRef>>) {
+        self.defaults_and_kwdefaults.lock().1 = match kwdefaults {
+            PySetterValue::Assign(d) => d,
+            PySetterValue::Delete => None,
+        };
         self.func_version.store(0, Relaxed);
     }
 
@@ -1307,6 +1324,39 @@ impl PyBoundMethod {
     #[pygetset]
     fn __module__(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.function.get_attr("__module__", vm).ok()
+    }
+
+    #[pymethod]
+    fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyList> {
+        let func_dir = vm.dir(Some(self.function.clone()))?;
+
+        let bound_only = [
+            "__self__",
+            "__func__",
+            "__doc__",
+            "__module__",
+            "__call__",
+            "__get__",
+            "__repr__",
+        ];
+
+        let mut seen = std::collections::HashSet::new();
+        let mut result: Vec<PyObjectRef> = Vec::new();
+
+        for item in func_dir.borrow_vec().iter() {
+            if let Ok(s) = item.clone().downcast::<PyStr>() {
+                seen.insert(s.as_wtf8().to_string());
+            }
+            result.push(item.clone());
+        }
+
+        for name in bound_only {
+            if seen.insert(name.to_owned()) {
+                result.push(vm.ctx.new_str(name).into());
+            }
+        }
+
+        Ok(PyList::from(result))
     }
 }
 

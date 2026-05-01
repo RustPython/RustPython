@@ -50,7 +50,6 @@ class FunctionPropertiesTest(FuncAttrsTest):
     def test_module(self):
         self.assertEqual(self.b.__module__, __name__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dir_includes_correct_attrs(self):
         self.b.known_attr = 7
         self.assertIn('known_attr', dir(self.b),
@@ -238,7 +237,6 @@ class FunctionPropertiesTest(FuncAttrsTest):
                 func.__type_params__ = (T,)
                 self.assertEqual(func.__type_params__, (T,))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test___code__(self):
         num_one, num_two = 7, 8
         def a(): pass
@@ -269,13 +267,11 @@ class FunctionPropertiesTest(FuncAttrsTest):
             self.fail("__code__ with different numbers of free vars should "
                       "not be possible")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_blank_func_defaults(self):
         self.assertEqual(self.b.__defaults__, None)
         del self.b.__defaults__
         self.assertEqual(self.b.__defaults__, None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_func_default_args(self):
         def first_func(a, b):
             return a+b
