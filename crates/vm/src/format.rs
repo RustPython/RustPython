@@ -57,7 +57,7 @@ unsafe fn parse_grouping(grouping: *const libc::c_char) -> Vec<u8> {
     unsafe {
         let mut ptr = grouping;
         while ![0, libc::c_char::MAX].contains(&*ptr) {
-            result.push(*ptr as u8);
+            result.push(*ptr);
             ptr = ptr.add(1);
         }
     }
