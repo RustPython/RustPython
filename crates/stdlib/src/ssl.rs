@@ -1760,7 +1760,7 @@ mod _ssl {
                 // Set filename attribute
                 let _ = exc
                     .as_object()
-                    .set_attr("filename", vm.ctx.new_str(path_str.clone()), vm);
+                    .set_attr("filename", vm.ctx.new_str(path_str), vm);
                 return Err(exc.upcast());
             }
 
@@ -2732,7 +2732,7 @@ mod _ssl {
                         "servername callback must return None or an integer, not '{}'",
                         result.class().name()
                     ));
-                    vm.run_unraisable(type_error, None, result.clone());
+                    vm.run_unraisable(type_error, None, result);
 
                     // Return SSL error with reason set to TLSV1_ALERT_INTERNAL_ERROR
                     //

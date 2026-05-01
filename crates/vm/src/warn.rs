@@ -413,7 +413,7 @@ pub(crate) fn warn_explicit(
                 let reg = if vm.is_none(&registry) {
                     get_once_registry(vm)?
                 } else {
-                    registry.clone()
+                    registry
                 };
                 update_registry(&reg, text.as_ref(), category.as_object(), false, vm)?
             }

@@ -253,9 +253,7 @@ impl PyCSimpleType {
     #[pymethod]
     fn new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
         Ok(PyObjectRef::from(
-            new_simple_type(Either::B(&cls), vm)?
-                .into_ref_with_type(vm, cls)?
-                .clone(),
+            new_simple_type(Either::B(&cls), vm)?.into_ref_with_type(vm, cls)?,
         ))
     }
 

@@ -113,7 +113,7 @@ pub(super) mod types {
             }
 
             if !modified {
-                return Ok(zelf.clone().into());
+                return Ok(zelf.into());
             }
 
             if matching.is_empty() {
@@ -216,7 +216,7 @@ pub(super) mod types {
             result.push_str(", [");
             if let Some(exceptions_obj) = zelf.get_arg(1) {
                 let iter: ArgIterable<PyObjectRef> =
-                    ArgIterable::try_from_object(vm, exceptions_obj.clone())?;
+                    ArgIterable::try_from_object(vm, exceptions_obj)?;
                 let mut first = true;
                 for exc in iter.iter(vm)? {
                     if !first {

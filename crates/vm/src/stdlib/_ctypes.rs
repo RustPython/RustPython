@@ -1027,7 +1027,7 @@ pub(crate) mod _ctypes {
         // Determine if obj is a type or an instance
         let is_type = obj.class().fast_issubclass(vm.ctx.types.type_type.as_ref());
         let cls = if is_type {
-            obj.clone()
+            obj
         } else {
             obj.class().to_owned().into()
         };

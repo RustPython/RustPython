@@ -916,7 +916,7 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
             ResolvedError::Handler(handler) => handler,
         };
         let encode_exc = ctx.error_encoding(range.clone(), reason);
-        let res = handler.call((encode_exc.clone(),), vm)?;
+        let res = handler.call((encode_exc,), vm)?;
         let tuple_err =
             || vm.new_type_error("encoding error handler must return (str/bytes, int) tuple");
         let (replace, restart) = match res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice()) {
@@ -965,7 +965,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
             }
             ResolvedError::Handler(handler) => handler,
         };
-        let decode_exc = ctx.error_decoding(byte_range.clone(), reason);
+        let decode_exc = ctx.error_decoding(byte_range, reason);
         let data_bytes: PyObjectRef = decode_exc.as_object().get_attr("object", vm)?;
         let res = handler.call((decode_exc.clone(),), vm)?;
         let new_data = decode_exc.as_object().get_attr("object", vm)?;

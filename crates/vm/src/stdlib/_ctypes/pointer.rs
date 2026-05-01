@@ -182,7 +182,6 @@ impl PyCPointerType {
 
         // 1. Validate that typ is a type
         let typ_type = typ
-            .clone()
             .downcast::<PyType>()
             .map_err(|_| vm.new_type_error("_type_ must be a type"))?;
 

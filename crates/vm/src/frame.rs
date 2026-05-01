@@ -9338,7 +9338,7 @@ impl ExecutingFrame<'_> {
         // Create super object - pass args based on has_class flag
         // When super is shadowed, has_class=false means call with 0 args
         let super_obj = if oparg.has_class() {
-            global_super.call((class.clone(), self_obj.clone()), vm)?
+            global_super.call((class, self_obj.clone()), vm)?
         } else {
             global_super.call((), vm)?
         };
@@ -9481,21 +9481,19 @@ impl ExecutingFrame<'_> {
             }
             bytecode::IntrinsicFunction1::TypeVar => {
                 let type_var: PyObjectRef =
-                    _typing::TypeVar::new(vm, arg.clone(), vm.ctx.none(), vm.ctx.none())
+                    _typing::TypeVar::new(vm, arg, vm.ctx.none(), vm.ctx.none())
                         .into_ref(&vm.ctx)
                         .into();
                 Ok(type_var)
             }
             bytecode::IntrinsicFunction1::ParamSpec => {
-                let param_spec: PyObjectRef = _typing::ParamSpec::new(arg.clone(), vm)
-                    .into_ref(&vm.ctx)
-                    .into();
+                let param_spec: PyObjectRef =
+                    _typing::ParamSpec::new(arg, vm).into_ref(&vm.ctx).into();
                 Ok(param_spec)
             }
             bytecode::IntrinsicFunction1::TypeVarTuple => {
-                let type_var_tuple: PyObjectRef = _typing::TypeVarTuple::new(arg.clone(), vm)
-                    .into_ref(&vm.ctx)
-                    .into();
+                let type_var_tuple: PyObjectRef =
+                    _typing::TypeVarTuple::new(arg, vm).into_ref(&vm.ctx).into();
                 Ok(type_var_tuple)
             }
             bytecode::IntrinsicFunction1::TypeAlias => {
@@ -9595,17 +9593,15 @@ impl ExecutingFrame<'_> {
                 Ok(arg1)
             }
             bytecode::IntrinsicFunction2::TypeVarWithBound => {
-                let type_var: PyObjectRef =
-                    _typing::TypeVar::new(vm, arg1.clone(), arg2, vm.ctx.none())
-                        .into_ref(&vm.ctx)
-                        .into();
+                let type_var: PyObjectRef = _typing::TypeVar::new(vm, arg1, arg2, vm.ctx.none())
+                    .into_ref(&vm.ctx)
+                    .into();
                 Ok(type_var)
             }
             bytecode::IntrinsicFunction2::TypeVarWithConstraint => {
-                let type_var: PyObjectRef =
-                    _typing::TypeVar::new(vm, arg1.clone(), vm.ctx.none(), arg2)
-                        .into_ref(&vm.ctx)
-                        .into();
+                let type_var: PyObjectRef = _typing::TypeVar::new(vm, arg1, vm.ctx.none(), arg2)
+                    .into_ref(&vm.ctx)
+                    .into();
                 Ok(type_var)
             }
             bytecode::IntrinsicFunction2::PrepReraiseStar => {

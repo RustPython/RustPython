@@ -200,7 +200,7 @@ impl PyFunction {
 
         let qualname = vm.ctx.new_str(code.qualname.as_str());
         let func = Self {
-            code: PyAtomicRef::from(code.clone()),
+            code: PyAtomicRef::from(code),
             globals,
             builtins,
             closure: None,
@@ -493,7 +493,6 @@ impl PyFunction {
             }
             bytecode::MakeFunctionFlag::Closure => {
                 let closure_tuple = attr_value
-                    .clone()
                     .downcast_exact::<PyTuple>(vm)
                     .map_err(|obj| {
                         vm.new_type_error(format!(
@@ -701,7 +700,7 @@ impl Py<PyFunction> {
         };
 
         let frame = Frame::new(
-            code.clone(),
+            code,
             Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),

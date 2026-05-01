@@ -56,7 +56,6 @@ pub(super) fn array_type_from_ctype(
 
     // Cache miss - create new array type
     let itemtype_ref = itemtype
-        .clone()
         .downcast::<PyType>()
         .map_err(|_| vm.new_type_error("Expected a type object"))?;
 
@@ -217,7 +216,6 @@ impl Initializer for PyCArrayType {
             if let Some(type_attr) = direct_type {
                 // Direct _type_ defined - validate it (PyStgInfo_FromType)
                 let type_ref = type_attr
-                    .clone()
                     .downcast::<PyType>()
                     .map_err(|_| vm.new_type_error("_type_ must be a type"))?;
                 let (size, align, format, shape, flags) = {

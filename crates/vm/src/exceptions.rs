@@ -1613,7 +1613,7 @@ pub(super) mod types {
             }
 
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            let base_args = FuncArgs::new(args.args, KwArgs::default());
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set attributes
@@ -1754,7 +1754,7 @@ pub(super) mod types {
             }
 
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            let base_args = FuncArgs::new(args.args, KwArgs::default());
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set name attribute if provided

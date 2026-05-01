@@ -1374,7 +1374,7 @@ impl Compiler {
         // Create the new compilation unit
         let code_info = ir::CodeInfo {
             flags,
-            source_path: source_path.clone(),
+            source_path,
             private,
             blocks: vec![ir::Block::default()],
             current_block: BlockIdx::new(0),
@@ -6718,7 +6718,7 @@ impl Compiler {
         }
 
         // Restore the original pattern context.
-        *pc = old_pc.clone();
+        *pc = old_pc;
         // Simulate Py_INCREF on pc.stores.
         pc.stores = pc.stores.clone();
         // In C, old_pc.fail_pop is set to NULL to avoid freeing it later.

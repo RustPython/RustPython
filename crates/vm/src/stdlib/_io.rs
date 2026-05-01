@@ -1348,7 +1348,7 @@ mod _io {
                 return Ok(None);
             }
             // Try to convert to int; if it fails, treat as -1 and chain the TypeError
-            let (n, type_error) = match isize::try_from_object(vm, res.clone()) {
+            let (n, type_error) = match isize::try_from_object(vm, res) {
                 Ok(n) => (n, None),
                 Err(e) => (-1, Some(e)),
             };

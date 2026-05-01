@@ -274,7 +274,7 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
         return Ok(Argument {
             ffi_type,
             keep: None,
-            value: carg.value.clone(),
+            value: carg.value,
         });
     }
 
@@ -388,7 +388,7 @@ impl ArgumentType for PyTypeRef {
         let from_param = self
             .as_object()
             .get_attr(vm.ctx.intern_str("from_param"), vm)?;
-        let converted = from_param.call((value.clone(),), vm)?;
+        let converted = from_param.call((value,), vm)?;
 
         // Then pass the converted value to ConvParam logic
         // CArgObject (from from_param) -> use stored value directly
@@ -427,7 +427,7 @@ impl ArgumentType for PyTypeRef {
         }
 
         // PyCSimple (already a ctypes instance from from_param)
-        if let Ok(simple) = converted.clone().downcast::<PyCSimple>() {
+        if let Ok(simple) = converted.downcast::<PyCSimple>() {
             let typ = ArgumentType::to_ffi_type(self, vm)?;
             let ffi_value = simple
                 .to_ffi_value(typ, vm)
@@ -493,7 +493,7 @@ impl Initializer for PyCFuncPtrType {
     type Args = FuncArgs;
 
     fn init(zelf: PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        let obj: PyObjectRef = zelf.clone().into();
+        let obj: PyObjectRef = zelf.into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
@@ -845,7 +845,7 @@ pub(super) fn cast_impl(
         // Add id(src): src to the shared dict
         if let Some(dict) = shared_objects.downcast_ref::<PyDict>() {
             let id_key: PyObjectRef = vm.ctx.new_int(src.get_id() as i64).into();
-            let _ = dict.set_item(&*id_key, src.clone(), vm);
+            let _ = dict.set_item(&*id_key, src, vm);
         }
 
         // Set result's _objects to the shared dict
