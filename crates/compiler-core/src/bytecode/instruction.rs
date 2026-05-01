@@ -1582,12 +1582,12 @@ impl AnyInstruction {
     }
 
     /// Returns true if this is a [`PseudoInstruction::PopBlock`].
-    pub const fn is_pop_block(&self) -> bool {
+    pub const fn is_pop_block(self) -> bool {
         matches!(self, Self::Pseudo(PseudoInstruction::PopBlock))
     }
 
     /// See [`PseudoInstruction::is_block_push`].
-    pub const fn is_block_push(&self) -> bool {
+    pub const fn is_block_push(self) -> bool {
         matches!(self, Self::Pseudo(p) if p.is_block_push())
     }
 }

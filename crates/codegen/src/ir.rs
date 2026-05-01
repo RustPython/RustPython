@@ -1917,17 +1917,17 @@ impl CodeInfo {
         const VISITED: i32 = -1;
 
         /// Instruction classes that are safe to reorder around SWAP.
-        fn is_swappable(instr: &AnyInstruction) -> bool {
+        const fn is_swappable(instr: AnyInstruction) -> bool {
             matches!(
-                (*instr).into(),
-                AnyOpcode::Real(Opcode::StoreFast | Opcode::PopTop)
+                instr.real_opcode(),
+                Some(Opcode::StoreFast | Opcode::PopTop)
             )
         }
 
         /// Variable index that a STORE_FAST writes to, or None.
-        fn stores_to(info: &InstructionInfo) -> Option<u32> {
-            match info.instr.into() {
-                AnyOpcode::Real(Opcode::StoreFast) => Some(u32::from(info.arg)),
+        fn stores_to(info: InstructionInfo) -> Option<u32> {
+            match info.instr.real_opcode() {
+                Some(Opcode::StoreFast) => Some(u32::from(info.arg)),
                 _ => None,
             }
         }
@@ -1942,20 +1942,26 @@ impl CodeInfo {
         ) -> Option<usize> {
             loop {
                 i += 1;
+
                 if i >= instructions.len() {
                     return None;
                 }
+
                 let info = &instructions[i];
                 let info_lineno = info.location.line.get() as i32;
+
                 if lineno >= 0 && info_lineno > 0 && info_lineno != lineno {
                     return None;
                 }
+
                 if matches!(info.instr, AnyInstruction::Real(Instruction::Nop)) {
                     continue;
                 }
-                if is_swappable(&info.instr) {
+
+                if is_swappable(info.instr) {
                     return Some(i);
                 }
+
                 return None;
             }
         }
@@ -2060,19 +2066,20 @@ impl CodeInfo {
                     k = next;
                 }
 
-                let store_j = stores_to(&instructions[j]);
-                let store_k = stores_to(&instructions[k]);
+                let store_j = stores_to(instructions[j]);
+                let store_k = stores_to(instructions[k]);
                 if store_j.is_some() || store_k.is_some() {
                     if store_j == store_k {
                         return;
                     }
-                    let conflict = instructions[(j + 1)..k].iter().any(|info| {
+                    let conflict = instructions[(j + 1)..k].iter().any(|&info| {
                         if let Some(store_idx) = stores_to(info) {
                             Some(store_idx) == store_j || Some(store_idx) == store_k
                         } else {
                             false
                         }
                     });
+
                     if conflict {
                         return;
                     }
