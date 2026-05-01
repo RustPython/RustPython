@@ -79,6 +79,8 @@ jobs:
 
       - name: run rust tests
         run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
