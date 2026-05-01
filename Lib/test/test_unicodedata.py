@@ -359,7 +359,6 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
             [0]
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + ǅ
     def test_bug_4971(self):
         # LETTER DZ WITH CARON: DZ, Dz, dz
         self.assertEqual("\u01c4".title(), "\u01c5")
