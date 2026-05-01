@@ -211,7 +211,9 @@ pub(super) mod types {
 
             let mut result = Wtf8Buf::new();
             write!(result, "{class_name}(").unwrap();
-            let message_wtf8: &Wtf8 = message.as_ref().map_or("''".as_ref(), |s| s.as_wtf8());
+            let message_wtf8: &Wtf8 = message
+                .as_ref()
+                .map_or_else(|| "''".as_ref(), |s| s.as_wtf8());
             result.push_wtf8(message_wtf8);
             result.push_str(", [");
             if let Some(exceptions_obj) = zelf.get_arg(1) {

@@ -1923,8 +1923,10 @@ pub(crate) mod _asyncio {
                 let state = zelf.base.fut_state.load().as_str().to_lowercase();
                 let name = zelf.task_name.read().as_ref().and_then(|n| n.str(vm).ok());
                 let coro_repr = zelf.task_coro.read().as_ref().and_then(|c| c.repr(vm).ok());
-                let name = name.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
-                let coro_repr = coro_repr.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
+                let name = name.as_ref().map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
+                let coro_repr = coro_repr
+                    .as_ref()
+                    .map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
                 Ok(wtf8_concat!(
                     "<", class_name, " ", state, " name='", name, "' coro=", coro_repr, ">"
                 ))

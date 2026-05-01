@@ -945,7 +945,7 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
                     .as_wtf8()
                     .code_point_indices()
                     .nth(restart)
-                    .map_or(ctx.data.byte_len(), |(i, _)| i),
+                    .map_or_else(|| ctx.data.byte_len(), |(i, _)| i),
             }
         };
         Ok((replace, restart))
@@ -1025,7 +1025,7 @@ where
     let end = StrSize {
         chars: range.end,
         bytes: if let Some(n) = range.len().checked_sub(1) {
-            iter.nth(n).map_or(s.byte_len(), |(i, _)| i)
+            iter.nth(n).map_or_else(|| s.byte_len(), |(i, _)| i)
         } else {
             start.bytes
         },
@@ -1088,7 +1088,7 @@ where
     let end = StrSize {
         chars: range.end,
         bytes: if let Some(n) = range.len().checked_sub(1) {
-            iter.nth(n).map_or(s.byte_len(), |(i, _)| i)
+            iter.nth(n).map_or_else(|| s.byte_len(), |(i, _)| i)
         } else {
             start.bytes
         },

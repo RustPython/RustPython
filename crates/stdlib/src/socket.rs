@@ -2582,7 +2582,8 @@ mod _socket {
                 return vm.ctx.new_bytes([b"\0", abstractpath].concat()).into();
             }
             // necessary on macos
-            let path = ffi::OsStr::as_bytes(addr.as_pathname().unwrap_or("".as_ref()).as_ref());
+            let path =
+                ffi::OsStr::as_bytes(addr.as_pathname().unwrap_or_else(|| "".as_ref()).as_ref());
             let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
             let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
             return vm.fsdecode(path).into();

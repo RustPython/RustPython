@@ -6581,7 +6581,7 @@ impl ExecutingFrame<'_> {
         let repr_fallback = || {
             obj.repr(vm)
                 .as_ref()
-                .map_or("?".as_ref(), |s| s.as_wtf8())
+                .map_or_else(|_| "?".as_ref(), |s| s.as_wtf8())
                 .to_owned()
         };
         let Ok(qualname) = obj.get_attr(vm.ctx.intern_str("__qualname__"), vm) else {

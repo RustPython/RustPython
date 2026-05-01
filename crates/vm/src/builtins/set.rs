@@ -514,6 +514,7 @@ fn reduce_set(
 ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
         zelf.class().to_owned(),
+        #[expect(clippy::or_fun_call, reason = "changing this won't compile")]
         vm.new_tuple((extract_set(zelf)
             .unwrap_or(&PySetInner::default())
             .elements(),)),

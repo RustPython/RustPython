@@ -2690,7 +2690,7 @@ mod _ssl {
                 .clone()
                 .ok_or_else(|| vm.new_value_error("SNI callback not set"))?;
 
-            let ssl_sock = self.owner.read().clone().unwrap_or(vm.ctx.none());
+            let ssl_sock = self.owner.read().clone().unwrap_or_else(|| vm.ctx.none());
             let server_name_py: PyObjectRef = match sni_name {
                 Some(name) => vm.ctx.new_str(name.to_string()).into(),
                 None => vm.ctx.none(),

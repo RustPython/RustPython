@@ -1328,7 +1328,9 @@ impl Representable for PyBoundMethod {
         };
         let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
         let object_repr = zelf.object.repr(vm)?;
-        let name = func_name.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
+        let name = func_name
+            .as_ref()
+            .map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
         Ok(wtf8_concat!(
             "<bound method ",
             name,

@@ -371,14 +371,14 @@ impl ArgumentType for PyTypeRef {
             .as_object()
             .get_attr(vm.ctx.intern_str("_type_"), vm)
             .ok()
-            .ok_or(vm.new_type_error("Unsupported argument type"))?;
+            .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
         let typ = typ
             .downcast_ref::<PyStr>()
-            .ok_or(vm.new_type_error("Unsupported argument type"))?;
+            .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
         let typ = typ.to_string();
         let typ = typ.as_str();
         get_ffi_type(typ)
-            .ok_or_else(|| vm.new_type_error(format!("Unsupported argument type: {}", typ)))
+            .ok_or_else(|| vm.new_type_error(format!("Unsupported argument type: {typ}")))
     }
 
     fn convert_object(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<FfiArgValue> {
@@ -422,7 +422,7 @@ impl ArgumentType for PyTypeRef {
             .and_then(|t| t.downcast_ref::<PyStr>().map(|s| s.to_string()));
 
         // For pointer types (c_void_p, c_char_p, c_wchar_p), handle as pointer
-        if matches!(type_code.as_deref(), Some("P") | Some("z") | Some("Z")) {
+        if matches!(type_code.as_deref(), Some("P" | "z" | "Z")) {
             return convert_to_pointer(&converted, vm);
         }
 
@@ -431,7 +431,7 @@ impl ArgumentType for PyTypeRef {
             let typ = ArgumentType::to_ffi_type(self, vm)?;
             let ffi_value = simple
                 .to_ffi_value(typ, vm)
-                .ok_or(vm.new_type_error("Unsupported argument type"))?;
+                .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
             return Ok(ffi_value);
         }
 
@@ -997,14 +997,14 @@ impl Constructor for PyCFuncPtr {
         if let Some(tuple) = first_arg.downcast_ref::<PyTuple>() {
             let name = tuple
                 .first()
-                .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
+                .ok_or_else(|| vm.new_type_error("Expected a tuple with at least 2 elements"))?
                 .downcast_ref::<PyStr>()
-                .ok_or(vm.new_type_error("Expected a string"))?
+                .ok_or_else(|| vm.new_type_error("Expected a string"))?
                 .to_string();
             let dll = tuple
                 .iter()
                 .nth(1)
-                .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
+                .ok_or_else(|| vm.new_type_error("Expected a tuple with at least 2 elements"))?
                 .clone();
 
             // Get library handle and load function
@@ -1022,7 +1022,7 @@ impl Constructor for PyCFuncPtr {
                 .get_lib(
                     handle
                         .to_usize()
-                        .ok_or(vm.new_value_error("Invalid handle"))?,
+                        .ok_or_else(|| vm.new_value_error("Invalid handle"))?,
                 )
                 .ok_or_else(|| vm.new_value_error("Library not found"))?;
             let inner_lib = library.lib.lock();
@@ -2269,7 +2269,7 @@ impl PyCThunk {
             .map(|ty| {
                 ty.type_code(vm)
                     .and_then(|code| get_ffi_type(&code))
-                    .unwrap_or(Type::pointer())
+                    .unwrap_or_else(Type::pointer)
             })
             .collect();
 
@@ -2277,7 +2277,7 @@ impl PyCThunk {
             .as_ref()
             .and_then(|ty| ty.type_code(vm))
             .and_then(|code| get_ffi_type(&code))
-            .unwrap_or(Type::void());
+            .unwrap_or_else(Type::void);
 
         let cif = Cif::new(ffi_arg_types, ffi_res_type);
 

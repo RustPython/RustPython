@@ -895,7 +895,7 @@ impl FormatSpec {
         if let Some(FormatAlign::AfterSign) = &self.align {
             return Err(FormatSpecError::AlignmentFlag);
         }
-        match &self.fill.unwrap_or(' '.into()).to_char() {
+        match &self.fill.unwrap_or_else(|| ' '.into()).to_char() {
             Some('0') => Err(FormatSpecError::ZeroPadding),
             _ => self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right),
         }
@@ -1014,7 +1014,7 @@ impl FormatSpec {
         let align = self.align.unwrap_or(default_align);
 
         let num_chars = magnitude_str.char_len();
-        let fill_char = self.fill.unwrap_or(' '.into());
+        let fill_char = self.fill.unwrap_or_else(|| ' '.into());
         let fill_chars_needed: i32 = self.width.map_or(0, |w| {
             cmp::max(0, (w as i32) - (num_chars as i32) - (sign_str.len() as i32))
         });

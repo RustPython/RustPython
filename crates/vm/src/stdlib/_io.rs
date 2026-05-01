@@ -1587,7 +1587,10 @@ mod _io {
                     let str_repr = e
                         .__str__(vm)
                         .as_ref()
-                        .map_or("<error getting exception str>".as_ref(), |s| s.as_wtf8())
+                        .map_or_else(
+                            |_| "<error getting exception str>".as_ref(),
+                            |s| s.as_wtf8(),
+                        )
                         .to_owned();
                     let msg = format!("{}() {}", Self::CLASS_NAME, str_repr);
                     vm.new_exception_msg(e.class().to_owned(), msg.into())
