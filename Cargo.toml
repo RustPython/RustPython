@@ -260,6 +260,7 @@ debug_assert_with_mut_call = "warn"
 unused_peekable = "warn"
 manual_is_variant_and = "warn"
 or_fun_call = "warn"
+unnested_or_patterns = "warn"
 
 perf = "warn"
 style = "warn"
