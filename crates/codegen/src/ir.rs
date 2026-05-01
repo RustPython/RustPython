@@ -1090,8 +1090,8 @@ impl CodeInfo {
     }
 
     fn get_const_value_from_dummy(info: &InstructionInfo) -> Option<()> {
-        match info.instr.real() {
-            Some(Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. }) => Some(()),
+        match info.instr.real_opcode() {
+            Some(Opcode::LoadConst | Opcode::LoadSmallInt) => Some(()),
             _ => None,
         }
     }
@@ -1490,8 +1490,9 @@ impl CodeInfo {
                         all_const = false;
                         break;
                     }
-                    match load_instr.instr.real() {
-                        Some(Instruction::LoadConst { .. }) => {
+
+                    match load_instr.instr.real_opcode() {
+                        Some(Opcode::LoadConst) => {
                             let const_idx = u32::from(load_instr.arg) as usize;
                             if let Some(constant) =
                                 self.metadata.consts.get_index(const_idx).cloned()
@@ -1502,7 +1503,7 @@ impl CodeInfo {
                                 break;
                             }
                         }
-                        Some(Instruction::LoadSmallInt { .. }) => {
+                        Some(Opcode::LoadSmallInt) => {
                             // arg is the i32 value stored as u32 (two's complement)
                             let value = u32::from(load_instr.arg) as i32;
                             elements.push(ConstantData::Integer {
@@ -2141,11 +2142,8 @@ impl CodeInfo {
             for i in 0..instructions.len().saturating_sub(1) {
                 let lhs = &instructions[i];
                 let rhs = &instructions[i + 1];
-                let preceded_by_swap = i > 0
-                    && matches!(
-                        instructions[i - 1].instr.real(),
-                        Some(Instruction::Swap { .. })
-                    );
+                let preceded_by_swap =
+                    i > 0 && matches!(instructions[i - 1].instr.real_opcode(), Some(Opcode::Swap));
                 if !matches!(lhs.instr.real_opcode(), Some(Opcode::StoreFast))
                     || !matches!(rhs.instr.real_opcode(), Some(Opcode::StoreFast))
                     || u32::from(lhs.arg) != u32::from(rhs.arg)
@@ -2962,9 +2960,13 @@ impl CodeInfo {
                     continue;
                 }
 
-                info.instr = match info.instr.real_opcode() {
-                    Some(Opcode::LoadFast) => Opcode::LoadFastBorrow,
-                    Some(Opcode::LoadFastLoadFast) => Opcode::LoadFastBorrowLoadFastBorrow,
+                let Some(opcode) = info.instr.real_opcode() else {
+                    continue;
+                };
+
+                info.instr = match opcode {
+                    Opcode::LoadFast => Opcode::LoadFastBorrow,
+                    Opcode::LoadFastLoadFast => Opcode::LoadFastBorrowLoadFastBorrow,
                     _ => continue,
                 }
                 .into();
@@ -3071,15 +3073,16 @@ impl CodeInfo {
 
         fn deoptimize_block_borrows(block: &mut Block) {
             for info in &mut block.instructions {
-                match info.instr.real_opcode() {
-                    Some(Opcode::LoadFastBorrow) => {
-                        info.instr = Opcode::LoadFast.into();
-                    }
-                    Some(Opcode::LoadFastBorrowLoadFastBorrow) => {
-                        info.instr = Opcode::LoadFastLoadFast.into();
-                    }
-                    _ => {}
+                let Some(opcode) = info.instr.real_opcode() else {
+                    continue;
+                };
+
+                info.instr = match opcode {
+                    Opcode::LoadFastBorrow => Opcode::LoadFast,
+                    Opcode::LoadFastBorrowLoadFastBorrow => Opcode::LoadFastLoadFast,
+                    _ => continue,
                 }
+                .into();
             }
         }
 
@@ -3251,15 +3254,16 @@ impl CodeInfo {
 
         fn deoptimize_block_borrows(block: &mut Block) {
             for info in &mut block.instructions {
-                match info.instr.real_opcode() {
-                    Some(Opcode::LoadFastBorrow) => {
-                        info.instr = Opcode::LoadFast.into();
-                    }
-                    Some(Opcode::LoadFastBorrowLoadFastBorrow) => {
-                        info.instr = Opcode::LoadFastLoadFast.into();
-                    }
-                    _ => {}
+                let Some(opcode) = info.instr.real_opcode() else {
+                    continue;
+                };
+
+                info.instr = match opcode {
+                    Opcode::LoadFastBorrow => Opcode::LoadFast,
+                    Opcode::LoadFastBorrowLoadFastBorrow => Opcode::LoadFastLoadFast,
+                    _ => continue,
                 }
+                .into();
             }
         }
 
@@ -3512,15 +3516,16 @@ impl CodeInfo {
 
         fn deoptimize_block_borrows(block: &mut Block) {
             for info in &mut block.instructions {
-                match info.instr.real_opcode() {
-                    Some(Opcode::LoadFastBorrow) => {
-                        info.instr = Opcode::LoadFast.into();
-                    }
-                    Some(Opcode::LoadFastBorrowLoadFastBorrow) => {
-                        info.instr = Opcode::LoadFastLoadFast.into();
-                    }
-                    _ => {}
+                let Some(opcode) = info.instr.real_opcode() else {
+                    continue;
+                };
+
+                info.instr = match opcode {
+                    Opcode::LoadFastBorrow => Opcode::LoadFast,
+                    Opcode::LoadFastBorrowLoadFastBorrow => Opcode::LoadFastLoadFast,
+                    _ => continue,
                 }
+                .into();
             }
         }
 
@@ -3666,15 +3671,17 @@ impl CodeInfo {
                 if !info.folded_from_nonliteral_expr {
                     continue;
                 }
-                match info.instr.real_opcode() {
-                    Some(Opcode::LoadFastBorrow) => {
-                        info.instr = Opcode::LoadFast.into();
-                    }
-                    Some(Opcode::LoadFastBorrowLoadFastBorrow) => {
-                        info.instr = Opcode::LoadFastLoadFast.into();
-                    }
-                    _ => {}
+
+                let Some(opcode) = info.instr.real_opcode() else {
+                    continue;
+                };
+
+                info.instr = match opcode {
+                    Opcode::LoadFastBorrow => Opcode::LoadFast,
+                    Opcode::LoadFastBorrowLoadFastBorrow => Opcode::LoadFastLoadFast,
+                    _ => continue,
                 }
+                .into();
             }
         }
     }
@@ -3710,7 +3717,7 @@ impl CodeInfo {
         fn deoptimize_block_borrows(block: &mut Block, after_import_only: bool) {
             let mut after_import = !after_import_only;
             for info in &mut block.instructions {
-                if matches!(info.instr.real(), Some(Instruction::ImportName { .. })) {
+                if matches!(info.instr.real_opcode(), Some(Opcode::ImportName)) {
                     after_import = true;
                     continue;
                 }
@@ -3719,9 +3726,13 @@ impl CodeInfo {
                     continue;
                 }
 
-                info.instr = match info.instr.real_opcode() {
-                    Some(Opcode::LoadFastBorrow) => Opcode::LoadFast,
-                    Some(Opcode::LoadFastBorrowLoadFastBorrow) => Opcode::LoadFastLoadFast,
+                let Some(opcode) = info.instr.real_opcode() else {
+                    continue;
+                };
+
+                info.instr = match opcode {
+                    Opcode::LoadFastBorrow => Opcode::LoadFast,
+                    Opcode::LoadFastBorrowLoadFastBorrow => Opcode::LoadFastLoadFast,
                     _ => continue,
                 }
                 .into();
@@ -3826,15 +3837,12 @@ impl CodeInfo {
                     continue;
                 };
 
-                match opcode {
-                    Opcode::LoadFastBorrow => {
-                        info.instr = Opcode::LoadFast.into();
-                    }
-                    Opcode::LoadFastBorrowLoadFastBorrow => {
-                        info.instr = Opcode::LoadFastLoadFast.into();
-                    }
-                    _ => {}
+                info.instr = match opcode {
+                    Opcode::LoadFastBorrow => Opcode::LoadFast,
+                    Opcode::LoadFastBorrowLoadFastBorrow => Opcode::LoadFastLoadFast,
+                    _ => continue,
                 }
+                .into();
             }
         }
 
@@ -4243,14 +4251,14 @@ impl CodeInfo {
         }
 
         fn deoptimize_borrow(info: &mut InstructionInfo) {
-            match info.instr.real_opcode() {
-                Some(Opcode::LoadFastBorrow) => {
-                    info.instr = Opcode::LoadFast.into();
-                }
-                Some(Opcode::LoadFastBorrowLoadFastBorrow) => {
-                    info.instr = Opcode::LoadFastLoadFast.into();
-                }
-                _ => {}
+            let Some(opcode) = info.instr.real_opcode() else {
+                return;
+            };
+
+            info.instr = match opcode {
+                Opcode::LoadFastBorrow => Opcode::LoadFast.into(),
+                Opcode::LoadFastBorrowLoadFastBorrow => Opcode::LoadFastLoadFast.into(),
+                _ => info.instr,
             }
         }
 
@@ -4644,12 +4652,10 @@ impl CodeInfo {
                 {
                     in_restore_prefix = true;
                 }
-                let expand = matches!(
-                    info.instr.real(),
-                    Some(Instruction::StoreFastStoreFast { .. })
-                ) && (is_cleanup_restore_prefix(&new_instructions)
-                    || (i == 0 && starts_after_cleanup[block_idx])
-                    || in_restore_prefix);
+                let expand = matches!(info.instr.real_opcode(), Some(Opcode::StoreFastStoreFast))
+                    && (is_cleanup_restore_prefix(&new_instructions)
+                        || (i == 0 && starts_after_cleanup[block_idx])
+                        || in_restore_prefix);
 
                 if expand {
                     let Some(Instruction::StoreFastStoreFast { var_nums }) = info.instr.real()
@@ -6126,20 +6132,21 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
             info.instr = match info.instr.into() {
                 AnyOpcode::Pseudo(PseudoOpcode::Jump) => {
                     if target_pos > source_pos {
-                        Opcode::JumpForward.into()
+                        Opcode::JumpForward
                     } else {
-                        Opcode::JumpBackward.into()
+                        Opcode::JumpBackward
                     }
                 }
                 AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt) => {
                     if target_pos > source_pos {
-                        Opcode::JumpForward.into()
+                        Opcode::JumpForward
                     } else {
-                        Opcode::JumpBackwardNoInterrupt.into()
+                        Opcode::JumpBackwardNoInterrupt
                     }
                 }
-                _ => info.instr,
-            };
+                _ => continue,
+            }
+            .into();
         }
     }
 }
@@ -8281,9 +8288,7 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 // - plain yield outside try: depth=1 → DEPTH1 set
                 // - yield inside try: depth=2+ → no DEPTH1
                 // - yield-from/await: has internal SETUP_FINALLY → depth=2+ → no DEPTH1
-                if let Some(Instruction::YieldValue { .. }) =
-                    blocks[bi].instructions[i].instr.real()
-                {
+                if let Some(Opcode::YieldValue) = blocks[bi].instructions[i].instr.real_opcode() {
                     last_yield_except_depth = stack.len() as i32;
                 }
 
