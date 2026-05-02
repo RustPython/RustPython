@@ -1221,7 +1221,7 @@ pub(crate) const fn is_py_ascii_whitespace(b: u8) -> bool {
 /// ASCII-only title casing.
 ///
 /// This is purposely naive as is CPython's implementation.
-pub fn title_ascii(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn title_ascii(bytes: &[u8]) -> Vec<u8> {
     let mut next_upper = true;
     let mut out = Vec::with_capacity(bytes.len());
     for &b in bytes {

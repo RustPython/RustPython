@@ -782,7 +782,9 @@ impl PyStr {
                 let mut chars = s.char_indices();
                 let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
                 titlecase_first(s, &mut chars, &mut out);
-                lowercase_and_sigma(s, &mut chars, &mut out);
+                for (i, ch) in chars {
+                    lowercase_or_sigma(ch, s, i, &mut out);
+                }
                 unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
             }
             PyKindStr::Wtf8(s) => {
@@ -793,15 +795,18 @@ impl PyStr {
                     let s = first.valid();
                     let mut chars = s.char_indices();
                     titlecase_first(s, &mut chars, &mut out);
-                    lowercase_and_sigma(s, &mut chars, &mut out);
+                    for (i, ch) in chars {
+                        lowercase_or_sigma(ch, s, i, &mut out);
+                    }
                     out.0.extend(first.invalid());
                 }
                 // This loop is only hit if the WTF-8 buffer contains invalid Unicode. Otherwise,
                 // everything is handled above without chunking.
                 for chunk in chunks {
                     let s = chunk.valid();
-                    let mut chars = s.char_indices();
-                    lowercase_and_sigma(s, &mut chars, &mut out);
+                    for (i, ch) in s.char_indices() {
+                        lowercase_or_sigma(ch, s, i, &mut out);
+                    }
                     out.0.extend(chunk.invalid());
                 }
 
@@ -1076,28 +1081,22 @@ impl PyStr {
             PyKindStr::Ascii(_) => unsafe {
                 Wtf8Buf::from_bytes_unchecked(crate::bytes_inner::title_ascii(self.as_bytes()))
             },
-            PyKindStr::Utf8(s) => TitlecaseMapper::new()
-                .titlecase_segment_to_string(s, &LanguageIdentifier::UNKNOWN, Default::default())
-                .to_string()
-                .into(),
+            PyKindStr::Utf8(s) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                titlecase_string(s, &mut out);
+                // SAFETY: `s` is valid UTF-8 and titlecase_string only works on Unicode.
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
+            }
             PyKindStr::Wtf8(s) => {
-                let mut buf = VecFmtWriter(Vec::with_capacity(s.len()));
-                let mapper = TitlecaseMapper::new();
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
                 for chunk in s.as_bytes().utf8_chunks() {
-                    mapper
-                        .titlecase_segment(
-                            chunk.valid(),
-                            &LanguageIdentifier::UNKNOWN,
-                            Default::default(),
-                        )
-                        .write_to(&mut buf)
-                        .expect("Writing to an in-memory buffer cannot fail.");
-                    buf.0.extend(chunk.invalid());
+                    titlecase_string(chunk.valid(), &mut out);
+                    out.0.extend(chunk.invalid());
                 }
                 // SAFETY:
                 // * `s` is valid WTF-8; surrogate bytes were appended without processing.
                 // * TitlecaseMapper produces valid UTF-8.
-                unsafe { Wtf8Buf::from_bytes_unchecked(buf.0) }
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
             }
         }
     }
@@ -1572,6 +1571,11 @@ impl PyStr {
     }
 }
 
+/// Title case first char if it is cased or write as is.
+///
+/// This matches CPython's behavior:
+/// "123abc" -> "123abc"
+/// "abc" -> "Abc"
 fn titlecase_first(s: &str, chars: &mut core::str::CharIndices<'_>, out: &mut VecFmtWriter) {
     if let Some((first_pos, first_ch)) = chars.next() {
         let first = &s[..first_pos + first_ch.len_utf8()];
@@ -1582,20 +1586,43 @@ fn titlecase_first(s: &str, chars: &mut core::str::CharIndices<'_>, out: &mut Ve
     }
 }
 
-fn lowercase_and_sigma(s: &str, chars: &mut core::str::CharIndices<'_>, out: &mut VecFmtWriter) {
-    let sigma = 'Σ';
-    for (i, ch) in chars {
-        if ch == sigma {
-            let sigma_cased = handle_capital_sigma(s, i);
-            let mut buf = [0u8; 4];
-            let s = sigma_cased.encode_utf8(&mut buf);
-            out.0.extend(s.as_bytes());
+/// Title case a string following CPython conventions.
+///
+/// CPython title cases each char in a segment. A "segment" is split by case ignorable characters
+/// rather than whitespace.
+/// "123abc" -> "123Abc"
+/// "123abc456def" -> "123Abc456Def"
+/// "123 abc" -> "123 Abc"
+fn titlecase_string(s: &str, out: &mut VecFmtWriter) {
+    let mut previous_is_cased = false;
+    let mapper = TitlecaseMapper::new();
+    for (i, ch) in s.char_indices() {
+        if previous_is_cased {
+            lowercase_or_sigma(ch, s, i, out);
         } else {
-            for ch in ch.to_lowercase() {
-                let mut buf = [0u8; 4];
-                let s = ch.encode_utf8(&mut buf);
-                out.0.extend(s.as_bytes());
-            }
+            let s = &s[i..i + ch.len_utf8()];
+            mapper
+                .titlecase_segment(s, &LanguageIdentifier::UNKNOWN, Default::default())
+                .write_to(out)
+                .expect("Writing to an in-memory buffer cannot fail.");
+        }
+
+        previous_is_cased = Cased::for_char(ch);
+    }
+}
+
+fn lowercase_or_sigma(ch: char, s: &str, i: usize, out: &mut VecFmtWriter) {
+    let sigma = 'Σ';
+    if ch == sigma {
+        let sigma_cased = handle_capital_sigma(s, i);
+        let mut buf = [0u8; 4];
+        let s = sigma_cased.encode_utf8(&mut buf);
+        out.0.extend(s.as_bytes());
+    } else {
+        for ch in ch.to_lowercase() {
+            let mut buf = [0u8; 4];
+            let s = ch.encode_utf8(&mut buf);
+            out.0.extend(s.as_bytes());
         }
     }
 }
