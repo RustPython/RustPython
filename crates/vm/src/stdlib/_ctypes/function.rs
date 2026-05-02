@@ -815,7 +815,7 @@ impl Constructor for PyCFuncPtr {
             let ptr_val = match rustpython_host_env::ctypes::lookup_function_symbol_addr(
                 handle
                     .to_usize()
-                    .ok_or(vm.new_value_error("Invalid handle"))?,
+                    .ok_or_else(|| vm.new_value_error("Invalid handle"))?,
                 terminated.as_bytes(),
             ) {
                 Ok(addr) => {
@@ -1788,7 +1788,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
 
     let type_code = ty.type_code(vm);
     match type_code.as_deref() {
-        Some("b") | Some("h") | Some("i") | Some("l") | Some("q") => {
+        Some("b" | "h" | "i" | "l" | "q") => {
             if let Ok(i) = obj.try_int(vm) {
                 unsafe {
                     rustpython_host_env::ctypes::write_callback_result(
@@ -1801,7 +1801,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                 }
             }
         }
-        Some("B") | Some("c") | Some("H") | Some("I") | Some("L") | Some("Q") => {
+        Some("B" | "c" | "H" | "I" | "L" | "Q") => {
             if let Ok(i) = obj.try_int(vm) {
                 unsafe {
                     rustpython_host_env::ctypes::write_callback_result(
@@ -1814,7 +1814,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                 }
             }
         }
-        Some("f") | Some("d") => {
+        Some("f" | "d") => {
             if let Ok(f) = obj.try_float(vm) {
                 unsafe {
                     rustpython_host_env::ctypes::write_callback_result(
@@ -1825,7 +1825,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                 }
             }
         }
-        Some("P") | Some("z") | Some("Z") => {
+        Some("P" | "z" | "Z") => {
             if let Ok(i) = obj.try_int(vm) {
                 unsafe {
                     rustpython_host_env::ctypes::write_callback_result(
@@ -1970,7 +1970,7 @@ impl PyCThunk {
         let code_ptr = thunk_data.code_ptr();
 
         Ok(Self {
-            callable: callable.clone(),
+            callable,
             thunk_data: PyRwLock::new(Some(thunk_data)),
             code_ptr,
         })

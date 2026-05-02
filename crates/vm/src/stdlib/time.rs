@@ -24,10 +24,12 @@ unsafe extern "C" {
 }
 
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
-pub mod decl {
+mod decl {
+    #[cfg(any(unix, windows))]
+    use crate::builtins::PyBaseExceptionRef;
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
+        builtins::{PyStrRef, PyTypeRef},
         function::{Either, FuncArgs, OptionalArg},
         types::{PyStructSequence, struct_sequence_new},
     };

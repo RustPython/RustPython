@@ -3,9 +3,10 @@ pub(crate) use decl::module_def;
 #[allow(static_mut_refs)] // TODO: group code only with static mut refs
 #[pymodule(name = "faulthandler")]
 mod decl {
+    #[cfg(any(unix, windows))]
+    use crate::vm::frame::Frame;
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine,
-        frame::Frame,
         function::{ArgIntoFloat, OptionalArg},
     };
     use alloc::sync::Arc;
@@ -189,6 +190,7 @@ mod decl {
     }
 
     /// MAX_STRING_LENGTH in traceback.c
+    #[cfg(any(unix, windows))]
     const MAX_STRING_LENGTH: usize = 500;
 
     /// Truncate a UTF-8 string to at most `max_bytes` without splitting a

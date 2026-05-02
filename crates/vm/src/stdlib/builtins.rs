@@ -737,7 +737,7 @@ mod builtins {
                 }
                 ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
                 #[cfg(unix)]
-                ReadlineResult::OsError(num) => Err(vm.new_os_error(num.to_string())),
+                ReadlineResult::OsError(num) => Err(vm.new_os_error(num)),
                 ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
         } else {

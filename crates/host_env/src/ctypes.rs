@@ -804,7 +804,7 @@ pub fn read_array_element(
                 .copied()
                 .map_or(0.0, f32::from_ne_bytes) as f64,
         ),
-        Some("d") | Some("g") => DecodedValue::Float(
+        Some("d" | "g") => DecodedValue::Float(
             buffer[offset..]
                 .first_chunk::<8>()
                 .copied()
@@ -812,10 +812,7 @@ pub fn read_array_element(
         ),
         _ => {
             if let Some(bytes) = buffer[offset..].get(..element_size) {
-                let is_unsigned = matches!(
-                    type_code,
-                    Some("B") | Some("H") | Some("I") | Some("L") | Some("Q")
-                );
+                let is_unsigned = matches!(type_code, Some("B" | "H" | "I" | "L" | "Q"));
                 match int_from_bytes(bytes, element_size, is_unsigned) {
                     IntegerValue::Signed(value) => DecodedValue::Signed(value),
                     IntegerValue::Unsigned(value) => DecodedValue::Unsigned(value),
@@ -1327,7 +1324,7 @@ pub unsafe fn write_callback_result(
 ) {
     match (type_code, value) {
         (Some("b"), CallbackResultValue::Signed(v)) => unsafe { *(result as *mut i8) = v as i8 },
-        (Some("B") | Some("c"), CallbackResultValue::Unsigned(v)) => unsafe {
+        (Some("B" | "c"), CallbackResultValue::Unsigned(v)) => unsafe {
             *(result as *mut u8) = v as u8
         },
         (Some("h"), CallbackResultValue::Signed(v)) => unsafe { *(result as *mut i16) = v as i16 },
@@ -1340,15 +1337,11 @@ pub unsafe fn write_callback_result(
         (Some("I"), CallbackResultValue::Unsigned(v)) => unsafe {
             *(result as *mut u32) = v as u32
         },
-        (Some("l") | Some("q"), CallbackResultValue::Signed(v)) => unsafe {
-            *(result as *mut i64) = v
-        },
-        (Some("L") | Some("Q"), CallbackResultValue::Unsigned(v)) => unsafe {
-            *(result as *mut u64) = v
-        },
+        (Some("l" | "q"), CallbackResultValue::Signed(v)) => unsafe { *(result as *mut i64) = v },
+        (Some("L" | "Q"), CallbackResultValue::Unsigned(v)) => unsafe { *(result as *mut u64) = v },
         (Some("f"), CallbackResultValue::Float(v)) => unsafe { *(result as *mut f32) = v as f32 },
         (Some("d"), CallbackResultValue::Float(v)) => unsafe { *(result as *mut f64) = v },
-        (Some("P") | Some("z") | Some("Z"), CallbackResultValue::Pointer(v)) => unsafe {
+        (Some("P" | "z" | "Z"), CallbackResultValue::Pointer(v)) => unsafe {
             *(result as *mut usize) = v
         },
         (Some("?"), CallbackResultValue::Bool(v)) => unsafe { *(result as *mut u8) = u8::from(v) },
@@ -2267,10 +2260,10 @@ pub unsafe fn read_value_at_address(
         Some("H") => AddressValue::Integer(IntegerValue::Unsigned(
             unsafe { core::ptr::read_unaligned(ptr as *const u16) }.into(),
         )),
-        Some("i") | Some("l") => AddressValue::Integer(IntegerValue::Signed(
+        Some("i" | "l") => AddressValue::Integer(IntegerValue::Signed(
             unsafe { core::ptr::read_unaligned(ptr as *const i32) }.into(),
         )),
-        Some("I") | Some("L") => AddressValue::Integer(IntegerValue::Unsigned(
+        Some("I" | "L") => AddressValue::Integer(IntegerValue::Unsigned(
             unsafe { core::ptr::read_unaligned(ptr as *const u32) }.into(),
         )),
         Some("q") => AddressValue::Integer(IntegerValue::Signed(unsafe {
@@ -2282,10 +2275,10 @@ pub unsafe fn read_value_at_address(
         Some("f") => {
             AddressValue::Float(unsafe { core::ptr::read_unaligned(ptr as *const f32) as f64 })
         }
-        Some("d") | Some("g") => {
+        Some("d" | "g") => {
             AddressValue::Float(unsafe { core::ptr::read_unaligned(ptr as *const f64) })
         }
-        Some("P") | Some("z") | Some("Z") => {
+        Some("P" | "z" | "Z") => {
             AddressValue::Pointer(unsafe { core::ptr::read_unaligned(ptr as *const usize) })
         }
         _ => AddressValue::Bytes(unsafe { bytes_at(ptr, size) }),

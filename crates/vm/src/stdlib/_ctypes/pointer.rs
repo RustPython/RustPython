@@ -330,9 +330,7 @@ impl PyCPointer {
         let proto_type = stg_info.proto();
         let element_size = proto_type
             .stg_info_opt()
-            .map_or(rustpython_host_env::ctypes::pointer_size(), |info| {
-                info.size
-            });
+            .map_or_else(rustpython_host_env::ctypes::pointer_size, |info| info.size);
 
         // Create instance that references the memory directly
         // PyCData.into_ref_with_type works for all ctypes (simple, structure, union, array, pointer)
@@ -415,9 +413,7 @@ impl PyCPointer {
         let proto_type = stg_info.proto();
         let element_size = proto_type
             .stg_info_opt()
-            .map_or(rustpython_host_env::ctypes::pointer_size(), |info| {
-                info.size
-            });
+            .map_or_else(rustpython_host_env::ctypes::pointer_size, |info| info.size);
 
         // offset = index * iteminfo->size
         let addr = pointer_item_address(ptr_value, index, element_size);
@@ -586,9 +582,7 @@ impl PyCPointer {
 
         let element_size = proto_type
             .stg_info_opt()
-            .map_or(rustpython_host_env::ctypes::pointer_size(), |info| {
-                info.size
-            });
+            .map_or_else(rustpython_host_env::ctypes::pointer_size, |info| info.size);
 
         // Calculate address
         let addr = pointer_item_address(ptr_value, index, element_size);
@@ -670,23 +664,20 @@ impl PyCPointer {
         unsafe {
             // Handle c_char_p (z) and c_wchar_p (Z) - store pointer address
             // Note: PyBytes/PyStr cases are handled by caller (setitem_by_index)
-            match type_code {
-                Some("z") | Some("Z") => {
-                    let ptr_val = if vm.is_none(value) {
-                        0usize
-                    } else if let Ok(int_val) = value.try_index(vm) {
-                        int_val.as_bigint().to_usize().unwrap_or(0)
-                    } else {
-                        return Err(vm.new_type_error("bytes/string or integer address expected"));
-                    };
-                    rustpython_host_env::ctypes::write_value_to_address(
-                        addr,
-                        size,
-                        AddressWriteValue::Pointer(ptr_val),
-                    );
-                    return Ok(());
-                }
-                _ => {}
+            if let Some("z" | "Z") = type_code {
+                let ptr_val = if vm.is_none(value) {
+                    0usize
+                } else if let Ok(int_val) = value.try_index(vm) {
+                    int_val.as_bigint().to_usize().unwrap_or(0)
+                } else {
+                    return Err(vm.new_type_error("bytes/string or integer address expected"));
+                };
+                rustpython_host_env::ctypes::write_value_to_address(
+                    addr,
+                    size,
+                    AddressWriteValue::Pointer(ptr_val),
+                );
+                return Ok(());
             }
 
             // Try to get value as integer
