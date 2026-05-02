@@ -1,6 +1,6 @@
 use core::f64;
 use malachite_bigint::{BigInt, ToBigInt};
-use num_traits::{Float, Signed, ToPrimitive, Zero};
+use num_traits::{Signed, ToPrimitive};
 
 pub const fn decompose_float(value: f64) -> (f64, i32) {
     if 0.0 == value {
@@ -208,64 +208,50 @@ pub fn ulp(x: f64) -> f64 {
 }
 
 pub fn round_float_digits(x: f64, ndigits: i32) -> Option<f64> {
-    let float = if ndigits.is_zero() {
-        let fract = x.fract();
-        if (fract.abs() - 0.5).abs() < f64::EPSILON {
-            if x.trunc() % 2.0 == 0.0 {
-                x - fract
-            } else {
-                x + fract
-            }
-        } else {
-            x.round()
-        }
+    // Mirror CPython's `float.__round__` (Objects/floatobject.c), which uses
+    // `_Py_dg_dtoa` to round at the decimal level. Multiplying by 10**ndigits
+    // and rounding at the IEEE 754 binary level diverges for values that
+    // aren't exactly representable: 2.675 stores as 2.67499..., which dtoa
+    // correctly rounds down to 2.67, but `(2.675 * 100.0).round() / 100.0`
+    // lands on 2.68 because the multiplication produces a phantom 267.5 tie.
+    // Rust's `{:.*}` float formatting uses dtoa-style algorithms and matches
+    // CPython's `_Py_dg_dtoa` byte-for-byte.
+    if !x.is_finite() {
+        return Some(x);
+    }
+
+    const NDIGITS_MAX: i32 =
+        ((f64::MANTISSA_DIGITS as i32 - f64::MIN_EXP) as f64 * f64::consts::LOG10_2) as i32;
+    const NDIGITS_MIN: i32 = -(((f64::MAX_EXP + 1) as f64 * f64::consts::LOG10_2) as i32);
+
+    if ndigits > NDIGITS_MAX {
+        return Some(x);
+    }
+    if ndigits < NDIGITS_MIN {
+        return Some(0.0f64.copysign(x));
+    }
+
+    let result: f64 = if ndigits >= 0 {
+        let s = format!("{:.*}", ndigits as usize, x);
+        s.parse().ok()?
     } else {
-        const NDIGITS_MAX: i32 =
-            ((f64::MANTISSA_DIGITS as i32 - f64::MIN_EXP) as f64 * f64::consts::LOG10_2) as i32;
-        const NDIGITS_MIN: i32 = -(((f64::MAX_EXP + 1) as f64 * f64::consts::LOG10_2) as i32);
-        if ndigits > NDIGITS_MAX {
-            x
-        } else if ndigits < NDIGITS_MIN {
-            0.0f64.copysign(x)
+        // ndigits < 0: divide-then-round avoids the phantom-tie problem
+        // because dividing typical inputs by 10**|ndigits| produces genuine
+        // half-integer ties rather than synthesizing them.
+        let pow1 = 10.0f64.powi(-ndigits);
+        let y = x / pow1;
+        let z = y.round();
+        #[allow(clippy::float_cmp)]
+        let z = if (y - z).abs() == 0.5 {
+            2.0 * (y / 2.0).round()
         } else {
-            let (y, pow1, pow2) = if ndigits >= 0 {
-                // according to cpython: pow1 and pow2 are each safe from overflow, but
-                //                       pow1*pow2 ~= pow(10.0, ndigits) might overflow
-                let (pow1, pow2) = if ndigits > 22 {
-                    (10.0.powf((ndigits - 22) as f64), 1e22)
-                } else {
-                    (10.0.powf(ndigits as f64), 1.0)
-                };
-                let y = (x * pow1) * pow2;
-                if !y.is_finite() {
-                    return Some(x);
-                }
-                (y, pow1, Some(pow2))
-            } else {
-                let pow1 = 10.0.powf((-ndigits) as f64);
-                (x / pow1, pow1, None)
-            };
-            let z = y.round();
-            #[allow(clippy::float_cmp)]
-            let z = if (y - z).abs() == 0.5 {
-                2.0 * (y / 2.0).round()
-            } else {
-                z
-            };
-            let z = if let Some(pow2) = pow2 {
-                // ndigits >= 0
-                (z / pow2) / pow1
-            } else {
-                z * pow1
-            };
-
-            if !z.is_finite() {
-                // overflow
-                return None;
-            }
-
             z
-        }
+        };
+        z * pow1
     };
-    Some(float)
+
+    if !result.is_finite() {
+        return None;
+    }
+    Some(result)
 }
