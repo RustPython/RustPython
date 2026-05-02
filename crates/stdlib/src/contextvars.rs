@@ -206,7 +206,7 @@ mod _contextvars {
         ) -> PyResult<Option<PyObjectRef>> {
             let found = self.get_inner(&key);
             let result = if let Some(found) = found {
-                Some(found.to_owned())
+                Some(found)
             } else {
                 default.into_option()
             };
@@ -254,7 +254,7 @@ mod _contextvars {
                     let needle = needle.try_to_value(vm)?;
                     let found = PyContext::mapping_downcast(mapping).get_inner(needle);
                     if let Some(found) = found {
-                        Ok(found.to_owned())
+                        Ok(found)
                     } else {
                         Err(vm.new_key_error(needle.to_owned().into()))
                     }
@@ -424,7 +424,7 @@ mod _contextvars {
 
             let old_value = ctx.borrow_vars().get(zelf).map(|v| v.to_owned());
             let token = ContextToken {
-                ctx: ctx.to_owned(),
+                ctx,
                 var: zelf.to_owned(),
                 old_value,
                 used: false.into(),

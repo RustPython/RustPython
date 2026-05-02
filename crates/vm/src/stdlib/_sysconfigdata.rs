@@ -45,7 +45,7 @@ mod _sysconfigdata {
         sysvars! {
             // Extension module suffix in CPython-compatible format
             "EXT_SUFFIX" => format!(".rustpython313-{multiarch}.so"),
-            "MULTIARCH" => multiarch.clone(),
+            "MULTIARCH" => multiarch,
             "RUST_MULTIARCH" => RUST_MULTIARCH,
             // enough for tests to stop expecting urandom() to fail after restricting file resources
             "HAVE_GETRANDOM" => 1,

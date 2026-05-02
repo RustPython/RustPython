@@ -893,6 +893,7 @@ mod _socket {
             c::$e
         };
     }
+
     #[cfg(windows)]
     macro_rules! errcode {
     ($e:ident) => {
@@ -1528,7 +1529,7 @@ mod _socket {
                         if family == -1
                             || matches!(
                                 e.raw_os_error(),
-                                Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
+                                Some(errcode!(ENOTSOCK) | errcode!(EBADF))
                             ) =>
                     {
                         core::mem::forget(sock);
@@ -1555,10 +1556,7 @@ mod _socket {
                     Ok(addr) if family == -1 => family = addr.family() as i32,
                     Err(e)
                         if family == -1
-                            || matches!(
-                                e.raw_os_error(),
-                                Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
-                            ) =>
+                            || matches!(e.raw_os_error(), Some(c::ENOTSOCK | c::EBADF)) =>
                     {
                         core::mem::forget(sock);
                         return Err(e.into());
@@ -2582,7 +2580,8 @@ mod _socket {
                 return vm.ctx.new_bytes([b"\0", abstractpath].concat()).into();
             }
             // necessary on macos
-            let path = ffi::OsStr::as_bytes(addr.as_pathname().unwrap_or("".as_ref()).as_ref());
+            let path =
+                ffi::OsStr::as_bytes(addr.as_pathname().unwrap_or_else(|| "".as_ref()).as_ref());
             let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
             let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
             return vm.fsdecode(path).into();

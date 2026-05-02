@@ -969,7 +969,13 @@ mod builtins {
             exp: y,
             modulus,
         } = args;
-        let modulus = modulus.as_ref().map_or(vm.ctx.none.as_object(), |m| m);
+        #[expect(
+            clippy::unnecessary_option_map_or_else,
+            reason = "changing this won't compile"
+        )]
+        let modulus = modulus
+            .as_ref()
+            .map_or_else(|| vm.ctx.none.as_object(), |m| m);
         vm._pow(&x, &y, modulus)
     }
 

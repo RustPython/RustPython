@@ -110,7 +110,7 @@ impl PathConverter {
         vm: &VirtualMachine,
     ) -> PyResult<OsPath> {
         // Try direct str/bytes match
-        let obj = match self.try_match_str_bytes(obj.clone(), vm)? {
+        let obj = match self.try_match_str_bytes(obj, vm)? {
             Ok(path) => return Ok(path),
             Err(obj) => obj,
         };

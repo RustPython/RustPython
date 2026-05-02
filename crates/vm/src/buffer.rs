@@ -37,7 +37,7 @@ impl Endianness {
             Some(b'@') => Self::Native,
             Some(b'=') => Self::Host,
             Some(b'<') => Self::Little,
-            Some(b'>') | Some(b'!') => Self::Big,
+            Some(b'>' | b'!') => Self::Big,
             _ => return Self::Native,
         };
         chars.next().unwrap();

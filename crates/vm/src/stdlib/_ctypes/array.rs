@@ -56,7 +56,6 @@ pub(super) fn array_type_from_ctype(
 
     // Cache miss - create new array type
     let itemtype_ref = itemtype
-        .clone()
         .downcast::<PyType>()
         .map_err(|_| vm.new_type_error("Expected a type object"))?;
 
@@ -217,7 +216,6 @@ impl Initializer for PyCArrayType {
             if let Some(type_attr) = direct_type {
                 // Direct _type_ defined - validate it (PyStgInfo_FromType)
                 let type_ref = type_attr
-                    .clone()
                     .downcast::<PyType>()
                     .map_err(|_| vm.new_type_error("_type_ must be a type"))?;
                 let (size, align, format, shape, flags) = {
@@ -555,10 +553,7 @@ impl PyCArray {
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         // Unsigned type codes: B (uchar), H (ushort), I (uint), L (ulong), Q (ulonglong)
-        let is_unsigned = matches!(
-            type_code,
-            Some("B") | Some("H") | Some("I") | Some("L") | Some("Q")
-        );
+        let is_unsigned = matches!(type_code, Some("B" | "H" | "I" | "L" | "Q"));
 
         match (size, is_unsigned) {
             (1, false) => vm.ctx.new_int(bytes[0] as i8).into(),
@@ -728,7 +723,7 @@ impl PyCArray {
                     .map_or(0.0, f32::from_ne_bytes);
                 Ok(vm.ctx.new_float(val as f64).into())
             }
-            Some("d") | Some("g") => {
+            Some("d" | "g") => {
                 // c_double / c_longdouble - read f64 from first 8 bytes
                 let val = buffer[offset..]
                     .first_chunk::<8>()
@@ -841,7 +836,7 @@ impl PyCArray {
                     buffer[offset..offset + 4].copy_from_slice(&f32_val.to_ne_bytes());
                 }
             }
-            Some("d") | Some("g") => {
+            Some("d" | "g") => {
                 // c_double / c_longdouble: convert int/float to f64 bytes
                 let f64_val = if let Ok(float_val) = value.try_float(vm) {
                     float_val.to_f64()

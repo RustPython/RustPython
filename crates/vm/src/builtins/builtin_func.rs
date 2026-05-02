@@ -31,7 +31,8 @@ impl fmt::Debug for PyNativeFunction {
         write!(
             f,
             "builtin function {}.{} ({:?}) self as instance of {:?}",
-            self.module.map_or(Wtf8::new("<unknown>"), |m| m.as_wtf8()),
+            self.module
+                .map_or_else(|| Wtf8::new("<unknown>"), |m| m.as_wtf8()),
             self.value.name,
             self.value.flags,
             self.zelf.as_ref().map(|z| z.class().name().to_owned())

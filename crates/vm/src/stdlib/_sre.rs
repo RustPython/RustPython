@@ -129,7 +129,7 @@ mod _sre {
         ) -> PyResult<PyRef<Self>> {
             let re = vm.import("re", 0)?;
             let func = re.get_attr("_compile_template", vm)?;
-            let result = func.call((pattern, repl.clone()), vm)?;
+            let result = func.call((pattern, repl), vm)?;
             result
                 .downcast::<Self>()
                 .map_err(|_| vm.new_runtime_error("expected SRE_Template"))

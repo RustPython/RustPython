@@ -270,8 +270,9 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
     let can_continue = matches!(
         &err,
         CompileError::Parse(ParseError {
-            error: ParseErrorType::Lexical(LexicalErrorType::Eof)
-                | ParseErrorType::Lexical(LexicalErrorType::IndentationError),
+            error: ParseErrorType::Lexical(
+                LexicalErrorType::Eof | LexicalErrorType::IndentationError
+            ),
             ..
         })
     );

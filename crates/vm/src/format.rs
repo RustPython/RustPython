@@ -54,16 +54,19 @@ unsafe fn parse_grouping(grouping: *const libc::c_char) -> Vec<u8> {
     if grouping.is_null() {
         return result;
     }
+
     unsafe {
         let mut ptr = grouping;
         while ![0, libc::c_char::MAX].contains(&*ptr) {
-            result.push(*ptr as u8);
+            result.push(*ptr as _);
             ptr = ptr.add(1);
         }
     }
+
     if !result.is_empty() {
         result.push(0);
     }
+
     result
 }
 

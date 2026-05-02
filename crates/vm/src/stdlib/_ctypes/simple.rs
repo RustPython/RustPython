@@ -253,9 +253,7 @@ impl PyCSimpleType {
     #[pymethod]
     fn new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
         Ok(PyObjectRef::from(
-            new_simple_type(Either::B(&cls), vm)?
-                .into_ref_with_type(vm, cls)?
-                .clone(),
+            new_simple_type(Either::B(&cls), vm)?.into_ref_with_type(vm, cls)?,
         ))
     }
 
@@ -275,7 +273,7 @@ impl PyCSimpleType {
         let type_code = cls.type_code(vm);
 
         // 3. Handle None for pointer types (c_char_p, c_wchar_p, c_void_p)
-        if vm.is_none(&value) && matches!(type_code.as_deref(), Some("z") | Some("Z") | Some("P")) {
+        if vm.is_none(&value) && matches!(type_code.as_deref(), Some("z" | "Z" | "P")) {
             return Ok(value);
         }
 
@@ -449,7 +447,7 @@ impl PyCSimpleType {
                 // 7. c_char_p or c_wchar_p instance → extract pointer value
                 if let Some(simple) = value.downcast_ref::<PyCSimple>() {
                     let value_type_code = value.class().type_code(vm);
-                    if matches!(value_type_code.as_deref(), Some("z") | Some("Z")) {
+                    if matches!(value_type_code.as_deref(), Some("z" | "Z")) {
                         let ptr_val = {
                             let buffer = simple.0.buffer.read();
                             buffer

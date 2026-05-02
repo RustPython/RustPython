@@ -672,7 +672,7 @@ pub(crate) mod _thread {
                         let done_event = done_event_weak.upgrade()?;
                         let guard = inner.lock();
                         if guard.state != ThreadHandleState::Done && guard.ident != current_ident {
-                            Some((inner.clone(), done_event.clone()))
+                            Some((inner.clone(), done_event))
                         } else {
                             None
                         }

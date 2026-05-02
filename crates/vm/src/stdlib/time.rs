@@ -97,7 +97,7 @@ mod decl {
 
     #[pyfunction]
     fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let seconds_type_name = seconds.clone().class().name().to_owned();
+        let seconds_type_name = seconds.class().name().to_owned();
         let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.value_error)
                 && let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok())

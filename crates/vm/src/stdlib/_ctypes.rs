@@ -427,7 +427,7 @@ pub(crate) mod _ctypes {
             let details = details.unwrap_or_else(|| vm.ctx.none());
 
             // Set instance attributes
-            zelf.set_attr("hresult", hresult.clone(), vm)?;
+            zelf.set_attr("hresult", hresult, vm)?;
             zelf.set_attr("text", text.clone(), vm)?;
             zelf.set_attr("details", details.clone(), vm)?;
 
@@ -1027,7 +1027,7 @@ pub(crate) mod _ctypes {
         // Determine if obj is a type or an instance
         let is_type = obj.class().fast_issubclass(vm.ctx.types.type_type.as_ref());
         let cls = if is_type {
-            obj.clone()
+            obj
         } else {
             obj.class().to_owned().into()
         };

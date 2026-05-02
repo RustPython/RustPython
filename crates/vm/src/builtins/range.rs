@@ -55,7 +55,7 @@ fn iter_search(
             "{} not in range",
             item.repr(vm)
                 .as_ref()
-                .map_or("value".as_ref(), |s| s.as_wtf8())
+                .map_or_else(|_| "value".as_ref(), |s| s.as_wtf8())
                 .to_owned()
         ))),
     }

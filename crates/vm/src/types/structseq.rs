@@ -260,7 +260,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             Self::Data::REQUIRED_FIELD_NAMES.len() + Self::Data::OPTIONAL_FIELD_NAMES.len();
         let mut items: Vec<PyObjectRef> = zelf.as_slice()[..n_fields].to_vec();
 
-        let mut kwargs = args.kwargs.clone();
+        let mut kwargs = args.kwargs;
 
         // Replace fields from kwargs
         let all_field_names: Vec<&str> = Self::Data::REQUIRED_FIELD_NAMES

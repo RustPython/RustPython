@@ -1195,7 +1195,7 @@ impl PyCode {
                     let target = after_cache + oparg as usize;
                     let right = if matches!(
                         instructions.get(target).map(|u| u.op),
-                        Some(Instruction::EndFor) | Some(Instruction::InstrumentedEndFor)
+                        Some(Instruction::EndFor | Instruction::InstrumentedEndFor)
                     ) {
                         (target + 1) * 2
                     } else {

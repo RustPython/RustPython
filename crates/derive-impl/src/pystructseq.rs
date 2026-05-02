@@ -398,7 +398,7 @@ pub(crate) fn impl_pystruct_sequence_data(
 
     // For attribute macro, we need to output the original struct as well
     // But first, strip #[pystruct_sequence] attributes from fields
-    let mut clean_struct = item_struct.clone();
+    let mut clean_struct = item_struct;
     if let syn::Fields::Named(ref mut fields) = clean_struct.fields {
         for field in &mut fields.named {
             field
