@@ -69,7 +69,6 @@ macro_rules! py_namespace {
 ///
 /// use rustpython_vm::{PyPayload, match_class};
 /// use rustpython_vm::builtins::{PyFloat, PyInt};
-/// use rustpython_vm::{PyPayload};
 ///
 /// # rustpython_vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
 /// let obj = PyInt::from(0).into_pyobject(vm);
