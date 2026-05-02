@@ -19,7 +19,7 @@ pub mod platform {
 
     /// # Safety
     ///
-    /// Requiremnets forwarded from the caller.
+    /// Requirements forwarded from the caller.
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
         let mut slot = unsafe { (&raw mut (*set).fd_array).cast::<RawFd>() };
         let fd_count = unsafe { (*set).fd_count };
@@ -39,14 +39,14 @@ pub mod platform {
 
     /// # Safety
     ///
-    /// Requiremnets forwarded from the caller.
+    /// Requirements forwarded from the caller.
     pub unsafe fn FD_ZERO(set: *mut fd_set) {
         unsafe { (*set).fd_count = 0 };
     }
 
     /// # Safety
     ///
-    /// Requiremnets forwarded from the caller.
+    /// Requirements forwarded from the caller.
     pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
         use WinSock::__WSAFDIsSet;
         unsafe { __WSAFDIsSet(fd as _, set) != 0 }
