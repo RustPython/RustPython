@@ -74,7 +74,7 @@ jobs:
         uses: ./.github/actions/install-macos-deps
 
       - name: run clippy
-        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+        run: cargo clippy --keep-going ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
       - name: run rust tests
         run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --verbose --features threading ${{ env.CARGO_ARGS }}
@@ -518,7 +518,7 @@ jobs:
             ${{ runner.os }}-
 
       - name: cargo clippy
-        run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
+        run: cargo clippy --keep-going --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
