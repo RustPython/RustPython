@@ -339,11 +339,11 @@ mod _stat {
 
     #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const SF_SUPPORTED: u32 = 0x009f0000;
+    pub(super) const SF_SUPPORTED: u32 = 0x009f0000;
 
     #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const SF_SYNTHETIC: u32 = 0xc0000000;
+    pub(super) const SF_SYNTHETIC: u32 = 0xc0000000;
 
     // Stat result indices
 
