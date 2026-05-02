@@ -335,8 +335,9 @@ pub struct ArgsBuilder<'a> {
 }
 
 impl<'a> ArgsBuilder<'a> {
-    fn new(code: &'a CompiledCode) -> ArgsBuilder<'a> {
-        ArgsBuilder {
+    #[must_use]
+    fn new(code: &'a CompiledCode) -> Self<'a> {
+        Self {
             values: vec![None; code.sig.args.len()],
             code,
         }
@@ -348,10 +349,12 @@ impl<'a> ArgsBuilder<'a> {
         })
     }
 
+    #[must_use]
     pub fn is_set(&self, idx: usize) -> bool {
         self.values[idx].is_some()
     }
 
+    #[must_use]
     pub fn into_args(self) -> Option<Args<'a>> {
         // Ensure all values are set
         if self.values.iter().any(|v| v.is_none()) {
@@ -370,6 +373,7 @@ pub struct Args<'a> {
 }
 
 impl Args<'_> {
+    #[must_use]
     pub fn invoke(&self) -> Option<AbiValue> {
         let cif_args: Vec<_> = self.values.iter().map(AbiValue::to_libffi_arg).collect();
         unsafe { self.code.invoke_raw(&cif_args) }
