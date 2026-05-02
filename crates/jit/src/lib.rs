@@ -336,7 +336,7 @@ pub struct ArgsBuilder<'a> {
 
 impl<'a> ArgsBuilder<'a> {
     #[must_use]
-    fn new(code: &'a CompiledCode) -> Self<'a> {
+    fn new(code: &'a CompiledCode) -> Self {
         Self {
             values: vec![None; code.sig.args.len()],
             code,
