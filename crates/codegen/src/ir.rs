@@ -2036,8 +2036,9 @@ impl CodeInfo {
                 let idx = i as usize;
                 let swap_arg = match instructions[idx].instr.real() {
                     Some(Instruction::Swap { .. }) => u32::from(instructions[idx].arg),
-                    Some(Instruction::Nop)
-                    | Some(Instruction::PopTop | Instruction::StoreFast { .. }) => {
+                    Some(
+                        Instruction::Nop | Instruction::PopTop | Instruction::StoreFast { .. },
+                    ) => {
                         i -= 1;
                         continue;
                     }
@@ -2332,8 +2333,10 @@ impl CodeInfo {
                     match (curr_instr, next_instr) {
                         // Note: StoreFast + LoadFast → StoreFastLoadFast is done in a
                         // later pass aligned with CPython insert_superinstructions().
-                        (Instruction::LoadConst { .. }, Instruction::ToBool)
-                        | (Instruction::LoadSmallInt { .. }, Instruction::ToBool) => {
+                        (
+                            Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
+                            Instruction::ToBool,
+                        ) => {
                             if let Some(value) =
                                 const_truthiness(curr_instr, curr.arg, &self.metadata)
                             {
@@ -2355,10 +2358,10 @@ impl CodeInfo {
                             curr_instr,
                             OpArg::new(u32::from(curr.arg) | oparg::COMPARE_OP_BOOL_MASK),
                         )),
-                        (Instruction::ContainsOp { .. }, Instruction::ToBool)
-                        | (Instruction::IsOp { .. }, Instruction::ToBool) => {
-                            Some((curr_instr, curr.arg))
-                        }
+                        (
+                            Instruction::ContainsOp { .. } | Instruction::IsOp { .. },
+                            Instruction::ToBool,
+                        ) => Some((curr_instr, curr.arg)),
                         (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
                             let constant = &self.metadata.consts[consti.get(curr.arg).as_usize()];
                             match constant {
@@ -2434,8 +2437,10 @@ impl CodeInfo {
 
                 let redundant = matches!(
                     (curr_instr, next_instr),
-                    (Instruction::LoadConst { .. }, Instruction::PopTop)
-                        | (Instruction::LoadSmallInt { .. }, Instruction::PopTop)
+                    (
+                        Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
+                        Instruction::PopTop
+                    )
                 ) || matches!(curr_instr, Instruction::Copy { i } if i.get(curr.arg) == 1)
                     && matches!(next_instr, Instruction::PopTop);
 
@@ -3757,7 +3762,7 @@ impl CodeInfo {
                     Some(Instruction::PushExcInfo) => {
                         in_exception_state = true;
                     }
-                    Some(Instruction::PopExcept) | Some(Instruction::Reraise { .. }) => {
+                    Some(Instruction::PopExcept | Instruction::Reraise { .. }) => {
                         in_exception_state = false;
                     }
                     Some(Instruction::LoadFastBorrow { .. }) if in_exception_state => {
@@ -4458,10 +4463,10 @@ impl CodeInfo {
                         Some(
                             Instruction::StoreFast { .. }
                             | Instruction::StoreFastLoadFast { .. }
-                            | Instruction::StoreFastStoreFast { .. },
-                        )
-                        | Some(Instruction::DeleteFast { .. })
-                        | Some(Instruction::LoadFastAndClear { .. }) => return false,
+                            | Instruction::StoreFastStoreFast { .. }
+                            | Instruction::DeleteFast { .. }
+                            | Instruction::LoadFastAndClear { .. },
+                        ) => return false,
                         _ => {}
                     }
                 }
@@ -4613,8 +4618,10 @@ impl CodeInfo {
                         {
                             if matches!(
                                 extra_info.instr.real(),
-                                Some(Instruction::LoadFastBorrow { .. })
-                                    | Some(Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                                Some(
+                                    Instruction::LoadFastBorrow { .. }
+                                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                                )
                             ) {
                                 to_deopt.push(*extra_instr_idx);
                             }
@@ -4642,8 +4649,10 @@ impl CodeInfo {
                             {
                                 if matches!(
                                     tail_info.instr.real(),
-                                    Some(Instruction::LoadFastBorrow { .. })
-                                        | Some(Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                                    Some(
+                                        Instruction::LoadFastBorrow { .. }
+                                            | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                                    )
                                 ) {
                                     cross_block_deopts.push((tail_block_idx, tail_instr_idx));
                                 }
@@ -4722,7 +4731,7 @@ impl CodeInfo {
                     && predecessor_blocks.iter().copied().all(|pred_idx| {
                         matches!(
                             last_real_instr(&self.blocks[pred_idx]),
-                            Some(Instruction::PopIter) | Some(Instruction::Swap { .. })
+                            Some(Instruction::PopIter | Instruction::Swap { .. })
                         )
                     })
             })
@@ -4743,7 +4752,7 @@ impl CodeInfo {
                     && (new_instructions.iter().all(|prev: &InstructionInfo| {
                         matches!(
                             prev.instr.real(),
-                            Some(Instruction::Swap { .. }) | Some(Instruction::PopTop)
+                            Some(Instruction::Swap { .. } | Instruction::PopTop)
                         )
                     }) || is_cleanup_restore_prefix(&new_instructions))
                 {
@@ -4906,8 +4915,9 @@ impl CodeInfo {
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFast { var_num })
-                    | Some(Instruction::LoadFastBorrow { var_num }) => {
+                    Some(
+                        Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num },
+                    ) => {
                         let var_idx = usize::from(var_num.get(info.arg));
                         if var_idx < nlocals && unsafe_mask[var_idx] {
                             info.instr = Opcode::LoadFastCheck.into();
@@ -4918,8 +4928,10 @@ impl CodeInfo {
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFastLoadFast { var_nums })
-                    | Some(Instruction::LoadFastBorrowLoadFastBorrow { var_nums }) => {
+                    Some(
+                        Instruction::LoadFastLoadFast { var_nums }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { var_nums },
+                    ) => {
                         let packed = var_nums.get(info.arg);
                         let (idx1, idx2) = packed.indexes();
                         let idx1 = usize::from(idx1);
@@ -6802,7 +6814,7 @@ fn deoptimize_borrow_after_push_exc_info_in_blocks(blocks: &mut [Block]) {
                 Some(Instruction::PushExcInfo) => {
                     in_exception_state = true;
                 }
-                Some(Instruction::PopExcept) | Some(Instruction::Reraise { .. }) => {
+                Some(Instruction::PopExcept | Instruction::Reraise { .. }) => {
                     in_exception_state = false;
                 }
                 Some(Instruction::LoadFastBorrow { .. }) if in_exception_state => {
@@ -6896,7 +6908,7 @@ fn is_exit_without_lineno(block: &Block) -> bool {
         && prefix.iter().all(|info| {
             matches!(
                 info.instr.real(),
-                Some(Instruction::PopExcept) | Some(Instruction::Nop)
+                Some(Instruction::PopExcept | Instruction::Nop)
             )
         })
         && prefix
@@ -6924,7 +6936,7 @@ fn shared_jump_back_target(block: &Block) -> Option<BlockIdx> {
     if !prefix.iter().all(|info| {
         matches!(
             info.instr.real(),
-            Some(Instruction::PopExcept) | Some(Instruction::Nop)
+            Some(Instruction::PopExcept | Instruction::Nop)
         )
     }) {
         return None;

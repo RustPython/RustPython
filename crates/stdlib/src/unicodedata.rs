@@ -302,7 +302,7 @@ mod unicodedata {
             if let Some(ch) = ch
                 && matches!(
                     ch.numeric_type(),
-                    Some(NumericType::Decimal) | Some(NumericType::Digit)
+                    Some(NumericType::Decimal | NumericType::Digit)
                 )
                 && let Some(Number::Integer(n)) = ch.numeric_value()
             {

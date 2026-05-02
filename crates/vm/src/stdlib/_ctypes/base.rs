@@ -1175,7 +1175,7 @@ impl PyCData {
                     .is_ok();
 
             let data = if needs_swap && size > 1 {
-                let mut swapped = buffer_data.clone();
+                let mut swapped = buffer_data;
                 swapped.reverse();
                 swapped
             } else {
@@ -1187,7 +1187,7 @@ impl PyCData {
 
         // Complex types: create ctypes instance via PyCData_FromBaseObj
         let ptr = self.buffer.read().as_ptr().wrapping_add(offset) as *mut u8;
-        let cdata_obj = unsafe { Self::from_base_obj(ptr, size, base_obj.clone(), index) };
+        let cdata_obj = unsafe { Self::from_base_obj(ptr, size, base_obj, index) };
 
         if proto_metaclass.fast_issubclass(super::structure::PyCStructType::static_type())
             || proto_metaclass.fast_issubclass(super::union::PyCUnionType::static_type())

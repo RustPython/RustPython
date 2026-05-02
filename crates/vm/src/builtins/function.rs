@@ -200,7 +200,7 @@ impl PyFunction {
 
         let qualname = vm.ctx.new_str(code.qualname.as_str());
         let func = Self {
-            code: PyAtomicRef::from(code.clone()),
+            code: PyAtomicRef::from(code),
             globals,
             builtins,
             closure: None,
@@ -493,7 +493,6 @@ impl PyFunction {
             }
             bytecode::MakeFunctionFlag::Closure => {
                 let closure_tuple = attr_value
-                    .clone()
                     .downcast_exact::<PyTuple>(vm)
                     .map_err(|obj| {
                         vm.new_type_error(format!(
@@ -701,7 +700,7 @@ impl Py<PyFunction> {
         };
 
         let frame = Frame::new(
-            code.clone(),
+            code,
             Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
@@ -1379,7 +1378,9 @@ impl Representable for PyBoundMethod {
         };
         let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
         let object_repr = zelf.object.repr(vm)?;
-        let name = func_name.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
+        let name = func_name
+            .as_ref()
+            .map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
         Ok(wtf8_concat!(
             "<bound method ",
             name,

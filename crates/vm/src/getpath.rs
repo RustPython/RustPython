@@ -133,7 +133,7 @@ pub fn init_path_config(settings: &Settings) -> Paths {
 
     // Step 2: Check for venv (pyvenv.cfg) and get 'home'
     let (venv_prefix, home_dir) = detect_venv(&exe_dir);
-    let search_dir = home_dir.clone().or(exe_dir.clone());
+    let search_dir = home_dir.clone().or(exe_dir);
 
     // Step 3: Check for build directory
     let build_prefix = detect_build_directory(&search_dir);

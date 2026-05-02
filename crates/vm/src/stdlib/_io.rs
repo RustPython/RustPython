@@ -1348,7 +1348,7 @@ mod _io {
                 return Ok(None);
             }
             // Try to convert to int; if it fails, treat as -1 and chain the TypeError
-            let (n, type_error) = match isize::try_from_object(vm, res.clone()) {
+            let (n, type_error) = match isize::try_from_object(vm, res) {
                 Ok(n) => (n, None),
                 Err(e) => (-1, Some(e)),
             };
@@ -1587,7 +1587,10 @@ mod _io {
                     let str_repr = e
                         .__str__(vm)
                         .as_ref()
-                        .map_or("<error getting exception str>".as_ref(), |s| s.as_wtf8())
+                        .map_or_else(
+                            |_| "<error getting exception str>".as_ref(),
+                            |s| s.as_wtf8(),
+                        )
                         .to_owned();
                     let msg = format!("{}() {}", Self::CLASS_NAME, str_repr);
                     vm.new_exception_msg(e.class().to_owned(), msg.into())
