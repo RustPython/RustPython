@@ -897,7 +897,7 @@ trait DictView: PyPayload + PyClassDef + Iterable + Representable {
 }
 
 macro_rules! dict_view {
-    ( 
+    (
         $name: ident,
         $iter_name: ident,
         $reverse_iter_name: ident,
