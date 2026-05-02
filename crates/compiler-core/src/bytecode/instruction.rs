@@ -1555,6 +1555,7 @@ impl AnyInstruction {
     }
 
     /// Get [`Self::Real`] as [`Opcode`].
+    #[must_use]
     pub const fn real_opcode(self) -> Option<Opcode> {
         match self.real() {
             Some(ins) => Some(ins.opcode()),
@@ -1563,6 +1564,7 @@ impl AnyInstruction {
     }
 
     /// Get [`Self::Pseudo`] as [`PseudoOpcode`].
+    #[must_use]
     pub const fn pseudo_opcode(self) -> Option<PseudoOpcode> {
         match self.pseudo() {
             Some(ins) => Some(ins.opcode()),
