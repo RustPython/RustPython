@@ -813,7 +813,11 @@ fn fire(
 
 // Public dispatch functions (called from frame.rs)
 
-pub(crate) fn fire_py_start(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u32) -> PyResult<()> {
+pub(crate) fn fire_py_start(
+    vm: &VirtualMachine,
+    code: &PyRef<PyCode>,
+    offset: u32,
+) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_START,
@@ -823,7 +827,11 @@ pub(crate) fn fire_py_start(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u
     )
 }
 
-pub(crate) fn fire_py_resume(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u32) -> PyResult<()> {
+pub(crate) fn fire_py_resume(
+    vm: &VirtualMachine,
+    code: &PyRef<PyCode>,
+    offset: u32,
+) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_RESUME,
@@ -920,7 +928,11 @@ pub(crate) fn fire_line(
     fire(vm, EVENT_LINE, code, offset, &[vm.ctx.new_int(line).into()])
 }
 
-pub(crate) fn fire_instruction(vm: &VirtualMachine, code: &PyRef<PyCode>, offset: u32) -> PyResult<()> {
+pub(crate) fn fire_instruction(
+    vm: &VirtualMachine,
+    code: &PyRef<PyCode>,
+    offset: u32,
+) -> PyResult<()> {
     fire(
         vm,
         EVENT_INSTRUCTION,

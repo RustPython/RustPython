@@ -177,7 +177,8 @@ pub enum MemberKind {
     ObjectEx = 16,
 }
 
-pub(crate) type MemberSetterFunc = Option<fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>>;
+pub(crate) type MemberSetterFunc =
+    Option<fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>>;
 
 pub enum MemberGetter {
     Getter(fn(&VirtualMachine, PyObjectRef) -> PyResult),

@@ -125,7 +125,10 @@ mod cert_error {
     }
 
     /// Convert error message to rustls::Error with InvalidCertificate wrapper and custom ErrorKind
-    pub(super) fn to_rustls_cert_error(kind: io::ErrorKind, msg: impl Into<String>) -> rustls::Error {
+    pub(super) fn to_rustls_cert_error(
+        kind: io::ErrorKind,
+        msg: impl Into<String>,
+    ) -> rustls::Error {
         rustls::Error::InvalidCertificate(rustls::CertificateError::Other(rustls::OtherError(
             Arc::new(io::Error::new(kind, msg.into())),
         )))
@@ -367,7 +370,10 @@ pub(super) fn cert_to_dict(
 ///
 /// Similar to cert_to_dict but includes additional fields like crlDistributionPoints
 /// and uses CPython's specific ordering: issuer, notAfter, notBefore, serialNumber, subject, version
-pub(super) fn cert_der_to_dict_helper(vm: &VirtualMachine, cert_der: &[u8]) -> PyResult<PyObjectRef> {
+pub(super) fn cert_der_to_dict_helper(
+    vm: &VirtualMachine,
+    cert_der: &[u8],
+) -> PyResult<PyObjectRef> {
     // Parse the certificate using x509-parser
     let (_, cert) = x509_parser::parse_x509_certificate(cert_der)
         .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {e}")))?;

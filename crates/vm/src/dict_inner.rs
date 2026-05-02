@@ -324,7 +324,11 @@ impl<T: Clone> Dict<T> {
         Ok(())
     }
 
-    pub(crate) fn contains<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool> {
+    pub(crate) fn contains<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<bool> {
         let key_hash = key.key_hash(vm)?;
         let (entry, _) = self.lookup(vm, key, key_hash, None)?;
         Ok(entry.index().is_some())
@@ -332,7 +336,11 @@ impl<T: Clone> Dict<T> {
 
     /// Retrieve a key
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    pub(crate) fn get<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+    pub(crate) fn get<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<Option<T>> {
         let hash = key.key_hash(vm)?;
         self._get_inner(vm, key, hash)
     }
@@ -488,7 +496,12 @@ impl<T: Clone> Dict<T> {
         Ok(removed.map(|entry| entry.value))
     }
 
-    pub(crate) fn delete_or_insert(&self, vm: &VirtualMachine, key: &PyObject, value: T) -> PyResult<()> {
+    pub(crate) fn delete_or_insert(
+        &self,
+        vm: &VirtualMachine,
+        key: &PyObject,
+        value: T,
+    ) -> PyResult<()> {
         let hash = key.key_hash(vm)?;
         let _removed = loop {
             let lookup = self.lookup(vm, key, hash, None)?;
@@ -771,7 +784,11 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve and delete a key
-    pub(crate) fn pop<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+    pub(crate) fn pop<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<Option<T>> {
         let hash_value = key.key_hash(vm)?;
         let removed = loop {
             let lookup = self.lookup(vm, key, hash_value, None)?;

@@ -768,7 +768,11 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction]
-    pub(crate) fn byref(obj: PyObjectRef, offset: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn byref(
+        obj: PyObjectRef,
+        offset: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         use super::FfiArgValue;
 
         // Check if obj is a ctypes instance

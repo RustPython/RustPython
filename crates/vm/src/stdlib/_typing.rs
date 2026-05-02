@@ -206,7 +206,11 @@ pub(crate) mod decl {
     )]
     impl TypeAliasType {
         /// Create from intrinsic: compute_value is a callable that returns the value
-        pub(crate) fn new(name: PyStrRef, type_params: PyTupleRef, compute_value: PyObjectRef) -> Self {
+        pub(crate) fn new(
+            name: PyStrRef,
+            type_params: PyTupleRef,
+            compute_value: PyObjectRef,
+        ) -> Self {
             Self {
                 name,
                 type_params,

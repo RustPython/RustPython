@@ -785,7 +785,12 @@ impl PyCData {
     ///
     /// If this object has a base (is embedded in another structure/union/array),
     /// the reference is stored in the root object's b_objects with a hierarchical key.
-    pub(crate) fn keep_ref(&self, index: usize, keep: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub(crate) fn keep_ref(
+        &self,
+        index: usize,
+        keep: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         // Optimization: no need to store None
         if vm.is_none(&keep) {
             return Ok(());
@@ -1401,7 +1406,11 @@ impl PyCField {
 
     /// Create a new CField from an existing field with adjusted offset and index
     /// Used by MakeFields to promote anonymous fields
-    pub(crate) fn new_from_field(fdescr: &PyCField, index_offset: usize, offset_delta: isize) -> Self {
+    pub(crate) fn new_from_field(
+        fdescr: &PyCField,
+        index_offset: usize,
+        offset_delta: isize,
+    ) -> Self {
         Self {
             name: fdescr.name.clone(),
             offset: fdescr.offset + offset_delta,

@@ -369,7 +369,9 @@ impl TlsConnection {
     }
 
     /// Get peer certificates
-    pub(super) fn peer_certificates(&self) -> Option<&[rustls::pki_types::CertificateDer<'static>]> {
+    pub(super) fn peer_certificates(
+        &self,
+    ) -> Option<&[rustls::pki_types::CertificateDer<'static>]> {
         match self {
             TlsConnection::Client(conn) => conn.peer_certificates(),
             TlsConnection::Server(conn) => conn.peer_certificates(),

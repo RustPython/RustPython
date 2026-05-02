@@ -193,7 +193,10 @@ mod _io {
         result.map(Some)
     }
 
-    pub(super) fn new_unsupported_operation(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
+    pub(super) fn new_unsupported_operation(
+        vm: &VirtualMachine,
+        msg: String,
+    ) -> PyBaseExceptionRef {
         vm.new_os_subtype_error(unsupported_operation().to_owned(), None, msg)
             .upcast()
     }
@@ -1536,7 +1539,10 @@ mod _io {
         })
     }
 
-    pub(super) fn repr_file_obj_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
+    pub(super) fn repr_file_obj_name(
+        obj: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyStrRef>> {
         let name = match obj.get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)

@@ -72,7 +72,11 @@ fn json_escaped_char(c: u8) -> Option<&'static str> {
     }
 }
 
-pub(super) fn write_json_string<W: io::Write>(wtf8: &Wtf8, ascii_only: bool, w: &mut W) -> io::Result<()> {
+pub(super) fn write_json_string<W: io::Write>(
+    wtf8: &Wtf8,
+    ascii_only: bool,
+    w: &mut W,
+) -> io::Result<()> {
     w.write_all(b"\"")?;
     let mut write_start_idx = 0;
     let bytes = wtf8.as_bytes();
