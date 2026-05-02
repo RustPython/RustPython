@@ -13,6 +13,7 @@ impl InterpreterBuilderExt for InterpreterBuilder {
     #[cfg(feature = "stdlib")]
     fn init_stdlib(self) -> Self {
         let defs = rustpython_stdlib::stdlib_module_defs(&self.ctx);
+
         let builder = self.add_native_modules(&defs);
 
         #[cfg(feature = "freeze-stdlib")]
