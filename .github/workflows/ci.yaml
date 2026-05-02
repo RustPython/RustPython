@@ -64,7 +64,6 @@ jobs:
             ':Cargo.lock' \
             ':crates/**' \
             ':src/**' \
-            ':.github/workflows/ci.yaml' \
           ; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
           else
