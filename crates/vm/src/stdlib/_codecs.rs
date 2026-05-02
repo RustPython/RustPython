@@ -466,7 +466,7 @@ mod _codecs_windows {
             data.as_ref(),
         );
 
-        if let Err(_) = size {
+        if size.is_err() {
             // Try without MB_ERR_INVALID_CHARS for non-strict mode (replacement behavior)
             let size = host_windows::multi_byte_to_wide_len(host_windows::CP_ACP, 0, data.as_ref())
                 .map_err(|err| vm.new_os_error(format!("mbcs_decode failed: {err}")))?;
@@ -590,7 +590,7 @@ mod _codecs_windows {
             data.as_ref(),
         );
 
-        if let Err(_) = size {
+        if size.is_err() {
             // Try without MB_ERR_INVALID_CHARS for non-strict mode (replacement behavior)
             let size =
                 host_windows::multi_byte_to_wide_len(host_windows::CP_OEMCP, 0, data.as_ref())
@@ -649,9 +649,7 @@ mod _codecs_windows {
     fn encode_code_page_flags(code_page: u32, errors: &str) -> u32 {
         if code_page == host_windows::CP_UTF8 {
             host_windows::WC_ERR_INVALID_CHARS
-        } else if code_page == host_windows::CP_UTF7 {
-            0
-        } else if errors == "replace" {
+        } else if code_page == host_windows::CP_UTF7 || errors == "replace" {
             0
         } else {
             host_windows::WC_NO_BEST_FIT_CHARS
@@ -1049,7 +1047,7 @@ mod _codecs_windows {
         while pos < len {
             // Try to decode with increasing byte counts (1, 2, 3, 4)
             let mut in_size = 1;
-            let mut outsize;
+            let outsize;
             let mut buffer = [0u16; 2];
 
             loop {

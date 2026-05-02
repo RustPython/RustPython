@@ -974,13 +974,12 @@ pub fn bind_local(socket: isize, family: i32) -> io::Result<()> {
     }
 }
 
-pub fn parse_address_v4(host: &str, port: u16) -> io::Result<(Vec<u8>, i32)> {
+pub fn parse_address_v4_wide(host_wide: &[u16], port: u16) -> io::Result<(Vec<u8>, i32)> {
     use windows_sys::Win32::Networking::WinSock::{WSAGetLastError, WSAStringToAddressW};
 
     let mut addr: SOCKADDR_IN = unsafe { core::mem::zeroed() };
     addr.sin_family = AF_INET;
 
-    let host_wide: Vec<u16> = host.encode_utf16().chain([0]).collect();
     let mut addr_len = core::mem::size_of::<SOCKADDR_IN>() as i32;
 
     let ret = unsafe {
@@ -1010,8 +1009,23 @@ pub fn parse_address_v4(host: &str, port: u16) -> io::Result<(Vec<u8>, i32)> {
     Ok((bytes.to_vec(), addr_len))
 }
 
+pub fn parse_address_v4(host: &str, port: u16) -> io::Result<(Vec<u8>, i32)> {
+    let host_wide: Vec<u16> = host.encode_utf16().chain([0]).collect();
+    parse_address_v4_wide(&host_wide, port)
+}
+
 pub fn parse_address_v6(
     host: &str,
+    port: u16,
+    flowinfo: u32,
+    scope_id: u32,
+) -> io::Result<(Vec<u8>, i32)> {
+    let host_wide: Vec<u16> = host.encode_utf16().chain([0]).collect();
+    parse_address_v6_wide(&host_wide, port, flowinfo, scope_id)
+}
+
+pub fn parse_address_v6_wide(
+    host_wide: &[u16],
     port: u16,
     flowinfo: u32,
     scope_id: u32,
@@ -1021,7 +1035,6 @@ pub fn parse_address_v6(
     let mut addr: SOCKADDR_IN6 = unsafe { core::mem::zeroed() };
     addr.sin6_family = AF_INET6;
 
-    let host_wide: Vec<u16> = host.encode_utf16().chain([0]).collect();
     let mut addr_len = core::mem::size_of::<SOCKADDR_IN6>() as i32;
 
     let ret = unsafe {

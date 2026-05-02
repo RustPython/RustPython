@@ -58,11 +58,10 @@ mod _socket {
             AF_APPLETALK, AF_DECnet, AF_INET, AF_INET6, AF_IPX, AF_LINK, AF_UNSPEC, AI_ADDRCONFIG,
             AI_ALL, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE, AI_V4MAPPED,
             EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NODATA, EAI_NONAME,
-            EAI_SERVICE, EAI_SOCKTYPE, FROM_PROTOCOL_INFO_VALUE as FROM_PROTOCOL_INFO, IF_NAMESIZE,
-            INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE, IP_ADD_MEMBERSHIP,
-            IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL,
-            IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, IPPORT_RESERVED, IPPROTO_AH,
-            IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP,
+            EAI_SERVICE, EAI_SOCKTYPE, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
+            IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF, IP_MULTICAST_LOOP,
+            IP_MULTICAST_TTL, IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, IPPORT_RESERVED,
+            IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP,
             IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP,
             IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4, IPPROTO_IPV6, IPPROTO_ND, IPPROTO_NONE,
             IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP,
@@ -76,9 +75,8 @@ mod _socket {
             SD_SEND as SHUT_WR, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL,
             SO_BROADCAST, SO_ERROR, SO_EXCLUSIVEADDRUSE, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE,
             SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW,
-            SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR_CODE as SOCKET_ERROR, SOL_SOCKET,
-            SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK,
-            getprotobyname, getservbyname, getservbyport, getsockopt, setsockopt,
+            SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SOMAXCONN, TCP_NODELAY, WSAEBADF,
+            WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport,
         };
     }
     // constants
@@ -2777,14 +2775,16 @@ mod _socket {
                 .map_err(|_| vm.new_last_errno_error());
         }
         #[cfg(not(windows))]
-        let name = name.to_cstring(vm)?;
-        // in case 'if_nametoindex' does not set errno
-        rustpython_host_env::os::set_errno(libc::ENODEV);
-        let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
-        if ret == 0 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(ret)
+        {
+            let name = name.to_cstring(vm)?;
+            // in case 'if_nametoindex' does not set errno
+            rustpython_host_env::os::set_errno(libc::ENODEV);
+            let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
+            if ret == 0 {
+                Err(vm.new_last_errno_error())
+            } else {
+                Ok(ret)
+            }
         }
     }
 
@@ -2797,15 +2797,17 @@ mod _socket {
                 .map_err(|_| vm.new_last_errno_error());
         }
         #[cfg(not(windows))]
-        let mut buf = [0; c::IF_NAMESIZE + 1];
-        // in case 'if_indextoname' does not set errno
-        rustpython_host_env::os::set_errno(libc::ENXIO);
-        let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
-        if ret.is_null() {
-            Err(vm.new_last_errno_error())
-        } else {
-            let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as _) };
-            Ok(buf.to_string_lossy().into_owned())
+        {
+            let mut buf = [0; c::IF_NAMESIZE + 1];
+            // in case 'if_indextoname' does not set errno
+            rustpython_host_env::os::set_errno(libc::ENXIO);
+            let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
+            if ret.is_null() {
+                Err(vm.new_last_errno_error())
+            } else {
+                let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as _) };
+                Ok(buf.to_string_lossy().into_owned())
+            }
         }
     }
 

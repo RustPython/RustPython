@@ -24,6 +24,8 @@ mod mmap {
     use core::ops::{Deref, DerefMut};
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::Signed;
+    #[cfg(windows)]
+    use std::io;
     use std::io::Write;
 
     #[cfg(unix)]
@@ -473,7 +475,7 @@ mod mmap {
                 // See Python bug https://bugs.python.org/issue30114
                 let handle = host_nt::handle_from_fd(fileno);
                 // Check for invalid handle value (-1 on Windows)
-                if handle == -1 || handle == host_mmap::INVALID_HANDLE as isize {
+                if host_mmap::is_invalid_handle_value(handle as isize) {
                     return Err(vm.new_os_error(format!("Invalid file descriptor: {}", fileno)));
                 }
                 Some(handle as host_mmap::Handle)
