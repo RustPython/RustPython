@@ -13,6 +13,7 @@ pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> nix::Result<()>
 }
 
 #[cfg(target_os = "macos")]
+#[must_use]
 pub fn get_number_of_os_threads() -> isize {
     type MachPortT = libc::c_uint;
     type KernReturnT = libc::c_int;
@@ -60,6 +61,7 @@ pub fn get_number_of_os_threads() -> isize {
 }
 
 #[cfg(target_os = "linux")]
+#[must_use]
 pub fn get_number_of_os_threads() -> isize {
     use std::io::Read as _;
 

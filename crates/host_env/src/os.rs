@@ -102,6 +102,7 @@ impl ErrorExt for io::Error {
 /// Get the last error from C runtime library functions (like _dup, _dup2, _fstat, etc.)
 /// CRT functions set errno, not GetLastError(), so we need to read errno directly.
 #[cfg(windows)]
+#[must_use]
 pub fn errno_io_error() -> io::Error {
     let errno: i32 = get_errno();
     let winerror = errno_to_winerror(errno);
@@ -213,6 +214,7 @@ pub mod ffi {
 }
 
 #[cfg(windows)]
+#[must_use]
 pub fn errno_to_winerror(errno: i32) -> i32 {
     use libc::*;
     use windows_sys::Win32::Foundation::*;
@@ -242,6 +244,7 @@ pub fn errno_to_winerror(errno: i32) -> i32 {
 // winerror: https://learn.microsoft.com/windows/win32/debug/system-error-codes--0-499-
 // errno: https://learn.microsoft.com/cpp/c-runtime-library/errno-constants?view=msvc-170
 #[cfg(windows)]
+#[must_use]
 pub fn winerror_to_errno(winerror: i32) -> i32 {
     use libc::*;
     use windows_sys::Win32::{
