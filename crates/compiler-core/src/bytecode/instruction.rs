@@ -1344,12 +1344,14 @@ define_opcodes!(
 );
 
 impl PseudoInstruction {
-    /// Returns true if this is a block push pseudo instruction
-    /// (SETUP_FINALLY, SETUP_CLEANUP, or SETUP_WITH).
-    pub fn is_block_push(&self) -> bool {
+    /// Returns true if self is one of:
+    /// - [`PseudoInstruction::SetupCleanup`]
+    /// - [`PseudoInstruction::SetupFinally`]
+    /// - [`PseudoInstruction::SetupWith`]
+    pub const fn is_block_push(&self) -> bool {
         matches!(
-            self,
-            Self::SetupCleanup { .. } | Self::SetupFinally { .. } | Self::SetupWith { .. }
+            self.opcode(),
+            PseudoOpcode::SetupCleanup | PseudoOpcode::SetupFinally | PseudoOpcode::SetupWith
         )
     }
 }
@@ -1527,7 +1529,7 @@ impl InstructionMetadata for AnyInstruction {
 }
 
 impl AnyInstruction {
-    /// Gets the inner value of [`Self::Real`].
+    /// Inner value of [`Self::Real`].
     pub const fn real(self) -> Option<Instruction> {
         match self {
             Self::Real(ins) => Some(ins),
@@ -1535,10 +1537,26 @@ impl AnyInstruction {
         }
     }
 
-    /// Gets the inner value of [`Self::Pseudo`].
+    /// Inner value of [`Self::Pseudo`].
     pub const fn pseudo(self) -> Option<PseudoInstruction> {
         match self {
             Self::Pseudo(ins) => Some(ins),
+            _ => None,
+        }
+    }
+
+    /// Get [`Self::Real`] as [`Opcode`].
+    pub const fn real_opcode(self) -> Option<Opcode> {
+        match self.real() {
+            Some(ins) => Some(ins.opcode()),
+            _ => None,
+        }
+    }
+
+    /// Get [`Self::Pseudo`] as [`PseudoOpcode`].
+    pub const fn pseudo_opcode(self) -> Option<PseudoOpcode> {
+        match self.pseudo() {
+            Some(ins) => Some(ins.opcode()),
             _ => None,
         }
     }
@@ -1563,15 +1581,14 @@ impl AnyInstruction {
             .expect("Expected AnyInstruction::Pseudo, found AnyInstruction::Real")
     }
 
-    /// Returns true if this is a block push pseudo instruction
-    /// (SETUP_FINALLY, SETUP_CLEANUP, or SETUP_WITH).
-    pub fn is_block_push(&self) -> bool {
-        matches!(self, Self::Pseudo(p) if p.is_block_push())
+    /// Returns true if this is a [`PseudoInstruction::PopBlock`].
+    pub const fn is_pop_block(self) -> bool {
+        matches!(self, Self::Pseudo(PseudoInstruction::PopBlock))
     }
 
-    /// Returns true if this is a POP_BLOCK pseudo instruction.
-    pub fn is_pop_block(&self) -> bool {
-        matches!(self, Self::Pseudo(PseudoInstruction::PopBlock))
+    /// See [`PseudoInstruction::is_block_push`].
+    pub const fn is_block_push(self) -> bool {
+        matches!(self, Self::Pseudo(p) if p.is_block_push())
     }
 }
 
