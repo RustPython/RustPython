@@ -315,9 +315,11 @@ mod builtins {
                 }
                 #[cfg(feature = "rustpython-codegen")]
                 {
-                    let mode = mode_str
-                        .parse::<crate::compiler::Mode>()
-                        .map_err(|err| vm.new_value_error(err.to_string()))?;
+                    use crate::compiler::Mode;
+
+                    let mode = mode_str.parse::<Mode>().map_err(|_| {
+                        vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'")
+                    })?;
                     return _ast::compile(
                         vm,
                         args.source,
@@ -339,11 +341,31 @@ mod builtins {
 
                 use ruff_python_parser as parser;
 
-                let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
-                let source = source.borrow_bytes();
-
-                let source = decode_source_bytes(&source, &args.filename.to_string_lossy(), vm)?;
-                let source = source.as_str();
+                // CPython parity: encoding declarations (`# -*- coding: ... -*-`)
+                // only apply to bytes input. For `str` input the source is
+                // already decoded, so the declaration must be ignored —
+                // including the "unknown encoding" error path.
+                let source_string: String = match args.source.downcast_ref::<PyStr>() {
+                    Some(pystr) => match pystr.to_str() {
+                        Some(s) => s.to_owned(),
+                        // Surrogate-bearing str falls back to the bytes path,
+                        // which raises SyntaxError on the WTF-8 encoding.
+                        None => decode_source_bytes(
+                            pystr.as_wtf8().as_bytes(),
+                            &args.filename.to_string_lossy(),
+                            vm,
+                        )?,
+                    },
+                    None => {
+                        let bytes = ArgBytesLike::try_from_object(vm, args.source.clone())?;
+                        decode_source_bytes(
+                            &bytes.borrow_buf(),
+                            &args.filename.to_string_lossy(),
+                            vm,
+                        )?
+                    }
+                };
+                let source = source_string.as_str();
 
                 let flags: i32 = args.flags.map_or(0, |v| v.value);
 
@@ -363,10 +385,22 @@ mod builtins {
                     }
                     #[cfg(feature = "compiler")]
                     {
+                        use crate::compiler::Mode;
+
+                        // CPython parity: `func_type` is only valid when
+                        // PyCF_ONLY_AST is set (the `else` branch below).
+                        if mode_str == "func_type" {
+                            return Err(vm.new_value_error(
+                                "compile() mode 'func_type' requires flag PyCF_ONLY_AST",
+                            ));
+                        }
+
                         if let Some(feature_version) = feature_version {
-                            let mode = mode_str
-                                .parse::<parser::Mode>()
-                                .map_err(|err| vm.new_value_error(err.to_string()))?;
+                            let mode = mode_str.parse::<parser::Mode>().map_err(|_| {
+                                vm.new_value_error(
+                                    "compile() mode must be 'exec', 'eval' or 'single'",
+                                )
+                            })?;
                             let _ = _ast::parse(
                                 vm,
                                 source,
@@ -378,9 +412,9 @@ mod builtins {
                             .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm))?;
                         }
 
-                        let mode = mode_str
-                            .parse::<crate::compiler::Mode>()
-                            .map_err(|err| vm.new_value_error(err.to_string()))?;
+                        let mode = mode_str.parse::<Mode>().map_err(|_| {
+                            vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'")
+                        })?;
 
                         let mut opts = vm.compile_opts();
                         opts.optimize = optimize;
@@ -403,9 +437,9 @@ mod builtins {
                             .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm));
                     }
 
-                    let mode = mode_str
-                        .parse::<parser::Mode>()
-                        .map_err(|err| vm.new_value_error(err.to_string()))?;
+                    let mode = mode_str.parse::<parser::Mode>().map_err(|_| {
+                        vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'")
+                    })?;
                     let parsed = _ast::parse(
                         vm,
                         source,
