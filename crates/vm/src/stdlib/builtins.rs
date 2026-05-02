@@ -268,12 +268,10 @@ mod builtins {
             let mode_str = args.mode.as_str();
 
             let optimize: i32 = args.optimize.map_or(-1, |v| v.value);
-            let optimize: u8 = if optimize == -1 {
-                vm.state.config.settings.optimize
-            } else {
-                optimize
-                    .try_into()
-                    .map_err(|_| vm.new_value_error("compile() optimize value invalid"))?
+            let optimize: u8 = match optimize {
+                -1 => vm.state.config.settings.optimize,
+                0..=2 => optimize as u8,
+                _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
 
             if args
@@ -348,7 +346,7 @@ mod builtins {
                 let flags: i32 = args.flags.map_or(0, |v| v.value);
 
                 if !(flags & !_ast::PY_COMPILE_FLAGS_MASK).is_zero() {
-                    return Err(vm.new_value_error("compile() unrecognized flags"));
+                    return Err(vm.new_value_error("compile(): unrecognised flags"));
                 }
 
                 let allow_incomplete = !(flags & _ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
