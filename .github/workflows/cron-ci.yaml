@@ -1,3 +1,5 @@
+name: Periodic checks/tasks
+
 on:
   schedule:
     - cron: "0 0 * * 6"
@@ -5,14 +7,15 @@ on:
   push:
     paths:
       - .github/workflows/cron-ci.yaml
+    branches:
+      - main
   pull_request:
     paths:
       - .github/workflows/cron-ci.yaml
 
-name: Periodic checks/tasks
-
 env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls,jit,host_env
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true' # TODO: Remove on 2026/06/02
 
 jobs:
   # codecov collects code coverage data from the rust tests, python snippets and python test suite.
@@ -28,24 +31,32 @@ jobs:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - uses: taiki-e/install-action@cf525cb33f51aca27cd6fa02034117ab963ff9f1 # v2.75.22
+        with:
+          tool: cargo-llvm-cov
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
 
       - run: sudo apt-get update && sudo apt-get -y install lcov
+
       - name: Run cargo-llvm-cov with Rust tests.
         run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher --verbose --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls,jit,host_env
+
       - name: Run cargo-llvm-cov with Python snippets.
         run: python scripts/cargo-llvm-cov.py
         continue-on-error: true
+
       - name: Run cargo-llvm-cov with Python test suite.
         run: cargo llvm-cov --no-report run -- -m test -u all --slowest --fail-env-changed
         continue-on-error: true
+
       - name: Prepare code coverage data
         run: cargo llvm-cov report --lcov --output-path='codecov.lcov'
+
       - name: Upload to Codecov
         if: ${{ github.event_name != 'pull_request' }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           files: ./codecov.lcov
 
@@ -60,12 +71,15 @@ jobs:
           persist-credentials: true
 
       - uses: dtolnay/rust-toolchain@stable
+
       - name: build rustpython
         run: cargo build --release --verbose
+
       - name: collect tests data
         run: cargo run --release extra_tests/jsontests.py
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+
       - name: upload tests data to the website
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -100,12 +114,14 @@ jobs:
 
       - name: build rustpython
         run: cargo build --release --verbose
+
       - name: Collect what is left data
         run: |
           chmod +x ./scripts/whats_left.py
           ./scripts/whats_left.py --features "ssl,sqlite" > whats_left.temp
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
+
       - name: Upload data to the website
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -160,12 +176,16 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
 
       - run: cargo install cargo-criterion
+
       - name: build benchmarks
         run: cargo build --release --benches
+
       - name: collect execution benchmark data
         run: cargo criterion --bench execution
+
       - name: collect microbenchmarks data
         run: cargo criterion --bench microbenchmarks
+
       - name: restructure generated files
         run: |
           cd ./target/criterion/reports
@@ -178,6 +198,7 @@ jobs:
           cd ..
           mv reports/* .
           rmdir reports
+
       - name: upload benchmark data to the website
         if: ${{ github.event_name != 'pull_request' }}
         env:

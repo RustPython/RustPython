@@ -916,7 +916,7 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
             ResolvedError::Handler(handler) => handler,
         };
         let encode_exc = ctx.error_encoding(range.clone(), reason);
-        let res = handler.call((encode_exc.clone(),), vm)?;
+        let res = handler.call((encode_exc,), vm)?;
         let tuple_err =
             || vm.new_type_error("encoding error handler must return (str/bytes, int) tuple");
         let (replace, restart) = match res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice()) {
@@ -945,7 +945,7 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
                     .as_wtf8()
                     .code_point_indices()
                     .nth(restart)
-                    .map_or(ctx.data.byte_len(), |(i, _)| i),
+                    .map_or_else(|| ctx.data.byte_len(), |(i, _)| i),
             }
         };
         Ok((replace, restart))
@@ -965,7 +965,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
             }
             ResolvedError::Handler(handler) => handler,
         };
-        let decode_exc = ctx.error_decoding(byte_range.clone(), reason);
+        let decode_exc = ctx.error_decoding(byte_range, reason);
         let data_bytes: PyObjectRef = decode_exc.as_object().get_attr("object", vm)?;
         let res = handler.call((decode_exc.clone(),), vm)?;
         let new_data = decode_exc.as_object().get_attr("object", vm)?;
@@ -1025,7 +1025,7 @@ where
     let end = StrSize {
         chars: range.end,
         bytes: if let Some(n) = range.len().checked_sub(1) {
-            iter.nth(n).map_or(s.byte_len(), |(i, _)| i)
+            iter.nth(n).map_or_else(|| s.byte_len(), |(i, _)| i)
         } else {
             start.bytes
         },
@@ -1088,7 +1088,7 @@ where
     let end = StrSize {
         chars: range.end,
         bytes: if let Some(n) = range.len().checked_sub(1) {
-            iter.nth(n).map_or(s.byte_len(), |(i, _)| i)
+            iter.nth(n).map_or_else(|| s.byte_len(), |(i, _)| i)
         } else {
             start.bytes
         },

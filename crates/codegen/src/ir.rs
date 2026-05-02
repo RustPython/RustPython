@@ -2304,8 +2304,10 @@ impl CodeInfo {
                     match (curr_instr, next_instr) {
                         // Note: StoreFast + LoadFast → StoreFastLoadFast is done in a
                         // later pass aligned with CPython insert_superinstructions().
-                        (Instruction::LoadConst { .. }, Instruction::ToBool)
-                        | (Instruction::LoadSmallInt { .. }, Instruction::ToBool) => {
+                        (
+                            Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
+                            Instruction::ToBool,
+                        ) => {
                             if let Some(value) =
                                 const_truthiness(curr_instr, curr.arg, &self.metadata)
                             {
@@ -2322,10 +2324,10 @@ impl CodeInfo {
                             curr_instr,
                             OpArg::new(u32::from(curr.arg) | oparg::COMPARE_OP_BOOL_MASK),
                         )),
-                        (Instruction::ContainsOp { .. }, Instruction::ToBool)
-                        | (Instruction::IsOp { .. }, Instruction::ToBool) => {
-                            Some((curr_instr, curr.arg))
-                        }
+                        (
+                            Instruction::ContainsOp { .. } | Instruction::IsOp { .. },
+                            Instruction::ToBool,
+                        ) => Some((curr_instr, curr.arg)),
                         (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
                             let constant = &self.metadata.consts[consti.get(curr.arg).as_usize()];
                             match constant {
@@ -4627,7 +4629,7 @@ impl CodeInfo {
                     && predecessor_blocks.iter().copied().all(|pred_idx| {
                         matches!(
                             last_real_instr(&self.blocks[pred_idx]),
-                            Some(Instruction::PopIter) | Some(Instruction::Swap { .. })
+                            Some(Instruction::PopIter | Instruction::Swap { .. })
                         )
                     })
             })
@@ -4800,8 +4802,9 @@ impl CodeInfo {
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFast { var_num })
-                    | Some(Instruction::LoadFastBorrow { var_num }) => {
+                    Some(
+                        Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num },
+                    ) => {
                         let var_idx = usize::from(var_num.get(info.arg));
                         if var_idx < nlocals && unsafe_mask[var_idx] {
                             info.instr = Opcode::LoadFastCheck.into();
@@ -4812,8 +4815,10 @@ impl CodeInfo {
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFastLoadFast { var_nums })
-                    | Some(Instruction::LoadFastBorrowLoadFastBorrow { var_nums }) => {
+                    Some(
+                        Instruction::LoadFastLoadFast { var_nums }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { var_nums },
+                    ) => {
                         let packed = var_nums.get(info.arg);
                         let (idx1, idx2) = packed.indexes();
                         let idx1 = usize::from(idx1);
@@ -6790,7 +6795,7 @@ fn is_exit_without_lineno(block: &Block) -> bool {
         && prefix.iter().all(|info| {
             matches!(
                 info.instr.real(),
-                Some(Instruction::PopExcept) | Some(Instruction::Nop)
+                Some(Instruction::PopExcept | Instruction::Nop)
             )
         })
         && prefix
@@ -6818,7 +6823,7 @@ fn shared_jump_back_target(block: &Block) -> Option<BlockIdx> {
     if !prefix.iter().all(|info| {
         matches!(
             info.instr.real(),
-            Some(Instruction::PopExcept) | Some(Instruction::Nop)
+            Some(Instruction::PopExcept | Instruction::Nop)
         )
     }) {
         return None;

@@ -1521,7 +1521,7 @@ impl PyType {
         if !vm.is_none(&value) {
             attrs.swap_remove(identifier!(vm, __annotations_cache__));
         }
-        attrs.insert(identifier!(vm, __annotate_func__), value.clone());
+        attrs.insert(identifier!(vm, __annotate_func__), value);
 
         Ok(())
     }

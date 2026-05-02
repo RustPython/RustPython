@@ -725,7 +725,7 @@ pub(super) fn create_server_config(options: ServerConfigOptions) -> Result<Serve
         };
 
     // Step 2: Create ServerConfig builder once with the selected verifier
-    let builder = ServerConfig::builder_with_provider(custom_provider.clone())
+    let builder = ServerConfig::builder_with_provider(custom_provider)
         .with_protocol_versions(options.protocol_settings.versions)
         .map_err(|e| format!("Failed to create server config builder: {e}"))?;
 
@@ -895,7 +895,7 @@ pub(super) fn create_client_config(options: ClientConfigOptions) -> Result<Clien
             if options.check_hostname {
                 // Default behavior: verify both certificate chain and hostname
                 let base_verifier = build_webpki_verifier_with_crls(
-                    root_store_arc.clone(),
+                    root_store_arc,
                     options.crls,
                     options.verify_flags,
                 )?;
@@ -913,7 +913,7 @@ pub(super) fn create_client_config(options: ClientConfigOptions) -> Result<Clien
 
                 // Build verifier with CRL support using helper function
                 let webpki_verifier = build_webpki_verifier_with_crls(
-                    root_store_arc.clone(),
+                    root_store_arc,
                     options.crls,
                     options.verify_flags,
                 )?;
@@ -967,7 +967,7 @@ pub(super) fn create_client_config(options: ClientConfigOptions) -> Result<Clien
     };
 
     // Step 2: Create ClientConfig builder once with the selected verifier
-    let builder = ClientConfig::builder_with_provider(custom_provider.clone())
+    let builder = ClientConfig::builder_with_provider(custom_provider)
         .with_protocol_versions(options.protocol_settings.versions)
         .map_err(|e| format!("Failed to create client config builder: {e}"))?
         .dangerous()
