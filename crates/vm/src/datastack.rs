@@ -59,6 +59,7 @@ pub struct DataStack {
 
 impl DataStack {
     /// Create a new data stack with an initial root chunk.
+    #[must_use]
     pub fn new() -> Self {
         let chunk = Self::alloc_chunk(MIN_CHUNK_SIZE, ptr::null_mut());
         let top = unsafe { (*chunk).data_start() };
@@ -71,6 +72,7 @@ impl DataStack {
 
     /// Check if the current chunk has at least `size` bytes available.
     #[inline(always)]
+    #[must_use]
     pub fn has_space(&self, size: usize) -> bool {
         let aligned_size = (size + ALIGN - 1) & !(ALIGN - 1);
         (self.limit as usize).saturating_sub(self.top as usize) >= aligned_size

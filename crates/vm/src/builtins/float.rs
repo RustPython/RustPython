@@ -29,6 +29,7 @@ pub struct PyFloat {
 }
 
 impl PyFloat {
+    #[must_use]
     pub const fn to_f64(&self) -> f64 {
         self.value
     }

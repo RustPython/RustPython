@@ -23,6 +23,7 @@ pub fn get_tz_info() -> windows_sys::Win32::System::Time::TIME_ZONE_INFORMATION 
 }
 
 #[cfg(any(unix, windows))]
+#[must_use]
 pub fn asctime_from_tm(tm: &libc::tm) -> String {
     const WDAY_NAME: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const MON_NAME: [&str; 12] = [

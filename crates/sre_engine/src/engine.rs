@@ -60,6 +60,7 @@ impl Default for Marks {
 }
 
 impl Marks {
+    #[must_use]
     pub fn get(&self, group_index: usize) -> (Optioned<usize>, Optioned<usize>) {
         let marks_index = 2 * group_index;
         if marks_index + 1 < self.marks.len() {
@@ -69,10 +70,12 @@ impl Marks {
         }
     }
 
+    #[must_use]
     pub const fn last_index(&self) -> isize {
         self.last_index
     }
 
+    #[must_use]
     pub fn raw(&self) -> &[Optioned<usize>] {
         self.marks.as_slice()
     }

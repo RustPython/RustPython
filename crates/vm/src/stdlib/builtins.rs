@@ -1346,7 +1346,7 @@ mod builtins {
 pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
 
-    crate::protocol::VecBuffer::make_static_type();
+    let _ = crate::protocol::VecBuffer::make_static_type();
 
     module.__init_methods(vm).unwrap();
     builtins::module_exec(vm, module).unwrap();

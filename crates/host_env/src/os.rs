@@ -14,6 +14,7 @@ use std::{
 ///
 /// On Windows, this supports the full u32 range including STATUS_CONTROL_C_EXIT (0xC000013A).
 /// On other platforms, only the lower 8 bits are used.
+#[must_use]
 pub fn exit_code(code: u32) -> ExitCode {
     #[cfg(windows)]
     {
@@ -32,6 +33,7 @@ pub fn current_dir() -> io::Result<PathBuf> {
     env::current_dir()
 }
 
+#[must_use]
 pub fn temp_dir() -> PathBuf {
     env::temp_dir()
 }
@@ -44,10 +46,12 @@ pub fn var_os(key: impl AsRef<OsStr>) -> Option<OsString> {
     env::var_os(key)
 }
 
+#[must_use]
 pub fn vars_os() -> env::VarsOs {
     env::vars_os()
 }
 
+#[must_use]
 pub fn vars() -> env::Vars {
     env::vars()
 }
@@ -70,6 +74,7 @@ pub fn set_current_dir(path: impl AsRef<std::path::Path>) -> io::Result<()> {
     env::set_current_dir(path)
 }
 
+#[must_use]
 pub fn process_id() -> u32 {
     std::process::id()
 }
@@ -104,6 +109,7 @@ pub fn errno_io_error() -> io::Error {
 }
 
 #[cfg(not(windows))]
+#[must_use]
 pub fn errno_io_error() -> io::Error {
     std::io::Error::last_os_error()
 }
@@ -119,6 +125,7 @@ pub fn get_errno() -> i32 {
 }
 
 #[cfg(not(windows))]
+#[must_use]
 pub fn get_errno() -> i32 {
     std::io::Error::last_os_error().posix_errno()
 }

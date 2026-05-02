@@ -83,6 +83,7 @@ pub fn get_number_of_os_threads() -> isize {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[must_use]
 pub fn get_number_of_os_threads() -> isize {
     0
 }

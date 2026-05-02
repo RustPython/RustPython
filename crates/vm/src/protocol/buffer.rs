@@ -42,6 +42,7 @@ pub struct PyBuffer {
 }
 
 impl PyBuffer {
+    #[must_use]
     pub fn new(obj: PyObjectRef, desc: BufferDescriptor, methods: &'static BufferMethods) -> Self {
         let zelf = Self {
             obj,
@@ -52,12 +53,14 @@ impl PyBuffer {
         zelf
     }
 
+    #[must_use]
     pub fn as_contiguous(&self) -> Option<BorrowedValue<'_, [u8]>> {
         self.desc
             .is_contiguous()
             .then(|| unsafe { self.contiguous_unchecked() })
     }
 
+    #[must_use]
     pub fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<'_, [u8]>> {
         (!self.desc.readonly && self.desc.is_contiguous())
             .then(|| unsafe { self.contiguous_mut_unchecked() })
@@ -74,12 +77,14 @@ impl PyBuffer {
 
     /// # Safety
     /// assume the buffer is contiguous
+    #[must_use]
     pub unsafe fn contiguous_unchecked(&self) -> BorrowedValue<'_, [u8]> {
         self.obj_bytes()
     }
 
     /// # Safety
     /// assume the buffer is contiguous and writable
+    #[must_use]
     pub unsafe fn contiguous_mut_unchecked(&self) -> BorrowedValueMut<'_, [u8]> {
         self.obj_bytes_mut()
     }
@@ -109,14 +114,17 @@ impl PyBuffer {
         f(v)
     }
 
+    #[must_use]
     pub fn obj_as<T: PyObjectPayload>(&self) -> &Py<T> {
         unsafe { self.obj.downcast_unchecked_ref() }
     }
 
+    #[must_use]
     pub fn obj_bytes(&self) -> BorrowedValue<'_, [u8]> {
         (self.methods.obj_bytes)(self)
     }
 
+    #[must_use]
     pub fn obj_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {
         (self.methods.obj_bytes_mut)(self)
     }
@@ -174,6 +182,7 @@ pub struct BufferDescriptor {
 }
 
 impl BufferDescriptor {
+    #[must_use]
     pub fn simple(bytes_len: usize, readonly: bool) -> Self {
         Self {
             len: bytes_len,
@@ -184,6 +193,7 @@ impl BufferDescriptor {
         }
     }
 
+    #[must_use]
     pub fn format(
         bytes_len: usize,
         readonly: bool,
@@ -200,6 +210,7 @@ impl BufferDescriptor {
     }
 
     #[cfg(debug_assertions)]
+    #[must_use]
     pub fn validate(self) -> Self {
         // ndim=0 is valid for scalar types (e.g., ctypes Structure)
         if self.ndim() == 0 {
@@ -229,10 +240,12 @@ impl BufferDescriptor {
         self
     }
 
+    #[must_use]
     pub fn ndim(&self) -> usize {
         self.dim_desc.len()
     }
 
+    #[must_use]
     pub fn is_contiguous(&self) -> bool {
         if self.len == 0 {
             return true;
@@ -249,6 +262,7 @@ impl BufferDescriptor {
 
     /// this function do not check the bound
     /// panic if indices.len() != ndim
+    #[must_use]
     pub fn fast_position(&self, indices: &[usize]) -> isize {
         let mut pos = 0;
         for (i, (_, stride, suboffset)) in indices
@@ -387,6 +401,7 @@ impl BufferDescriptor {
         suboffset == 0 && stride == self.itemsize as isize
     }
 
+    #[must_use]
     pub fn is_zero_in_shape(&self) -> bool {
         self.dim_desc.iter().any(|(shape, _, _)| *shape == 0)
     }
@@ -428,6 +443,7 @@ impl From<Vec<u8>> for VecBuffer {
 }
 
 impl PyRef<VecBuffer> {
+    #[must_use]
     pub fn into_pybuffer(self, readonly: bool) -> PyBuffer {
         let len = self.data.lock().len();
         PyBuffer::new(
@@ -437,6 +453,7 @@ impl PyRef<VecBuffer> {
         )
     }
 
+    #[must_use]
     pub fn into_pybuffer_with_descriptor(self, desc: BufferDescriptor) -> PyBuffer {
         PyBuffer::new(self.into(), desc, &VEC_BUFFER_METHODS)
     }

@@ -37,6 +37,7 @@ impl TypeDataSlot {
     }
 
     /// Get a reference to the data if the type matches.
+    #[must_use]
     pub fn get<T: Any + 'static>(&self) -> Option<&T> {
         if self.type_id == TypeId::of::<T>() {
             self.data.downcast_ref()
@@ -63,6 +64,7 @@ pub struct TypeDataRef<'a, T: 'static> {
 impl<'a, T: Any + 'static> TypeDataRef<'a, T> {
     /// Try to create a TypeDataRef from a read guard.
     /// Returns None if the slot is empty or contains a different type.
+    #[must_use]
     pub fn try_new(guard: PyRwLockReadGuard<'a, Option<TypeDataSlot>>) -> Option<Self> {
         PyRwLockReadGuard::try_map(guard, |opt| opt.as_ref().and_then(|slot| slot.get::<T>()))
             .ok()
@@ -86,6 +88,7 @@ pub struct TypeDataRefMut<'a, T: 'static> {
 impl<'a, T: Any + 'static> TypeDataRefMut<'a, T> {
     /// Try to create a TypeDataRefMut from a write guard.
     /// Returns None if the slot is empty or contains a different type.
+    #[must_use]
     pub fn try_new(guard: PyRwLockWriteGuard<'a, Option<TypeDataSlot>>) -> Option<Self> {
         PyRwLockWriteGuard::try_map(guard, |opt| {
             opt.as_mut().and_then(|slot| slot.get_mut::<T>())
@@ -188,6 +191,7 @@ pub struct PyTypeSlots {
 }
 
 impl PyTypeSlots {
+    #[must_use]
     pub fn new(name: &'static str, flags: PyTypeFlags) -> Self {
         Self {
             name,
@@ -196,6 +200,7 @@ impl PyTypeSlots {
         }
     }
 
+    #[must_use]
     pub fn heap_default() -> Self {
         Self {
             // init: AtomicCell::new(Some(init_wrapper)),
@@ -243,6 +248,7 @@ impl PyTypeFlags {
     // CPython: See initialization of flags in type_new.
     /// Used for types created in Python. Subclassable and are a
     /// heaptype.
+    #[must_use]
     pub const fn heap_type_flags() -> Self {
         match Self::from_bits(Self::DEFAULT.bits() | Self::HEAPTYPE.bits() | Self::BASETYPE.bits())
         {
@@ -251,11 +257,13 @@ impl PyTypeFlags {
         }
     }
 
+    #[must_use]
     pub const fn has_feature(self, flag: Self) -> bool {
         self.contains(flag)
     }
 
     #[cfg(debug_assertions)]
+    #[must_use]
     pub const fn is_created_with_flags(self) -> bool {
         self.contains(Self::_CREATED_WITH_FLAGS)
     }
@@ -1862,6 +1870,7 @@ impl PyComparisonOp {
         }
     }
 
+    #[must_use]
     pub fn eval_ord(self, ord: Ordering) -> bool {
         match self {
             Self::Lt => ord == Ordering::Less,
@@ -1873,6 +1882,7 @@ impl PyComparisonOp {
         }
     }
 
+    #[must_use]
     pub const fn swapped(self) -> Self {
         match self {
             Self::Lt => Self::Gt,
@@ -1895,6 +1905,7 @@ impl PyComparisonOp {
         }
     }
 
+    #[must_use]
     pub const fn operator_token(self) -> &'static str {
         match self {
             Self::Lt => "<",
@@ -1987,6 +1998,7 @@ pub trait AsMapping: PyPayload {
     fn as_mapping() -> &'static PyMappingMethods;
 
     #[inline]
+    #[must_use]
     fn mapping_downcast(mapping: PyMapping<'_>) -> &Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
@@ -2001,6 +2013,7 @@ pub trait AsSequence: PyPayload {
     fn as_sequence() -> &'static PySequenceMethods;
 
     #[inline]
+    #[must_use]
     fn sequence_downcast(seq: PySequence<'_>) -> &Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
     }
@@ -2025,6 +2038,7 @@ pub trait AsNumber: PyPayload {
     }
 
     #[inline]
+    #[must_use]
     fn number_downcast(num: PyNumber<'_>) -> &Py<Self> {
         unsafe { num.obj.downcast_unchecked_ref() }
     }

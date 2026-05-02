@@ -456,6 +456,7 @@ impl PyStr {
 
     /// # Safety
     /// Given `bytes` must be ascii
+    #[must_use]
     pub unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
         unsafe { AsciiString::from_ascii_unchecked(bytes) }.into()
     }
@@ -1533,6 +1534,7 @@ impl PyStr {
 }
 
 impl PyRef<PyStr> {
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         (**self).is_empty()
     }
@@ -2221,6 +2223,7 @@ impl Py<PyUtf8Str> {
 
 impl PyRef<PyUtf8Str> {
     /// Convert to PyStrRef. Safe because PyUtf8Str is a subtype of PyStr.
+    #[must_use]
     pub fn into_wtf8(self) -> PyStrRef {
         unsafe { mem::transmute::<Self, PyStrRef>(self) }
     }

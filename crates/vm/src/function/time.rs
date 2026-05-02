@@ -10,11 +10,13 @@ pub struct TimeoutSeconds {
 }
 
 impl TimeoutSeconds {
+    #[must_use]
     pub const fn new(secs: f64) -> Self {
         Self { value: secs }
     }
 
     #[inline]
+    #[must_use]
     pub fn to_secs_f64(self) -> f64 {
         self.value
     }

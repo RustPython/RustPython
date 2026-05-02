@@ -64,6 +64,7 @@ impl<T> Default for OncePtr<T> {
 
 impl<T> OncePtr<T> {
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             inner: Radium::new(ptr::null_mut()),

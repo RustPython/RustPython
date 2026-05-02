@@ -139,6 +139,7 @@ impl FuncArgs {
     /// `args[..nargs]` are positional, and if `kwnames` is provided,
     /// the last `kwnames.len()` entries in `args[nargs..]` are keyword values.
     /// Convert borrowed vectorcall args to FuncArgs (clones all values).
+    #[must_use]
     pub fn from_vectorcall(
         args: &[PyObjectRef],
         nargs: usize,
@@ -170,6 +171,7 @@ impl FuncArgs {
     }
 
     /// Convert owned vectorcall args to FuncArgs (moves values, no clone).
+    #[must_use]
     pub fn from_vectorcall_owned(
         mut args: Vec<PyObjectRef>,
         nargs: usize,
@@ -198,6 +200,7 @@ impl FuncArgs {
         Self { args, kwargs }
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.args.is_empty() && self.kwargs.is_empty()
     }
@@ -211,6 +214,7 @@ impl FuncArgs {
         self.args.remove(0)
     }
 
+    #[must_use]
     pub fn get_kwarg(&self, key: &str, default: PyObjectRef) -> PyObjectRef {
         self.kwargs
             .get(key)
@@ -218,6 +222,7 @@ impl FuncArgs {
             .unwrap_or_else(|| default.clone())
     }
 
+    #[must_use]
     pub fn get_optional_kwarg(&self, key: &str) -> Option<PyObjectRef> {
         self.kwargs.get(key).cloned()
     }
@@ -357,6 +362,7 @@ pub trait FromArgs: Sized {
     /// The range of positional arguments permitted by the function signature.
     ///
     /// Returns an empty range if not applicable.
+    #[must_use]
     fn arity() -> RangeInclusive<usize> {
         0..=0
     }
@@ -411,6 +417,7 @@ where
 }
 
 impl<T> KwArgs<T> {
+    #[must_use]
     pub const fn new(map: IndexMap<String, T>) -> Self {
         Self(map)
     }
@@ -419,6 +426,7 @@ impl<T> KwArgs<T> {
         self.0.swap_remove(name)
     }
 
+    #[must_use]
     pub fn is_empty(self) -> bool {
         self.0.is_empty()
     }
@@ -479,10 +487,12 @@ where
 }
 
 impl<T> PosArgs<T> {
+    #[must_use]
     pub const fn new(args: Vec<T>) -> Self {
         Self(args)
     }
 
+    #[must_use]
     pub fn into_vec(self) -> Vec<T> {
         self.0
     }

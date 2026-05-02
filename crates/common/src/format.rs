@@ -53,6 +53,7 @@ impl FormatParse for FormatConversion {
 }
 
 impl FormatConversion {
+    #[must_use]
     pub fn from_char(c: CodePoint) -> Option<Self> {
         match c.to_char_lossy() {
             's' => Some(Self::Str),
@@ -479,6 +480,7 @@ impl FormatSpec {
     }
 
     /// Returns true if this format spec uses the locale-aware 'n' format type.
+    #[must_use]
     pub fn has_locale_format(&self) -> bool {
         matches!(self.format_type, Some(FormatType::Number(Case::Lower)))
     }
@@ -487,6 +489,7 @@ impl FormatSpec {
     /// subject to `sys.get_int_max_str_digits()` (no spec, 'd', or 'n').
     /// Binary bases ('b', 'o', 'x', 'X') are exempt per CPython. 'N' is rejected
     /// later in `format_int` as `UnknownFormatCode`, so it is not included here.
+    #[must_use]
     pub fn is_decimal_int_format(&self) -> bool {
         matches!(
             self.format_type,

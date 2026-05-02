@@ -113,6 +113,7 @@ pub struct ModuleInitArgs {
 
 impl PyModule {
     #[allow(clippy::new_without_default)]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             def: None,
@@ -120,6 +121,7 @@ impl PyModule {
         }
     }
 
+    #[must_use]
     pub const fn from_def(def: &'static PyModuleDef) -> Self {
         Self {
             def: Some(def),

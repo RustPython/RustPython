@@ -142,10 +142,12 @@ pub struct PyRefExact<T: PyPayload> {
 impl<T: PyPayload> PyRefExact<T> {
     /// # Safety
     /// obj must have exact type for the payload
+    #[must_use]
     pub const unsafe fn new_unchecked(obj: PyRef<T>) -> Self {
         Self { inner: obj }
     }
 
+    #[must_use]
     pub fn into_pyref(self) -> PyRef<T> {
         self.inner
     }
@@ -500,6 +502,7 @@ unsafe impl Send for PyAtomicBorrow {}
 unsafe impl Sync for PyAtomicBorrow {}
 
 impl PyAtomicBorrow {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             inner: Radium::new(null_mut()),
@@ -610,6 +613,7 @@ pub struct PyLease<'a, T: PyPayload> {
 
 impl<T: PyPayload> PyLease<'_, T> {
     #[inline(always)]
+    #[must_use]
     pub fn into_owned(self) -> PyRef<T> {
         self.inner.clone()
     }

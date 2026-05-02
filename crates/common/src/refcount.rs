@@ -86,6 +86,7 @@ impl Default for RefCount {
 
 impl RefCount {
     /// Create a new RefCount with strong count = 1
+    #[must_use]
     pub fn new() -> Self {
         // Initial state: strong=1, weak=1 (implicit weak for strong refs)
         Self {

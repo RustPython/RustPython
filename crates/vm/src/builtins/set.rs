@@ -46,6 +46,7 @@ impl PySet {
         Self::default().into_ref(ctx)
     }
 
+    #[must_use]
     pub fn elements(&self) -> Vec<PyObjectRef> {
         self.inner.elements()
     }

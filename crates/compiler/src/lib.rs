@@ -46,6 +46,7 @@ pub enum CompileError {
 }
 
 impl CompileError {
+    #[must_use]
     pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
         let source_code = source_file.to_source_code();
         let source_text = source_file.source_text();
@@ -116,6 +117,7 @@ impl CompileError {
         })
     }
 
+    #[must_use]
     pub const fn location(&self) -> Option<SourceLocation> {
         match self {
             Self::Codegen(codegen_error) => codegen_error.location,
@@ -123,6 +125,7 @@ impl CompileError {
         }
     }
 
+    #[must_use]
     pub const fn python_location(&self) -> (usize, usize) {
         if let Some(location) = self.location() {
             (location.line.get(), location.character_offset.get())
@@ -131,6 +134,7 @@ impl CompileError {
         }
     }
 
+    #[must_use]
     pub fn python_end_location(&self) -> Option<(usize, usize)> {
         match self {
             CompileError::Codegen(_) => None,
@@ -141,6 +145,7 @@ impl CompileError {
         }
     }
 
+    #[must_use]
     pub fn source_path(&self) -> &str {
         match self {
             Self::Codegen(codegen_error) => &codegen_error.source_path,

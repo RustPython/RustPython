@@ -417,6 +417,7 @@ impl Default for PatternContext {
 }
 
 impl PatternContext {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             stores: Vec::new(),
@@ -426,6 +427,7 @@ impl PatternContext {
         }
     }
 
+    #[must_use]
     pub fn fail_pop_size(&self) -> usize {
         self.fail_pop.len()
     }

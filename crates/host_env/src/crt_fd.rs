@@ -159,6 +159,7 @@ impl Owned {
     ///
     /// `fd` must be a valid file descriptor.
     #[inline]
+    #[must_use]
     pub unsafe fn from_raw(fd: Raw) -> Self {
         let inner = unsafe { OwnedInner::from_raw_fd(fd) };
         Self { inner }
@@ -181,20 +182,24 @@ impl Owned {
     }
 
     #[inline]
+    #[must_use]
     pub fn borrow(&self) -> Borrowed<'_> {
         unsafe { Borrowed::borrow_raw(self.as_raw()) }
     }
 
     #[inline]
+    #[must_use]
     pub fn as_raw(&self) -> Raw {
         self.inner.as_raw_fd()
     }
 
     #[inline]
+    #[must_use]
     pub fn into_raw(self) -> Raw {
         self.inner.into_raw_fd()
     }
 
+    #[must_use]
     pub fn leak<'fd>(self) -> Borrowed<'fd> {
         unsafe { Borrowed::borrow_raw(self.into_raw()) }
     }
@@ -249,6 +254,7 @@ impl<'fd> Borrowed<'fd> {
     ///
     /// `fd` must be a valid file descriptor.
     #[inline]
+    #[must_use]
     pub const unsafe fn borrow_raw(fd: Raw) -> Self {
         let inner = unsafe { BorrowedInner::borrow_raw(fd) };
         Self { inner }
@@ -271,6 +277,7 @@ impl<'fd> Borrowed<'fd> {
     }
 
     #[inline]
+    #[must_use]
     pub fn as_raw(self) -> Raw {
         self.inner.as_raw_fd()
     }
