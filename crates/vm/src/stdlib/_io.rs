@@ -6181,7 +6181,7 @@ mod winconsoleio {
     impl DefaultConstructor for WindowsConsoleIO {}
 
     #[derive(FromArgs)]
-    pub struct WindowsConsoleIOArgs {
+    pub(super) struct WindowsConsoleIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
         #[pyarg(any, default)]

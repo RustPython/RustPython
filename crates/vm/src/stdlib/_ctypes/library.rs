@@ -82,7 +82,7 @@ impl ExternalLibs {
     }
 
     #[cfg(windows)]
-    pub fn get_or_insert_lib(
+    pub(super) fn get_or_insert_lib(
         &mut self,
         library_path: impl AsRef<OsStr>,
         _vm: &VirtualMachine,

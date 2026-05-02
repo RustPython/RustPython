@@ -46,21 +46,21 @@ mod platform {
 mod platform {
     use crate::version;
 
-    pub const BUILDDIR_TXT: &str = "pybuilddir.txt";
-    pub const BUILD_LANDMARK: &str = "Modules\\Setup.local";
-    pub const VENV_LANDMARK: &str = "pyvenv.cfg";
-    pub const BUILDSTDLIB_LANDMARK: &str = "Lib\\os.py";
-    pub const STDLIB_SUBDIR: &str = "Lib";
+    pub(super) const BUILDDIR_TXT: &str = "pybuilddir.txt";
+    pub(super) const BUILD_LANDMARK: &str = "Modules\\Setup.local";
+    pub(super) const VENV_LANDMARK: &str = "pyvenv.cfg";
+    pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib\\os.py";
+    pub(super) const STDLIB_SUBDIR: &str = "Lib";
 
-    pub fn stdlib_landmarks() -> [String; 2] {
+    pub(super) fn stdlib_landmarks() -> [String; 2] {
         ["Lib\\os.py".into(), "Lib\\os.pyc".into()]
     }
 
-    pub fn platstdlib_landmark() -> String {
+    pub(super) fn platstdlib_landmark() -> String {
         "DLLs".into()
     }
 
-    pub fn zip_landmark() -> String {
+    pub(super) fn zip_landmark() -> String {
         format!("python{}{}.zip", version::MAJOR, version::MINOR)
     }
 }

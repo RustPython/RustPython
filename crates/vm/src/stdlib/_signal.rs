@@ -58,6 +58,7 @@ pub(crate) mod _signal {
 
     #[cfg(unix)]
     pub(crate) use libc::SIG_ERR;
+
     #[cfg(unix)]
     pub(crate) use nix::unistd::alarm as sig_alarm;
 
@@ -72,13 +73,15 @@ pub(crate) mod _signal {
 
     #[cfg(not(unix))]
     #[pyattr]
-    pub const SIG_DFL: sighandler_t = 0;
+    pub(crate) const SIG_DFL: sighandler_t = 0;
+
     #[cfg(not(unix))]
     #[pyattr]
-    pub const SIG_IGN: sighandler_t = 1;
+    pub(crate) const SIG_IGN: sighandler_t = 1;
+
     #[cfg(not(unix))]
     #[allow(dead_code)]
-    pub const SIG_ERR: sighandler_t = -1 as _;
+    pub(crate) const SIG_ERR: sighandler_t = -1 as _;
 
     #[cfg(all(unix, not(target_os = "redox")))]
     unsafe extern "C" {

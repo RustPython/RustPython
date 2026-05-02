@@ -228,7 +228,7 @@ mod _stat {
 
     #[cfg(windows)]
     #[pyattr]
-    pub use windows_sys::Win32::Storage::FileSystem::{
+    pub(super) use windows_sys::Win32::Storage::FileSystem::{
         FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE,
         FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN,
         FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA, FILE_ATTRIBUTE_NORMAL,
@@ -240,13 +240,15 @@ mod _stat {
     // Windows reparse point tags
     #[cfg(windows)]
     #[pyattr]
-    pub const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
+    pub(super) const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
+
     #[cfg(windows)]
     #[pyattr]
-    pub const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA0000003;
+    pub(super) const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA0000003;
+
     #[cfg(windows)]
     #[pyattr]
-    pub const IO_REPARSE_TAG_APPEXECLINK: u32 = 0x8000001B;
+    pub(super) const IO_REPARSE_TAG_APPEXECLINK: u32 = 0x8000001B;
 
     // Unix file flags (if on Unix)
 
