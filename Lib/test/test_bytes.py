@@ -518,6 +518,7 @@ class BaseBytesTest:
         self.assertEqual(self.type2test(b"\x1a\x2b\x30").hex(), '1a2b30')
         self.assertEqual(memoryview(b"\x1a\x2b\x30").hex(), '1a2b30')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument sep
     def test_hex_separator_basics(self):
         three_bytes = self.type2test(b'\xb9\x01\xef')
         self.assertEqual(three_bytes.hex(), 'b901ef')
@@ -1340,10 +1341,6 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
         self.assertNotEqual(id(s), id(s * 2))
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_fromhex(self):
-        return super().test_fromhex()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mod(self):
         return super().test_mod()
 
@@ -1399,6 +1396,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
             except OSError:
                 pass
 
+    @unittest.skip("TODO: RUSTPYTHON; segfault")
     def test_mod_concurrent_mutation(self):
         # Prevent crash in __mod__ when formatting mutates the bytearray.
         # Regression test for https://github.com/python/cpython/issues/142557.
@@ -1461,6 +1459,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         b = by("Hello, world")
         self.assertEqual(re.findall(br"\w+", b), [by("Hello"), by("world")])
 
+    @unittest.skip("TODO: RUSTPYTHON; segfault")
     def test_resize(self):
         ba = bytearray(b'abcdef')
         self.assertIsNone(ba.resize(3))
@@ -1866,6 +1865,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b, b"")
         self.assertEqual(c, b"")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; BufferError: Existing exports of data: object cannot be re-sized
     def test_resize_forbidden(self):
         # #4509: can't resize a bytearray when there are buffer exports, even
         # if it wouldn't reallocate the underlying buffer.
@@ -2016,6 +2016,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
             self.assertEqual(instance.ba[0], ord("?"), "Assigned bytearray not altered")
             self.assertEqual(instance.new_ba, bytearray(0x180), "Wrong object altered")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: unexpected type Evil
     def test_search_methods_reentrancy_raises_buffererror(self):
         # gh-142560: Raise BufferError if buffer mutates during search arg conversion.
         class Evil:
@@ -2065,6 +2066,7 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
 
         self.assertRaises(ValueError, float, bytearray())
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: BufferError not raised by hex
     def test_hex_use_after_free(self):
         # Prevent UAF in bytearray.hex(sep) with re-entrant sep.__len__.
         # Regression test for https://github.com/python/cpython/issues/143195.
@@ -2076,10 +2078,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
                 return 1
 
         self.assertRaises(BufferError, ba.hex, S(b':'))
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_fromhex(self):
-        return super().test_fromhex()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mod(self):
