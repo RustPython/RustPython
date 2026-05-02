@@ -2403,7 +2403,7 @@ impl CodeInfo {
 
                 let redundant = matches!(
                     (curr_instr.into(), next_instr.into()),
-                    (Opcode::LoadConst, Opcode::PopTop) | (Opcode::LoadSmallInt, Opcode::PopTop)
+                    (Opcode::LoadConst | Opcode::LoadSmallInt, Opcode::PopTop)
                 ) || matches!(curr_instr, Instruction::Copy { i } if i.get(curr.arg) == 1)
                     && matches!(next_instr, Instruction::PopTop);
 
