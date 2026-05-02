@@ -37,6 +37,45 @@ env:
   CI: true
 
 jobs:
+  determine_changes:
+    name: Determine changes
+    runs-on: ubuntu-latest
+    outputs:
+      # Flag that is raised when any rust code is changed.
+      rust_code: ${{ steps.check_rust_code.outputs.changed }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine merge base
+        id: merge_base
+        run: |
+          sha=$(git merge-base HEAD "origin/${BASE_REF}")
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+
+      - name: Check if there was any code related change
+        id: check_rust_code
+        run: |
+          if git diff --quiet "${MERGE_BASE}...HEAD" -- \
+            ':Cargo.toml' \
+            ':Cargo.lock' \
+            ':rust-toolchain.toml' \
+            ':.cargo/config.toml' \
+            ':crates/**' \
+            ':src/**' \
+            ':.github/workflows/ci.yaml' \
+          ; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+
   rust_tests:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
@@ -123,9 +162,15 @@ jobs:
         if: runner.os == 'Linux'
 
   cargo_check:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: cargo check
     runs-on: ${{ matrix.os }}
+    needs:
+      - determine_changes
+    if: |
+      (
+        !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+        needs.determine_changes.outputs.rust_code == 'true'
+      ) || github.ref == 'refs/heads/main'
     strategy:
       matrix:
         include: 
