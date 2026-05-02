@@ -834,7 +834,7 @@ mod sys {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stderr = super::get_stderr(vm)?;
-        match vm.normalize_exception(exc_type.clone(), exc_val.clone(), exc_tb) {
+        match vm.normalize_exception(exc_type, exc_val.clone(), exc_tb) {
             Ok(exc) => {
                 // PyErr_Display: try traceback._print_exception_bltin first
                 if let Ok(tb_mod) = vm.import("traceback", 0)

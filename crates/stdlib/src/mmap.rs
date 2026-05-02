@@ -983,7 +983,7 @@ mod mmap {
             let buf = &mmap.as_ref().unwrap().as_slice()[start..end];
             let pos = buf.windows(sub.len()).position(|window| window == sub);
 
-            Ok(pos.map_or(PyInt::from(-1isize), |i| PyInt::from(start + i)))
+            Ok(pos.map_or_else(|| PyInt::from(-1isize), |i| PyInt::from(start + i)))
         }
 
         #[pymethod]
@@ -1000,7 +1000,7 @@ mod mmap {
             let buf = &mmap.as_ref().unwrap().as_slice()[start..end];
             let pos = buf.windows(sub.len()).rposition(|window| window == sub);
 
-            Ok(pos.map_or(PyInt::from(-1isize), |i| PyInt::from(start + i)))
+            Ok(pos.map_or_else(|| PyInt::from(-1isize), |i| PyInt::from(start + i)))
         }
 
         #[pymethod]

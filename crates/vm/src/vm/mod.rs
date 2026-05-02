@@ -944,13 +944,18 @@ impl VirtualMachine {
                     let errors = if fd == 2 {
                         Some("backslashreplace")
                     } else {
-                        self.state.config.settings.stdio_errors.as_deref().or(
-                            if self.state.config.settings.stdio_encoding.is_some() {
-                                Some("strict")
-                            } else {
-                                Some("surrogateescape")
-                            },
-                        )
+                        self.state
+                            .config
+                            .settings
+                            .stdio_errors
+                            .as_deref()
+                            .or_else(|| {
+                                Some(if self.state.config.settings.stdio_encoding.is_some() {
+                                    "strict"
+                                } else {
+                                    "surrogateescape"
+                                })
+                            })
                     };
 
                     let stdio = self.call_method(
@@ -1177,7 +1182,7 @@ impl VirtualMachine {
         let repr_result = object.repr(self);
         let repr_wtf8 = repr_result
             .as_ref()
-            .map_or("<object repr failed>".as_ref(), |s| s.as_wtf8());
+            .map_or_else(|_| "<object repr failed>".as_ref(), |s| s.as_wtf8());
         write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
 
         // Write exception type and message

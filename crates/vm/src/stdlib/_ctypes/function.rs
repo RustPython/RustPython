@@ -274,7 +274,7 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
         return Ok(Argument {
             ffi_type,
             keep: None,
-            value: carg.value.clone(),
+            value: carg.value,
         });
     }
 
@@ -371,14 +371,14 @@ impl ArgumentType for PyTypeRef {
             .as_object()
             .get_attr(vm.ctx.intern_str("_type_"), vm)
             .ok()
-            .ok_or(vm.new_type_error("Unsupported argument type"))?;
+            .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
         let typ = typ
             .downcast_ref::<PyStr>()
-            .ok_or(vm.new_type_error("Unsupported argument type"))?;
+            .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
         let typ = typ.to_string();
         let typ = typ.as_str();
         get_ffi_type(typ)
-            .ok_or_else(|| vm.new_type_error(format!("Unsupported argument type: {}", typ)))
+            .ok_or_else(|| vm.new_type_error(format!("Unsupported argument type: {typ}")))
     }
 
     fn convert_object(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<FfiArgValue> {
@@ -388,7 +388,7 @@ impl ArgumentType for PyTypeRef {
         let from_param = self
             .as_object()
             .get_attr(vm.ctx.intern_str("from_param"), vm)?;
-        let converted = from_param.call((value.clone(),), vm)?;
+        let converted = from_param.call((value,), vm)?;
 
         // Then pass the converted value to ConvParam logic
         // CArgObject (from from_param) -> use stored value directly
@@ -422,16 +422,16 @@ impl ArgumentType for PyTypeRef {
             .and_then(|t| t.downcast_ref::<PyStr>().map(|s| s.to_string()));
 
         // For pointer types (c_void_p, c_char_p, c_wchar_p), handle as pointer
-        if matches!(type_code.as_deref(), Some("P") | Some("z") | Some("Z")) {
+        if matches!(type_code.as_deref(), Some("P" | "z" | "Z")) {
             return convert_to_pointer(&converted, vm);
         }
 
         // PyCSimple (already a ctypes instance from from_param)
-        if let Ok(simple) = converted.clone().downcast::<PyCSimple>() {
+        if let Ok(simple) = converted.downcast::<PyCSimple>() {
             let typ = ArgumentType::to_ffi_type(self, vm)?;
             let ffi_value = simple
                 .to_ffi_value(typ, vm)
-                .ok_or(vm.new_type_error("Unsupported argument type"))?;
+                .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
             return Ok(ffi_value);
         }
 
@@ -493,7 +493,7 @@ impl Initializer for PyCFuncPtrType {
     type Args = FuncArgs;
 
     fn init(zelf: PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        let obj: PyObjectRef = zelf.clone().into();
+        let obj: PyObjectRef = zelf.into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
@@ -845,7 +845,7 @@ pub(super) fn cast_impl(
         // Add id(src): src to the shared dict
         if let Some(dict) = shared_objects.downcast_ref::<PyDict>() {
             let id_key: PyObjectRef = vm.ctx.new_int(src.get_id() as i64).into();
-            let _ = dict.set_item(&*id_key, src.clone(), vm);
+            let _ = dict.set_item(&*id_key, src, vm);
         }
 
         // Set result's _objects to the shared dict
@@ -997,14 +997,14 @@ impl Constructor for PyCFuncPtr {
         if let Some(tuple) = first_arg.downcast_ref::<PyTuple>() {
             let name = tuple
                 .first()
-                .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
+                .ok_or_else(|| vm.new_type_error("Expected a tuple with at least 2 elements"))?
                 .downcast_ref::<PyStr>()
-                .ok_or(vm.new_type_error("Expected a string"))?
+                .ok_or_else(|| vm.new_type_error("Expected a string"))?
                 .to_string();
             let dll = tuple
                 .iter()
                 .nth(1)
-                .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements"))?
+                .ok_or_else(|| vm.new_type_error("Expected a tuple with at least 2 elements"))?
                 .clone();
 
             // Get library handle and load function
@@ -1022,7 +1022,7 @@ impl Constructor for PyCFuncPtr {
                 .get_lib(
                     handle
                         .to_usize()
-                        .ok_or(vm.new_value_error("Invalid handle"))?,
+                        .ok_or_else(|| vm.new_value_error("Invalid handle"))?,
                 )
                 .ok_or_else(|| vm.new_value_error("Library not found"))?;
             let inner_lib = library.lib.lock();
@@ -1584,10 +1584,7 @@ fn check_hresult(hresult: i32, zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> Py
             .new_str(format!("HRESULT: 0x{:08X}", hresult as u32))
             .into();
         let details: PyObjectRef = vm.ctx.none();
-        let exc = vm.invoke_exception(
-            com_error_type.to_owned(),
-            vec![text.clone(), details.clone()],
-        )?;
+        let exc = vm.invoke_exception(com_error_type, vec![text.clone(), details.clone()])?;
         let _ = exc.as_object().set_attr("hresult", hresult_obj, vm);
         let _ = exc.as_object().set_attr("text", text, vm);
         let _ = exc.as_object().set_attr("details", details, vm);
@@ -2108,12 +2105,12 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                     *(result as *mut u32) = i.as_bigint().to_u32().unwrap_or(0);
                 }
             }
-            Some("l") | Some("q") => {
+            Some("l" | "q") => {
                 if let Ok(i) = obj.try_int(vm) {
                     *(result as *mut i64) = i.as_bigint().to_i64().unwrap_or(0);
                 }
             }
-            Some("L") | Some("Q") => {
+            Some("L" | "Q") => {
                 if let Ok(i) = obj.try_int(vm) {
                     *(result as *mut u64) = i.as_bigint().to_u64().unwrap_or(0);
                 }
@@ -2128,7 +2125,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                     *(result as *mut f64) = f.to_f64();
                 }
             }
-            Some("P") | Some("z") | Some("Z") => {
+            Some("P" | "z" | "Z") => {
                 if let Ok(i) = obj.try_int(vm) {
                     *(result as *mut usize) = i.as_bigint().to_usize().unwrap_or(0);
                 }
@@ -2269,7 +2266,7 @@ impl PyCThunk {
             .map(|ty| {
                 ty.type_code(vm)
                     .and_then(|code| get_ffi_type(&code))
-                    .unwrap_or(Type::pointer())
+                    .unwrap_or_else(Type::pointer)
             })
             .collect();
 
@@ -2277,7 +2274,7 @@ impl PyCThunk {
             .as_ref()
             .and_then(|ty| ty.type_code(vm))
             .and_then(|code| get_ffi_type(&code))
-            .unwrap_or(Type::void());
+            .unwrap_or_else(Type::void);
 
         let cif = Cif::new(ffi_arg_types, ffi_res_type);
 

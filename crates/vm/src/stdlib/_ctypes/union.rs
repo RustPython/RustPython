@@ -69,7 +69,7 @@ impl Initializer for PyCUnionType {
 
     fn init(zelf: crate::PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Get the type as PyTypeRef by converting PyRef<Self> -> PyObjectRef -> PyRef<PyType>
-        let obj: PyObjectRef = zelf.clone().into();
+        let obj: PyObjectRef = zelf.into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;

@@ -306,7 +306,7 @@ pub(crate) fn is_possibly_shadowing_path(origin: &str, vm: &VirtualMachine) -> b
     };
     // For packages (__init__.py), look one directory further up
     let root = if origin_path.file_name() == Some("__init__.py".as_ref()) {
-        parent.parent().unwrap_or(Path::new(""))
+        parent.parent().unwrap_or_else(|| Path::new(""))
     } else {
         parent
     };
