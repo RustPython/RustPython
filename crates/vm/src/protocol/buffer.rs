@@ -222,7 +222,7 @@ impl BufferDescriptor {
         } else {
             let mut shape_product = 1;
             let has_zero_dim = self.dim_desc.iter().any(|(s, _, _)| *s == 0);
-            for (shape, stride, suboffset) in self.dim_desc.iter().cloned() {
+            for (shape, stride, suboffset) in self.dim_desc.iter().copied() {
                 shape_product *= shape;
                 assert!(suboffset >= 0);
                 // For empty arrays (any dimension is 0), strides can be 0
@@ -251,7 +251,7 @@ impl BufferDescriptor {
             return true;
         }
         let mut sd = self.itemsize;
-        for (shape, stride, _) in self.dim_desc.iter().cloned().rev() {
+        for (shape, stride, _) in self.dim_desc.iter().copied().rev() {
             if shape > 1 && stride != sd as isize {
                 return false;
             }
@@ -267,8 +267,8 @@ impl BufferDescriptor {
         let mut pos = 0;
         for (i, (_, stride, suboffset)) in indices
             .iter()
-            .cloned()
-            .zip_eq(self.dim_desc.iter().cloned())
+            .copied()
+            .zip_eq(self.dim_desc.iter().copied())
         {
             pos += i as isize * stride + suboffset;
         }
@@ -280,8 +280,8 @@ impl BufferDescriptor {
         let mut pos = 0;
         for (i, (shape, stride, suboffset)) in indices
             .iter()
-            .cloned()
-            .zip_eq(self.dim_desc.iter().cloned())
+            .copied()
+            .zip_eq(self.dim_desc.iter().copied())
         {
             let i = i.wrapped_at(shape).ok_or_else(|| {
                 vm.new_index_error(format!("index out of bounds on dimension {i}"))

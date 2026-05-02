@@ -834,7 +834,7 @@ pub type CFormatBytes = CFormatStrOrBytes<Vec<u8>>;
 
 impl CFormatBytes {
     pub fn parse_from_bytes(bytes: &[u8]) -> Result<Self, CFormatError> {
-        let mut iter = bytes.iter().cloned().enumerate().peekable();
+        let mut iter = bytes.iter().copied().enumerate().peekable();
         Self::parse(&mut iter)
     }
 }

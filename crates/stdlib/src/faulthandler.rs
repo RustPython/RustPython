@@ -1012,7 +1012,7 @@ mod decl {
 
         pub fn get_user_signal(signum: usize) -> Option<UserSignal> {
             let guard = USER_SIGNALS.lock();
-            guard.as_ref().and_then(|v| v.get(signum).cloned())
+            guard.as_ref().and_then(|v| v.get(signum).copied())
         }
 
         pub fn set_user_signal(signum: usize, signal: UserSignal) {
