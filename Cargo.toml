@@ -276,6 +276,6 @@ manual_is_variant_and = "warn"
 or_fun_call = "warn"
 unnested_or_patterns = "warn"
 
-# pendantic lints to enforce gradually
+# pedantic lints to enforce gradually
 cloned_instead_of_copied = "warn"
 must_use_candidate = "warn"
