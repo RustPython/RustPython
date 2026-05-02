@@ -67,9 +67,7 @@ pub fn enum_certificates(store_name: &str) -> CertificateEntries {
                 |uses| {
                     Ok(match uses {
                         ValidUses::All => CertificateUses::All,
-                        ValidUses::Oids(oids) => CertificateUses::Oids(
-                            oids.into_iter().map(|oid| oid.to_string()).collect(),
-                        ),
+                        ValidUses::Oids(oids) => CertificateUses::Oids(oids.into_iter().collect()),
                     })
                 },
             );

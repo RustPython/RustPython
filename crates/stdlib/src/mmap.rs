@@ -27,7 +27,9 @@ mod mmap {
     use std::io::Write;
 
     #[cfg(unix)]
-    use rustpython_host_env::{crt_fd, mmap as host_mmap};
+    use rustpython_host_env::crt_fd;
+    #[cfg(any(unix, windows))]
+    use rustpython_host_env::mmap as host_mmap;
 
     #[cfg(windows)]
     use rustpython_host_env::nt as host_nt;
