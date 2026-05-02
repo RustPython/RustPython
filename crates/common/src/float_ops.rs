@@ -241,7 +241,10 @@ pub fn round_float_digits(x: f64, ndigits: i32) -> Option<f64> {
         let pow1 = 10.0f64.powi(-ndigits);
         let y = x / pow1;
         let z = y.round();
-        #[allow(clippy::float_cmp)]
+        #[expect(
+            clippy::float_cmp,
+            reason = "exact half-tie detection for banker's rounding correction"
+        )]
         let z = if (y - z).abs() == 0.5 {
             2.0 * (y / 2.0).round()
         } else {
