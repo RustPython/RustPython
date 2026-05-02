@@ -1357,20 +1357,18 @@ impl FormatString {
             } else if c == '{' {
                 if nested {
                     return Err(FormatParseError::InvalidFormatSpecifier);
-                } else {
-                    nested = true;
-                    left.push(c);
-                    continue;
                 }
+                nested = true;
+                left.push(c);
+                continue;
             } else if c == '}' {
                 if nested {
                     nested = false;
                     left.push(c);
                     continue;
-                } else {
-                    end_bracket_pos = Some(idx);
-                    break;
                 }
+                end_bracket_pos = Some(idx);
+                break;
             } else {
                 left.push(c);
             }

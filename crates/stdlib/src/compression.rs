@@ -162,10 +162,9 @@ pub fn _decompress_chunks<D: Decompressor>(
                     } else if !chunk.is_empty() && consumed == 0 {
                         // we're gonna need a bigger buffer
                         continue;
-                    } else {
-                        // next chunk
-                        continue 'outer;
                     }
+                    // next chunk
+                    continue 'outer;
                 }
                 Err(e) => {
                     d.maybe_set_dict(e)?;

@@ -35,12 +35,11 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
         let id = self.get_thread_id.nonzero_thread_id().get();
         if self.owner.load(Ordering::Relaxed) == id {
             return None;
-        } else {
-            if !try_lock() {
-                return Some(false);
-            }
-            self.owner.store(id, Ordering::Relaxed);
         }
+        if !try_lock() {
+            return Some(false);
+        }
+        self.owner.store(id, Ordering::Relaxed);
         Some(true)
     }
 

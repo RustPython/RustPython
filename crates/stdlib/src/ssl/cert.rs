@@ -812,10 +812,9 @@ impl<'a> CertLoader<'a> {
                             return Err(cert_error::der::not_enough_data(
                                 "cadata does not contain a certificate",
                             ));
-                        } else {
-                            // Loaded some certificates but failed on subsequent data (garbage)
-                            return Err(cert_error::der::parse_failed(e));
                         }
+                        // Loaded some certificates but failed on subsequent data (garbage)
+                        return Err(cert_error::der::parse_failed(e));
                     }
                 }
             }

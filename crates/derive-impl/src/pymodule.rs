@@ -469,9 +469,8 @@ where
                     continue;
                 } else if closed {
                     bail_span!(attr, "Only one #[pyattr] annotated #[py*] item can exist")
-                } else {
-                    bail_span!(attr, "#[pymodule] doesn't accept #[{}]", wrong_name)
                 }
+                bail_span!(attr, "#[pymodule] doesn't accept #[{}]", wrong_name)
             }
         };
 
