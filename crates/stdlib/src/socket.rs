@@ -1845,7 +1845,7 @@ mod _socket {
                 .iter()
                 .map(|buf| io::IoSlice::new(buf))
                 .collect::<Vec<_>>();
-            let iv = iv.map(|iv| iv.borrow_buf()).map(|iv| iv.to_vec());
+            let iv = iv.map(|iv| iv.borrow_buf().to_vec());
 
             self.sock_op(vm, SelectKind::Write, || {
                 let sock = self.sock()?;
@@ -2301,7 +2301,6 @@ mod _socket {
                 let ifname = if ifindex == 0 {
                     String::new()
                 } else {
-                    let mut buf = [0u8; libc::IF_NAMESIZE];
                     host_socket::if_indextoname_checked(ifindex as u32).unwrap_or_default()
                 };
                 return vm.ctx.new_tuple(vec![vm.ctx.new_str(ifname).into()]).into();

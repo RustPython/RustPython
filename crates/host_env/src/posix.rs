@@ -395,6 +395,7 @@ pub fn uname_info() -> std::io::Result<UnameInfo> {
     target_os = "dragonfly",
     target_os = "freebsd",
     target_os = "linux",
+    target_os = "android",
     target_os = "netbsd",
     target_os = "openbsd"
 ))]

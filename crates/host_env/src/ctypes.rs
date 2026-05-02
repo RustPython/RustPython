@@ -1,7 +1,7 @@
 use alloc::borrow::Cow;
 use core::ffi::{
-    CStr, c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong,
-    c_ulonglong, c_ushort, c_void,
+    CStr, c_char, c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint,
+    c_ulong, c_ulonglong, c_ushort, c_void,
 };
 #[cfg(all(
     any(
@@ -102,6 +102,16 @@ type CallbackIntResult = low::ffi_arg;
     not(any(target_env = "musl", target_env = "sgx"))
 )))]
 type CallbackIntResult = c_int;
+
+#[cfg(any(unix, windows, target_os = "wasi"))]
+pub type WChar = libc::wchar_t;
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub type WChar = u32;
+
+#[cfg(any(unix, windows, target_os = "wasi"))]
+type TimeT = libc::time_t;
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+type TimeT = i64;
 
 std::thread_local! {
     /// Thread-local ctypes errno, separate from the platform errno.
@@ -209,7 +219,7 @@ const LONG_DOUBLE_SIZE: usize = core::mem::size_of::<c_double>();
 pub fn simple_type_size(ty: &str) -> Option<usize> {
     match ty {
         "c" | "b" => Some(core::mem::size_of::<c_schar>()),
-        "u" => Some(core::mem::size_of::<libc::wchar_t>()),
+        "u" => Some(core::mem::size_of::<WChar>()),
         "B" | "?" => Some(core::mem::size_of::<c_uchar>()),
         "h" | "v" => Some(core::mem::size_of::<c_short>()),
         "H" => Some(core::mem::size_of::<c_ushort>()),
@@ -322,14 +332,14 @@ impl RawMemoryView {
 // These match the current RustPython _ctypes surface exactly.
 pub const RTLD_LOCAL: i32 = 0;
 pub const RTLD_GLOBAL: i32 = 0;
-pub const SIZEOF_TIME_T: usize = core::mem::size_of::<libc::time_t>();
+pub const SIZEOF_TIME_T: usize = core::mem::size_of::<TimeT>();
 
-#[cfg(all(not(windows), not(target_os = "wasi")))]
+#[cfg(all(unix, not(target_os = "wasi")))]
 pub fn dlopen_mode(load_flags: Option<i32>) -> i32 {
     load_flags.unwrap_or(libc::RTLD_NOW | libc::RTLD_LOCAL) | libc::RTLD_NOW
 }
 
-#[cfg(all(not(windows), target_os = "wasi"))]
+#[cfg(not(all(unix, not(target_os = "wasi"))))]
 pub fn dlopen_mode(load_flags: Option<i32>) -> i32 {
     load_flags.unwrap_or(0)
 }
@@ -339,7 +349,7 @@ pub fn dyld_shared_cache_contains_path(path: &str) -> Result<bool, alloc::ffi::N
     let c_path = alloc::ffi::CString::new(path)?;
 
     unsafe extern "C" {
-        fn _dyld_shared_cache_contains_path(path: *const libc::c_char) -> bool;
+        fn _dyld_shared_cache_contains_path(path: *const c_char) -> bool;
     }
 
     Ok(unsafe { _dyld_shared_cache_contains_path(c_path.as_ptr()) })
@@ -348,16 +358,27 @@ pub fn dyld_shared_cache_contains_path(path: &str) -> Result<bool, alloc::ffi::N
 /// # Safety
 ///
 /// `ptr` must be valid to read until the first NUL byte.
-pub unsafe fn strlen(ptr: *const libc::c_char) -> usize {
-    unsafe { libc::strlen(ptr) }
+pub unsafe fn strlen(ptr: *const c_char) -> usize {
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    {
+        unsafe { libc::strlen(ptr) }
+    }
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
+    {
+        let mut len = 0;
+        while unsafe { *ptr.add(len) } != 0 {
+            len += 1;
+        }
+        len
+    }
 }
 
 /// # Safety
 ///
 /// `ptr` must be valid to read until the first NUL wide character.
-pub unsafe fn wcslen(ptr: *const libc::wchar_t) -> usize {
+pub unsafe fn wcslen(ptr: *const WChar) -> usize {
     let mut len = 0;
-    while unsafe { *ptr.add(len) } != 0 as libc::wchar_t {
+    while unsafe { *ptr.add(len) } != 0 as WChar {
         len += 1;
     }
     len
@@ -366,7 +387,7 @@ pub unsafe fn wcslen(ptr: *const libc::wchar_t) -> usize {
 /// # Safety
 ///
 /// `ptr` must be a valid NUL-terminated C string.
-pub unsafe fn read_c_string_bytes(ptr: *const libc::c_char) -> Vec<u8> {
+pub unsafe fn read_c_string_bytes(ptr: *const c_char) -> Vec<u8> {
     unsafe { CStr::from_ptr(ptr) }.to_bytes().to_vec()
 }
 
@@ -379,7 +400,7 @@ pub fn read_pointer_from_buffer(buffer: &[u8]) -> usize {
         .map_or(0, usize::from_ne_bytes)
 }
 
-pub const WCHAR_SIZE: usize = core::mem::size_of::<libc::wchar_t>();
+pub const WCHAR_SIZE: usize = core::mem::size_of::<WChar>();
 
 #[inline]
 pub fn wchar_from_bytes(bytes: &[u8]) -> Option<u32> {
@@ -468,9 +489,9 @@ pub fn encode_wtf8_to_wchar_padded(s: &Wtf8, size: usize) -> Vec<u8> {
 }
 
 pub fn wchar_null_terminated_bytes(s: &Wtf8) -> Vec<u8> {
-    let wchars: Vec<libc::wchar_t> = s
+    let wchars: Vec<WChar> = s
         .code_points()
-        .map(|cp| cp.to_u32() as libc::wchar_t)
+        .map(|cp| cp.to_u32() as WChar)
         .chain(core::iter::once(0))
         .collect();
     vec_into_bytes(wchars)
@@ -1092,40 +1113,39 @@ pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {
             0
         }),
         "h" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_short>();
+            const SIZE: usize = core::mem::size_of::<c_short>();
             DecodedValue::Signed(if bytes.len() >= SIZE {
-                libc::c_short::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")).into()
+                c_short::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")).into()
             } else {
                 0
             })
         }
         "H" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_ushort>();
+            const SIZE: usize = core::mem::size_of::<c_ushort>();
             DecodedValue::Unsigned(if bytes.len() >= SIZE {
-                libc::c_ushort::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                    .into()
+                c_ushort::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")).into()
             } else {
                 0
             })
         }
         "i" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_int>();
+            const SIZE: usize = core::mem::size_of::<c_int>();
             DecodedValue::Signed(if bytes.len() >= SIZE {
-                libc::c_int::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")).into()
+                c_int::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")).into()
             } else {
                 0
             })
         }
         "I" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_uint>();
+            const SIZE: usize = core::mem::size_of::<c_uint>();
             DecodedValue::Unsigned(if bytes.len() >= SIZE {
-                libc::c_uint::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")).into()
+                c_uint::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")).into()
             } else {
                 0
             })
         }
         "l" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_long>();
+            const SIZE: usize = core::mem::size_of::<c_long>();
             DecodedValue::Signed(if bytes.len() >= SIZE {
                 #[allow(
                     clippy::unnecessary_cast,
@@ -1133,15 +1153,14 @@ pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {
                     reason = "c_long width is platform-dependent"
                 )]
                 let val: i64 =
-                    libc::c_long::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                        as i64;
+                    c_long::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")) as i64;
                 val
             } else {
                 0
             })
         }
         "L" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_ulong>();
+            const SIZE: usize = core::mem::size_of::<c_ulong>();
             DecodedValue::Unsigned(if bytes.len() >= SIZE {
                 #[allow(
                     clippy::unnecessary_cast,
@@ -1149,50 +1168,49 @@ pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {
                     reason = "c_ulong width is platform-dependent"
                 )]
                 let val: u64 =
-                    libc::c_ulong::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
-                        as u64;
+                    c_ulong::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")) as u64;
                 val
             } else {
                 0
             })
         }
         "q" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_longlong>();
+            const SIZE: usize = core::mem::size_of::<c_longlong>();
             DecodedValue::Signed(if bytes.len() >= SIZE {
-                libc::c_longlong::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
+                c_longlong::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
             } else {
                 0
             })
         }
         "Q" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_ulonglong>();
+            const SIZE: usize = core::mem::size_of::<c_ulonglong>();
             DecodedValue::Unsigned(if bytes.len() >= SIZE {
-                libc::c_ulonglong::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
+                c_ulonglong::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
             } else {
                 0
             })
         }
         "f" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_float>();
+            const SIZE: usize = core::mem::size_of::<c_float>();
             DecodedValue::Float(if bytes.len() >= SIZE {
-                libc::c_float::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")) as f64
+                c_float::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked")) as f64
             } else {
                 0.0
             })
         }
         "d" | "g" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_double>();
+            const SIZE: usize = core::mem::size_of::<c_double>();
             DecodedValue::Float(if bytes.len() >= SIZE {
-                libc::c_double::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
+                c_double::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
             } else {
                 0.0
             })
         }
         "?" => DecodedValue::Bool(!bytes.is_empty() && bytes[0] != 0),
         "v" => {
-            const SIZE: usize = core::mem::size_of::<libc::c_short>();
+            const SIZE: usize = core::mem::size_of::<c_short>();
             let val = if bytes.len() >= SIZE {
-                libc::c_short::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
+                c_short::from_ne_bytes(bytes[..SIZE].try_into().expect("size checked"))
             } else {
                 0
             };
@@ -1212,8 +1230,8 @@ pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {
         },
         "P" => DecodedValue::Pointer(read_pointer_from_buffer(bytes)),
         "u" => {
-            let val = if bytes.len() >= core::mem::size_of::<libc::wchar_t>() {
-                let wc = if core::mem::size_of::<libc::wchar_t>() == 2 {
+            let val = if bytes.len() >= core::mem::size_of::<WChar>() {
+                let wc = if core::mem::size_of::<WChar>() == 2 {
                     u16::from_ne_bytes([bytes[0], bytes[1]]) as u32
                 } else {
                     u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
@@ -1247,7 +1265,7 @@ pub unsafe fn callback_arg_value(type_code: Option<&str>, ptr: *const c_void) ->
                 clippy::useless_conversion,
                 reason = "c_long width is platform-dependent"
             )]
-            let val: i64 = unsafe { *(ptr as *const libc::c_long) as i64 };
+            let val: i64 = unsafe { *(ptr as *const c_long) as i64 };
             val
         }),
         Some("L") => DecodedValue::Unsigned({
@@ -1256,15 +1274,15 @@ pub unsafe fn callback_arg_value(type_code: Option<&str>, ptr: *const c_void) ->
                 clippy::useless_conversion,
                 reason = "c_ulong width is platform-dependent"
             )]
-            let val: u64 = unsafe { *(ptr as *const libc::c_ulong) as u64 };
+            let val: u64 = unsafe { *(ptr as *const c_ulong) as u64 };
             val
         }),
-        Some("q") => DecodedValue::Signed(unsafe { *(ptr as *const libc::c_longlong) }),
-        Some("Q") => DecodedValue::Unsigned(unsafe { *(ptr as *const libc::c_ulonglong) }),
+        Some("q") => DecodedValue::Signed(unsafe { *(ptr as *const c_longlong) }),
+        Some("Q") => DecodedValue::Unsigned(unsafe { *(ptr as *const c_ulonglong) }),
         Some("f") => DecodedValue::Float(unsafe { *(ptr as *const f32) as f64 }),
         Some("d") => DecodedValue::Float(unsafe { *(ptr as *const f64) }),
         Some("z") => {
-            let cstr_ptr = unsafe { *(ptr as *const *const libc::c_char) };
+            let cstr_ptr = unsafe { *(ptr as *const *const c_char) };
             if cstr_ptr.is_null() {
                 DecodedValue::None
             } else {
@@ -1272,7 +1290,7 @@ pub unsafe fn callback_arg_value(type_code: Option<&str>, ptr: *const c_void) ->
             }
         }
         Some("Z") => {
-            let wstr_ptr = unsafe { *(ptr as *const *const libc::wchar_t) };
+            let wstr_ptr = unsafe { *(ptr as *const *const WChar) };
             if wstr_ptr.is_null() {
                 DecodedValue::None
             } else {
@@ -1457,7 +1475,7 @@ pub fn ffi_value_from_type(buffer: &[u8], ty: Type) -> Option<FfiValue> {
 pub fn ffi_type_from_code(ty: &str) -> Option<Type> {
     match ty {
         "c" => Some(Type::u8()),
-        "u" => Some(if core::mem::size_of::<libc::wchar_t>() == 2 {
+        "u" => Some(if core::mem::size_of::<WChar>() == 2 {
             Type::u16()
         } else {
             Type::u32()
@@ -1524,7 +1542,7 @@ pub fn ffi_type_from_tag(tag: u8) -> Type {
         b'f' => Type::f32(),
         b'd' | b'g' => Type::f64(),
         b'u' => {
-            if core::mem::size_of::<libc::wchar_t>() == 2 {
+            if core::mem::size_of::<WChar>() == 2 {
                 Type::u16()
             } else {
                 Type::u32()
@@ -1760,7 +1778,7 @@ pub fn callproc(
     ),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
-pub fn call_cdecl_i32(code_ptr: usize, arg_types: Vec<Type>, arg_values: &[isize]) -> libc::c_int {
+pub fn call_cdecl_i32(code_ptr: usize, arg_types: Vec<Type>, arg_values: &[isize]) -> c_int {
     let ffi_args: Vec<_> = arg_values.iter().map(Arg::new).collect();
     let cif = Cif::new(arg_types, Type::c_int());
     let code_ptr = CodePtr::from_ptr(code_ptr as *const _);
@@ -1776,7 +1794,7 @@ pub fn call_cdecl_i32(code_ptr: usize, arg_types: Vec<Type>, arg_values: &[isize
     ),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
-pub fn call_cdecl_i32_values(code_ptr: usize, args: &[CdeclArgValue]) -> libc::c_int {
+pub fn call_cdecl_i32_values(code_ptr: usize, args: &[CdeclArgValue]) -> c_int {
     let mut arg_values = Vec::with_capacity(args.len());
     let mut arg_types = Vec::with_capacity(args.len());
     for arg in args {
@@ -2056,7 +2074,7 @@ pub unsafe fn borrowed_slice_as_mut(slice: &[u8]) -> &mut [u8] {
     unsafe { core::slice::from_raw_parts_mut(slice.as_ptr() as *mut u8, slice.len()) }
 }
 
-pub fn wide_chars_to_wtf8(wchars: &[libc::wchar_t]) -> Wtf8Buf {
+pub fn wide_chars_to_wtf8(wchars: &[WChar]) -> Wtf8Buf {
     #[cfg(windows)]
     {
         let wide: Vec<u16> = wchars.to_vec();
@@ -2079,7 +2097,7 @@ pub fn wide_chars_to_wtf8(wchars: &[libc::wchar_t]) -> Wtf8Buf {
 /// # Safety
 ///
 /// `ptr` must be a valid NUL-terminated wide C string.
-pub unsafe fn read_wide_string(ptr: *const libc::wchar_t) -> Wtf8Buf {
+pub unsafe fn read_wide_string(ptr: *const WChar) -> Wtf8Buf {
     let len = unsafe { wcslen(ptr) };
     let wchars = unsafe { core::slice::from_raw_parts(ptr, len) };
     wide_chars_to_wtf8(wchars)
@@ -2092,7 +2110,7 @@ pub unsafe fn read_c_string_from_address(addr: usize) -> Option<Vec<u8>> {
     if addr == 0 {
         None
     } else {
-        Some(unsafe { read_c_string_bytes(addr as *const libc::c_char) })
+        Some(unsafe { read_c_string_bytes(addr as *const c_char) })
     }
 }
 
@@ -2103,14 +2121,14 @@ pub unsafe fn read_wide_string_from_address(addr: usize) -> Option<Wtf8Buf> {
     if addr == 0 {
         None
     } else {
-        Some(unsafe { read_wide_string(addr as *const libc::wchar_t) })
+        Some(unsafe { read_wide_string(addr as *const WChar) })
     }
 }
 
 /// # Safety
 ///
 /// `ptr` must point to `len` readable wide characters.
-pub unsafe fn read_wide_string_with_len(ptr: *const libc::wchar_t, len: usize) -> Wtf8Buf {
+pub unsafe fn read_wide_string_with_len(ptr: *const WChar, len: usize) -> Wtf8Buf {
     let wchars = unsafe { core::slice::from_raw_parts(ptr, len) };
     wide_chars_to_wtf8(wchars)
 }
@@ -2138,14 +2156,14 @@ pub fn wstring_at(ptr: usize, size: isize) -> Result<Wtf8Buf, StringAtError> {
     if ptr == 0 {
         return Err(StringAtError::NullPointer);
     }
-    let w_ptr = ptr as *const libc::wchar_t;
+    let w_ptr = ptr as *const WChar;
     if size < 0 {
         // SAFETY: caller passed a non-null NUL-terminated wide string pointer.
         return Ok(unsafe { read_wide_string(w_ptr) });
     }
     let len = {
         let size_usize = size as usize;
-        if size_usize > isize::MAX as usize / core::mem::size_of::<libc::wchar_t>() {
+        if size_usize > isize::MAX as usize / core::mem::size_of::<WChar>() {
             return Err(StringAtError::TooLong);
         }
         size_usize
@@ -2201,11 +2219,7 @@ pub unsafe fn read_pointer_char_slice(
 /// # Safety
 ///
 /// `start` must be valid to read `len` wide characters following `step`.
-pub unsafe fn read_wide_string_strided(
-    start: *const libc::wchar_t,
-    len: usize,
-    step: isize,
-) -> Wtf8Buf {
+pub unsafe fn read_wide_string_strided(start: *const WChar, len: usize, step: isize) -> Wtf8Buf {
     if step == 1 {
         return unsafe { read_wide_string_with_len(start, len) };
     }
@@ -2228,8 +2242,8 @@ pub unsafe fn read_pointer_wchar_slice(
     len: usize,
     step: isize,
 ) -> Wtf8Buf {
-    let wchar_size = core::mem::size_of::<libc::wchar_t>();
-    let start_addr = (ptr_value as isize + start * wchar_size as isize) as *const libc::wchar_t;
+    let wchar_size = core::mem::size_of::<WChar>();
+    let start_addr = (ptr_value as isize + start * wchar_size as isize) as *const WChar;
     unsafe { read_wide_string_strided(start_addr, len, step) }
 }
 
@@ -2393,12 +2407,24 @@ pub fn resize_owned_bytes(old_data: &[u8], new_size: usize) -> Vec<u8> {
     new_data
 }
 
+#[cfg(any(unix, windows, target_os = "wasi"))]
 pub fn memmove_addr() -> usize {
     libc::memmove as *const () as usize
 }
 
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn memmove_addr() -> usize {
+    0
+}
+
+#[cfg(any(unix, windows, target_os = "wasi"))]
 pub fn memset_addr() -> usize {
     libc::memset as *const () as usize
+}
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn memset_addr() -> usize {
+    0
 }
 
 #[cfg(any(unix, windows))]
@@ -2496,7 +2522,7 @@ impl ExternalLibs {
     ) -> Result<usize, libloading::Error> {
         let new_lib = SharedLibrary::new(library_path)?;
         let key = new_lib.get_pointer();
-        if self.libraries.get(&key).is_some() {
+        if self.libraries.contains_key(&key) {
             drop(new_lib);
             return Ok(key);
         }
@@ -2552,15 +2578,31 @@ pub fn open_library_with_mode(
     libcache().write().open_library_with_mode(name, mode)
 }
 
+#[cfg(not(unix))]
+pub fn open_library_with_mode(
+    _name: impl AsRef<std::ffi::OsStr>,
+    _mode: i32,
+) -> Result<usize, String> {
+    Err("dlopen() error".to_string())
+}
+
 #[cfg(unix)]
 pub fn insert_raw_library_handle(handle: *mut c_void) -> usize {
     libcache().write().insert_raw_library_handle(handle)
+}
+
+#[cfg(not(unix))]
+pub fn insert_raw_library_handle(_handle: *mut c_void) -> usize {
+    0
 }
 
 #[cfg(any(unix, windows))]
 pub fn drop_library(handle: usize) {
     libcache().write().drop_library(handle);
 }
+
+#[cfg(not(any(unix, windows)))]
+pub fn drop_library(_handle: usize) {}
 
 #[cfg(any(unix, windows))]
 pub fn lookup_data_symbol_addr(
@@ -2587,7 +2629,7 @@ pub fn lookup_function_symbol_addr(
 }
 
 #[cfg(all(unix, not(target_os = "wasi")))]
-pub fn dlopen_self(mode: libc::c_int) -> Result<*mut c_void, String> {
+pub fn dlopen_self(mode: c_int) -> Result<*mut c_void, String> {
     let handle = unsafe { libc::dlopen(core::ptr::null(), mode) };
     if handle.is_null() {
         let err = unsafe { libc::dlerror() };
@@ -2604,7 +2646,7 @@ pub fn dlopen_self(mode: libc::c_int) -> Result<*mut c_void, String> {
 }
 
 #[cfg(not(any(windows, all(unix, not(target_os = "wasi")))))]
-pub fn dlopen_self(_mode: libc::c_int) -> Result<*mut c_void, String> {
+pub fn dlopen_self(_mode: c_int) -> Result<*mut c_void, String> {
     Err("dlopen() error".to_string())
 }
 

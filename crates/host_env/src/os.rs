@@ -180,8 +180,14 @@ pub fn exit(code: i32) -> ! {
     std::process::exit(code)
 }
 
+#[cfg(any(unix, windows, target_os = "wasi"))]
 pub fn isatty(fd: i32) -> bool {
     unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
+}
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn isatty(_fd: i32) -> bool {
+    false
 }
 
 #[cfg(any(unix, windows))]
@@ -369,6 +375,9 @@ pub fn set_errno(value: i32) {
         *libc::__errno_location() = value;
     }
 }
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn set_errno(_value: i32) {}
 
 #[cfg(unix)]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {

@@ -180,7 +180,7 @@ pub(super) mod _os {
     use rustpython_common::wtf8::Wtf8Buf;
     #[cfg(windows)]
     use rustpython_host_env::nt as host_nt;
-    #[cfg(all(unix, not(target_os = "redox")))]
+    #[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))]
     use rustpython_host_env::posix as host_posix;
     use std::{fs, io, path::PathBuf, time::SystemTime};
 
@@ -501,7 +501,7 @@ pub(super) mod _os {
         check_env_var_len(wide.len(), vm)?;
 
         // Use _wputenv like CPython (not SetEnvironmentVariableW) to update CRT environ
-        let result = unsafe { suppress_iph!(_wputenv(wide.as_ptr())) };
+        let result = unsafe { rustpython_host_env::suppress_iph!(_wputenv(wide.as_ptr())) };
         if result != 0 {
             return Err(vm.new_last_errno_error());
         }
@@ -548,7 +548,7 @@ pub(super) mod _os {
         check_env_var_len(wide.len(), vm)?;
 
         // Use _wputenv like CPython (not SetEnvironmentVariableW) to update CRT environ
-        let result = unsafe { suppress_iph!(_wputenv(wide.as_ptr())) };
+        let result = unsafe { rustpython_host_env::suppress_iph!(_wputenv(wide.as_ptr())) };
         if result != 0 {
             return Err(vm.new_last_errno_error());
         }

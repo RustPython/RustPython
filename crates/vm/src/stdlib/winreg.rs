@@ -584,10 +584,10 @@ mod winreg {
     fn QueryValue(key: HKEYArg, sub_key: Option<String>, vm: &VirtualMachine) -> PyResult<String> {
         let hkey = key.0;
 
-        if hkey == Registry::HKEY_PERFORMANCE_DATA {
+        if hkey == host_winreg::HKEY_PERFORMANCE_DATA {
             return Err(os_error_from_windows_code(
                 vm,
-                Foundation::ERROR_INVALID_HANDLE as i32,
+                host_winreg::ERROR_INVALID_HANDLE as i32,
             ));
         }
 
@@ -631,15 +631,15 @@ mod winreg {
         value: String,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if typ != Registry::REG_SZ {
+        if typ != host_winreg::REG_SZ {
             return Err(vm.new_type_error("type must be winreg.REG_SZ"));
         }
 
         let hkey = key.hkey.load();
-        if hkey == Registry::HKEY_PERFORMANCE_DATA {
+        if hkey == host_winreg::HKEY_PERFORMANCE_DATA {
             return Err(os_error_from_windows_code(
                 vm,
-                Foundation::ERROR_INVALID_HANDLE as i32,
+                host_winreg::ERROR_INVALID_HANDLE as i32,
             ));
         }
 

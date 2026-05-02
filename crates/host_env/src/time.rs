@@ -97,7 +97,7 @@ pub fn mktime(tm: &mut libc::tm) -> TimeT {
     unsafe { crate::suppress_iph!(c_mktime(tm)) }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows, target_os = "wasi"))]
 pub fn strerror(errno: i32) -> String {
     unsafe { core::ffi::CStr::from_ptr(libc::strerror(errno)) }
         .to_string_lossy()
