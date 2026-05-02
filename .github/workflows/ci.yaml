@@ -62,6 +62,8 @@ jobs:
           if git diff --quiet "${MERGE_BASE}...HEAD" -- \
             ':Cargo.toml' \
             ':Cargo.lock' \
+            ':rust-toolchain.toml' \
+            ':.cargo/config.toml' \
             ':crates/**' \
             ':src/**' \
             ':.github/workflows/ci.yaml' \
