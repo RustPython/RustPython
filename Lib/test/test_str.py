@@ -955,7 +955,6 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('ﬁnnish'.capitalize(), 'Finnish')
         self.assertEqual('A\u0345\u03a3'.capitalize(), 'A\u0345\u03c2')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?  ^
     def test_title(self):
         super().test_title()
         self.assertEqual('\U0001044F'.title(), '\U00010427')
