@@ -63,11 +63,11 @@ macro_rules! py_namespace {
 ///
 /// # Examples
 ///
-/// ```
+/// ```rust
 /// use malachite_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
-/// use rustpython_vm::match_class;
+/// use rustpython_vm::{PyPayload, match_class};
 /// use rustpython_vm::builtins::{PyFloat, PyInt};
 /// use rustpython_vm::{PyPayload};
 ///
@@ -87,13 +87,12 @@ macro_rules! py_namespace {
 ///
 /// With a binding to the downcasted type:
 ///
-/// ```
+/// ```rust
 /// use malachite_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
-/// use rustpython_vm::match_class;
+/// use rustpython_vm::{PyPayload, match_class};
 /// use rustpython_vm::builtins::{PyFloat, PyInt};
-/// use rustpython_vm::{ PyPayload};
 ///
 /// # rustpython_vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
 /// let obj = PyInt::from(0).into_pyobject(vm);
