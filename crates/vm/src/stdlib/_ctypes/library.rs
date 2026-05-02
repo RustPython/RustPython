@@ -20,8 +20,8 @@ impl fmt::Debug for SharedLibrary {
 
 impl SharedLibrary {
     #[cfg(windows)]
-    pub fn new(name: impl AsRef<OsStr>) -> Result<SharedLibrary, libloading::Error> {
-        Ok(SharedLibrary {
+    pub(super) fn new(name: impl AsRef<OsStr>) -> Result<Self, libloading::Error> {
+        Ok(Self {
             lib: PyMutex::new(unsafe { Some(Library::new(name.as_ref())?) }),
         })
     }
@@ -30,8 +30,8 @@ impl SharedLibrary {
     pub(super) fn new_with_mode(
         name: impl AsRef<OsStr>,
         mode: i32,
-    ) -> Result<SharedLibrary, libloading::Error> {
-        Ok(SharedLibrary {
+    ) -> Result<Self, libloading::Error> {
+        Ok(Self {
             lib: PyMutex::new(Some(unsafe {
                 UnixLibrary::open(Some(name.as_ref()), mode)?.into()
             })),
@@ -40,7 +40,7 @@ impl SharedLibrary {
 
     /// Create a SharedLibrary from a raw dlopen handle (for pythonapi / dlopen(NULL))
     #[cfg(unix)]
-    pub(super) fn from_raw_handle(handle: *mut libc::c_void) -> SharedLibrary {
+    pub(super) fn from_raw_handle(handle: *mut libc::c_void) -> Self {
         SharedLibrary {
             lib: PyMutex::new(Some(unsafe { UnixLibrary::from_raw(handle).into() })),
         }
