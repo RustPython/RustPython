@@ -77,7 +77,7 @@ pub(super) enum ParamFunc {
 }
 
 #[derive(Clone)]
-pub struct StgInfo {
+pub(crate) struct StgInfo {
     pub initialized: bool,
     pub size: usize,              // number of bytes
     pub align: usize,             // alignment requirements
@@ -154,7 +154,7 @@ impl Default for StgInfo {
 }
 
 impl StgInfo {
-    pub fn new(size: usize, align: usize) -> Self {
+    pub(crate) fn new(size: usize, align: usize) -> Self {
         StgInfo {
             initialized: true,
             size,
@@ -178,7 +178,7 @@ impl StgInfo {
     /// item_shape: the element's shape (will be prepended with length)
     /// item_flags: the element type's flags (for HASPOINTER inheritance)
     #[allow(clippy::too_many_arguments)]
-    pub fn new_array(
+    pub(crate) fn new_array(
         size: usize,
         align: usize,
         length: usize,
@@ -227,7 +227,7 @@ impl StgInfo {
 
     /// Get libffi type for this StgInfo
     /// Note: For very large types, returns pointer type to avoid overflow
-    pub fn to_ffi_type(&self) -> libffi::middle::Type {
+    pub(crate) fn to_ffi_type(&self) -> libffi::middle::Type {
         // Limit to avoid overflow in libffi (MAX_STRUCT_SIZE is platform-dependent)
         const MAX_FFI_STRUCT_SIZE: usize = 1024 * 1024; // 1MB limit for safety
 
@@ -293,12 +293,12 @@ impl StgInfo {
     }
 
     /// Check if this type is finalized (cannot set _fields_ again)
-    pub fn is_final(&self) -> bool {
+    pub(crate) fn is_final(&self) -> bool {
         self.flags.contains(StgInfoFlags::DICTFLAG_FINAL)
     }
 
     /// Get proto type reference (for Pointer/Array types)
-    pub fn proto(&self) -> &Py<PyType> {
+    pub(crate) fn proto(&self) -> &Py<PyType> {
         self.proto.as_deref().expect("type has proto")
     }
 }
@@ -449,7 +449,7 @@ pub(super) fn str_to_wchar_bytes(s: &Wtf8, vm: &VirtualMachine) -> (PyObjectRef,
 /// PyCData - base type for all ctypes data types
 #[pyclass(name = "_CData", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
-pub struct PyCData {
+pub(crate) struct PyCData {
     /// Memory buffer - Owned (self-owned) or Borrowed (external reference)
     ///
     /// SAFETY: Borrowed variant's 'static lifetime is not actually static.
@@ -475,7 +475,7 @@ pub struct PyCData {
 
 impl PyCData {
     /// Create from StgInfo (PyCData_MallocBuffer pattern)
-    pub fn from_stg_info(stg_info: &StgInfo) -> Self {
+    pub(crate) fn from_stg_info(stg_info: &StgInfo) -> Self {
         PyCData {
             buffer: PyRwLock::new(Cow::Owned(vec![0u8; stg_info.size])),
             base: PyRwLock::new(None),
@@ -488,7 +488,7 @@ impl PyCData {
     }
 
     /// Create from existing bytes (copies data)
-    pub fn from_bytes(data: Vec<u8>, objects: Option<PyObjectRef>) -> Self {
+    pub(crate) fn from_bytes(data: Vec<u8>, objects: Option<PyObjectRef>) -> Self {
         PyCData {
             buffer: PyRwLock::new(Cow::Owned(data)),
             base: PyRwLock::new(None),
@@ -501,7 +501,7 @@ impl PyCData {
     }
 
     /// Create from bytes with specified length (for arrays)
-    pub fn from_bytes_with_length(
+    pub(crate) fn from_bytes_with_length(
         data: Vec<u8>,
         objects: Option<PyObjectRef>,
         length: usize,
@@ -523,7 +523,7 @@ impl PyCData {
     /// The returned slice's 'static lifetime is a lie.
     /// Actually only valid for the lifetime of the memory pointed to by ptr.
     /// PyCData_AtAddress
-    pub unsafe fn at_address(ptr: *const u8, size: usize) -> Self {
+    pub(crate) unsafe fn at_address(ptr: *const u8, size: usize) -> Self {
         // = PyCData_AtAddress
         // SAFETY: Caller must ensure ptr is valid for the lifetime of returned PyCData
         let slice: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, size) };
@@ -543,7 +543,7 @@ impl PyCData {
     /// Similar to from_base_with_offset, but also stores a copy of the data.
     /// This is used for arrays where we need our own buffer for the buffer protocol,
     /// but still maintain the base reference for KeepRef and tracking.
-    pub fn from_base_with_data(
+    pub(crate) fn from_base_with_data(
         base_obj: PyObjectRef,
         offset: usize,
         idx: usize,
@@ -568,7 +568,7 @@ impl PyCData {
     ///
     /// # Safety
     /// ptr must point into base_obj's buffer and remain valid as long as base_obj is alive.
-    pub unsafe fn from_base_obj(
+    pub(crate) unsafe fn from_base_obj(
         ptr: *mut u8,
         size: usize,
         base_obj: PyObjectRef,
@@ -596,7 +596,7 @@ impl PyCData {
     ///
     /// # Safety
     /// ptr must point to valid memory that remains valid as long as source is alive.
-    pub unsafe fn from_buffer_shared(
+    pub(crate) unsafe fn from_buffer_shared(
         ptr: *const u8,
         size: usize,
         length: usize,
@@ -627,7 +627,7 @@ impl PyCData {
     /// Validates buffer, creates memoryview, and returns PyCData sharing memory with source.
     ///
     /// CDataType_from_buffer_impl
-    pub fn from_buffer_impl(
+    pub(crate) fn from_buffer_impl(
         cls: &Py<PyType>,
         source: PyObjectRef,
         offset: isize,
@@ -687,7 +687,7 @@ impl PyCData {
     /// Copies data from buffer and creates new independent instance.
     ///
     /// CDataType_from_buffer_copy_impl
-    pub fn from_buffer_copy_impl(
+    pub(crate) fn from_buffer_copy_impl(
         cls: &Py<PyType>,
         source: &[u8],
         offset: isize,
@@ -721,13 +721,13 @@ impl PyCData {
     }
 
     #[inline]
-    pub fn size(&self) -> usize {
+    pub(crate) fn size(&self) -> usize {
         self.buffer.read().len()
     }
 
     /// Check if this buffer is borrowed (external memory reference)
     #[inline]
-    pub fn is_borrowed(&self) -> bool {
+    pub(crate) fn is_borrowed(&self) -> bool {
         matches!(&*self.buffer.read(), Cow::Borrowed(_))
     }
 
@@ -738,7 +738,7 @@ impl PyCData {
     ///
     /// # Safety
     /// For borrowed buffers, caller must ensure the memory is writable.
-    pub fn write_bytes_at_offset(&self, offset: usize, bytes: &[u8]) {
+    pub(crate) fn write_bytes_at_offset(&self, offset: usize, bytes: &[u8]) {
         let buffer = self.buffer.read();
         if offset + bytes.len() > buffer.len() {
             return; // Out of bounds
@@ -766,7 +766,7 @@ impl PyCData {
     /// Generate unique key for nested references (unique_key)
     /// Creates a hierarchical key by walking up the b_base chain.
     /// Format: "index:parent_index:grandparent_index:..."
-    pub fn unique_key(&self, index: usize) -> String {
+    pub(crate) fn unique_key(&self, index: usize) -> String {
         let mut key = format!("{index:x}");
         // Walk up the base chain to build hierarchical key
         if self.base.read().is_some() {
@@ -785,7 +785,7 @@ impl PyCData {
     ///
     /// If this object has a base (is embedded in another structure/union/array),
     /// the reference is stored in the root object's b_objects with a hierarchical key.
-    pub fn keep_ref(&self, index: usize, keep: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub(crate) fn keep_ref(&self, index: usize, keep: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Optimization: no need to store None
         if vm.is_none(&keep) {
             return Ok(());
@@ -845,7 +845,7 @@ impl PyCData {
     /// Walks up to root object (same as keep_ref) so the reference
     /// lives as long as the owning ctypes object.
     /// Uses unique_key (hierarchical) so nested fields don't collide.
-    pub fn keep_alive(&self, index: usize, obj: PyObjectRef) {
+    pub(crate) fn keep_alive(&self, index: usize, obj: PyObjectRef) {
         let key = self.unique_key(index);
         if let Some(base_obj) = self.base.read().clone() {
             let root = Self::find_root_object(&base_obj);
@@ -918,7 +918,7 @@ impl PyCData {
 
     /// Get kept objects from a CData instance
     /// Returns the _objects of the CData, or an empty dict if None.
-    pub fn get_kept_objects(value: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn get_kept_objects(value: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
         value
             .downcast_ref::<PyCData>()
             .and_then(|cdata| cdata.objects.read().clone())
@@ -927,14 +927,14 @@ impl PyCData {
 
     /// Check if a value should be stored in _objects
     /// Returns true for ctypes objects and bytes (for c_char_p)
-    pub fn should_keep_ref(value: &PyObject) -> bool {
+    pub(crate) fn should_keep_ref(value: &PyObject) -> bool {
         value.downcast_ref::<PyCData>().is_some() || value.downcast_ref::<PyBytes>().is_some()
     }
 
     /// PyCData_set
     /// Sets a field value at the given offset, handling type conversion and KeepRef
     #[allow(clippy::too_many_arguments)]
-    pub fn set_field(
+    pub(crate) fn set_field(
         &self,
         proto: &PyObject,
         value: PyObjectRef,
@@ -1090,7 +1090,7 @@ impl PyCData {
 
     /// PyCData_get
     /// Gets a field value at the given offset
-    pub fn get_field(
+    pub(crate) fn get_field(
         &self,
         proto: &PyObject,
         index: usize,
@@ -1332,7 +1332,7 @@ impl PyCData {
 /// CField descriptor for Structure/Union field access
 #[pyclass(name = "CField", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
-pub struct PyCField {
+pub(crate) struct PyCField {
     /// Field name
     pub(crate) name: String,
     /// Byte offset of the field within the structure/union
@@ -1353,7 +1353,7 @@ pub struct PyCField {
 
 impl PyCField {
     /// Create a new CField descriptor (non-bitfield)
-    pub fn new(
+    pub(crate) fn new(
         name: String,
         proto: PyTypeRef,
         offset: isize,
@@ -1373,7 +1373,7 @@ impl PyCField {
     }
 
     /// Create a new CField descriptor for a bitfield
-    pub fn new_bitfield(
+    pub(crate) fn new_bitfield(
         name: String,
         proto: PyTypeRef,
         offset: isize,
@@ -1395,13 +1395,13 @@ impl PyCField {
     }
 
     /// Get the byte size of the field's underlying type
-    pub fn get_byte_size(&self) -> usize {
+    pub(crate) fn get_byte_size(&self) -> usize {
         self.byte_size_val as usize
     }
 
     /// Create a new CField from an existing field with adjusted offset and index
     /// Used by MakeFields to promote anonymous fields
-    pub fn new_from_field(fdescr: &PyCField, index_offset: usize, offset_delta: isize) -> Self {
+    pub(crate) fn new_from_field(fdescr: &PyCField, index_offset: usize, offset_delta: isize) -> Self {
         Self {
             name: fdescr.name.clone(),
             offset: fdescr.offset + offset_delta,
@@ -1415,7 +1415,7 @@ impl PyCField {
     }
 
     /// Set anonymous flag
-    pub fn set_anonymous(&mut self, anonymous: bool) {
+    pub(crate) fn set_anonymous(&mut self, anonymous: bool) {
         self.anonymous = anonymous;
     }
 }
@@ -2049,7 +2049,7 @@ fn struct_union_paramfunc(
 
 /// Owned FFI argument value. Keeps the value alive for the duration of the FFI call.
 #[derive(Debug, Clone)]
-pub enum FfiArgValue {
+pub(crate) enum FfiArgValue {
     U8(u8),
     I8(i8),
     U16(u16),
@@ -2067,7 +2067,7 @@ pub enum FfiArgValue {
 
 impl FfiArgValue {
     /// Create an Arg reference to this owned value
-    pub fn as_arg(&self) -> libffi::middle::Arg<'_> {
+    pub(crate) fn as_arg(&self) -> libffi::middle::Arg<'_> {
         match self {
             FfiArgValue::U8(v) => libffi::middle::Arg::new(v),
             FfiArgValue::I8(v) => libffi::middle::Arg::new(v),

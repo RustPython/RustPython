@@ -33,7 +33,7 @@ use core::ptr::NonNull;
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
 
-pub type DictContentType = dict_inner::Dict;
+pub(crate) type DictContentType = dict_inner::Dict;
 
 #[pyclass(module = false, name = "dict", unhashable = true, traverse = "manual")]
 #[derive(Default)]

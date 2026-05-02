@@ -151,7 +151,7 @@ impl Representable for PyNotImplemented {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyNone::extend_class(context, context.types.none_type);
     PyNotImplemented::extend_class(context, context.types.not_implemented_type);
 }

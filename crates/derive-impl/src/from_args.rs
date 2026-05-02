@@ -220,7 +220,7 @@ fn compute_arity_bounds(field_attrs: &[ArgAttribute]) -> (usize, usize) {
     (min_arity, max_arity)
 }
 
-pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
+pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     let (fields, field_attrs) = match input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => (
             fields

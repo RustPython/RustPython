@@ -51,8 +51,8 @@ where
     }
 }
 
-pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
-pub type PySetterFunc =
+pub(crate) type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
+pub(crate) type PySetterFunc =
     Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>)>;
 
 pub trait IntoPyGetterFunc<T>: PyThreadingConstraint + Sized + 'static {

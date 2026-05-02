@@ -74,7 +74,7 @@ mod _functools {
     #[pyattr]
     #[pyclass(name = "_PlaceholderType", module = "functools")]
     #[derive(Debug, PyPayload)]
-    pub struct PyPlaceholderType;
+    pub(super) struct PyPlaceholderType;
 
     impl Constructor for PyPlaceholderType {
         type Args = FuncArgs;
@@ -128,7 +128,7 @@ mod _functools {
     #[pyattr]
     #[pyclass(name = "partial", module = "functools")]
     #[derive(Debug, PyPayload)]
-    pub struct PyPartial {
+    pub(super) struct PyPartial {
         inner: PyRwLock<PyPartialInner>,
     }
 

@@ -5,22 +5,24 @@ use ruff_text_size::Ranged;
 use rustpython_compiler_core::SourceFile;
 use rustpython_literal::escape::{AsciiEscape, UnicodeEscape};
 
-mod precedence {
+pub(crate) mod precedence {
     macro_rules! precedence {
         ($($op:ident,)*) => {
             precedence!(@0, $($op,)*);
         };
         (@$i:expr, $op1:ident, $($op:ident,)*) => {
-            pub const $op1: u8 = $i;
+            pub(crate) const $op1: u8 = $i;
             precedence!(@$i + 1, $($op,)*);
         };
         (@$i:expr,) => {};
     }
+
     precedence!(
         TUPLE, TEST, OR, AND, NOT, CMP, // "EXPR" =
         BOR, BXOR, BAND, SHIFT, ARITH, TERM, FACTOR, POWER, AWAIT, ATOM,
     );
-    pub const EXPR: u8 = BOR;
+
+    pub(crate) const EXPR: u8 = BOR;
 }
 
 struct Unparser<'a, 'b, 'c> {
@@ -653,13 +655,13 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
     }
 }
 
-pub struct UnparseExpr<'a> {
+pub(crate) struct UnparseExpr<'a> {
     expr: &'a ast::Expr,
     source: &'a SourceFile,
 }
 
 impl<'a> UnparseExpr<'a> {
-    pub const fn new(expr: &'a ast::Expr, source: &'a SourceFile) -> Self {
+    pub(crate) const fn new(expr: &'a ast::Expr, source: &'a SourceFile) -> Self {
         Self { expr, source }
     }
 }

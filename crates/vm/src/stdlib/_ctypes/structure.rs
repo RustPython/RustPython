@@ -667,7 +667,7 @@ impl SetAttr for PyCStructType {
     metaclass = "PyCStructType"
 )]
 #[repr(transparent)]
-pub struct PyCStructure(pub PyCData);
+pub(crate) struct PyCStructure(pub PyCData);
 
 impl Debug for PyCStructure {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

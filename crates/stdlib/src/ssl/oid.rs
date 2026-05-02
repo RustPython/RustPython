@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 /// OID entry with openssl-compatible metadata
 #[derive(Debug, Clone)]
-pub struct OidEntry {
+pub(super) struct OidEntry {
     /// NID (OpenSSL Numerical Identifier) - must match CPython/OpenSSL values
     pub nid: i32,
     /// Short name (e.g., "CN", "serverAuth")
@@ -24,7 +24,7 @@ pub struct OidEntry {
 
 /// OID reference - either from oid-registry or runtime-created
 #[derive(Debug, Clone)]
-pub enum OidRef {
+pub(super) enum OidRef {
     /// Static OID from oid-registry crate (stored as value)
     Static(Oid<'static>),
     /// OID string (for OIDs not in oid-registry) - parsed on demand
@@ -33,7 +33,7 @@ pub enum OidRef {
 
 impl OidEntry {
     /// Create entry from oid-registry static constant
-    pub fn from_static(
+    pub(super) fn from_static(
         nid: i32,
         short_name: &'static str,
         long_name: &'static str,
@@ -48,7 +48,7 @@ impl OidEntry {
     }
 
     /// Create entry from OID string (for OIDs not in oid-registry)
-    pub const fn from_string(
+    pub(super) const fn from_string(
         nid: i32,
         short_name: &'static str,
         long_name: &'static str,
@@ -63,7 +63,7 @@ impl OidEntry {
     }
 
     /// Get OID as string (e.g., "2.5.4.3")
-    pub fn oid_string(&self) -> String {
+    pub(super) fn oid_string(&self) -> String {
         match &self.oid {
             OidRef::Static(oid) => oid.to_id_string(),
             OidRef::String(s) => s.to_string(),
@@ -72,7 +72,7 @@ impl OidEntry {
 }
 
 /// OID table with multiple indices for fast lookup
-pub struct OidTable {
+pub(super) struct OidTable {
     /// All entries
     entries: Vec<OidEntry>,
     /// NID -> index mapping
@@ -109,17 +109,17 @@ impl OidTable {
         }
     }
 
-    pub fn find_by_nid(&self, nid: i32) -> Option<&OidEntry> {
+    pub(super) fn find_by_nid(&self, nid: i32) -> Option<&OidEntry> {
         self.nid_to_idx.get(&nid).map(|&idx| &self.entries[idx])
     }
 
-    pub fn find_by_oid_string(&self, oid_str: &str) -> Option<&OidEntry> {
+    pub(super) fn find_by_oid_string(&self, oid_str: &str) -> Option<&OidEntry> {
         self.oid_str_to_idx
             .get(oid_str)
             .map(|&idx| &self.entries[idx])
     }
 
-    pub fn find_by_name(&self, name: &str) -> Option<&OidEntry> {
+    pub(super) fn find_by_name(&self, name: &str) -> Option<&OidEntry> {
         // Try short name first (exact match)
         self.short_name_to_idx
             .get(name)
@@ -375,17 +375,17 @@ fn build_oid_entries() -> Vec<OidEntry> {
 // Public API Functions
 
 /// Find OID entry by NID
-pub fn find_by_nid(nid: i32) -> Option<&'static OidEntry> {
+pub(super) fn find_by_nid(nid: i32) -> Option<&'static OidEntry> {
     OID_TABLE.find_by_nid(nid)
 }
 
 /// Find OID entry by OID string (e.g., "2.5.4.3")
-pub fn find_by_oid_string(oid_str: &str) -> Option<&'static OidEntry> {
+pub(super) fn find_by_oid_string(oid_str: &str) -> Option<&'static OidEntry> {
     OID_TABLE.find_by_oid_string(oid_str)
 }
 
 /// Find OID entry by name (short or long name)
-pub fn find_by_name(name: &str) -> Option<&'static OidEntry> {
+pub(super) fn find_by_name(name: &str) -> Option<&'static OidEntry> {
     OID_TABLE.find_by_name(name)
 }
 

@@ -5079,7 +5079,7 @@ mod _ssl {
     #[pyattr]
     #[pyclass(module = "_ssl", name = "Certificate")]
     #[derive(Debug, PyPayload)]
-    pub struct PySSLCertificate {
+    pub(super) struct PySSLCertificate {
         // Store the raw DER bytes
         der_bytes: Vec<u8>,
     }

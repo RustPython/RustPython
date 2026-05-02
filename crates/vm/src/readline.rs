@@ -22,31 +22,31 @@ pub enum ReadlineResult {
 mod basic_readline {
     use super::*;
 
-    pub trait Helper {}
+    pub(super) trait Helper {}
     impl<T> Helper for T {}
 
-    pub struct Readline<H: Helper> {
+    pub(super) struct Readline<H: Helper> {
         helper: H,
     }
 
     impl<H: Helper> Readline<H> {
-        pub const fn new(helper: H) -> Self {
+        pub(super) const fn new(helper: H) -> Self {
             Self { helper }
         }
 
-        pub fn load_history(&mut self, _path: &Path) -> OtherResult<()> {
+        pub(super) fn load_history(&mut self, _path: &Path) -> OtherResult<()> {
             Ok(())
         }
 
-        pub fn save_history(&mut self, _path: &Path) -> OtherResult<()> {
+        pub(super) fn save_history(&mut self, _path: &Path) -> OtherResult<()> {
             Ok(())
         }
 
-        pub fn add_history_entry(&mut self, _entry: &str) -> OtherResult<()> {
+        pub(super) fn add_history_entry(&mut self, _entry: &str) -> OtherResult<()> {
             Ok(())
         }
 
-        pub fn readline(&mut self, prompt: &str) -> ReadlineResult {
+        pub(super) fn readline(&mut self, prompt: &str) -> ReadlineResult {
             use std::io::prelude::*;
             print!("{prompt}");
             if let Err(e) = io::stdout().flush() {
@@ -72,7 +72,7 @@ mod rustyline_readline {
     impl<T: rustyline::Helper> Helper for T {}
 
     /// Readline: the REPL
-    pub struct Readline<H: Helper> {
+    pub(super) struct Readline<H: Helper> {
         repl: rustyline::Editor<H, rustyline::history::DefaultHistory>,
     }
 
@@ -80,7 +80,7 @@ mod rustyline_readline {
     const EOF_CHAR: &str = "\u{001A}";
 
     impl<H: Helper> Readline<H> {
-        pub fn new(helper: H) -> Self {
+        pub(super) fn new(helper: H) -> Self {
             use rustyline::*;
             let mut repl = Editor::with_config(
                 Config::builder()
@@ -104,7 +104,7 @@ mod rustyline_readline {
             Self { repl }
         }
 
-        pub fn load_history(&mut self, path: &Path) -> OtherResult<()> {
+        pub(super) fn load_history(&mut self, path: &Path) -> OtherResult<()> {
             #[cfg(not(feature = "host_env"))]
             {
                 let _ = path;
@@ -117,7 +117,7 @@ mod rustyline_readline {
             }
         }
 
-        pub fn save_history(&mut self, path: &Path) -> OtherResult<()> {
+        pub(super) fn save_history(&mut self, path: &Path) -> OtherResult<()> {
             #[cfg(not(feature = "host_env"))]
             {
                 let _ = path;
@@ -135,12 +135,12 @@ mod rustyline_readline {
             }
         }
 
-        pub fn add_history_entry(&mut self, entry: &str) -> OtherResult<()> {
+        pub(super) fn add_history_entry(&mut self, entry: &str) -> OtherResult<()> {
             self.repl.add_history_entry(entry)?;
             Ok(())
         }
 
-        pub fn readline(&mut self, prompt: &str) -> ReadlineResult {
+        pub(super) fn readline(&mut self, prompt: &str) -> ReadlineResult {
             use rustyline::error::ReadlineError;
             loop {
                 break match self.repl.readline(prompt) {

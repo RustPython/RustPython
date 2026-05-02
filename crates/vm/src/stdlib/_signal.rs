@@ -57,13 +57,13 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
-    pub use libc::SIG_ERR;
+    pub(crate) use libc::SIG_ERR;
     #[cfg(unix)]
-    pub use nix::unistd::alarm as sig_alarm;
+    pub(crate) use nix::unistd::alarm as sig_alarm;
 
     #[cfg(unix)]
     #[pyattr]
-    pub use libc::{SIG_DFL, SIG_IGN};
+    pub(crate) use libc::{SIG_DFL, SIG_IGN};
 
     // pthread_sigmask 'how' constants
     #[cfg(unix)]
@@ -88,8 +88,8 @@ pub(crate) mod _signal {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     mod ffi {
         unsafe extern "C" {
-            pub fn getitimer(which: libc::c_int, curr_value: *mut libc::itimerval) -> libc::c_int;
-            pub fn setitimer(
+            pub(super) fn getitimer(which: libc::c_int, curr_value: *mut libc::itimerval) -> libc::c_int;
+            pub(super) fn setitimer(
                 which: libc::c_int,
                 new_value: *const libc::itimerval,
                 old_value: *mut libc::itimerval,
@@ -102,7 +102,7 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows))]
     #[pyattr]
-    pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
+    pub(crate) use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
     #[cfg(windows)]
     #[pyattr]
@@ -204,7 +204,7 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows))]
     #[pyfunction]
-    pub fn signal(
+    pub(crate) fn signal(
         signalnum: i32,
         handler: PyObjectRef,
         vm: &VirtualMachine,
@@ -660,7 +660,7 @@ pub(crate) mod _signal {
     }
 
     #[cfg(any(unix, windows))]
-    pub extern "C" fn run_signal(signum: i32) {
+    pub(crate) extern "C" fn run_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
         #[cfg(windows)]

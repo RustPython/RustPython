@@ -193,7 +193,7 @@ mod _io {
         result.map(Some)
     }
 
-    pub fn new_unsupported_operation(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
+    pub(super) fn new_unsupported_operation(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
         vm.new_os_subtype_error(unsupported_operation().to_owned(), None, msg)
             .upcast()
     }
@@ -215,11 +215,11 @@ mod _io {
 
     impl OptionalSize {
         #[allow(clippy::wrong_self_convention)]
-        pub fn to_usize(self) -> Option<usize> {
+        pub(super) fn to_usize(self) -> Option<usize> {
             self.size?.to_usize()
         }
 
-        pub fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        pub(super) fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             self.size
                 .map(|v| {
                     let v = *v;
@@ -406,7 +406,7 @@ mod _io {
     #[pyattr]
     #[pyclass(name = "_IOBase")]
     #[derive(Debug, Default, PyPayload)]
-    pub struct _IOBase;
+    pub(super) struct _IOBase;
 
     #[pyclass(
         with(IterNext, Iterable, Destructor),
@@ -1526,7 +1526,7 @@ mod _io {
         }
     }
 
-    pub fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
+    pub(super) fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
         let int = obj.try_index(vm)?;
         int.as_bigint().try_into().map_err(|_| {
             vm.new_value_error(format!(
@@ -1536,7 +1536,7 @@ mod _io {
         })
     }
 
-    pub fn repr_file_obj_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
+    pub(super) fn repr_file_obj_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
         let name = match obj.get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
@@ -4998,7 +4998,7 @@ mod _io {
     /// Must only be called from the single-threaded child process immediately
     /// after `fork()`, before any other thread is created.
     #[cfg(all(unix, feature = "threading"))]
-    pub unsafe fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
+    pub(crate) unsafe fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
         for name in ["stdin", "stdout", "stderr"] {
             let Ok(stream) = vm.sys_module.get_attr(name, vm) else {
                 continue;
@@ -5222,7 +5222,7 @@ mod _io {
         .unwrap()
     }
 
-    pub fn unsupported_operation() -> &'static Py<PyType> {
+    pub(super) fn unsupported_operation() -> &'static Py<PyType> {
         rustpython_common::static_cell! {
             static CELL: PyTypeRef;
         }
@@ -5459,7 +5459,7 @@ mod fileio {
     }
 
     #[derive(FromArgs)]
-    pub struct FileIOArgs {
+    pub(super) struct FileIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
         #[pyarg(any, default)]

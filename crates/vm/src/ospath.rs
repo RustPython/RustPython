@@ -306,7 +306,7 @@ impl From<OsPath> for OsPathOrFd<'_> {
 }
 
 impl OsPathOrFd<'_> {
-    pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             Self::Path(path) => path.filename(vm),
             Self::Fd(fd) => fd.to_pyobject(vm),
