@@ -64,6 +64,13 @@ fn spec_format_bytes(
                         Ok(spec.format_number(&bigint).into_bytes())
                     }
                     obj => {
+                        // CPython parity: `%d` / `%i` / `%u` accept any object
+                        // with `__index__` (preferred) or `__int__`.
+                        if let Some(int_result) = obj.try_index_opt(vm) {
+                            let i = int_result?;
+                            check_int_to_str_digits(i.as_bigint(), vm)?;
+                            return Ok(spec.format_number(i.as_bigint()).into_bytes());
+                        }
                         if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
                             let result = method?.call((), vm)?;
                             if let Some(i) = result.downcast_ref::<PyInt>() {
@@ -72,7 +79,7 @@ fn spec_format_bytes(
                             }
                         }
                         Err(vm.new_type_error(format!(
-                            "%{} format: a number is required, not {}",
+                            "%{} format: a real number is required, not {}",
                             spec.format_type.to_char(),
                             obj.class().name()
                         )))
@@ -80,7 +87,12 @@ fn spec_format_bytes(
                 })
             }
             _ => {
+                // CPython parity: `%x` / `%o` / `%X` accept any object with
+                // `__index__`, not just PyInt. Mirrors PyNumber_Index dispatch.
                 if let Some(i) = obj.downcast_ref::<PyInt>() {
+                    Ok(spec.format_number(i.as_bigint()).into_bytes())
+                } else if let Some(int_result) = obj.try_index_opt(vm) {
+                    let i = int_result?;
                     Ok(spec.format_number(i.as_bigint()).into_bytes())
                 } else {
                     Err(vm.new_type_error(format!(
@@ -105,12 +117,8 @@ fn spec_format_bytes(
             Ok(spec.format_float(value.into()).into_bytes())
         }
         CFormatType::Character(CCharacterType::Character) => {
-            if let Some(i) = obj.downcast_ref::<PyInt>() {
-                let ch = i
-                    .try_to_primitive::<u8>(vm)
-                    .map_err(|_| vm.new_overflow_error("%c arg not in range(256)"))?;
-                return Ok(spec.format_char(ch));
-            }
+            // CPython parity: bytes `%c` accepts a single byte or any object
+            // with `__index__` in range(256).
             if let Some(b) = obj.downcast_ref::<PyBytes>() {
                 if b.len() == 1 {
                     return Ok(spec.format_char(b.as_bytes()[0]));
@@ -121,7 +129,20 @@ fn spec_format_bytes(
                     return Ok(spec.format_char(buf[0]));
                 }
             }
-            Err(vm.new_type_error("%c requires an integer in range(256) or a single byte"))
+            let int = if let Some(i) = obj.downcast_ref::<PyInt>() {
+                i.to_owned()
+            } else if let Some(int_result) = obj.try_index_opt(vm) {
+                int_result?
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "%c requires an integer in range(256) or a single byte, not {}",
+                    obj.class().name()
+                )));
+            };
+            let ch = int
+                .try_to_primitive::<u8>(vm)
+                .map_err(|_| vm.new_overflow_error("%c arg not in range(256)"))?;
+            Ok(spec.format_char(ch))
         }
     }
 }
@@ -161,6 +182,13 @@ fn spec_format_string(
                         Ok(spec.format_number(&bigint).into())
                     }
                     obj => {
+                        // CPython parity: `%d` / `%i` / `%u` accept any object
+                        // with `__index__` (preferred) or `__int__`.
+                        if let Some(int_result) = obj.try_index_opt(vm) {
+                            let i = int_result?;
+                            check_int_to_str_digits(i.as_bigint(), vm)?;
+                            return Ok(spec.format_number(i.as_bigint()).into());
+                        }
                         if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
                             let result = method?.call((), vm)?;
                             if let Some(i) = result.downcast_ref::<PyInt>() {
@@ -169,7 +197,7 @@ fn spec_format_string(
                             }
                         }
                         Err(vm.new_type_error(format!(
-                            "%{} format: a number is required, not {}",
+                            "%{} format: a real number is required, not {}",
                             spec.format_type.to_char(),
                             obj.class().name()
                         )))
@@ -177,7 +205,12 @@ fn spec_format_string(
                 })
             }
             _ => {
+                // CPython parity: `%x` / `%o` / `%X` accept any object with
+                // `__index__`, not just PyInt. Mirrors PyNumber_Index dispatch.
                 if let Some(i) = obj.downcast_ref::<PyInt>() {
+                    Ok(spec.format_number(i.as_bigint()).into())
+                } else if let Some(int_result) = obj.try_index_opt(vm) {
+                    let i = int_result?;
                     Ok(spec.format_number(i.as_bigint()).into())
                 } else {
                     Err(vm.new_type_error(format!(
@@ -193,20 +226,29 @@ fn spec_format_string(
             Ok(spec.format_float(value.into()).into())
         }
         CFormatType::Character(CCharacterType::Character) => {
-            if let Some(i) = obj.downcast_ref::<PyInt>() {
-                let ch = i
-                    .as_bigint()
-                    .to_u32()
-                    .and_then(CodePoint::from_u32)
-                    .ok_or_else(|| vm.new_overflow_error("%c arg not in range(0x110000)"))?;
-                return Ok(spec.format_char(ch));
-            }
+            // CPython parity: `%c` accepts a single-char str or any object with
+            // `__index__` (the latter via PyNumber_Index dispatch).
             if let Some(s) = obj.downcast_ref::<PyStr>()
                 && let Ok(ch) = s.as_wtf8().code_points().exactly_one()
             {
                 return Ok(spec.format_char(ch));
             }
-            Err(vm.new_type_error("%c requires int or char"))
+            let int = if let Some(i) = obj.downcast_ref::<PyInt>() {
+                i.to_owned()
+            } else if let Some(int_result) = obj.try_index_opt(vm) {
+                int_result?
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "%c requires an int or a unicode character, not {}",
+                    obj.class().name()
+                )));
+            };
+            let ch = int
+                .as_bigint()
+                .to_u32()
+                .and_then(CodePoint::from_u32)
+                .ok_or_else(|| vm.new_overflow_error("%c arg not in range(0x110000)"))?;
+            Ok(spec.format_char(ch))
         }
     }
 }
