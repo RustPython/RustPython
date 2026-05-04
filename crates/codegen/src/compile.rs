@@ -9278,6 +9278,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn compile_comprehension(
         &mut self,
         name: &str,
@@ -9832,7 +9833,10 @@ impl Compiler {
                     self.pop_fblock(FBlockType::AsyncComprehensionGenerator);
                     self.compile_store(&generator.target)?;
                 } else {
+                    let saved_range = self.current_source_range;
+                    self.set_source_range(generator.iter.range());
                     emit!(self, Instruction::ForIter { delta: after_block });
+                    self.set_source_range(saved_range);
                     self.compile_store(&generator.target)?;
                 }
 
@@ -21447,8 +21451,7 @@ def f(items, limit):
         let compare_idx = ops
             .iter()
             .enumerate()
-            .filter(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
-            .next()
+            .find(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
             .map(|(idx, _)| idx)
             .expect("missing raise comparison");
         let cond_idx = ops[compare_idx + 1..]
@@ -21791,8 +21794,7 @@ def f(self, rawdata, j, match):
         let compare_idx = ops
             .iter()
             .enumerate()
-            .filter(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
-            .last()
+            .rfind(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
             .map(|(idx, _)| idx)
             .expect("missing nested tail comparison");
         let cond_idx = ops[compare_idx + 1..]

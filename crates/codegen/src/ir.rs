@@ -1352,8 +1352,10 @@ impl CodeInfo {
             index: &ConstantData,
         ) -> Option<ConstantData> {
             match (container, index) {
-                (ConstantData::Str { value }, ConstantData::Integer { .. })
-                | (ConstantData::Str { value }, ConstantData::Boolean { .. }) => {
+                (
+                    ConstantData::Str { value },
+                    ConstantData::Integer { .. } | ConstantData::Boolean { .. },
+                ) => {
                     let string = value.to_string();
                     if string.contains(char::REPLACEMENT_CHARACTER) {
                         return None;
@@ -1378,8 +1380,10 @@ impl CodeInfo {
                         value: result.into(),
                     })
                 }
-                (ConstantData::Bytes { value }, ConstantData::Integer { .. })
-                | (ConstantData::Bytes { value }, ConstantData::Boolean { .. }) => {
+                (
+                    ConstantData::Bytes { value },
+                    ConstantData::Integer { .. } | ConstantData::Boolean { .. },
+                ) => {
                     let index = adjusted_const_index(value.len(), index)?;
                     Some(ConstantData::Integer {
                         value: BigInt::from(value[index]),
@@ -1392,8 +1396,10 @@ impl CodeInfo {
                     }
                     Some(ConstantData::Bytes { value: result })
                 }
-                (ConstantData::Tuple { elements }, ConstantData::Integer { .. })
-                | (ConstantData::Tuple { elements }, ConstantData::Boolean { .. }) => {
+                (
+                    ConstantData::Tuple { elements },
+                    ConstantData::Integer { .. } | ConstantData::Boolean { .. },
+                ) => {
                     let index = adjusted_const_index(elements.len(), index)?;
                     Some(elements[index].clone())
                 }
@@ -2417,8 +2423,9 @@ impl CodeInfo {
                 let idx = i as usize;
                 let swap_arg = match instructions[idx].instr.real() {
                     Some(Instruction::Swap { .. }) => u32::from(instructions[idx].arg),
-                    Some(Instruction::Nop)
-                    | Some(Instruction::PopTop | Instruction::StoreFast { .. }) => {
+                    Some(
+                        Instruction::Nop | Instruction::PopTop | Instruction::StoreFast { .. },
+                    ) => {
                         i -= 1;
                         continue;
                     }
@@ -2737,8 +2744,10 @@ impl CodeInfo {
                     match (curr_instr, next_instr) {
                         // Note: StoreFast + LoadFast → StoreFastLoadFast is done in a
                         // later pass aligned with CPython insert_superinstructions().
-                        (Instruction::LoadConst { .. }, Instruction::ToBool)
-                        | (Instruction::LoadSmallInt { .. }, Instruction::ToBool) => {
+                        (
+                            Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
+                            Instruction::ToBool,
+                        ) => {
                             if let Some(value) =
                                 const_truthiness(curr_instr, curr.arg, &self.metadata)
                             {
@@ -2760,10 +2769,10 @@ impl CodeInfo {
                             curr_instr,
                             OpArg::new(u32::from(curr.arg) | oparg::COMPARE_OP_BOOL_MASK),
                         )),
-                        (Instruction::ContainsOp { .. }, Instruction::ToBool)
-                        | (Instruction::IsOp { .. }, Instruction::ToBool) => {
-                            Some((curr_instr, curr.arg))
-                        }
+                        (
+                            Instruction::ContainsOp { .. } | Instruction::IsOp { .. },
+                            Instruction::ToBool,
+                        ) => Some((curr_instr, curr.arg)),
                         (Instruction::LoadConst { consti }, Instruction::UnaryNot) => {
                             let constant = &self.metadata.consts[consti.get(curr.arg).as_usize()];
                             match constant {
@@ -2839,8 +2848,10 @@ impl CodeInfo {
 
                 let redundant = matches!(
                     (curr_instr, next_instr),
-                    (Instruction::LoadConst { .. }, Instruction::PopTop)
-                        | (Instruction::LoadSmallInt { .. }, Instruction::PopTop)
+                    (
+                        Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
+                        Instruction::PopTop
+                    )
                 ) || matches!(curr_instr, Instruction::Copy { i } if i.get(curr.arg) == 1)
                     && matches!(next_instr, Instruction::PopTop);
 
@@ -3595,9 +3606,7 @@ impl CodeInfo {
             let conditional = block.instructions.iter().enumerate().find(|(_, info)| {
                 is_conditional_jump(&info.instr) && info.target != BlockIdx::NULL
             });
-            let Some((cond_idx, conditional)) = conditional else {
-                return None;
-            };
+            let (cond_idx, conditional) = conditional?;
             let has_inline_assertion_failure =
                 block.instructions[cond_idx + 1..].iter().any(|info| {
                     matches!(
@@ -3671,8 +3680,8 @@ impl CodeInfo {
         }
 
         let mut visited = vec![false; self.blocks.len()];
-        for idx in 0..self.blocks.len() {
-            if !assertion_success_tail[idx] {
+        for (idx, is_assertion_success_tail) in assertion_success_tail.iter().enumerate() {
+            if !*is_assertion_success_tail {
                 continue;
             }
             let mut segment = Vec::new();
@@ -3733,8 +3742,9 @@ impl CodeInfo {
                 return false;
             }
             let loads_imap_fast = match reals[0].instr.real() {
-                Some(Instruction::LoadFast { var_num })
-                | Some(Instruction::LoadFastBorrow { var_num }) => varnames
+                Some(
+                    Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num },
+                ) => varnames
                     .get_index(usize::from(var_num.get(reals[0].arg)))
                     .is_some_and(|name| name.as_str() == "imap"),
                 _ => false,
@@ -5062,8 +5072,8 @@ impl CodeInfo {
         }
 
         let mut visited = vec![false; self.blocks.len()];
-        for idx in 0..self.blocks.len() {
-            if !follows_protected_body[idx] {
+        for (idx, follows_protected_body) in follows_protected_body.iter().enumerate() {
+            if !*follows_protected_body {
                 continue;
             }
             let mut cursor = BlockIdx::new(idx as u32);
@@ -6158,7 +6168,7 @@ impl CodeInfo {
         }
 
         fn starts_with_inlined_comprehension_restore(block: &Block) -> bool {
-            if !block.start_depth.is_some_and(|depth| depth > 0) {
+            if block.start_depth.is_none_or(|depth| depth == 0) {
                 return false;
             }
             let mut saw_store = false;
@@ -7389,7 +7399,7 @@ impl CodeInfo {
                     Some(Instruction::PushExcInfo) => {
                         in_exception_state = true;
                     }
-                    Some(Instruction::PopExcept) | Some(Instruction::Reraise { .. }) => {
+                    Some(Instruction::PopExcept | Instruction::Reraise { .. }) => {
                         in_exception_state = false;
                     }
                     Some(Instruction::LoadFastBorrow { .. }) if in_exception_state => {
@@ -8211,12 +8221,12 @@ impl CodeInfo {
             }
         }
 
-        for block_idx in 0..self.blocks.len() {
+        for (block_idx, predecessors) in predecessors.iter().enumerate() {
             let target = BlockIdx::new(block_idx as u32);
             if self.blocks[block_idx].cold || block_is_exceptional(&self.blocks[block_idx]) {
                 continue;
             }
-            if !predecessors[block_idx]
+            if !predecessors
                 .iter()
                 .any(|pred| is_suppressing_handler_resume_to(&self.blocks[pred.idx()], target))
             {
@@ -8601,10 +8611,10 @@ impl CodeInfo {
                         Some(
                             Instruction::StoreFast { .. }
                             | Instruction::StoreFastLoadFast { .. }
-                            | Instruction::StoreFastStoreFast { .. },
-                        )
-                        | Some(Instruction::DeleteFast { .. })
-                        | Some(Instruction::LoadFastAndClear { .. }) => return false,
+                            | Instruction::StoreFastStoreFast { .. }
+                            | Instruction::DeleteFast { .. }
+                            | Instruction::LoadFastAndClear { .. },
+                        ) => return false,
                         _ => {}
                     }
                 }
@@ -8792,8 +8802,10 @@ impl CodeInfo {
                         {
                             if matches!(
                                 extra_info.instr.real(),
-                                Some(Instruction::LoadFastBorrow { .. })
-                                    | Some(Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                                Some(
+                                    Instruction::LoadFastBorrow { .. }
+                                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                                )
                             ) {
                                 to_deopt.push(*extra_instr_idx);
                             }
@@ -8821,8 +8833,10 @@ impl CodeInfo {
                             {
                                 if matches!(
                                     tail_info.instr.real(),
-                                    Some(Instruction::LoadFastBorrow { .. })
-                                        | Some(Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                                    Some(
+                                        Instruction::LoadFastBorrow { .. }
+                                            | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                                    )
                                 ) {
                                     cross_block_deopts.push((tail_block_idx, tail_instr_idx));
                                 }
@@ -8901,7 +8915,7 @@ impl CodeInfo {
                     && predecessor_blocks.iter().copied().all(|pred_idx| {
                         matches!(
                             last_real_instr(&self.blocks[pred_idx]),
-                            Some(Instruction::PopIter) | Some(Instruction::Swap { .. })
+                            Some(Instruction::PopIter | Instruction::Swap { .. })
                         )
                     })
             })
@@ -8922,7 +8936,7 @@ impl CodeInfo {
                     && (new_instructions.iter().all(|prev: &InstructionInfo| {
                         matches!(
                             prev.instr.real(),
-                            Some(Instruction::Swap { .. }) | Some(Instruction::PopTop)
+                            Some(Instruction::Swap { .. } | Instruction::PopTop)
                         )
                     }) || is_cleanup_restore_prefix(&new_instructions))
                 {
@@ -9101,8 +9115,9 @@ impl CodeInfo {
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFast { var_num })
-                    | Some(Instruction::LoadFastBorrow { var_num }) => {
+                    Some(
+                        Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num },
+                    ) => {
                         let var_idx = usize::from(var_num.get(info.arg));
                         if var_idx < nlocals && unsafe_mask[var_idx] {
                             info.instr = Opcode::LoadFastCheck.into();
@@ -9113,8 +9128,10 @@ impl CodeInfo {
                         }
                         new_instructions.push(info);
                     }
-                    Some(Instruction::LoadFastLoadFast { var_nums })
-                    | Some(Instruction::LoadFastBorrowLoadFastBorrow { var_nums }) => {
+                    Some(
+                        Instruction::LoadFastLoadFast { var_nums }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { var_nums },
+                    ) => {
                         let packed = var_nums.get(info.arg);
                         let (idx1, idx2) = packed.indexes();
                         let idx1 = usize::from(idx1);
@@ -10792,17 +10809,14 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
             if matches!(instr.instr.real(), Some(Instruction::Nop)) {
                 if instr.preserve_block_start_no_location_nop {
                     remove = false;
-                } else if lineno < 0 {
-                    remove = true;
-                } else if src == 0
-                    && fallthrough_prev_lineno[block_idx.idx()]
-                        .is_some_and(|prev_lineno| prev_lineno == lineno)
-                {
-                    remove = true;
-                } else if src == 0
-                    && src_instructions.len() == 1
-                    && fallthrough_prev_pop_top_lineno[block_idx.idx()]
-                        .is_some_and(|prev_lineno| prev_lineno == lineno)
+                } else if lineno < 0
+                    || (src == 0
+                        && fallthrough_prev_lineno[block_idx.idx()]
+                            .is_some_and(|prev_lineno| prev_lineno == lineno))
+                    || (src == 0
+                        && src_instructions.len() == 1
+                        && fallthrough_prev_pop_top_lineno[block_idx.idx()]
+                            .is_some_and(|prev_lineno| prev_lineno == lineno))
                 {
                     remove = true;
                 } else if instr.remove_no_location_nop
@@ -11105,7 +11119,7 @@ fn deoptimize_borrow_after_push_exc_info_in_blocks(blocks: &mut [Block]) {
                 Some(Instruction::PushExcInfo) => {
                     in_exception_state = true;
                 }
-                Some(Instruction::PopExcept) | Some(Instruction::Reraise { .. }) => {
+                Some(Instruction::PopExcept | Instruction::Reraise { .. }) => {
                     in_exception_state = false;
                 }
                 Some(Instruction::LoadFastBorrow { .. }) if in_exception_state => {
@@ -11202,7 +11216,7 @@ fn is_exit_without_lineno(blocks: &[Block], block_idx: BlockIdx) -> bool {
         && prefix.iter().all(|info| {
             matches!(
                 info.instr.real(),
-                Some(Instruction::PopExcept) | Some(Instruction::Nop)
+                Some(Instruction::PopExcept | Instruction::Nop)
             )
         })
         && prefix
@@ -11231,7 +11245,7 @@ fn shared_jump_back_target(block: &Block) -> Option<BlockIdx> {
     if !prefix.iter().all(|info| {
         matches!(
             info.instr.real(),
-            Some(Instruction::PopExcept) | Some(Instruction::Nop)
+            Some(Instruction::PopExcept | Instruction::Nop)
         )
     }) {
         return None;
@@ -11550,7 +11564,7 @@ fn reorder_conditional_exit_and_jump_blocks(blocks: &mut [Block]) {
                         Some(Instruction::ReturnValue | Instruction::RaiseVarargs { .. })
                     )
                 });
-        if !jump_is_forward && !(jump_is_backward && exit_is_reorderable) {
+        if !(jump_is_forward || jump_is_backward && exit_is_reorderable) {
             current = next;
             continue;
         }
@@ -12102,10 +12116,10 @@ fn reorder_conditional_explicit_continue_scope_exit_blocks(blocks: &mut [Block])
             || !is_scope_exit_block(&blocks[exit_block.idx()])
             || !is_jump_back_only_block(blocks, jump_block)
             || next_nonempty_block(blocks, blocks[jump_block.idx()].next) != exit_block
-            || !blocks[jump_block.idx()]
+            || blocks[jump_block.idx()]
                 .instructions
                 .first()
-                .is_some_and(|info| info.lineno_override.is_some_and(|lineno| lineno >= 0))
+                .is_none_or(|info| info.lineno_override.is_none_or(|lineno| lineno < 0))
         {
             current = next;
             continue;
