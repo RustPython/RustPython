@@ -76,7 +76,7 @@ macro_rules! define_opcodes {
 
         impl ::core::fmt::Display for $opcode_name {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                write!(f, "{}", self.name())
+                self.name().fmt(f)
             }
         }
 
