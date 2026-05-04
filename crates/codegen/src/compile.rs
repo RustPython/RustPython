@@ -23501,4 +23501,80 @@ def f(s, size, errors, final):
             "expected outer invalid-escape tail to keep borrowed p/ch loads"
         );
     }
+
+    #[test]
+    fn test_imap_idle_status_debug_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, exc_type, CRLF, OSError):
+    imap = self._imap
+    try:
+        imap.send(b'DONE' + CRLF)
+        status, [msg] = imap._command_complete('IDLE', self._tag)
+        if __debug__ and imap.debug >= 4:
+            imap._mesg(f'idle status: {status} {msg!r}')
+    except OSError:
+        if not exc_type:
+            raise
+    return False
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let mesg_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_mesg"
+                }
+                _ => false,
+            })
+            .expect("missing _mesg attr load");
+        let tail = &instructions[mesg_attr.saturating_sub(1)..];
+
+        assert!(
+            tail.iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })),
+            "expected idle status debug tail to keep borrowed loads, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_match_async_comprehension_iter_keeps_capture_borrow() {
+        let code = compile_exec(
+            r#"
+async def name_4():
+    match b'':
+        case True:
+            pass
+        case name_5 if f'e':
+            {name_3: name_4 async for name_2 in name_5}
+        case []:
+            pass
+    [[]]
+"#,
+        );
+        let name_4 = find_code(&code, "name_4").expect("missing name_4 code");
+        let Some(get_aiter_pos) = name_4
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::GetAIter))
+        else {
+            panic!("missing GET_AITER in name_4");
+        };
+        let prev = &name_4.instructions[get_aiter_pos - 1];
+        assert!(
+            matches!(
+                prev.op,
+                Instruction::LoadFastBorrow { var_num }
+                    if name_4.varnames[usize::from(var_num.get(OpArg::new(u32::from(u8::from(prev.arg)))))] == "name_5"
+            ),
+            "expected async comprehension iterator capture to borrow name_5 before GET_AITER, got {prev:?}"
+        );
+    }
 }
