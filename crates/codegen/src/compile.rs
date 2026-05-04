@@ -5831,6 +5831,10 @@ impl Compiler {
             self.set_source_range(with_range);
         }
         let preserve_pop_block_nop = !is_async && self.current_block_follows_end_async_for();
+        if preserve_pop_block_nop {
+            emit!(self, Instruction::Nop);
+            self.preserve_last_redundant_nop();
+        }
         emit!(self, PseudoInstruction::PopBlock);
         if !is_async {
             self.set_no_location();
@@ -10873,6 +10877,15 @@ impl Compiler {
     fn current_block_follows_end_async_for(&mut self) -> bool {
         let info = self.current_code_info();
         let current = info.current_block;
+        if info.blocks[current]
+            .instructions
+            .iter()
+            .rev()
+            .find_map(|info| info.instr.real())
+            .is_some_and(|instr| matches!(instr, Instruction::EndAsyncFor))
+        {
+            return true;
+        }
         info.blocks.iter().any(|block| {
             block.next == current
                 && block
