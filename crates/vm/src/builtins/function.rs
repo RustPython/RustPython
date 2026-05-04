@@ -1415,16 +1415,16 @@ impl Constructor for PyCell {
 
 #[pyclass(with(Constructor))]
 impl PyCell {
-    pub const fn new(contents: Option<PyObjectRef>) -> Self {
+    pub(crate) const fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
         }
     }
 
-    pub fn get(&self) -> Option<PyObjectRef> {
+    pub(crate) fn get(&self) -> Option<PyObjectRef> {
         self.contents.lock().clone()
     }
-    pub fn set(&self, x: Option<PyObjectRef>) {
+    pub(crate) fn set(&self, x: Option<PyObjectRef>) {
         *self.contents.lock() = x;
     }
 
@@ -1506,7 +1506,7 @@ fn vectorcall_bound_method(
     zelf.function.vectorcall(args, new_nargs, kwnames, vm)
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyFunction::extend_class(context, context.types.function_type);
     context
         .types

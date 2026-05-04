@@ -17,97 +17,97 @@ mod _symtable {
     // https://github.com/python/cpython/blob/6cb20a219a860eaf687b2d968b41c480c7461909/Include/internal/pycore_symtable.h#L156
 
     #[pyattr]
-    pub const DEF_GLOBAL: i32 = 1;
+    pub(super) const DEF_GLOBAL: i32 = 1;
 
     #[pyattr]
-    pub const DEF_LOCAL: i32 = 2;
+    pub(super) const DEF_LOCAL: i32 = 2;
 
     #[pyattr]
-    pub const DEF_PARAM: i32 = 2 << 1;
+    pub(super) const DEF_PARAM: i32 = 2 << 1;
 
     #[pyattr]
-    pub const DEF_NONLOCAL: i32 = 2 << 2;
+    pub(super) const DEF_NONLOCAL: i32 = 2 << 2;
 
     #[pyattr]
-    pub const USE: i32 = 2 << 3;
+    pub(super) const USE: i32 = 2 << 3;
 
     #[pyattr]
-    pub const DEF_FREE: i32 = 2 << 4;
+    pub(super) const DEF_FREE: i32 = 2 << 4;
 
     #[pyattr]
-    pub const DEF_FREE_CLASS: i32 = 2 << 5;
+    pub(super) const DEF_FREE_CLASS: i32 = 2 << 5;
 
     #[pyattr]
-    pub const DEF_IMPORT: i32 = 2 << 6;
+    pub(super) const DEF_IMPORT: i32 = 2 << 6;
 
     #[pyattr]
-    pub const DEF_ANNOT: i32 = 2 << 7;
+    pub(super) const DEF_ANNOT: i32 = 2 << 7;
 
     #[pyattr]
-    pub const DEF_COMP_ITER: i32 = 2 << 8;
+    pub(super) const DEF_COMP_ITER: i32 = 2 << 8;
 
     #[pyattr]
-    pub const DEF_TYPE_PARAM: i32 = 2 << 9;
+    pub(super) const DEF_TYPE_PARAM: i32 = 2 << 9;
 
     #[pyattr]
-    pub const DEF_COMP_CELL: i32 = 2 << 10;
+    pub(super) const DEF_COMP_CELL: i32 = 2 << 10;
 
     #[pyattr]
-    pub const DEF_BOUND: i32 = DEF_LOCAL | DEF_PARAM | DEF_IMPORT;
+    pub(super) const DEF_BOUND: i32 = DEF_LOCAL | DEF_PARAM | DEF_IMPORT;
 
     #[pyattr]
-    pub const SCOPE_OFFSET: i32 = 12;
+    pub(super) const SCOPE_OFFSET: i32 = 12;
 
     #[pyattr]
-    pub const SCOPE_MASK: i32 = DEF_GLOBAL | DEF_LOCAL | DEF_PARAM | DEF_NONLOCAL;
+    pub(super) const SCOPE_MASK: i32 = DEF_GLOBAL | DEF_LOCAL | DEF_PARAM | DEF_NONLOCAL;
 
     #[pyattr]
-    pub const LOCAL: i32 = 1;
+    pub(super) const LOCAL: i32 = 1;
 
     #[pyattr]
-    pub const GLOBAL_EXPLICIT: i32 = 2;
+    pub(super) const GLOBAL_EXPLICIT: i32 = 2;
 
     #[pyattr]
-    pub const GLOBAL_IMPLICIT: i32 = 3;
+    pub(super) const GLOBAL_IMPLICIT: i32 = 3;
 
     #[pyattr]
-    pub const FREE: i32 = 4;
+    pub(super) const FREE: i32 = 4;
 
     #[pyattr]
-    pub const CELL: i32 = 5;
+    pub(super) const CELL: i32 = 5;
 
     #[pyattr]
-    pub const GENERATOR: i32 = 1;
+    pub(super) const GENERATOR: i32 = 1;
 
     #[pyattr]
-    pub const GENERATOR_EXPRESSION: i32 = 2;
+    pub(super) const GENERATOR_EXPRESSION: i32 = 2;
 
     #[pyattr]
-    pub const SCOPE_OFF: i32 = SCOPE_OFFSET;
+    pub(super) const SCOPE_OFF: i32 = SCOPE_OFFSET;
 
     #[pyattr]
-    pub const TYPE_FUNCTION: i32 = 0;
+    pub(super) const TYPE_FUNCTION: i32 = 0;
 
     #[pyattr]
-    pub const TYPE_CLASS: i32 = 1;
+    pub(super) const TYPE_CLASS: i32 = 1;
 
     #[pyattr]
-    pub const TYPE_MODULE: i32 = 2;
+    pub(super) const TYPE_MODULE: i32 = 2;
 
     #[pyattr]
-    pub const TYPE_ANNOTATION: i32 = 3;
+    pub(super) const TYPE_ANNOTATION: i32 = 3;
 
     #[pyattr]
-    pub const TYPE_TYPE_VAR_BOUND: i32 = 4;
+    pub(super) const TYPE_TYPE_VAR_BOUND: i32 = 4;
 
     #[pyattr]
-    pub const TYPE_TYPE_ALIAS: i32 = 5;
+    pub(super) const TYPE_TYPE_ALIAS: i32 = 5;
 
     #[pyattr]
-    pub const TYPE_TYPE_PARAMETERS: i32 = 6;
+    pub(super) const TYPE_TYPE_PARAMETERS: i32 = 6;
 
     #[pyattr]
-    pub const TYPE_TYPE_VARIABLE: i32 = 7;
+    pub(super) const TYPE_TYPE_VARIABLE: i32 = 7;
 
     #[pyfunction]
     fn symtable(

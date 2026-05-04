@@ -548,7 +548,7 @@ unsafe fn unlink_weakref(wrl: &WeakRefList, node: NonNull<Py<PyWeak>>) {
 }
 
 impl WeakRefList {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             head: Radium::new(ptr::null_mut()),
             generic: Radium::new(ptr::null_mut()),
@@ -950,31 +950,31 @@ impl From<PyDictRef> for InstanceDict {
 
 impl InstanceDict {
     #[inline]
-    pub const fn new(d: PyDictRef) -> Self {
+    pub(crate) const fn new(d: PyDictRef) -> Self {
         Self {
             d: PyRwLock::new(Some(d)),
         }
     }
 
     #[inline]
-    pub const fn from_opt(d: Option<PyDictRef>) -> Self {
+    pub(crate) const fn from_opt(d: Option<PyDictRef>) -> Self {
         Self {
             d: PyRwLock::new(d),
         }
     }
 
     #[inline]
-    pub fn get(&self) -> Option<PyDictRef> {
+    pub(crate) fn get(&self) -> Option<PyDictRef> {
         self.d.read().clone()
     }
 
     #[inline]
-    pub fn set(&self, d: Option<PyDictRef>) {
+    pub(crate) fn set(&self, d: Option<PyDictRef>) {
         self.replace(d);
     }
 
     #[inline]
-    pub fn replace(&self, d: Option<PyDictRef>) -> Option<PyDictRef> {
+    pub(crate) fn replace(&self, d: Option<PyDictRef>) -> Option<PyDictRef> {
         core::mem::replace(&mut self.d.write(), d)
     }
 

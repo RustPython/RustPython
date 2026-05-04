@@ -1283,7 +1283,7 @@ pub(crate) struct OSErrorBuilder {
 
 impl OSErrorBuilder {
     #[must_use]
-    pub fn with_subtype(
+    pub(crate) fn with_subtype(
         exc_type: PyTypeRef,
         errno: Option<i32>,
         strerror: impl ToPyObject,
@@ -1302,7 +1302,7 @@ impl OSErrorBuilder {
     }
 
     #[must_use]
-    pub fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
+    pub(crate) fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
         let exc_type = errno_to_exc_type(errno, vm)
             .unwrap_or(vm.ctx.exceptions.os_error)
             .to_owned();
@@ -1340,7 +1340,7 @@ impl OSErrorBuilder {
         self
     }
 
-    pub fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
+    pub(crate) fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
         use types::PyOSError;
 
         let OSErrorBuilder {

@@ -175,6 +175,6 @@ impl Representable for PyNamespace {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyNamespace::extend_class(context, context.types.namespace_type);
 }

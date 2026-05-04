@@ -24,7 +24,7 @@ unsafe extern "C" {
 }
 
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
-mod decl {
+pub mod decl {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},

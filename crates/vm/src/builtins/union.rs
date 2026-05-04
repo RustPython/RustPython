@@ -219,7 +219,7 @@ fn has_union_operands(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> bo
     a.class().is(union_type) || b.class().is(union_type)
 }
 
-pub fn or_op(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn or_op(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if !has_union_operands(zelf.clone(), other.clone(), vm)
         && (!is_unionable(zelf.clone(), vm) || !is_unionable(other.clone(), vm))
     {
@@ -540,7 +540,7 @@ impl Representable for PyUnion {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     let union_type = &context.types.union_type;
     PyUnion::extend_class(context, union_type);
 }

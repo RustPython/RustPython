@@ -56,9 +56,10 @@ mod _js {
     #[pyattr]
     #[pyclass(module = "_js", name = "JSValue")]
     #[derive(Debug, PyPayload)]
-    pub struct PyJsValue {
+    pub(crate) struct PyJsValue {
         pub(crate) value: JsValue,
     }
+
     type PyJsValueRef = PyRef<PyJsValue>;
 
     impl AsRef<JsValue> for PyJsValue {
@@ -92,7 +93,7 @@ mod _js {
     #[pyclass(with(Representable))]
     impl PyJsValue {
         #[inline]
-        pub fn new(value: impl Into<JsValue>) -> PyJsValue {
+        pub(crate) fn new(value: impl Into<JsValue>) -> PyJsValue {
             let value = value.into();
             PyJsValue { value }
         }
@@ -378,7 +379,7 @@ mod _js {
     #[pyattr]
     #[pyclass(module = "_js", name = "Promise")]
     #[derive(Debug, Clone, PyPayload)]
-    pub struct PyPromise {
+    pub(crate) struct PyPromise {
         value: PromiseKind,
     }
 
@@ -392,18 +393,20 @@ mod _js {
 
     #[pyclass]
     impl PyPromise {
-        pub fn new(value: Promise) -> PyPromise {
+        pub(crate) fn new(value: Promise) -> PyPromise {
             PyPromise {
                 value: PromiseKind::Js(value),
             }
         }
-        pub fn from_future<F>(future: F) -> PyPromise
+
+        pub(crate) fn from_future<F>(future: F) -> PyPromise
         where
             F: future::Future<Output = Result<JsValue, JsValue>> + 'static,
         {
             PyPromise::new(future_to_promise(future))
         }
-        pub fn as_js(&self, vm: &VirtualMachine) -> Promise {
+
+        pub(crate) fn as_js(&self, vm: &VirtualMachine) -> Promise {
             match &self.value {
                 PromiseKind::Js(prom) => prom.clone(),
                 PromiseKind::PyProm { then } => Promise::new(&mut |js_resolve, js_reject| {
@@ -594,6 +597,7 @@ mod _js {
     }
 
     impl SelfIter for AwaitPromise {}
+
     impl IterNext for AwaitPromise {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.send(None, vm)

@@ -23,9 +23,9 @@ pub struct PyModuleDef {
     // free: free_func
 }
 
-pub type ModuleCreate =
+pub(crate) type ModuleCreate =
     fn(&VirtualMachine, &PyObject, &'static PyModuleDef) -> PyResult<PyRef<PyModule>>;
-pub type ModuleExec = fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>;
+pub(crate) type ModuleExec = fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>;
 
 #[derive(Default)]
 pub struct PyModuleSlots {

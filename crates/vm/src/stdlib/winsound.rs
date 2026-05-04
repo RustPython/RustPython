@@ -6,12 +6,12 @@ pub(crate) use winsound::module_def;
 mod win32 {
     #[link(name = "winmm")]
     unsafe extern "system" {
-        pub fn PlaySoundW(pszSound: *const u16, hmod: isize, fdwSound: u32) -> i32;
+        pub(super) fn PlaySoundW(pszSound: *const u16, hmod: isize, fdwSound: u32) -> i32;
     }
 
     unsafe extern "system" {
-        pub fn Beep(dwFreq: u32, dwDuration: u32) -> i32;
-        pub fn MessageBeep(uType: u32) -> i32;
+        pub(super) fn Beep(dwFreq: u32, dwDuration: u32) -> i32;
+        pub(super) fn MessageBeep(uType: u32) -> i32;
     }
 }
 

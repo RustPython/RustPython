@@ -1595,12 +1595,12 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    pub fn isatty(fd: i32) -> bool {
+    pub(crate) fn isatty(fd: i32) -> bool {
         unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
     }
 
     #[pyfunction]
-    pub fn lseek(
+    pub(crate) fn lseek(
         fd: crt_fd::Borrowed<'_>,
         position: crt_fd::Offset,
         how: i32,
@@ -2030,7 +2030,7 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    pub fn ftruncate(fd: crt_fd::Borrowed<'_>, length: crt_fd::Offset) -> io::Result<()> {
+    pub(crate) fn ftruncate(fd: crt_fd::Borrowed<'_>, length: crt_fd::Offset) -> io::Result<()> {
         crt_fd::ftruncate(fd, length)
     }
 

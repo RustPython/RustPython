@@ -309,7 +309,7 @@ impl<'a> AsPyStr<'a> for &'a PyUtf8StrInterned {
 
 #[pyclass(module = false, name = "str_iterator", traverse = "manual")]
 #[derive(Debug)]
-pub struct PyStrIterator {
+pub(crate) struct PyStrIterator {
     internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
 }
 
@@ -1792,7 +1792,7 @@ impl ToPyObject for AsciiChar {
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
 #[derive(FromArgs)]
-pub struct FindArgs {
+pub(crate) struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,
     #[pyarg(positional, default)]
@@ -1832,7 +1832,7 @@ fn vectorcall_str(
     (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyStr::extend_class(ctx, ctx.types.str_type);
     ctx.types
         .str_type

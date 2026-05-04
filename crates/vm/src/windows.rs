@@ -16,15 +16,19 @@ pub struct WinHandle(pub HANDLE);
 
 pub(crate) trait WindowsSysResultValue {
     type Ok: ToPyObject;
+
     fn is_err(&self) -> bool;
+
     fn into_ok(self) -> Self::Ok;
 }
 
 impl WindowsSysResultValue for HANDLE {
     type Ok = WinHandle;
+
     fn is_err(&self) -> bool {
         *self == INVALID_HANDLE_VALUE
     }
+
     fn into_ok(self) -> Self::Ok {
         WinHandle(self)
     }
@@ -33,19 +37,22 @@ impl WindowsSysResultValue for HANDLE {
 // BOOL is i32 in windows-sys 0.61+
 impl WindowsSysResultValue for i32 {
     type Ok = ();
+
     fn is_err(&self) -> bool {
         *self == 0
     }
+
     fn into_ok(self) -> Self::Ok {}
 }
 
 pub(crate) struct WindowsSysResult<T>(pub T);
 
 impl<T: WindowsSysResultValue> WindowsSysResult<T> {
-    pub fn is_err(&self) -> bool {
+    pub(crate) fn is_err(&self) -> bool {
         self.0.is_err()
     }
-    pub fn into_pyresult(self, vm: &VirtualMachine) -> PyResult<T::Ok> {
+
+    pub(crate) fn into_pyresult(self, vm: &VirtualMachine) -> PyResult<T::Ok> {
         if !self.is_err() {
             Ok(self.0.into_ok())
         } else {

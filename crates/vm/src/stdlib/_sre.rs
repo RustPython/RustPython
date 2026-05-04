@@ -27,7 +27,7 @@ mod _sre {
     };
 
     #[pyattr]
-    pub use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
+    pub(super) use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
 
     #[pyfunction]
     const fn getcodesize() -> usize {

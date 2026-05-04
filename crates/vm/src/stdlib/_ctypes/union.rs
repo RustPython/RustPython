@@ -536,7 +536,7 @@ impl SetAttr for PyCUnionType {
 /// PyCUnion - base class for Union
 #[pyclass(module = "_ctypes", name = "Union", base = PyCData, metaclass = "PyCUnionType")]
 #[repr(transparent)]
-pub struct PyCUnion(pub PyCData);
+pub(crate) struct PyCUnion(pub PyCData);
 
 impl core::fmt::Debug for PyCUnion {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

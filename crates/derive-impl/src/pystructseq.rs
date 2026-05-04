@@ -432,7 +432,7 @@ impl ItemMeta for PyStructSequenceMeta {
 }
 
 impl PyStructSequenceMeta {
-    pub fn class_name(&self) -> Result<Option<String>> {
+    pub(crate) fn class_name(&self) -> Result<Option<String>> {
         const KEY: &str = "name";
         let inner = self.inner();
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
@@ -456,7 +456,7 @@ impl PyStructSequenceMeta {
         }
     }
 
-    pub fn module(&self) -> Result<Option<String>> {
+    pub(crate) fn module(&self) -> Result<Option<String>> {
         const KEY: &str = "module";
         let inner = self.inner();
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
@@ -507,7 +507,7 @@ impl PyStructSequenceMeta {
         }
     }
 
-    pub fn no_attr(&self) -> Result<bool> {
+    pub(crate) fn no_attr(&self) -> Result<bool> {
         self.inner()._bool("no_attr")
     }
 }

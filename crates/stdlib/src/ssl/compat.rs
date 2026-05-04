@@ -43,12 +43,12 @@ use super::error::{
 // SSL Verification Flags
 /// VERIFY_X509_STRICT flag for RFC 5280 strict compliance
 /// When set, performs additional validation including AKI extension checks
-pub const VERIFY_X509_STRICT: i32 = 0x20;
+pub(super) const VERIFY_X509_STRICT: i32 = 0x20;
 
 /// VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
 /// When set, accept certificates if any certificate in the chain is in the trust store
 /// (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
-pub const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
+pub(super) const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
 
 // CryptoProvider Initialization:
 
@@ -91,7 +91,7 @@ const X509_V_FLAG_CRL_CHECK: i32 = 4;
 // verification. They are used to map rustls certificate errors to OpenSSL
 // error codes for compatibility.
 
-pub use x509::{
+pub(super) use x509::{
     X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_NOT_YET_VALID, X509_V_ERR_CERT_REVOKED,
     X509_V_ERR_HOSTNAME_MISMATCH, X509_V_ERR_INVALID_PURPOSE, X509_V_ERR_IP_ADDRESS_MISMATCH,
     X509_V_ERR_UNABLE_TO_GET_CRL, X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY,
@@ -100,64 +100,64 @@ pub use x509::{
 
 #[allow(dead_code)]
 mod x509 {
-    pub const X509_V_OK: i32 = 0;
-    pub const X509_V_ERR_UNSPECIFIED: i32 = 1;
-    pub const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT: i32 = 2;
-    pub const X509_V_ERR_UNABLE_TO_GET_CRL: i32 = 3;
-    pub const X509_V_ERR_UNABLE_TO_DECRYPT_CERT_SIGNATURE: i32 = 4;
-    pub const X509_V_ERR_UNABLE_TO_DECRYPT_CRL_SIGNATURE: i32 = 5;
-    pub const X509_V_ERR_UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY: i32 = 6;
-    pub const X509_V_ERR_CERT_SIGNATURE_FAILURE: i32 = 7;
-    pub const X509_V_ERR_CRL_SIGNATURE_FAILURE: i32 = 8;
-    pub const X509_V_ERR_CERT_NOT_YET_VALID: i32 = 9;
-    pub const X509_V_ERR_CERT_HAS_EXPIRED: i32 = 10;
-    pub const X509_V_ERR_CRL_NOT_YET_VALID: i32 = 11;
-    pub const X509_V_ERR_CRL_HAS_EXPIRED: i32 = 12;
-    pub const X509_V_ERR_ERROR_IN_CERT_NOT_BEFORE_FIELD: i32 = 13;
-    pub const X509_V_ERR_ERROR_IN_CERT_NOT_AFTER_FIELD: i32 = 14;
-    pub const X509_V_ERR_ERROR_IN_CRL_LAST_UPDATE_FIELD: i32 = 15;
-    pub const X509_V_ERR_ERROR_IN_CRL_NEXT_UPDATE_FIELD: i32 = 16;
-    pub const X509_V_ERR_OUT_OF_MEM: i32 = 17;
-    pub const X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT: i32 = 18;
-    pub const X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN: i32 = 19;
-    pub const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY: i32 = 20;
-    pub const X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE: i32 = 21;
-    pub const X509_V_ERR_CERT_CHAIN_TOO_LONG: i32 = 22;
-    pub const X509_V_ERR_CERT_REVOKED: i32 = 23;
-    pub const X509_V_ERR_INVALID_CA: i32 = 24;
-    pub const X509_V_ERR_PATH_LENGTH_EXCEEDED: i32 = 25;
-    pub const X509_V_ERR_INVALID_PURPOSE: i32 = 26;
-    pub const X509_V_ERR_CERT_UNTRUSTED: i32 = 27;
-    pub const X509_V_ERR_CERT_REJECTED: i32 = 28;
-    pub const X509_V_ERR_SUBJECT_ISSUER_MISMATCH: i32 = 29;
-    pub const X509_V_ERR_AKID_SKID_MISMATCH: i32 = 30;
-    pub const X509_V_ERR_AKID_ISSUER_SERIAL_MISMATCH: i32 = 31;
-    pub const X509_V_ERR_KEYUSAGE_NO_CERTSIGN: i32 = 32;
-    pub const X509_V_ERR_UNABLE_TO_GET_CRL_ISSUER: i32 = 33;
-    pub const X509_V_ERR_UNHANDLED_CRITICAL_EXTENSION: i32 = 34;
-    pub const X509_V_ERR_KEYUSAGE_NO_CRL_SIGN: i32 = 35;
-    pub const X509_V_ERR_UNHANDLED_CRITICAL_CRL_EXTENSION: i32 = 36;
-    pub const X509_V_ERR_INVALID_NON_CA: i32 = 37;
-    pub const X509_V_ERR_PROXY_PATH_LENGTH_EXCEEDED: i32 = 38;
-    pub const X509_V_ERR_KEYUSAGE_NO_DIGITAL_SIGNATURE: i32 = 39;
-    pub const X509_V_ERR_PROXY_CERTIFICATES_NOT_ALLOWED: i32 = 40;
-    pub const X509_V_ERR_INVALID_EXTENSION: i32 = 41;
-    pub const X509_V_ERR_INVALID_POLICY_EXTENSION: i32 = 42;
-    pub const X509_V_ERR_NO_EXPLICIT_POLICY: i32 = 43;
-    pub const X509_V_ERR_DIFFERENT_CRL_SCOPE: i32 = 44;
-    pub const X509_V_ERR_UNSUPPORTED_EXTENSION_FEATURE: i32 = 45;
-    pub const X509_V_ERR_UNNESTED_RESOURCE: i32 = 46;
-    pub const X509_V_ERR_PERMITTED_VIOLATION: i32 = 47;
-    pub const X509_V_ERR_EXCLUDED_VIOLATION: i32 = 48;
-    pub const X509_V_ERR_SUBTREE_MINMAX: i32 = 49;
-    pub const X509_V_ERR_APPLICATION_VERIFICATION: i32 = 50;
-    pub const X509_V_ERR_UNSUPPORTED_CONSTRAINT_TYPE: i32 = 51;
-    pub const X509_V_ERR_UNSUPPORTED_CONSTRAINT_SYNTAX: i32 = 52;
-    pub const X509_V_ERR_UNSUPPORTED_NAME_SYNTAX: i32 = 53;
-    pub const X509_V_ERR_CRL_PATH_VALIDATION_ERROR: i32 = 54;
-    pub const X509_V_ERR_HOSTNAME_MISMATCH: i32 = 62;
-    pub const X509_V_ERR_EMAIL_MISMATCH: i32 = 63;
-    pub const X509_V_ERR_IP_ADDRESS_MISMATCH: i32 = 64;
+    pub(super) const X509_V_OK: i32 = 0;
+    pub(crate) const X509_V_ERR_UNSPECIFIED: i32 = 1;
+    pub(super) const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT: i32 = 2;
+    pub(crate) const X509_V_ERR_UNABLE_TO_GET_CRL: i32 = 3;
+    pub(super) const X509_V_ERR_UNABLE_TO_DECRYPT_CERT_SIGNATURE: i32 = 4;
+    pub(super) const X509_V_ERR_UNABLE_TO_DECRYPT_CRL_SIGNATURE: i32 = 5;
+    pub(super) const X509_V_ERR_UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY: i32 = 6;
+    pub(super) const X509_V_ERR_CERT_SIGNATURE_FAILURE: i32 = 7;
+    pub(super) const X509_V_ERR_CRL_SIGNATURE_FAILURE: i32 = 8;
+    pub(crate) const X509_V_ERR_CERT_NOT_YET_VALID: i32 = 9;
+    pub(crate) const X509_V_ERR_CERT_HAS_EXPIRED: i32 = 10;
+    pub(super) const X509_V_ERR_CRL_NOT_YET_VALID: i32 = 11;
+    pub(super) const X509_V_ERR_CRL_HAS_EXPIRED: i32 = 12;
+    pub(super) const X509_V_ERR_ERROR_IN_CERT_NOT_BEFORE_FIELD: i32 = 13;
+    pub(super) const X509_V_ERR_ERROR_IN_CERT_NOT_AFTER_FIELD: i32 = 14;
+    pub(super) const X509_V_ERR_ERROR_IN_CRL_LAST_UPDATE_FIELD: i32 = 15;
+    pub(super) const X509_V_ERR_ERROR_IN_CRL_NEXT_UPDATE_FIELD: i32 = 16;
+    pub(super) const X509_V_ERR_OUT_OF_MEM: i32 = 17;
+    pub(super) const X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT: i32 = 18;
+    pub(super) const X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN: i32 = 19;
+    pub(crate) const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY: i32 = 20;
+    pub(super) const X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE: i32 = 21;
+    pub(super) const X509_V_ERR_CERT_CHAIN_TOO_LONG: i32 = 22;
+    pub(crate) const X509_V_ERR_CERT_REVOKED: i32 = 23;
+    pub(super) const X509_V_ERR_INVALID_CA: i32 = 24;
+    pub(super) const X509_V_ERR_PATH_LENGTH_EXCEEDED: i32 = 25;
+    pub(crate) const X509_V_ERR_INVALID_PURPOSE: i32 = 26;
+    pub(super) const X509_V_ERR_CERT_UNTRUSTED: i32 = 27;
+    pub(super) const X509_V_ERR_CERT_REJECTED: i32 = 28;
+    pub(super) const X509_V_ERR_SUBJECT_ISSUER_MISMATCH: i32 = 29;
+    pub(super) const X509_V_ERR_AKID_SKID_MISMATCH: i32 = 30;
+    pub(super) const X509_V_ERR_AKID_ISSUER_SERIAL_MISMATCH: i32 = 31;
+    pub(super) const X509_V_ERR_KEYUSAGE_NO_CERTSIGN: i32 = 32;
+    pub(super) const X509_V_ERR_UNABLE_TO_GET_CRL_ISSUER: i32 = 33;
+    pub(super) const X509_V_ERR_UNHANDLED_CRITICAL_EXTENSION: i32 = 34;
+    pub(super) const X509_V_ERR_KEYUSAGE_NO_CRL_SIGN: i32 = 35;
+    pub(super) const X509_V_ERR_UNHANDLED_CRITICAL_CRL_EXTENSION: i32 = 36;
+    pub(super) const X509_V_ERR_INVALID_NON_CA: i32 = 37;
+    pub(super) const X509_V_ERR_PROXY_PATH_LENGTH_EXCEEDED: i32 = 38;
+    pub(super) const X509_V_ERR_KEYUSAGE_NO_DIGITAL_SIGNATURE: i32 = 39;
+    pub(super) const X509_V_ERR_PROXY_CERTIFICATES_NOT_ALLOWED: i32 = 40;
+    pub(super) const X509_V_ERR_INVALID_EXTENSION: i32 = 41;
+    pub(super) const X509_V_ERR_INVALID_POLICY_EXTENSION: i32 = 42;
+    pub(super) const X509_V_ERR_NO_EXPLICIT_POLICY: i32 = 43;
+    pub(super) const X509_V_ERR_DIFFERENT_CRL_SCOPE: i32 = 44;
+    pub(super) const X509_V_ERR_UNSUPPORTED_EXTENSION_FEATURE: i32 = 45;
+    pub(super) const X509_V_ERR_UNNESTED_RESOURCE: i32 = 46;
+    pub(super) const X509_V_ERR_PERMITTED_VIOLATION: i32 = 47;
+    pub(super) const X509_V_ERR_EXCLUDED_VIOLATION: i32 = 48;
+    pub(super) const X509_V_ERR_SUBTREE_MINMAX: i32 = 49;
+    pub(super) const X509_V_ERR_APPLICATION_VERIFICATION: i32 = 50;
+    pub(super) const X509_V_ERR_UNSUPPORTED_CONSTRAINT_TYPE: i32 = 51;
+    pub(super) const X509_V_ERR_UNSUPPORTED_CONSTRAINT_SYNTAX: i32 = 52;
+    pub(super) const X509_V_ERR_UNSUPPORTED_NAME_SYNTAX: i32 = 53;
+    pub(super) const X509_V_ERR_CRL_PATH_VALIDATION_ERROR: i32 = 54;
+    pub(crate) const X509_V_ERR_HOSTNAME_MISMATCH: i32 = 62;
+    pub(super) const X509_V_ERR_EMAIL_MISMATCH: i32 = 63;
+    pub(crate) const X509_V_ERR_IP_ADDRESS_MISMATCH: i32 = 64;
 }
 
 // Certificate Error Conversion Functions:
@@ -268,7 +268,7 @@ pub(super) enum TlsConnection {
 
 impl TlsConnection {
     /// Check if handshake is in progress
-    pub fn is_handshaking(&self) -> bool {
+    pub(super) fn is_handshaking(&self) -> bool {
         match self {
             TlsConnection::Client(conn) => conn.is_handshaking(),
             TlsConnection::Server(conn) => conn.is_handshaking(),
@@ -276,7 +276,7 @@ impl TlsConnection {
     }
 
     /// Check if connection wants to read data
-    pub fn wants_read(&self) -> bool {
+    pub(super) fn wants_read(&self) -> bool {
         match self {
             TlsConnection::Client(conn) => conn.wants_read(),
             TlsConnection::Server(conn) => conn.wants_read(),
@@ -284,7 +284,7 @@ impl TlsConnection {
     }
 
     /// Check if connection wants to write data
-    pub fn wants_write(&self) -> bool {
+    pub(super) fn wants_write(&self) -> bool {
         match self {
             TlsConnection::Client(conn) => conn.wants_write(),
             TlsConnection::Server(conn) => conn.wants_write(),
@@ -292,7 +292,7 @@ impl TlsConnection {
     }
 
     /// Read TLS data from socket
-    pub fn read_tls(&mut self, reader: &mut dyn std::io::Read) -> std::io::Result<usize> {
+    pub(super) fn read_tls(&mut self, reader: &mut dyn std::io::Read) -> std::io::Result<usize> {
         match self {
             TlsConnection::Client(conn) => conn.read_tls(reader),
             TlsConnection::Server(conn) => conn.read_tls(reader),
@@ -300,7 +300,7 @@ impl TlsConnection {
     }
 
     /// Write TLS data to socket
-    pub fn write_tls(&mut self, writer: &mut dyn std::io::Write) -> std::io::Result<usize> {
+    pub(super) fn write_tls(&mut self, writer: &mut dyn std::io::Write) -> std::io::Result<usize> {
         match self {
             TlsConnection::Client(conn) => conn.write_tls(writer),
             TlsConnection::Server(conn) => conn.write_tls(writer),
@@ -308,7 +308,7 @@ impl TlsConnection {
     }
 
     /// Process new TLS packets
-    pub fn process_new_packets(&mut self) -> Result<rustls::IoState, rustls::Error> {
+    pub(super) fn process_new_packets(&mut self) -> Result<rustls::IoState, rustls::Error> {
         match self {
             TlsConnection::Client(conn) => conn.process_new_packets(),
             TlsConnection::Server(conn) => conn.process_new_packets(),
@@ -316,7 +316,7 @@ impl TlsConnection {
     }
 
     /// Get reader for plaintext data (rustls native type)
-    pub fn reader(&mut self) -> rustls::Reader<'_> {
+    pub(super) fn reader(&mut self) -> rustls::Reader<'_> {
         match self {
             TlsConnection::Client(conn) => conn.reader(),
             TlsConnection::Server(conn) => conn.reader(),
@@ -324,7 +324,7 @@ impl TlsConnection {
     }
 
     /// Get writer for plaintext data (rustls native type)
-    pub fn writer(&mut self) -> rustls::Writer<'_> {
+    pub(super) fn writer(&mut self) -> rustls::Writer<'_> {
         match self {
             TlsConnection::Client(conn) => conn.writer(),
             TlsConnection::Server(conn) => conn.writer(),
@@ -332,7 +332,7 @@ impl TlsConnection {
     }
 
     /// Check if session was resumed
-    pub fn is_session_resumed(&self) -> bool {
+    pub(super) fn is_session_resumed(&self) -> bool {
         use rustls::HandshakeKind;
         match self {
             TlsConnection::Client(conn) => {
@@ -345,7 +345,7 @@ impl TlsConnection {
     }
 
     /// Send close_notify alert
-    pub fn send_close_notify(&mut self) {
+    pub(super) fn send_close_notify(&mut self) {
         match self {
             TlsConnection::Client(conn) => conn.send_close_notify(),
             TlsConnection::Server(conn) => conn.send_close_notify(),
@@ -353,7 +353,7 @@ impl TlsConnection {
     }
 
     /// Get negotiated ALPN protocol
-    pub fn alpn_protocol(&self) -> Option<&[u8]> {
+    pub(super) fn alpn_protocol(&self) -> Option<&[u8]> {
         match self {
             TlsConnection::Client(conn) => conn.alpn_protocol(),
             TlsConnection::Server(conn) => conn.alpn_protocol(),
@@ -361,7 +361,7 @@ impl TlsConnection {
     }
 
     /// Get negotiated cipher suite
-    pub fn negotiated_cipher_suite(&self) -> Option<rustls::SupportedCipherSuite> {
+    pub(super) fn negotiated_cipher_suite(&self) -> Option<rustls::SupportedCipherSuite> {
         match self {
             TlsConnection::Client(conn) => conn.negotiated_cipher_suite(),
             TlsConnection::Server(conn) => conn.negotiated_cipher_suite(),
@@ -369,7 +369,9 @@ impl TlsConnection {
     }
 
     /// Get peer certificates
-    pub fn peer_certificates(&self) -> Option<&[rustls::pki_types::CertificateDer<'static>]> {
+    pub(super) fn peer_certificates(
+        &self,
+    ) -> Option<&[rustls::pki_types::CertificateDer<'static>]> {
         match self {
             TlsConnection::Client(conn) => conn.peer_certificates(),
             TlsConnection::Server(conn) => conn.peer_certificates(),
@@ -419,7 +421,7 @@ impl SslError {
     }
 
     /// Convert rustls error to SslError
-    pub fn from_rustls(err: rustls::Error) -> Self {
+    pub(super) fn from_rustls(err: rustls::Error) -> Self {
         match err {
             rustls::Error::InvalidCertificate(cert_err) => SslError::CertVerification(cert_err),
             rustls::Error::AlertReceived(alert_desc) => {
@@ -547,7 +549,7 @@ impl SslError {
     }
 
     /// Convert to Python exception
-    pub fn into_py_err(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    pub(super) fn into_py_err(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
             SslError::WantRead => create_ssl_want_read_error(vm).upcast(),
             SslError::WantWrite => create_ssl_want_write_error(vm).upcast(),
@@ -595,10 +597,10 @@ impl SslError {
     }
 }
 
-pub type SslResult<T> = Result<T, SslError>;
+pub(super) type SslResult<T> = Result<T, SslError>;
 /// Common protocol settings shared between client and server connections
 #[derive(Debug)]
-pub struct ProtocolSettings {
+pub(super) struct ProtocolSettings {
     pub versions: &'static [&'static rustls::SupportedProtocolVersion],
     pub kx_groups: Option<Vec<&'static dyn rustls::crypto::SupportedKxGroup>>,
     pub cipher_suites: Option<Vec<rustls::SupportedCipherSuite>>,
@@ -607,7 +609,7 @@ pub struct ProtocolSettings {
 
 /// Options for creating a server TLS configuration
 #[derive(Debug)]
-pub struct ServerConfigOptions {
+pub(super) struct ServerConfigOptions {
     /// Common protocol settings (versions, ALPN, KX groups, cipher suites)
     pub protocol_settings: ProtocolSettings,
     /// Server certificate chain
@@ -632,7 +634,7 @@ pub struct ServerConfigOptions {
 
 /// Options for creating a client TLS configuration
 #[derive(Debug)]
-pub struct ClientConfigOptions {
+pub(super) struct ClientConfigOptions {
     /// Common protocol settings (versions, ALPN, KX groups, cipher suites)
     pub protocol_settings: ProtocolSettings,
     /// Root certificates for server verification
@@ -2230,7 +2232,7 @@ pub(super) struct MultiCertResolver {
 
 impl MultiCertResolver {
     /// Create a new multi-certificate resolver
-    pub fn new(cert_keys: Vec<Arc<CertifiedKey>>) -> Self {
+    pub(super) fn new(cert_keys: Vec<Arc<CertifiedKey>>) -> Self {
         Self { cert_keys }
     }
 }

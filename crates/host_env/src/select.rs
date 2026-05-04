@@ -2,7 +2,7 @@ use core::mem::MaybeUninit;
 use std::io;
 
 #[cfg(unix)]
-mod platform {
+pub mod platform {
     pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
     pub use std::os::unix::io::RawFd;
 
@@ -13,10 +13,13 @@ mod platform {
 
 #[allow(non_snake_case)]
 #[cfg(windows)]
-mod platform {
+pub mod platform {
     pub use WinSock::{FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval, select};
     use windows_sys::Win32::Networking::WinSock;
 
+    /// # Safety
+    ///
+    /// Requirements forwarded from the caller.
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
         let mut slot = unsafe { (&raw mut (*set).fd_array).cast::<RawFd>() };
         let fd_count = unsafe { (*set).fd_count };
@@ -34,10 +37,16 @@ mod platform {
         }
     }
 
+    /// # Safety
+    ///
+    /// Requirements forwarded from the caller.
     pub unsafe fn FD_ZERO(set: *mut fd_set) {
         unsafe { (*set).fd_count = 0 };
     }
 
+    /// # Safety
+    ///
+    /// Requirements forwarded from the caller.
     pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
         use WinSock::__WSAFDIsSet;
         unsafe { __WSAFDIsSet(fd as _, set) != 0 }
@@ -49,7 +58,7 @@ mod platform {
 }
 
 #[cfg(target_os = "wasi")]
-mod platform {
+pub mod platform {
     pub use libc::{FD_SETSIZE, timeval};
     pub use std::os::fd::RawFd;
 

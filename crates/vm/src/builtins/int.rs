@@ -765,7 +765,7 @@ impl PyInt {
 }
 
 #[derive(FromArgs)]
-pub struct IntOptions {
+pub(crate) struct IntOptions {
     #[pyarg(positional, optional)]
     val_options: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]

@@ -249,7 +249,7 @@ impl AsNumber for PyCPointerType {
 )]
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct PyCPointer(pub PyCData);
+pub(crate) struct PyCPointer(pub PyCData);
 
 impl Constructor for PyCPointer {
     type Args = FuncArgs;
@@ -296,13 +296,13 @@ impl Initializer for PyCPointer {
 )]
 impl PyCPointer {
     /// Get the pointer value stored in buffer as usize
-    pub fn get_ptr_value(&self) -> usize {
+    pub(crate) fn get_ptr_value(&self) -> usize {
         let buffer = self.0.buffer.read();
         super::base::read_ptr_from_buffer(&buffer)
     }
 
     /// Set the pointer value in buffer
-    pub fn set_ptr_value(&self, value: usize) {
+    pub(crate) fn set_ptr_value(&self, value: usize) {
         let mut buffer = self.0.buffer.write();
         let bytes = value.to_ne_bytes();
         if buffer.len() >= bytes.len() {

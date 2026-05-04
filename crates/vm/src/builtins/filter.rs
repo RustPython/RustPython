@@ -71,6 +71,6 @@ impl IterNext for PyFilter {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyFilter::extend_class(context, context.types.filter_type);
 }

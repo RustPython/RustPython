@@ -72,15 +72,17 @@ mod win {
 
     impl OwnedInner {
         #[inline]
-        pub unsafe fn from_raw_fd(fd: Raw) -> Self {
+        pub(super) unsafe fn from_raw_fd(fd: Raw) -> Self {
             Self(fd)
         }
+
         #[inline]
-        pub fn as_raw_fd(&self) -> Raw {
+        pub(super) fn as_raw_fd(&self) -> Raw {
             self.0
         }
+
         #[inline]
-        pub fn into_raw_fd(self) -> Raw {
+        pub(super) fn into_raw_fd(self) -> Raw {
             let me = ManuallyDrop::new(self);
             me.0
         }
@@ -102,14 +104,15 @@ mod win {
 
     impl BorrowedInner<'_> {
         #[inline]
-        pub const unsafe fn borrow_raw(fd: Raw) -> Self {
+        pub(super) const unsafe fn borrow_raw(fd: Raw) -> Self {
             Self {
                 fd,
                 _marker: PhantomData,
             }
         }
+
         #[inline]
-        pub fn as_raw_fd(&self) -> Raw {
+        pub(super) fn as_raw_fd(&self) -> Raw {
             self.fd
         }
     }

@@ -734,7 +734,7 @@ impl Representable for PyBytes {
 
 #[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
-pub struct PyBytesIterator {
+pub(crate) struct PyBytesIterator {
     internal: PyMutex<PositionIterInternal<PyBytesRef>>,
 }
 

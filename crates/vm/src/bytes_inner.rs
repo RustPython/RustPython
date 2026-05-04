@@ -225,7 +225,7 @@ impl ByteInnerTranslateOptions {
     }
 }
 
-pub type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
+pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
 impl PyBytesInner {
     #[inline]
@@ -972,7 +972,7 @@ impl PyBytesInner {
     }
 }
 
-pub fn try_as_bytes<F, R>(obj: PyObjectRef, f: F) -> Option<R>
+pub(crate) fn try_as_bytes<F, R>(obj: PyObjectRef, f: F) -> Option<R>
 where
     F: Fn(&[u8]) -> R,
 {
@@ -993,7 +993,7 @@ fn count_substring(haystack: &[u8], needle: &[u8], max_count: Option<usize>) -> 
     }
 }
 
-pub trait ByteOr: ToPrimitive {
+pub(crate) trait ByteOr: ToPrimitive {
     fn byte_or(&self, vm: &VirtualMachine) -> PyResult<u8> {
         match self.to_u8() {
             Some(value) => Ok(value),
@@ -1116,14 +1116,14 @@ impl AnyStr for [u8] {
 }
 
 #[derive(FromArgs)]
-pub struct DecodeArgs {
+pub(crate) struct DecodeArgs {
     #[pyarg(any, default)]
     encoding: Option<PyUtf8StrRef>,
     #[pyarg(any, default)]
     errors: Option<PyUtf8StrRef>,
 }
 
-pub fn bytes_decode(
+pub(crate) fn bytes_decode(
     zelf: PyObjectRef,
     args: DecodeArgs,
     vm: &VirtualMachine,
@@ -1190,7 +1190,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
-pub fn bytes_to_hex(
+pub(crate) fn bytes_to_hex(
     bytes: &[u8],
     sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
     bytes_per_sep: OptionalArg<isize>,
@@ -1233,6 +1233,6 @@ pub fn bytes_to_hex(
     }
 }
 
-pub const fn is_py_ascii_whitespace(b: u8) -> bool {
+pub(crate) const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }

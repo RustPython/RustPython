@@ -171,7 +171,7 @@ impl Destructor for PyCoroutine {
 #[pyclass(module = false, name = "coroutine_wrapper", traverse = "manual")]
 #[derive(Debug)]
 // PyCoroWrapper_Type in CPython
-pub struct PyCoroutineWrapper {
+pub(crate) struct PyCoroutineWrapper {
     coro: PyRef<PyCoroutine>,
     closed: AtomicCell<bool>,
 }
@@ -247,7 +247,7 @@ impl Drop for PyCoroutine {
     }
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyCoroutine::extend_class(ctx, ctx.types.coroutine_type);
     PyCoroutineWrapper::extend_class(ctx, ctx.types.coroutine_wrapper_type);
 }

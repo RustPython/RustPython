@@ -205,7 +205,7 @@ fn type_cache_clear_version(version: u32) {
 /// Sets TYPE_CACHE_CLEARING to suppress cache re-population during the
 /// entire operation, preventing concurrent lookups from repopulating
 /// entries while we're clearing them.
-pub fn type_cache_clear() {
+pub(crate) fn type_cache_clear() {
     TYPE_CACHE_CLEARING.store(true, Ordering::Release);
     for entry in TYPE_CACHE.iter() {
         entry.begin_write();
@@ -364,13 +364,13 @@ impl TypeSpecializationCache {
     }
 }
 
-pub struct PointerSlot<T>(NonNull<T>);
+pub(crate) struct PointerSlot<T>(NonNull<T>);
 
 unsafe impl<T> Sync for PointerSlot<T> {}
 unsafe impl<T> Send for PointerSlot<T> {}
 
 impl<T> PointerSlot<T> {
-    pub const unsafe fn borrow_static(&self) -> &'static T {
+    pub(crate) const unsafe fn borrow_static(&self) -> &'static T {
         unsafe { self.0.as_ref() }
     }
 }
@@ -408,7 +408,7 @@ cfg_select! {
 /// For attributes we do not use a dict, but an IndexMap, which is an Hash Table
 /// that maintains order and is compatible with the standard HashMap  This is probably
 /// faster and only supports strings as keys.
-pub type PyAttributes = IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState>;
+pub(crate) type PyAttributes = IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState>;
 
 unsafe impl Traverse for PyAttributes {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {

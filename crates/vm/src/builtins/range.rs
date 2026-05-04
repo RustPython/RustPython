@@ -207,7 +207,7 @@ impl PyRange {
 //     obj.downcast_ref::<PyRange>().unwrap().clone()
 // }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyRange::extend_class(context, context.types.range_type);
     PyLongRangeIterator::extend_class(context, context.types.long_range_iterator_type);
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
@@ -581,7 +581,7 @@ impl Representable for PyRange {
 // can be BigInts, we can store any arbitrary range of values.
 #[pyclass(module = false, name = "longrange_iterator")]
 #[derive(Debug)]
-pub struct PyLongRangeIterator {
+pub(crate) struct PyLongRangeIterator {
     index: AtomicCell<usize>,
     start: BigInt,
     step: BigInt,
@@ -646,7 +646,7 @@ impl IterNext for PyLongRangeIterator {
 // that only operates using isize to track values.
 #[pyclass(module = false, name = "range_iterator")]
 #[derive(Debug)]
-pub struct PyRangeIterator {
+pub(crate) struct PyRangeIterator {
     index: AtomicCell<usize>,
     start: isize,
     step: isize,
@@ -742,7 +742,7 @@ fn range_state(length: &BigInt, state: PyObjectRef, vm: &VirtualMachine) -> PyRe
     }
 }
 
-pub enum RangeIndex {
+pub(crate) enum RangeIndex {
     Int(PyIntRef),
     Slice(PyRef<PySlice>),
 }

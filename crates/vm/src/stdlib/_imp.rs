@@ -5,7 +5,7 @@ use core::borrow::Borrow;
 
 pub(crate) use _imp::module_def;
 
-pub use crate::vm::resolve_frozen_alias;
+pub(super) use crate::vm::resolve_frozen_alias;
 
 #[cfg(feature = "threading")]
 #[pymodule(sub)]
