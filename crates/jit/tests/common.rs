@@ -7,13 +7,13 @@ use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub struct Function {
+pub(crate) struct Function {
     code: Box<CodeObject>,
     annotations: HashMap<Wtf8Buf, StackValue>,
 }
 
 impl Function {
-    pub fn compile(self) -> CompiledCode {
+    pub(crate) fn compile(self) -> CompiledCode {
         let mut arg_types = Vec::new();
         for arg in self.code.arg_names().args {
             let arg_type = match self.annotations.get(AsRef::<Wtf8>::as_ref(arg.as_str())) {
@@ -171,20 +171,20 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
     annotations
 }
 
-pub struct StackMachine {
+pub(crate) struct StackMachine {
     stack: Vec<StackValue>,
     locals: HashMap<String, StackValue>,
 }
 
 impl StackMachine {
-    pub fn new() -> StackMachine {
+    pub(crate) fn new() -> StackMachine {
         StackMachine {
             stack: Vec::new(),
             locals: HashMap::new(),
         }
     }
 
-    pub fn run(&mut self, code: CodeObject) {
+    pub(crate) fn run(&mut self, code: CodeObject) {
         let mut op_arg_state = OpArgState::default();
         let _ = code.instructions.iter().try_for_each(|&word| {
             let (instruction, arg) = op_arg_state.get(word);
@@ -299,7 +299,7 @@ impl StackMachine {
         ControlFlow::Continue(())
     }
 
-    pub fn get_function(&self, name: &str) -> Function {
+    pub(crate) fn get_function(&self, name: &str) -> Function {
         if let Some(StackValue::Function(function)) = self.locals.get(name) {
             function.clone()
         } else {

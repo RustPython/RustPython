@@ -213,7 +213,7 @@ mod decl {
 
         #[pyclass(module = "select", name = "poll")]
         #[derive(Default, Debug, PyPayload)]
-        pub struct PyPoll {
+        pub(crate) struct PyPoll {
             // keep sorted
             fds: PyMutex<Vec<pollfd>>,
         }
@@ -248,7 +248,7 @@ mod decl {
         // new EventMask type
         #[derive(Copy, Clone)]
         #[repr(transparent)]
-        pub struct EventMask(pub i16);
+        pub(crate) struct EventMask(pub i16);
 
         impl TryFromObject for EventMask {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -389,12 +389,12 @@ mod decl {
 
         #[pyclass(module = "select", name = "epoll")]
         #[derive(Debug, rustpython_vm::PyPayload)]
-        pub struct PyEpoll {
+        pub(crate) struct PyEpoll {
             epoll_fd: PyRwLock<Option<OwnedFd>>,
         }
 
         #[derive(FromArgs)]
-        pub struct EpollNewArgs {
+        pub(crate) struct EpollNewArgs {
             #[pyarg(any, default = -1)]
             sizehint: i32,
             #[pyarg(any, default = 0)]

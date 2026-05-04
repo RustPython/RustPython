@@ -72,7 +72,11 @@ fn json_escaped_char(c: u8) -> Option<&'static str> {
     }
 }
 
-pub fn write_json_string<W: io::Write>(wtf8: &Wtf8, ascii_only: bool, w: &mut W) -> io::Result<()> {
+pub(super) fn write_json_string<W: io::Write>(
+    wtf8: &Wtf8,
+    ascii_only: bool,
+    w: &mut W,
+) -> io::Result<()> {
     w.write_all(b"\"")?;
     let mut write_start_idx = 0;
     let bytes = wtf8.as_bytes();
@@ -128,12 +132,12 @@ pub fn write_json_string<W: io::Write>(wtf8: &Wtf8, ascii_only: bool, w: &mut W)
 }
 
 #[derive(Debug)]
-pub struct DecodeError {
+pub(super) struct DecodeError {
     pub msg: String,
     pub pos: usize,
 }
 impl DecodeError {
-    pub fn new(msg: impl Into<String>, pos: usize) -> Self {
+    pub(super) fn new(msg: impl Into<String>, pos: usize) -> Self {
         let msg = msg.into();
         Self { msg, pos }
     }
@@ -161,7 +165,7 @@ impl StrOrChar<'_> {
 /// # Returns
 /// * `Ok((result, chars_consumed, bytes_consumed))` - The decoded string and how much was consumed
 /// * `Err(DecodeError)` - If the string is malformed
-pub fn scanstring<'a>(
+pub(super) fn scanstring<'a>(
     s: &'a Wtf8,
     char_offset: usize,
     strict: bool,

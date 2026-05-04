@@ -391,7 +391,7 @@ type SymbolMap = IndexMap<String, Symbol>;
 mod stack {
     use alloc::vec::Vec;
     use core::ptr::NonNull;
-    pub struct StackStack<T> {
+    pub(super) struct StackStack<T> {
         v: Vec<NonNull<T>>,
     }
     impl<T> Default for StackStack<T> {
@@ -403,7 +403,7 @@ mod stack {
         /// Appends a reference to this stack for the duration of the function `f`. When `f`
         /// returns, the reference will be popped off the stack.
         #[cfg(feature = "std")]
-        pub fn with_append<F, R>(&mut self, x: &mut T, f: F) -> R
+        pub(super) fn with_append<F, R>(&mut self, x: &mut T, f: F) -> R
         where
             F: FnOnce(&mut Self) -> R,
         {
@@ -428,10 +428,10 @@ mod stack {
             result
         }
 
-        pub fn iter(&self) -> impl DoubleEndedIterator<Item = &T> + '_ {
+        pub(super) fn iter(&self) -> impl DoubleEndedIterator<Item = &T> + '_ {
             self.as_ref().iter().copied()
         }
-        pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut T> + '_ {
+        pub(super) fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut T> + '_ {
             self.as_mut().iter_mut().map(|x| &mut **x)
         }
         // pub fn top(&self) -> Option<&T> {
@@ -440,18 +440,18 @@ mod stack {
         // pub fn top_mut(&mut self) -> Option<&mut T> {
         //     self.as_mut().last_mut().map(|x| &mut **x)
         // }
-        pub fn len(&self) -> usize {
+        pub(super) fn len(&self) -> usize {
             self.v.len()
         }
-        pub fn is_empty(&self) -> bool {
+        pub(super) fn is_empty(&self) -> bool {
             self.len() == 0
         }
 
-        pub fn as_ref(&self) -> &[&T] {
+        pub(super) fn as_ref(&self) -> &[&T] {
             unsafe { &*(self.v.as_slice() as *const [NonNull<T>] as *const [&T]) }
         }
 
-        pub fn as_mut(&mut self) -> &mut [&mut T] {
+        pub(super) fn as_mut(&mut self) -> &mut [&mut T] {
             unsafe { &mut *(self.v.as_mut_slice() as *mut [NonNull<T>] as *mut [&mut T]) }
         }
     }

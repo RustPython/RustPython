@@ -29,14 +29,14 @@ pub(crate) mod stack_analysis {
     const MAX_STACK_ENTRIES: u32 = 63 / BITS_PER_BLOCK; // 21
     const WILL_OVERFLOW: u64 = 1u64 << ((MAX_STACK_ENTRIES - 1) * BITS_PER_BLOCK);
 
-    pub const EMPTY_STACK: i64 = 0;
-    pub const UNINITIALIZED: i64 = -2;
-    pub const OVERFLOWED: i64 = -1;
+    pub(crate) const EMPTY_STACK: i64 = 0;
+    pub(crate) const UNINITIALIZED: i64 = -2;
+    pub(crate) const OVERFLOWED: i64 = -1;
 
     /// Kind of a stack entry.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     #[repr(i64)]
-    pub enum Kind {
+    pub(crate) enum Kind {
         Iterator = 1,
         Except = 2,
         Object = 3,
@@ -57,7 +57,7 @@ pub(crate) mod stack_analysis {
         }
     }
 
-    pub fn push_value(stack: i64, kind: i64) -> i64 {
+    pub(crate) fn push_value(stack: i64, kind: i64) -> i64 {
         if (stack as u64) >= WILL_OVERFLOW {
             OVERFLOWED
         } else {
@@ -65,11 +65,11 @@ pub(crate) mod stack_analysis {
         }
     }
 
-    pub fn pop_value(stack: i64) -> i64 {
+    pub(crate) fn pop_value(stack: i64) -> i64 {
         stack >> BITS_PER_BLOCK
     }
 
-    pub fn top_of_stack(stack: i64) -> i64 {
+    pub(crate) fn top_of_stack(stack: i64) -> i64 {
         stack & MASK
     }
 
@@ -112,7 +112,7 @@ pub(crate) mod stack_analysis {
         from == to
     }
 
-    pub fn compatible_stack(from_stack: i64, to_stack: i64) -> bool {
+    pub(crate) fn compatible_stack(from_stack: i64, to_stack: i64) -> bool {
         if from_stack < 0 || to_stack < 0 {
             return false;
         }
@@ -133,7 +133,7 @@ pub(crate) mod stack_analysis {
         to == 0
     }
 
-    pub fn explain_incompatible_stack(to_stack: i64) -> &'static str {
+    pub(crate) fn explain_incompatible_stack(to_stack: i64) -> &'static str {
         debug_assert!(to_stack != 0);
         if to_stack == OVERFLOWED {
             return "stack is too deep to analyze";
@@ -150,7 +150,7 @@ pub(crate) mod stack_analysis {
     }
 
     /// Analyze bytecode and compute the stack state at each instruction index.
-    pub fn mark_stacks<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i64> {
+    pub(crate) fn mark_stacks<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i64> {
         let instructions = &*code.instructions;
         let len = instructions.len();
 
@@ -393,7 +393,7 @@ pub(crate) mod stack_analysis {
 
     /// Build a mapping from instruction index to line number.
     /// Returns -1 for indices with no line start.
-    pub fn mark_lines<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i32> {
+    pub(crate) fn mark_lines<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i32> {
         let len = code.instructions.len();
         let mut line_starts = vec![-1i32; len];
         let mut last_line: i32 = -1;
@@ -412,7 +412,7 @@ pub(crate) mod stack_analysis {
     }
 
     /// Find the first line number >= `line` that has code.
-    pub fn first_line_not_before(lines: &[i32], line: i32) -> i32 {
+    pub(crate) fn first_line_not_before(lines: &[i32], line: i32) -> i32 {
         let mut result = i32::MAX;
         for &l in lines {
             if l >= line && l < result {
@@ -423,7 +423,7 @@ pub(crate) mod stack_analysis {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     Frame::extend_class(context, context.types.frame_type);
 }
 

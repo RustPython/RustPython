@@ -177,7 +177,8 @@ pub enum MemberKind {
     ObjectEx = 16,
 }
 
-pub type MemberSetterFunc = Option<fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>>;
+pub(crate) type MemberSetterFunc =
+    Option<fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>>;
 
 pub enum MemberGetter {
     Getter(fn(&VirtualMachine, PyObjectRef) -> PyResult),
@@ -471,7 +472,7 @@ fn vectorcall_wrapper(
     zelf.wrapped.call(obj, rest, vm)
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyMemberDescriptor::extend_class(ctx, ctx.types.member_descriptor_type);
     PyMethodDescriptor::extend_class(ctx, ctx.types.method_descriptor_type);
     ctx.types
@@ -762,7 +763,7 @@ impl SlotFunc {
 // = PyWrapperDescrObject
 #[pyclass(name = "wrapper_descriptor", module = false)]
 #[derive(Debug)]
-pub struct PyWrapper {
+pub(crate) struct PyWrapper {
     pub typ: &'static Py<PyType>,
     pub name: &'static PyStrInterned,
     pub wrapped: SlotFunc,
@@ -855,7 +856,7 @@ impl Representable for PyWrapper {
 /// Returned when accessing l.__init__ on an instance
 #[pyclass(name = "method-wrapper", module = false, traverse)]
 #[derive(Debug)]
-pub struct PyMethodWrapper {
+pub(crate) struct PyMethodWrapper {
     pub wrapper: PyRef<PyWrapper>,
     #[pytraverse(skip)]
     pub obj: PyObjectRef,

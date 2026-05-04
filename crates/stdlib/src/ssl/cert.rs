@@ -56,61 +56,61 @@ mod cert_error {
     use std::io;
 
     /// Create InvalidData error with formatted message
-    pub fn invalid_data(msg: impl Into<String>) -> io::Error {
+    pub(super) fn invalid_data(msg: impl Into<String>) -> io::Error {
         io::Error::new(io::ErrorKind::InvalidData, msg.into())
     }
 
     /// PEM parsing error variants
-    pub mod pem {
+    pub(super) mod pem {
         use super::*;
 
-        pub fn no_start_line(context: &str) -> io::Error {
+        pub(crate) fn no_start_line(context: &str) -> io::Error {
             invalid_data(format!("no start line: {context}"))
         }
 
-        pub fn parse_failed(e: impl Display) -> io::Error {
+        pub(crate) fn parse_failed(e: impl Display) -> io::Error {
             invalid_data(format!("Failed to parse PEM certificate: {e}"))
         }
 
-        pub fn parse_failed_debug(e: impl Debug) -> io::Error {
+        pub(crate) fn parse_failed_debug(e: impl Debug) -> io::Error {
             invalid_data(format!("Failed to parse PEM certificate: {e:?}"))
         }
 
-        pub fn invalid_cert() -> io::Error {
+        pub(crate) fn invalid_cert() -> io::Error {
             invalid_data("No certificates found in certificate file")
         }
     }
 
     /// DER parsing error variants
-    pub mod der {
+    pub(super) mod der {
         use super::*;
 
-        pub fn not_enough_data(context: &str) -> io::Error {
+        pub(crate) fn not_enough_data(context: &str) -> io::Error {
             invalid_data(format!("not enough data: {context}"))
         }
 
-        pub fn parse_failed(e: impl Display) -> io::Error {
+        pub(crate) fn parse_failed(e: impl Display) -> io::Error {
             invalid_data(format!("Failed to parse DER certificate: {e}"))
         }
     }
 
     /// Private key error variants
-    pub mod key {
+    pub(super) mod key {
         use super::*;
 
-        pub fn not_found(context: &str) -> io::Error {
+        pub(crate) fn not_found(context: &str) -> io::Error {
             invalid_data(format!("No private key found in {context}"))
         }
 
-        pub fn parse_failed(e: impl Display) -> io::Error {
+        pub(crate) fn parse_failed(e: impl Display) -> io::Error {
             invalid_data(format!("Failed to parse private key: {e}"))
         }
 
-        pub fn parse_encrypted_failed(e: impl Display) -> io::Error {
+        pub(crate) fn parse_encrypted_failed(e: impl Display) -> io::Error {
             invalid_data(format!("Failed to parse encrypted private key: {e}"))
         }
 
-        pub fn decrypt_failed(e: impl Display) -> io::Error {
+        pub(crate) fn decrypt_failed(e: impl Display) -> io::Error {
             io::Error::other(format!(
                 "Failed to decrypt private key (wrong password?): {e}",
             ))
@@ -118,14 +118,17 @@ mod cert_error {
     }
 
     /// Convert error message to rustls::Error with InvalidCertificate wrapper
-    pub fn to_rustls_invalid_cert(msg: impl Into<String>) -> rustls::Error {
+    pub(super) fn to_rustls_invalid_cert(msg: impl Into<String>) -> rustls::Error {
         rustls::Error::InvalidCertificate(rustls::CertificateError::Other(rustls::OtherError(
             Arc::new(invalid_data(msg)),
         )))
     }
 
     /// Convert error message to rustls::Error with InvalidCertificate wrapper and custom ErrorKind
-    pub fn to_rustls_cert_error(kind: io::ErrorKind, msg: impl Into<String>) -> rustls::Error {
+    pub(super) fn to_rustls_cert_error(
+        kind: io::ErrorKind,
+        msg: impl Into<String>,
+    ) -> rustls::Error {
         rustls::Error::InvalidCertificate(rustls::CertificateError::Other(rustls::OtherError(
             Arc::new(io::Error::new(kind, msg.into())),
         )))
@@ -268,7 +271,7 @@ fn process_san_general_names(
 /// Returns `true` if the certificate has Basic Constraints with CA=true,
 /// `false` otherwise (including parse errors or missing extension).
 /// This matches OpenSSL's X509_check_ca() behavior.
-pub fn is_ca_certificate(cert_der: &[u8]) -> bool {
+pub(super) fn is_ca_certificate(cert_der: &[u8]) -> bool {
     // Parse the certificate
     let Ok((_, cert)) = X509Certificate::from_der(cert_der) else {
         return false;
@@ -314,7 +317,7 @@ fn name_to_py(vm: &VirtualMachine, name: &x509_parser::x509::X509Name<'_>) -> Py
 ///
 /// Returns a dict with fields: subject, issuer, version, serialNumber,
 /// notBefore, notAfter, subjectAltName (if present)
-pub fn cert_to_dict(
+pub(super) fn cert_to_dict(
     vm: &VirtualMachine,
     cert: &x509_parser::certificate::X509Certificate<'_>,
 ) -> PyResult {
@@ -367,7 +370,10 @@ pub fn cert_to_dict(
 ///
 /// Similar to cert_to_dict but includes additional fields like crlDistributionPoints
 /// and uses CPython's specific ordering: issuer, notAfter, notBefore, serialNumber, subject, version
-pub fn cert_der_to_dict_helper(vm: &VirtualMachine, cert_der: &[u8]) -> PyResult<PyObjectRef> {
+pub(super) fn cert_der_to_dict_helper(
+    vm: &VirtualMachine,
+    cert_der: &[u8],
+) -> PyResult<PyObjectRef> {
     // Parse the certificate using x509-parser
     let (_, cert) = x509_parser::parse_x509_certificate(cert_der)
         .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {e}")))?;
@@ -546,7 +552,7 @@ pub fn cert_der_to_dict_helper(vm: &VirtualMachine, cert_der: &[u8]) -> PyResult
 /// issuer certificates from the trust store until reaching a root certificate.
 ///
 /// Returns the complete chain as DER-encoded bytes.
-pub fn build_verified_chain(
+pub(super) fn build_verified_chain(
     peer_certs: &[CertificateDer<'static>],
     ca_certs_der: &[Vec<u8>],
 ) -> Vec<Vec<u8>> {
@@ -605,7 +611,7 @@ pub fn build_verified_chain(
 
 /// Statistics from certificate loading operations
 #[derive(Debug, Clone, Default)]
-pub struct CertStats {
+pub(super) struct CertStats {
     pub total_certs: usize,
     pub ca_certs: usize,
 }
@@ -617,7 +623,7 @@ pub struct CertStats {
 /// a RootCertStore while tracking statistics.
 ///
 /// Duplicate certificates are detected and only counted once.
-pub struct CertLoader<'a> {
+pub(super) struct CertLoader<'a> {
     store: &'a mut RootCertStore,
     ca_certs_der: &'a mut Vec<Vec<u8>>,
     seen_certs: HashSet<Vec<u8>>,
@@ -625,7 +631,7 @@ pub struct CertLoader<'a> {
 
 impl<'a> CertLoader<'a> {
     /// Create a new CertLoader with references to the store and DER cache
-    pub fn new(store: &'a mut RootCertStore, ca_certs_der: &'a mut Vec<Vec<u8>>) -> Self {
+    pub(super) fn new(store: &'a mut RootCertStore, ca_certs_der: &'a mut Vec<Vec<u8>>) -> Self {
         // Initialize seen_certs with existing certificates
         let seen_certs = ca_certs_der.iter().cloned().collect();
         Self {
@@ -638,7 +644,7 @@ impl<'a> CertLoader<'a> {
     /// Load certificates from a file (supports both PEM and DER formats)
     ///
     /// Returns statistics about loaded certificates
-    pub fn load_from_file(&mut self, path: &str) -> Result<CertStats, std::io::Error> {
+    pub(super) fn load_from_file(&mut self, path: &str) -> Result<CertStats, std::io::Error> {
         let contents = rustpython_host_env::fs::read(path)?;
         self.load_from_bytes(&contents)
     }
@@ -647,7 +653,7 @@ impl<'a> CertLoader<'a> {
     ///
     /// Reads all files in the directory and attempts to parse them as certificates.
     /// Invalid files are silently skipped (matches OpenSSL capath behavior).
-    pub fn load_from_dir(&mut self, dir_path: &str) -> Result<CertStats, std::io::Error> {
+    pub(super) fn load_from_dir(&mut self, dir_path: &str) -> Result<CertStats, std::io::Error> {
         let entries = rustpython_host_env::fs::read_dir(dir_path)?;
         let mut stats = CertStats::default();
 
@@ -718,7 +724,7 @@ impl<'a> CertLoader<'a> {
     /// load_verify_locations with cadata parameter).
     ///
     /// If `pem_only` is true, only PEM parsing is attempted (for string input)
-    pub fn load_from_bytes_ex(
+    pub(super) fn load_from_bytes_ex(
         &mut self,
         data: &[u8],
         treat_all_as_ca: bool,
@@ -835,14 +841,14 @@ impl<'a> CertLoader<'a> {
     ///
     /// This is a convenience wrapper that calls load_from_bytes_ex with treat_all_as_ca=false
     /// and pem_only=false.
-    pub fn load_from_bytes(&mut self, data: &[u8]) -> Result<CertStats, std::io::Error> {
+    pub(super) fn load_from_bytes(&mut self, data: &[u8]) -> Result<CertStats, std::io::Error> {
         self.load_from_bytes_ex(data, false, false)
     }
 }
 
 // NoVerifier: disables certificate verification (for CERT_NONE mode)
 #[derive(Debug)]
-pub struct NoVerifier;
+pub(super) struct NoVerifier;
 
 impl ServerCertVerifier for NoVerifier {
     fn verify_server_cert(
@@ -889,14 +895,14 @@ impl ServerCertVerifier for NoVerifier {
 // this version uses webpki directly to verify only the certificate chain,
 // completely bypassing hostname verification.
 #[derive(Debug)]
-pub struct HostnameIgnoringVerifier {
+pub(super) struct HostnameIgnoringVerifier {
     inner: Arc<dyn ServerCertVerifier>,
 }
 
 impl HostnameIgnoringVerifier {
     /// Create a new HostnameIgnoringVerifier with a pre-built verifier
     /// This is useful when you need to configure the verifier with CRLs or other options
-    pub fn new_with_verifier(inner: Arc<dyn ServerCertVerifier>) -> Self {
+    pub(super) fn new_with_verifier(inner: Arc<dyn ServerCertVerifier>) -> Self {
         Self { inner }
     }
 }
@@ -1021,7 +1027,7 @@ fn extract_first_dns_name(cert_der: &CertificateDer<'_>) -> Option<ServerName<'s
 // This verifier always succeeds during handshake but stores verification errors
 // for later retrieval during I/O operations
 #[derive(Debug)]
-pub struct DeferredClientCertVerifier {
+pub(super) struct DeferredClientCertVerifier {
     // The actual verifier that performs validation
     inner: Arc<dyn ClientCertVerifier>,
     // Shared storage for deferred error message
@@ -1029,7 +1035,7 @@ pub struct DeferredClientCertVerifier {
 }
 
 impl DeferredClientCertVerifier {
-    pub fn new(
+    pub(super) fn new(
         inner: Arc<dyn ClientCertVerifier>,
         deferred_error: Arc<ParkingRwLock<Option<String>>>,
     ) -> Self {
@@ -1253,7 +1259,7 @@ pub(super) fn load_cert_chain_from_file(
 ///
 /// Note: This is a simplified validation. Full validation would require
 /// signing and verifying a test message, which is complex with rustls.
-pub fn validate_cert_key_match(
+pub(super) fn validate_cert_key_match(
     certs: &[CertificateDer<'_>],
     private_key: &PrivateKeyDer<'_>,
 ) -> Result<(), String> {
@@ -1283,7 +1289,7 @@ pub fn validate_cert_key_match(
 ///
 /// This matches X509_V_FLAG_X509_STRICT behavior in OpenSSL.
 #[derive(Debug)]
-pub struct StrictCertVerifier {
+pub(super) struct StrictCertVerifier {
     inner: Arc<dyn ServerCertVerifier>,
     verify_flags: i32,
 }
@@ -1294,7 +1300,7 @@ impl StrictCertVerifier {
     /// # Arguments
     /// * `inner` - The underlying verifier to wrap
     /// * `verify_flags` - SSL verification flags (e.g., VERIFY_X509_STRICT)
-    pub fn new(inner: Arc<dyn ServerCertVerifier>, verify_flags: i32) -> Self {
+    pub(super) fn new(inner: Arc<dyn ServerCertVerifier>, verify_flags: i32) -> Self {
         Self {
             inner,
             verify_flags,
@@ -1394,7 +1400,7 @@ impl ServerCertVerifier for StrictCertVerifier {
 /// This allows the SSL context to be created successfully, but handshake will fail
 /// with a proper SSLCertVerificationError (verify_code=20, UNABLE_TO_GET_ISSUER_CERT_LOCALLY).
 #[derive(Debug)]
-pub struct EmptyRootStoreVerifier;
+pub(super) struct EmptyRootStoreVerifier;
 
 impl ServerCertVerifier for EmptyRootStoreVerifier {
     fn verify_server_cert(
@@ -1444,14 +1450,14 @@ impl ServerCertVerifier for EmptyRootStoreVerifier {
 /// This matches X509_V_FLAG_CRL_CHECK without loaded CRLs
 /// causes "unable to get CRL" error.
 #[derive(Debug)]
-pub struct CRLCheckVerifier {
+pub(super) struct CRLCheckVerifier {
     inner: Arc<dyn ServerCertVerifier>,
     has_crls: bool,
     crl_check_enabled: bool,
 }
 
 impl CRLCheckVerifier {
-    pub fn new(
+    pub(super) fn new(
         inner: Arc<dyn ServerCertVerifier>,
         has_crls: bool,
         crl_check_enabled: bool,
@@ -1527,14 +1533,14 @@ impl ServerCertVerifier for CRLCheckVerifier {
 /// This matches accepting self-signed certificates that
 /// are explicitly loaded via load_verify_locations().
 #[derive(Debug)]
-pub struct PartialChainVerifier {
+pub(super) struct PartialChainVerifier {
     inner: Arc<dyn ServerCertVerifier>,
     ca_certs_der: Vec<Vec<u8>>,
     verify_flags: i32,
 }
 
 impl PartialChainVerifier {
-    pub fn new(
+    pub(super) fn new(
         inner: Arc<dyn ServerCertVerifier>,
         ca_certs_der: Vec<Vec<u8>>,
         verify_flags: i32,

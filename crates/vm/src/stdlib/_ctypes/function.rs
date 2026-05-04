@@ -2233,7 +2233,7 @@ impl Debug for PyCThunk {
 }
 
 impl PyCThunk {
-    pub fn new(
+    pub(super) fn new(
         callable: PyObjectRef,
         arg_types: Option<PyObjectRef>,
         res_type: Option<PyObjectRef>,
@@ -2302,7 +2302,7 @@ impl PyCThunk {
         })
     }
 
-    pub fn code_ptr(&self) -> CodePtr {
+    pub(super) fn code_ptr(&self) -> CodePtr {
         self.code_ptr
     }
 }

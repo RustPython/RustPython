@@ -980,7 +980,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
     }
@@ -1048,7 +1048,7 @@ mod builtins {
     }
 
     #[derive(FromArgs)]
-    pub struct RoundArgs {
+    pub(super) struct RoundArgs {
         number: PyObjectRef,
         #[pyarg(any, optional)]
         ndigits: OptionalOption<PyObjectRef>,
@@ -1104,7 +1104,7 @@ mod builtins {
     }
 
     #[derive(FromArgs)]
-    pub struct SumArgs {
+    pub(super) struct SumArgs {
         #[pyarg(positional)]
         iterable: ArgIterable,
         #[pyarg(any, optional)]
@@ -1171,7 +1171,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn __build_class__(
+    pub(super) fn __build_class__(
         function: PyRef<PyFunction>,
         name: PyStrRef,
         bases: PosArgs,

@@ -173,6 +173,6 @@ impl Drop for PyGenerator {
     }
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyGenerator::extend_class(ctx, ctx.types.generator_type);
 }
