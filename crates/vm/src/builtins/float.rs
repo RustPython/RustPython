@@ -131,10 +131,9 @@ pub fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
         Some(int) => Ok(int),
         None => {
             if value.is_infinite() {
-                Err(vm
-                    .new_overflow_error("OverflowError: cannot convert float infinity to integer"))
+                Err(vm.new_overflow_error("cannot convert float infinity to integer"))
             } else if value.is_nan() {
-                Err(vm.new_value_error("ValueError: cannot convert float NaN to integer"))
+                Err(vm.new_value_error("cannot convert float NaN to integer"))
             } else {
                 // unreachable unless BigInt has a bug
                 unreachable!(
