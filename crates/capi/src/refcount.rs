@@ -5,7 +5,7 @@ use rustpython_vm::PyObjectRef;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _Py_DecRef(op: *mut PyObject) {
     // By dropping PyObjectRef, we will decrement the reference count.
-    unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(op)) };
+    unsafe { drop(PyObjectRef::from_raw(NonNull::new_unchecked(op))) };
 }
 
 #[unsafe(no_mangle)]
