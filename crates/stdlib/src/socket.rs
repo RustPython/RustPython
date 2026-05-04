@@ -54,7 +54,7 @@ mod _socket {
     use libc as c;
     #[cfg(windows)]
     mod c {
-        pub use rustpython_host_env::socket::{
+        pub(super) use rustpython_host_env::socket::{
             AF_APPLETALK, AF_DECnet, AF_INET, AF_INET6, AF_IPX, AF_LINK, AF_UNSPEC, AI_ADDRCONFIG,
             AI_ALL, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE, AI_V4MAPPED,
             EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NODATA, EAI_NONAME,
