@@ -20,10 +20,10 @@ const WEAK_COUNT: usize = 1 << STRONG_WIDTH;
     reason = "refcount overflow must preserve upstream abort semantics"
 )]
 fn refcount_overflow() -> ! {
-    #[cfg(feature = "std")]
-    std::process::abort();
-    #[cfg(not(feature = "std"))]
-    core::panic!("refcount overflow");
+    cfg_select! {
+        feature = "std" => std::process::abort(),
+        _ => core::panic!("refcount overflow"),
+    }
 }
 
 /// State wraps reference count + flags in a single word (platform usize)

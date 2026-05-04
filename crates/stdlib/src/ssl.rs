@@ -4832,30 +4832,19 @@ mod _ssl {
 
         // Common default paths for different platforms
         // These match the first candidates that rustls-native-certs/openssl-probe checks
-        #[cfg(target_os = "macos")]
-        let (default_cafile, default_capath) = {
+        let (default_cafile, default_capath): (Option<&str>, Option<&str>) = cfg_select! {
             // macOS primarily uses Keychain API, but provides fallback paths
             // for compatibility and when Keychain access fails
-            (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs"))
-        };
-
-        #[cfg(target_os = "linux")]
-        let (default_cafile, default_capath) = {
+            target_os = "macos" => (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs")),
             // Linux: matches openssl-probe's first candidate (/etc/ssl/cert.pem)
             // openssl-probe checks multiple locations at runtime, but we return
             // OpenSSL's compile-time default
-            (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs"))
-        };
-
-        #[cfg(windows)]
-        let (default_cafile, default_capath) = {
+            target_os = "linux" => (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs")),
             // Windows uses certificate store, not file paths
             // Return empty strings to avoid None being passed to os.path.isfile()
-            (Some(""), Some(""))
+            windows => (Some(""), Some("")),
+            _ => (None, None),
         };
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-        let (default_cafile, default_capath): (Option<&str>, Option<&str>) = (None, None);
 
         let tuple = vm.ctx.new_tuple(vec![
             vm.ctx.new_str("SSL_CERT_FILE").into(), // openssl_cafile_env

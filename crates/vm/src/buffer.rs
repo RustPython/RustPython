@@ -61,10 +61,10 @@ impl ByteOrder for LittleEndian {
     }
 }
 
-#[cfg(target_endian = "big")]
-type NativeEndian = BigEndian;
-#[cfg(target_endian = "little")]
-type NativeEndian = LittleEndian;
+type NativeEndian = cfg_select! {
+    target_endian = "big" => BigEndian,
+    target_endian = "little" => LittleEndian,
+};
 
 #[derive(Copy, Clone, num_enum::TryFromPrimitive)]
 #[repr(u8)]

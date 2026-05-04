@@ -441,15 +441,15 @@ enum StandardEncoding {
 }
 
 impl StandardEncoding {
-    #[cfg(target_endian = "little")]
-    const UTF_16_NE: Self = Self::Utf16Le;
-    #[cfg(target_endian = "big")]
-    const UTF_16_NE: Self = Self::Utf16Be;
+    const UTF_16_NE: Self = cfg_select! {
+        target_endian = "little" => Self::Utf16Le,
+        target_endian = "big" => Self::Utf16Be,
+    };
 
-    #[cfg(target_endian = "little")]
-    const UTF_32_NE: Self = Self::Utf32Le;
-    #[cfg(target_endian = "big")]
-    const UTF_32_NE: Self = Self::Utf32Be;
+    const UTF_32_NE: Self = cfg_select! {
+        target_endian = "little" => Self::Utf32Le,
+        target_endian = "big" => Self::Utf32Be,
+    };
 
     fn parse(encoding: &str) -> Option<Self> {
         if let Some(encoding) = encoding.to_lowercase().strip_prefix("utf") {

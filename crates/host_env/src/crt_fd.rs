@@ -26,15 +26,15 @@ mod c {
 
 // this is basically what CPython has for Py_off_t; windows uses long long
 // for offsets, other platforms just use off_t
-#[cfg(not(windows))]
-pub type Offset = c::off_t;
-#[cfg(windows)]
-pub type Offset = c::c_longlong;
+pub type Offset = cfg_select! {
+    windows => c::c_longlong,
+    _ => c::off_t,
+};
 
-#[cfg(not(windows))]
-pub type Raw = RawFd;
-#[cfg(windows)]
-pub type Raw = i32;
+pub type Raw = cfg_select! {
+    windows => i32,
+    _ => RawFd,
+};
 
 #[inline]
 fn cvt<I: num_traits::PrimInt>(ret: I) -> io::Result<I> {
@@ -351,18 +351,16 @@ pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
     let ret = unsafe { suppress_iph!(c::ftruncate(fd.as_raw(), len)) };
     // On Windows, _chsize_s returns 0 on success, or a positive error code (errno value) on failure.
     // On other platforms, ftruncate returns 0 on success, or -1 on failure with errno set.
-    #[cfg(windows)]
-    {
-        if ret != 0 {
-            // _chsize_s returns errno directly, convert to Windows error code
-            let winerror = crate::os::errno_to_winerror(ret);
-            return Err(io::Error::from_raw_os_error(winerror));
+    cfg_select! {
+        windows => {
+            if ret != 0 {
+                // _chsize_s returns errno directly, convert to Windows error code
+                let winerror = crate::os::errno_to_winerror(ret);
+                return Err(io::Error::from_raw_os_error(winerror));
+            }
         }
-    }
-    #[cfg(not(windows))]
-    {
-        cvt(ret)?;
-    }
+        _ => cvt(ret)?,
+    };
     Ok(())
 }
 
