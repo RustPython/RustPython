@@ -53,6 +53,7 @@ pub mod platform {
         unsafe { __WSAFDIsSet(fd as _, set) != 0 }
     }
 
+    #[must_use]
     pub fn check_err(x: i32) -> bool {
         x == WinSock::SOCKET_ERROR
     }
