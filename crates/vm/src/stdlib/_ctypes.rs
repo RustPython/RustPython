@@ -22,12 +22,12 @@ use core::ffi::{
 use core::mem;
 use widestring::WideChar;
 
-pub use array::PyCArray;
-pub use base::{FfiArgValue, PyCData, PyCField, StgInfo, StgInfoFlags};
-pub use pointer::PyCPointer;
-pub use simple::{PyCSimple, PyCSimpleType};
-pub use structure::PyCStructure;
-pub use union::PyCUnion;
+pub(super) use array::PyCArray;
+pub(super) use base::{FfiArgValue, PyCData, PyCField, StgInfo, StgInfoFlags};
+pub(super) use pointer::PyCPointer;
+pub(super) use simple::{PyCSimple, PyCSimpleType};
+pub(super) use structure::PyCStructure;
+pub(super) use union::PyCUnion;
 
 /// Extension for PyType to get StgInfo
 /// PyStgInfo_FromType
@@ -249,7 +249,7 @@ pub(crate) mod _ctypes {
     /// tagPyCArgObject
     #[pyclass(name = "CArgObject", module = "_ctypes", no_attr)]
     #[derive(Debug, PyPayload)]
-    pub struct CArgObject {
+    pub(crate) struct CArgObject {
         /// Type tag ('P', 'V', 'i', 'd', etc.)
         pub tag: u8,
         /// The actual FFI value (mirrors union value)
@@ -480,7 +480,7 @@ pub(crate) mod _ctypes {
 
     /// Get the size of a ctypes type or instance
     #[pyfunction]
-    pub fn sizeof(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    pub(crate) fn sizeof(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         use super::structure::PyCStructType;
         use super::union::PyCUnionType;
 
@@ -768,7 +768,11 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction]
-    pub fn byref(obj: PyObjectRef, offset: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn byref(
+        obj: PyObjectRef,
+        offset: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         use super::FfiArgValue;
 
         // Check if obj is a ctypes instance
@@ -1300,13 +1304,13 @@ pub(crate) mod _ctypes {
         __module_exec(vm, module);
 
         let ctx = &vm.ctx;
-        PyCSimpleType::make_static_type();
-        array::PyCArrayType::make_static_type();
-        pointer::PyCPointerType::make_static_type();
-        structure::PyCStructType::make_static_type();
-        union::PyCUnionType::make_static_type();
-        function::PyCFuncPtrType::make_static_type();
-        function::RawMemoryBuffer::make_static_type();
+        let _ = PyCSimpleType::make_static_type();
+        let _ = array::PyCArrayType::make_static_type();
+        let _ = pointer::PyCPointerType::make_static_type();
+        let _ = structure::PyCStructType::make_static_type();
+        let _ = union::PyCUnionType::make_static_type();
+        let _ = function::PyCFuncPtrType::make_static_type();
+        let _ = function::RawMemoryBuffer::make_static_type();
 
         extend_module!(vm, module, {
             "_CData" => PyCData::make_static_type(),

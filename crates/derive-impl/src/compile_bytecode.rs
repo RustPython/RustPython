@@ -192,9 +192,8 @@ impl CompilationSource {
                         let joined = path.parent().unwrap().join(real_path.trim());
                         if joined.exists() {
                             return compile_path(&joined);
-                        } else {
-                            return Err(e);
                         }
+                        return Err(e);
                     }
                     Err(e)
                 });
@@ -335,7 +334,7 @@ struct PyCompileArgs {
     crate_name: syn::Path,
 }
 
-pub fn impl_py_compile(
+pub(crate) fn impl_py_compile(
     input: TokenStream,
     compiler: &dyn Compiler,
 ) -> Result<TokenStream, Diagnostic> {
@@ -356,7 +355,7 @@ pub fn impl_py_compile(
     Ok(output)
 }
 
-pub fn impl_py_freeze(
+pub(crate) fn impl_py_freeze(
     input: TokenStream,
     compiler: &dyn Compiler,
 ) -> Result<TokenStream, Diagnostic> {

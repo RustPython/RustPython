@@ -352,7 +352,7 @@ mod mmap {
     }
 
     #[derive(FromArgs)]
-    pub struct FlushOptions {
+    pub(super) struct FlushOptions {
         #[pyarg(positional, default)]
         offset: Option<isize>,
         #[pyarg(positional, default)]
@@ -382,7 +382,7 @@ mod mmap {
     }
 
     #[derive(FromArgs, Clone)]
-    pub struct FindOptions {
+    pub(super) struct FindOptions {
         #[pyarg(positional)]
         sub: Vec<u8>,
         #[pyarg(positional, default)]
@@ -393,7 +393,7 @@ mod mmap {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[derive(FromArgs)]
-    pub struct AdviseOptions {
+    pub(super) struct AdviseOptions {
         #[pyarg(positional)]
         option: libc::c_int,
         #[pyarg(positional, default)]

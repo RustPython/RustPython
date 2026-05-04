@@ -392,7 +392,7 @@ impl AsNumber for PyCArrayType {
 )]
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct PyCArray(pub PyCData);
+pub(crate) struct PyCArray(pub PyCData);
 
 impl PyCArray {
     /// Get the type code of array element type (e.g., "c" for c_char, "u" for c_wchar)

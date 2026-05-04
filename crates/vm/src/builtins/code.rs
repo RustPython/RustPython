@@ -344,7 +344,7 @@ impl ConstantBag for PyObjBag<'_> {
 }
 
 #[derive(Clone, Copy)]
-pub struct PyVmBag<'a>(pub &'a VirtualMachine);
+pub(crate) struct PyVmBag<'a>(pub &'a VirtualMachine);
 
 impl ConstantBag for PyVmBag<'_> {
     type Constant = Literal;
@@ -424,7 +424,7 @@ impl ConstantBag for PyVmBag<'_> {
     }
 }
 
-pub type CodeObject = bytecode::CodeObject<Literal>;
+pub(crate) type CodeObject = bytecode::CodeObject<Literal>;
 
 pub trait IntoCodeObject {
     fn into_code_object(self, ctx: &Context) -> CodeObject;
@@ -1537,6 +1537,6 @@ impl<'a> LineTableReader<'a> {
     }
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
 }

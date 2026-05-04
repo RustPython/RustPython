@@ -128,6 +128,7 @@ impl PyRange {
     }
 
     #[inline]
+    #[must_use]
     pub fn index_of(&self, value: &BigInt) -> Option<BigInt> {
         let step = self.step.as_bigint();
         match self.offset(value) {
@@ -137,16 +138,19 @@ impl PyRange {
     }
 
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.compute_length().is_zero()
     }
 
     #[inline]
+    #[must_use]
     pub fn forward(&self) -> bool {
         self.start.as_bigint() < self.stop.as_bigint()
     }
 
     #[inline]
+    #[must_use]
     pub fn get(&self, index: &BigInt) -> Option<BigInt> {
         let start = self.start.as_bigint();
         let step = self.step.as_bigint();
@@ -207,7 +211,7 @@ impl PyRange {
 //     obj.downcast_ref::<PyRange>().unwrap().clone()
 // }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyRange::extend_class(context, context.types.range_type);
     PyLongRangeIterator::extend_class(context, context.types.long_range_iterator_type);
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
@@ -581,7 +585,7 @@ impl Representable for PyRange {
 // can be BigInts, we can store any arbitrary range of values.
 #[pyclass(module = false, name = "longrange_iterator")]
 #[derive(Debug)]
-pub struct PyLongRangeIterator {
+pub(crate) struct PyLongRangeIterator {
     index: AtomicCell<usize>,
     start: BigInt,
     step: BigInt,
@@ -646,7 +650,7 @@ impl IterNext for PyLongRangeIterator {
 // that only operates using isize to track values.
 #[pyclass(module = false, name = "range_iterator")]
 #[derive(Debug)]
-pub struct PyRangeIterator {
+pub(crate) struct PyRangeIterator {
     index: AtomicCell<usize>,
     start: isize,
     step: isize,
@@ -742,7 +746,7 @@ fn range_state(length: &BigInt, state: PyObjectRef, vm: &VirtualMachine) -> PyRe
     }
 }
 
-pub enum RangeIndex {
+pub(crate) enum RangeIndex {
     Int(PyIntRef),
     Slice(PyRef<PySlice>),
 }

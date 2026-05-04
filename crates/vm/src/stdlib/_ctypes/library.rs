@@ -8,7 +8,7 @@ use std::ffi::OsStr;
 #[cfg(unix)]
 use libloading::os::unix::Library as UnixLibrary;
 
-pub struct SharedLibrary {
+pub(super) struct SharedLibrary {
     pub(crate) lib: PyMutex<Option<Library>>,
 }
 
@@ -20,18 +20,18 @@ impl fmt::Debug for SharedLibrary {
 
 impl SharedLibrary {
     #[cfg(windows)]
-    pub fn new(name: impl AsRef<OsStr>) -> Result<SharedLibrary, libloading::Error> {
-        Ok(SharedLibrary {
+    pub(super) fn new(name: impl AsRef<OsStr>) -> Result<Self, libloading::Error> {
+        Ok(Self {
             lib: PyMutex::new(unsafe { Some(Library::new(name.as_ref())?) }),
         })
     }
 
     #[cfg(unix)]
-    pub fn new_with_mode(
+    pub(super) fn new_with_mode(
         name: impl AsRef<OsStr>,
         mode: i32,
-    ) -> Result<SharedLibrary, libloading::Error> {
-        Ok(SharedLibrary {
+    ) -> Result<Self, libloading::Error> {
+        Ok(Self {
             lib: PyMutex::new(Some(unsafe {
                 UnixLibrary::open(Some(name.as_ref()), mode)?.into()
             })),
@@ -40,14 +40,14 @@ impl SharedLibrary {
 
     /// Create a SharedLibrary from a raw dlopen handle (for pythonapi / dlopen(NULL))
     #[cfg(unix)]
-    pub fn from_raw_handle(handle: *mut libc::c_void) -> SharedLibrary {
+    pub(super) fn from_raw_handle(handle: *mut libc::c_void) -> Self {
         SharedLibrary {
             lib: PyMutex::new(Some(unsafe { UnixLibrary::from_raw(handle).into() })),
         }
     }
 
     /// Get the underlying OS handle (HMODULE on Windows, dlopen handle on Unix)
-    pub fn get_pointer(&self) -> usize {
+    pub(super) fn get_pointer(&self) -> usize {
         let lib_lock = self.lib.lock();
         if let Some(l) = &*lib_lock {
             // libloading::Library internally stores the OS handle directly
@@ -77,12 +77,12 @@ impl ExternalLibs {
         }
     }
 
-    pub fn get_lib(&self, key: usize) -> Option<&SharedLibrary> {
+    pub(super) fn get_lib(&self, key: usize) -> Option<&SharedLibrary> {
         self.libraries.get(&key)
     }
 
     #[cfg(windows)]
-    pub fn get_or_insert_lib(
+    pub(super) fn get_or_insert_lib(
         &mut self,
         library_path: impl AsRef<OsStr>,
         _vm: &VirtualMachine,
@@ -105,7 +105,7 @@ impl ExternalLibs {
     }
 
     #[cfg(unix)]
-    pub fn get_or_insert_lib_with_mode(
+    pub(super) fn get_or_insert_lib_with_mode(
         &mut self,
         library_path: impl AsRef<OsStr>,
         mode: i32,
@@ -130,14 +130,14 @@ impl ExternalLibs {
 
     /// Insert a raw dlopen handle into the cache (for pythonapi / dlopen(NULL))
     #[cfg(unix)]
-    pub fn insert_raw_handle(&mut self, handle: *mut libc::c_void) -> usize {
+    pub(super) fn insert_raw_handle(&mut self, handle: *mut libc::c_void) -> usize {
         let shared_lib = SharedLibrary::from_raw_handle(handle);
         let key = handle as usize;
         self.libraries.insert(key, shared_lib);
         key
     }
 
-    pub fn drop_lib(&mut self, key: usize) {
+    pub(super) fn drop_lib(&mut self, key: usize) {
         self.libraries.remove(&key);
     }
 }

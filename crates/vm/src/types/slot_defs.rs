@@ -28,6 +28,7 @@ pub enum SlotOp {
 
 impl SlotOp {
     /// Convert to PyComparisonOp if this is a comparison operation
+    #[must_use]
     pub fn as_compare_op(&self) -> Option<PyComparisonOp> {
         match self {
             Self::Lt => Some(PyComparisonOp::Lt),
@@ -41,6 +42,7 @@ impl SlotOp {
     }
 
     /// Check if this is a right operation (__radd__, __rsub__, etc.)
+    #[must_use]
     pub fn is_right(&self) -> bool {
         matches!(self, Self::Right)
     }
@@ -167,6 +169,7 @@ pub enum SlotAccessor {
 
 impl SlotAccessor {
     /// Check if this accessor is for a reserved/unused slot
+    #[must_use]
     pub fn is_reserved(&self) -> bool {
         matches!(
             self,
@@ -195,6 +198,7 @@ impl SlotAccessor {
     }
 
     /// Check if this is a number binary operation slot
+    #[must_use]
     pub fn is_number_binary(&self) -> bool {
         matches!(
             self,
@@ -223,6 +227,7 @@ impl SlotAccessor {
     /// - TpDescrSet: __set__ and __delete__
     /// - SqAssItem/MpAssSubscript: __setitem__ and __delitem__
     /// - Number binaries: __add__ and __radd__, etc.
+    #[must_use]
     pub fn is_shared_slot(&self) -> bool {
         matches!(
             self,
@@ -235,6 +240,7 @@ impl SlotAccessor {
     }
 
     /// Get underlying slot field name for debugging
+    #[must_use]
     pub fn slot_name(&self) -> &'static str {
         match self {
             Self::BfGetBuffer => "bf_getbuffer",
@@ -322,6 +328,7 @@ impl SlotAccessor {
     }
 
     /// Extract the raw function pointer from a SlotFunc if it matches this accessor's type
+    #[must_use]
     pub fn extract_from_slot_func(&self, slot_func: &SlotFunc) -> bool {
         match self {
             // Type slots

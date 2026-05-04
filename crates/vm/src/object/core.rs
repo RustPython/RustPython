@@ -548,7 +548,7 @@ unsafe fn unlink_weakref(wrl: &WeakRefList, node: NonNull<Py<PyWeak>>) {
 }
 
 impl WeakRefList {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             head: Radium::new(ptr::null_mut()),
             generic: Radium::new(ptr::null_mut()),
@@ -950,31 +950,31 @@ impl From<PyDictRef> for InstanceDict {
 
 impl InstanceDict {
     #[inline]
-    pub const fn new(d: PyDictRef) -> Self {
+    pub(crate) const fn new(d: PyDictRef) -> Self {
         Self {
             d: PyRwLock::new(Some(d)),
         }
     }
 
     #[inline]
-    pub const fn from_opt(d: Option<PyDictRef>) -> Self {
+    pub(crate) const fn from_opt(d: Option<PyDictRef>) -> Self {
         Self {
             d: PyRwLock::new(d),
         }
     }
 
     #[inline]
-    pub fn get(&self) -> Option<PyDictRef> {
+    pub(crate) fn get(&self) -> Option<PyDictRef> {
         self.d.read().clone()
     }
 
     #[inline]
-    pub fn set(&self, d: Option<PyDictRef>) {
+    pub(crate) fn set(&self, d: Option<PyDictRef>) {
         self.replace(d);
     }
 
     #[inline]
-    pub fn replace(&self, d: Option<PyDictRef>) -> Option<PyDictRef> {
+    pub(crate) fn replace(&self, d: Option<PyDictRef>) -> Option<PyDictRef> {
         core::mem::replace(&mut self.d.write(), d)
     }
 
@@ -1291,6 +1291,7 @@ impl PyObject {
 
 impl PyObjectRef {
     #[inline(always)]
+    #[must_use]
     pub const fn into_raw(self) -> NonNull<PyObject> {
         let ptr = self.ptr;
         core::mem::forget(self);
@@ -1303,6 +1304,7 @@ impl PyObjectRef {
     /// dropped more than once due to mishandling the reference count by calling this function
     /// too many times.
     #[inline(always)]
+    #[must_use]
     pub const unsafe fn from_raw(ptr: NonNull<PyObject>) -> Self {
         Self { ptr }
     }
@@ -1330,6 +1332,7 @@ impl PyObjectRef {
     /// # Safety
     /// T must be the exact payload type
     #[inline(always)]
+    #[must_use]
     pub unsafe fn downcast_unchecked<T>(self) -> PyRef<T> {
         // PyRef::from_obj_unchecked(self)
         // manual impl to avoid assertion
@@ -1926,6 +1929,7 @@ impl PyStackRef {
     /// Create an owned stack reference, consuming the `PyObjectRef`.
     /// Refcount is NOT incremented — ownership is transferred.
     #[inline(always)]
+    #[must_use]
     pub fn new_owned(obj: PyObjectRef) -> Self {
         let ptr = obj.into_raw();
         let bits = ptr.as_ptr() as usize;
@@ -1957,12 +1961,14 @@ impl PyStackRef {
 
     /// Whether this is a borrowed (non-owning) reference.
     #[inline(always)]
+    #[must_use]
     pub fn is_borrowed(&self) -> bool {
         self.bits.get() & STACKREF_BORROW_TAG != 0
     }
 
     /// Get a `&PyObject` reference.  Works for both owned and borrowed.
     #[inline(always)]
+    #[must_use]
     pub fn as_object(&self) -> &PyObject {
         unsafe { &*((self.bits.get() & !STACKREF_BORROW_TAG) as *const PyObject) }
     }
@@ -1972,6 +1978,7 @@ impl PyStackRef {
     /// * If **borrowed** → increments refcount, forgets self.
     /// * If **owned** → reconstructs `PyObjectRef` from the raw pointer, forgets self.
     #[inline(always)]
+    #[must_use]
     pub fn to_pyobj(self) -> PyObjectRef {
         let obj = if self.is_borrowed() {
             self.as_object().to_owned() // inc refcount
@@ -2213,6 +2220,7 @@ impl<T: PyPayload> PyRef<T> {
         }
     }
 
+    #[must_use]
     pub const fn leak(pyref: Self) -> &'static Py<T> {
         let ptr = pyref.ptr;
         core::mem::forget(pyref);
@@ -2281,6 +2289,7 @@ where
     /// # Safety
     /// T and T::Base must have compatible layouts in size_of::<T::Base>() bytes.
     #[inline]
+    #[must_use]
     pub fn into_base(self) -> PyRef<T::Base> {
         let obj: PyObjectRef = self.into();
         match obj.downcast() {
@@ -2289,6 +2298,7 @@ where
         }
     }
     #[inline]
+    #[must_use]
     pub fn upcast<U: PyPayload + StaticType>(self) -> PyRef<U>
     where
         T: StaticType,
@@ -2404,6 +2414,7 @@ pub struct PyWeakRef<T: PyPayload> {
 }
 
 impl<T: PyPayload> PyWeakRef<T> {
+    #[must_use]
     pub fn upgrade(&self) -> Option<PyRef<T>> {
         self.weak
             .upgrade()

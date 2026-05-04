@@ -32,7 +32,7 @@ use rustpython_common::{
     hash,
 };
 
-pub type SetContentType = dict_inner::Dict<()>;
+pub(crate) type SetContentType = dict_inner::Dict<()>;
 
 #[pyclass(module = false, name = "set", unhashable = true, traverse)]
 #[derive(Default)]
@@ -46,6 +46,7 @@ impl PySet {
         Self::default().into_ref(ctx)
     }
 
+    #[must_use]
     pub fn elements(&self) -> Vec<PyObjectRef> {
         self.inner.elements()
     }
@@ -1432,7 +1433,7 @@ fn vectorcall_frozenset(
     (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PySet::extend_class(context, context.types.set_type);
     context
         .types

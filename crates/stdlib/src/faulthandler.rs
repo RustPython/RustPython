@@ -987,7 +987,7 @@ mod decl {
         const NSIG: usize = 64;
 
         #[derive(Clone, Copy)]
-        pub struct UserSignal {
+        pub(super) struct UserSignal {
             pub enabled: bool,
             pub fd: i32,
             pub all_threads: bool,
@@ -1010,12 +1010,12 @@ mod decl {
 
         static USER_SIGNALS: Mutex<Option<Vec<UserSignal>>> = Mutex::new(None);
 
-        pub fn get_user_signal(signum: usize) -> Option<UserSignal> {
+        pub(super) fn get_user_signal(signum: usize) -> Option<UserSignal> {
             let guard = USER_SIGNALS.lock();
-            guard.as_ref().and_then(|v| v.get(signum).cloned())
+            guard.as_ref().and_then(|v| v.get(signum).copied())
         }
 
-        pub fn set_user_signal(signum: usize, signal: UserSignal) {
+        pub(super) fn set_user_signal(signum: usize, signal: UserSignal) {
             let mut guard = USER_SIGNALS.lock();
             if guard.is_none() {
                 *guard = Some(vec![UserSignal::default(); NSIG]);
@@ -1027,7 +1027,7 @@ mod decl {
             }
         }
 
-        pub fn clear_user_signal(signum: usize) -> Option<UserSignal> {
+        pub(super) fn clear_user_signal(signum: usize) -> Option<UserSignal> {
             let mut guard = USER_SIGNALS.lock();
             if let Some(ref mut v) = *guard
                 && signum < v.len()
@@ -1040,7 +1040,7 @@ mod decl {
             None
         }
 
-        pub fn is_enabled(signum: usize) -> bool {
+        pub(super) fn is_enabled(signum: usize) -> bool {
             let guard = USER_SIGNALS.lock();
             guard
                 .as_ref()

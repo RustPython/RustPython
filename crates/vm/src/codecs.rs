@@ -34,7 +34,7 @@ struct RegistryInner {
     errors: HashMap<String, PyObjectRef>,
 }
 
-pub const DEFAULT_ENCODING: &str = "utf-8";
+pub(crate) const DEFAULT_ENCODING: &str = "utf-8";
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -580,7 +580,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for SurrogatePass {
     }
 }
 
-pub struct PyEncodeContext<'a> {
+pub(crate) struct PyEncodeContext<'a> {
     vm: &'a VirtualMachine,
     encoding: &'a str,
     data: &'a Py<PyStr>,
@@ -589,7 +589,7 @@ pub struct PyEncodeContext<'a> {
 }
 
 impl<'a> PyEncodeContext<'a> {
-    pub fn new(encoding: &'a str, data: &'a Py<PyStr>, vm: &'a VirtualMachine) -> Self {
+    pub(crate) fn new(encoding: &'a str, data: &'a Py<PyStr>, vm: &'a VirtualMachine) -> Self {
         Self {
             vm,
             encoding,
@@ -683,7 +683,7 @@ impl EncodeContext for PyEncodeContext<'_> {
     }
 }
 
-pub struct PyDecodeContext<'a> {
+pub(crate) struct PyDecodeContext<'a> {
     vm: &'a VirtualMachine,
     encoding: &'a str,
     data: PyDecodeData<'a>,
@@ -706,7 +706,7 @@ impl ops::Deref for PyDecodeData<'_> {
 }
 
 impl<'a> PyDecodeContext<'a> {
-    pub fn new(encoding: &'a str, data: &'a ArgBytesLike, vm: &'a VirtualMachine) -> Self {
+    pub(crate) fn new(encoding: &'a str, data: &'a ArgBytesLike, vm: &'a VirtualMachine) -> Self {
         Self {
             vm,
             encoding,
@@ -855,7 +855,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for StandardError {
     }
 }
 
-pub struct ErrorsHandler<'a> {
+pub(crate) struct ErrorsHandler<'a> {
     errors: &'a Py<PyUtf8Str>,
     resolved: OnceCell<ResolvedError>,
 }
@@ -866,7 +866,7 @@ enum ResolvedError {
 
 impl<'a> ErrorsHandler<'a> {
     #[inline]
-    pub fn new(errors: Option<&'a Py<PyUtf8Str>>, vm: &VirtualMachine) -> Self {
+    pub(crate) fn new(errors: Option<&'a Py<PyUtf8Str>>, vm: &VirtualMachine) -> Self {
         match errors {
             Some(errors) => Self {
                 errors,

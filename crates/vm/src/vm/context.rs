@@ -288,6 +288,7 @@ impl Context {
     pub const INT_CACHE_POOL_RANGE: core::ops::RangeInclusive<i32> = (-5)..=256;
     const INT_CACHE_POOL_MIN: i32 = *Self::INT_CACHE_POOL_RANGE.start();
 
+    #[must_use]
     pub fn genesis() -> &'static PyRc<Self> {
         rustpython_common::static_cell! {
             static CONTEXT: PyRc<Context>;

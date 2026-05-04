@@ -67,6 +67,7 @@ pub struct GcGeneration {
 }
 
 impl GcGeneration {
+    #[must_use]
     pub const fn new(threshold: u32) -> Self {
         Self {
             count: AtomicUsize::new(0),
@@ -174,6 +175,7 @@ impl Default for GcState {
 }
 
 impl GcState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             generations: [

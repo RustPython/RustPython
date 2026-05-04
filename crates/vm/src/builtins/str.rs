@@ -309,7 +309,7 @@ impl<'a> AsPyStr<'a> for &'a PyUtf8StrInterned {
 
 #[pyclass(module = false, name = "str_iterator", traverse = "manual")]
 #[derive(Debug)]
-pub struct PyStrIterator {
+pub(crate) struct PyStrIterator {
     internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
 }
 
@@ -411,8 +411,12 @@ impl Constructor for PyStr {
         // result as-is so any str subclass type the user returned is preserved
         // (matches unicode_new_impl which only invokes unicode_subtype_new when
         // type != &PyUnicode_Type).
+        // CPython parity: `errors` without `encoding` also triggers decode
+        // mode (with default UTF-8). The fast-path repr only applies when
+        // BOTH `encoding` and `errors` are missing.
         if cls.is(vm.ctx.types.str_type)
             && args.encoding.is_missing()
+            && args.errors.is_missing()
             && let OptionalArg::Present(input) = &args.object
         {
             return Ok(input.str(vm)?.into());
@@ -425,13 +429,31 @@ impl Constructor for PyStr {
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         match args.object {
             OptionalArg::Present(input) => {
-                if let OptionalArg::Present(enc) = args.encoding {
-                    let s = vm.state.codec_registry.decode_text(
-                        input,
-                        enc.as_str(),
-                        args.errors.into_option(),
-                        vm,
-                    )?;
+                let encoding = args.encoding.into_option();
+                let errors = args.errors.into_option();
+                // CPython parity: presence of `encoding` OR `errors` triggers
+                // decode mode. When `errors` is given alone, the encoding
+                // defaults to UTF-8.
+                if encoding.is_some() || errors.is_some() {
+                    // CPython rejects str / non-bytes-like input early with
+                    // specific TypeError wording (unicode_new_impl).
+                    if input.fast_isinstance(vm.ctx.types.str_type) {
+                        return Err(vm.new_type_error("decoding str is not supported"));
+                    }
+                    if !input.fast_isinstance(vm.ctx.types.bytes_type)
+                        && !input.fast_isinstance(vm.ctx.types.bytearray_type)
+                        && crate::protocol::PyBuffer::try_from_borrowed_object(vm, &input).is_err()
+                    {
+                        return Err(vm.new_type_error(format!(
+                            "decoding to str: need a bytes-like object, {} found",
+                            input.class().name()
+                        )));
+                    }
+                    let enc_str = encoding.as_ref().map(|e| e.as_str()).unwrap_or("utf-8");
+                    let s = vm
+                        .state
+                        .codec_registry
+                        .decode_text(input, enc_str, errors, vm)?;
                     Ok(Self::from(s.as_wtf8().to_owned()))
                 } else {
                     let s = input.str(vm)?;
@@ -456,6 +478,7 @@ impl PyStr {
 
     /// # Safety
     /// Given `bytes` must be ascii
+    #[must_use]
     pub unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
         unsafe { AsciiString::from_ascii_unchecked(bytes) }.into()
     }
@@ -1533,6 +1556,7 @@ impl PyStr {
 }
 
 impl PyRef<PyStr> {
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         (**self).is_empty()
     }
@@ -1792,7 +1816,7 @@ impl ToPyObject for AsciiChar {
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
 #[derive(FromArgs)]
-pub struct FindArgs {
+pub(crate) struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,
     #[pyarg(positional, default)]
@@ -1832,7 +1856,7 @@ fn vectorcall_str(
     (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyStr::extend_class(ctx, ctx.types.str_type);
     ctx.types
         .str_type
@@ -2221,6 +2245,7 @@ impl Py<PyUtf8Str> {
 
 impl PyRef<PyUtf8Str> {
     /// Convert to PyStrRef. Safe because PyUtf8Str is a subtype of PyStr.
+    #[must_use]
     pub fn into_wtf8(self) -> PyStrRef {
         unsafe { mem::transmute::<Self, PyStrRef>(self) }
     }
@@ -2722,5 +2747,25 @@ mod tests {
             let translated = text.translate(vm.ctx.new_int(3).into(), vm);
             assert_eq!("TypeError", &*translated.unwrap_err().class().name(),);
         })
+    }
+
+    #[test]
+    fn str_isprintable_unicode15() {
+        // Regression test for https://github.com/RustPython/RustPython/issues/7525
+        // At the time of the issue, RustPython used unic_ucd_category which had
+        // outdated Unicode data, causing U+0B55 to be misclassified as Unassigned.
+        // Now fixed by migrating to icu_properties with up-to-date Unicode data.
+
+        // Characters that should be printable
+        assert!(PyStr::from("\u{0B55}").isprintable());
+        assert!(PyStr::from("A").isprintable());
+        assert!(PyStr::from(" ").isprintable());
+        assert!(PyStr::from("").isprintable());
+
+        // Characters that should NOT be printable
+        assert!(!PyStr::from("\x00").isprintable());
+        assert!(!PyStr::from("\u{200B}").isprintable());
+        assert!(!PyStr::from("\u{E000}").isprintable());
+        assert!(!PyStr::from("\u{00A0}").isprintable());
     }
 }

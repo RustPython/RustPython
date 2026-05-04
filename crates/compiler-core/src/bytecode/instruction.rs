@@ -514,6 +514,7 @@ define_opcodes!(
 impl Instruction {
     /// Returns `true` if this is any instrumented opcode
     /// (regular INSTRUMENTED_*, INSTRUMENTED_LINE, or INSTRUMENTED_INSTRUCTION).
+    #[must_use]
     pub const fn is_instrumented(self) -> bool {
         self.to_base().is_some()
             || matches!(self, Self::InstrumentedLine | Self::InstrumentedInstruction)
@@ -524,6 +525,7 @@ impl Instruction {
     ///
     /// # Panics (debug)
     /// Panics if called on an already-instrumented opcode.
+    #[must_use]
     pub fn to_instrumented(self) -> Option<Self> {
         debug_assert!(
             !self.is_instrumented(),
@@ -561,6 +563,7 @@ impl Instruction {
     ///
     /// The returned base opcode uses `Arg::marker()` for typed fields —
     /// only the opcode byte matters since `replace_op` preserves the arg byte.
+    #[must_use]
     pub const fn to_base(self) -> Option<Self> {
         Some(match self {
             Self::InstrumentedResume => Self::Resume {
@@ -610,6 +613,7 @@ impl Instruction {
 
     /// Map a specialized opcode back to its adaptive (base) variant.
     /// `_PyOpcode_Deopt`
+    #[must_use]
     pub const fn deopt(self) -> Option<Self> {
         let opcode = match self {
             Self::ResumeCheck => Opcode::Resume,
@@ -693,6 +697,7 @@ impl Instruction {
     }
 
     /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
+    #[must_use]
     pub const fn deoptimize(self) -> Self {
         match self.deopt() {
             Some(v) => v,
@@ -711,6 +716,7 @@ impl Instruction {
     /// Instrumented and specialized opcodes have the same cache entries as their base.
     ///
     /// _PyOpcode_Caches
+    #[must_use]
     pub const fn cache_entries(self) -> usize {
         match self.deoptimize().opcode() {
             Opcode::LoadAttr => 9,
@@ -1042,6 +1048,7 @@ impl PseudoInstruction {
     /// - [`PseudoInstruction::SetupCleanup`]
     /// - [`PseudoInstruction::SetupFinally`]
     /// - [`PseudoInstruction::SetupWith`]
+    #[must_use]
     pub const fn is_block_push(&self) -> bool {
         matches!(
             self.opcode(),
@@ -1202,6 +1209,7 @@ impl InstructionMetadata for AnyInstruction {
 
 impl AnyInstruction {
     /// Inner value of [`Self::Real`].
+    #[must_use]
     pub const fn real(self) -> Option<Instruction> {
         match self {
             Self::Real(ins) => Some(ins),
@@ -1210,6 +1218,7 @@ impl AnyInstruction {
     }
 
     /// Inner value of [`Self::Pseudo`].
+    #[must_use]
     pub const fn pseudo(self) -> Option<PseudoInstruction> {
         match self {
             Self::Pseudo(ins) => Some(ins),
@@ -1218,6 +1227,7 @@ impl AnyInstruction {
     }
 
     /// Get [`Self::Real`] as [`Opcode`].
+    #[must_use]
     pub const fn real_opcode(self) -> Option<Opcode> {
         match self.real() {
             Some(ins) => Some(ins.opcode()),
@@ -1226,6 +1236,7 @@ impl AnyInstruction {
     }
 
     /// Get [`Self::Pseudo`] as [`PseudoOpcode`].
+    #[must_use]
     pub const fn pseudo_opcode(self) -> Option<PseudoOpcode> {
         match self.pseudo() {
             Some(ins) => Some(ins.opcode()),
@@ -1238,6 +1249,7 @@ impl AnyInstruction {
     /// # Panics
     ///
     /// If was called on something else other than [`Self::Real`].
+    #[must_use]
     pub const fn expect_real(self) -> Instruction {
         self.real()
             .expect("Expected AnyInstruction::Real, found AnyInstruction::Pseudo")
@@ -1248,17 +1260,20 @@ impl AnyInstruction {
     /// # Panics
     ///
     /// If was called on something else other than [`Self::Pseudo`].
+    #[must_use]
     pub const fn expect_pseudo(self) -> PseudoInstruction {
         self.pseudo()
             .expect("Expected AnyInstruction::Pseudo, found AnyInstruction::Real")
     }
 
     /// Returns true if this is a [`PseudoInstruction::PopBlock`].
+    #[must_use]
     pub const fn is_pop_block(self) -> bool {
         matches!(self, Self::Pseudo(PseudoInstruction::PopBlock))
     }
 
     /// See [`PseudoInstruction::is_block_push`].
+    #[must_use]
     pub const fn is_block_push(self) -> bool {
         matches!(self, Self::Pseudo(p) if p.is_block_push())
     }
@@ -1312,6 +1327,7 @@ impl From<AnyInstruction> for AnyOpcode {
 
 impl AnyOpcode {
     /// Gets the inner value of [`Self::Real`].
+    #[must_use]
     pub const fn real(self) -> Option<Opcode> {
         match self {
             Self::Real(op) => Some(op),
@@ -1320,6 +1336,7 @@ impl AnyOpcode {
     }
 
     /// Gets the inner value of [`Self::Pseudo`].
+    #[must_use]
     pub const fn pseudo(self) -> Option<PseudoOpcode> {
         match self {
             Self::Pseudo(op) => Some(op),
@@ -1332,6 +1349,7 @@ impl AnyOpcode {
     /// # Panics
     ///
     /// If was called on something else other than [`Self::Real`].
+    #[must_use]
     pub const fn expect_real(self) -> Opcode {
         self.real()
             .expect("Expected AnyOpcode::Real, found AnyOpcode::Pseudo")
@@ -1342,6 +1360,7 @@ impl AnyOpcode {
     /// # Panics
     ///
     /// If was called on something else other than [`Self::Pseudo`].
+    #[must_use]
     pub const fn expect_pseudo(self) -> PseudoOpcode {
         self.pseudo()
             .expect("Expected AnyOpcode::Pseudo, found AnyOpcode::Real")
@@ -1359,21 +1378,25 @@ pub struct StackEffect {
 
 impl StackEffect {
     /// Creates a new [`Self`].
+    #[must_use]
     pub const fn new(pushed: u32, popped: u32) -> Self {
         Self { pushed, popped }
     }
 
     /// Get the calculated stack effect as [`i32`].
+    #[must_use]
     pub fn effect(self) -> i32 {
         self.into()
     }
 
     /// Get the pushed count.
+    #[must_use]
     pub const fn pushed(self) -> u32 {
         self.pushed
     }
 
     /// Get the popped count.
+    #[must_use]
     pub const fn popped(self) -> u32 {
         self.popped
     }
@@ -1418,6 +1441,7 @@ pub struct Arg<T: OpArgType>(PhantomData<T>);
 
 impl<T: OpArgType> Arg<T> {
     #[inline]
+    #[must_use]
     pub const fn marker() -> Self {
         Self(PhantomData)
     }
@@ -1436,6 +1460,7 @@ impl<T: OpArgType> Arg<T> {
     }
 
     #[inline(always)]
+    #[must_use]
     pub fn get(self, arg: OpArg) -> T {
         self.try_get(arg).unwrap()
     }
@@ -1448,6 +1473,7 @@ impl<T: OpArgType> Arg<T> {
     /// # Safety
     /// T::from_op_arg(self) must succeed
     #[inline(always)]
+    #[must_use]
     pub unsafe fn get_unchecked(self, arg: OpArg) -> T {
         // SAFETY: requirements forwarded from caller
         unsafe { T::try_from(u32::from(arg)).unwrap_unchecked() }

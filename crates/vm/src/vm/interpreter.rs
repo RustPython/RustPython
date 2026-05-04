@@ -155,6 +155,7 @@ where
 
 impl InterpreterBuilder {
     /// Create a new interpreter configuration with default settings.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             settings: Settings::default(),
@@ -168,6 +169,7 @@ impl InterpreterBuilder {
     /// Set custom settings for the interpreter.
     ///
     /// If called multiple times, only the last settings will be used.
+    #[must_use]
     pub fn settings(mut self, settings: Settings) -> Self {
         self.settings = settings;
         self
@@ -185,6 +187,7 @@ impl InterpreterBuilder {
     /// // let interp = builder.add_native_module(def).build();
     /// let interp = builder.build();
     /// ```
+    #[must_use]
     pub fn add_native_module(self, def: &'static builtins::PyModuleDef) -> Self {
         self.add_native_modules(&[def])
     }
@@ -201,6 +204,7 @@ impl InterpreterBuilder {
     /// // let interp = builder.add_native_modules(&defs).build();
     /// let interp = builder.build();
     /// ```
+    #[must_use]
     pub fn add_native_modules(mut self, defs: &[&'static builtins::PyModuleDef]) -> Self {
         self.module_defs.extend_from_slice(defs);
         self
@@ -254,6 +258,7 @@ impl InterpreterBuilder {
     /// Build the interpreter.
     ///
     /// This consumes the configuration and returns a fully initialized Interpreter.
+    #[must_use]
     pub fn build(self) -> Interpreter {
         let (vm, global_state) = initialize_main_vm(
             self.settings,
@@ -267,6 +272,7 @@ impl InterpreterBuilder {
     }
 
     /// Alias for `build()` for compatibility with the `interpreter()` pattern.
+    #[must_use]
     pub fn interpreter(self) -> Interpreter {
         self.build()
     }
@@ -312,6 +318,7 @@ impl Interpreter {
     /// // In practice, add stdlib: builder.add_native_modules(&stdlib_module_defs(&builder.ctx))
     /// let interp = builder.build();
     /// ```
+    #[must_use]
     pub fn builder(settings: Settings) -> InterpreterBuilder {
         InterpreterBuilder::new().settings(settings)
     }
@@ -320,6 +327,7 @@ impl Interpreter {
     /// To create an interpreter with the standard library with the `rustpython` crate, use `rustpython::InterpreterBuilder`.
     /// To create an interpreter without the `rustpython` crate, but only with `rustpython-vm`,
     /// try to build one from the source code of `InterpreterBuilder`. It will not be a one-liner but it also will not be too hard.
+    #[must_use]
     pub fn without_stdlib(settings: Settings) -> Self {
         Self::with_init(settings, |_| {})
     }

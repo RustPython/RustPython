@@ -566,7 +566,7 @@ mod _lzma {
     }
 
     #[derive(FromArgs)]
-    pub struct LZMADecompressorConstructorArgs {
+    pub(super) struct LZMADecompressorConstructorArgs {
         #[pyarg(any, default = FORMAT_AUTO)]
         format: i32,
         #[pyarg(any, optional)]
@@ -782,7 +782,7 @@ mod _lzma {
     }
 
     #[derive(FromArgs)]
-    pub struct LZMACompressorConstructorArgs {
+    pub(super) struct LZMACompressorConstructorArgs {
         #[pyarg(any, default = FORMAT_XZ)]
         format: i32,
         #[pyarg(any, default = -1)]

@@ -31,7 +31,7 @@ mod sys_jit {
 }
 
 #[pymodule]
-mod sys {
+pub mod sys {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{

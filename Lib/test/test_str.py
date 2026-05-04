@@ -1074,7 +1074,7 @@ class StrTest(string_tests.StringLikeTest,
         '\U00100000'.ljust(3, '\U00010000')
         '\U00100000'.rjust(3, '\U00010000')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?   +
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; '{0:08s}'.format('result') misalign — '0' fill treated as numeric zero-pad for str type
     def test_format(self):
         self.assertEqual(''.format(), '')
         self.assertEqual('a'.format(), 'a')
@@ -1503,7 +1503,7 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('{:{f}}{g}{}'.format(1, 3, g='g', f=2), ' 1g3')
         self.assertEqual('{f:{}}{}{g}'.format(2, 4, f=1, g='g'), ' 14g')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: %x format: an integer is required, not PseudoInt
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; %c error wording uses bare class name; CPython uses fully qualified module.qualname (e.g. test.test_str.PseudoFloat)
     def test_formatting(self):
         string_tests.StringLikeTest.test_formatting(self)
         # Testing Unicode formatting strings...
@@ -1752,7 +1752,6 @@ class StrTest(string_tests.StringLikeTest,
             'character buffers are decoded to unicode'
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Pass various keyword argument combinations to the constructor.
     def test_constructor_keyword_args(self):
         """Pass various keyword argument combinations to the constructor."""
         # The object argument can be passed as a keyword.
@@ -1762,7 +1761,6 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual(str(b'foo', errors='strict'), 'foo')  # not "b'foo'"
         self.assertEqual(str(object=b'foo', errors='strict'), 'foo')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Check the constructor argument defaults.
     def test_constructor_defaults(self):
         """Check the constructor argument defaults."""
         # The object argument defaults to '' or b''.

@@ -224,6 +224,6 @@ impl Representable for PyInterpolation {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyInterpolation::extend_class(context, context.types.interpolation_type);
 }

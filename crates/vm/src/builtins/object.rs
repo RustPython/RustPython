@@ -553,7 +553,7 @@ impl PyBaseObject {
     }
 }
 
-pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+pub(crate) fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
     if let Some(dict) = obj.dict() {
         Ok(dict)
     } else {
@@ -563,7 +563,7 @@ pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict
         }
     }
 }
-pub fn object_set_dict(
+pub(crate) fn object_set_dict(
     obj: PyObjectRef,
     value: PySetterValue<PyDictRef>,
     vm: &VirtualMachine,
@@ -576,7 +576,7 @@ pub fn object_set_dict(
         .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
 }
 
-pub fn object_generic_set_dict(
+pub(crate) fn object_generic_set_dict(
     obj: PyObjectRef,
     value: PySetterValue,
     vm: &VirtualMachine,
@@ -596,7 +596,7 @@ pub fn object_generic_set_dict(
     object_set_dict(obj, dict, vm)
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     // Manually set alloc/init slots - derive macro doesn't generate extend_slots
     // for trait impl that overrides #[pyslot] method
     ctx.types.object_type.slots.alloc.store(Some(generic_alloc));

@@ -255,7 +255,7 @@ fn vectorcall_native_function(
     (zelf.value.func)(vm, func_args)
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyNativeFunction::extend_class(context, context.types.builtin_function_or_method_type);
     context
         .types

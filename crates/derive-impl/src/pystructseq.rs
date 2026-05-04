@@ -432,7 +432,7 @@ impl ItemMeta for PyStructSequenceMeta {
 }
 
 impl PyStructSequenceMeta {
-    pub fn class_name(&self) -> Result<Option<String>> {
+    pub(crate) fn class_name(&self) -> Result<Option<String>> {
         const KEY: &str = "name";
         let inner = self.inner();
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
@@ -451,12 +451,11 @@ impl PyStructSequenceMeta {
                 inner.meta_ident,
                 "#[pystruct_sequence({KEY}=value)] expects a string value"
             )
-        } else {
-            Ok(None)
         }
+        Ok(None)
     }
 
-    pub fn module(&self) -> Result<Option<String>> {
+    pub(crate) fn module(&self) -> Result<Option<String>> {
         const KEY: &str = "module";
         let inner = self.inner();
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
@@ -475,9 +474,8 @@ impl PyStructSequenceMeta {
                 inner.meta_ident,
                 "#[pystruct_sequence({KEY}=value)] expects a string value"
             )
-        } else {
-            Ok(None)
         }
+        Ok(None)
     }
 
     fn data_type(&self) -> Result<Ident> {
@@ -499,15 +497,14 @@ impl PyStructSequenceMeta {
                 inner.meta_ident,
                 "#[pystruct_sequence({KEY}=value)] expects a string value"
             )
-        } else {
-            bail_span!(
-                inner.meta_ident,
-                "#[pystruct_sequence] requires data parameter (e.g., data = \"DataStructName\")"
-            )
         }
+        bail_span!(
+            inner.meta_ident,
+            "#[pystruct_sequence] requires data parameter (e.g., data = \"DataStructName\")"
+        )
     }
 
-    pub fn no_attr(&self) -> Result<bool> {
+    pub(crate) fn no_attr(&self) -> Result<bool> {
         self.inner()._bool("no_attr")
     }
 }

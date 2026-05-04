@@ -235,7 +235,7 @@ fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResul
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct PyCSimpleType(PyType);
+pub(crate) struct PyCSimpleType(PyType);
 
 #[pyclass(flags(BASETYPE), with(AsNumber, Initializer))]
 impl PyCSimpleType {
@@ -713,7 +713,7 @@ fn create_swapped_types(
     metaclass = "PyCSimpleType"
 )]
 #[repr(transparent)]
-pub struct PyCSimple(pub PyCData);
+pub(crate) struct PyCSimple(pub PyCData);
 
 impl Debug for PyCSimple {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -1140,7 +1140,7 @@ impl PyCSimple {
     }
 
     #[pygetset]
-    pub fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    pub(crate) fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let zelf: &Py<Self> = instance
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("cannot get value of instance"))?;
@@ -1363,7 +1363,7 @@ impl PyCSimple {
 impl PyCSimple {
     /// Extract the value from this ctypes object as an owned FfiArgValue.
     /// The value must be kept alive until after the FFI call completes.
-    pub fn to_ffi_value(
+    pub(crate) fn to_ffi_value(
         &self,
         ty: libffi::middle::Type,
         _vm: &VirtualMachine,

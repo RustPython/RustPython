@@ -97,15 +97,21 @@ mod builtins {
     #[allow(dead_code)]
     struct CompileArgs {
         source: PyObjectRef,
-        filename: FsPath,
+        // Resolved to FsPath at the start of compile() so that bytearray /
+        // memoryview / other buffer-protocol objects raise TypeError, matching
+        // CPython's PyUnicode_FSDecoder (str / bytes / __fspath__ only).
+        filename: PyObjectRef,
         mode: PyUtf8StrRef,
         // CPython parity: flags / optimize accept any object with __index__,
         // not just exact int. Matches the behavior of `int(x)` arg conversion
         // used by Python/Python-ast.c::compile.
         #[pyarg(any, optional)]
         flags: OptionalArg<ArgPrimitiveIndex<i32>>,
+        // CPython parity: dont_inherit goes through PyObject_IsTrue, so
+        // arbitrary objects with `__bool__` are accepted (and any exception
+        // raised inside `__bool__` propagates) — not the strict bool type.
         #[pyarg(any, optional)]
-        dont_inherit: OptionalArg<bool>,
+        dont_inherit: OptionalArg<ArgIntoBool>,
         #[pyarg(any, optional)]
         optimize: OptionalArg<ArgPrimitiveIndex<i32>>,
         #[pyarg(any, optional)]
@@ -261,6 +267,12 @@ mod builtins {
         }
         #[cfg(feature = "ast")]
         {
+            // CPython parity: PyUnicode_FSDecoder accepts only str / bytes /
+            // __fspath__-bearing objects. Reject buffer-protocol types like
+            // bytearray and memoryview that would otherwise pass through
+            // `FsPath::TryFromObject`'s permissive fallback.
+            let filename = FsPath::try_from_path_like(args.filename, true, vm)?;
+
             use crate::{class::PyClassImpl, stdlib::_ast};
 
             let feature_version = feature_version_from_arg(args._feature_version, vm)?;
@@ -268,12 +280,10 @@ mod builtins {
             let mode_str = args.mode.as_str();
 
             let optimize: i32 = args.optimize.map_or(-1, |v| v.value);
-            let optimize: u8 = if optimize == -1 {
-                vm.state.config.settings.optimize
-            } else {
-                optimize
-                    .try_into()
-                    .map_err(|_| vm.new_value_error("compile() optimize value invalid"))?
+            let optimize: u8 = match optimize {
+                -1 => vm.state.config.settings.optimize,
+                0..=2 => optimize as u8,
+                _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
 
             if args
@@ -321,7 +331,7 @@ mod builtins {
                     return _ast::compile(
                         vm,
                         args.source,
-                        &args.filename.to_string_lossy(),
+                        &filename.to_string_lossy(),
                         mode,
                         Some(optimize),
                     );
@@ -342,13 +352,13 @@ mod builtins {
                 let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
                 let source = source.borrow_bytes();
 
-                let source = decode_source_bytes(&source, &args.filename.to_string_lossy(), vm)?;
+                let source = decode_source_bytes(&source, &filename.to_string_lossy(), vm)?;
                 let source = source.as_str();
 
                 let flags: i32 = args.flags.map_or(0, |v| v.value);
 
                 if !(flags & !_ast::PY_COMPILE_FLAGS_MASK).is_zero() {
-                    return Err(vm.new_value_error("compile() unrecognized flags"));
+                    return Err(vm.new_value_error("compile(): unrecognised flags"));
                 }
 
                 let allow_incomplete = !(flags & _ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
@@ -389,7 +399,7 @@ mod builtins {
                             .compile_with_opts(
                                 source,
                                 mode,
-                                args.filename.to_string_lossy().into_owned(),
+                                filename.to_string_lossy().into_owned(),
                                 opts,
                             )
                             .map_err(|err| {
@@ -980,7 +990,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
     }
@@ -1048,7 +1058,7 @@ mod builtins {
     }
 
     #[derive(FromArgs)]
-    pub struct RoundArgs {
+    pub(super) struct RoundArgs {
         number: PyObjectRef,
         #[pyarg(any, optional)]
         ndigits: OptionalOption<PyObjectRef>,
@@ -1104,7 +1114,7 @@ mod builtins {
     }
 
     #[derive(FromArgs)]
-    pub struct SumArgs {
+    pub(super) struct SumArgs {
         #[pyarg(positional)]
         iterable: ArgIterable,
         #[pyarg(any, optional)]
@@ -1171,7 +1181,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn __build_class__(
+    pub(super) fn __build_class__(
         function: PyRef<PyFunction>,
         name: PyStrRef,
         bases: PosArgs,
@@ -1346,7 +1356,7 @@ mod builtins {
 pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
 
-    crate::protocol::VecBuffer::make_static_type();
+    let _ = crate::protocol::VecBuffer::make_static_type();
 
     module.__init_methods(vm).unwrap();
     builtins::module_exec(vm, module).unwrap();

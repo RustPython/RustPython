@@ -209,7 +209,7 @@ pub(crate) struct FormatCode {
 }
 
 impl FormatCode {
-    pub const fn arg_count(&self) -> usize {
+    pub(crate) const fn arg_count(&self) -> usize {
         match self.code {
             FormatType::Pad => 0,
             FormatType::Str | FormatType::Pascal => 1,
@@ -217,7 +217,7 @@ impl FormatCode {
         }
     }
 
-    pub fn parse<I>(
+    pub(crate) fn parse<I>(
         chars: &mut Peekable<I>,
         endianness: Endianness,
     ) -> Result<(Vec<Self>, usize, usize), String>
@@ -523,6 +523,7 @@ impl FormatSpec {
     }
 
     #[inline]
+    #[must_use]
     pub const fn size(&self) -> usize {
         self.size
     }
