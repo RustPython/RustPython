@@ -876,14 +876,15 @@ impl FormatSpec {
     {
         self.validate_format(FormatType::String)?;
         match self.format_type {
-            Some(FormatType::String) | None => self
-                .format_sign_and_align(s, "", FormatAlign::Left)
-                .map(|mut value| {
-                    if let Some(precision) = self.precision {
-                        value.truncate(precision);
-                    }
-                    value
-                }),
+            Some(FormatType::String) | None => {
+                // CPython parity: precision truncates BEFORE width pads.
+                // `'{:3.2s}'.format('abc')` -> 'ab ' (truncate to 'ab', pad to 3).
+                let truncated: String = match self.precision {
+                    Some(p) => s.deref().chars().take(p).collect(),
+                    None => s.deref().to_owned(),
+                };
+                self.format_sign_and_align(&truncated, "", FormatAlign::Left)
+            }
             _ => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "str"))
@@ -1078,6 +1079,12 @@ impl<'a> AsciiStr<'a> {
 impl CharLen for AsciiStr<'_> {
     fn char_len(&self) -> usize {
         self.inner.len()
+    }
+}
+
+impl CharLen for String {
+    fn char_len(&self) -> usize {
+        self.chars().count()
     }
 }
 
