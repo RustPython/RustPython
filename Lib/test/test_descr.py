@@ -3120,7 +3120,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         ##         pass
         ##     os_helper.unlink(os_helper.TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords(self):
         # Testing keyword args to basic type constructors ...
         with self.assertRaisesRegex(TypeError, 'keyword argument'):

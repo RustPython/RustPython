@@ -198,11 +198,12 @@ pub(crate) fn format(
                 ));
             }
             auto_argument_index += 1;
-            arguments
-                .args
-                .get(auto_argument_index - 1)
-                .cloned()
-                .ok_or_else(|| vm.new_index_error("tuple index out of range"))
+            let idx = auto_argument_index - 1;
+            arguments.args.get(idx).cloned().ok_or_else(|| {
+                vm.new_index_error(format!(
+                    "Replacement index {idx} out of range for positional args tuple"
+                ))
+            })
         }
         FieldType::Index(index) => {
             if auto_argument_index != 0 {
@@ -211,11 +212,11 @@ pub(crate) fn format(
                 ));
             }
             seen_index = true;
-            arguments
-                .args
-                .get(index)
-                .cloned()
-                .ok_or_else(|| vm.new_index_error("tuple index out of range"))
+            arguments.args.get(index).cloned().ok_or_else(|| {
+                vm.new_index_error(format!(
+                    "Replacement index {index} out of range for positional args tuple"
+                ))
+            })
         }
         FieldType::Keyword(keyword) => keyword
             .as_str()
