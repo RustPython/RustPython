@@ -1308,7 +1308,7 @@ mod _ssl {
         fn num_tickets(&self, _vm: &VirtualMachine) -> PyResult<usize> {
             // Only supported for TLS 1.3
             cfg_select! {
-                ossl110 => {
+                ossl111 => {
                     let ctx = self.ctx();
                     let num = unsafe { sys::SSL_CTX_get_num_tickets(ctx.as_ptr()) };
                     Ok(num)
@@ -1562,7 +1562,6 @@ mod _ssl {
         ) -> PyResult<Vec<PyObjectRef>> {
             let binary_form = args.binary_form.unwrap_or(false);
             let ctx = self.ctx();
-            #[cfg(ossl300)]
             let certs = cfg_select! {
                 ossl300 => ctx.cert_store().all_certificates(),
                 _ => ctx.cert_store().objects().iter().filter_map(|x| x.x509()),

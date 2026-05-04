@@ -124,10 +124,7 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     fn puts_bytes(fd: i32, s: &[u8]) {
-        let _ = cfg_select! {
-            windows => unsafe { libc::write(fd, s.as_ptr() as *const libc::c_void, s.len() as u32) },
-            _ => unsafe { libc::write(fd, s.as_ptr() as *const libc::c_void, s.len()) },
-        };
+        let _ = unsafe { libc::write(fd, s.as_ptr().cast::<libc::c_void>(), s.len() as _) };
     }
 
     // _Py_DumpHexadecimal (traceback.c)
@@ -164,7 +161,7 @@ mod decl {
             v /= 10;
         }
 
-        puts_bytes(fd, &buf[..buf.len() - i]);
+        puts_bytes(fd, &buf[i..]);
     }
 
     /// Get current thread ID
