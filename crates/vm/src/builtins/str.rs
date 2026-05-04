@@ -742,16 +742,17 @@ impl PyStr {
     #[pymethod]
     fn casefold(&self) -> Self {
         match self.as_str_kind() {
-            PyKindStr::Ascii(s) => caseless::default_case_fold_str(s.as_str()).into(),
-            PyKindStr::Utf8(s) => caseless::default_case_fold_str(s).into(),
-            PyKindStr::Wtf8(w) => w
-                .chunks()
-                .map(|c| match c {
-                    Wtf8Chunk::Utf8(s) => Wtf8Buf::from_string(caseless::default_case_fold_str(s)),
-                    Wtf8Chunk::Surrogate(c) => Wtf8Buf::from(c),
-                })
-                .collect::<Wtf8Buf>()
-                .into(),
+            PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
+            PyKindStr::Utf8(s) => CaseMapper::new().fold_string(s).to_string().into(),
+            PyKindStr::Wtf8(w) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(w.len()));
+                let mapper = CaseMapper::new();
+                for chunk in w.as_bytes().utf8_chunks() {
+                    mapper.fold(chunk.valid()).write_to(&mut out).expect("");
+                    out.extend(chunk.invalid().as_bytes());
+                }
+                Wtf8::from_bytes_unchecked(out.0)
+            }
         }
     }
 
