@@ -259,7 +259,6 @@ rustls-platform-verifier = "0.7"
 rustyline = "18"
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.29"
-scoped-tls = "1"
 scopeguard = "1"
 sha-1 = "0.10.0"
 sha2 = "0.10.2"
