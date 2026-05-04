@@ -97,15 +97,21 @@ mod builtins {
     #[allow(dead_code)]
     struct CompileArgs {
         source: PyObjectRef,
-        filename: FsPath,
+        // Resolved to FsPath at the start of compile() so that bytearray /
+        // memoryview / other buffer-protocol objects raise TypeError, matching
+        // CPython's PyUnicode_FSDecoder (str / bytes / __fspath__ only).
+        filename: PyObjectRef,
         mode: PyUtf8StrRef,
         // CPython parity: flags / optimize accept any object with __index__,
         // not just exact int. Matches the behavior of `int(x)` arg conversion
         // used by Python/Python-ast.c::compile.
         #[pyarg(any, optional)]
         flags: OptionalArg<ArgPrimitiveIndex<i32>>,
+        // CPython parity: dont_inherit goes through PyObject_IsTrue, so
+        // arbitrary objects with `__bool__` are accepted (and any exception
+        // raised inside `__bool__` propagates) — not the strict bool type.
         #[pyarg(any, optional)]
-        dont_inherit: OptionalArg<bool>,
+        dont_inherit: OptionalArg<ArgIntoBool>,
         #[pyarg(any, optional)]
         optimize: OptionalArg<ArgPrimitiveIndex<i32>>,
         #[pyarg(any, optional)]
@@ -261,6 +267,12 @@ mod builtins {
         }
         #[cfg(feature = "ast")]
         {
+            // CPython parity: PyUnicode_FSDecoder accepts only str / bytes /
+            // __fspath__-bearing objects. Reject buffer-protocol types like
+            // bytearray and memoryview that would otherwise pass through
+            // `FsPath::TryFromObject`'s permissive fallback.
+            let filename = FsPath::try_from_path_like(args.filename, true, vm)?;
+
             use crate::{class::PyClassImpl, stdlib::_ast};
 
             let feature_version = feature_version_from_arg(args._feature_version, vm)?;
@@ -319,7 +331,7 @@ mod builtins {
                     return _ast::compile(
                         vm,
                         args.source,
-                        &args.filename.to_string_lossy(),
+                        &filename.to_string_lossy(),
                         mode,
                         Some(optimize),
                     );
@@ -340,7 +352,7 @@ mod builtins {
                 let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
                 let source = source.borrow_bytes();
 
-                let source = decode_source_bytes(&source, &args.filename.to_string_lossy(), vm)?;
+                let source = decode_source_bytes(&source, &filename.to_string_lossy(), vm)?;
                 let source = source.as_str();
 
                 let flags: i32 = args.flags.map_or(0, |v| v.value);
@@ -387,7 +399,7 @@ mod builtins {
                             .compile_with_opts(
                                 source,
                                 mode,
-                                args.filename.to_string_lossy().into_owned(),
+                                filename.to_string_lossy().into_owned(),
                                 opts,
                             )
                             .map_err(|err| {
