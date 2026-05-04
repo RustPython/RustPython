@@ -2726,4 +2726,24 @@ mod tests {
             assert_eq!("TypeError", &*translated.unwrap_err().class().name(),);
         })
     }
+
+    #[test]
+    fn str_isprintable_unicode15() {
+        // Regression test for https://github.com/RustPython/RustPython/issues/7525
+        // At the time of the issue, RustPython used unic_ucd_category which had
+        // outdated Unicode data, causing U+0B55 to be misclassified as Unassigned.
+        // Now fixed by migrating to icu_properties with up-to-date Unicode data.
+
+        // Characters that should be printable
+        assert!(PyStr::from("\u{0B55}").isprintable());
+        assert!(PyStr::from("A").isprintable());
+        assert!(PyStr::from(" ").isprintable());
+        assert!(PyStr::from("").isprintable());
+
+        // Characters that should NOT be printable
+        assert!(!PyStr::from("\x00").isprintable());
+        assert!(!PyStr::from("\u{200B}").isprintable());
+        assert!(!PyStr::from("\u{E000}").isprintable());
+        assert!(!PyStr::from("\u{00A0}").isprintable());
+    }
 }
