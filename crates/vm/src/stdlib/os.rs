@@ -1,4 +1,5 @@
 // spell-checker:disable
+#![allow(unreachable_pub)]
 
 use crate::{
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,

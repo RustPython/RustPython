@@ -4,6 +4,8 @@ pub(crate) use _signal::module_def;
 
 #[pymodule]
 pub(crate) mod _signal {
+    #![allow(unreachable_pub)]
+
     #[cfg(any(unix, windows))]
     use crate::convert::{IntoPyException, TryFromBorrowedObject};
     use crate::{Py, PyObjectRef, PyResult, VirtualMachine, signal};

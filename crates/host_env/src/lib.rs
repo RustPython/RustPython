@@ -1,3 +1,5 @@
+#![allow(clippy::must_use_candidate)]
+
 extern crate alloc;
 
 #[macro_use]

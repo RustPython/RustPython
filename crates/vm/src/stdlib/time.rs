@@ -25,6 +25,8 @@ unsafe extern "C" {
 
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
 mod decl {
+    #![allow(unreachable_pub)]
+
     #[cfg(any(unix, windows))]
     use crate::builtins::PyBaseExceptionRef;
     use crate::{

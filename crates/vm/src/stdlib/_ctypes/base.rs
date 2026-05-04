@@ -1,3 +1,5 @@
+#![allow(unreachable_pub)]
+
 use crate::builtins::{
     PyBytes, PyDict, PyList, PyMemoryView, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str,
 };

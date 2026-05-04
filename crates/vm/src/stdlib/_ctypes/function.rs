@@ -1,4 +1,5 @@
 // spell-checker:disable
+#![allow(unreachable_pub)]
 
 use super::{
     _ctypes::CArgObject,

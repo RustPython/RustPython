@@ -2,7 +2,7 @@ use core::mem::MaybeUninit;
 use std::io;
 
 #[cfg(unix)]
-mod platform {
+pub mod platform {
     pub use libc::pollfd;
     pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
     pub use std::os::unix::io::RawFd;
@@ -15,7 +15,7 @@ mod platform {
 
 #[allow(non_snake_case)]
 #[cfg(windows)]
-mod platform {
+pub mod platform {
     pub use WinSock::{FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval, select};
     use windows_sys::Win32::Networking::WinSock;
 
@@ -52,7 +52,7 @@ mod platform {
 }
 
 #[cfg(target_os = "wasi")]
-mod platform {
+pub mod platform {
     pub use libc::{FD_SETSIZE, timeval};
     pub use std::os::fd::RawFd;
 

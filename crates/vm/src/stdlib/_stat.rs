@@ -2,6 +2,8 @@ pub(crate) use _stat::module_def;
 
 #[pymodule]
 mod _stat {
+    #![allow(unreachable_pub)]
+
     #[cfg(windows)]
     use rustpython_host_env::nt as host_nt;
 
