@@ -15,6 +15,7 @@ pub const SERIAL: usize = 0;
 pub const VERSION_HEX: usize =
     (MAJOR << 24) | (MINOR << 16) | (MICRO << 8) | (RELEASELEVEL_N << 4) | SERIAL;
 
+#[must_use]
 pub fn get_version() -> String {
     // Windows: include MSC v. for compatibility with ctypes.util.find_library
     // MSC v.1929 = VS 2019, version 14+ makes find_msvcrt() return None
@@ -42,16 +43,19 @@ pub fn get_version() -> String {
     )
 }
 
+#[must_use]
 pub fn get_version_number() -> String {
     format!("{MAJOR}.{MINOR}.{MICRO}{RELEASELEVEL}")
 }
 
+#[must_use]
 pub fn get_winver_number() -> String {
     format!("{MAJOR}.{MINOR}")
 }
 
 const COMPILER: &str = env!("RUSTC_VERSION");
 
+#[must_use]
 pub fn get_build_info() -> String {
     // See: https://reproducible-builds.org/docs/timestamps/
     let git_revision = get_git_revision();
@@ -73,20 +77,24 @@ pub fn get_build_info() -> String {
     )
 }
 
+#[must_use]
 pub fn get_git_revision() -> String {
     option_env!("RUSTPYTHON_GIT_HASH").unwrap_or("").to_owned()
 }
 
+#[must_use]
 pub fn get_git_tag() -> String {
     option_env!("RUSTPYTHON_GIT_TAG").unwrap_or("").to_owned()
 }
 
+#[must_use]
 pub fn get_git_branch() -> String {
     option_env!("RUSTPYTHON_GIT_BRANCH")
         .unwrap_or("")
         .to_owned()
 }
 
+#[must_use]
 pub fn get_git_identifier() -> String {
     let git_tag = get_git_tag();
     let git_branch = get_git_branch();
@@ -109,18 +117,21 @@ fn get_git_timestamp_datetime() -> DateTime<Local> {
     datetime.into()
 }
 
+#[must_use]
 pub fn get_git_date() -> String {
     let datetime = get_git_timestamp_datetime();
 
     datetime.format("%b %e %Y").to_string()
 }
 
+#[must_use]
 pub fn get_git_time() -> String {
     let datetime = get_git_timestamp_datetime();
 
     datetime.format("%H:%M:%S").to_string()
 }
 
+#[must_use]
 pub fn get_git_datetime() -> String {
     let date = get_git_date();
     let time = get_git_time();

@@ -2018,30 +2018,28 @@ fn ssl_read_tls_records(
         if is_bio {
             // In BIO mode, no data means WANT_READ
             return Err(SslError::WantRead);
-        } else {
-            // In socket mode, empty recv() means TCP EOF (FIN received)
-            // Need to distinguish:
-            // 1. Clean shutdown: received TLS close_notify → return ZeroReturn (0 bytes)
-            // 2. Unexpected EOF: no close_notify → return Eof (SSLEOFError)
-            //
-            // SSL_ERROR_ZERO_RETURN vs SSL_ERROR_EOF logic
-            // CPython checks SSL_get_shutdown() & SSL_RECEIVED_SHUTDOWN
-            //
-            // Process any buffered TLS records (may contain close_notify)
-            match conn.process_new_packets() {
-                Ok(io_state) => {
-                    if io_state.peer_has_closed() {
-                        // Received close_notify - normal SSL closure (SSL_ERROR_ZERO_RETURN)
-                        return Err(SslError::ZeroReturn);
-                    } else {
-                        // No close_notify - ragged EOF (SSL_ERROR_EOF → SSLEOFError)
-                        // CPython raises SSLEOFError here, which SSLSocket.read() handles
-                        // based on suppress_ragged_eofs setting
-                        return Err(SslError::Eof);
-                    }
+        }
+        // In socket mode, empty recv() means TCP EOF (FIN received)
+        // Need to distinguish:
+        // 1. Clean shutdown: received TLS close_notify → return ZeroReturn (0 bytes)
+        // 2. Unexpected EOF: no close_notify → return Eof (SSLEOFError)
+        //
+        // SSL_ERROR_ZERO_RETURN vs SSL_ERROR_EOF logic
+        // CPython checks SSL_get_shutdown() & SSL_RECEIVED_SHUTDOWN
+        //
+        // Process any buffered TLS records (may contain close_notify)
+        match conn.process_new_packets() {
+            Ok(io_state) => {
+                if io_state.peer_has_closed() {
+                    // Received close_notify - normal SSL closure (SSL_ERROR_ZERO_RETURN)
+                    return Err(SslError::ZeroReturn);
                 }
-                Err(e) => return Err(SslError::from_rustls(e)),
+                // No close_notify - ragged EOF (SSL_ERROR_EOF → SSLEOFError)
+                // CPython raises SSLEOFError here, which SSLSocket.read() handles
+                // based on suppress_ragged_eofs setting
+                return Err(SslError::Eof);
             }
+            Err(e) => return Err(SslError::from_rustls(e)),
         }
     }
 

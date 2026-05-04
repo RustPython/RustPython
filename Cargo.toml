@@ -297,6 +297,20 @@ elided_lifetimes_in_paths = "warn"
 unreachable_pub = "warn"
 
 [workspace.lints.clippy]
+correctness = { level = "warn", priority = -2 }
+suspicious = { level = "warn", priority = -2 }
+perf = { level = "warn", priority = -2 }
+style = { level = "warn", priority = -2 }
+complexity = { level = "warn", priority = -2 }
+# pedantic = { level = "warn", priority = -2 } # TODO: Enable this
+
+missing_errors_doc = "allow" # Too many errors. No auto-fix available
+missing_panics_doc = "allow" # Too many errors. No auto-fix available
+match_same_arms = "allow" # Not always more readable
+if_not_else = "allow" # Not always more readable
+single_match_else = "allow"
+similar_names = "allow"
+
 alloc_instead_of_core = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
@@ -310,8 +324,6 @@ manual_is_variant_and = "warn"
 or_fun_call = "warn"
 unnested_or_patterns = "warn"
 
-perf = "warn"
-style = "warn"
-complexity = "warn"
-suspicious = "warn"
-correctness = "warn"
+# pedantic lints to enforce gradually
+cloned_instead_of_copied = "warn"
+must_use_candidate = "warn"

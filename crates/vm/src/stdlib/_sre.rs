@@ -66,7 +66,7 @@ mod _sre {
     impl SreStr for &[u8] {
         fn slice(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx
-                .new_bytes(self.iter().take(end).skip(start).cloned().collect())
+                .new_bytes(self.iter().take(end).skip(start).copied().collect())
                 .into()
         }
     }

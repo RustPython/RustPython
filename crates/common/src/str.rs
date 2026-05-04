@@ -36,15 +36,18 @@ impl core::ops::BitOr for StrKind {
 }
 
 impl StrKind {
+    #[must_use]
     pub const fn is_ascii(&self) -> bool {
         matches!(self, Self::Ascii)
     }
 
+    #[must_use]
     pub const fn is_utf8(&self) -> bool {
         matches!(self, Self::Ascii | Self::Utf8)
     }
 
     #[inline(always)]
+    #[must_use]
     pub fn can_encode(&self, code: CodePoint) -> bool {
         match self {
             Self::Ascii => code.is_ascii(),
@@ -234,6 +237,7 @@ impl StrData {
     /// # Safety
     ///
     /// Given `bytes` must be valid data for given `kind`
+    #[must_use]
     pub unsafe fn new_str_unchecked(data: Box<Wtf8>, kind: StrKind) -> Self {
         let len = match kind {
             StrKind::Ascii => data.len().into(),
@@ -245,6 +249,7 @@ impl StrData {
     /// # Safety
     ///
     /// `char_len` must be accurate.
+    #[must_use]
     pub unsafe fn new_with_char_len(data: Box<Wtf8>, kind: StrKind, char_len: usize) -> Self {
         Self {
             data,
@@ -364,6 +369,7 @@ pub fn get_chars(s: &str, range: impl RangeBounds<usize>) -> &str {
 }
 
 #[inline]
+#[must_use]
 pub fn char_range_end(s: &str, n_chars: usize) -> Option<usize> {
     let i = match n_chars.checked_sub(1) {
         Some(last_char_index) => {
@@ -399,6 +405,7 @@ pub fn get_codepoints(w: &Wtf8, range: impl RangeBounds<usize>) -> &Wtf8 {
 }
 
 #[inline]
+#[must_use]
 pub fn codepoint_range_end(s: &Wtf8, n_chars: usize) -> Option<usize> {
     let i = match n_chars.checked_sub(1) {
         Some(last_char_index) => {
@@ -410,6 +417,7 @@ pub fn codepoint_range_end(s: &Wtf8, n_chars: usize) -> Option<usize> {
     Some(i)
 }
 
+#[must_use]
 pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
     if width <= bytes.len() {
         bytes.to_vec()
@@ -428,6 +436,7 @@ pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
 
 /// Convert a string to ascii compatible, escaping unicode-s into escape
 /// sequences.
+#[must_use]
 pub fn to_ascii(value: &Wtf8) -> AsciiString {
     let mut ascii = Vec::new();
     for cp in value.code_points() {
@@ -485,6 +494,7 @@ pub mod levenshtein {
         if a == b { CASE_COST } else { MOVE_COST }
     }
 
+    #[must_use]
     pub fn levenshtein_distance(a: &[u8], b: &[u8], max_cost: usize) -> usize {
         if a == b {
             return 0;
@@ -555,6 +565,7 @@ pub mod levenshtein {
 }
 
 /// Replace all tabs in a string with spaces, using the given tab size.
+#[must_use]
 pub fn expandtabs(input: &str, tab_size: usize) -> String {
     let tab_stop = tab_size;
     let mut expanded_str = String::with_capacity(input.len());
@@ -641,6 +652,7 @@ const UNICODE_DECIMAL_VALUES: &[char] = &[
     '𞥗', '𞥘', '𞥙',
 ];
 
+#[must_use]
 pub fn char_to_decimal(ch: char) -> Option<u8> {
     UNICODE_DECIMAL_VALUES
         .binary_search(&ch)

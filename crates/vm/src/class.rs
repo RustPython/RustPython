@@ -67,14 +67,17 @@ pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
     fn static_cell() -> &'static static_cell::StaticCell<PyTypeRef>;
     #[inline]
+    #[must_use]
     fn static_metaclass() -> &'static Py<PyType> {
         PyType::static_type()
     }
     #[inline]
+    #[must_use]
     fn static_baseclass() -> &'static Py<PyType> {
         PyBaseObject::static_type()
     }
     #[inline]
+    #[must_use]
     fn static_type() -> &'static Py<PyType> {
         #[cold]
         fn fail() -> ! {
@@ -84,12 +87,14 @@ pub trait StaticType {
         }
         Self::static_cell().get().unwrap_or_else(|| fail())
     }
+    #[must_use]
     fn init_manually(typ: PyTypeRef) -> &'static Py<PyType> {
         let cell = Self::static_cell();
         cell.set(typ)
             .unwrap_or_else(|_| panic!("double initialization from init_manually"));
         cell.get().unwrap()
     }
+    #[must_use]
     fn init_builtin_type() -> &'static Py<PyType>
     where
         Self: PyClassImpl,
@@ -100,6 +105,7 @@ pub trait StaticType {
             .unwrap_or_else(|_| panic!("double initialization of {}", Self::NAME));
         cell.get().unwrap()
     }
+    #[must_use]
     fn create_static_type() -> PyTypeRef
     where
         Self: PyClassImpl,
@@ -206,6 +212,7 @@ pub trait PyClassImpl: PyClassDef {
         class.extend_methods(class.slots.methods, ctx);
     }
 
+    #[must_use]
     fn make_static_type() -> PyTypeRef
     where
         Self: StaticType + Sized,

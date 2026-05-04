@@ -47,7 +47,7 @@ mod decl {
         #[cfg(unix)]
         {
             use crate::vm::class::PyClassImpl;
-            poll::PyPoll::make_static_type();
+            let _ = poll::PyPoll::make_static_type();
         }
 
         __module_exec(vm, module);

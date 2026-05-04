@@ -192,9 +192,8 @@ impl CompilationSource {
                         let joined = path.parent().unwrap().join(real_path.trim());
                         if joined.exists() {
                             return compile_path(&joined);
-                        } else {
-                            return Err(e);
                         }
+                        return Err(e);
                     }
                     Err(e)
                 });

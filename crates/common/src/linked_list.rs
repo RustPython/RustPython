@@ -140,6 +140,7 @@ unsafe impl<T: Sync> Sync for Pointers<T> {}
 
 impl<L, T> LinkedList<L, T> {
     /// Creates an empty linked list.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             head: None,
@@ -216,6 +217,7 @@ impl<L: Link> LinkedList<L, L::Target> {
     }
 
     /// Returns whether the linked list does not contain any node
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.head.is_none()
         // if self.head.is_some() {
@@ -354,6 +356,7 @@ where
 
 impl<T> Pointers<T> {
     /// Create a new set of empty pointers
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             inner: UnsafeCell::new(PointersInner {

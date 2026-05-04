@@ -451,9 +451,8 @@ impl PyStructSequenceMeta {
                 inner.meta_ident,
                 "#[pystruct_sequence({KEY}=value)] expects a string value"
             )
-        } else {
-            Ok(None)
         }
+        Ok(None)
     }
 
     pub(crate) fn module(&self) -> Result<Option<String>> {
@@ -475,9 +474,8 @@ impl PyStructSequenceMeta {
                 inner.meta_ident,
                 "#[pystruct_sequence({KEY}=value)] expects a string value"
             )
-        } else {
-            Ok(None)
         }
+        Ok(None)
     }
 
     fn data_type(&self) -> Result<Ident> {
@@ -499,12 +497,11 @@ impl PyStructSequenceMeta {
                 inner.meta_ident,
                 "#[pystruct_sequence({KEY}=value)] expects a string value"
             )
-        } else {
-            bail_span!(
-                inner.meta_ident,
-                "#[pystruct_sequence] requires data parameter (e.g., data = \"DataStructName\")"
-            )
         }
+        bail_span!(
+            inner.meta_ident,
+            "#[pystruct_sequence] requires data parameter (e.g., data = \"DataStructName\")"
+        )
     }
 
     pub(crate) fn no_attr(&self) -> Result<bool> {

@@ -34,6 +34,7 @@ impl PyPayload for PyTemplate {
 }
 
 impl PyTemplate {
+    #[must_use]
     pub fn new(strings: PyTupleRef, interpolations: PyTupleRef) -> Self {
         Self {
             strings,

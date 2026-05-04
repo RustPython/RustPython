@@ -239,6 +239,7 @@ impl PyPayload for PyCallableIterator {
 
 #[pyclass(with(IterNext, Iterable))]
 impl PyCallableIterator {
+    #[must_use]
     pub const fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {
             sentinel,

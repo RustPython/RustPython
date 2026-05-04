@@ -119,6 +119,7 @@ pub use platform::{RawFd, timeval};
 pub struct FdSet(MaybeUninit<platform::fd_set>);
 
 impl FdSet {
+    #[must_use]
     pub fn new() -> Self {
         let mut fdset = MaybeUninit::zeroed();
         unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
@@ -177,6 +178,7 @@ pub fn select(
     }
 }
 
+#[must_use]
 pub fn sec_to_timeval(sec: f64) -> timeval {
     timeval {
         tv_sec: sec.trunc() as _,

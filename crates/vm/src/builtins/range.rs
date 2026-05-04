@@ -128,6 +128,7 @@ impl PyRange {
     }
 
     #[inline]
+    #[must_use]
     pub fn index_of(&self, value: &BigInt) -> Option<BigInt> {
         let step = self.step.as_bigint();
         match self.offset(value) {
@@ -137,16 +138,19 @@ impl PyRange {
     }
 
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.compute_length().is_zero()
     }
 
     #[inline]
+    #[must_use]
     pub fn forward(&self) -> bool {
         self.start.as_bigint() < self.stop.as_bigint()
     }
 
     #[inline]
+    #[must_use]
     pub fn get(&self, index: &BigInt) -> Option<BigInt> {
         let start = self.start.as_bigint();
         let step = self.step.as_bigint();

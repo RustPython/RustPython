@@ -131,10 +131,12 @@ unsafe impl Traverse for PySequence<'_> {
 
 impl PySequence<'_> {
     #[inline]
+    #[must_use]
     pub fn slots(&self) -> &PySequenceSlots {
         &self.obj.class().slots.as_sequence
     }
 
+    #[must_use]
     pub fn check(&self) -> bool {
         self.slots().has_item()
     }

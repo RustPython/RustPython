@@ -39,6 +39,7 @@ impl PyObject {
 }
 
 impl ArgBytesLike {
+    #[must_use]
     pub fn borrow_buf(&self) -> BorrowedValue<'_, [u8]> {
         unsafe { self.0.contiguous_unchecked() }
     }
@@ -50,14 +51,17 @@ impl ArgBytesLike {
         f(&self.borrow_buf())
     }
 
+    #[must_use]
     pub const fn len(&self) -> usize {
         self.0.desc.len
     }
 
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    #[must_use]
     pub fn as_object(&self) -> &PyObject {
         &self.0.obj
     }
@@ -91,6 +95,7 @@ impl<'a> TryFromBorrowedObject<'a> for ArgBytesLike {
 pub struct ArgMemoryBuffer(PyBuffer);
 
 impl ArgMemoryBuffer {
+    #[must_use]
     pub fn borrow_buf_mut(&self) -> BorrowedValueMut<'_, [u8]> {
         unsafe { self.0.contiguous_mut_unchecked() }
     }
@@ -102,10 +107,12 @@ impl ArgMemoryBuffer {
         f(&mut self.borrow_buf_mut())
     }
 
+    #[must_use]
     pub const fn len(&self) -> usize {
         self.0.desc.len
     }
 
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -137,6 +144,7 @@ pub enum ArgStrOrBytesLike {
 }
 
 impl ArgStrOrBytesLike {
+    #[must_use]
     pub fn as_object(&self) -> &PyObject {
         match self {
             Self::Buf(b) => b.as_object(),
@@ -154,6 +162,7 @@ impl TryFromObject for ArgStrOrBytesLike {
 }
 
 impl ArgStrOrBytesLike {
+    #[must_use]
     pub fn borrow_bytes(&self) -> BorrowedValue<'_, [u8]> {
         match self {
             Self::Buf(b) => b.borrow_buf(),
@@ -184,6 +193,7 @@ impl TryFromObject for ArgAsciiBuffer {
 }
 
 impl ArgAsciiBuffer {
+    #[must_use]
     pub fn len(&self) -> usize {
         match self {
             Self::String(s) => s.as_wtf8().len(),
@@ -191,6 +201,7 @@ impl ArgAsciiBuffer {
         }
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
