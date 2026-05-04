@@ -79,7 +79,7 @@ macro_rules! define_opcodes {
 
         impl ::core::fmt::Display for $opcode_name {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                write!(f, "{}", self.name())
+                self.name().fmt(f)
             }
         }
 
@@ -1036,24 +1036,28 @@ impl InstructionMetadata for Instruction {
         pad: usize,
         level: usize,
     ) -> fmt::Result {
+        let opcode = self.opcode();
+
         macro_rules! w {
-            ($variant:ident) => {
-                write!(f, stringify!($variant))
+            // No oparg. Show only opcode name.
+            () => {
+                write!(f, "{}", opcode)
             };
-            ($variant:ident, $map:ident = $arg_marker:expr) => {{
+
+            // Oparg needs to be passed into a function.
+            ($map:ident = $arg_marker:expr) => {{
                 let arg = $arg_marker.get(arg);
-                write!(f, "{:pad$}({}, {})", stringify!($variant), arg, $map(arg))
+                write!(f, "{:pad$}({}, {})", opcode, arg, $map(arg))
             }};
-            ($variant:ident, $arg_marker:expr) => {
-                write!(f, "{:pad$}({})", stringify!($variant), $arg_marker.get(arg))
+
+            // Oparg to be shown via `fmt::Display`
+            ($arg_marker:expr) => {
+                write!(f, "{:pad$}({})", opcode, $arg_marker.get(arg))
             };
-            ($variant:ident, ?$arg_marker:expr) => {
-                write!(
-                    f,
-                    "{:pad$}({:?})",
-                    stringify!($variant),
-                    $arg_marker.get(arg)
-                )
+
+            // Oparg to be shown via `fmt::Debug`
+            (?$arg_marker:expr) => {
+                write!(f, "{:pad$}({:?})", opcode, $arg_marker.get(arg))
             };
         }
 
@@ -1061,271 +1065,220 @@ impl InstructionMetadata for Instruction {
         let name = |i: u32| ctx.get_name(i as usize);
         let cell_name = |i: oparg::VarNum| ctx.get_localsplus_name(i);
 
-        let fmt_const = |op: &str,
-                         arg: OpArg,
-                         f: &mut fmt::Formatter<'_>,
-                         consti: &Arg<oparg::ConstIdx>|
-         -> fmt::Result {
-            let value = ctx.get_constant(consti.get(arg));
-            match value.borrow_constant() {
-                BorrowedConstant::Code { code } if expand_code_objects => {
-                    write!(f, "{op:pad$}({code:?}):")?;
-                    code.display_inner(f, true, level + 1)?;
-                    Ok(())
-                }
-                c => {
-                    write!(f, "{op:pad$}(")?;
-                    c.fmt_display(f)?;
-                    write!(f, ")")
-                }
-            }
-        };
-
         match self {
-            Self::BinarySlice => w!(BINARY_SLICE),
-            Self::BinaryOp { op } => write!(f, "{:pad$}({})", "BINARY_OP", op.get(arg)),
-            Self::BinaryOpInplaceAddUnicode => w!(BINARY_OP_INPLACE_ADD_UNICODE),
-            Self::BuildList { count } => w!(BUILD_LIST, count),
-            Self::BuildMap { count } => w!(BUILD_MAP, count),
-            Self::BuildSet { count } => w!(BUILD_SET, count),
-            Self::BuildSlice { argc } => w!(BUILD_SLICE, ?argc),
-            Self::BuildString { count } => w!(BUILD_STRING, count),
-            Self::BuildTuple { count } => w!(BUILD_TUPLE, count),
-            Self::Call { argc } => w!(CALL, argc),
-            Self::CallFunctionEx => w!(CALL_FUNCTION_EX),
-            Self::CallKw { argc } => w!(CALL_KW, argc),
-            Self::CallIntrinsic1 { func } => w!(CALL_INTRINSIC_1, ?func),
-            Self::CallIntrinsic2 { func } => w!(CALL_INTRINSIC_2, ?func),
-            Self::Cache => w!(CACHE),
-            Self::CheckEgMatch => w!(CHECK_EG_MATCH),
-            Self::CheckExcMatch => w!(CHECK_EXC_MATCH),
-            Self::CleanupThrow => w!(CLEANUP_THROW),
+            Self::BinarySlice => w!(),
+            Self::BinaryOp { op } => w!(op),
+            Self::BinaryOpInplaceAddUnicode => w!(),
+            Self::BuildList { count } => w!(count),
+            Self::BuildMap { count } => w!(count),
+            Self::BuildSet { count } => w!(count),
+            Self::BuildSlice { argc } => w!(?argc),
+            Self::BuildString { count } => w!(count),
+            Self::BuildTuple { count } => w!(count),
+            Self::Call { argc } => w!(argc),
+            Self::CallFunctionEx => w!(),
+            Self::CallKw { argc } => w!(argc),
+            Self::CallIntrinsic1 { func } => w!(?func),
+            Self::CallIntrinsic2 { func } => w!(?func),
+            Self::Cache => w!(),
+            Self::CheckEgMatch => w!(),
+            Self::CheckExcMatch => w!(),
+            Self::CleanupThrow => w!(),
             Self::CompareOp { opname } => {
                 let op = opname.get(arg);
                 if u32::from(arg) & oparg::COMPARE_OP_BOOL_MASK != 0 {
-                    write!(f, "{:pad$}(bool({}))", "COMPARE_OP", op)
+                    write!(f, "{:pad$}(bool({}))", opcode, op)
                 } else {
-                    write!(f, "{:pad$}({})", "COMPARE_OP", op)
+                    write!(f, "{:pad$}({})", opcode, op)
                 }
             }
-            Self::ContainsOp { invert } => w!(CONTAINS_OP, ?invert),
+            Self::ContainsOp { invert } => w!(invert),
             Self::ConvertValue { oparg } => {
                 let oparg = oparg.get(arg);
-                write!(f, "{:pad$} {} ({})", "CONVERT_VALUE", oparg.as_u8(), oparg)
+                write!(f, "{:pad$} {} ({})", opcode, oparg.as_u8(), oparg)
             }
-            Self::Copy { i } => w!(COPY, i),
-            Self::CopyFreeVars { n } => w!(COPY_FREE_VARS, n),
-            Self::DeleteAttr { namei } => w!(DELETE_ATTR, name = namei),
-            Self::DeleteDeref { i } => w!(DELETE_DEREF, cell_name = i),
-            Self::DeleteFast { var_num } => w!(DELETE_FAST, varname = var_num),
-            Self::DeleteGlobal { namei } => w!(DELETE_GLOBAL, name = namei),
-            Self::DeleteName { namei } => w!(DELETE_NAME, name = namei),
-            Self::DeleteSubscr => w!(DELETE_SUBSCR),
-            Self::DictMerge { i } => w!(DICT_MERGE, i),
-            Self::DictUpdate { i } => w!(DICT_UPDATE, i),
-            Self::EndAsyncFor => w!(END_ASYNC_FOR),
-            Self::EndSend => w!(END_SEND),
-            Self::ExtendedArg => w!(EXTENDED_ARG, Arg::<u32>::marker()),
-            Self::ExitInitCheck => w!(EXIT_INIT_CHECK),
-            Self::ForIter { delta } => w!(FOR_ITER, delta),
-            Self::FormatSimple => w!(FORMAT_SIMPLE),
-            Self::FormatWithSpec => w!(FORMAT_WITH_SPEC),
-            Self::GetAIter => w!(GET_AITER),
-            Self::GetANext => w!(GET_ANEXT),
-            Self::GetAwaitable { r#where } => w!(GET_AWAITABLE, r#where),
-            Self::Reserved => w!(RESERVED),
-            Self::GetIter => w!(GET_ITER),
-            Self::GetLen => w!(GET_LEN),
-            Self::ImportFrom { namei } => w!(IMPORT_FROM, name = namei),
-            Self::ImportName { namei } => w!(IMPORT_NAME, name = namei),
-            Self::InterpreterExit => w!(INTERPRETER_EXIT),
-            Self::IsOp { invert } => w!(IS_OP, ?invert),
-            Self::JumpBackward { delta } => w!(JUMP_BACKWARD, delta),
-            Self::JumpBackwardNoInterrupt { delta } => w!(JUMP_BACKWARD_NO_INTERRUPT, delta),
-            Self::JumpForward { delta } => w!(JUMP_FORWARD, delta),
-            Self::ListAppend { i } => w!(LIST_APPEND, i),
-            Self::ListExtend { i } => w!(LIST_EXTEND, i),
+            Self::Copy { i } => w!(i),
+            Self::CopyFreeVars { n } => w!(n),
+            Self::DeleteAttr { namei } => w!(name = namei),
+            Self::DeleteDeref { i } => w!(cell_name = i),
+            Self::DeleteFast { var_num } => w!(varname = var_num),
+            Self::DeleteGlobal { namei } => w!(name = namei),
+            Self::DeleteName { namei } => w!(name = namei),
+            Self::DeleteSubscr => w!(),
+            Self::DictMerge { i } => w!(i),
+            Self::DictUpdate { i } => w!(i),
+            Self::EndAsyncFor => w!(),
+            Self::EndSend => w!(),
+            Self::ExtendedArg => w!(Arg::<u32>::marker()),
+            Self::ExitInitCheck => w!(),
+            Self::ForIter { delta } => w!(delta),
+            Self::FormatSimple => w!(),
+            Self::FormatWithSpec => w!(),
+            Self::GetAIter => w!(),
+            Self::GetANext => w!(),
+            Self::GetAwaitable { r#where } => w!(r#where),
+            Self::Reserved => w!(),
+            Self::GetIter => w!(),
+            Self::GetLen => w!(),
+            Self::ImportFrom { namei } => w!(name = namei),
+            Self::ImportName { namei } => w!(name = namei),
+            Self::InterpreterExit => w!(),
+            Self::IsOp { invert } => w!(invert),
+            Self::JumpBackward { delta } => w!(delta),
+            Self::JumpBackwardNoInterrupt { delta } => w!(delta),
+            Self::JumpForward { delta } => w!(delta),
+            Self::ListAppend { i } => w!(i),
+            Self::ListExtend { i } => w!(i),
             Self::LoadAttr { namei } => {
                 let oparg = namei.get(arg);
                 let oparg_u32 = u32::from(oparg);
                 let attr_name = name(oparg.name_idx());
                 if oparg.is_method() {
-                    write!(
-                        f,
-                        "{:pad$}({}, {}, method=true)",
-                        "LOAD_ATTR", oparg_u32, attr_name
-                    )
+                    write!(f, "{opcode:pad$}({oparg_u32}, {attr_name}, method=true)",)
                 } else {
-                    write!(f, "{:pad$}({}, {})", "LOAD_ATTR", oparg_u32, attr_name)
+                    write!(f, "{opcode:pad$}({oparg_u32}, {attr_name})")
                 }
             }
-            Self::LoadBuildClass => w!(LOAD_BUILD_CLASS),
-            Self::LoadCommonConstant { idx } => w!(LOAD_COMMON_CONSTANT, ?idx),
-            Self::LoadFromDictOrDeref { i } => w!(LOAD_FROM_DICT_OR_DEREF, cell_name = i),
-            Self::LoadConst { consti } => fmt_const("LOAD_CONST", arg, f, consti),
-            Self::LoadSmallInt { i } => w!(LOAD_SMALL_INT, i),
-            Self::LoadDeref { i } => w!(LOAD_DEREF, cell_name = i),
-            Self::LoadFast { var_num } => w!(LOAD_FAST, varname = var_num),
-            Self::LoadFastAndClear { var_num } => w!(LOAD_FAST_AND_CLEAR, varname = var_num),
-            Self::LoadFastBorrow { var_num } => w!(LOAD_FAST_BORROW, varname = var_num),
-            Self::LoadFastCheck { var_num } => w!(LOAD_FAST_CHECK, varname = var_num),
+            Self::LoadBuildClass => w!(),
+            Self::LoadCommonConstant { idx } => w!(?idx),
+            Self::LoadFromDictOrDeref { i } => w!(cell_name = i),
+            Self::LoadConst { consti } => {
+                let value = ctx.get_constant(consti.get(arg));
+                match value.borrow_constant() {
+                    BorrowedConstant::Code { code } if expand_code_objects => {
+                        write!(f, "{opcode:pad$}({code:?}):")?;
+                        code.display_inner(f, true, level + 1)?;
+                        Ok(())
+                    }
+                    c => {
+                        write!(f, "{opcode:pad$}(")?;
+                        c.fmt_display(f)?;
+                        write!(f, ")")
+                    }
+                }
+            }
+            Self::LoadSmallInt { i } => w!(i),
+            Self::LoadDeref { i } => w!(cell_name = i),
+            Self::LoadFast { var_num } => w!(varname = var_num),
+            Self::LoadFastAndClear { var_num } => w!(varname = var_num),
+            Self::LoadFastBorrow { var_num } => w!(varname = var_num),
+            Self::LoadFastCheck { var_num } => w!(varname = var_num),
             Self::LoadFastLoadFast { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();
                 let name1 = varname(idx1);
                 let name2 = varname(idx2);
-                write!(f, "{:pad$}({}, {})", "LOAD_FAST_LOAD_FAST", name1, name2)
+                write!(f, "{:pad$}({}, {})", opcode, name1, name2)
             }
             Self::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();
                 let name1 = varname(idx1);
                 let name2 = varname(idx2);
-                write!(
-                    f,
-                    "{:pad$}({}, {})",
-                    "LOAD_FAST_BORROW_LOAD_FAST_BORROW", name1, name2
-                )
+                write!(f, "{:pad$}({}, {})", opcode, name1, name2)
             }
-            Self::LoadFromDictOrGlobals { i } => w!(LOAD_FROM_DICT_OR_GLOBALS, name = i),
+            Self::LoadFromDictOrGlobals { i } => w!(name = i),
             Self::LoadGlobal { namei } => {
                 let oparg = namei.get(arg);
                 let name_idx = oparg >> 1;
                 if (oparg & 1) != 0 {
-                    write!(
-                        f,
-                        "{:pad$}({}, NULL + {})",
-                        "LOAD_GLOBAL",
-                        oparg,
-                        name(name_idx)
-                    )
+                    write!(f, "{:pad$}({}, NULL + {})", opcode, oparg, name(name_idx))
                 } else {
-                    write!(f, "{:pad$}({}, {})", "LOAD_GLOBAL", oparg, name(name_idx))
+                    write!(f, "{:pad$}({}, {})", opcode, oparg, name(name_idx))
                 }
             }
             Self::LoadGlobalBuiltin => {
                 let oparg = u32::from(arg);
                 let name_idx = oparg >> 1;
                 if (oparg & 1) != 0 {
-                    write!(
-                        f,
-                        "{:pad$}({}, NULL + {})",
-                        "LOAD_GLOBAL_BUILTIN",
-                        oparg,
-                        name(name_idx)
-                    )
+                    write!(f, "{:pad$}({}, NULL + {})", opcode, oparg, name(name_idx))
                 } else {
-                    write!(
-                        f,
-                        "{:pad$}({}, {})",
-                        "LOAD_GLOBAL_BUILTIN",
-                        oparg,
-                        name(name_idx)
-                    )
+                    write!(f, "{:pad$}({}, {})", opcode, oparg, name(name_idx))
                 }
             }
             Self::LoadGlobalModule => {
                 let oparg = u32::from(arg);
                 let name_idx = oparg >> 1;
                 if (oparg & 1) != 0 {
-                    write!(
-                        f,
-                        "{:pad$}({}, NULL + {})",
-                        "LOAD_GLOBAL_MODULE",
-                        oparg,
-                        name(name_idx)
-                    )
+                    write!(f, "{:pad$}({}, NULL + {})", opcode, oparg, name(name_idx))
                 } else {
-                    write!(
-                        f,
-                        "{:pad$}({}, {})",
-                        "LOAD_GLOBAL_MODULE",
-                        oparg,
-                        name(name_idx)
-                    )
+                    write!(f, "{:pad$}({}, {})", opcode, oparg, name(name_idx))
                 }
             }
-            Self::LoadLocals => w!(LOAD_LOCALS),
-            Self::LoadName { namei } => w!(LOAD_NAME, name = namei),
-            Self::LoadSpecial { method } => w!(LOAD_SPECIAL, method),
+            Self::LoadLocals => w!(),
+            Self::LoadName { namei } => w!(name = namei),
+            Self::LoadSpecial { method } => w!(method),
             Self::LoadSuperAttr { namei } => {
                 let oparg = namei.get(arg);
                 write!(
                     f,
                     "{:pad$}({}, {}, method={}, class={})",
-                    "LOAD_SUPER_ATTR",
+                    opcode,
                     u32::from(oparg),
                     name(oparg.name_idx()),
                     oparg.is_load_method(),
                     oparg.has_class()
                 )
             }
-            Self::MakeCell { i } => w!(MAKE_CELL, cell_name = i),
-            Self::MakeFunction => w!(MAKE_FUNCTION),
-            Self::MapAdd { i } => w!(MAP_ADD, i),
-            Self::MatchClass { count } => w!(MATCH_CLASS, count),
-            Self::MatchKeys => w!(MATCH_KEYS),
-            Self::MatchMapping => w!(MATCH_MAPPING),
-            Self::MatchSequence => w!(MATCH_SEQUENCE),
-            Self::Nop => w!(NOP),
-            Self::NotTaken => w!(NOT_TAKEN),
-            Self::PopExcept => w!(POP_EXCEPT),
-            Self::PopJumpIfFalse { delta } => w!(POP_JUMP_IF_FALSE, delta),
-            Self::PopJumpIfNone { delta } => w!(POP_JUMP_IF_NONE, delta),
-            Self::PopJumpIfNotNone { delta } => w!(POP_JUMP_IF_NOT_NONE, delta),
-            Self::PopJumpIfTrue { delta } => w!(POP_JUMP_IF_TRUE, delta),
-            Self::PopTop => w!(POP_TOP),
-            Self::EndFor => w!(END_FOR),
-            Self::PopIter => w!(POP_ITER),
-            Self::PushExcInfo => w!(PUSH_EXC_INFO),
-            Self::PushNull => w!(PUSH_NULL),
-            Self::RaiseVarargs { argc } => w!(RAISE_VARARGS, ?argc),
-            Self::Reraise { depth } => w!(RERAISE, depth),
-            Self::Resume { context } => w!(RESUME, context),
-            Self::ReturnValue => w!(RETURN_VALUE),
-            Self::ReturnGenerator => w!(RETURN_GENERATOR),
-            Self::Send { delta } => w!(SEND, delta),
-            Self::SetAdd { i } => w!(SET_ADD, i),
-            Self::SetFunctionAttribute { flag } => w!(SET_FUNCTION_ATTRIBUTE, ?flag),
-            Self::SetupAnnotations => w!(SETUP_ANNOTATIONS),
-            Self::SetUpdate { i } => w!(SET_UPDATE, i),
-            Self::StoreAttr { namei } => w!(STORE_ATTR, name = namei),
-            Self::StoreDeref { i } => w!(STORE_DEREF, cell_name = i),
-            Self::StoreFast { var_num } => w!(STORE_FAST, varname = var_num),
+            Self::MakeCell { i } => w!(cell_name = i),
+            Self::MakeFunction => w!(),
+            Self::MapAdd { i } => w!(i),
+            Self::MatchClass { count } => w!(count),
+            Self::MatchKeys => w!(),
+            Self::MatchMapping => w!(),
+            Self::MatchSequence => w!(),
+            Self::Nop => w!(),
+            Self::NotTaken => w!(),
+            Self::PopExcept => w!(),
+            Self::PopJumpIfFalse { delta } => w!(delta),
+            Self::PopJumpIfNone { delta } => w!(delta),
+            Self::PopJumpIfNotNone { delta } => w!(delta),
+            Self::PopJumpIfTrue { delta } => w!(delta),
+            Self::PopTop => w!(),
+            Self::EndFor => w!(),
+            Self::PopIter => w!(),
+            Self::PushExcInfo => w!(),
+            Self::PushNull => w!(),
+            Self::RaiseVarargs { argc } => w!(?argc),
+            Self::Reraise { depth } => w!(depth),
+            Self::Resume { context } => w!(context),
+            Self::ReturnValue => w!(),
+            Self::ReturnGenerator => w!(),
+            Self::Send { delta } => w!(delta),
+            Self::SetAdd { i } => w!(i),
+            Self::SetFunctionAttribute { flag } => w!(?flag),
+            Self::SetupAnnotations => w!(),
+            Self::SetUpdate { i } => w!(i),
+            Self::StoreAttr { namei } => w!(name = namei),
+            Self::StoreDeref { i } => w!(cell_name = i),
+            Self::StoreFast { var_num } => w!(varname = var_num),
             Self::StoreFastLoadFast { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (store_idx, load_idx) = oparg.indexes();
-                write!(f, "STORE_FAST_LOAD_FAST")?;
-                write!(f, " ({}, {})", store_idx, load_idx)
+                write!(f, "{:pad$}({}, {})", opcode, store_idx, load_idx)
             }
             Self::StoreFastStoreFast { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();
-                write!(
-                    f,
-                    "{:pad$}({}, {})",
-                    "STORE_FAST_STORE_FAST",
-                    varname(idx1),
-                    varname(idx2)
-                )
+                write!(f, "{:pad$}({}, {})", opcode, varname(idx1), varname(idx2))
             }
-            Self::StoreGlobal { namei } => w!(STORE_GLOBAL, name = namei),
-            Self::StoreName { namei } => w!(STORE_NAME, name = namei),
-            Self::StoreSlice => w!(STORE_SLICE),
-            Self::StoreSubscr => w!(STORE_SUBSCR),
-            Self::Swap { i } => w!(SWAP, i),
-            Self::ToBool => w!(TO_BOOL),
-            Self::UnpackEx { counts } => w!(UNPACK_EX, counts),
-            Self::UnpackSequence { count } => w!(UNPACK_SEQUENCE, count),
-            Self::WithExceptStart => w!(WITH_EXCEPT_START),
-            Self::UnaryInvert => w!(UNARY_INVERT),
-            Self::UnaryNegative => w!(UNARY_NEGATIVE),
-            Self::UnaryNot => w!(UNARY_NOT),
-            Self::YieldValue { arg } => w!(YIELD_VALUE, arg),
-            Self::GetYieldFromIter => w!(GET_YIELD_FROM_ITER),
-            Self::BuildTemplate => w!(BUILD_TEMPLATE),
-            Self::BuildInterpolation { format } => w!(BUILD_INTERPOLATION, format),
-            _ => w!(RUSTPYTHON_PLACEHOLDER),
+            Self::StoreGlobal { namei } => w!(name = namei),
+            Self::StoreName { namei } => w!(name = namei),
+            Self::StoreSlice => w!(),
+            Self::StoreSubscr => w!(),
+            Self::Swap { i } => w!(i),
+            Self::ToBool => w!(),
+            Self::UnpackEx { counts } => w!(counts),
+            Self::UnpackSequence { count } => w!(count),
+            Self::WithExceptStart => w!(),
+            Self::UnaryInvert => w!(),
+            Self::UnaryNegative => w!(),
+            Self::UnaryNot => w!(),
+            Self::YieldValue { arg } => w!(arg),
+            Self::GetYieldFromIter => w!(),
+            Self::BuildTemplate => w!(),
+            Self::BuildInterpolation { format } => w!(format),
+            _ => w!(),
         }
     }
 }
