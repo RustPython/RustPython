@@ -19,6 +19,9 @@ pub mod platform {
     pub use WinSock::{FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval, select};
     use windows_sys::Win32::Networking::WinSock;
 
+    /// # Safety
+    ///
+    /// `set` must be a valid mutable pointer to an initialized WinSock fd_set.
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
         let mut slot = unsafe { (&raw mut (*set).fd_array).cast::<RawFd>() };
         let fd_count = unsafe { (*set).fd_count };
@@ -36,10 +39,16 @@ pub mod platform {
         }
     }
 
+    /// # Safety
+    ///
+    /// `set` must be a valid mutable pointer to a WinSock fd_set.
     pub unsafe fn FD_ZERO(set: *mut fd_set) {
         unsafe { (*set).fd_count = 0 };
     }
 
+    /// # Safety
+    ///
+    /// `set` must be a valid mutable pointer to an initialized WinSock fd_set.
     pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
         use WinSock::__WSAFDIsSet;
         unsafe { __WSAFDIsSet(fd as _, set) != 0 }
@@ -67,6 +76,9 @@ pub mod platform {
     }
 
     #[allow(non_snake_case)]
+    /// # Safety
+    ///
+    /// `set` must be a valid pointer to an initialized fd_set.
     pub unsafe fn FD_ISSET(fd: RawFd, set: *const fd_set) -> bool {
         let set = unsafe { &*set };
         for p in &set.__fds[..set.__nfds] {
@@ -78,6 +90,9 @@ pub mod platform {
     }
 
     #[allow(non_snake_case)]
+    /// # Safety
+    ///
+    /// `set` must be a valid mutable pointer to an initialized fd_set.
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
         let set = unsafe { &mut *set };
         for p in &set.__fds[..set.__nfds] {
@@ -91,6 +106,9 @@ pub mod platform {
     }
 
     #[allow(non_snake_case)]
+    /// # Safety
+    ///
+    /// `set` must be a valid mutable pointer to an fd_set.
     pub unsafe fn FD_ZERO(set: *mut fd_set) {
         unsafe { (*set).__nfds = 0 };
     }

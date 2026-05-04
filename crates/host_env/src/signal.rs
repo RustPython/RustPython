@@ -38,8 +38,11 @@ unsafe extern "C" {
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod ffi {
     unsafe extern "C" {
-        pub fn getitimer(which: libc::c_int, curr_value: *mut libc::itimerval) -> libc::c_int;
-        pub fn setitimer(
+        pub(super) fn getitimer(
+            which: libc::c_int,
+            curr_value: *mut libc::itimerval,
+        ) -> libc::c_int;
+        pub(super) fn setitimer(
             which: libc::c_int,
             new_value: *const libc::itimerval,
             old_value: *mut libc::itimerval,

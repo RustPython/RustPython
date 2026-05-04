@@ -157,7 +157,12 @@ pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInf
 }
 
 #[cfg(windows)]
-pub fn inspect_file_target(_fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
+pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
+    if !crate::nt::fd_exists(fd) {
+        return Err(io::Error::from_raw_os_error(
+            crate::nt::ERROR_INVALID_HANDLE_I32,
+        ));
+    }
     Ok(FileTargetInfo { blksize: None })
 }
 

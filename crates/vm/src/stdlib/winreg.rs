@@ -48,14 +48,14 @@ mod winreg {
 
     // access rights
     #[pyattr]
-    pub use host_winreg::{
+    pub(super) use host_winreg::{
         KEY_ALL_ACCESS, KEY_CREATE_LINK, KEY_CREATE_SUB_KEY, KEY_ENUMERATE_SUB_KEYS, KEY_EXECUTE,
         KEY_NOTIFY, KEY_QUERY_VALUE, KEY_READ, KEY_SET_VALUE, KEY_WOW64_32KEY, KEY_WOW64_64KEY,
         KEY_WRITE,
     };
     // value types
     #[pyattr]
-    pub use host_winreg::{
+    pub(super) use host_winreg::{
         REG_BINARY, REG_CREATED_NEW_KEY, REG_DWORD, REG_DWORD_BIG_ENDIAN, REG_DWORD_LITTLE_ENDIAN,
         REG_EXPAND_SZ, REG_FULL_RESOURCE_DESCRIPTOR, REG_LINK, REG_MULTI_SZ, REG_NONE,
         REG_NOTIFY_CHANGE_ATTRIBUTES, REG_NOTIFY_CHANGE_LAST_SET, REG_NOTIFY_CHANGE_NAME,
@@ -211,7 +211,7 @@ mod winreg {
         }
     }
 
-    pub const HKEY_ERR_MSG: &str = "bad operand type";
+    const HKEY_ERR_MSG: &str = "bad operand type";
 
     impl AsNumber for PyHkey {
         fn as_number() -> &'static PyNumberMethods {
