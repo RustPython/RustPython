@@ -1261,6 +1261,7 @@ impl Constructor for PyBoundMethod {
 }
 
 impl PyBoundMethod {
+    #[must_use]
     pub const fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         Self { object, function }
     }

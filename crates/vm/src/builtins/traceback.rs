@@ -28,6 +28,7 @@ impl PyPayload for PyTraceback {
 
 #[pyclass(with(Constructor))]
 impl PyTraceback {
+    #[must_use]
     pub const fn new(
         next: Option<PyRef<Self>>,
         frame: FrameRef,

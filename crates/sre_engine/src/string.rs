@@ -372,6 +372,7 @@ pub(crate) const fn is_linebreak(ch: u32) -> bool {
     ch == '\n' as u32
 }
 #[inline]
+#[must_use]
 pub fn lower_ascii(ch: u32) -> u32 {
     u8::try_from(ch)
         .map(|x| x.to_ascii_lowercase() as u32)
@@ -456,6 +457,7 @@ pub(crate) fn is_uni_word(ch: u32) -> bool {
     ch == '_' as u32 || is_uni_alnum(ch)
 }
 #[inline]
+#[must_use]
 pub fn lower_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
     char::try_from(ch)
@@ -463,6 +465,7 @@ pub fn lower_unicode(ch: u32) -> u32 {
         .unwrap_or(ch)
 }
 #[inline]
+#[must_use]
 pub fn upper_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
     char::try_from(ch)

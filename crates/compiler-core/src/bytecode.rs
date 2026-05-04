@@ -52,6 +52,7 @@ pub struct ExceptionTableEntry {
 }
 
 impl ExceptionTableEntry {
+    #[must_use]
     pub const fn new(start: u32, end: u32, target: u32, depth: u16, push_lasti: bool) -> Self {
         Self {
             start,
@@ -65,6 +66,7 @@ impl ExceptionTableEntry {
 
 /// Encode exception table entries.
 /// Uses 6-bit varint encoding with start marker (MSB) and continuation bit.
+#[must_use]
 pub fn encode_exception_table(entries: &[ExceptionTableEntry]) -> alloc::boxed::Box<[u8]> {
     let mut data = Vec::new();
     for entry in entries {
@@ -80,6 +82,7 @@ pub fn encode_exception_table(entries: &[ExceptionTableEntry]) -> alloc::boxed::
 }
 
 /// Find exception handler for given instruction offset.
+#[must_use]
 pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTableEntry> {
     let mut pos = 0;
     while pos < table.len() {
@@ -106,6 +109,7 @@ pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTabl
 }
 
 /// Decode all exception table entries.
+#[must_use]
 pub fn decode_exception_table(table: &[u8]) -> Vec<ExceptionTableEntry> {
     let mut entries = Vec::new();
     let mut pos = 0;
@@ -138,6 +142,7 @@ pub fn decode_exception_table(table: &[u8]) -> Vec<ExceptionTableEntry> {
 
 /// Parse linetable to build a boolean mask indicating which code units
 /// have NO_LOCATION (line == -1). Returns a Vec<bool> of length `num_units`.
+#[must_use]
 pub fn build_no_location_mask(linetable: &[u8], num_units: usize) -> Vec<bool> {
     let mut mask = Vec::new();
     mask.resize(num_units, false);
@@ -227,6 +232,7 @@ pub enum PyCodeLocationInfoKind {
 }
 
 impl PyCodeLocationInfoKind {
+    #[must_use]
     pub fn from_code(code: u8) -> Option<Self> {
         match code {
             0 => Some(Self::Short0),
@@ -249,10 +255,12 @@ impl PyCodeLocationInfoKind {
         }
     }
 
+    #[must_use]
     pub fn is_short(&self) -> bool {
         (*self as u8) <= 9
     }
 
+    #[must_use]
     pub fn short_column_group(&self) -> Option<u8> {
         if self.is_short() {
             Some(*self as u8)
@@ -261,6 +269,7 @@ impl PyCodeLocationInfoKind {
         }
     }
 
+    #[must_use]
     pub fn one_line_delta(&self) -> Option<i32> {
         match self {
             Self::OneLine0 => Some(0),
@@ -483,24 +492,28 @@ const MAX_BACKOFF: u16 = 12;
 const UNREACHABLE_BACKOFF: u16 = 15;
 
 /// Encode an adaptive counter as `(value << 4) | backoff`.
+#[must_use]
 pub const fn adaptive_counter_bits(value: u16, backoff: u16) -> u16 {
     (value << BACKOFF_BITS) | backoff
 }
 
 /// True when the adaptive counter should trigger specialization.
 #[inline]
+#[must_use]
 pub const fn adaptive_counter_triggers(counter: u16) -> bool {
     counter < UNREACHABLE_BACKOFF
 }
 
 /// Decrement adaptive counter by one countdown step.
 #[inline]
+#[must_use]
 pub const fn advance_adaptive_counter(counter: u16) -> u16 {
     counter.wrapping_sub(1 << BACKOFF_BITS)
 }
 
 /// Reset adaptive counter with exponential backoff.
 #[inline]
+#[must_use]
 pub const fn adaptive_counter_backoff(counter: u16) -> u16 {
     let backoff = counter & ((1 << BACKOFF_BITS) - 1);
     if backoff < MAX_BACKOFF {
@@ -511,6 +524,7 @@ pub const fn adaptive_counter_backoff(counter: u16) -> u16 {
 }
 
 impl CodeUnit {
+    #[must_use]
     pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
     }
@@ -1016,6 +1030,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
         }
     }
 
+    #[must_use]
     pub fn to_owned(self) -> ConstantData {
         use ConstantData::*;
 

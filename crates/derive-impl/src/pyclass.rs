@@ -2014,9 +2014,8 @@ where
             Err(wrong_name) => {
                 if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
                     bail_span!(attr, "#[pyclass] doesn't accept #[{}]", wrong_name)
-                } else {
-                    continue;
                 }
+                continue;
             }
         };
 

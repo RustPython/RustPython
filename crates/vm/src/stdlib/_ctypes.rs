@@ -1304,13 +1304,13 @@ pub(crate) mod _ctypes {
         __module_exec(vm, module);
 
         let ctx = &vm.ctx;
-        PyCSimpleType::make_static_type();
-        array::PyCArrayType::make_static_type();
-        pointer::PyCPointerType::make_static_type();
-        structure::PyCStructType::make_static_type();
-        union::PyCUnionType::make_static_type();
-        function::PyCFuncPtrType::make_static_type();
-        function::RawMemoryBuffer::make_static_type();
+        let _ = PyCSimpleType::make_static_type();
+        let _ = array::PyCArrayType::make_static_type();
+        let _ = pointer::PyCPointerType::make_static_type();
+        let _ = structure::PyCStructType::make_static_type();
+        let _ = union::PyCUnionType::make_static_type();
+        let _ = function::PyCFuncPtrType::make_static_type();
+        let _ = function::RawMemoryBuffer::make_static_type();
 
         extend_module!(vm, module, {
             "_CData" => PyCData::make_static_type(),

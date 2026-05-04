@@ -2,6 +2,7 @@ use core::f64;
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{Signed, ToPrimitive};
 
+#[must_use]
 pub const fn decompose_float(value: f64) -> (f64, i32) {
     if 0.0 == value {
         (0.0, 0i32)
@@ -29,6 +30,7 @@ pub const fn decompose_float(value: f64) -> (f64, i32) {
 /// assert!(!eq_int(c, &b));
 /// ```
 ///
+#[must_use]
 pub fn eq_int(value: f64, other: &BigInt) -> bool {
     if let (Some(self_int), Some(other_float)) = (value.to_bigint(), other.to_f64()) {
         value == other_float && self_int == *other
@@ -37,6 +39,7 @@ pub fn eq_int(value: f64, other: &BigInt) -> bool {
     }
 }
 
+#[must_use]
 pub fn lt_int(value: f64, other_int: &BigInt) -> bool {
     match (value.to_bigint(), other_int.to_f64()) {
         (Some(self_int), Some(other_float)) => value < other_float || self_int < *other_int,
@@ -50,6 +53,7 @@ pub fn lt_int(value: f64, other_int: &BigInt) -> bool {
     }
 }
 
+#[must_use]
 pub fn gt_int(value: f64, other_int: &BigInt) -> bool {
     match (value.to_bigint(), other_int.to_f64()) {
         (Some(self_int), Some(other_float)) => value > other_float || self_int > *other_int,
@@ -63,14 +67,17 @@ pub fn gt_int(value: f64, other_int: &BigInt) -> bool {
     }
 }
 
+#[must_use]
 pub const fn div(v1: f64, v2: f64) -> Option<f64> {
     if v2 != 0.0 { Some(v1 / v2) } else { None }
 }
 
+#[must_use]
 pub fn mod_(v1: f64, v2: f64) -> Option<f64> {
     divmod(v1, v2).map(|(_, m)| m)
 }
 
+#[must_use]
 pub fn floordiv(v1: f64, v2: f64) -> Option<f64> {
     divmod(v1, v2).map(|(d, _)| d)
 }
@@ -78,6 +85,7 @@ pub fn floordiv(v1: f64, v2: f64) -> Option<f64> {
 // Canonical (floordiv, mod) for floats matching CPython's _float_div_mod
 // (Objects/floatobject.c). `mod_` and `floordiv` delegate here so that
 // `divmod(a, b) == (a // b, a % b)` holds by construction.
+#[must_use]
 pub fn divmod(v1: f64, v2: f64) -> Option<(f64, f64)> {
     if v2 == 0.0 {
         return None;
@@ -108,6 +116,7 @@ pub fn divmod(v1: f64, v2: f64) -> Option<(f64, f64)> {
 
 // nextafter algorithm based off of https://gitlab.com/bronsonbdevost/next_afterf
 #[allow(clippy::float_cmp)]
+#[must_use]
 pub fn nextafter(x: f64, y: f64) -> f64 {
     if x == y {
         y
@@ -130,6 +139,7 @@ pub fn nextafter(x: f64, y: f64) -> f64 {
 }
 
 #[allow(clippy::float_cmp)]
+#[must_use]
 pub fn nextafter_with_steps(x: f64, y: f64, steps: u64) -> f64 {
     if x == y {
         y
@@ -192,6 +202,7 @@ pub fn nextafter_with_steps(x: f64, y: f64, steps: u64) -> f64 {
     }
 }
 
+#[must_use]
 pub fn ulp(x: f64) -> f64 {
     if x.is_nan() {
         return x;
@@ -207,6 +218,7 @@ pub fn ulp(x: f64) -> f64 {
     }
 }
 
+#[must_use]
 pub fn round_float_digits(x: f64, ndigits: i32) -> Option<f64> {
     // Mirror CPython's `float.__round__` (Objects/floatobject.c), which uses
     // `_Py_dg_dtoa` to round at the decimal level. Multiplying by 10**ndigits

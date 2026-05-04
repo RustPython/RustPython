@@ -53,6 +53,7 @@ impl PyUnion {
 
     /// Direct access to args field (_Py_union_args)
     #[inline]
+    #[must_use]
     pub fn args(&self) -> &Py<PyTuple> {
         &self.args
     }

@@ -125,6 +125,7 @@ impl SymbolTable {
         builder.finish()
     }
 
+    #[must_use]
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {
         self.symbols.get(name)
     }
@@ -226,6 +227,7 @@ impl Symbol {
         }
     }
 
+    #[must_use]
     pub const fn is_global(&self) -> bool {
         matches!(
             self.scope,
@@ -233,10 +235,12 @@ impl Symbol {
         )
     }
 
+    #[must_use]
     pub const fn is_local(&self) -> bool {
         matches!(self.scope, SymbolScope::Local | SymbolScope::Cell)
     }
 
+    #[must_use]
     pub const fn is_bound(&self) -> bool {
         self.flags.intersects(SymbolFlags::BOUND)
     }
@@ -249,6 +253,7 @@ pub struct SymbolTableError {
 }
 
 impl SymbolTableError {
+    #[must_use]
     pub fn into_codegen_error(self, source_path: String) -> CodegenError {
         CodegenError {
             location: self.location,

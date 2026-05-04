@@ -62,6 +62,7 @@ impl Constructor for PyStaticMethod {
 }
 
 impl PyStaticMethod {
+    #[must_use]
     pub fn new(callable: PyObjectRef) -> Self {
         Self {
             callable: PyMutex::new(callable),

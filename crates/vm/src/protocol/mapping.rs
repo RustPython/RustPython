@@ -105,11 +105,13 @@ impl AsRef<PyObject> for PyMapping<'_> {
 
 impl PyMapping<'_> {
     #[inline]
+    #[must_use]
     pub fn slots(&self) -> &PyMappingSlots {
         &self.obj.class().slots.as_mapping
     }
 
     #[inline]
+    #[must_use]
     pub fn check(&self) -> bool {
         self.slots().has_subscript()
     }

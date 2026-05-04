@@ -40,6 +40,7 @@ impl BuildHasher for HashSecret {
 }
 
 impl HashSecret {
+    #[must_use]
     pub fn new(seed: u32) -> Self {
         let mut buf = [0u8; 16];
         lcg_urandom(seed, &mut buf);
@@ -68,6 +69,7 @@ impl HashSecret {
         Ok(fix_sentinel(mod_int(hasher.finish() as PyHash)))
     }
 
+    #[must_use]
     pub fn hash_bytes(&self, value: &[u8]) -> PyHash {
         if value.is_empty() {
             0
@@ -76,12 +78,14 @@ impl HashSecret {
         }
     }
 
+    #[must_use]
     pub fn hash_str(&self, value: &str) -> PyHash {
         self.hash_bytes(value.as_bytes())
     }
 }
 
 #[inline]
+#[must_use]
 pub const fn hash_pointer(value: usize) -> PyHash {
     // TODO: 32bit?
     let hash = (value >> 4) | value;
@@ -89,6 +93,7 @@ pub const fn hash_pointer(value: usize) -> PyHash {
 }
 
 #[inline]
+#[must_use]
 pub fn hash_float(value: f64) -> Option<PyHash> {
     // cpython _Py_HashDouble
     if !value.is_finite() {
@@ -130,6 +135,7 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
     Some(fix_sentinel(x as PyHash * value.signum() as PyHash))
 }
 
+#[must_use]
 pub fn hash_bigint(value: &BigInt) -> PyHash {
     let ret = match value.to_i64() {
         Some(i) => mod_int(i),
@@ -142,16 +148,19 @@ pub fn hash_bigint(value: &BigInt) -> PyHash {
 }
 
 #[inline]
+#[must_use]
 pub const fn hash_usize(data: usize) -> PyHash {
     fix_sentinel(mod_int(data as i64))
 }
 
 #[inline(always)]
+#[must_use]
 pub const fn fix_sentinel(x: PyHash) -> PyHash {
     if x == SENTINEL { -2 } else { x }
 }
 
 #[inline]
+#[must_use]
 pub const fn mod_int(value: i64) -> PyHash {
     value % MODULUS as i64
 }
@@ -165,6 +174,7 @@ pub fn lcg_urandom(mut x: u32, buf: &mut [u8]) {
 }
 
 #[inline]
+#[must_use]
 pub const fn hash_object_id_raw(p: usize) -> PyHash {
     // TODO: Use commented logic when below issue resolved.
     // Ref: https://github.com/RustPython/RustPython/pull/3951#issuecomment-1193108966
@@ -176,10 +186,12 @@ pub const fn hash_object_id_raw(p: usize) -> PyHash {
 }
 
 #[inline]
+#[must_use]
 pub const fn hash_object_id(p: usize) -> PyHash {
     fix_sentinel(hash_object_id_raw(p))
 }
 
+#[must_use]
 pub fn keyed_hash(key: u64, buf: &[u8]) -> u64 {
     let mut hasher = SipHasher24::new_with_keys(key, 0);
     buf.hash(&mut hasher);

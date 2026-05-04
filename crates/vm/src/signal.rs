@@ -171,6 +171,7 @@ impl fmt::Display for UserSignalSendError {
     }
 }
 
+#[must_use]
 pub fn user_signal_channel() -> (UserSignalSender, UserSignalReceiver) {
     let (tx, rx) = mpsc::channel();
     (UserSignalSender { tx }, UserSignalReceiver { rx })

@@ -34,6 +34,7 @@ fn create_exception_group(ctx: &Context) -> PyRef<PyType> {
     .expect("Failed to create ExceptionGroup type with multiple inheritance")
 }
 
+#[must_use]
 pub fn exception_group() -> &'static Py<PyType> {
     ::rustpython_vm::common::static_cell! {
         static CELL: ::rustpython_vm::builtins::PyTypeRef;

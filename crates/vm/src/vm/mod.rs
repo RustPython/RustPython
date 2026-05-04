@@ -115,6 +115,7 @@ pub struct FramePtr(NonNull<Py<Frame>>);
 impl FramePtr {
     /// # Safety
     /// The pointed-to frame must still be alive.
+    #[must_use]
     pub unsafe fn as_ref(&self) -> &Py<Frame> {
         unsafe { self.0.as_ref() }
     }
@@ -201,6 +202,7 @@ impl Default for StopTheWorldState {
 
 #[cfg(all(unix, feature = "threading"))]
 impl StopTheWorldState {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             requested: AtomicBool::new(false),
@@ -2273,6 +2275,7 @@ impl AsRef<Context> for VirtualMachine {
 
 /// Resolve frozen module alias to its original name.
 /// Returns the original module name if an alias exists, otherwise returns the input name.
+#[must_use]
 pub fn resolve_frozen_alias(name: &str) -> &str {
     match name {
         "_frozen_importlib" => "importlib._bootstrap",

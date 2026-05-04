@@ -205,16 +205,19 @@ impl PyRef<PyBytes> {
 )]
 impl PyBytes {
     #[inline]
+    #[must_use]
     pub const fn __len__(&self) -> usize {
         self.inner.len()
     }
 
     #[inline]
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
     #[inline]
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         self.inner.as_bytes()
     }

@@ -417,6 +417,7 @@ impl Default for PatternContext {
 }
 
 impl PatternContext {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             stores: Vec::new(),
@@ -426,6 +427,7 @@ impl PatternContext {
         }
     }
 
+    #[must_use]
     pub fn fail_pop_size(&self) -> usize {
         self.fail_pop.len()
     }
@@ -6266,12 +6268,11 @@ impl Compiler {
                     return Err(self.error(CodegenErrorType::UnreachablePattern(
                         PatternUnreachableReason::NameCapture,
                     )));
-                } else {
-                    // A wildcard makes remaining patterns unreachable.
-                    return Err(self.error(CodegenErrorType::UnreachablePattern(
-                        PatternUnreachableReason::Wildcard,
-                    )));
                 }
+                // A wildcard makes remaining patterns unreachable.
+                return Err(self.error(CodegenErrorType::UnreachablePattern(
+                    PatternUnreachableReason::Wildcard,
+                )));
             }
             // If irrefutable matches are allowed, store the name (if any).
             return self.pattern_helper_store_name(p.name.as_ref(), pc);
@@ -10327,9 +10328,8 @@ impl Compiler {
             if !found_loop {
                 if is_break {
                     return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
-                } else {
-                    return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
                 }
+                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
             }
             return Ok(());
         }
@@ -10368,9 +10368,8 @@ impl Compiler {
         let Some(loop_idx) = loop_idx else {
             if is_break {
                 return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
-            } else {
-                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
             }
+            return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
         };
 
         let loop_block = code.fblock[loop_idx].fb_block;

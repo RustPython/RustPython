@@ -457,7 +457,7 @@ mod _sqlite3 {
                 let db = context.db_handle();
                 let args = args
                     .iter()
-                    .cloned()
+                    .copied()
                     .map(|val| value_to_object(val, db, vm))
                     .collect::<PyResult<Vec<PyObjectRef>>>()?;
 
@@ -654,7 +654,7 @@ mod _sqlite3 {
                 let db = context.db_handle();
                 let args = args
                     .iter()
-                    .cloned()
+                    .copied()
                     .map(|val| value_to_object(val, db, vm))
                     .collect::<PyResult<Vec<PyObjectRef>>>()?;
                 vm.call_method(instance, name, args).map(drop)
@@ -680,7 +680,9 @@ mod _sqlite3 {
 
     impl Drop for CallbackData {
         fn drop(&mut self) {
-            unsafe { PyObjectRef::from_raw(self.obj) };
+            unsafe {
+                let _ = PyObjectRef::from_raw(self.obj);
+            };
         }
     }
 

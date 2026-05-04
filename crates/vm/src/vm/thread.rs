@@ -345,6 +345,7 @@ fn do_suspend(stw: &super::StopTheWorldState) {
 
 #[cfg(all(unix, feature = "threading"))]
 #[inline]
+#[must_use]
 pub fn stop_requested_for_current_thread() -> bool {
     CURRENT_THREAD_SLOT.with(|slot| {
         slot.borrow()
@@ -393,6 +394,7 @@ pub fn set_current_frame(frame: *const Frame) -> *const Frame {
 
 /// Get the current thread's top frame pointer.
 /// Used by faulthandler's signal handler to start traceback walking.
+#[must_use]
 pub fn get_current_frame() -> *const Frame {
     CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed) as *const Frame)
 }

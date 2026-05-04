@@ -1138,6 +1138,7 @@ pub fn split_localplus<S: Clone>(
     })
 }
 
+#[must_use]
 pub fn linetable_to_locations(
     linetable: &[u8],
     first_line: i32,

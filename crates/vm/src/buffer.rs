@@ -523,6 +523,7 @@ impl FormatSpec {
     }
 
     #[inline]
+    #[must_use]
     pub const fn size(&self) -> usize {
         self.size
     }

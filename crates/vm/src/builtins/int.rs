@@ -303,12 +303,14 @@ impl PyInt {
         }
     }
 
+    #[must_use]
     pub const fn as_bigint(&self) -> &BigInt {
         &self.value
     }
 
     /// Fast decimal string conversion, using i64 path when possible.
     #[inline]
+    #[must_use]
     pub fn to_str_radix_10(&self) -> String {
         match self.value.to_i64() {
             Some(i) => i.to_string(),
@@ -317,6 +319,7 @@ impl PyInt {
     }
 
     // _PyLong_AsUnsignedLongMask
+    #[must_use]
     pub fn as_u32_mask(&self) -> u32 {
         let v = self.as_bigint();
         v.to_u32()

@@ -315,6 +315,7 @@ pub(crate) mod _thread {
 
     /// Get thread identity - uses pthread_self() on Unix for fork compatibility
     #[pyfunction]
+    #[must_use]
     pub fn get_ident() -> u64 {
         current_thread_id()
     }

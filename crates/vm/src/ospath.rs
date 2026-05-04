@@ -21,6 +21,7 @@ pub struct PathConverter {
 }
 
 impl PathConverter {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             function_name: None,
@@ -29,16 +30,19 @@ impl PathConverter {
         }
     }
 
+    #[must_use]
     pub const fn function(mut self, name: &'static str) -> Self {
         self.function_name = Some(name);
         self
     }
 
+    #[must_use]
     pub const fn argument(mut self, name: &'static str) -> Self {
         self.argument_name = Some(name);
         self
     }
 
+    #[must_use]
     pub const fn non_strict(mut self) -> Self {
         self.non_strict = true;
         self
@@ -235,14 +239,17 @@ impl OsPath {
         Self::from_fspath(fspath, vm)
     }
 
+    #[must_use]
     pub fn as_path(&self) -> &Path {
         Path::new(&self.path)
     }
 
+    #[must_use]
     pub fn into_bytes(self) -> Vec<u8> {
         self.path.into_encoded_bytes()
     }
 
+    #[must_use]
     pub fn to_string_lossy(&self) -> alloc::borrow::Cow<'_, str> {
         self.path.to_string_lossy()
     }
@@ -266,6 +273,7 @@ impl OsPath {
     }
 
     /// Get the output mode based on origin type (bytes -> Bytes, otherwise -> String)
+    #[must_use]
     pub fn mode(&self) -> OutputMode {
         match &self.origin {
             Some(obj) if obj.downcast_ref::<PyBytes>().is_some() => OutputMode::Bytes,

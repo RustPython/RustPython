@@ -352,6 +352,7 @@ pub mod windows {
         }
     }
 
+    #[must_use]
     pub fn stat_basic_info_to_stat(info: &FILE_STAT_BASIC_INFORMATION) -> StatStruct {
         use windows_sys::Win32::Storage::FileSystem;
         use windows_sys::Win32::System::Ioctl;

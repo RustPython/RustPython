@@ -49,6 +49,7 @@ impl PyAsyncGen {
         &self.inner
     }
 
+    #[must_use]
     pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             inner: Coro::new(frame, name, qualname),

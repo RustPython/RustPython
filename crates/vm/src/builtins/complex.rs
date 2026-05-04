@@ -272,10 +272,12 @@ impl PyComplex {
         Self::from(value).into_ref(ctx)
     }
 
+    #[must_use]
     pub const fn to_complex64(self) -> Complex64 {
         self.value
     }
 
+    #[must_use]
     pub const fn to_complex(&self) -> Complex64 {
         self.value
     }
