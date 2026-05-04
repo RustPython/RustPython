@@ -6,6 +6,7 @@ pub mod platform {
     pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
     pub use std::os::unix::io::RawFd;
 
+    #[must_use]
     pub const fn check_err(x: i32) -> bool {
         x < 0
     }
