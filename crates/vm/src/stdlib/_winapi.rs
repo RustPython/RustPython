@@ -66,6 +66,9 @@ mod _winapi {
     const INVALID_HANDLE_VALUE: isize = -1;
 
     #[pyattr]
+    const INFINITE: u32 = host_winapi::INFINITE_TIMEOUT;
+
+    #[pyattr]
     const COPY_FILE_DIRECTORY: u32 = 0x00000080;
 
     #[pyfunction]

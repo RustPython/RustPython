@@ -2109,11 +2109,6 @@ mod _socket {
         }
 
         #[cfg(windows)]
-        fn wsa_error() -> io::Error {
-            host_socket::last_socket_error()
-        }
-
-        #[cfg(windows)]
         #[pymethod]
         fn ioctl(
             &self,
@@ -2126,7 +2121,6 @@ mod _socket {
 
             let sock = self.sock()?;
             let fd = sock_fileno(&sock);
-            let mut recv: u32 = 0;
 
             // Convert cmd to u32, returning ValueError for invalid/negative values
             let cmd_int = cmd
@@ -2771,8 +2765,7 @@ mod _socket {
         #[cfg(windows)]
         {
             let name = name.to_cstring(vm)?;
-            return host_socket::if_nametoindex_checked(&name)
-                .map_err(|_| vm.new_last_errno_error());
+            host_socket::if_nametoindex_checked(&name).map_err(|_| vm.new_last_errno_error())
         }
         #[cfg(not(windows))]
         {
@@ -2793,8 +2786,7 @@ mod _socket {
     fn if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
         #[cfg(windows)]
         {
-            return host_socket::if_indextoname_checked(index)
-                .map_err(|_| vm.new_last_errno_error());
+            host_socket::if_indextoname_checked(index).map_err(|_| vm.new_last_errno_error())
         }
         #[cfg(not(windows))]
         {
