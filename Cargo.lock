@@ -430,15 +430,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "caseless"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b6fd507454086c8edfd769ca6ada439193cdb209c7681712ef6275cccbfe5d8"
-dependencies = [
- "unicode-normalization",
-]
-
-[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3561,7 +3552,6 @@ dependencies = [
  "ascii",
  "bitflags 2.11.0",
  "bstr",
- "caseless",
  "chrono",
  "constant_time_eq",
  "crossbeam-utils",

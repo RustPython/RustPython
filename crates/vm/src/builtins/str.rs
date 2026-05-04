@@ -45,10 +45,10 @@ use rustpython_common::{
     hash,
     lock::PyMutex,
     str::DeduceStrKind,
-    wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk, Wtf8Concat},
+    wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Concat},
 };
 
-use icu_casemap::TitlecaseMapper;
+use icu_casemap::{CaseMapper, TitlecaseMapper};
 use icu_locale::LanguageIdentifier;
 use icu_properties::props::{
     BidiClass, BinaryProperty, CaseIgnorable, Cased, EnumeratedProperty, GeneralCategory,
@@ -743,20 +743,31 @@ impl PyStr {
         }
     }
 
-    // casefold is much more aggressive than lower
+    // Case folding is a Unicode standard operation to erase case differences.
+    //
+    // Lower, upper, and title case are special properties. Case folding erases those
+    // differences. For ASCII, case folding is the same as lower case but other scripts have
+    // their own, well-defined mappings.
     #[pymethod]
     fn casefold(&self) -> Self {
         match self.as_str_kind() {
-            PyKindStr::Ascii(s) => caseless::default_case_fold_str(s.as_str()).into(),
-            PyKindStr::Utf8(s) => caseless::default_case_fold_str(s).into(),
-            PyKindStr::Wtf8(w) => w
-                .chunks()
-                .map(|c| match c {
-                    Wtf8Chunk::Utf8(s) => Wtf8Buf::from_string(caseless::default_case_fold_str(s)),
-                    Wtf8Chunk::Surrogate(c) => Wtf8Buf::from(c),
-                })
-                .collect::<Wtf8Buf>()
-                .into(),
+            PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
+            PyKindStr::Utf8(s) => CaseMapper::new().fold_string(s).to_string().into(),
+            PyKindStr::Wtf8(w) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(w.len()));
+                let mapper = CaseMapper::new();
+                for chunk in w.as_bytes().utf8_chunks() {
+                    mapper
+                        .fold(chunk.valid())
+                        .write_to(&mut out)
+                        .expect("Writing to an in-memory buffer cannot fail.");
+                    out.0.extend(chunk.invalid());
+                }
+                // SAFETY:
+                // * CaseMapper only produces valid UTF-8
+                // * Surrogates are appended as-is
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }.into()
+            }
         }
     }
 

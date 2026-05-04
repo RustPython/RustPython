@@ -73,7 +73,6 @@ strum_macros = { workspace = true }
 thiserror = { workspace = true }
 memchr = { workspace = true }
 
-caseless = { workspace = true }
 flamer = { workspace = true, optional = true }
 half = { workspace = true }
 psm = { workspace = true }
