@@ -1462,12 +1462,6 @@ impl PyCode {
     }
 }
 
-impl fmt::Display for PyCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (**self).fmt(f)
-    }
-}
-
 impl ToPyObject for CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_code(self).into()
