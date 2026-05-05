@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import dataclasses
 import io
 import os
 import pathlib
@@ -26,6 +27,98 @@ import analyzer
 from generators_common import DEFAULT_INPUT
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class OpcodeGen:
+    name: str
+    instructions: list
+    numeric_repr: str
+
+    def gen(self) -> str:
+        variants = ",\n".join(instr.name for instr in self.instructions)
+
+        methods = "\n\n".join(
+            getattr(self, attr).strip()
+            for attr in sorted(dir(self))
+            if attr.startswith("fn_")
+        )
+
+        impls = "\n\n".join(
+            getattr(self, attr).strip()
+            for attr in sorted(dir(self))
+            if attr.startswith("impl_")
+        )
+
+        return f"""
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub enum {self.name} {{
+            {variants}
+        }}
+
+        impl {self.name} {{
+            {methods}
+        }}
+
+        {impls}
+        """
+
+    @property
+    def fn_as_numeric(self) -> str:
+        arms = ",\n".join(
+            f"Self::{instr.name} => {instr.opcode}" for instr in self.instructions
+        )
+        return f"""
+        #[must_use]
+        pub const fn as_{self.numeric_repr}(self) -> {self.numeric_repr} {{
+            match self {{
+                {arms},
+            }}
+        }}
+        """
+
+    @property
+    def fn_tryfrom_numeric(self) -> str:
+        arms = ",\n".join(
+            f"{instr.opcode} => Self::{instr.name}" for instr in self.instructions
+        )
+        return f"""
+        #[must_use]
+        pub const fn from_{self.numeric_repr}(
+            value: {self.numeric_repr}
+        ) -> Result<Self, crate::marshal::MarshalError> {{
+            Ok(match value {{
+                {arms},
+                _ => return Err(crate::MarshalError::InvalidBytecode),
+            }})
+        }}
+        """
+
+    @property
+    def impl_tryfrom_numeric(self) -> str:
+        return f"""
+        impl TryFrom<{self.numeric_repr}> for {self.name} {{
+            type Error = crate::marshal::MarshalError;
+
+            fn try_from(value: {self.numeric_repr}) -> Result<Self, Self::Error> {{
+                Self::from_{self.numeric_repr}(value)
+            }}
+        }}
+        """
+
+    @property
+    def impl_into_numeric(self) -> str:
+        return f"""
+        impl From<{self.name}> for {self.numeric_repr}{{
+            fn from(opcode: {self.name}) -> Self {{
+                opcode.as_{self.numeric_repr}()
+            }}
+        }}
+        """
+
+
+def to_pascal_case(s: str) -> str:
+    return s.title().replace("_", "")
+
+
 def get_analysis() -> analyzer.Analysis:
     analysis = analyzer.analyze_files([DEFAULT_INPUT])
 
@@ -43,10 +136,36 @@ def main():
 
     analysis = get_analysis()
 
-    outfile = io.StringIO()
-    opcode_conf = CONF["Opcodes"]
+    opcodes_conf = CONF["Opcodes"]
+    instructions_conf = CONF["Instructions"]
 
-    generated = ""
+    outfile = io.StringIO()
+    for key, conf in opcodes_conf.items():
+        opcode_enum_name = conf["opcode_enum_name"]
+        numeric_repr = conf["numeric_repr"]
+
+        opcode_range = conf["range"]
+        lower, upper = map(int, (opcode_range["min"], opcode_range["max"]))
+        bounds = range(lower, upper + 1)
+
+        instructions = sorted(
+            (
+                instr
+                for instr in analysis.instructions.values()
+                if instr.opcode in bounds
+            ),
+            key=lambda x: x.opcode,
+        )
+
+        for instr in instructions:
+            instr.name = to_pascal_case(instr.name)
+
+        code = OpcodeGen(
+            name=opcode_enum_name, instructions=instructions, numeric_repr=numeric_repr
+        ).gen()
+        outfile.write(code)
+
+    generated = outfile.getvalue()
 
     script_path = pathlib.Path(__file__).resolve().relative_to(ROOT).as_posix()
 
