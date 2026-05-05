@@ -4638,6 +4638,42 @@ impl CodeInfo {
                 .collect()
         }
 
+        fn block_has_simple_scope_exit(block: &Block) -> bool {
+            for info in &block.instructions {
+                match info.instr.real() {
+                    Some(instr) if instr.is_scope_exit() => return true,
+                    Some(
+                        Instruction::Nop
+                        | Instruction::NotTaken
+                        | Instruction::LoadConst { .. }
+                        | Instruction::LoadSmallInt { .. }
+                        | Instruction::StoreFast { .. }
+                        | Instruction::StoreName { .. }
+                        | Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                        | Instruction::BuildTuple { .. },
+                    ) => {}
+                    Some(_) => return false,
+                    None => {}
+                }
+            }
+            false
+        }
+
+        fn leading_bool_guard_has_scope_exit_successor(blocks: &[Block], block: &Block) -> bool {
+            let Some(cond_idx) = trailing_conditional_jump_index(block) else {
+                return false;
+            };
+            [block.instructions[cond_idx].target, block.next]
+                .into_iter()
+                .any(|successor| {
+                    successor != BlockIdx::NULL
+                        && block_has_simple_scope_exit(&blocks[successor.idx()])
+                })
+        }
+
         fn path_reaches_named_cleanup(
             blocks: &[Block],
             start: BlockIdx,
@@ -4828,6 +4864,7 @@ impl CodeInfo {
             let seed = BlockIdx::new(idx as u32);
             let mut segment = Vec::new();
             let mut cursor = seed;
+            let seed_guard_local = leading_bool_guard_local(&self.blocks[seed.idx()]);
             let mut fallback_guard_local = None;
             while cursor != BlockIdx::NULL {
                 let block = &self.blocks[cursor.idx()];
@@ -4837,6 +4874,12 @@ impl CodeInfo {
                 if cursor != seed
                     && let Some(local) = leading_bool_guard_local(block)
                 {
+                    if !leading_bool_guard_has_scope_exit_successor(&self.blocks, block) {
+                        break;
+                    }
+                    if seed_guard_local.is_some_and(|seed_local| seed_local != local) {
+                        break;
+                    }
                     match fallback_guard_local {
                         None => fallback_guard_local = Some(local),
                         Some(expected) if expected != local => break,
@@ -4846,7 +4889,8 @@ impl CodeInfo {
                 segment.push(cursor);
                 cursor = block.next;
             }
-            if fallback_guard_local.is_none() && !named_cleanup_requires_deopt[idx] {
+            let requires_deopt = named_cleanup_requires_deopt[idx];
+            if fallback_guard_local.is_none() && !requires_deopt {
                 continue;
             }
 
@@ -4862,6 +4906,9 @@ impl CodeInfo {
                 let is_same_guard_fallback = fallback_guard_local.is_some_and(|local| {
                     leading_bool_guard_local(&self.blocks[block_idx.idx()]) == Some(local)
                 });
+                if !requires_deopt && !is_same_guard_fallback {
+                    continue;
+                }
                 if block_idx != seed
                     && !is_same_guard_fallback
                     && predecessors[block_idx.idx()].iter().any(|pred| {
@@ -7409,11 +7456,10 @@ impl CodeInfo {
                         .any(|info| info.except_handler.is_some())
                 });
                 let has_handler_resume_predecessor = predecessors[idx].iter().any(|pred| {
-                    is_handler_resume_block[pred.idx()]
-                        || is_handler_resume_predecessor(
-                            &self.blocks[pred.idx()],
-                            BlockIdx::new(idx as u32),
-                        )
+                    let pred_block = &self.blocks[pred.idx()];
+                    !is_named_except_cleanup_normal_exit_block(pred_block)
+                        && (is_handler_resume_block[pred.idx()]
+                            || is_handler_resume_predecessor(pred_block, BlockIdx::new(idx as u32)))
                 });
                 let has_suppressing_with_resume_predecessor =
                     predecessors[idx].iter().any(|pred| {

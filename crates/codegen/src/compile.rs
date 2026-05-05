@@ -11889,7 +11889,10 @@ mod ruff_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustpython_compiler_core::{SourceFileBuilder, bytecode::OpArg};
+    use rustpython_compiler_core::{
+        SourceFileBuilder,
+        bytecode::{CodeUnit, OpArg},
+    };
 
     fn assert_scope_exit_locations(code: &CodeObject) {
         for (instr, (location, _)) in code.instructions.iter().zip(code.locations.iter()) {
@@ -22399,6 +22402,159 @@ def f(self):
                 .iter()
                 .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
             "named-except cleanup conditional raise tail should not force strong LOAD_FAST, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_named_except_cleanup_or_guard_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, nd, slices):
+    listerr = None
+    try:
+        sliced = multislice(lst, slices)
+    except Exception as e:
+        listerr = e.__class__
+    nderr = None
+    try:
+        ndsliced = nd[slices]
+    except Exception as e:
+        nderr = e.__class__
+    if nderr or listerr:
+        self.assertIs(nderr, listerr)
+    else:
+        self.assertEqual(ndsliced.tolist(), sliced)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let assert_is_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "assertIs"
+                }
+                _ => false,
+            })
+            .expect("missing assertIs LOAD_ATTR");
+        let tail = &instructions[assert_is_idx.saturating_sub(1)..];
+
+        assert!(
+            matches!(
+                tail.first().map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "named-except `a or b` normal tail should keep borrowed receiver, got tail={tail:?}"
+        );
+        assert!(
+            tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "named-except `a or b` normal tail should keep borrowed arguments, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_named_except_cleanup_slice_assign_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, items, lslice, rslice, ndarray, memoryview, ValueError,
+      is_memoryview_format, fmt):
+    nd = ndarray(items, shape=[5], format=fmt)
+    ex = ndarray(items, shape=[5], format=fmt)
+    mv = memoryview(ex)
+    lsterr = None
+    diff_structure = None
+    lst = items[:]
+    try:
+        lval = lst[lslice]
+        rval = lst[rslice]
+        lst[lslice] = lst[rslice]
+        diff_structure = len(lval) != len(rval)
+    except Exception as e:
+        lsterr = e.__class__
+    nderr = None
+    try:
+        nd[lslice] = nd[rslice]
+    except Exception as e:
+        nderr = e.__class__
+    if diff_structure:
+        self.assertIs(nderr, ValueError)
+    else:
+        self.assertEqual(nd.tolist(), lst)
+        self.assertIs(nderr, lsterr)
+    if not is_memoryview_format(fmt):
+        return
+    mverr = None
+    try:
+        mv[lslice] = mv[rslice]
+    except Exception as e:
+        mverr = e.__class__
+    if diff_structure:
+        self.assertIs(mverr, ValueError)
+    else:
+        self.assertEqual(mv.tolist(), lst)
+        self.assertEqual(mv, nd)
+        self.assertIs(mverr, lsterr)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .unwrap_or(instructions.len());
+        let normal_path = &instructions[..handler_start];
+        let load_fast_name = |unit: &CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let idx = usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))));
+                Some(f.varnames[idx].as_str())
+            }
+            _ => None,
+        };
+
+        assert!(
+            normal_path.windows(3).any(|window| {
+                matches!(window[0].op, Instruction::LoadFastBorrow { .. })
+                    && load_fast_name(window[0]) == Some("diff_structure")
+                    && matches!(window[1].op, Instruction::ToBool)
+                    && matches!(window[2].op, Instruction::PopJumpIfFalse { .. })
+            }),
+            "expected named-except resume guard to keep borrowed diff_structure load, got normal_path={normal_path:?}"
+        );
+        assert!(
+            normal_path.windows(4).any(|window| {
+                matches!(
+                    window[0].op,
+                    Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                ) && matches!(window[1].op, Instruction::BinaryOp { .. })
+                    && matches!(
+                        window[2].op,
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                    )
+                    && matches!(window[3].op, Instruction::StoreSubscr)
+            }),
+            "expected slice assignment normal path to keep borrowed local loads, got normal_path={normal_path:?}"
+        );
+        assert!(
+            normal_path.windows(2).any(|window| {
+                matches!(window[0].op, Instruction::LoadFastBorrow { .. })
+                    && matches!(window[1].op, Instruction::LoadAttr { .. })
+            }),
+            "expected named-except slice-assign tail method calls to keep borrowed receivers, got normal_path={normal_path:?}"
         );
     }
 
