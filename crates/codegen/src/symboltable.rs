@@ -591,14 +591,7 @@ impl SymbolTableAnalyzer {
         }
 
         // Analyze symbols in current scope
-        let remove_owned_cells_from_free = matches!(
-            symbol_table.typ,
-            CompilerScope::Function
-                | CompilerScope::AsyncFunction
-                | CompilerScope::Lambda
-                | CompilerScope::Comprehension
-                | CompilerScope::Annotation
-        );
+        let function_like_scope = SymbolTableBuilder::is_function_like_scope(symbol_table.typ);
         for symbol in symbol_table.symbols.values_mut() {
             self.analyze_symbol(
                 symbol,
@@ -611,7 +604,7 @@ impl SymbolTableAnalyzer {
             // CPython analyze_cells(): once a function-like scope owns a
             // child-requested name as a cell, that name is no longer free in
             // the enclosing scope.
-            if remove_owned_cells_from_free && symbol.scope == SymbolScope::Cell {
+            if function_like_scope && symbol.scope == SymbolScope::Cell {
                 newfree.shift_remove(symbol.name.as_str());
             }
 
@@ -625,17 +618,9 @@ impl SymbolTableAnalyzer {
         // - only promote LOCAL -> CELL in function-like scopes, where
         //   analyze_cells() runs. Module and class scopes keep their normal
         //   scope and rely on DEF_COMP_CELL for comprehension-only cells.
-        let promote_inlined_cells_to_cell = matches!(
-            symbol_table.typ,
-            CompilerScope::Function
-                | CompilerScope::AsyncFunction
-                | CompilerScope::Lambda
-                | CompilerScope::Comprehension
-                | CompilerScope::Annotation
-        );
         for symbol in symbol_table.symbols.values_mut() {
             if inlined_cells.contains(&symbol.name)
-                && promote_inlined_cells_to_cell
+                && function_like_scope
                 && symbol.scope == SymbolScope::Local
             {
                 symbol.scope = SymbolScope::Cell;
@@ -1073,6 +1058,17 @@ impl SymbolTableBuilder {
         this
     }
 
+    fn is_function_like_scope(typ: CompilerScope) -> bool {
+        matches!(
+            typ,
+            CompilerScope::Function
+                | CompilerScope::AsyncFunction
+                | CompilerScope::Lambda
+                | CompilerScope::Comprehension
+                | CompilerScope::Annotation
+        )
+    }
+
     fn finish(mut self) -> Result<SymbolTable, SymbolTableError> {
         assert_eq!(self.tables.len(), 1);
         let mut symbol_table = self.tables.pop().unwrap();
@@ -1471,7 +1467,11 @@ impl SymbolTableBuilder {
                     parameters,
                     self.line_index_start(*range),
                     has_return_annotation,
-                    *is_async,
+                    if *is_async {
+                        CompilerScope::AsyncFunction
+                    } else {
+                        CompilerScope::Function
+                    },
                     has_type_params, // skip_defaults: already scanned above
                 )?;
                 self.scan_statements(body)?;
@@ -2140,10 +2140,9 @@ impl SymbolTableBuilder {
                         parameters,
                         self.line_index_start(expression.range()),
                         false, // lambdas have no return annotation
-                        false, // lambdas are never async
+                        CompilerScope::Lambda,
                         false, // don't skip defaults
                     )?;
-                    self.tables.last_mut().unwrap().typ = CompilerScope::Lambda;
                 } else {
                     self.enter_scope(
                         "lambda",
@@ -2553,7 +2552,7 @@ impl SymbolTableBuilder {
         parameters: &ast::Parameters,
         line_number: u32,
         has_return_annotation: bool,
-        is_async: bool,
+        scope_type: CompilerScope,
         skip_defaults: bool,
     ) -> SymbolTableResult {
         // Evaluate eventual default parameters (unless already scanned before type_param_block):
@@ -2613,11 +2612,6 @@ impl SymbolTableBuilder {
             None
         };
 
-        let scope_type = if is_async {
-            CompilerScope::AsyncFunction
-        } else {
-            CompilerScope::Function
-        };
         self.enter_scope(name, scope_type, line_number);
 
         // Move annotation_block to function scope only if we have one

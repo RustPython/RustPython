@@ -472,13 +472,13 @@ impl CodeInfo {
                 let mut remove = false;
 
                 if matches!(instr.instr.real(), Some(Instruction::Nop)) {
-                    if lineno < 0 || prev_lineno == lineno {
-                        remove = true;
-                    } else if src > 0
-                        && matches!(
-                            src_instructions[src - 1].instr.real(),
-                            Some(Instruction::PopIter)
-                        )
+                    if lineno < 0
+                        || prev_lineno == lineno
+                        || (src > 0
+                            && matches!(
+                                src_instructions[src - 1].instr.real(),
+                                Some(Instruction::PopIter)
+                            ))
                     {
                         remove = true;
                     } else if src < src_instructions.len() - 1 {
@@ -562,21 +562,6 @@ impl CodeInfo {
         // The offset (in code units) of END_SEND from SEND in the yield-from sequence.
         const END_SEND_OFFSET: u32 = 5;
         loop {
-            for block in blocks.iter_mut() {
-                let mut i = 1;
-                while i < block.instructions.len() {
-                    if matches!(
-                        block.instructions[i - 1].instr.real(),
-                        Some(Instruction::PopIter)
-                    ) && matches!(block.instructions[i].instr.real(), Some(Instruction::Nop))
-                    {
-                        block.instructions.remove(i);
-                    } else {
-                        i += 1;
-                    }
-                }
-            }
-
             let mut num_instructions = 0;
             for (idx, block) in iter_blocks(&blocks) {
                 block_to_offset[idx.idx()] = Label::from_u32(num_instructions as u32);
@@ -10586,6 +10571,53 @@ fn jump_threading_unconditional(blocks: &mut [Block]) {
     jump_threading_impl(blocks, false);
 }
 
+fn opposite_short_circuit_target(block: &Block, source: AnyInstruction) -> bool {
+    let Some(cond_idx) = trailing_conditional_jump_index(block) else {
+        return false;
+    };
+    let [first, second, ..] = block.instructions.as_slice() else {
+        return false;
+    };
+    if !matches!(first.instr.real(), Some(Instruction::Copy { i }) if i.get(first.arg) == 1)
+        || !matches!(second.instr.real(), Some(Instruction::ToBool))
+    {
+        return false;
+    }
+    matches!(
+        (source.real(), block.instructions[cond_idx].instr.real()),
+        (
+            Some(Instruction::PopJumpIfFalse { .. }),
+            Some(Instruction::PopJumpIfTrue { .. })
+        ) | (
+            Some(Instruction::PopJumpIfTrue { .. }),
+            Some(Instruction::PopJumpIfFalse { .. })
+        )
+    )
+}
+
+fn same_short_circuit_target(block: &Block, source: AnyInstruction) -> Option<BlockIdx> {
+    let cond_idx = trailing_conditional_jump_index(block)?;
+    let [first, second, ..] = block.instructions.as_slice() else {
+        return None;
+    };
+    if !matches!(first.instr.real(), Some(Instruction::Copy { i }) if i.get(first.arg) == 1)
+        || !matches!(second.instr.real(), Some(Instruction::ToBool))
+    {
+        return None;
+    }
+    matches!(
+        (source.real(), block.instructions[cond_idx].instr.real()),
+        (
+            Some(Instruction::PopJumpIfFalse { .. }),
+            Some(Instruction::PopJumpIfFalse { .. })
+        ) | (
+            Some(Instruction::PopJumpIfTrue { .. }),
+            Some(Instruction::PopJumpIfTrue { .. })
+        )
+    )
+    .then_some(block.instructions[cond_idx].target)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum JumpThreadKind {
     Plain,
@@ -10679,6 +10711,28 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
             }
             target = next_nonempty_block(blocks, target);
             if target == BlockIdx::NULL {
+                continue;
+            }
+            if include_conditional
+                && is_conditional_jump(&ins.instr)
+                && opposite_short_circuit_target(&blocks[target.idx()], ins.instr)
+            {
+                let final_target = next_nonempty_block(blocks, blocks[target.idx()].next);
+                if final_target != BlockIdx::NULL && ins.target != final_target {
+                    blocks[bi].instructions[last_idx].target = final_target;
+                    changed = true;
+                    continue;
+                }
+            }
+            if include_conditional
+                && is_conditional_jump(&ins.instr)
+                && let Some(final_target) =
+                    same_short_circuit_target(&blocks[target.idx()], ins.instr)
+                && final_target != BlockIdx::NULL
+                && ins.target != final_target
+            {
+                blocks[bi].instructions[last_idx].target = final_target;
+                changed = true;
                 continue;
             }
             if include_conditional && is_conditional_jump(&ins.instr) {
@@ -11166,7 +11220,23 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
     for block_idx in block_order {
         let bi = block_idx.idx();
         let keep_target_start_nop = keep_target_start_no_location_nop(blocks, block_idx);
+        let follows_pop_iter_cleanup = layout_predecessor_ends_with_pop_iter(blocks, block_idx);
         let mut src_instructions = core::mem::take(&mut blocks[bi].instructions);
+        if !keep_target_start_nop
+            && matches!(
+                src_instructions.as_slice(),
+                [InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::Nop),
+                    ..
+                }]
+            )
+            && follows_pop_iter_cleanup
+        {
+            changes += 1;
+            src_instructions.clear();
+            blocks[bi].instructions = src_instructions;
+            continue;
+        }
         let mut kept = Vec::with_capacity(src_instructions.len());
         let mut prev_lineno = -1i32;
 
@@ -11176,21 +11246,17 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
             let mut remove = false;
 
             if matches!(instr.instr.real(), Some(Instruction::Nop)) {
-                if instr.preserve_block_start_no_location_nop {
-                    remove = false;
-                } else if lineno < 0 {
-                    remove = true;
-                } else if src > 0
+                if (src > 0
                     && matches!(
                         src_instructions[src - 1].instr.real(),
                         Some(Instruction::PopIter)
-                    )
+                    ))
+                    || (src == 0 && !keep_target_start_nop && follows_pop_iter_cleanup)
                 {
                     remove = true;
-                } else if src == 0
-                    && !keep_target_start_nop
-                    && layout_predecessor_ends_with_pop_iter(blocks, block_idx)
-                {
+                } else if instr.preserve_block_start_no_location_nop {
+                    remove = false;
+                } else if lineno < 0 {
                     remove = true;
                 } else if instr.remove_no_location_nop
                     && src == 0
@@ -11214,7 +11280,9 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
                 } else if src < src_instructions.len() - 1 {
                     if src_instructions[src + 1].instr.is_block_push() {
                         remove = false;
-                    } else if src_instructions[src + 1].instr.is_unconditional_jump() {
+                    } else if src_instructions[src + 1].instr.is_unconditional_jump()
+                        && src_instructions[src + 1].target != block_idx
+                    {
                         src_instructions[src + 1].lineno_override = Some(lineno);
                         remove = true;
                     } else if src_instructions[src + 1].folded_from_nonliteral_expr {
@@ -12825,7 +12893,7 @@ fn deduplicate_adjacent_jump_back_blocks(blocks: &mut [Block]) {
     }
 }
 
-fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
+fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>) {
     fn jump_back_target(blocks: &[Block], block_idx: BlockIdx) -> Option<BlockIdx> {
         if block_idx == BlockIdx::NULL {
             return None;
@@ -12873,6 +12941,30 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
         None
     }
 
+    fn find_body_tail_before_jump(
+        blocks: &[Block],
+        body_start: BlockIdx,
+        jump_start: BlockIdx,
+    ) -> Option<BlockIdx> {
+        let mut cursor = body_start;
+        let mut tail = BlockIdx::NULL;
+        let mut visited = vec![false; blocks.len()];
+        while cursor != BlockIdx::NULL && cursor != jump_start {
+            if visited[cursor.idx()] {
+                return None;
+            }
+            visited[cursor.idx()] = true;
+            if block_is_exceptional(&blocks[cursor.idx()])
+                || block_is_protected(&blocks[cursor.idx()])
+            {
+                return None;
+            }
+            tail = cursor;
+            cursor = blocks[cursor.idx()].next;
+        }
+        (tail != BlockIdx::NULL && cursor == jump_start).then_some(tail)
+    }
+
     fn body_segment_contains_for_iter(
         blocks: &[Block],
         body_start: BlockIdx,
@@ -12900,6 +12992,17 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
         false
     }
 
+    fn block_starts_loop_cleanup(blocks: &[Block], block_idx: BlockIdx) -> bool {
+        block_idx != BlockIdx::NULL
+            && matches!(
+                blocks[block_idx.idx()]
+                    .instructions
+                    .first()
+                    .and_then(|info| info.instr.real()),
+                Some(Instruction::EndFor | Instruction::PopIter)
+            )
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -12909,6 +13012,55 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
             continue;
         };
         let cond = blocks[idx].instructions[cond_idx];
+        let Some(reversed_cond) = reversed_conditional(&cond.instr) else {
+            current = next;
+            continue;
+        };
+
+        let true_jump_start = cond.target;
+        let true_jump = next_nonempty_block(blocks, true_jump_start);
+        let body_start = next;
+        let body = next_nonempty_block(blocks, body_start);
+        let true_jump_loop_target = jump_back_target(blocks, true_jump);
+        let true_jump_targets_loop_header = true_jump_loop_target.is_some_and(|loop_target| {
+            blocks[loop_target.idx()]
+                .instructions
+                .iter()
+                .any(|info| matches!(info.instr.real(), Some(Instruction::ForIter { .. })))
+        });
+        if true_jump_targets_loop_header
+            && true_jump_start == true_jump
+            && body_start != BlockIdx::NULL
+            && body != BlockIdx::NULL
+            && true_jump != BlockIdx::NULL
+            && !block_is_exceptional(&blocks[idx])
+            && !block_is_exceptional(&blocks[true_jump.idx()])
+            && !block_is_protected(&blocks[idx])
+            && !block_is_protected(&blocks[true_jump.idx()])
+            && next_nonempty_block(blocks, blocks[true_jump.idx()].next) != body
+            && let Some(body_tail) = find_body_tail_before_jump(blocks, body, true_jump_start)
+        {
+            let after_jump = blocks[true_jump.idx()].next;
+            let body_tail_is_conditional =
+                trailing_conditional_jump_index(&blocks[body_tail.idx()]).is_some();
+            let can_reorder = !body_tail_is_conditional
+                && (matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. }))
+                    || body_segment_contains_for_iter(blocks, body, body_tail));
+            if can_reorder && after_jump != BlockIdx::NULL && after_jump != body_start {
+                let cloned_jump_idx = BlockIdx(blocks.len() as u32);
+                let mut cloned_jump = blocks[true_jump.idx()].clone();
+                cloned_jump.next = body_start;
+                blocks.push(cloned_jump);
+
+                blocks[idx].instructions[cond_idx].instr = reversed_cond;
+                blocks[idx].instructions[cond_idx].target = body_start;
+                blocks[idx].next = cloned_jump_idx;
+                blocks[body_tail.idx()].next = true_jump_start;
+                current = blocks[idx].next;
+                continue;
+            }
+        }
+
         if !matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. })) {
             current = next;
             continue;
@@ -12943,12 +13095,14 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
             current = next;
             continue;
         };
-        if !body_segment_contains_for_iter(blocks, body, body_tail) {
+        let after_body = blocks[body_tail.idx()].next;
+        if after_body == BlockIdx::NULL || after_body == false_jump_start {
             current = next;
             continue;
         }
-        let after_body = blocks[body_tail.idx()].next;
-        if after_body == BlockIdx::NULL || after_body == false_jump_start {
+        if !body_segment_contains_for_iter(blocks, body, body_tail)
+            || block_starts_loop_cleanup(blocks, next_nonempty_block(blocks, after_body))
+        {
             current = next;
             continue;
         }

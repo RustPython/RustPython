@@ -2834,7 +2834,11 @@ impl Compiler {
                                 statement.range(),
                             ));
                         }
-                        let folded_constant = self.try_fold_constant_expr(v)?;
+                        let folded_constant = if v.is_constant() {
+                            self.try_fold_constant_expr(v)?
+                        } else {
+                            None
+                        };
                         let preserve_tos = folded_constant.is_none();
                         if preserve_tos {
                             self.compile_expression(v)?;
@@ -7793,22 +7797,7 @@ impl Compiler {
 
         for value in prefix_values {
             let continue_block = self.new_block();
-            match value {
-                ast::Expr::BoolOp(ast::ExprBoolOp {
-                    op: inner_op,
-                    values,
-                    ..
-                }) if inner_op != op => {
-                    let (last_inner_value, inner_prefix_values) = values.split_last().unwrap();
-                    for inner_value in inner_prefix_values {
-                        self.compile_expression(inner_value)?;
-                        self.emit_short_circuit_test(inner_op, continue_block);
-                        emit!(self, Instruction::PopTop);
-                    }
-                    self.compile_expression(last_inner_value)?;
-                }
-                _ => self.compile_expression(value)?,
-            }
+            self.compile_expression(value)?;
             self.emit_short_circuit_test(op, after_block);
             self.switch_to_block(continue_block);
             emit!(self, Instruction::PopTop);
@@ -14718,6 +14707,132 @@ def f(c, encodeO, encodeWS):
     }
 
     #[test]
+    fn test_nested_opposite_boolop_threads_to_fallthrough_like_cpython() {
+        for source in [
+            "\
+def f(a, b, c):
+    return ((a and b)
+            or c)
+",
+            "\
+def f(a, b, c):
+    return ((a or b)
+            and c)
+",
+        ] {
+            let code = compile_exec(source);
+            let f = find_code(&code, "f").expect("missing f code");
+            let jumps: Vec<_> = f
+                .instructions
+                .iter()
+                .filter(|unit| {
+                    matches!(
+                        unit.op,
+                        Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                    )
+                })
+                .collect();
+
+            assert_eq!(
+                jumps.len(),
+                2,
+                "expected two conditional jumps, got {jumps:?}"
+            );
+            assert!(
+                u8::from(jumps[0].arg) > u8::from(jumps[1].arg),
+                "expected CPython-style first jump to bypass the opposite short-circuit test, got jumps={jumps:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_loop_or_continue_keeps_boolop_true_edge_to_continue() {
+        let code = compile_exec(
+            "\
+def f(numpy_array, lshape, rshape, litems, fmt, tl):
+    for _ in range(3):
+        if numpy_array:
+            if 0 in lshape or 0 in rshape:
+                continue
+            zl = numpy_array_from_structure(litems, fmt, tl)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                    ]
+                )
+            }),
+            "expected CPython-style `or` continue test to keep first true edge to continue, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted first `or` continue condition before second operand, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_and_or_expression_threads_same_false_short_circuit() {
+        let code = compile_exec(
+            "\
+def f(fmt, MEMORYVIEW):
+    x = len(fmt)
+    return ((x == 1 or (x == 2 and fmt[0] == '@')) and
+            fmt[x - 1] in MEMORYVIEW)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let false_jumps: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::PopJumpIfFalse { .. }))
+            .collect();
+
+        assert!(
+            false_jumps.len() >= 2,
+            "expected nested boolop false jumps, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            u8::from(false_jumps[0].arg) > u8::from(false_jumps[1].arg),
+            "expected CPython-style same-false short-circuit threading to outer end, got false_jumps={false_jumps:?}"
+        );
+    }
+
+    #[test]
     fn test_broad_exception_import_keeps_borrow_in_common_tail() {
         let code = compile_exec(
             "\
@@ -16895,6 +17010,38 @@ def f(p, s):
                 .iter()
                 .map(|unit| unit.op)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_for_return_unary_constant_preserves_value_over_iterator_cleanup() {
+        let code = compile_exec(
+            "\
+def f(xs):
+    for x in xs:
+        return -1
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let units: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            units.windows(4).any(|window| {
+                matches!(
+                    window[0].op,
+                    Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. }
+                ) && matches!(
+                    window[1].op,
+                    Instruction::Swap { i }
+                        if i.get(OpArg::new(u32::from(u8::from(window[1].arg)))) == 2
+                ) && matches!(window[2].op, Instruction::PopTop)
+                    && matches!(window[3].op, Instruction::ReturnValue)
+            }),
+            "expected CPython-style LOAD_CONST/SWAP/POP_TOP/RETURN_VALUE cleanup, got units={units:?}"
         );
     }
 
@@ -19332,6 +19479,43 @@ def f(xs):
     }
 
     #[test]
+    fn test_loop_not_in_conditional_body_threads_true_path_to_jump_back() {
+        let code = compile_exec(
+            "\
+def f(native, array):
+    for k in native:
+        if not k in 'bBhHiIlLfd':
+            del array[k]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style true path to jump back before not-in body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_if_pass_uses_line_bearing_jump_back_instead_of_nop() {
         let code = compile_exec(
             "\
@@ -19369,6 +19553,38 @@ def f(x, y):
         assert!(
             !ops.iter().any(|op| matches!(op, Instruction::Nop)),
             "expected pass body line to attach to loop backedge instead of leaving a NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_constant_true_while_pass_keeps_loop_header_nop() {
+        let code = compile_exec(
+            "\
+def f():
+    while 1:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style loop-header NOP before self backedge, got ops={ops:?}"
         );
     }
 
