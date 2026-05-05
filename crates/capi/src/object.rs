@@ -70,14 +70,19 @@ pub unsafe extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
 pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
     with_vm(|vm| {
         let ctx = &vm.ctx;
-        match constant_id {
+        let constant = match constant_id {
             0 => ctx.none.as_object(),
             1 => ctx.false_value.as_object(),
             2 => ctx.true_value.as_object(),
             3 => ctx.ellipsis.as_object(),
             4 => ctx.not_implemented.as_object(),
-            _ => panic!("Invalid constant_id passed to Py_GetConstantBorrowed"),
+            _ => {
+                return Err(
+                    vm.new_system_error("Invalid constant ID passed to Py_GetConstantBorrowed")
+                );
+            }
         }
-        .as_raw()
+        .as_raw();
+        Ok(constant)
     })
 }
