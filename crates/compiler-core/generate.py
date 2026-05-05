@@ -32,9 +32,10 @@ class OpcodeGen:
     name: str
     instructions: list
     numeric_repr: str
+    analysis: analyzer.Analysis
 
     def gen(self) -> str:
-        variants = ",\n".join(instr.name for instr in self.instructions)
+        variants = ",\n".join(instr.name for instr in self)
 
         methods = "\n\n".join(
             getattr(self, attr).strip()
@@ -63,9 +64,7 @@ class OpcodeGen:
 
     @property
     def fn_as_numeric(self) -> str:
-        arms = ",\n".join(
-            f"Self::{instr.name} => {instr.opcode}" for instr in self.instructions
-        )
+        arms = ",\n".join(f"Self::{instr.name} => {instr.opcode}" for instr in self)
         return f"""
         #[must_use]
         pub const fn as_{self.numeric_repr}(self) -> {self.numeric_repr} {{
@@ -77,9 +76,7 @@ class OpcodeGen:
 
     @property
     def fn_tryfrom_numeric(self) -> str:
-        arms = ",\n".join(
-            f"{instr.opcode} => Self::{instr.name}" for instr in self.instructions
-        )
+        arms = ",\n".join(f"{instr.opcode} => Self::{instr.name}" for instr in self)
         return f"""
         #[must_use]
         pub const fn from_{self.numeric_repr}(
@@ -114,10 +111,10 @@ class OpcodeGen:
         }}
         """
 
-    def build_has_attr_fn(self, fn_attr: str, prop_attr: str, doc_flag: str):
+    def build_has_attr_fn(self, fn_attr: str, prop_attr: str, doc_flag: str) -> str:
         arms = "|".join(
             f"Self::{instr.name}"
-            for instr in self.instructions
+            for instr in self
             if getattr(instr.properties, prop_attr)
         )
 
@@ -161,6 +158,91 @@ class OpcodeGen:
     fn_has_exc = property(
         lambda self: self.build_has_attr_fn("exc", "pure", "HAS_PURE_FLAG")
     )
+
+    @property
+    def instrumented(self) -> list:
+        return [instr for instr in self if instr.name.startswith("Instrumented")]
+
+    @property
+    def fn_to_base(self) -> str:
+        inames = {instr.name for instr in self.instrumented}
+        names = {instr.name for instr in self} - inames
+
+        arms = ""
+        for iname in inames:
+            name = iname.removeprefix("Instrumented")
+            if name not in names:
+                continue
+            arms += f"Self::{iname} => Self::{name},\n"
+
+        arms = arms.strip()
+        if not arms:
+            return ""
+
+        inner = f"""
+            Some(match self {{
+                {arms}
+                _ => return None,
+
+            }})
+        """
+
+        return f"""
+        #[must_use]
+        pub const fn to_base(self) -> Option<Self> {{
+            {inner}
+        }}
+        """
+
+    @property
+    def fn_to_instrumented(self) -> str:
+        inames = {instr.name for instr in self.instrumented}
+        names = {instr.name for instr in self} - inames
+
+        arms = ""
+        for iname in inames:
+            name = iname.removeprefix("Instrumented")
+            if name not in names:
+                continue
+            arms += f"Self::{name} => Self::{iname},\n"
+
+        arms = arms.strip()
+        if not arms:
+            return ""
+
+        inner = f"""
+            Some(match self {{
+                {arms}
+                _ => return None,
+
+            }})
+        """
+
+        return f"""
+        #[must_use]
+        pub const fn to_instrumented(self) -> Option<Self> {{
+            {inner}
+        }}
+        """
+
+    @property
+    def fn_deopt(self) -> str:
+        names = {instr.name for instr in self}
+
+        for family in self.analysis.families.values():
+            family_name = to_pascal_case(family.name)
+            if family_name not in names:
+                continue
+            for member in family.members:
+                if member.name == family.name:
+                    continue
+
+                print(family_name, member.name)
+
+        return ""
+
+    def __iter__(self):
+        yield from self.instructions
 
 
 def to_pascal_case(s: str) -> str:
@@ -209,8 +291,12 @@ def main():
             instr.name = to_pascal_case(instr.name)
 
         code = OpcodeGen(
-            name=opcode_enum_name, instructions=instructions, numeric_repr=numeric_repr
+            name=opcode_enum_name,
+            instructions=instructions,
+            numeric_repr=numeric_repr,
+            analysis=analysis,
         ).gen()
+
         outfile.write(code)
 
     generated = outfile.getvalue()

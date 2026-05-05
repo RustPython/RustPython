@@ -735,6 +735,58 @@ impl Opcode {
     }
 
     #[must_use]
+    pub const fn to_base(self) -> Option<Self> {
+        Some(match self {
+            Self::InstrumentedForIter => Self::ForIter,
+            Self::InstrumentedYieldValue => Self::YieldValue,
+            Self::InstrumentedNotTaken => Self::NotTaken,
+            Self::InstrumentedEndSend => Self::EndSend,
+            Self::InstrumentedJumpBackward => Self::JumpBackward,
+            Self::InstrumentedResume => Self::Resume,
+            Self::InstrumentedJumpForward => Self::JumpForward,
+            Self::InstrumentedPopJumpIfTrue => Self::PopJumpIfTrue,
+            Self::InstrumentedReturnValue => Self::ReturnValue,
+            Self::InstrumentedCallFunctionEx => Self::CallFunctionEx,
+            Self::InstrumentedPopJumpIfFalse => Self::PopJumpIfFalse,
+            Self::InstrumentedPopJumpIfNone => Self::PopJumpIfNone,
+            Self::InstrumentedEndFor => Self::EndFor,
+            Self::InstrumentedPopJumpIfNotNone => Self::PopJumpIfNotNone,
+            Self::InstrumentedCall => Self::Call,
+            Self::InstrumentedEndAsyncFor => Self::EndAsyncFor,
+            Self::InstrumentedPopIter => Self::PopIter,
+            Self::InstrumentedCallKw => Self::CallKw,
+            Self::InstrumentedLoadSuperAttr => Self::LoadSuperAttr,
+            _ => return None,
+        })
+    }
+
+    #[must_use]
+    pub const fn to_instrumented(self) -> Option<Self> {
+        Some(match self {
+            Self::ForIter => Self::InstrumentedForIter,
+            Self::YieldValue => Self::InstrumentedYieldValue,
+            Self::NotTaken => Self::InstrumentedNotTaken,
+            Self::EndSend => Self::InstrumentedEndSend,
+            Self::JumpBackward => Self::InstrumentedJumpBackward,
+            Self::Resume => Self::InstrumentedResume,
+            Self::JumpForward => Self::InstrumentedJumpForward,
+            Self::PopJumpIfTrue => Self::InstrumentedPopJumpIfTrue,
+            Self::ReturnValue => Self::InstrumentedReturnValue,
+            Self::CallFunctionEx => Self::InstrumentedCallFunctionEx,
+            Self::PopJumpIfFalse => Self::InstrumentedPopJumpIfFalse,
+            Self::PopJumpIfNone => Self::InstrumentedPopJumpIfNone,
+            Self::EndFor => Self::InstrumentedEndFor,
+            Self::PopJumpIfNotNone => Self::InstrumentedPopJumpIfNotNone,
+            Self::Call => Self::InstrumentedCall,
+            Self::EndAsyncFor => Self::InstrumentedEndAsyncFor,
+            Self::PopIter => Self::InstrumentedPopIter,
+            Self::CallKw => Self::InstrumentedCallKw,
+            Self::LoadSuperAttr => Self::InstrumentedLoadSuperAttr,
+            _ => return None,
+        })
+    }
+
+    #[must_use]
     pub const fn from_u8(value: u8) -> Result<Self, crate::marshal::MarshalError> {
         Ok(match value {
             0 => Self::Cache,
