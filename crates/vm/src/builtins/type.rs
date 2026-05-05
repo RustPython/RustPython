@@ -1263,7 +1263,7 @@ impl PyType {
 }
 
 impl Py<PyType> {
-    pub(crate) fn is_subtype(&self, other: &Self) -> bool {
+    pub fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }
 

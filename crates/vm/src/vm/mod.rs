@@ -2060,12 +2060,12 @@ impl VirtualMachine {
         exc
     }
 
-    pub(crate) fn current_exception(&self) -> Option<PyBaseExceptionRef> {
+    pub fn current_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow().stack.last().cloned().flatten()
     }
 
     /// Set the current exc_info slot value (PUSH_EXC_INFO / POP_EXCEPT).
-    pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
+    pub fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
         // don't be holding the RefCell guard while __del__ is called
         let mut excs = self.exceptions.borrow_mut();
         debug_assert!(
@@ -2082,6 +2082,19 @@ impl VirtualMachine {
         }
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
+    }
+
+    pub fn take_raised_exception(&self) -> Option<PyBaseExceptionRef> {
+        let mut excs = self.exceptions.borrow_mut();
+        if let Some(top) = excs.stack.last_mut() {
+            let exc = top.take();
+            drop(excs);
+            #[cfg(feature = "threading")]
+            thread::update_thread_exception(self.topmost_exception());
+            exc
+        } else {
+            None
+        }
     }
 
     pub(crate) fn contextualize_exception(&self, exception: &Py<PyBaseException>) {
