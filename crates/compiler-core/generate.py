@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import collections
 import dataclasses
 import io
 import os
@@ -229,6 +230,7 @@ class OpcodeGen:
     def fn_deopt(self) -> str:
         names = {instr.name for instr in self}
 
+        deopts = collections.defaultdict(list)
         for family in self.analysis.families.values():
             family_name = to_pascal_case(family.name)
             if family_name not in names:
@@ -238,9 +240,26 @@ class OpcodeGen:
                 if member.name == family.name:
                     continue
 
-                print(family_name, member.name)
+                deopts[family_name].append(member.name)
 
-        return ""
+        arms = ""
+        for target, specialized in deopts.items():
+            ops = "|".join(f"Self::{op}" for op in specialized)
+            arms += f"{ops} => Self::{target},\n"
+
+        arms = arms.strip()
+        if not arms:
+            return ""
+
+        return f"""
+        #[must_use]
+        pub const fn deopt(self) -> Option<Self> {{
+            Some(match self {{
+                {arms}
+                _ => return None,
+            }})
+        }}
+        """
 
     def __iter__(self):
         yield from self.instructions

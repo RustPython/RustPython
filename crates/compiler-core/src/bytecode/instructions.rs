@@ -468,6 +468,86 @@ impl Opcode {
         }
     }
 
+    #[must_use]
+    pub const fn deopt(self) -> Option<Self> {
+        Some(match self {
+            Self::ResumeCheck => Self::Resume,
+            Self::LoadConstMortal | Self::LoadConstImmortal => Self::LoadConst,
+            Self::ToBoolAlwaysTrue
+            | Self::ToBoolBool
+            | Self::ToBoolInt
+            | Self::ToBoolList
+            | Self::ToBoolNone
+            | Self::ToBoolStr => Self::ToBool,
+            Self::BinaryOpMultiplyInt
+            | Self::BinaryOpAddInt
+            | Self::BinaryOpSubtractInt
+            | Self::BinaryOpMultiplyFloat
+            | Self::BinaryOpAddFloat
+            | Self::BinaryOpSubtractFloat
+            | Self::BinaryOpAddUnicode
+            | Self::BinaryOpSubscrListInt
+            | Self::BinaryOpSubscrListSlice
+            | Self::BinaryOpSubscrTupleInt
+            | Self::BinaryOpSubscrStrInt
+            | Self::BinaryOpSubscrDict
+            | Self::BinaryOpSubscrGetitem
+            | Self::BinaryOpExtend
+            | Self::BinaryOpInplaceAddUnicode => Self::BinaryOp,
+            Self::StoreSubscrDict | Self::StoreSubscrListInt => Self::StoreSubscr,
+            Self::SendGen => Self::Send,
+            Self::UnpackSequenceTwoTuple | Self::UnpackSequenceTuple | Self::UnpackSequenceList => {
+                Self::UnpackSequence
+            }
+            Self::StoreAttrInstanceValue | Self::StoreAttrSlot | Self::StoreAttrWithHint => {
+                Self::StoreAttr
+            }
+            Self::LoadGlobalModule | Self::LoadGlobalBuiltin => Self::LoadGlobal,
+            Self::LoadSuperAttrAttr | Self::LoadSuperAttrMethod => Self::LoadSuperAttr,
+            Self::LoadAttrInstanceValue
+            | Self::LoadAttrModule
+            | Self::LoadAttrWithHint
+            | Self::LoadAttrSlot
+            | Self::LoadAttrClass
+            | Self::LoadAttrClassWithMetaclassCheck
+            | Self::LoadAttrProperty
+            | Self::LoadAttrGetattributeOverridden
+            | Self::LoadAttrMethodWithValues
+            | Self::LoadAttrMethodNoDict
+            | Self::LoadAttrMethodLazyDict
+            | Self::LoadAttrNondescriptorWithValues
+            | Self::LoadAttrNondescriptorNoDict => Self::LoadAttr,
+            Self::CompareOpFloat | Self::CompareOpInt | Self::CompareOpStr => Self::CompareOp,
+            Self::ContainsOpSet | Self::ContainsOpDict => Self::ContainsOp,
+            Self::JumpBackwardNoJit | Self::JumpBackwardJit => Self::JumpBackward,
+            Self::ForIterList | Self::ForIterTuple | Self::ForIterRange | Self::ForIterGen => {
+                Self::ForIter
+            }
+            Self::CallBoundMethodExactArgs
+            | Self::CallPyExactArgs
+            | Self::CallType1
+            | Self::CallStr1
+            | Self::CallTuple1
+            | Self::CallBuiltinClass
+            | Self::CallBuiltinO
+            | Self::CallBuiltinFast
+            | Self::CallBuiltinFastWithKeywords
+            | Self::CallLen
+            | Self::CallIsinstance
+            | Self::CallListAppend
+            | Self::CallMethodDescriptorO
+            | Self::CallMethodDescriptorFastWithKeywords
+            | Self::CallMethodDescriptorNoargs
+            | Self::CallMethodDescriptorFast
+            | Self::CallAllocAndEnterInit
+            | Self::CallPyGeneral
+            | Self::CallBoundMethodGeneral
+            | Self::CallNonPyGeneral => Self::Call,
+            Self::CallKwBoundMethod | Self::CallKwPy | Self::CallKwNonPy => Self::CallKw,
+            _ => return None,
+        })
+    }
+
     /// Does this opcode have 'HAS_ARG_FLAG' set.
     #[must_use]
     pub const fn has_arg(self) -> bool {
