@@ -505,7 +505,15 @@ impl Compiler {
 
     fn new(opts: CompileOpts, source_file: SourceFile, code_name: String) -> Self {
         let module_code = ir::CodeInfo {
-            flags: bytecode::CodeFlags::NEWLOCALS,
+            // CPython convention: top-level module / interactive /
+            // expression code does not carry CO_NEWLOCALS or CO_OPTIMIZED.
+            // (See `Python/compile.c compiler_enter_scope` for module
+            // scope.)  This matches the per-scope mapping at
+            // enter_scope::CompilerScope::Module below, which also returns
+            // empty flags.  frame.rs:725-731 then binds locals to globals
+            // for module/REPL frames whose `scope.locals` is None — the
+            // correct semantics for `exec(code, globals)` and module init.
+            flags: bytecode::CodeFlags::empty(),
             source_path: source_file.name().to_owned(),
             private: None,
             blocks: vec![ir::Block::default()],
