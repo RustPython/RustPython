@@ -189,6 +189,7 @@ pycodecs
 pycs
 pydatetime
 pyexpat
+PYGILSTATE
 pyio
 pymain
 PYTHONAPI

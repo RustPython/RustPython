@@ -50,6 +50,20 @@ pub type CurrentFrameSlot = Arc<ThreadSlot>;
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
 
+    /// Thread state created through the GILState-style C API.
+    ///
+    /// This is separate from the current VM stack: it only means "attached now",
+    /// while this owns the per-thread VM that may be detached and re-attached.
+    /// Despite the historical CPython "GILState" name, this does not model a
+    /// GIL; it stores the VM used by that compatibility API.
+    ///
+    /// The Box keeps the VM address stable while VM_STACK holds a raw pointer to it.
+    /// This matters when release_current_thread() moves the owner out of TLS and
+    /// drops it while the VM is still current, so object destructors can still find
+    /// their VM.
+    #[cfg(feature = "threading")]
+    static GILSTATE_VM: RefCell<Option<Box<ThreadedVirtualMachine>>> = const { RefCell::new(None) };
+
     pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
 
     /// Current thread's slot for sys._current_frames() and sys._current_exceptions()
@@ -66,42 +80,114 @@ thread_local! {
 
 }
 
-scoped_tls::scoped_thread_local!(static VM_CURRENT: VirtualMachine);
+#[must_use]
+pub fn current_vm_is_set() -> bool {
+    VM_STACK.with(|vms| !vms.borrow().is_empty())
+}
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
-    if !VM_CURRENT.is_set() {
-        panic!("call with_current_vm() but VM_CURRENT is null");
-    }
-    VM_CURRENT.with(f)
+    VM_STACK.with(|vms| {
+        let vm = vms
+            .borrow()
+            .last()
+            .copied()
+            .expect("call with_current_vm() but no current VM is attached");
+        // SAFETY: entries in VM_STACK either borrow a VM for the dynamic
+        // scope of a set_current_vm()/enter_vm() call or point at GILSTATE_VM.
+        f(unsafe { vm.as_ref() })
+    })
+}
+
+fn set_current_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+    VM_STACK.with(|vms| {
+        vms.borrow_mut().push(vm.into());
+        scopeguard::defer! {
+            vms.borrow_mut().pop();
+        }
+        f()
+    })
 }
 
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
-    VM_STACK.with(|vms| {
-        // Outermost enter_vm: transition DETACHED → ATTACHED
-        #[cfg(all(unix, feature = "threading"))]
-        let was_outermost = vms.borrow().is_empty();
+    // Outermost enter_vm: transition DETACHED → ATTACHED
+    #[cfg(all(unix, feature = "threading"))]
+    let was_outermost = !current_vm_is_set();
 
-        vms.borrow_mut().push(vm.into());
+    // Initialize thread slot for this thread if not already done
+    #[cfg(feature = "threading")]
+    init_thread_slot_if_needed(vm);
 
-        // Initialize thread slot for this thread if not already done
-        #[cfg(feature = "threading")]
-        init_thread_slot_if_needed(vm);
+    #[cfg(all(unix, feature = "threading"))]
+    if was_outermost {
+        attach_thread(vm);
+    }
 
+    scopeguard::defer! {
+        // Outermost exit: transition ATTACHED → DETACHED
         #[cfg(all(unix, feature = "threading"))]
         if was_outermost {
-            attach_thread(vm);
+            detach_thread();
         }
+    }
+    set_current_vm(vm, f)
+}
 
-        scopeguard::defer! {
-            // Outermost exit: transition ATTACHED → DETACHED
-            #[cfg(all(unix, feature = "threading"))]
-            if vms.borrow().len() == 1 {
-                detach_thread();
-            }
-            vms.borrow_mut().pop();
-        }
-        VM_CURRENT.set(vm, f)
-    })
+#[cfg(feature = "threading")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CurrentVmAttachState {
+    AlreadyAttached,
+    Attached,
+}
+
+/// Attach the current native thread to a RustPython VM until
+/// `release_current_thread()` is called.
+#[cfg(feature = "threading")]
+pub fn attach_current_thread(
+    make_vm: impl FnOnce() -> ThreadedVirtualMachine,
+) -> CurrentVmAttachState {
+    if current_vm_is_set() {
+        return CurrentVmAttachState::AlreadyAttached;
+    }
+
+    GILSTATE_VM.with(|gilstate_vm| {
+        let mut gilstate_vm = gilstate_vm.borrow_mut();
+        let threaded_vm = gilstate_vm.get_or_insert_with(|| Box::new(make_vm()));
+        let vm = &threaded_vm.vm;
+
+        vm.c_stack_soft_limit
+            .set(VirtualMachine::calculate_c_stack_soft_limit());
+
+        init_thread_slot_if_needed(vm);
+
+        #[cfg(unix)]
+        attach_thread(vm);
+
+        VM_STACK.with(|vms| {
+            debug_assert!(vms.borrow().is_empty());
+            vms.borrow_mut().push(vm.into());
+        });
+    });
+
+    CurrentVmAttachState::Attached
+}
+
+#[cfg(feature = "threading")]
+pub fn release_current_thread(state: CurrentVmAttachState) {
+    if state == CurrentVmAttachState::AlreadyAttached {
+        return;
+    }
+
+    let gilstate_vm = GILSTATE_VM.with(|gilstate_vm| gilstate_vm.borrow_mut().take());
+    drop(gilstate_vm);
+
+    VM_STACK.with(|vms| {
+        vms.borrow_mut()
+            .pop()
+            .expect("release_current_thread() called without an attached VM");
+    });
+
+    #[cfg(unix)]
+    detach_thread();
 }
 
 /// Initialize thread slot for current thread if not already initialized.
@@ -443,7 +529,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 
     // Guard against OS thread-id reuse races: only remove the registry entry
     // if it still points at this thread's own slot.
-    let removed = if let Some(slot) = &current_slot {
+    let _removed = if let Some(slot) = &current_slot {
         let mut registry = vm.state.thread_frames.lock();
         match registry.get(&thread_id) {
             Some(registered) if Arc::ptr_eq(registered, slot) => registry.remove(&thread_id),
@@ -453,7 +539,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
         None
     };
     #[cfg(all(unix, feature = "threading"))]
-    if let Some(slot) = &removed
+    if let Some(slot) = &_removed
         && vm.state.stop_the_world.requested.load(Ordering::Acquire)
         && thread_id != vm.state.stop_the_world.requester_ident()
         && slot.state.load(Ordering::Relaxed) != THREAD_SUSPENDED
@@ -509,17 +595,20 @@ where
         obj.fast_isinstance(vm.ctx.types.object_type)
     };
     VM_STACK.with(|vms| {
-        let interp = match vms.borrow().iter().copied().exactly_one() {
-            Ok(x) => {
-                debug_assert!(vm_owns_obj(x));
-                x
+        let interp = {
+            let vms = vms.borrow();
+            match vms.iter().copied().exactly_one() {
+                Ok(x) => {
+                    debug_assert!(vm_owns_obj(x));
+                    x
+                }
+                Err(mut others) => others.find(|x| vm_owns_obj(*x))?,
             }
-            Err(mut others) => others.find(|x| vm_owns_obj(*x))?,
         };
         // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
         // at least until this function returns and the stack unwinds to an enter_vm() call
         let vm = unsafe { interp.as_ref() };
-        Some(VM_CURRENT.set(vm, || f(vm)))
+        Some(set_current_vm(vm, || f(vm)))
     })
 }
 
