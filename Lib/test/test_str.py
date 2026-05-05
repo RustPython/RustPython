@@ -974,7 +974,6 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('A\u03a3 \u1fa1xy'.title(), 'A\u03c2 \u1fa9xy')
         self.assertEqual('A\u03a3A'.title(), 'A\u03c3a')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + 𐐧
     def test_swapcase(self):
         string_tests.StringLikeTest.test_swapcase(self)
         self.assertEqual('\U0001044F'.swapcase(), '\U00010427')
