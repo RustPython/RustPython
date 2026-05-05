@@ -16,7 +16,7 @@ pub(crate) mod _signal {
     };
     use core::sync::atomic::{self, Ordering};
     #[cfg(any(unix, windows))]
-    use rustpython_host_env::signal::{self as host_signal, sighandler_t};
+    use rustpython_host_env::signal as host_signal;
     #[cfg(unix)]
     use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
     #[cfg(unix)]
