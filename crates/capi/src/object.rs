@@ -4,14 +4,14 @@ use core::ffi::{c_int, c_uint, c_ulong};
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::{AsObject, Context, Py};
 
-const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
-const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
-const PY_TPFLAGS_TUPLE_SUBCLASS: c_ulong = 1 << 26;
-const PY_TPFLAGS_BYTES_SUBCLASS: c_ulong = 1 << 27;
-const PY_TPFLAGS_UNICODE_SUBCLASS: c_ulong = 1 << 28;
-const PY_TPFLAGS_DICT_SUBCLASS: c_ulong = 1 << 29;
-const PY_TPFLAGS_BASE_EXC_SUBCLASS: c_ulong = 1 << 30;
-const PY_TPFLAGS_TYPE_SUBCLASS: c_ulong = 1 << 31;
+const PY_TPFLAGS_LONG_SUBCLASS: u64 = 1 << 24;
+const PY_TPFLAGS_LIST_SUBCLASS: u64 = 1 << 25;
+const PY_TPFLAGS_TUPLE_SUBCLASS: u64 = 1 << 26;
+const PY_TPFLAGS_BYTES_SUBCLASS: u64 = 1 << 27;
+const PY_TPFLAGS_UNICODE_SUBCLASS: u64 = 1 << 28;
+const PY_TPFLAGS_DICT_SUBCLASS: u64 = 1 << 29;
+const PY_TPFLAGS_BASE_EXC_SUBCLASS: u64 = 1 << 30;
+const PY_TPFLAGS_TYPE_SUBCLASS: u64 = 1 << 31;
 
 pub type PyTypeObject = Py<PyType>;
 
@@ -63,7 +63,7 @@ pub unsafe extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
         flags |= PY_TPFLAGS_TYPE_SUBCLASS;
     }
 
-    flags
+    flags as c_ulong
 }
 
 #[unsafe(no_mangle)]
