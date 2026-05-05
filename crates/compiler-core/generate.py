@@ -169,7 +169,7 @@ class OpcodeGen:
         names = {instr.name for instr in self} - inames
 
         arms = ""
-        for iname in inames:
+        for iname in sorted(inames):
             name = iname.removeprefix("Instrumented")
             if name not in names:
                 continue
@@ -200,7 +200,7 @@ class OpcodeGen:
         names = {instr.name for instr in self} - inames
 
         arms = ""
-        for iname in inames:
+        for iname in sorted(inames):
             name = iname.removeprefix("Instrumented")
             if name not in names:
                 continue
@@ -233,6 +233,7 @@ class OpcodeGen:
             family_name = to_pascal_case(family.name)
             if family_name not in names:
                 continue
+
             for member in family.members:
                 if member.name == family.name:
                     continue
