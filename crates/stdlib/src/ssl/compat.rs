@@ -8,7 +8,7 @@
 
 // SSL error code data tables (shared with OpenSSL backend for compatibility)
 // These map OpenSSL error codes to human-readable strings
-#[allow(
+#[expect(
     clippy::duplicate_mod,
     reason = "This is duplicated only when running clippy. The two features are mutually exclusive"
 )]
