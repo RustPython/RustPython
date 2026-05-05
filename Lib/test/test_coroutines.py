@@ -2065,7 +2065,6 @@ class CoroutineTest(unittest.TestCase):
             run_async(f()),
             ([], {1: 1, 2: 2, 3: 3}))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: __aiter__
     def test_nested_comp(self):
         async def run_list_inside_list():
             return [[i + j async for i in asynciter([1, 2])] for j in [10, 20]]
