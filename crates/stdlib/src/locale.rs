@@ -2,55 +2,16 @@
 
 pub(crate) use _locale::module_def;
 
-#[cfg(windows)]
-#[repr(C)]
-struct lconv {
-    decimal_point: *mut libc::c_char,
-    thousands_sep: *mut libc::c_char,
-    grouping: *mut libc::c_char,
-    int_curr_symbol: *mut libc::c_char,
-    currency_symbol: *mut libc::c_char,
-    mon_decimal_point: *mut libc::c_char,
-    mon_thousands_sep: *mut libc::c_char,
-    mon_grouping: *mut libc::c_char,
-    positive_sign: *mut libc::c_char,
-    negative_sign: *mut libc::c_char,
-    int_frac_digits: libc::c_char,
-    frac_digits: libc::c_char,
-    p_cs_precedes: libc::c_char,
-    p_sep_by_space: libc::c_char,
-    n_cs_precedes: libc::c_char,
-    n_sep_by_space: libc::c_char,
-    p_sign_posn: libc::c_char,
-    n_sign_posn: libc::c_char,
-    int_p_cs_precedes: libc::c_char,
-    int_p_sep_by_space: libc::c_char,
-    int_n_cs_precedes: libc::c_char,
-    int_n_sep_by_space: libc::c_char,
-    int_p_sign_posn: libc::c_char,
-    int_n_sign_posn: libc::c_char,
-}
-
-#[cfg(windows)]
-unsafe extern "C" {
-    fn localeconv() -> *mut lconv;
-}
-
-#[cfg(unix)]
-use libc::localeconv;
-
 #[pymodule]
 mod _locale {
     use alloc::ffi::CString;
-    use core::{ffi::CStr, ptr};
+    use rustpython_host_env::locale as host_locale;
     use rustpython_vm::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyIntRef, PyListRef, PyTypeRef, PyUtf8StrRef},
         convert::ToPyException,
         function::OptionalArg,
     };
-    #[cfg(windows)]
-    use windows_sys::Win32::Globalization::GetACP;
 
     #[cfg(all(
         unix,
@@ -78,19 +39,11 @@ mod _locale {
         vm.ctx.new_int(libc::c_char::MAX)
     }
 
-    unsafe fn copy_grouping(group: *const libc::c_char, vm: &VirtualMachine) -> PyListRef {
+    fn copy_grouping(group: &[libc::c_char], vm: &VirtualMachine) -> PyListRef {
         let mut group_vec: Vec<PyObjectRef> = Vec::new();
-        if group.is_null() {
-            return vm.ctx.new_list(group_vec);
-        }
-
-        unsafe {
-            let mut ptr = group;
-            while ![0, libc::c_char::MAX].contains(&*ptr) {
-                let val = vm.ctx.new_int(*ptr);
-                group_vec.push(val.into());
-                ptr = ptr.add(1);
-            }
+        for &value in group {
+            let val = vm.ctx.new_int(value);
+            group_vec.push(val.into());
         }
         // https://github.com/python/cpython/blob/677320348728ce058fa3579017e985af74a236d4/Modules/_localemodule.c#L80
         if !group_vec.is_empty() {
@@ -99,44 +52,21 @@ mod _locale {
         vm.ctx.new_list(group_vec)
     }
 
-    unsafe fn pystr_from_raw_cstr(vm: &VirtualMachine, raw_ptr: *const libc::c_char) -> PyResult {
-        let slice = unsafe { CStr::from_ptr(raw_ptr) };
-
+    fn pystr_from_bytes(vm: &VirtualMachine, bytes: &[u8]) -> PyResult {
         // Fast path: ASCII/UTF-8
-        if let Ok(s) = slice.to_str() {
+        if let Ok(s) = core::str::from_utf8(bytes) {
             return Ok(vm.new_pyobj(s));
         }
 
         // On Windows, locale strings use the ANSI code page encoding
         #[cfg(windows)]
         {
-            use windows_sys::Win32::Globalization::{CP_ACP, MultiByteToWideChar};
-            let bytes = slice.to_bytes();
-            unsafe {
-                let len = MultiByteToWideChar(
-                    CP_ACP,
-                    0,
-                    bytes.as_ptr(),
-                    bytes.len() as i32,
-                    ptr::null_mut(),
-                    0,
-                );
-                if len > 0 {
-                    let mut wide = vec![0u16; len as usize];
-                    MultiByteToWideChar(
-                        CP_ACP,
-                        0,
-                        bytes.as_ptr(),
-                        bytes.len() as i32,
-                        wide.as_mut_ptr(),
-                        len,
-                    );
-                    return Ok(vm.new_pyobj(String::from_utf16_lossy(&wide)));
-                }
+            if let Some(decoded) = host_locale::decode_ansi_bytes(bytes) {
+                return Ok(vm.new_pyobj(decoded));
             }
         }
 
-        Ok(vm.new_pyobj(String::from_utf8_lossy(slice.to_bytes()).into_owned()))
+        Ok(vm.new_pyobj(String::from_utf8_lossy(bytes).into_owned()))
     }
 
     #[pyattr(name = "Error", once)]
@@ -152,73 +82,59 @@ mod _locale {
     fn strcoll(string1: PyUtf8StrRef, string2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         let cstr1 = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
         let cstr2 = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        Ok(vm.new_pyobj(unsafe { libc::strcoll(cstr1.as_ptr(), cstr2.as_ptr()) }))
+        Ok(vm.new_pyobj(host_locale::strcoll(&cstr1, &cstr2)))
     }
 
     #[pyfunction]
     fn strxfrm(string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
         let n1 = string.byte_len() + 1;
-        let mut buff = vec![0u8; n1];
-
         let cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        let n2 = unsafe { libc::strxfrm(buff.as_mut_ptr() as _, cstr.as_ptr(), n1) };
-        buff = vec![0u8; n2 + 1];
-        unsafe {
-            libc::strxfrm(buff.as_mut_ptr() as _, cstr.as_ptr(), n2 + 1);
-        }
+        let buff = host_locale::strxfrm(&cstr, n1);
         Ok(vm.new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
     }
 
     #[pyfunction]
     fn localeconv(vm: &VirtualMachine) -> PyResult<PyDictRef> {
         let result = vm.ctx.new_dict();
+        let lc = host_locale::localeconv_data();
 
-        unsafe {
-            macro_rules! set_string_field {
-                ($lc:expr, $field:ident) => {{
-                    result.set_item(
-                        stringify!($field),
-                        pystr_from_raw_cstr(vm, (*$lc).$field)?,
-                        vm,
-                    )?
-                }};
-            }
-
-            macro_rules! set_int_field {
-                ($lc:expr, $field:ident) => {{ result.set_item(stringify!($field), vm.new_pyobj((*$lc).$field), vm)? }};
-            }
-
-            macro_rules! set_group_field {
-                ($lc:expr, $field:ident) => {{
-                    result.set_item(
-                        stringify!($field),
-                        copy_grouping((*$lc).$field, vm).into(),
-                        vm,
-                    )?
-                }};
-            }
-
-            let lc = super::localeconv();
-            set_group_field!(lc, mon_grouping);
-            set_group_field!(lc, grouping);
-            set_int_field!(lc, int_frac_digits);
-            set_int_field!(lc, frac_digits);
-            set_int_field!(lc, p_cs_precedes);
-            set_int_field!(lc, p_sep_by_space);
-            set_int_field!(lc, n_cs_precedes);
-            set_int_field!(lc, p_sign_posn);
-            set_int_field!(lc, n_sign_posn);
-            set_string_field!(lc, decimal_point);
-            set_string_field!(lc, thousands_sep);
-            set_string_field!(lc, int_curr_symbol);
-            set_string_field!(lc, currency_symbol);
-            set_string_field!(lc, mon_decimal_point);
-            set_string_field!(lc, mon_thousands_sep);
-            set_int_field!(lc, n_sep_by_space);
-            set_string_field!(lc, positive_sign);
-            set_string_field!(lc, negative_sign);
+        macro_rules! set_string_field {
+            ($lc:expr, $field:ident) => {{ result.set_item(stringify!($field), pystr_from_bytes(vm, &$lc.$field)?, vm)? }};
         }
+
+        macro_rules! set_int_field {
+            ($lc:expr, $field:ident) => {{ result.set_item(stringify!($field), vm.new_pyobj($lc.$field), vm)? }};
+        }
+
+        macro_rules! set_group_field {
+            ($lc:expr, $field:ident) => {{
+                result.set_item(
+                    stringify!($field),
+                    copy_grouping(&$lc.$field, vm).into(),
+                    vm,
+                )?
+            }};
+        }
+
+        set_group_field!(lc, mon_grouping);
+        set_group_field!(lc, grouping);
+        set_int_field!(lc, int_frac_digits);
+        set_int_field!(lc, frac_digits);
+        set_int_field!(lc, p_cs_precedes);
+        set_int_field!(lc, p_sep_by_space);
+        set_int_field!(lc, n_cs_precedes);
+        set_int_field!(lc, p_sign_posn);
+        set_int_field!(lc, n_sign_posn);
+        set_string_field!(lc, decimal_point);
+        set_string_field!(lc, thousands_sep);
+        set_string_field!(lc, int_curr_symbol);
+        set_string_field!(lc, currency_symbol);
+        set_string_field!(lc, mon_decimal_point);
+        set_string_field!(lc, mon_thousands_sep);
+        set_int_field!(lc, n_sep_by_space);
+        set_string_field!(lc, positive_sign);
+        set_string_field!(lc, negative_sign);
         Ok(result)
     }
 
@@ -264,35 +180,32 @@ mod _locale {
         if cfg!(windows) && (args.category < LC_ALL || args.category > LC_TIME) {
             return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
         }
-        unsafe {
-            let result = match args.locale.flatten() {
-                None => libc::setlocale(args.category, ptr::null()),
-                Some(locale) => {
-                    let locale_str = locale.as_str();
-                    // On Windows, validate encoding name length
-                    #[cfg(windows)]
-                    {
-                        let valid = if args.category == LC_ALL {
-                            check_locale_name_all(locale_str)
-                        } else {
-                            check_locale_name(locale_str)
-                        };
-                        if !valid {
-                            return Err(
-                                vm.new_exception_msg(error, "unsupported locale setting".into())
-                            );
-                        }
+        let result = match args.locale.flatten() {
+            None => host_locale::setlocale(args.category, None),
+            Some(locale) => {
+                let locale_str = locale.as_str();
+                #[cfg(windows)]
+                {
+                    let valid = if args.category == LC_ALL {
+                        check_locale_name_all(locale_str)
+                    } else {
+                        check_locale_name(locale_str)
+                    };
+                    if !valid {
+                        return Err(
+                            vm.new_exception_msg(error, "unsupported locale setting".into())
+                        );
                     }
-                    let c_locale: CString =
-                        CString::new(locale_str).map_err(|e| e.to_pyexception(vm))?;
-                    libc::setlocale(args.category, c_locale.as_ptr())
                 }
-            };
-            if result.is_null() {
-                return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
+                let c_locale: CString =
+                    CString::new(locale_str).map_err(|e| e.to_pyexception(vm))?;
+                host_locale::setlocale(args.category, Some(&c_locale))
             }
-            pystr_from_raw_cstr(vm, result)
-        }
+        };
+        let Some(result) = result else {
+            return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
+        };
+        pystr_from_bytes(vm, &result)
     }
 
     /// Get the current locale encoding.
@@ -300,26 +213,20 @@ mod _locale {
     fn getencoding() -> String {
         #[cfg(windows)]
         {
-            // On Windows, use GetACP() to get the ANSI code page
-            let acp = unsafe { GetACP() };
-            format!("cp{}", acp)
+            format!("cp{}", host_locale::acp())
         }
         #[cfg(not(windows))]
         {
-            // On Unix, use nl_langinfo(CODESET) or fallback to UTF-8
             #[cfg(all(
                 unix,
                 not(any(target_os = "ios", target_os = "android", target_os = "redox"))
             ))]
             {
-                unsafe {
-                    let codeset = libc::nl_langinfo(libc::CODESET);
-                    if !codeset.is_null()
-                        && let Ok(s) = CStr::from_ptr(codeset).to_str()
-                        && !s.is_empty()
-                    {
-                        return s.to_string();
-                    }
+                if let Some(codeset) = host_locale::nl_langinfo_codeset()
+                    && let Ok(s) = core::str::from_utf8(&codeset)
+                    && !s.is_empty()
+                {
+                    return s.to_string();
                 }
                 "UTF-8".to_string()
             }

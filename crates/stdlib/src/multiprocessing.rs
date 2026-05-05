@@ -6,18 +6,12 @@ mod _multiprocessing {
     use crate::vm::{
         Context, FromArgs, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDict, PyType, PyTypeRef},
+        convert::ToPyException,
         function::{ArgBytesLike, FuncArgs, KwArgs},
         types::Constructor,
     };
     use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
-    use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_TOO_MANY_POSTS, HANDLE, INVALID_HANDLE_VALUE, WAIT_FAILED,
-        WAIT_OBJECT_0, WAIT_TIMEOUT,
-    };
-    use windows_sys::Win32::Networking::WinSock::{self, SOCKET};
-    use windows_sys::Win32::System::Threading::{
-        CreateSemaphoreW, GetCurrentThreadId, INFINITE, ReleaseSemaphore, WaitForSingleObjectEx,
-    };
+    use rustpython_host_env::multiprocessing as host_multiprocessing;
 
     // These match the values in Lib/multiprocessing/synchronize.py
     const RECURSIVE_MUTEX: i32 = 0;
@@ -26,7 +20,8 @@ mod _multiprocessing {
     macro_rules! ismine {
         ($self:expr) => {
             $self.count.load(Ordering::Acquire) > 0
-                && $self.last_tid.load(Ordering::Acquire) == unsafe { GetCurrentThreadId() }
+                && $self.last_tid.load(Ordering::Acquire)
+                    == host_multiprocessing::current_thread_id()
         };
     }
 
@@ -56,54 +51,7 @@ mod _multiprocessing {
         count: AtomicI32,
     }
 
-    #[derive(Debug)]
-    struct SemHandle {
-        raw: HANDLE,
-    }
-
-    unsafe impl Send for SemHandle {}
-    unsafe impl Sync for SemHandle {}
-
-    impl SemHandle {
-        fn create(value: i32, maxvalue: i32, vm: &VirtualMachine) -> PyResult<Self> {
-            let handle =
-                unsafe { CreateSemaphoreW(core::ptr::null(), value, maxvalue, core::ptr::null()) };
-            if handle == 0 as HANDLE {
-                return Err(vm.new_last_os_error());
-            }
-            Ok(SemHandle { raw: handle })
-        }
-
-        #[inline]
-        fn as_raw(&self) -> HANDLE {
-            self.raw
-        }
-    }
-
-    impl Drop for SemHandle {
-        fn drop(&mut self) {
-            if self.raw != 0 as HANDLE && self.raw != INVALID_HANDLE_VALUE {
-                unsafe {
-                    CloseHandle(self.raw);
-                }
-            }
-        }
-    }
-
-    /// _GetSemaphoreValue - get value of semaphore by briefly acquiring and releasing
-    fn get_semaphore_value(handle: HANDLE) -> Result<i32, ()> {
-        match unsafe { WaitForSingleObjectEx(handle, 0, 0) } {
-            WAIT_OBJECT_0 => {
-                let mut previous: i32 = 0;
-                if unsafe { ReleaseSemaphore(handle, 1, &mut previous) } == 0 {
-                    return Err(());
-                }
-                Ok(previous + 1)
-            }
-            WAIT_TIMEOUT => Ok(0),
-            _ => Err(()),
-        }
-    }
+    type SemHandle = host_multiprocessing::SemHandle;
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl SemLock {
@@ -147,13 +95,13 @@ mod _multiprocessing {
             let full_msecs: u32 = if !blocking {
                 0
             } else if timeout_obj.as_ref().is_none_or(|o| vm.is_none(o)) {
-                INFINITE
+                host_multiprocessing::INFINITE_TIMEOUT
             } else {
                 let timeout: f64 = timeout_obj.unwrap().try_float(vm)?.to_f64();
                 let timeout = timeout * 1000.0; // convert to ms
                 if timeout < 0.0 {
                     0
-                } else if timeout >= 0.5 * INFINITE as f64 {
+                } else if timeout >= 0.5 * host_multiprocessing::INFINITE_TIMEOUT as f64 {
                     return Err(vm.new_overflow_error("timeout is too large"));
                 } else {
                     (timeout + 0.5) as u32
@@ -167,14 +115,14 @@ mod _multiprocessing {
             }
 
             // Check whether we can acquire without blocking
-            match unsafe { WaitForSingleObjectEx(self.handle.as_raw(), 0, 0) } {
-                WAIT_OBJECT_0 => {
+            match host_multiprocessing::wait_for_single_object(self.handle.as_raw(), 0) {
+                x if x == host_multiprocessing::wait_object_0() => {
                     self.last_tid
-                        .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+                        .store(host_multiprocessing::current_thread_id(), Ordering::Release);
                     self.count.fetch_add(1, Ordering::Release);
                     return Ok(true);
                 }
-                WAIT_FAILED => return Err(vm.new_last_os_error()),
+                x if x == host_multiprocessing::wait_failed() => return Err(vm.new_last_os_error()),
                 _ => {}
             }
 
@@ -183,7 +131,7 @@ mod _multiprocessing {
             let poll_ms: u32 = 100;
             let mut elapsed: u32 = 0;
             loop {
-                let wait_ms = if full_msecs == INFINITE {
+                let wait_ms = if full_msecs == host_multiprocessing::INFINITE_TIMEOUT {
                     poll_ms
                 } else {
                     let remaining = full_msecs.saturating_sub(elapsed);
@@ -194,22 +142,26 @@ mod _multiprocessing {
                 };
 
                 let handle = self.handle.as_raw();
-                let res = vm.allow_threads(|| unsafe { WaitForSingleObjectEx(handle, wait_ms, 0) });
+                let res = vm.allow_threads(|| {
+                    host_multiprocessing::wait_for_single_object(handle, wait_ms)
+                });
 
                 match res {
-                    WAIT_OBJECT_0 => {
+                    x if x == host_multiprocessing::wait_object_0() => {
                         self.last_tid
-                            .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
+                            .store(host_multiprocessing::current_thread_id(), Ordering::Release);
                         self.count.fetch_add(1, Ordering::Release);
                         return Ok(true);
                     }
-                    WAIT_TIMEOUT => {
+                    x if x == host_multiprocessing::wait_timeout() => {
                         vm.check_signals()?;
-                        if full_msecs != INFINITE {
+                        if full_msecs != host_multiprocessing::INFINITE_TIMEOUT {
                             elapsed = elapsed.saturating_add(wait_ms);
                         }
                     }
-                    WAIT_FAILED => return Err(vm.new_last_os_error()),
+                    x if x == host_multiprocessing::wait_failed() => {
+                        return Err(vm.new_last_os_error());
+                    }
                     _ => {
                         return Err(vm.new_runtime_error(format!(
                             "WaitForSingleObject() gave unrecognized value {res}"
@@ -234,9 +186,8 @@ mod _multiprocessing {
                 }
             }
 
-            if unsafe { ReleaseSemaphore(self.handle.as_raw(), 1, core::ptr::null_mut()) } == 0 {
-                let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
-                if err == ERROR_TOO_MANY_POSTS {
+            if let Err(err) = host_multiprocessing::release_semaphore(self.handle.as_raw()) {
+                if host_multiprocessing::is_too_many_posts(err) {
                     return Err(vm.new_value_error("semaphore or lock released too many times"));
                 }
                 return Err(vm.new_last_os_error());
@@ -273,9 +224,7 @@ mod _multiprocessing {
         ) -> PyResult {
             // On Windows, _rebuild receives the handle directly (no sem_open)
             let zelf = SemLock {
-                handle: SemHandle {
-                    raw: handle as HANDLE,
-                },
+                handle: SemHandle::from_raw(handle as host_multiprocessing::RawHandle),
                 kind,
                 maxvalue,
                 name,
@@ -308,13 +257,14 @@ mod _multiprocessing {
 
         #[pymethod]
         fn _get_value(&self, vm: &VirtualMachine) -> PyResult<i32> {
-            get_semaphore_value(self.handle.as_raw()).map_err(|_| vm.new_last_os_error())
+            host_multiprocessing::get_semaphore_value(self.handle.as_raw())
+                .map_err(|_| vm.new_last_os_error())
         }
 
         #[pymethod]
         fn _is_zero(&self, vm: &VirtualMachine) -> PyResult<bool> {
-            let val =
-                get_semaphore_value(self.handle.as_raw()).map_err(|_| vm.new_last_os_error())?;
+            let val = host_multiprocessing::get_semaphore_value(self.handle.as_raw())
+                .map_err(|_| vm.new_last_os_error())?;
             Ok(val == 0)
         }
 
@@ -346,7 +296,8 @@ mod _multiprocessing {
                 return Err(vm.new_value_error("invalid value"));
             }
 
-            let handle = SemHandle::create(args.value, args.maxvalue, vm)?;
+            let handle =
+                SemHandle::create(args.value, args.maxvalue).map_err(|e| e.to_pyexception(vm))?;
             let name = if args.unlink { None } else { Some(args.name) };
 
             Ok(SemLock {
@@ -372,37 +323,22 @@ mod _multiprocessing {
 
     #[pyfunction]
     fn closesocket(socket: usize, vm: &VirtualMachine) -> PyResult<()> {
-        let res = unsafe { WinSock::closesocket(socket as SOCKET) };
-        if res != 0 {
-            Err(vm.new_last_os_error())
-        } else {
-            Ok(())
-        }
+        host_multiprocessing::close_socket(socket as host_multiprocessing::RawSocket)
+            .map_err(|_| vm.new_last_os_error())
     }
 
     #[pyfunction]
     fn recv(socket: usize, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let mut buf = vec![0u8; size];
-        let n_read =
-            unsafe { WinSock::recv(socket as SOCKET, buf.as_mut_ptr() as *mut _, size as i32, 0) };
-        if n_read < 0 {
-            Err(vm.new_last_os_error())
-        } else {
-            buf.truncate(n_read as usize);
-            Ok(buf)
-        }
+        host_multiprocessing::recv_socket(socket as host_multiprocessing::RawSocket, size)
+            .map_err(|_| vm.new_last_os_error())
     }
 
     #[pyfunction]
     fn send(socket: usize, buf: ArgBytesLike, vm: &VirtualMachine) -> PyResult<libc::c_int> {
-        let ret = buf.with_ref(|b| unsafe {
-            WinSock::send(socket as SOCKET, b.as_ptr() as *const _, b.len() as i32, 0)
-        });
-        if ret < 0 {
-            Err(vm.new_last_os_error())
-        } else {
-            Ok(ret)
-        }
+        buf.with_ref(|b| {
+            host_multiprocessing::send_socket(socket as host_multiprocessing::RawSocket, b)
+        })
+        .map_err(|_| vm.new_last_os_error())
     }
 }
 
@@ -417,17 +353,19 @@ mod _multiprocessing {
         function::{FuncArgs, KwArgs},
         types::Constructor,
     };
-    use alloc::ffi::CString;
     use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
+    #[cfg(target_vendor = "apple")]
     use libc::sem_t;
-    use nix::errno::Errno;
+    use rustpython_host_env::multiprocessing::{
+        self as host_multiprocessing, SemError, TryAcquireStatus, WaitStatus,
+    };
 
     /// Error type for sem_timedwait operations
     #[cfg(target_vendor = "apple")]
     enum SemWaitError {
         Timeout,
         SignalException(PyBaseExceptionRef),
-        OsError(Errno),
+        OsError(SemError),
     }
 
     /// macOS fallback for sem_timedwait using select + sem_trywait polling
@@ -441,59 +379,18 @@ mod _multiprocessing {
         let mut delay: u64 = 0;
 
         loop {
-            // poll: try to acquire
-            if unsafe { libc::sem_trywait(sem) } == 0 {
-                return Ok(());
+            match vm.allow_threads(|| {
+                host_multiprocessing::sem_timedwait_poll_step(sem, deadline, delay)
+            }) {
+                Ok(host_multiprocessing::PollWaitStep::Acquired) => return Ok(()),
+                Ok(host_multiprocessing::PollWaitStep::Timeout) => {
+                    return Err(SemWaitError::Timeout);
+                }
+                Ok(host_multiprocessing::PollWaitStep::Continue(next_delay)) => {
+                    delay = next_delay;
+                }
+                Err(err) => return Err(SemWaitError::OsError(err)),
             }
-            let err = Errno::last();
-            if err != Errno::EAGAIN {
-                return Err(SemWaitError::OsError(err));
-            }
-
-            // get current time
-            let mut now = libc::timeval {
-                tv_sec: 0,
-                tv_usec: 0,
-            };
-            if unsafe { libc::gettimeofday(&mut now, core::ptr::null_mut()) } < 0 {
-                return Err(SemWaitError::OsError(Errno::last()));
-            }
-
-            // check for timeout
-            let deadline_usec = deadline.tv_sec * 1_000_000 + deadline.tv_nsec / 1000;
-            #[allow(clippy::unnecessary_cast)]
-            let now_usec = now.tv_sec as i64 * 1_000_000 + now.tv_usec as i64;
-
-            if now_usec >= deadline_usec {
-                return Err(SemWaitError::Timeout);
-            }
-
-            // calculate how much time is left
-            let difference = (deadline_usec - now_usec) as u64;
-
-            // check delay not too long -- maximum is 20 msecs
-            delay += 1000;
-            if delay > 20000 {
-                delay = 20000;
-            }
-            if delay > difference {
-                delay = difference;
-            }
-
-            // sleep using select
-            let mut tv_delay = libc::timeval {
-                tv_sec: (delay / 1_000_000) as _,
-                tv_usec: (delay % 1_000_000) as _,
-            };
-            vm.allow_threads(|| unsafe {
-                libc::select(
-                    0,
-                    core::ptr::null_mut(),
-                    core::ptr::null_mut(),
-                    core::ptr::null_mut(),
-                    &mut tv_delay,
-                )
-            });
 
             // check for signals - preserve the exception (e.g., KeyboardInterrupt)
             if let Err(exc) = vm.check_signals() {
@@ -510,7 +407,8 @@ mod _multiprocessing {
     macro_rules! ismine {
         ($self:expr) => {
             $self.count.load(Ordering::Acquire) > 0
-                && $self.last_tid.load(Ordering::Acquire) == current_thread_id()
+                && $self.last_tid.load(Ordering::Acquire)
+                    == host_multiprocessing::current_thread_id()
         };
     }
 
@@ -540,70 +438,7 @@ mod _multiprocessing {
         count: AtomicI32,    // int
     }
 
-    #[derive(Debug)]
-    struct SemHandle {
-        raw: *mut sem_t,
-    }
-
-    unsafe impl Send for SemHandle {}
-    unsafe impl Sync for SemHandle {}
-
-    impl SemHandle {
-        fn create(
-            name: &str,
-            value: u32,
-            unlink: bool,
-            vm: &VirtualMachine,
-        ) -> PyResult<(Self, Option<String>)> {
-            let cname = semaphore_name(vm, name)?;
-            // SEM_CREATE(name, val, max) sem_open(name, O_CREAT | O_EXCL, 0600, val)
-            let raw = unsafe {
-                libc::sem_open(cname.as_ptr(), libc::O_CREAT | libc::O_EXCL, 0o600, value)
-            };
-            if raw == libc::SEM_FAILED {
-                let err = Errno::last();
-                return Err(os_error(vm, err));
-            }
-            if unlink {
-                // SEM_UNLINK(name) sem_unlink(name)
-                unsafe {
-                    libc::sem_unlink(cname.as_ptr());
-                }
-                Ok((SemHandle { raw }, None))
-            } else {
-                Ok((SemHandle { raw }, Some(name.to_owned())))
-            }
-        }
-
-        fn open_existing(name: &str, vm: &VirtualMachine) -> PyResult<Self> {
-            let cname = semaphore_name(vm, name)?;
-            let raw = unsafe { libc::sem_open(cname.as_ptr(), 0) };
-            if raw == libc::SEM_FAILED {
-                let err = Errno::last();
-                return Err(os_error(vm, err));
-            }
-            Ok(SemHandle { raw })
-        }
-
-        #[inline]
-        fn as_ptr(&self) -> *mut sem_t {
-            self.raw
-        }
-    }
-
-    impl Drop for SemHandle {
-        fn drop(&mut self) {
-            // Guard against default/uninitialized state.
-            // Note: SEM_FAILED is (sem_t*)-1, not null, but valid handles are never null
-            // and SEM_FAILED is never stored (error is returned immediately on sem_open failure).
-            if !self.raw.is_null() {
-                // SEM_CLOSE(sem) sem_close(sem)
-                unsafe {
-                    libc::sem_close(self.raw);
-                }
-            }
-        }
-    }
+    type SemHandle = host_multiprocessing::SemHandle;
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl SemLock {
@@ -659,54 +494,26 @@ mod _multiprocessing {
                 let timeout_obj = timeout_obj.unwrap();
                 // This accepts both int and float, converting to f64
                 let timeout: f64 = timeout_obj.try_float(vm)?.to_f64();
-                let timeout = if timeout < 0.0 { 0.0 } else { timeout };
-
-                let mut tv = libc::timeval {
-                    tv_sec: 0,
-                    tv_usec: 0,
-                };
-                let res = unsafe { libc::gettimeofday(&mut tv, core::ptr::null_mut()) };
-                if res < 0 {
-                    return Err(vm.new_os_error("gettimeofday failed".to_string()));
-                }
-
-                // deadline calculation:
-                // long sec = (long) timeout;
-                // long nsec = (long) (1e9 * (timeout - sec) + 0.5);
-                // deadline.tv_sec = now.tv_sec + sec;
-                // deadline.tv_nsec = now.tv_usec * 1000 + nsec;
-                // deadline.tv_sec += (deadline.tv_nsec / 1000000000);
-                // deadline.tv_nsec %= 1000000000;
-                let sec = timeout as libc::c_long;
-                let nsec = (1e9 * (timeout - sec as f64) + 0.5) as libc::c_long;
-                let mut deadline = libc::timespec {
-                    tv_sec: tv.tv_sec + sec as libc::time_t,
-                    tv_nsec: (tv.tv_usec as libc::c_long * 1000 + nsec) as _,
-                };
-                deadline.tv_sec += (deadline.tv_nsec / 1_000_000_000) as libc::time_t;
-                deadline.tv_nsec %= 1_000_000_000;
-                Some(deadline)
+                Some(
+                    host_multiprocessing::deadline_from_timeout(timeout)
+                        .map_err(|_| vm.new_os_error("gettimeofday failed".to_string()))?,
+                )
             } else {
                 None
             };
 
             // Check whether we can acquire without releasing the GIL and blocking
-            let mut res;
-            loop {
-                res = unsafe { libc::sem_trywait(self.handle.as_ptr()) };
-                if res >= 0 {
-                    break;
+            let try_status = loop {
+                match host_multiprocessing::sem_trywait_status(self.handle.as_ptr()) {
+                    TryAcquireStatus::Interrupted => {
+                        vm.check_signals()?;
+                    }
+                    status => break status,
                 }
-                let err = Errno::last();
-                if err == Errno::EINTR {
-                    vm.check_signals()?;
-                    continue;
-                }
-                break;
-            }
+            };
 
             // if (res < 0 && errno == EAGAIN && blocking)
-            if res < 0 && Errno::last() == Errno::EAGAIN && blocking {
+            if matches!(try_status, TryAcquireStatus::WouldBlock) && blocking {
                 // Couldn't acquire immediately, need to block.
                 //
                 // Save errno inside the allow_threads closure, before
@@ -715,49 +522,20 @@ mod _multiprocessing {
 
                 #[cfg(not(target_vendor = "apple"))]
                 {
-                    let mut saved_errno;
                     loop {
                         let sem_ptr = self.handle.as_ptr();
                         // Py_BEGIN_ALLOW_THREADS / Py_END_ALLOW_THREADS
-                        let (r, e) = if let Some(ref dl) = deadline {
-                            vm.allow_threads(|| {
-                                let r = unsafe { libc::sem_timedwait(sem_ptr, dl) };
-                                (
-                                    r,
-                                    if r < 0 {
-                                        Errno::last()
-                                    } else {
-                                        Errno::from_raw(0)
-                                    },
-                                )
-                            })
-                        } else {
-                            vm.allow_threads(|| {
-                                let r = unsafe { libc::sem_wait(sem_ptr) };
-                                (
-                                    r,
-                                    if r < 0 {
-                                        Errno::last()
-                                    } else {
-                                        Errno::from_raw(0)
-                                    },
-                                )
-                            })
-                        };
-                        res = r;
-                        saved_errno = e;
-
-                        if res >= 0 {
-                            break;
+                        match vm.allow_threads(|| {
+                            host_multiprocessing::sem_wait_status(sem_ptr, deadline.as_ref())
+                        }) {
+                            WaitStatus::Acquired => break,
+                            WaitStatus::Interrupted => {
+                                vm.check_signals()?;
+                                continue;
+                            }
+                            WaitStatus::TimedOut => return Ok(false),
+                            WaitStatus::Error(err) => return Err(os_error(vm, err)),
                         }
-                        if saved_errno == Errno::EINTR {
-                            vm.check_signals()?;
-                            continue;
-                        }
-                        break;
-                    }
-                    if res < 0 {
-                        return handle_wait_error(vm, saved_errno);
                     }
                 }
                 #[cfg(target_vendor = "apple")]
@@ -778,50 +556,35 @@ mod _multiprocessing {
                         }
                     } else {
                         // No timeout: use sem_wait (available on macOS)
-                        let mut saved_errno;
                         loop {
                             let sem_ptr = self.handle.as_ptr();
-                            let (r, e) = vm.allow_threads(|| {
-                                let r = unsafe { libc::sem_wait(sem_ptr) };
-                                (
-                                    r,
-                                    if r < 0 {
-                                        Errno::last()
-                                    } else {
-                                        Errno::from_raw(0)
-                                    },
-                                )
-                            });
-                            res = r;
-                            saved_errno = e;
-                            if res >= 0 {
-                                break;
+                            match vm.allow_threads(|| {
+                                host_multiprocessing::sem_wait_status(sem_ptr, None)
+                            }) {
+                                WaitStatus::Acquired => break,
+                                WaitStatus::Interrupted => {
+                                    vm.check_signals()?;
+                                    continue;
+                                }
+                                WaitStatus::TimedOut => return Ok(false),
+                                WaitStatus::Error(err) => return Err(os_error(vm, err)),
                             }
-                            if saved_errno == Errno::EINTR {
-                                vm.check_signals()?;
-                                continue;
-                            }
-                            break;
-                        }
-                        if res < 0 {
-                            return handle_wait_error(vm, saved_errno);
                         }
                     }
                 }
-            } else if res < 0 {
+            } else if !matches!(try_status, TryAcquireStatus::Acquired) {
                 // Non-blocking path failed, or blocking=false
-                let err = Errno::last();
-                match err {
-                    Errno::EAGAIN | Errno::ETIMEDOUT => return Ok(false),
-                    Errno::EINTR => {
-                        return vm.check_signals().map(|_| false);
-                    }
-                    _ => return Err(os_error(vm, err)),
+                match try_status {
+                    TryAcquireStatus::WouldBlock => return Ok(false),
+                    TryAcquireStatus::Interrupted => return vm.check_signals().map(|_| false),
+                    TryAcquireStatus::Error(err) => return Err(os_error(vm, err)),
+                    TryAcquireStatus::Acquired => unreachable!(),
                 }
             }
 
             self.count.fetch_add(1, Ordering::Release);
-            self.last_tid.store(current_thread_id(), Ordering::Release);
+            self.last_tid
+                .store(host_multiprocessing::current_thread_id(), Ordering::Release);
 
             Ok(true)
         }
@@ -849,11 +612,9 @@ mod _multiprocessing {
                 #[cfg(not(target_vendor = "apple"))]
                 {
                     // Linux: use sem_getvalue
-                    let mut sval: libc::c_int = 0;
-                    let res = unsafe { libc::sem_getvalue(self.handle.as_ptr(), &mut sval) };
-                    if res < 0 {
-                        return Err(os_error(vm, Errno::last()));
-                    }
+                    let sval =
+                        unsafe { host_multiprocessing::get_semaphore_value(self.handle.as_ptr()) }
+                            .map_err(|err| os_error(vm, err))?;
                     if sval >= self.maxvalue {
                         return Err(vm.new_value_error("semaphore or lock released too many times"));
                     }
@@ -864,27 +625,29 @@ mod _multiprocessing {
                     // We will only check properly the maxvalue == 1 case
                     if self.maxvalue == 1 {
                         // make sure that already locked
-                        if unsafe { libc::sem_trywait(self.handle.as_ptr()) } < 0 {
-                            if Errno::last() != Errno::EAGAIN {
-                                return Err(os_error(vm, Errno::last()));
+                        match host_multiprocessing::sem_trywait_status(self.handle.as_ptr()) {
+                            TryAcquireStatus::WouldBlock => {}
+                            TryAcquireStatus::Acquired => {
+                                if let Err(err) =
+                                    host_multiprocessing::sem_post(self.handle.as_ptr())
+                                {
+                                    return Err(os_error(vm, err));
+                                }
+                                return Err(
+                                    vm.new_value_error("semaphore or lock released too many times")
+                                );
                             }
-                            // it is already locked as expected
-                        } else {
-                            // it was not locked so undo wait and raise
-                            if unsafe { libc::sem_post(self.handle.as_ptr()) } < 0 {
-                                return Err(os_error(vm, Errno::last()));
+                            TryAcquireStatus::Interrupted => {
+                                return Err(os_error(vm, SemError::Interrupted));
                             }
-                            return Err(
-                                vm.new_value_error("semaphore or lock released too many times")
-                            );
+                            TryAcquireStatus::Error(err) => return Err(os_error(vm, err)),
                         }
                     }
                 }
             }
 
-            let res = unsafe { libc::sem_post(self.handle.as_ptr()) };
-            if res < 0 {
-                return Err(os_error(vm, Errno::last()));
+            if let Err(err) = host_multiprocessing::sem_post(self.handle.as_ptr()) {
+                return Err(os_error(vm, err));
             }
 
             self.count.fetch_sub(1, Ordering::Release);
@@ -926,7 +689,7 @@ mod _multiprocessing {
             let Some(ref name_str) = name else {
                 return Err(vm.new_value_error("cannot rebuild SemLock without name"));
             };
-            let handle = SemHandle::open_existing(name_str, vm)?;
+            let handle = SemHandle::open_existing(name_str).map_err(|err| os_error(vm, err))?;
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
             let zelf = SemLock {
                 handle,
@@ -976,14 +739,8 @@ mod _multiprocessing {
             #[cfg(not(target_vendor = "apple"))]
             {
                 // Linux: use sem_getvalue
-                let mut sval: libc::c_int = 0;
-                let res = unsafe { libc::sem_getvalue(self.handle.as_ptr(), &mut sval) };
-                if res < 0 {
-                    return Err(os_error(vm, Errno::last()));
-                }
-                // some posix implementations use negative numbers to indicate
-                // the number of waiting threads
-                Ok(if sval < 0 { 0 } else { sval })
+                unsafe { host_multiprocessing::get_semaphore_value(self.handle.as_ptr()) }
+                    .map_err(|err| os_error(vm, err))
             }
             #[cfg(target_vendor = "apple")]
             {
@@ -1004,15 +761,17 @@ mod _multiprocessing {
             {
                 // macOS: HAVE_BROKEN_SEM_GETVALUE
                 // Try to acquire - if EAGAIN, value is 0
-                if unsafe { libc::sem_trywait(self.handle.as_ptr()) } < 0 {
-                    if Errno::last() == Errno::EAGAIN {
-                        return Ok(true);
+                match host_multiprocessing::sem_trywait_status(self.handle.as_ptr()) {
+                    TryAcquireStatus::WouldBlock => return Ok(true),
+                    TryAcquireStatus::Interrupted => {
+                        return Err(os_error(vm, SemError::Interrupted));
                     }
-                    return Err(os_error(vm, Errno::last()));
+                    TryAcquireStatus::Error(err) => return Err(os_error(vm, err)),
+                    TryAcquireStatus::Acquired => {}
                 }
                 // Successfully acquired - undo and return false
-                if unsafe { libc::sem_post(self.handle.as_ptr()) } < 0 {
-                    return Err(os_error(vm, Errno::last()));
+                if let Err(err) = host_multiprocessing::sem_post(self.handle.as_ptr()) {
+                    return Err(os_error(vm, err));
                 }
                 Ok(false)
             }
@@ -1027,14 +786,7 @@ mod _multiprocessing {
             class.set_attr(ctx.intern_str("SEMAPHORE"), ctx.new_int(SEMAPHORE).into());
             // SEM_VALUE_MAX from system, or INT_MAX if negative
             // We use a reasonable default
-            let sem_value_max: i32 = unsafe {
-                let val = libc::sysconf(libc::_SC_SEM_VALUE_MAX);
-                if val < 0 || val > i32::MAX as libc::c_long {
-                    i32::MAX
-                } else {
-                    val as i32
-                }
-            };
+            let sem_value_max = host_multiprocessing::sem_value_max();
             class.set_attr(
                 ctx.intern_str("SEM_VALUE_MAX"),
                 ctx.new_int(sem_value_max).into(),
@@ -1057,7 +809,14 @@ mod _multiprocessing {
             }
 
             let value = args.value as u32;
-            let (handle, name) = SemHandle::create(&args.name, value, args.unlink, vm)?;
+            let (handle, name) =
+                SemHandle::create(&args.name, value, args.unlink).map_err(|err| {
+                    if err == SemError::InvalidInput && args.name.contains('\0') {
+                        vm.new_value_error("embedded null character")
+                    } else {
+                        os_error(vm, err)
+                    }
+                })?;
 
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
             Ok(SemLock {
@@ -1075,12 +834,13 @@ mod _multiprocessing {
     // _PyMp_sem_unlink.
     #[pyfunction]
     fn sem_unlink(name: String, vm: &VirtualMachine) -> PyResult<()> {
-        let cname = semaphore_name(vm, &name)?;
-        let res = unsafe { libc::sem_unlink(cname.as_ptr()) };
-        if res < 0 {
-            return Err(os_error(vm, Errno::last()));
-        }
-        Ok(())
+        host_multiprocessing::sem_unlink(&name).map_err(|err| {
+            if err == SemError::InvalidInput && name.contains('\0') {
+                vm.new_value_error("embedded null character")
+            } else {
+                os_error(vm, err)
+            }
+        })
     }
 
     /// Module-level flags dict.
@@ -1111,39 +871,15 @@ mod _multiprocessing {
         flags
     }
 
-    fn semaphore_name(vm: &VirtualMachine, name: &str) -> PyResult<CString> {
-        // POSIX semaphore names must start with /
-        let mut full = String::with_capacity(name.len() + 1);
-        if !name.starts_with('/') {
-            full.push('/');
-        }
-        full.push_str(name);
-        CString::new(full).map_err(|_| vm.new_value_error("embedded null character"))
-    }
-
-    fn handle_wait_error(vm: &VirtualMachine, saved_errno: Errno) -> PyResult<bool> {
-        match saved_errno {
-            Errno::EAGAIN | Errno::ETIMEDOUT => Ok(false),
-            Errno::EINTR => vm.check_signals().map(|_| false),
-            _ => Err(os_error(vm, saved_errno)),
-        }
-    }
-
-    fn os_error(vm: &VirtualMachine, err: Errno) -> PyBaseExceptionRef {
+    fn os_error(vm: &VirtualMachine, err: SemError) -> PyBaseExceptionRef {
         // _PyMp_SetError maps to PyErr_SetFromErrno
         let exc_type = match err {
-            Errno::EEXIST => vm.ctx.exceptions.file_exists_error.to_owned(),
-            Errno::ENOENT => vm.ctx.exceptions.file_not_found_error.to_owned(),
+            SemError::AlreadyExists => vm.ctx.exceptions.file_exists_error.to_owned(),
+            SemError::NotFound => vm.ctx.exceptions.file_not_found_error.to_owned(),
             _ => vm.ctx.exceptions.os_error.to_owned(),
         };
-        vm.new_os_subtype_error(exc_type, Some(err as i32), err.desc().to_owned())
+        vm.new_os_subtype_error(exc_type, Some(err.raw_os_error()), err.description())
             .upcast()
-    }
-
-    /// Get current thread identifier.
-    /// PyThread_get_thread_ident on Unix (pthread_self).
-    fn current_thread_id() -> u64 {
-        unsafe { libc::pthread_self() as u64 }
     }
 }
 

@@ -4089,35 +4089,30 @@ mod windows {
 
     #[pyfunction]
     fn enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        use schannel::{RawPointer, cert_context::ValidUses, cert_store::CertStore};
-        use windows_sys::Win32::Security::Cryptography;
-
-        // TODO: check every store for it, not just 2 of them:
-        // https://github.com/python/cpython/blob/3.8/Modules/_ssl.c#L5603-L5610
-        let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
-        let stores = open_fns
-            .iter()
-            .filter_map(|open| open(store_name.as_str()).ok())
-            .collect::<Vec<_>>();
-        let certs = stores.iter().flat_map(|s| s.certs()).map(|c| {
-            let cert = vm.ctx.new_bytes(c.to_der().to_owned());
-            let enc_type = unsafe {
-                let ptr = c.as_ptr() as *const Cryptography::CERT_CONTEXT;
-                (*ptr).dwCertEncodingType
+        let certs = rustpython_host_env::cert_store::enum_certificates(store_name.as_str());
+        let certs = certs.entries.into_iter().map(|c| {
+            let cert = vm.ctx.new_bytes(c.der);
+            let enc_type = match c.encoding {
+                rustpython_host_env::cert_store::EncodingType::X509Asn => {
+                    vm.new_pyobj(ascii!("x509_asn"))
+                }
+                rustpython_host_env::cert_store::EncodingType::Pkcs7Asn => {
+                    vm.new_pyobj(ascii!("pkcs_7_asn"))
+                }
+                rustpython_host_env::cert_store::EncodingType::Other(other) => vm.new_pyobj(other),
             };
-            let enc_type = match enc_type {
-                Cryptography::X509_ASN_ENCODING => vm.new_pyobj(ascii!("x509_asn")),
-                Cryptography::PKCS_7_ASN_ENCODING => vm.new_pyobj(ascii!("pkcs_7_asn")),
-                other => vm.new_pyobj(other),
-            };
-            let usage: PyObjectRef = match c.valid_uses().map_err(|e| e.to_pyexception(vm))? {
-                ValidUses::All => vm.ctx.new_bool(true).into(),
-                ValidUses::Oids(oids) => PyFrozenSet::from_iter(
-                    vm,
-                    oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()),
-                )?
-                .into_ref(&vm.ctx)
-                .into(),
+            let usage: PyObjectRef = match c.valid_uses.map_err(|e| e.to_pyexception(vm))? {
+                rustpython_host_env::cert_store::CertificateUses::All => {
+                    vm.ctx.new_bool(true).into()
+                }
+                rustpython_host_env::cert_store::CertificateUses::Oids(oids) => {
+                    PyFrozenSet::from_iter(
+                        vm,
+                        oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()),
+                    )?
+                    .into_ref(&vm.ctx)
+                    .into()
+                }
             };
             Ok(vm.new_tuple((cert, enc_type, usage)).into())
         });

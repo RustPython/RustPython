@@ -11,6 +11,10 @@ use crate::{
 };
 use alloc::borrow::Cow;
 use num_traits::ToPrimitive;
+use rustpython_host_env::ctypes::{
+    AddressValue, AddressWriteValue, IntegerValue, pointer_item_address, read_pointer_char_slice,
+    read_pointer_wchar_slice,
+};
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]
@@ -46,7 +50,7 @@ impl Initializer for PyCPointerType {
         }
 
         // Initialize StgInfo for pointer type
-        let pointer_size = core::mem::size_of::<usize>();
+        let pointer_size = rustpython_host_env::ctypes::pointer_size();
         let mut stg_info = StgInfo::new(pointer_size, pointer_size);
         stg_info.proto = proto;
         stg_info.paramfunc = super::base::ParamFunc::Pointer;
@@ -263,7 +267,7 @@ impl Constructor for PyCPointer {
 
         // Create a new PyCPointer instance with NULL pointer (all zeros)
         // Initial contents is set via __init__ if provided
-        let cdata = PyCData::from_bytes(vec![0u8; core::mem::size_of::<usize>()], None);
+        let cdata = PyCData::from_bytes(rustpython_host_env::ctypes::null_pointer_bytes(), None);
         // pointer instance has b_length set to 2 (for index 0 and 1)
         cdata.length.store(2);
         PyCPointer(cdata)
@@ -298,16 +302,18 @@ impl PyCPointer {
     /// Get the pointer value stored in buffer as usize
     pub(crate) fn get_ptr_value(&self) -> usize {
         let buffer = self.0.buffer.read();
-        super::base::read_ptr_from_buffer(&buffer)
+        rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
     }
 
     /// Set the pointer value in buffer
     pub(crate) fn set_ptr_value(&self, value: usize) {
         let mut buffer = self.0.buffer.write();
-        let bytes = value.to_ne_bytes();
-        if buffer.len() >= bytes.len() {
-            buffer.to_mut()[..bytes.len()].copy_from_slice(&bytes);
-        }
+        rustpython_host_env::ctypes::write_pointer_to_buffer_at(
+            buffer.to_mut(),
+            0,
+            rustpython_host_env::ctypes::pointer_size(),
+            value,
+        );
     }
 
     /// contents getter - reads address from b_ptr and creates an instance of the pointed-to type
@@ -324,7 +330,7 @@ impl PyCPointer {
         let proto_type = stg_info.proto();
         let element_size = proto_type
             .stg_info_opt()
-            .map_or(core::mem::size_of::<usize>(), |info| info.size);
+            .map_or_else(rustpython_host_env::ctypes::pointer_size, |info| info.size);
 
         // Create instance that references the memory directly
         // PyCData.into_ref_with_type works for all ctypes (simple, structure, union, array, pointer)
@@ -407,11 +413,10 @@ impl PyCPointer {
         let proto_type = stg_info.proto();
         let element_size = proto_type
             .stg_info_opt()
-            .map_or(core::mem::size_of::<usize>(), |info| info.size);
+            .map_or_else(rustpython_host_env::ctypes::pointer_size, |info| info.size);
 
         // offset = index * iteminfo->size
-        let offset = index * element_size as isize;
-        let addr = (ptr_value as isize + offset) as usize;
+        let addr = pointer_item_address(ptr_value, index, element_size);
 
         // Check if it's a simple type (has _type_ attribute)
         if let Ok(type_attr) = proto_type.as_object().get_attr("_type_", vm)
@@ -492,7 +497,7 @@ impl PyCPointer {
         let element_size = if let Some(ref proto_type) = stg_info.proto {
             proto_type.stg_info_opt().expect("proto has StgInfo").size
         } else {
-            core::mem::size_of::<usize>()
+            rustpython_host_env::ctypes::pointer_size()
         };
         let type_code = stg_info
             .proto
@@ -508,23 +513,8 @@ impl PyCPointer {
             if len == 0 {
                 return Ok(vm.ctx.new_bytes(vec![]).into());
             }
-            let mut result = Vec::with_capacity(len);
-            if step == 1 {
-                // Optimized contiguous copy
-                let start_addr = (ptr_value as isize + start * element_size as isize) as *const u8;
-                unsafe {
-                    result.extend_from_slice(core::slice::from_raw_parts(start_addr, len));
-                }
-            } else {
-                let mut cur = start;
-                for _ in 0..len {
-                    let addr = (ptr_value as isize + cur * element_size as isize) as *const u8;
-                    unsafe {
-                        result.push(*addr);
-                    }
-                    cur += step;
-                }
-            }
+            let result =
+                unsafe { read_pointer_char_slice(ptr_value, start, len, step, element_size) };
             return Ok(vm.ctx.new_bytes(result).into());
         }
 
@@ -533,23 +523,10 @@ impl PyCPointer {
             if len == 0 {
                 return Ok(vm.ctx.new_str("").into());
             }
-            let mut result = String::with_capacity(len);
-            let wchar_size = core::mem::size_of::<libc::wchar_t>();
-            let mut cur = start;
-            for _ in 0..len {
-                let addr = (ptr_value as isize + cur * wchar_size as isize) as *const libc::wchar_t;
-                unsafe {
-                    #[allow(
-                        clippy::unnecessary_cast,
-                        reason = "wchar_t is i32 on some platforms and u32 on others"
-                    )]
-                    if let Some(c) = char::from_u32(*addr as u32) {
-                        result.push(c);
-                    }
-                }
-                cur += step;
-            }
-            return Ok(vm.ctx.new_str(result).into());
+            return Ok(vm
+                .ctx
+                .new_str(unsafe { read_pointer_wchar_slice(ptr_value, start, len, step) })
+                .into());
         }
 
         // other types → list with Pointer_item for each
@@ -605,11 +582,10 @@ impl PyCPointer {
 
         let element_size = proto_type
             .stg_info_opt()
-            .map_or(core::mem::size_of::<usize>(), |info| info.size);
+            .map_or_else(rustpython_host_env::ctypes::pointer_size, |info| info.size);
 
         // Calculate address
-        let offset = index * element_size as isize;
-        let addr = (ptr_value as isize + offset) as usize;
+        let addr = pointer_item_address(ptr_value, index, element_size);
 
         // Write value at address
         // Handle Structure/Array types by copying their buffer
@@ -619,10 +595,8 @@ impl PyCPointer {
                 || cdata.fast_isinstance(PyCSimple::static_type()))
         {
             let src_buffer = cdata.buffer.read();
-            let copy_len = src_buffer.len().min(element_size);
             unsafe {
-                let dest_ptr = addr as *mut u8;
-                core::ptr::copy_nonoverlapping(src_buffer.as_ptr(), dest_ptr, copy_len);
+                rustpython_host_env::ctypes::copy_bytes_to_address(addr, &src_buffer, element_size);
             }
         } else {
             // Handle z/Z specially to store converted value
@@ -631,7 +605,11 @@ impl PyCPointer {
             {
                 let (kept_alive, ptr_val) = super::base::ensure_z_null_terminated(bytes, vm);
                 unsafe {
-                    *(addr as *mut usize) = ptr_val;
+                    rustpython_host_env::ctypes::write_value_to_address(
+                        addr,
+                        element_size,
+                        AddressWriteValue::Pointer(ptr_val),
+                    );
                 }
                 zelf.0.keep_alive(index as usize, kept_alive);
                 return zelf.0.keep_ref(index as usize, value.clone(), vm);
@@ -640,7 +618,11 @@ impl PyCPointer {
             {
                 let (holder, ptr_val) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                 unsafe {
-                    *(addr as *mut usize) = ptr_val;
+                    rustpython_host_env::ctypes::write_value_to_address(
+                        addr,
+                        element_size,
+                        AddressWriteValue::Pointer(ptr_val),
+                    );
                 }
                 return zelf.0.keep_ref(index as usize, holder, vm);
             } else {
@@ -659,56 +641,15 @@ impl PyCPointer {
         type_code: Option<&str>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        unsafe {
-            let ptr = addr as *const u8;
-            match type_code {
-                // Single-byte types don't need read_unaligned
-                Some("c") => Ok(vm.ctx.new_bytes(vec![*ptr]).into()),
-                Some("b") => Ok(vm.ctx.new_int(*ptr as i8 as i32).into()),
-                Some("B") => Ok(vm.ctx.new_int(*ptr as i32).into()),
-                // Multi-byte types need read_unaligned for safety on strict-alignment architectures
-                Some("h") => Ok(vm
-                    .ctx
-                    .new_int(core::ptr::read_unaligned(ptr as *const i16) as i32)
-                    .into()),
-                Some("H") => Ok(vm
-                    .ctx
-                    .new_int(core::ptr::read_unaligned(ptr as *const u16) as i32)
-                    .into()),
-                Some("i" | "l") => Ok(vm
-                    .ctx
-                    .new_int(core::ptr::read_unaligned(ptr as *const i32))
-                    .into()),
-                Some("I" | "L") => Ok(vm
-                    .ctx
-                    .new_int(core::ptr::read_unaligned(ptr as *const u32))
-                    .into()),
-                Some("q") => Ok(vm
-                    .ctx
-                    .new_int(core::ptr::read_unaligned(ptr as *const i64))
-                    .into()),
-                Some("Q") => Ok(vm
-                    .ctx
-                    .new_int(core::ptr::read_unaligned(ptr as *const u64))
-                    .into()),
-                Some("f") => Ok(vm
-                    .ctx
-                    .new_float(core::ptr::read_unaligned(ptr as *const f32) as f64)
-                    .into()),
-                Some("d" | "g") => Ok(vm
-                    .ctx
-                    .new_float(core::ptr::read_unaligned(ptr as *const f64))
-                    .into()),
-                Some("P" | "z" | "Z") => Ok(vm
-                    .ctx
-                    .new_int(core::ptr::read_unaligned(ptr as *const usize))
-                    .into()),
-                _ => {
-                    // Default: read as bytes
-                    let bytes = core::slice::from_raw_parts(ptr, size).to_vec();
-                    Ok(vm.ctx.new_bytes(bytes).into())
-                }
+        match unsafe { rustpython_host_env::ctypes::read_value_at_address(addr, size, type_code) } {
+            AddressValue::ByteString(byte) => Ok(vm.ctx.new_bytes(vec![byte]).into()),
+            AddressValue::Integer(IntegerValue::Signed(value)) => Ok(vm.ctx.new_int(value).into()),
+            AddressValue::Integer(IntegerValue::Unsigned(value)) => {
+                Ok(vm.ctx.new_int(value).into())
             }
+            AddressValue::Float(value) => Ok(vm.ctx.new_float(value).into()),
+            AddressValue::Pointer(value) => Ok(vm.ctx.new_int(value).into()),
+            AddressValue::Bytes(bytes) => Ok(vm.ctx.new_bytes(bytes).into()),
         }
     }
 
@@ -721,8 +662,6 @@ impl PyCPointer {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         unsafe {
-            let ptr = addr as *mut u8;
-
             // Handle c_char_p (z) and c_wchar_p (Z) - store pointer address
             // Note: PyBytes/PyStr cases are handled by caller (setitem_by_index)
             if let Some("z" | "Z") = type_code {
@@ -733,7 +672,11 @@ impl PyCPointer {
                 } else {
                     return Err(vm.new_type_error("bytes/string or integer address expected"));
                 };
-                core::ptr::write_unaligned(ptr as *mut usize, ptr_val);
+                rustpython_host_env::ctypes::write_value_to_address(
+                    addr,
+                    size,
+                    AddressWriteValue::Pointer(ptr_val),
+                );
                 return Ok(());
             }
 
@@ -741,56 +684,39 @@ impl PyCPointer {
             // Use write_unaligned for safety on strict-alignment architectures
             if let Ok(int_val) = value.try_int(vm) {
                 let i = int_val.as_bigint();
-                match size {
-                    1 => {
-                        *ptr = i.to_u8().expect("int too large");
-                    }
-                    2 => {
-                        core::ptr::write_unaligned(
-                            ptr as *mut i16,
-                            i.to_i16().expect("int too large"),
-                        );
-                    }
-                    4 => {
-                        core::ptr::write_unaligned(
-                            ptr as *mut i32,
-                            i.to_i32().expect("int too large"),
-                        );
-                    }
-                    8 => {
-                        core::ptr::write_unaligned(
-                            ptr as *mut i64,
-                            i.to_i64().expect("int too large"),
-                        );
-                    }
+                let bytes;
+                let write_value = match size {
+                    1 => AddressWriteValue::U8(i.to_u8().expect("int too large")),
+                    2 => AddressWriteValue::I16(i.to_i16().expect("int too large")),
+                    4 => AddressWriteValue::I32(i.to_i32().expect("int too large")),
+                    8 => AddressWriteValue::I64(i.to_i64().expect("int too large")),
                     _ => {
-                        let bytes = i.to_signed_bytes_le();
-                        let copy_len = bytes.len().min(size);
-                        core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, copy_len);
+                        bytes = i.to_signed_bytes_le();
+                        AddressWriteValue::Bytes(&bytes)
                     }
-                }
+                };
+                rustpython_host_env::ctypes::write_value_to_address(addr, size, write_value);
                 return Ok(());
             }
 
             // Try to get value as float
             if let Ok(float_val) = value.try_float(vm) {
                 let f = float_val.to_f64();
-                match size {
-                    4 => {
-                        core::ptr::write_unaligned(ptr as *mut f32, f as f32);
-                    }
-                    8 => {
-                        core::ptr::write_unaligned(ptr as *mut f64, f);
-                    }
-                    _ => {}
-                }
+                rustpython_host_env::ctypes::write_value_to_address(
+                    addr,
+                    size,
+                    AddressWriteValue::Float(f),
+                );
                 return Ok(());
             }
 
             // Try bytes
             if let Ok(bytes) = value.try_bytes_like(vm, |b| b.to_vec()) {
-                let copy_len = bytes.len().min(size);
-                core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, copy_len);
+                rustpython_host_env::ctypes::write_value_to_address(
+                    addr,
+                    size,
+                    AddressWriteValue::Bytes(&bytes),
+                );
                 return Ok(());
             }
 

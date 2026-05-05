@@ -1,9 +1,7 @@
 use alloc::boxed::Box;
 use core::ffi::CStr;
-use std::{
-    os::raw::c_char,
-    sync::{OnceLock, RwLock},
-};
+use parking_lot::RwLock;
+use std::{os::raw::c_char, sync::OnceLock};
 
 #[derive(Debug)]
 enum GlobalIdent {
@@ -27,10 +25,7 @@ fn global_ident() -> &'static RwLock<Option<GlobalIdent>> {
 
 #[must_use]
 pub fn is_open() -> bool {
-    global_ident()
-        .read()
-        .expect("syslog lock poisoned")
-        .is_some()
+    global_ident().read().is_some()
 }
 
 pub fn openlog(ident: Option<Box<CStr>>, logoption: i32, facility: i32) {
@@ -38,19 +33,20 @@ pub fn openlog(ident: Option<Box<CStr>>, logoption: i32, facility: i32) {
         Some(ident) => GlobalIdent::Explicit(ident),
         None => GlobalIdent::Implicit,
     };
-    let mut locked_ident = global_ident().write().expect("syslog lock poisoned");
+    let mut locked_ident = global_ident().write();
     unsafe { libc::openlog(ident.as_ptr(), logoption, facility) };
     *locked_ident = Some(ident);
 }
 
 pub fn syslog(priority: i32, msg: &CStr) {
+    let _locked_ident = global_ident().read();
     let cformat = c"%s";
     unsafe { libc::syslog(priority, cformat.as_ptr(), msg.as_ptr()) };
 }
 
 pub fn closelog() {
-    if is_open() {
-        let mut locked_ident = global_ident().write().expect("syslog lock poisoned");
+    let mut locked_ident = global_ident().write();
+    if locked_ident.is_some() {
         unsafe { libc::closelog() };
         *locked_ident = None;
     }
@@ -63,7 +59,7 @@ pub fn setlogmask(maskpri: i32) -> i32 {
 
 #[must_use]
 pub const fn log_mask(pri: i32) -> i32 {
-    pri << 1
+    1 << pri
 }
 
 #[must_use]

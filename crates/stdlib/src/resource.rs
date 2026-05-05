@@ -9,7 +9,7 @@ mod resource {
         convert::{ToPyException, ToPyObject},
         types::PyStructSequence,
     };
-    use core::mem;
+    use rustpython_host_env::resource as host_resource;
     use std::io;
 
     #[cfg_attr(target_os = "android", expect(deprecated))]
@@ -91,8 +91,8 @@ mod resource {
     #[pyclass(with(PyStructSequence))]
     impl PyRUsage {}
 
-    impl From<libc::rusage> for RUsageData {
-        fn from(rusage: libc::rusage) -> Self {
+    impl From<host_resource::RUsage> for RUsageData {
+        fn from(rusage: host_resource::RUsage) -> Self {
             let tv = |tv: libc::timeval| tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0);
             Self {
                 ru_utime: tv(rusage.ru_utime),
@@ -117,14 +117,7 @@ mod resource {
 
     #[pyfunction]
     fn getrusage(who: i32, vm: &VirtualMachine) -> PyResult<RUsageData> {
-        let res = unsafe {
-            let mut rusage = mem::MaybeUninit::<libc::rusage>::uninit();
-            if libc::getrusage(who, rusage.as_mut_ptr()) == -1 {
-                Err(io::Error::last_os_error())
-            } else {
-                Ok(rusage.assume_init())
-            }
-        };
+        let res = host_resource::getrusage(who);
         res.map(RUsageData::from).map_err(|e| {
             if e.kind() == io::ErrorKind::InvalidInput {
                 vm.new_value_error("invalid who parameter")
@@ -159,13 +152,7 @@ mod resource {
         if resource < 0 || resource >= RLIM_NLIMITS as i32 {
             return Err(vm.new_value_error("invalid resource specified"));
         }
-        let rlimit = unsafe {
-            let mut rlimit = mem::MaybeUninit::<libc::rlimit>::uninit();
-            if libc::getrlimit(resource as _, rlimit.as_mut_ptr()) == -1 {
-                return Err(vm.new_last_errno_error());
-            }
-            rlimit.assume_init()
-        };
+        let rlimit = host_resource::getrlimit(resource).map_err(|_| vm.new_last_errno_error())?;
         Ok(Limits(rlimit))
     }
 
@@ -175,13 +162,7 @@ mod resource {
         if resource < 0 || resource >= RLIM_NLIMITS as i32 {
             return Err(vm.new_value_error("invalid resource specified"));
         }
-        let res = unsafe {
-            if libc::setrlimit(resource as _, &limits.0) == -1 {
-                Err(io::Error::last_os_error())
-            } else {
-                Ok(())
-            }
-        };
+        let res = host_resource::setrlimit(resource, limits.0);
         res.map_err(|e| match e.kind() {
             io::ErrorKind::InvalidInput => {
                 vm.new_value_error("current limit exceeds maximum limit")

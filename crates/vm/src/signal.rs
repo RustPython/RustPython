@@ -92,6 +92,7 @@ pub(crate) fn set_triggered() {
 }
 
 #[inline(always)]
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn is_triggered() -> bool {
     ANY_TRIGGERED.load(Ordering::Relaxed)
 }

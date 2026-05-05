@@ -11,30 +11,64 @@ license.workspace = true
 [dependencies]
 rustpython-wtf8 = { workspace = true }
 
+bitflags = { workspace = true }
 libc = { workspace = true }
 num-traits = { workspace = true }
+parking_lot = { workspace = true }
+paste = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
+uname = "0.1.1"
+
+[target.'cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))'.dependencies]
+rustix = { workspace = true }
+
+[target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
+num_cpus = "1.17.0"
 
 [target.'cfg(all(unix, not(target_os = "ios"), not(target_os = "redox")))'.dependencies]
 termios = { workspace = true }
 
+[target.'cfg(any(unix, windows))'.dependencies]
+memmap2 = "0.9.10"
+libloading = "0.9"
+
+[target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
+libffi = { workspace = true, features = ["system"] }
+
 [target.'cfg(windows)'.dependencies]
+junction = { workspace = true }
+schannel = { workspace = true }
 widestring = { workspace = true }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
     "Win32_System_Console",
     "Win32_System_Diagnostics_Debug",
+    "Win32_System_Environment",
+    "Win32_System_IO",
     "Win32_System_Ioctl",
+    "Win32_System_JobObjects",
+    "Win32_System_Kernel",
     "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Pipes",
+    "Win32_System_Performance",
+    "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",
     "Win32_System_Time",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [lints]

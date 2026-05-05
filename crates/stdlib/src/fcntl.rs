@@ -95,10 +95,7 @@ mod fcntl {
         mutate_flag: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        // Convert to unsigned - handles both positive u32 values and negative i32 values
-        // that represent the same bit pattern (e.g., TIOCSWINSZ on some platforms).
-        // First truncate to u32 (takes lower 32 bits), then zero-extend to c_ulong.
-        let request = (request as u32) as libc::c_ulong;
+        let request = host_fcntl::normalize_ioctl_request(request);
         let arg = arg.unwrap_or_else(|| Either::B(0));
         match arg {
             Either::A(buf_kind) => {
@@ -158,39 +155,23 @@ mod fcntl {
         whence: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        macro_rules! try_into_l_type {
-            ($l_type:path) => {
-                $l_type
-                    .try_into()
-                    .map_err(|e| vm.new_overflow_error(format!("{e}")))
-            };
-        }
-
-        let mut l: libc::flock = unsafe { core::mem::zeroed() };
-        l.l_type = if cmd == libc::LOCK_UN {
-            try_into_l_type!(libc::F_UNLCK)
-        } else if (cmd & libc::LOCK_SH) != 0 {
-            try_into_l_type!(libc::F_RDLCK)
-        } else if (cmd & libc::LOCK_EX) != 0 {
-            try_into_l_type!(libc::F_WRLCK)
-        } else {
-            return Err(vm.new_value_error("unrecognized lockf argument"));
-        }?;
-        l.l_start = match start {
+        let start = match start {
             OptionalArg::Present(s) => s.try_to_primitive(vm)?,
             OptionalArg::Missing => 0,
         };
-        l.l_len = match len {
+        let len = match len {
             OptionalArg::Present(l_) => l_.try_to_primitive(vm)?,
             OptionalArg::Missing => 0,
         };
-        l.l_whence = match whence {
-            OptionalArg::Present(w) => w
-                .try_into()
-                .map_err(|e| vm.new_overflow_error(format!("{e}")))?,
+        let whence = match whence {
+            OptionalArg::Present(w) => w,
             OptionalArg::Missing => 0,
         };
-        let ret = host_fcntl::lockf(fd, cmd, &l).map_err(|_| vm.new_last_errno_error())?;
+        let ret = host_fcntl::lockf(fd, cmd, len, start, whence).map_err(|err| match err {
+            host_fcntl::LockfError::InvalidCmd => vm.new_value_error("unrecognized lockf argument"),
+            host_fcntl::LockfError::Overflow(e) => vm.new_overflow_error(e),
+            host_fcntl::LockfError::Io(_) => vm.new_last_errno_error(),
+        })?;
         Ok(vm.ctx.new_int(ret).into())
     }
 }

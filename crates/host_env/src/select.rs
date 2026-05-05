@@ -3,12 +3,18 @@ use std::io;
 
 #[cfg(unix)]
 pub mod platform {
+    pub use libc::pollfd;
     pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
+    use std::io;
     pub use std::os::unix::io::RawFd;
 
     #[must_use]
     pub const fn check_err(x: i32) -> bool {
         x < 0
+    }
+
+    pub fn last_select_error() -> io::Error {
+        io::Error::last_os_error()
     }
 }
 
@@ -16,11 +22,12 @@ pub mod platform {
 #[cfg(windows)]
 pub mod platform {
     pub use WinSock::{FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval, select};
+    use std::io;
     use windows_sys::Win32::Networking::WinSock;
 
     /// # Safety
     ///
-    /// Requirements forwarded from the caller.
+    /// `set` must be a valid mutable pointer to an initialized WinSock fd_set.
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
         let mut slot = unsafe { (&raw mut (*set).fd_array).cast::<RawFd>() };
         let fd_count = unsafe { (*set).fd_count };
@@ -40,14 +47,14 @@ pub mod platform {
 
     /// # Safety
     ///
-    /// Requirements forwarded from the caller.
+    /// `set` must be a valid mutable pointer to a WinSock fd_set.
     pub unsafe fn FD_ZERO(set: *mut fd_set) {
         unsafe { (*set).fd_count = 0 };
     }
 
     /// # Safety
     ///
-    /// Requirements forwarded from the caller.
+    /// `set` must be a valid mutable pointer to an initialized WinSock fd_set.
     pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
         use WinSock::__WSAFDIsSet;
         unsafe { __WSAFDIsSet(fd as _, set) != 0 }
@@ -57,11 +64,16 @@ pub mod platform {
     pub fn check_err(x: i32) -> bool {
         x == WinSock::SOCKET_ERROR
     }
+
+    pub fn last_select_error() -> io::Error {
+        io::Error::from_raw_os_error(unsafe { WinSock::WSAGetLastError() })
+    }
 }
 
 #[cfg(target_os = "wasi")]
 pub mod platform {
     pub use libc::{FD_SETSIZE, timeval};
+    use std::io;
     pub use std::os::fd::RawFd;
 
     pub const fn check_err(x: i32) -> bool {
@@ -75,6 +87,9 @@ pub mod platform {
     }
 
     #[allow(non_snake_case)]
+    /// # Safety
+    ///
+    /// `set` must be a valid pointer to an initialized fd_set.
     pub unsafe fn FD_ISSET(fd: RawFd, set: *const fd_set) -> bool {
         let set = unsafe { &*set };
         for p in &set.__fds[..set.__nfds] {
@@ -86,6 +101,9 @@ pub mod platform {
     }
 
     #[allow(non_snake_case)]
+    /// # Safety
+    ///
+    /// `set` must be a valid mutable pointer to an initialized fd_set.
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
         let set = unsafe { &mut *set };
         for p in &set.__fds[..set.__nfds] {
@@ -94,12 +112,16 @@ pub mod platform {
             }
         }
         let n = set.__nfds;
-        assert!(n < set.__fds.len(), "fd_set full");
-        set.__fds[n] = fd;
-        set.__nfds = n + 1;
+        if n < FD_SETSIZE {
+            set.__fds[n] = fd;
+            set.__nfds = n + 1;
+        }
     }
 
     #[allow(non_snake_case)]
+    /// # Safety
+    ///
+    /// `set` must be a valid mutable pointer to an fd_set.
     pub unsafe fn FD_ZERO(set: *mut fd_set) {
         unsafe { (*set).__nfds = 0 };
     }
@@ -113,15 +135,21 @@ pub mod platform {
             timeout: *const timeval,
         ) -> libc::c_int;
     }
+
+    pub fn last_select_error() -> io::Error {
+        io::Error::last_os_error()
+    }
 }
 
 pub use platform::{RawFd, timeval};
+
+#[cfg(unix)]
+pub type PollFd = platform::pollfd;
 
 #[repr(transparent)]
 pub struct FdSet(MaybeUninit<platform::fd_set>);
 
 impl FdSet {
-    #[must_use]
     pub fn new() -> Self {
         let mut fdset = MaybeUninit::zeroed();
         unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
@@ -174,16 +202,118 @@ pub fn select(
         )
     };
     if platform::check_err(ret) {
-        Err(io::Error::last_os_error())
+        Err(platform::last_select_error())
     } else {
         Ok(ret)
     }
 }
 
-#[must_use]
 pub fn sec_to_timeval(sec: f64) -> timeval {
     timeval {
         tv_sec: sec.trunc() as _,
         tv_usec: (sec.fract() * 1e6) as _,
+    }
+}
+
+#[cfg(unix)]
+#[inline]
+pub fn search_poll_fd(fds: &[PollFd], fd: i32) -> Result<usize, usize> {
+    fds.binary_search_by_key(&fd, |pfd| pfd.fd)
+}
+
+#[cfg(unix)]
+pub fn insert_poll_fd(fds: &mut Vec<PollFd>, fd: i32, events: i16) {
+    match search_poll_fd(fds, fd) {
+        Ok(i) => fds[i].events = events,
+        Err(i) => fds.insert(
+            i,
+            PollFd {
+                fd,
+                events,
+                revents: 0,
+            },
+        ),
+    }
+}
+
+#[cfg(unix)]
+pub fn get_poll_fd_mut(fds: &mut [PollFd], fd: i32) -> Option<&mut PollFd> {
+    search_poll_fd(fds, fd).ok().map(move |i| &mut fds[i])
+}
+
+#[cfg(unix)]
+pub fn remove_poll_fd(fds: &mut Vec<PollFd>, fd: i32) -> Option<PollFd> {
+    search_poll_fd(fds, fd).ok().map(|i| fds.remove(i))
+}
+
+#[cfg(unix)]
+pub fn poll_fds(fds: &mut [PollFd], timeout: i32) -> std::io::Result<i32> {
+    let res = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, timeout) };
+    if res < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(res)
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
+pub mod epoll {
+    use std::os::fd::{AsFd, IntoRawFd, OwnedFd};
+
+    pub use rustix::event::Timespec;
+    pub use rustix::event::epoll::{Event, EventData, EventFlags};
+
+    #[derive(Debug)]
+    pub enum WaitError {
+        Interrupted,
+        Io(std::io::Error),
+    }
+
+    pub fn create() -> std::io::Result<OwnedFd> {
+        rustix::event::epoll::create(rustix::event::epoll::CreateFlags::CLOEXEC).map_err(Into::into)
+    }
+
+    pub fn close(fd: OwnedFd) -> nix::Result<()> {
+        nix::unistd::close(fd.into_raw_fd())
+    }
+
+    pub fn add<F: AsFd>(epoll: &OwnedFd, fd: F, data: u64, events: u32) -> std::io::Result<()> {
+        rustix::event::epoll::add(
+            epoll,
+            fd,
+            EventData::new_u64(data),
+            EventFlags::from_bits_retain(events),
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn modify<F: AsFd>(epoll: &OwnedFd, fd: F, data: u64, events: u32) -> std::io::Result<()> {
+        rustix::event::epoll::modify(
+            epoll,
+            fd,
+            EventData::new_u64(data),
+            EventFlags::from_bits_retain(events),
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn delete<F: AsFd>(epoll: &OwnedFd, fd: F) -> std::io::Result<()> {
+        rustix::event::epoll::delete(epoll, fd).map_err(Into::into)
+    }
+
+    pub fn wait(
+        epoll: &OwnedFd,
+        events: &mut Vec<Event>,
+        timeout: Option<&Timespec>,
+    ) -> Result<usize, WaitError> {
+        events.clear();
+        match rustix::event::epoll::wait(epoll, rustix::buffer::spare_capacity(events), timeout) {
+            Ok(n) => {
+                unsafe { events.set_len(n) };
+                Ok(n)
+            }
+            Err(rustix::io::Errno::INTR) => Err(WaitError::Interrupted),
+            Err(err) => Err(WaitError::Io(err.into())),
+        }
     }
 }

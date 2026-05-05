@@ -376,6 +376,7 @@ fn delegate_pycodecs(
 mod _codecs_windows {
     use crate::{PyResult, VirtualMachine};
     use crate::{builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike};
+    use rustpython_host_env::windows as host_windows;
 
     #[derive(FromArgs)]
     struct MbcsEncodeArgs {
@@ -388,9 +389,6 @@ mod _codecs_windows {
     #[pyfunction]
     fn mbcs_encode(args: MbcsEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
         use crate::host_env::windows::ToWideString;
-        use windows_sys::Win32::Globalization::{
-            CP_ACP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
-        };
 
         let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
         let s = match args.s.to_str() {
@@ -412,56 +410,31 @@ mod _codecs_windows {
         let wide: Vec<u16> = std::ffi::OsStr::new(s).to_wide();
 
         // Get the required buffer size
-        let size = unsafe {
-            WideCharToMultiByte(
-                CP_ACP,
-                WC_NO_BEST_FIT_CHARS,
-                wide.as_ptr(),
-                wide.len() as i32,
-                core::ptr::null_mut(),
-                0,
-                core::ptr::null(),
-                core::ptr::null_mut(),
-            )
-        };
+        let (size, _) = host_windows::wide_char_to_multi_byte_len(
+            host_windows::CP_ACP,
+            host_windows::WC_NO_BEST_FIT_CHARS,
+            &wide,
+            false,
+        )
+        .map_err(|err| vm.new_os_error(format!("mbcs_encode failed: {err}")))?;
 
-        if size == 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("mbcs_encode failed: {}", err)));
-        }
+        let mut buffer = vec![0u8; size];
+        let (result, used_default_char) = host_windows::wide_char_to_multi_byte(
+            host_windows::CP_ACP,
+            host_windows::WC_NO_BEST_FIT_CHARS,
+            &wide,
+            &mut buffer,
+            errors == "strict",
+        )
+        .map_err(|err| vm.new_os_error(format!("mbcs_encode failed: {err}")))?;
 
-        let mut buffer = vec![0u8; size as usize];
-        let mut used_default_char: i32 = 0;
-
-        let result = unsafe {
-            WideCharToMultiByte(
-                CP_ACP,
-                WC_NO_BEST_FIT_CHARS,
-                wide.as_ptr(),
-                wide.len() as i32,
-                buffer.as_mut_ptr().cast(),
-                size,
-                core::ptr::null(),
-                if errors == "strict" {
-                    &mut used_default_char
-                } else {
-                    core::ptr::null_mut()
-                },
-            )
-        };
-
-        if result == 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("mbcs_encode failed: {err}")));
-        }
-
-        if errors == "strict" && used_default_char != 0 {
+        if errors == "strict" && used_default_char {
             return Err(vm.new_unicode_encode_error(
                 "'mbcs' codec can't encode characters: invalid character",
             ));
         }
 
-        buffer.truncate(result as usize);
+        buffer.truncate(result);
         Ok((buffer, char_len))
     }
 
@@ -478,10 +451,6 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn mbcs_decode(args: MbcsDecodeArgs, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-        use windows_sys::Win32::Globalization::{
-            CP_ACP, MB_ERR_INVALID_CHARS, MultiByteToWideChar,
-        };
-
         let _errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
         let data = args.data.borrow_buf();
         let len = data.len();
@@ -491,74 +460,44 @@ mod _codecs_windows {
         }
 
         // Get the required buffer size for UTF-16
-        let size = unsafe {
-            MultiByteToWideChar(
-                CP_ACP,
-                MB_ERR_INVALID_CHARS,
-                data.as_ptr().cast(),
-                len as i32,
-                core::ptr::null_mut(),
-                0,
-            )
-        };
+        let size = host_windows::multi_byte_to_wide_len(
+            host_windows::CP_ACP,
+            host_windows::MB_ERR_INVALID_CHARS,
+            data.as_ref(),
+        );
 
-        if size == 0 {
+        if size.is_err() {
             // Try without MB_ERR_INVALID_CHARS for non-strict mode (replacement behavior)
-            let size = unsafe {
-                MultiByteToWideChar(
-                    CP_ACP,
-                    0,
-                    data.as_ptr().cast(),
-                    len as i32,
-                    core::ptr::null_mut(),
-                    0,
-                )
-            };
-            if size == 0 {
-                let err = std::io::Error::last_os_error();
-                return Err(vm.new_os_error(format!("mbcs_decode failed: {}", err)));
-            }
+            let size = host_windows::multi_byte_to_wide_len(host_windows::CP_ACP, 0, data.as_ref())
+                .map_err(|err| vm.new_os_error(format!("mbcs_decode failed: {err}")))?;
 
-            let mut buffer = vec![0u16; size as usize];
-            let result = unsafe {
-                MultiByteToWideChar(
-                    CP_ACP,
-                    0,
-                    data.as_ptr().cast(),
-                    len as i32,
-                    buffer.as_mut_ptr(),
-                    size,
-                )
-            };
-            if result == 0 {
-                let err = std::io::Error::last_os_error();
-                return Err(vm.new_os_error(format!("mbcs_decode failed: {}", err)));
-            }
-            buffer.truncate(result as usize);
+            let mut buffer = vec![0u16; size];
+            let result = host_windows::multi_byte_to_wide(
+                host_windows::CP_ACP,
+                0,
+                data.as_ref(),
+                &mut buffer,
+            )
+            .map_err(|err| vm.new_os_error(format!("mbcs_decode failed: {err}")))?;
+            buffer.truncate(result);
             let s = String::from_utf16(&buffer)
-                .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {}", e)))?;
+                .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {e}")))?;
             return Ok((s, len));
         }
 
         // Strict mode succeeded - no invalid characters
-        let mut buffer = vec![0u16; size as usize];
-        let result = unsafe {
-            MultiByteToWideChar(
-                CP_ACP,
-                MB_ERR_INVALID_CHARS,
-                data.as_ptr().cast(),
-                len as i32,
-                buffer.as_mut_ptr(),
-                size,
-            )
-        };
-        if result == 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("mbcs_decode failed: {}", err)));
-        }
-        buffer.truncate(result as usize);
+        let size = size.unwrap();
+        let mut buffer = vec![0u16; size];
+        let result = host_windows::multi_byte_to_wide(
+            host_windows::CP_ACP,
+            host_windows::MB_ERR_INVALID_CHARS,
+            data.as_ref(),
+            &mut buffer,
+        )
+        .map_err(|err| vm.new_os_error(format!("mbcs_decode failed: {err}")))?;
+        buffer.truncate(result);
         let s = String::from_utf16(&buffer)
-            .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {}", e)))?;
+            .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {e}")))?;
 
         Ok((s, len))
     }
@@ -574,9 +513,6 @@ mod _codecs_windows {
     #[pyfunction]
     fn oem_encode(args: OemEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
         use crate::host_env::windows::ToWideString;
-        use windows_sys::Win32::Globalization::{
-            CP_OEMCP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
-        };
 
         let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
         let s = match args.s.to_str() {
@@ -598,56 +534,31 @@ mod _codecs_windows {
         let wide: Vec<u16> = std::ffi::OsStr::new(s).to_wide();
 
         // Get the required buffer size
-        let size = unsafe {
-            WideCharToMultiByte(
-                CP_OEMCP,
-                WC_NO_BEST_FIT_CHARS,
-                wide.as_ptr(),
-                wide.len() as i32,
-                core::ptr::null_mut(),
-                0,
-                core::ptr::null(),
-                core::ptr::null_mut(),
-            )
-        };
+        let (size, _) = host_windows::wide_char_to_multi_byte_len(
+            host_windows::CP_OEMCP,
+            host_windows::WC_NO_BEST_FIT_CHARS,
+            &wide,
+            false,
+        )
+        .map_err(|err| vm.new_os_error(format!("oem_encode failed: {err}")))?;
 
-        if size == 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("oem_encode failed: {}", err)));
-        }
+        let mut buffer = vec![0u8; size];
+        let (result, used_default_char) = host_windows::wide_char_to_multi_byte(
+            host_windows::CP_OEMCP,
+            host_windows::WC_NO_BEST_FIT_CHARS,
+            &wide,
+            &mut buffer,
+            errors == "strict",
+        )
+        .map_err(|err| vm.new_os_error(format!("oem_encode failed: {err}")))?;
 
-        let mut buffer = vec![0u8; size as usize];
-        let mut used_default_char: i32 = 0;
-
-        let result = unsafe {
-            WideCharToMultiByte(
-                CP_OEMCP,
-                WC_NO_BEST_FIT_CHARS,
-                wide.as_ptr(),
-                wide.len() as i32,
-                buffer.as_mut_ptr().cast(),
-                size,
-                core::ptr::null(),
-                if errors == "strict" {
-                    &mut used_default_char
-                } else {
-                    core::ptr::null_mut()
-                },
-            )
-        };
-
-        if result == 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("oem_encode failed: {err}")));
-        }
-
-        if errors == "strict" && used_default_char != 0 {
+        if errors == "strict" && used_default_char {
             return Err(vm.new_unicode_encode_error(
                 "'oem' codec can't encode characters: invalid character",
             ));
         }
 
-        buffer.truncate(result as usize);
+        buffer.truncate(result);
         Ok((buffer, char_len))
     }
 
@@ -664,10 +575,6 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn oem_decode(args: OemDecodeArgs, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-        use windows_sys::Win32::Globalization::{
-            CP_OEMCP, MB_ERR_INVALID_CHARS, MultiByteToWideChar,
-        };
-
         let _errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
         let data = args.data.borrow_buf();
         let len = data.len();
@@ -677,74 +584,45 @@ mod _codecs_windows {
         }
 
         // Get the required buffer size for UTF-16
-        let size = unsafe {
-            MultiByteToWideChar(
-                CP_OEMCP,
-                MB_ERR_INVALID_CHARS,
-                data.as_ptr().cast(),
-                len as i32,
-                core::ptr::null_mut(),
-                0,
-            )
-        };
+        let size = host_windows::multi_byte_to_wide_len(
+            host_windows::CP_OEMCP,
+            host_windows::MB_ERR_INVALID_CHARS,
+            data.as_ref(),
+        );
 
-        if size == 0 {
+        if size.is_err() {
             // Try without MB_ERR_INVALID_CHARS for non-strict mode (replacement behavior)
-            let size = unsafe {
-                MultiByteToWideChar(
-                    CP_OEMCP,
-                    0,
-                    data.as_ptr().cast(),
-                    len as i32,
-                    core::ptr::null_mut(),
-                    0,
-                )
-            };
-            if size == 0 {
-                let err = std::io::Error::last_os_error();
-                return Err(vm.new_os_error(format!("oem_decode failed: {}", err)));
-            }
+            let size =
+                host_windows::multi_byte_to_wide_len(host_windows::CP_OEMCP, 0, data.as_ref())
+                    .map_err(|err| vm.new_os_error(format!("oem_decode failed: {err}")))?;
 
-            let mut buffer = vec![0u16; size as usize];
-            let result = unsafe {
-                MultiByteToWideChar(
-                    CP_OEMCP,
-                    0,
-                    data.as_ptr().cast(),
-                    len as i32,
-                    buffer.as_mut_ptr(),
-                    size,
-                )
-            };
-            if result == 0 {
-                let err = std::io::Error::last_os_error();
-                return Err(vm.new_os_error(format!("oem_decode failed: {}", err)));
-            }
-            buffer.truncate(result as usize);
+            let mut buffer = vec![0u16; size];
+            let result = host_windows::multi_byte_to_wide(
+                host_windows::CP_OEMCP,
+                0,
+                data.as_ref(),
+                &mut buffer,
+            )
+            .map_err(|err| vm.new_os_error(format!("oem_decode failed: {err}")))?;
+            buffer.truncate(result);
             let s = String::from_utf16(&buffer)
-                .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {}", e)))?;
+                .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {e}")))?;
             return Ok((s, len));
         }
 
         // Strict mode succeeded - no invalid characters
-        let mut buffer = vec![0u16; size as usize];
-        let result = unsafe {
-            MultiByteToWideChar(
-                CP_OEMCP,
-                MB_ERR_INVALID_CHARS,
-                data.as_ptr().cast(),
-                len as i32,
-                buffer.as_mut_ptr(),
-                size,
-            )
-        };
-        if result == 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("oem_decode failed: {}", err)));
-        }
-        buffer.truncate(result as usize);
+        let size = size.unwrap();
+        let mut buffer = vec![0u16; size];
+        let result = host_windows::multi_byte_to_wide(
+            host_windows::CP_OEMCP,
+            host_windows::MB_ERR_INVALID_CHARS,
+            data.as_ref(),
+            &mut buffer,
+        )
+        .map_err(|err| vm.new_os_error(format!("oem_decode failed: {err}")))?;
+        buffer.truncate(result);
         let s = String::from_utf16(&buffer)
-            .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {}", e)))?;
+            .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {e}")))?;
 
         Ok((s, len))
     }
@@ -769,17 +647,12 @@ mod _codecs_windows {
     /// Get WideCharToMultiByte flags for encoding.
     /// Matches encode_code_page_flags() in CPython.
     fn encode_code_page_flags(code_page: u32, errors: &str) -> u32 {
-        use windows_sys::Win32::Globalization::{WC_ERR_INVALID_CHARS, WC_NO_BEST_FIT_CHARS};
-        if code_page == 65001 {
-            // CP_UTF8
-            WC_ERR_INVALID_CHARS
-        } else if code_page == 65000 {
-            // CP_UTF7 only supports flags=0
-            0
-        } else if errors == "replace" {
+        if code_page == host_windows::CP_UTF8 {
+            host_windows::WC_ERR_INVALID_CHARS
+        } else if code_page == host_windows::CP_UTF7 || errors == "replace" {
             0
         } else {
-            WC_NO_BEST_FIT_CHARS
+            host_windows::WC_NO_BEST_FIT_CHARS
         }
     }
 
@@ -791,80 +664,56 @@ mod _codecs_windows {
         wide: &[u16],
         vm: &VirtualMachine,
     ) -> PyResult<Option<Vec<u8>>> {
-        use windows_sys::Win32::Globalization::WideCharToMultiByte;
-
         let flags = encode_code_page_flags(code_page, "strict");
 
-        let use_default_char = code_page != 65001 && code_page != 65000;
-        let mut used_default_char: i32 = 0;
-        let pused = if use_default_char {
-            &mut used_default_char as *mut i32
-        } else {
-            core::ptr::null_mut()
-        };
+        let use_default_char =
+            code_page != host_windows::CP_UTF8 && code_page != host_windows::CP_UTF7;
 
-        let size = unsafe {
-            WideCharToMultiByte(
-                code_page,
-                flags,
-                wide.as_ptr(),
-                wide.len() as i32,
-                core::ptr::null_mut(),
-                0,
-                core::ptr::null(),
-                pused,
-            )
-        };
-
-        if size <= 0 {
-            let err_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-            if err_code == 1113 {
-                // ERROR_NO_UNICODE_TRANSLATION
-                return Ok(None);
+        let size = match host_windows::wide_char_to_multi_byte_len(
+            code_page,
+            flags,
+            wide,
+            use_default_char,
+        ) {
+            Ok((size, used_default_char)) => {
+                if use_default_char && used_default_char {
+                    return Ok(None);
+                }
+                size
             }
-            let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("code_page_encode: {err}")));
-        }
-
-        if use_default_char && used_default_char != 0 {
-            return Ok(None);
-        }
-
-        let mut buffer = vec![0u8; size as usize];
-        used_default_char = 0;
-        let pused = if use_default_char {
-            &mut used_default_char as *mut i32
-        } else {
-            core::ptr::null_mut()
-        };
-
-        let result = unsafe {
-            WideCharToMultiByte(
-                code_page,
-                flags,
-                wide.as_ptr(),
-                wide.len() as i32,
-                buffer.as_mut_ptr().cast(),
-                size,
-                core::ptr::null(),
-                pused,
-            )
-        };
-
-        if result <= 0 {
-            let err_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-            if err_code == 1113 {
-                return Ok(None);
+            Err(err) => {
+                let err_code = err.raw_os_error().unwrap_or(0);
+                if err_code == host_windows::ERROR_NO_UNICODE_TRANSLATION_I32 {
+                    return Ok(None);
+                }
+                return Err(vm.new_os_error(format!("code_page_encode: {err}")));
             }
-            let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("code_page_encode: {err}")));
-        }
+        };
 
-        if use_default_char && used_default_char != 0 {
-            return Ok(None);
-        }
+        let mut buffer = vec![0u8; size];
+        let result = match host_windows::wide_char_to_multi_byte(
+            code_page,
+            flags,
+            wide,
+            &mut buffer,
+            use_default_char,
+        ) {
+            Ok((result, used_default_char)) => {
+                if use_default_char && used_default_char {
+                    return Ok(None);
+                }
+                result
+            }
+            Err(err) => {
+                let err_code = err.raw_os_error().unwrap_or(0);
+                if err_code == host_windows::ERROR_NO_UNICODE_TRANSLATION_I32 {
+                    return Ok(None);
+                }
+                return Err(vm.new_os_error(format!("code_page_encode: {err}")));
+            }
+        };
 
-        buffer.truncate(result as usize);
+        buffer.truncate(result);
         Ok(Some(buffer))
     }
 
@@ -877,11 +726,11 @@ mod _codecs_windows {
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, usize)> {
         use crate::builtins::{PyBytes, PyStr, PyTuple};
-        use windows_sys::Win32::Globalization::WideCharToMultiByte;
 
         let char_len = s.char_len();
         let flags = encode_code_page_flags(code_page, errors);
-        let use_default_char = code_page != 65001 && code_page != 65000;
+        let use_default_char =
+            code_page != host_windows::CP_UTF8 && code_page != host_windows::CP_UTF7;
         let encoding_str = vm.ctx.new_str(encoding_name);
         let reason_str = vm.ctx.new_str("invalid character");
 
@@ -903,28 +752,19 @@ mod _codecs_windows {
                     wchars[1] = ((ch - 0x10000) & 0x3FF) as u16 + 0xDC00;
                     2
                 };
-                let mut used_default_char: i32 = 0;
-                let pused = if use_default_char {
-                    &mut used_default_char as *mut i32
-                } else {
-                    core::ptr::null_mut()
-                };
-                let outsize = unsafe {
-                    WideCharToMultiByte(
-                        code_page,
-                        flags,
-                        wchars.as_ptr(),
-                        wchar_len,
-                        core::ptr::null_mut(),
-                        0,
-                        core::ptr::null(),
-                        pused,
-                    )
-                };
-                if outsize <= 0 || (use_default_char && used_default_char != 0) {
-                    break;
+                match host_windows::wide_char_to_multi_byte_len(
+                    code_page,
+                    flags,
+                    &wchars[..wchar_len],
+                    use_default_char,
+                ) {
+                    Ok((_outsize, used_default_char))
+                        if !use_default_char || !used_default_char =>
+                    {
+                        fail_pos += 1;
+                    }
+                    _ => break,
                 }
-                fail_pos += 1;
             }
             return Err(vm.new_unicode_encode_error_real(
                 encoding_str,
@@ -962,29 +802,16 @@ mod _codecs_windows {
             }
 
             if !is_surrogate {
-                let mut used_default_char: i32 = 0;
-                let pused = if use_default_char {
-                    &mut used_default_char as *mut i32
-                } else {
-                    core::ptr::null_mut()
-                };
-
                 let mut buf = [0u8; 8];
-                let outsize = unsafe {
-                    WideCharToMultiByte(
-                        code_page,
-                        flags,
-                        wchars.as_ptr(),
-                        wchar_len,
-                        buf.as_mut_ptr().cast(),
-                        buf.len() as i32,
-                        core::ptr::null(),
-                        pused,
-                    )
-                };
-
-                if outsize > 0 && (!use_default_char || used_default_char == 0) {
-                    output.extend_from_slice(&buf[..outsize as usize]);
+                if let Ok((outsize, used_default_char)) = host_windows::wide_char_to_multi_byte(
+                    code_page,
+                    flags,
+                    &wchars[..wchar_len],
+                    &mut buf,
+                    use_default_char,
+                ) && (!use_default_char || !used_default_char)
+                {
+                    output.extend_from_slice(&buf[..outsize]);
                     pos += 1;
                     continue;
                 }
@@ -1096,51 +923,41 @@ mod _codecs_windows {
         data: &[u8],
         vm: &VirtualMachine,
     ) -> PyResult<Option<Vec<u16>>> {
-        use windows_sys::Win32::Globalization::{MB_ERR_INVALID_CHARS, MultiByteToWideChar};
-
-        let mut flags = MB_ERR_INVALID_CHARS;
+        let mut flags = host_windows::MB_ERR_INVALID_CHARS;
 
         loop {
-            let size = unsafe {
-                MultiByteToWideChar(
-                    code_page,
-                    flags,
-                    data.as_ptr().cast(),
-                    data.len() as i32,
-                    core::ptr::null_mut(),
-                    0,
-                )
+            let size = match host_windows::multi_byte_to_wide_len(code_page, flags, data) {
+                Ok(size) => size,
+                Err(err) => {
+                    let err_code = err.raw_os_error().unwrap_or(0);
+                    if flags != 0 && err_code == host_windows::ERROR_INVALID_FLAGS_I32 {
+                        flags = 0;
+                        continue;
+                    }
+                    if err_code == host_windows::ERROR_NO_UNICODE_TRANSLATION_I32 {
+                        return Ok(None);
+                    }
+                    return Err(vm.new_os_error(format!("code_page_decode: {err}")));
+                }
             };
-            if size > 0 {
-                let mut buffer = vec![0u16; size as usize];
-                let result = unsafe {
-                    MultiByteToWideChar(
-                        code_page,
-                        flags,
-                        data.as_ptr().cast(),
-                        data.len() as i32,
-                        buffer.as_mut_ptr(),
-                        size,
-                    )
-                };
-                if result > 0 {
-                    buffer.truncate(result as usize);
+            let mut buffer = vec![0u16; size];
+            match host_windows::multi_byte_to_wide(code_page, flags, data, &mut buffer) {
+                Ok(result) => {
+                    buffer.truncate(result);
                     return Ok(Some(buffer));
                 }
+                Err(err) => {
+                    let err_code = err.raw_os_error().unwrap_or(0);
+                    if flags != 0 && err_code == host_windows::ERROR_INVALID_FLAGS_I32 {
+                        flags = 0;
+                        continue;
+                    }
+                    if err_code == host_windows::ERROR_NO_UNICODE_TRANSLATION_I32 {
+                        return Ok(None);
+                    }
+                    return Err(vm.new_os_error(format!("code_page_decode: {err}")));
+                }
             }
-
-            let err_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-            // ERROR_INVALID_FLAGS = 1004
-            if flags != 0 && err_code == 1004 {
-                flags = 0;
-                continue;
-            }
-            // ERROR_NO_UNICODE_TRANSLATION = 1113
-            if err_code == 1113 {
-                return Ok(None);
-            }
-            let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("code_page_decode: {err}")));
         }
     }
 
@@ -1155,7 +972,6 @@ mod _codecs_windows {
     ) -> PyResult<(PyStrRef, usize)> {
         use crate::builtins::PyTuple;
         use crate::common::wtf8::Wtf8Buf;
-        use windows_sys::Win32::Globalization::{MB_ERR_INVALID_CHARS, MultiByteToWideChar};
 
         let len = data.len();
         let encoding_str = vm.ctx.new_str(encoding_name);
@@ -1167,33 +983,37 @@ mod _codecs_windows {
         if errors == "strict" && is_final {
             // Find the exact failing byte position by trying byte by byte
             let mut fail_pos = 0;
-            let mut flags_s: u32 = MB_ERR_INVALID_CHARS;
+            let mut flags_s: u32 = host_windows::MB_ERR_INVALID_CHARS;
             let mut buf = [0u16; 2];
             while fail_pos < len {
                 let mut in_size = 1;
                 let mut found = false;
                 while in_size <= 4 && fail_pos + in_size <= len {
-                    let outsize = unsafe {
-                        MultiByteToWideChar(
-                            code_page,
-                            flags_s,
-                            data[fail_pos..].as_ptr().cast(),
-                            in_size as i32,
-                            buf.as_mut_ptr(),
-                            2,
-                        )
-                    };
-                    if outsize > 0 {
-                        fail_pos += in_size;
-                        found = true;
-                        break;
+                    match host_windows::multi_byte_to_wide(
+                        code_page,
+                        flags_s,
+                        &data[fail_pos..fail_pos + in_size],
+                        &mut buf,
+                    ) {
+                        Ok(_outsize) => {
+                            fail_pos += in_size;
+                            found = true;
+                            break;
+                        }
+                        Err(err) => {
+                            let err_code = err.raw_os_error().unwrap_or(0);
+                            if err_code == host_windows::ERROR_INVALID_FLAGS_I32 && flags_s != 0 {
+                                flags_s = 0;
+                                continue;
+                            }
+                            in_size += 1;
+                            if err_code != host_windows::ERROR_NO_UNICODE_TRANSLATION_I32
+                                && err_code != host_windows::ERROR_INSUFFICIENT_BUFFER_I32
+                            {
+                                break;
+                            }
+                        }
                     }
-                    let err_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-                    if err_code == 1004 && flags_s != 0 {
-                        flags_s = 0;
-                        continue;
-                    }
-                    in_size += 1;
                 }
                 if !found {
                     break;
@@ -1222,46 +1042,46 @@ mod _codecs_windows {
 
         let mut wide_buf: Vec<u16> = Vec::new();
         let mut pos = 0usize;
-        let mut flags: u32 = MB_ERR_INVALID_CHARS;
+        let mut flags: u32 = host_windows::MB_ERR_INVALID_CHARS;
 
         while pos < len {
             // Try to decode with increasing byte counts (1, 2, 3, 4)
             let mut in_size = 1;
-            let mut outsize;
+            let outsize;
             let mut buffer = [0u16; 2];
 
             loop {
-                outsize = unsafe {
-                    MultiByteToWideChar(
-                        code_page,
-                        flags,
-                        data[pos..].as_ptr().cast(),
-                        in_size as i32,
-                        buffer.as_mut_ptr(),
-                        2,
-                    )
-                };
-                if outsize > 0 {
-                    break;
-                }
-                let err_code = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-                if err_code == 1004 && flags != 0 {
-                    // ERROR_INVALID_FLAGS - retry with flags=0
-                    flags = 0;
-                    continue;
-                }
-                if err_code != 1113 && err_code != 122 {
-                    // Not ERROR_NO_UNICODE_TRANSLATION and not ERROR_INSUFFICIENT_BUFFER
-                    let err = std::io::Error::last_os_error();
-                    return Err(vm.new_os_error(format!("code_page_decode: {err}")));
-                }
-                in_size += 1;
-                if in_size > 4 || pos + in_size > len {
-                    break;
+                match host_windows::multi_byte_to_wide(
+                    code_page,
+                    flags,
+                    &data[pos..pos + in_size],
+                    &mut buffer,
+                ) {
+                    Ok(size) => {
+                        outsize = size;
+                        break;
+                    }
+                    Err(err) => {
+                        let err_code = err.raw_os_error().unwrap_or(0);
+                        if err_code == host_windows::ERROR_INVALID_FLAGS_I32 && flags != 0 {
+                            flags = 0;
+                            continue;
+                        }
+                        if err_code != host_windows::ERROR_NO_UNICODE_TRANSLATION_I32
+                            && err_code != host_windows::ERROR_INSUFFICIENT_BUFFER_I32
+                        {
+                            return Err(vm.new_os_error(format!("code_page_decode: {err}")));
+                        }
+                        in_size += 1;
+                        if in_size > 4 || pos + in_size > len {
+                            outsize = 0;
+                            break;
+                        }
+                    }
                 }
             }
 
-            if outsize <= 0 {
+            if outsize == 0 {
                 // Can't decode this byte sequence
                 if pos + in_size >= len && !is_final {
                     // Incomplete sequence at end, not final - stop here
@@ -1348,7 +1168,7 @@ mod _codecs_windows {
                 }
             } else {
                 // Successfully decoded
-                wide_buf.extend_from_slice(&buffer[..outsize as usize]);
+                wide_buf.extend_from_slice(&buffer[..outsize]);
                 pos += in_size;
             }
         }
@@ -1373,23 +1193,24 @@ mod _codecs_windows {
         let is_final = args.r#final;
 
         if data.is_empty() {
-            return Ok((vm.ctx.empty_str.to_owned(), 0));
+            return Ok((vm.ctx.new_str(""), 0));
         }
 
         let encoding_name = code_page_encoding_name(code_page);
 
-        // Fast path: try to decode the whole buffer with strict flags
-        match try_decode_code_page_strict(code_page, &data, vm)? {
-            Some(wide) => {
-                let s = Wtf8Buf::from_wide(&wide);
-                return Ok((vm.ctx.new_str(s), data.len()));
-            }
-            None => {
-                // Decode error - fall through to slow path
-            }
+        // Fast path: try decoding the whole buffer at once
+        if let Some(wide) = try_decode_code_page_strict(code_page, data.as_ref(), vm)? {
+            let s = Wtf8Buf::from_wide(&wide);
+            return Ok((vm.ctx.new_str(s), data.len()));
         }
 
-        // Slow path: byte by byte with error handling
-        decode_code_page_errors(code_page, &data, errors, is_final, &encoding_name, vm)
+        decode_code_page_errors(
+            code_page,
+            data.as_ref(),
+            errors,
+            is_final,
+            &encoding_name,
+            vm,
+        )
     }
 }
