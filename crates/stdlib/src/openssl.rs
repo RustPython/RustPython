@@ -5,7 +5,7 @@ mod cert;
 // SSL exception types (shared with rustls backend)
 #[allow(
     clippy::duplicate_mod,
-    reason = "This is duplicated only when running clippy. The two features are mutually exlusive"
+    reason = "This is duplicated only when running clippy. The two features are mutually exclusive"
 )]
 #[path = "ssl/error.rs"]
 mod ssl_error;
