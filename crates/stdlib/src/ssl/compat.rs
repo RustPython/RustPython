@@ -10,7 +10,7 @@
 // These map OpenSSL error codes to human-readable strings
 #[allow(
     clippy::duplicate_mod,
-    reason = "This is duplicated only when running clippy. The two features are mutually exlusive"
+    reason = "This is duplicated only when running clippy. The two features are mutually exclusive"
 )]
 #[path = "../openssl/ssl_data_31.rs"]
 mod ssl_data;
