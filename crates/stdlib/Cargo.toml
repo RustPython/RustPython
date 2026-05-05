@@ -165,5 +165,10 @@ features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = { workspace = true }
 
+[dev-dependencies]
+insta = { workspace = true }
+rustpython-pylib = { workspace = true, features = [ "freeze-stdlib" ] }
+
+
 [lints]
 workspace = true

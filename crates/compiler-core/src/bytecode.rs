@@ -1151,65 +1151,6 @@ impl<C: Constant> CodeObject<C> {
         label_targets
     }
 
-    fn display_inner(
-        &self,
-        f: &mut fmt::Formatter<'_>,
-        expand_code_objects: bool,
-        level: usize,
-    ) -> fmt::Result {
-        let label_targets = self.label_targets();
-        let line_digits = (3).max(self.locations.last().unwrap().0.line.digits().get());
-        let offset_digits = (4).max(1 + self.instructions.len().ilog10() as usize);
-        let mut last_line = OneIndexed::MAX;
-        let mut arg_state = OpArgState::default();
-        for (offset, &instruction) in self.instructions.iter().enumerate() {
-            let (instruction, arg) = arg_state.get(instruction);
-            // optional line number
-            let line = self.locations[offset].0.line;
-            if line != last_line {
-                if last_line != OneIndexed::MAX {
-                    writeln!(f)?;
-                }
-                last_line = line;
-                write!(f, "{line:line_digits$}")?;
-            } else {
-                for _ in 0..line_digits {
-                    write!(f, " ")?;
-                }
-            }
-            write!(f, " ")?;
-
-            // level indent
-            for _ in 0..level {
-                write!(f, "    ")?;
-            }
-
-            // arrow and offset
-            let arrow = if label_targets.contains(&Label::from_u32(offset as u32)) {
-                ">>"
-            } else {
-                "  "
-            };
-            write!(f, "{arrow} {offset:offset_digits$} ")?;
-
-            // instruction
-            instruction.fmt_dis(arg, f, self, expand_code_objects, 21, level)?;
-            writeln!(f)?;
-        }
-        Ok(())
-    }
-
-    /// Recursively display this CodeObject
-    pub fn display_expand_code_objects(&self) -> impl fmt::Display + '_ {
-        struct Display<'a, C: Constant>(&'a CodeObject<C>);
-        impl<C: Constant> fmt::Display for Display<'_, C> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                self.0.display_inner(f, true, 1)
-            }
-        }
-        Display(self)
-    }
-
     /// Map this CodeObject to one that holds a Bag::Constant
     pub fn map_bag<Bag: ConstantBag>(self, bag: Bag) -> CodeObject<Bag::Constant> {
         let map_names = |names: Box<[C::Name]>| {
@@ -1276,19 +1217,6 @@ impl<C: Constant> CodeObject<C> {
             linetable: self.linetable.clone(),
             exceptiontable: self.exceptiontable.clone(),
         }
-    }
-}
-
-impl<C: Constant> fmt::Display for CodeObject<C> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display_inner(f, false, 1)?;
-        for constant in &*self.constants {
-            if let BorrowedConstant::Code { code } = constant.borrow_constant() {
-                writeln!(f, "\nDisassembly of {code:?}")?;
-                code.fmt(f)?;
-            }
-        }
-        Ok(())
     }
 }
 

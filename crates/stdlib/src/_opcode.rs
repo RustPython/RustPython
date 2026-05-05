@@ -255,3 +255,155 @@ mod _opcode {
         vm.ctx.none()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::vm::{self, compiler::Mode};
+
+    macro_rules! assert_dis_snapshot {
+        ($value:expr) => {
+            insta::assert_snapshot!(dis($value))
+        };
+    }
+
+    /// Returns the [`dis.dis`](https://docs.python.org/3/library/dis.html#dis.dis) output.
+    ///
+    /// # Notes
+    ///
+    /// Memory addresses in the output are replaced with `0xdeadbeef` for consistency.
+    fn dis(source: &str) -> String {
+        let fname = String::from("<?>");
+
+        let builder = vm::Interpreter::builder(Default::default());
+        let stdlib_defs = crate::stdlib_module_defs(&builder.ctx);
+        let interp = builder
+            .add_native_modules(&stdlib_defs)
+            .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+            .build();
+
+        interp.enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            let code_obj = vm
+                .compile(source.trim(), Mode::Exec, fname.clone())
+                .map_err(|err| vm.new_syntax_error(&err, Some(source)))
+                .unwrap();
+            scope.globals.set_item("code", code_obj.into(), vm).unwrap();
+
+            let py_source = r#"
+import dis
+import io
+import re
+import sys
+
+old_stdout = sys.stdout
+sys.stdout = buf = io.StringIO()
+dis.dis(code)
+sys.stdout = old_stdout
+
+tmp_output = buf.getvalue()
+
+# constant mem address
+output = re.sub(r'(<code object \w+ at )0x[0-9a-fA-F]+', r'\g<1>0xdeadbeef', tmp_output)
+"#;
+
+            let py_code_obj = vm
+                .compile(py_source, Mode::Exec, fname)
+                .map_err(|err| vm.new_syntax_error(&err, Some(py_source)))
+                .unwrap();
+
+            vm.run_code_obj(py_code_obj, scope.clone()).unwrap();
+            let py_output = scope.globals.get_item("output", vm).unwrap();
+            py_output.str(vm).unwrap().to_string()
+        })
+    }
+
+    #[test]
+    fn test_if_ors() {
+        assert_dis_snapshot!(
+            r#"
+if True or False or False:
+    pass
+"#
+        )
+    }
+
+    #[test]
+    fn test_if_ands() {
+        assert_dis_snapshot!(
+            r#"
+if True and False and False:
+    pass
+"#
+        )
+    }
+
+    #[test]
+    fn test_if_mixed() {
+        assert_dis_snapshot!(
+            r#"
+if (True and False) or (False and True):
+    pass
+"#
+        )
+    }
+
+    #[test]
+    fn test_nested_bool_op() {
+        assert_dis_snapshot!(
+            r#"
+x = Test() and False or False
+"#
+        )
+    }
+
+    #[test]
+    fn test_const_no_op() {
+        assert_dis_snapshot!(
+            r#"
+x = not True
+"#
+        )
+    }
+
+    #[test]
+    fn test_constant_true_if_pass_keeps_line_anchor_nop() {
+        assert_dis_snapshot!(
+            r#"
+if 1:
+    pass
+"#
+        )
+    }
+
+    #[test]
+    fn test_nested_double_async_with() {
+        assert_dis_snapshot!(
+            r#"
+async def test():
+    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
+        with self.subTest(type=type(stop_exc)):
+            try:
+                async with egg():
+                    raise stop_exc
+            except Exception as ex:
+                self.assertIs(ex, stop_exc)
+            else:
+                self.fail(f'{stop_exc} was suppressed')
+"#
+        )
+    }
+
+    #[test]
+    fn test_bare_function_annotations_check_attribute_and_subscript_expressions() {
+        assert_dis_snapshot!(
+            r#"
+def f(one: int):
+    int.new_attr: int
+    [list][0].new_attr: [int, str]
+    my_lst = [1]
+    my_lst[one]: int
+    return my_lst
+"#
+        )
+    }
+}
