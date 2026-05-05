@@ -1089,19 +1089,22 @@ impl PyStr {
 
     #[pymethod]
     fn swapcase(&self) -> Wtf8Buf {
-        let mut swapped_str = Wtf8Buf::with_capacity(self.data.len());
-        for c_orig in self.as_wtf8().code_points() {
-            let c = c_orig.to_char_lossy();
-            // to_uppercase returns an iterator because case changes may be multiple bytes
-            if c.is_lowercase() {
-                swapped_str.extend(c.to_uppercase());
-            } else if c.is_uppercase() {
-                swapped_str.extend(c.to_lowercase());
-            } else {
-                swapped_str.push(c_orig);
+        match self.as_str_kind() {
+            PyKindStr::Ascii(s) => swapcase_ascii(s.as_bytes()).into(),
+            PyKindStr::Utf8(s) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                swapcase_utf8(s, &mut out);
+                out.0.into()
+            }
+            PyKindStr::Wtf8(s) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                for chunk in s.as_bytes().utf8_chunks() {
+                    swapcase_utf8(chunk.valid(), &mut out);
+                    out.0.extend(chunk.invalid());
+                }
+                out.0.into()
             }
         }
-        swapped_str
     }
 
     #[pymethod]
@@ -1551,6 +1554,20 @@ impl PyStr {
         } else {
             // Subclass, create a new exact str
             Ok(PyStr::from(zelf.data.clone()).into_ref(&vm.ctx))
+        }
+    }
+}
+
+fn swapcase_utf8(s: &str, out: &mut VecFmtWriter) {
+    for (i, ch) in s.char_indices() {
+        if ch.is_uppercase() {
+            lowercase_or_sigma(ch, s, i, out);
+        } else {
+            for ch in ch.to_lowercase() {
+                let mut buf = [0u8; 4];
+                let s = ch.encode_utf8(&mut buf);
+                out.0.extend(s.as_bytes());
+            }
         }
     }
 }

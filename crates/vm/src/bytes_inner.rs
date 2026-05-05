@@ -413,15 +413,7 @@ impl PyBytesInner {
     }
 
     pub fn swapcase(&self) -> Vec<u8> {
-        let mut new: Vec<u8> = Vec::with_capacity(self.elements.len());
-        for w in &self.elements {
-            match w {
-                b'A'..=b'Z' => new.push(w.to_ascii_lowercase()),
-                b'a'..=b'z' => new.push(w.to_ascii_uppercase()),
-                x => new.push(*x),
-            }
-        }
-        new
+        swapcase_ascii(self.as_bytes())
     }
 
     pub fn hex(
@@ -1235,4 +1227,11 @@ pub(crate) fn bytes_to_hex(
 
 pub(crate) const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
+}
+
+pub(crate) fn swapcase_ascii(bytes: &[u8]) -> Vec<u8> {
+    bytes
+        .iter()
+        .map(|&b| if b.is_ascii_alphabetic() { b ^ 0x20 } else { b })
+        .collect()
 }
