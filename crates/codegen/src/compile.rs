@@ -3376,8 +3376,6 @@ impl Compiler {
             )?;
         }
 
-        let else_block = self.new_block();
-
         // if handlers is empty, compile body directly
         // without wrapping in TryExcept (only FinallyTry is needed)
         if handlers.is_empty() {
@@ -3479,19 +3477,11 @@ impl Compiler {
         self.compile_statements(body)?;
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
-        self.remove_last_no_location_nop();
         self.pop_fblock(FBlockType::TryExcept);
-        emit!(
-            self,
-            PseudoInstruction::JumpNoInterrupt { delta: else_block }
-        );
-        self.set_no_location();
-        self.remove_last_no_location_nop();
 
         let cleanup_block = self.new_block();
         // We successfully ran the try block:
         // else:
-        self.switch_to_block(else_block);
         self.compile_statements(orelse)?;
 
         emit!(
@@ -5830,17 +5820,10 @@ impl Compiler {
         if is_async {
             self.set_source_range(with_range);
         }
-        let preserve_pop_block_nop = !is_async && self.current_block_follows_end_async_for();
-        if preserve_pop_block_nop {
-            emit!(self, Instruction::Nop);
-            self.preserve_last_redundant_nop();
-        }
         emit!(self, PseudoInstruction::PopBlock);
         if !is_async {
             self.set_no_location();
-            if !preserve_pop_block_nop {
-                self.remove_last_no_location_nop();
-            }
+            self.remove_last_no_location_nop();
             self.set_source_range(with_range);
         }
         self.pop_fblock(if is_async {
@@ -10872,29 +10855,6 @@ impl Compiler {
     fn current_block(&mut self) -> &mut ir::Block {
         let info = self.current_code_info();
         &mut info.blocks[info.current_block]
-    }
-
-    fn current_block_follows_end_async_for(&mut self) -> bool {
-        let info = self.current_code_info();
-        let current = info.current_block;
-        if info.blocks[current]
-            .instructions
-            .iter()
-            .rev()
-            .find_map(|info| info.instr.real())
-            .is_some_and(|instr| matches!(instr, Instruction::EndAsyncFor))
-        {
-            return true;
-        }
-        info.blocks.iter().any(|block| {
-            block.next == current
-                && block
-                    .instructions
-                    .iter()
-                    .rev()
-                    .find_map(|info| info.instr.real())
-                    .is_some_and(|instr| matches!(instr, Instruction::EndAsyncFor))
-        })
     }
 
     fn new_block(&mut self) -> BlockIdx {
