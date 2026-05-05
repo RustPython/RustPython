@@ -157,6 +157,7 @@ pybuilddir
 pycore
 pyinner
 pydecimal
+pyerrors
 Pyfunc
 pylifecycle
 pymain
