@@ -11,10 +11,13 @@ use crate::{
     TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, adjust_indices},
     atomic_func,
+    bytes_inner::{swapcase_ascii, title_ascii},
     cformat::cformat_string,
     class::PyClassImpl,
-    common::lock::LazyLock,
-    common::str::{PyKindStr, StrData, StrKind},
+    common::{
+        lock::LazyLock,
+        str::{PyKindStr, StrData, StrKind},
+    },
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
     function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
@@ -1078,7 +1081,7 @@ impl PyStr {
     fn title(&self) -> Wtf8Buf {
         match self.as_str_kind() {
             PyKindStr::Ascii(_) => unsafe {
-                Wtf8Buf::from_bytes_unchecked(crate::bytes_inner::title_ascii(self.as_bytes()))
+                Wtf8Buf::from_bytes_unchecked(title_ascii(self.as_bytes()))
             },
             PyKindStr::Utf8(s) => {
                 let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
@@ -1102,19 +1105,29 @@ impl PyStr {
 
     #[pymethod]
     fn swapcase(&self) -> Wtf8Buf {
-        let mut swapped_str = Wtf8Buf::with_capacity(self.data.len());
-        for c_orig in self.as_wtf8().code_points() {
-            let c = c_orig.to_char_lossy();
-            // to_uppercase returns an iterator because case changes may be multiple bytes
-            if c.is_lowercase() {
-                swapped_str.extend(c.to_uppercase());
-            } else if c.is_uppercase() {
-                swapped_str.extend(c.to_lowercase());
-            } else {
-                swapped_str.push(c_orig);
+        match self.as_str_kind() {
+            PyKindStr::Ascii(s) => unsafe {
+                // SAFETY: ASCII is valid Unicode and swapcase_ascii does not produce non-ASCII.
+                Wtf8Buf::from_bytes_unchecked(swapcase_ascii(s.as_bytes()))
+            },
+            PyKindStr::Utf8(s) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                swapcase_utf8(s, &mut out);
+                // SAFETY: `s` is valid UTF-8 and swapcase_utf8 only works on Unicode.
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
+            }
+            PyKindStr::Wtf8(s) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                for chunk in s.as_bytes().utf8_chunks() {
+                    swapcase_utf8(chunk.valid(), &mut out);
+                    out.0.extend(chunk.invalid());
+                }
+                // SAFETY:
+                // * `s` is valid WTF-8; surrogate bytes were appended without processing.
+                // * swapcase_utf8 produces valid UTF-8.
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
             }
         }
-        swapped_str
     }
 
     #[pymethod]
@@ -1646,6 +1659,24 @@ fn handle_capital_sigma(s: &str, i: usize) -> char {
         .find(|&ch| !CaseIgnorable::for_char(ch))
         .is_some_and(Cased::for_char);
     if before && !after { 'ς' } else { 'σ' }
+}
+
+fn swapcase_utf8(s: &str, out: &mut VecFmtWriter) {
+    for (i, ch) in s.char_indices() {
+        if ch.is_uppercase() {
+            lowercase_or_sigma(ch, s, i, out);
+        } else if ch.is_lowercase() {
+            for ch in ch.to_uppercase() {
+                let mut buf = [0u8; 4];
+                let s = ch.encode_utf8(&mut buf);
+                out.0.extend(s.as_bytes());
+            }
+        } else {
+            let mut buf = [0u8; 4];
+            let s = ch.encode_utf8(&mut buf);
+            out.0.extend(s.as_bytes());
+        }
+    }
 }
 
 impl PyRef<PyStr> {
