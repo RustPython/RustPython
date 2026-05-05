@@ -80,7 +80,7 @@ mod _tkinter {
     static QUIT_MAIN_LOOP: AtomicBool = AtomicBool::new(false);
     static ERROR_IN_CMD: AtomicBool = AtomicBool::new(false);
 
-    #[allow(dead_code, reason = "TODO: Impl more methods")]
+    #[expect(dead_code, reason = "TODO: Impl more methods")]
     #[pyattr]
     #[pyclass(name = "tkapp")]
     #[derive(PyPayload)]
