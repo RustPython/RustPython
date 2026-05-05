@@ -74,10 +74,16 @@ def _start_one(interpreter, targets, base_dir):
     output_file = None
     try:
         files_file = tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", delete=False, dir=PROJECT_ROOT
+            mode="w",
+            encoding="utf-8",
+            delete=False,
+            prefix="compare-bytecode-files-",
         )
         output_file = tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", delete=False, dir=PROJECT_ROOT
+            mode="w",
+            encoding="utf-8",
+            delete=False,
+            prefix="compare-bytecode-output-",
         )
         for _, path in targets:
             files_file.write(path)

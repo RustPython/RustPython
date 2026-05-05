@@ -591,6 +591,14 @@ impl SymbolTableAnalyzer {
         }
 
         // Analyze symbols in current scope
+        let remove_owned_cells_from_free = matches!(
+            symbol_table.typ,
+            CompilerScope::Function
+                | CompilerScope::AsyncFunction
+                | CompilerScope::Lambda
+                | CompilerScope::Comprehension
+                | CompilerScope::Annotation
+        );
         for symbol in symbol_table.symbols.values_mut() {
             self.analyze_symbol(
                 symbol,
@@ -599,6 +607,13 @@ impl SymbolTableAnalyzer {
                 sub_tables,
                 class_entry,
             )?;
+
+            // CPython analyze_cells(): once a function-like scope owns a
+            // child-requested name as a cell, that name is no longer free in
+            // the enclosing scope.
+            if remove_owned_cells_from_free && symbol.scope == SymbolScope::Cell {
+                newfree.shift_remove(symbol.name.as_str());
+            }
 
             // Collect free variables from this scope
             if symbol.scope == SymbolScope::Free || symbol.flags.contains(SymbolFlags::FREE_CLASS) {
@@ -2128,6 +2143,7 @@ impl SymbolTableBuilder {
                         false, // lambdas are never async
                         false, // don't skip defaults
                     )?;
+                    self.tables.last_mut().unwrap().typ = CompilerScope::Lambda;
                 } else {
                     self.enter_scope(
                         "lambda",

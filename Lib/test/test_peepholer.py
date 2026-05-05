@@ -243,7 +243,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertTrue(g(4))
         self.check_lnotab(g)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constant_folding_small_int(self):
         tests = [
             ('(0, )[0]', 0),
@@ -278,7 +277,6 @@ class TestTranforms(BytecodeTestCase):
                     self.assertNotInBytecode(code, 'LOAD_SMALL_INT')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'UNARY_NEGATIVE' starts with 'UNARY_'
     def test_constant_folding_unaryop(self):
         intrinsic_positive = 5
         tests = [
@@ -324,7 +322,6 @@ class TestTranforms(BytecodeTestCase):
             self.assertNotStartsWith(instr.opname, 'UNARY_')
         self.check_lnotab(negzero)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; BINARY_OP               26 ([])
     def test_constant_folding_binop(self):
         tests = [
             ('1 + 2', 'NB_ADD', True, 'LOAD_SMALL_INT', 3),
@@ -672,7 +669,6 @@ class TestTranforms(BytecodeTestCase):
             return 6
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 2 != 1
     def test_assignment_idiom_in_comprehensions(self):
         def listcomp():
             return [y for x in a for y in [f(x)]]
