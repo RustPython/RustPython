@@ -137,8 +137,8 @@ pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional 
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { workspace = true, features = ["bundled"], optional = true }
-liblzma = { workspace = true }
-liblzma-sys = { workspace = true }
+xz = { workspace = true }
+xz-sys = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }

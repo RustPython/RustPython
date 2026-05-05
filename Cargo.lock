@@ -1886,26 +1886,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "liblzma"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6033b77c21d1f56deeae8014eb9fbe7bdf1765185a6c508b5ca82eeaed7f899"
-dependencies = [
- "liblzma-sys",
-]
-
-[[package]]
-name = "liblzma-sys"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a60851d15cd8c5346eca4ab8babff585be2ae4bc8097c067291d3ffe2add3b6"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
-]
-
-[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3429,8 +3409,6 @@ dependencies = [
  "indexmap",
  "itertools 0.14.0",
  "libc",
- "liblzma",
- "liblzma-sys",
  "libsqlite3-sys",
  "libz-rs-sys",
  "mac_address",
@@ -3488,6 +3466,8 @@ dependencies = [
  "x509-cert",
  "x509-parser",
  "xml",
+ "xz",
+ "xz-sys",
 ]
 
 [[package]]
@@ -4905,6 +4885,33 @@ name = "xml"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8aa498d22c9bbaf482329839bc5620c46be275a19a812e9a22a2b07529a642a"
+
+[[package]]
+name = "xz"
+version = "0.4.6"
+source = "git+https://github.com/youknowone/xz-rs#7c964d437c856e09b5c00fd10fd388c29b9d19b0"
+dependencies = [
+ "xz-core",
+]
+
+[[package]]
+name = "xz-core"
+version = "0.0.1"
+source = "git+https://github.com/youknowone/xz-rs#7c964d437c856e09b5c00fd10fd388c29b9d19b0"
+dependencies = [
+ "libc",
+ "memchr",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "xz-sys"
+version = "0.4.6"
+source = "git+https://github.com/youknowone/xz-rs#7c964d437c856e09b5c00fd10fd388c29b9d19b0"
+dependencies = [
+ "libc",
+ "xz-core",
+]
 
 [[package]]
 name = "yoke"

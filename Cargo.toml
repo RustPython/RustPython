@@ -212,8 +212,8 @@ junction = "1.4.2"
 lexical-parse-float = "1.0.6"
 libc = "0.2.186"
 libffi = "5"
-liblzma = "0.4"
-liblzma-sys = "0.4"
+xz = { git = "https://github.com/youknowone/xz-rs", commit = "7c964d437c856e09b5c00fd10fd388c29b9d19b0" }
+xz-sys = { git = "https://github.com/youknowone/xz-rs", commit = "7c964d437c856e09b5c00fd10fd388c29b9d19b0" }
 libsqlite3-sys = "0.37"
 libz-sys = { package = "libz-rs-sys", version = "0.5" }
 log = "0.4.29"

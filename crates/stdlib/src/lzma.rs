@@ -9,14 +9,20 @@ mod _lzma {
         DecompressError, DecompressState, DecompressStatus, Decompressor,
     };
     use alloc::fmt;
-    use liblzma::stream::{
+    use xz::stream::{
         Action, Check, Error, Filters, LzmaOptions, MatchFinder, Mode, Status, Stream,
         TELL_ANY_CHECK, TELL_NO_CHECK,
     };
     // lzma_check, lzma_mode, lzma_match_finder have platform-dependent signedness
     // (i32 on Windows, u32 elsewhere). Define as fixed-type const to avoid mismatch.
+    use rustpython_common::lock::PyMutex;
+    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyDict, PyType, PyTypeRef};
+    use rustpython_vm::convert::ToPyException;
+    use rustpython_vm::function::ArgBytesLike;
+    use rustpython_vm::types::Constructor;
+    use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
     #[pyattr]
-    use liblzma_sys::{
+    use xz_sys::{
         LZMA_FILTER_ARM as FILTER_ARM, LZMA_FILTER_ARMTHUMB as FILTER_ARMTHUMB,
         LZMA_FILTER_DELTA as FILTER_DELTA, LZMA_FILTER_IA64 as FILTER_IA64,
         LZMA_FILTER_LZMA1 as FILTER_LZMA1, LZMA_FILTER_LZMA2 as FILTER_LZMA2,
@@ -24,47 +30,39 @@ mod _lzma {
         LZMA_FILTER_X86 as FILTER_X86,
     };
     #[pyattr]
-    use liblzma_sys::{
-        LZMA_PRESET_DEFAULT as PRESET_DEFAULT, LZMA_PRESET_EXTREME as PRESET_EXTREME,
-    };
-    use rustpython_common::lock::PyMutex;
-    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyDict, PyType, PyTypeRef};
-    use rustpython_vm::convert::ToPyException;
-    use rustpython_vm::function::ArgBytesLike;
-    use rustpython_vm::types::Constructor;
-    use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+    use xz_sys::{LZMA_PRESET_DEFAULT as PRESET_DEFAULT, LZMA_PRESET_EXTREME as PRESET_EXTREME};
 
     const BUFSIZ: usize = 8192;
 
-    // liblzma_sys enum types have platform-dependent signedness; `as _` normalizes to i32
+    // xz_sys enum types have platform-dependent signedness; `as _` normalizes to i32
     #[pyattr]
-    const CHECK_NONE: i32 = liblzma_sys::LZMA_CHECK_NONE as _;
+    const CHECK_NONE: i32 = xz_sys::LZMA_CHECK_NONE as _;
     #[pyattr]
-    const CHECK_CRC32: i32 = liblzma_sys::LZMA_CHECK_CRC32 as _;
+    const CHECK_CRC32: i32 = xz_sys::LZMA_CHECK_CRC32 as _;
     #[pyattr]
-    const CHECK_CRC64: i32 = liblzma_sys::LZMA_CHECK_CRC64 as _;
+    const CHECK_CRC64: i32 = xz_sys::LZMA_CHECK_CRC64 as _;
     #[pyattr]
-    const CHECK_SHA256: i32 = liblzma_sys::LZMA_CHECK_SHA256 as _;
+    const CHECK_SHA256: i32 = xz_sys::LZMA_CHECK_SHA256 as _;
     #[pyattr]
     const CHECK_ID_MAX: i32 = 15;
     #[pyattr]
     const CHECK_UNKNOWN: i32 = CHECK_ID_MAX + 1;
 
     #[pyattr]
-    const MF_HC3: i32 = liblzma_sys::LZMA_MF_HC3 as _;
+    const MF_HC3: i32 = xz_sys::LZMA_MF_HC3 as _;
     #[pyattr]
-    const MF_HC4: i32 = liblzma_sys::LZMA_MF_HC4 as _;
+    const MF_HC4: i32 = xz_sys::LZMA_MF_HC4 as _;
     #[pyattr]
-    const MF_BT2: i32 = liblzma_sys::LZMA_MF_BT2 as _;
+    const MF_BT2: i32 = xz_sys::LZMA_MF_BT2 as _;
     #[pyattr]
-    const MF_BT3: i32 = liblzma_sys::LZMA_MF_BT3 as _;
+    const MF_BT3: i32 = xz_sys::LZMA_MF_BT3 as _;
     #[pyattr]
-    const MF_BT4: i32 = liblzma_sys::LZMA_MF_BT4 as _;
+    const MF_BT4: i32 = xz_sys::LZMA_MF_BT4 as _;
 
     #[pyattr]
-    const MODE_FAST: i32 = liblzma_sys::LZMA_MODE_FAST as _;
+    const MODE_FAST: i32 = xz_sys::LZMA_MODE_FAST as _;
     #[pyattr]
-    const MODE_NORMAL: i32 = liblzma_sys::LZMA_MODE_NORMAL as _;
+    const MODE_NORMAL: i32 = xz_sys::LZMA_MODE_NORMAL as _;
 
     enum Format {
         Auto = 0,
@@ -385,13 +383,13 @@ mod _lzma {
         Ok(filters)
     }
 
-    const DEFAULT_LC: u32 = liblzma_sys::LZMA_LC_DEFAULT;
-    const DEFAULT_LP: u32 = liblzma_sys::LZMA_LP_DEFAULT;
-    const DEFAULT_PB: u32 = liblzma_sys::LZMA_PB_DEFAULT;
+    const DEFAULT_LC: u32 = xz_sys::LZMA_LC_DEFAULT;
+    const DEFAULT_LP: u32 = xz_sys::LZMA_LP_DEFAULT;
+    const DEFAULT_PB: u32 = xz_sys::LZMA_PB_DEFAULT;
     const DICT_POW2: [u8; 10] = [18, 20, 21, 22, 22, 23, 23, 24, 25, 26];
 
     fn preset_dict_size(preset: u32) -> u32 {
-        let level = (preset & liblzma_sys::LZMA_PRESET_LEVEL_MASK) as usize;
+        let level = (preset & xz_sys::LZMA_PRESET_LEVEL_MASK) as usize;
         if level > 9 {
             return 0;
         }
@@ -493,7 +491,7 @@ mod _lzma {
 
     #[pyfunction]
     fn is_check_supported(check_id: i32) -> bool {
-        unsafe { liblzma_sys::lzma_check_is_supported(check_id as _) != 0 }
+        unsafe { xz_sys::lzma_check_is_supported(check_id as _) != 0 }
     }
 
     #[pyfunction]
