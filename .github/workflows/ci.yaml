@@ -136,14 +136,6 @@ jobs:
         run: cargo build --no-default-features --features ssl-openssl
         if: runner.os == 'Linux'
 
-      # - name: Install tk-dev for tkinter build
-      #   run: sudo apt-get update && sudo apt-get install -y tk-dev
-      #   if: runner.os == 'Linux'
-
-      # - name: Test tkinter build
-      #   run: cargo build --features tkinter
-      #   if: runner.os == 'Linux'
-
       - name: Test example projects
         run: |
           cargo run --manifest-path example_projects/barebone/Cargo.toml
@@ -443,10 +435,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-          - windows-latest
+        include:
+        - os: macos-latest
+        - os: ubuntu-latest
+          dependencies:
+            tk-dev: true
+        - os: windows-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -470,8 +464,13 @@ jobs:
             ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
             ${{ runner.os }}-stable--
 
+      - name: Install dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          tk-dev: ${{ matrix.dependencies.tk-dev || false }}
+
       - name: Clippy
-        run: cargo clippy --keep-going ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+        run: cargo clippy --keep-going --all-features --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
   cargo_shear:
     name: cargo shear
