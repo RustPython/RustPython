@@ -7,6 +7,8 @@ use rustpython_vm::{Context, Interpreter};
 use std::sync::MutexGuard;
 
 extern crate alloc;
+
+pub mod object;
 pub mod pyerrors;
 pub mod pylifecycle;
 pub mod pystate;
