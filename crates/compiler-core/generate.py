@@ -114,6 +114,54 @@ class OpcodeGen:
         }}
         """
 
+    def build_has_attr_fn(self, fn_attr: str, prop_attr: str, doc_flag: str):
+        arms = "|".join(
+            f"Self::{instr.name}"
+            for instr in self.instructions
+            if getattr(instr.properties, prop_attr)
+        )
+
+        if arms:
+            inner = f"matches!(self, {arms})"
+        else:
+            inner = "false"
+
+        return f"""
+        /// Does this opcode have '{doc_flag}' set.
+        #[must_use]
+        pub const fn has_{fn_attr}(self) -> bool {{
+            {inner}
+        }}
+        """
+
+    fn_has_arg = property(
+        lambda self: self.build_has_attr_fn("arg", "oparg", "HAS_ARG_FLAG")
+    )
+
+    fn_has_const = property(
+        lambda self: self.build_has_attr_fn("const", "uses_co_consts", "HAS_CONST_FLAG")
+    )
+
+    fn_has_name = property(
+        lambda self: self.build_has_attr_fn("name", "uses_co_names", "HAS_NAME_FLAG")
+    )
+
+    fn_has_jump = property(
+        lambda self: self.build_has_attr_fn("jump", "jumps", "HAS_JUMP_FLAG")
+    )
+
+    fn_has_free = property(
+        lambda self: self.build_has_attr_fn("free", "has_free", "HAS_FREE_FLAG")
+    )
+
+    fn_has_local = property(
+        lambda self: self.build_has_attr_fn("local", "uses_locals", "HAS_LOCAL_FLAG")
+    )
+
+    fn_has_exc = property(
+        lambda self: self.build_has_attr_fn("exc", "pure", "HAS_PURE_FLAG")
+    )
+
 
 def to_pascal_case(s: str) -> str:
     return s.title().replace("_", "")

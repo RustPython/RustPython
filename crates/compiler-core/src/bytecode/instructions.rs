@@ -468,6 +468,272 @@ impl Opcode {
         }
     }
 
+    /// Does this opcode have 'HAS_ARG_FLAG' set.
+    #[must_use]
+    pub const fn has_arg(self) -> bool {
+        matches!(
+            self,
+            Self::BinaryOp
+                | Self::BuildInterpolation
+                | Self::BuildList
+                | Self::BuildMap
+                | Self::BuildSet
+                | Self::BuildSlice
+                | Self::BuildString
+                | Self::BuildTuple
+                | Self::Call
+                | Self::CallIntrinsic1
+                | Self::CallIntrinsic2
+                | Self::CallKw
+                | Self::CompareOp
+                | Self::ContainsOp
+                | Self::ConvertValue
+                | Self::Copy
+                | Self::CopyFreeVars
+                | Self::DeleteAttr
+                | Self::DeleteDeref
+                | Self::DeleteFast
+                | Self::DeleteGlobal
+                | Self::DeleteName
+                | Self::DictMerge
+                | Self::DictUpdate
+                | Self::EndAsyncFor
+                | Self::ExtendedArg
+                | Self::ForIter
+                | Self::GetAwaitable
+                | Self::ImportFrom
+                | Self::ImportName
+                | Self::IsOp
+                | Self::JumpBackward
+                | Self::JumpBackwardNoInterrupt
+                | Self::JumpForward
+                | Self::ListAppend
+                | Self::ListExtend
+                | Self::LoadAttr
+                | Self::LoadCommonConstant
+                | Self::LoadConst
+                | Self::LoadDeref
+                | Self::LoadFast
+                | Self::LoadFastAndClear
+                | Self::LoadFastBorrow
+                | Self::LoadFastBorrowLoadFastBorrow
+                | Self::LoadFastCheck
+                | Self::LoadFastLoadFast
+                | Self::LoadFromDictOrDeref
+                | Self::LoadFromDictOrGlobals
+                | Self::LoadGlobal
+                | Self::LoadName
+                | Self::LoadSmallInt
+                | Self::LoadSpecial
+                | Self::LoadSuperAttr
+                | Self::MakeCell
+                | Self::MapAdd
+                | Self::MatchClass
+                | Self::PopJumpIfFalse
+                | Self::PopJumpIfNone
+                | Self::PopJumpIfNotNone
+                | Self::PopJumpIfTrue
+                | Self::RaiseVarargs
+                | Self::Reraise
+                | Self::Send
+                | Self::SetAdd
+                | Self::SetFunctionAttribute
+                | Self::SetUpdate
+                | Self::StoreAttr
+                | Self::StoreDeref
+                | Self::StoreFast
+                | Self::StoreFastLoadFast
+                | Self::StoreFastStoreFast
+                | Self::StoreGlobal
+                | Self::StoreName
+                | Self::Swap
+                | Self::UnpackEx
+                | Self::UnpackSequence
+                | Self::YieldValue
+                | Self::Resume
+                | Self::CallAllocAndEnterInit
+                | Self::CallBoundMethodExactArgs
+                | Self::CallBoundMethodGeneral
+                | Self::CallBuiltinClass
+                | Self::CallBuiltinFast
+                | Self::CallBuiltinFastWithKeywords
+                | Self::CallBuiltinO
+                | Self::CallIsinstance
+                | Self::CallKwBoundMethod
+                | Self::CallKwNonPy
+                | Self::CallKwPy
+                | Self::CallListAppend
+                | Self::CallMethodDescriptorFast
+                | Self::CallMethodDescriptorFastWithKeywords
+                | Self::CallMethodDescriptorNoargs
+                | Self::CallMethodDescriptorO
+                | Self::CallNonPyGeneral
+                | Self::CallPyExactArgs
+                | Self::CallPyGeneral
+                | Self::CallStr1
+                | Self::CallTuple1
+                | Self::CallType1
+                | Self::CompareOpFloat
+                | Self::CompareOpInt
+                | Self::CompareOpStr
+                | Self::ContainsOpDict
+                | Self::ContainsOpSet
+                | Self::ForIterGen
+                | Self::ForIterList
+                | Self::ForIterRange
+                | Self::ForIterTuple
+                | Self::JumpBackwardJit
+                | Self::JumpBackwardNoJit
+                | Self::LoadAttrClass
+                | Self::LoadAttrClassWithMetaclassCheck
+                | Self::LoadAttrGetattributeOverridden
+                | Self::LoadAttrInstanceValue
+                | Self::LoadAttrMethodLazyDict
+                | Self::LoadAttrMethodNoDict
+                | Self::LoadAttrMethodWithValues
+                | Self::LoadAttrModule
+                | Self::LoadAttrNondescriptorNoDict
+                | Self::LoadAttrNondescriptorWithValues
+                | Self::LoadAttrProperty
+                | Self::LoadAttrSlot
+                | Self::LoadAttrWithHint
+                | Self::LoadConstImmortal
+                | Self::LoadConstMortal
+                | Self::LoadGlobalBuiltin
+                | Self::LoadGlobalModule
+                | Self::LoadSuperAttrAttr
+                | Self::LoadSuperAttrMethod
+                | Self::SendGen
+                | Self::StoreAttrWithHint
+                | Self::UnpackSequenceList
+                | Self::UnpackSequenceTuple
+                | Self::UnpackSequenceTwoTuple
+                | Self::InstrumentedForIter
+                | Self::InstrumentedJumpForward
+                | Self::InstrumentedPopJumpIfTrue
+                | Self::InstrumentedPopJumpIfFalse
+                | Self::InstrumentedPopJumpIfNone
+                | Self::InstrumentedPopJumpIfNotNone
+                | Self::InstrumentedResume
+                | Self::InstrumentedYieldValue
+                | Self::InstrumentedEndAsyncFor
+                | Self::InstrumentedLoadSuperAttr
+                | Self::InstrumentedCall
+                | Self::InstrumentedCallKw
+                | Self::InstrumentedJumpBackward
+                | Self::EnterExecutor
+        )
+    }
+
+    /// Does this opcode have 'HAS_CONST_FLAG' set.
+    #[must_use]
+    pub const fn has_const(self) -> bool {
+        matches!(
+            self,
+            Self::LoadConst | Self::LoadConstImmortal | Self::LoadConstMortal
+        )
+    }
+
+    /// Does this opcode have 'HAS_PURE_FLAG' set.
+    #[must_use]
+    pub const fn has_exc(self) -> bool {
+        matches!(
+            self,
+            Self::EndSend
+                | Self::Nop
+                | Self::NotTaken
+                | Self::PopIter
+                | Self::PopTop
+                | Self::PushNull
+                | Self::UnaryNot
+                | Self::Copy
+                | Self::LoadFast
+                | Self::LoadFastBorrow
+                | Self::Swap
+        )
+    }
+
+    /// Does this opcode have 'HAS_FREE_FLAG' set.
+    #[must_use]
+    pub const fn has_free(self) -> bool {
+        matches!(
+            self,
+            Self::DeleteDeref | Self::LoadFromDictOrDeref | Self::MakeCell | Self::StoreDeref
+        )
+    }
+
+    /// Does this opcode have 'HAS_JUMP_FLAG' set.
+    #[must_use]
+    pub const fn has_jump(self) -> bool {
+        matches!(
+            self,
+            Self::EndAsyncFor
+                | Self::ForIter
+                | Self::JumpBackward
+                | Self::JumpBackwardNoInterrupt
+                | Self::JumpForward
+                | Self::PopJumpIfFalse
+                | Self::PopJumpIfNone
+                | Self::PopJumpIfNotNone
+                | Self::PopJumpIfTrue
+                | Self::Send
+                | Self::ForIterList
+                | Self::ForIterRange
+                | Self::ForIterTuple
+                | Self::JumpBackwardJit
+                | Self::JumpBackwardNoJit
+                | Self::InstrumentedForIter
+                | Self::InstrumentedEndAsyncFor
+        )
+    }
+
+    /// Does this opcode have 'HAS_LOCAL_FLAG' set.
+    #[must_use]
+    pub const fn has_local(self) -> bool {
+        matches!(
+            self,
+            Self::BinaryOpInplaceAddUnicode
+                | Self::DeleteFast
+                | Self::LoadDeref
+                | Self::LoadFast
+                | Self::LoadFastAndClear
+                | Self::LoadFastBorrow
+                | Self::LoadFastBorrowLoadFastBorrow
+                | Self::LoadFastCheck
+                | Self::LoadFastLoadFast
+                | Self::StoreFast
+                | Self::StoreFastLoadFast
+                | Self::StoreFastStoreFast
+        )
+    }
+
+    /// Does this opcode have 'HAS_NAME_FLAG' set.
+    #[must_use]
+    pub const fn has_name(self) -> bool {
+        matches!(
+            self,
+            Self::DeleteAttr
+                | Self::DeleteGlobal
+                | Self::DeleteName
+                | Self::ImportFrom
+                | Self::ImportName
+                | Self::LoadAttr
+                | Self::LoadFromDictOrGlobals
+                | Self::LoadGlobal
+                | Self::LoadName
+                | Self::LoadSuperAttr
+                | Self::StoreAttr
+                | Self::StoreGlobal
+                | Self::StoreName
+                | Self::LoadAttrGetattributeOverridden
+                | Self::LoadAttrWithHint
+                | Self::LoadSuperAttrAttr
+                | Self::LoadSuperAttrMethod
+                | Self::StoreAttrWithHint
+                | Self::InstrumentedLoadSuperAttr
+        )
+    }
+
     #[must_use]
     pub const fn from_u8(value: u8) -> Result<Self, crate::marshal::MarshalError> {
         Ok(match value {
@@ -748,6 +1014,67 @@ impl PseudoOpcode {
             Self::SetupWith => 265,
             Self::StoreFastMaybeNull => 266,
         }
+    }
+
+    /// Does this opcode have 'HAS_ARG_FLAG' set.
+    #[must_use]
+    pub const fn has_arg(self) -> bool {
+        matches!(
+            self,
+            Self::Jump
+                | Self::JumpIfFalse
+                | Self::JumpIfTrue
+                | Self::JumpNoInterrupt
+                | Self::LoadClosure
+                | Self::StoreFastMaybeNull
+        )
+    }
+
+    /// Does this opcode have 'HAS_CONST_FLAG' set.
+    #[must_use]
+    pub const fn has_const(self) -> bool {
+        false
+    }
+
+    /// Does this opcode have 'HAS_PURE_FLAG' set.
+    #[must_use]
+    pub const fn has_exc(self) -> bool {
+        matches!(
+            self,
+            Self::AnnotationsPlaceholder
+                | Self::LoadClosure
+                | Self::PopBlock
+                | Self::SetupCleanup
+                | Self::SetupFinally
+                | Self::SetupWith
+        )
+    }
+
+    /// Does this opcode have 'HAS_FREE_FLAG' set.
+    #[must_use]
+    pub const fn has_free(self) -> bool {
+        false
+    }
+
+    /// Does this opcode have 'HAS_JUMP_FLAG' set.
+    #[must_use]
+    pub const fn has_jump(self) -> bool {
+        matches!(
+            self,
+            Self::Jump | Self::JumpIfFalse | Self::JumpIfTrue | Self::JumpNoInterrupt
+        )
+    }
+
+    /// Does this opcode have 'HAS_LOCAL_FLAG' set.
+    #[must_use]
+    pub const fn has_local(self) -> bool {
+        matches!(self, Self::LoadClosure | Self::StoreFastMaybeNull)
+    }
+
+    /// Does this opcode have 'HAS_NAME_FLAG' set.
+    #[must_use]
+    pub const fn has_name(self) -> bool {
+        false
     }
 
     #[must_use]
