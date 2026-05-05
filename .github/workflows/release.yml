@@ -118,7 +118,7 @@ jobs:
         with:
           package-manager-cache: false
 
-      - uses: mwilliamson/setup-wabt-action@febe2a12b7ccb999a6e5d953a8362a3b7ffcf148 # v3.2.0
+      - uses: mwilliamson/setup-wabt-action@427f2fdd70bc4dbc2e53c2eb4f19f66162d71bd2 # v4.0.0
         with:
           wabt-version: "1.0.30"
 
