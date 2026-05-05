@@ -104,6 +104,11 @@ pub fn strerror(errno: i32) -> String {
         .into_owned()
 }
 
+#[cfg(unix)]
+pub fn nix_errno_display(errno: i32) -> String {
+    nix::errno::Errno::from_raw(errno).to_string()
+}
+
 #[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
 pub fn getloadavg() -> std::io::Result<[f64; 3]> {
     let mut loadavg = [0f64; 3];
@@ -135,7 +140,11 @@ pub fn process_times() -> std::io::Result<ProcessTimes> {
         tms_cstime: 0,
     };
 
-    let tick_for_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
+    let tick_for_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    if tick_for_second <= 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let tick_for_second = tick_for_second as f64;
     let c = unsafe { libc::times(&mut t as *mut _) };
     if c == (-1i8) as libc::clock_t {
         return Err(std::io::Error::last_os_error());

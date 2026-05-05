@@ -217,7 +217,7 @@ pub fn is_interrupted_error(err: &io::Error) -> bool {
 }
 
 pub fn is_would_block_error(err: &io::Error) -> bool {
-    err.raw_os_error() == Some(libc::EAGAIN)
+    err.kind() == io::ErrorKind::WouldBlock || err.raw_os_error() == Some(libc::EAGAIN)
 }
 
 pub fn seek(

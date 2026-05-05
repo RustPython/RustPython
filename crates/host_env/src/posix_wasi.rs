@@ -38,7 +38,7 @@ pub fn stat_path(
 
     let path = match CString::new(path.as_bytes()) {
         Ok(path) => path,
-        Err(_) => return Ok(None),
+        Err(_) => return Err(io::Error::from(io::ErrorKind::InvalidInput)),
     };
 
     let mut stat = core::mem::MaybeUninit::uninit();

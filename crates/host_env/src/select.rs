@@ -5,11 +5,16 @@ use std::io;
 pub mod platform {
     pub use libc::pollfd;
     pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
+    use std::io;
     pub use std::os::unix::io::RawFd;
 
     #[must_use]
     pub const fn check_err(x: i32) -> bool {
         x < 0
+    }
+
+    pub fn last_select_error() -> io::Error {
+        io::Error::last_os_error()
     }
 }
 
@@ -17,6 +22,7 @@ pub mod platform {
 #[cfg(windows)]
 pub mod platform {
     pub use WinSock::{FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval, select};
+    use std::io;
     use windows_sys::Win32::Networking::WinSock;
 
     /// # Safety
@@ -58,11 +64,16 @@ pub mod platform {
     pub fn check_err(x: i32) -> bool {
         x == WinSock::SOCKET_ERROR
     }
+
+    pub fn last_select_error() -> io::Error {
+        io::Error::from_raw_os_error(unsafe { WinSock::WSAGetLastError() })
+    }
 }
 
 #[cfg(target_os = "wasi")]
 pub mod platform {
     pub use libc::{FD_SETSIZE, timeval};
+    use std::io;
     pub use std::os::fd::RawFd;
 
     pub const fn check_err(x: i32) -> bool {
@@ -101,8 +112,10 @@ pub mod platform {
             }
         }
         let n = set.__nfds;
-        set.__nfds = n + 1;
-        set.__fds[n] = fd;
+        if n < FD_SETSIZE {
+            set.__fds[n] = fd;
+            set.__nfds = n + 1;
+        }
     }
 
     #[allow(non_snake_case)]
@@ -121,6 +134,10 @@ pub mod platform {
             errorfds: *mut fd_set,
             timeout: *const timeval,
         ) -> libc::c_int;
+    }
+
+    pub fn last_select_error() -> io::Error {
+        io::Error::last_os_error()
     }
 }
 
@@ -185,7 +202,7 @@ pub fn select(
         )
     };
     if platform::check_err(ret) {
-        Err(io::Error::last_os_error())
+        Err(platform::last_select_error())
     } else {
         Ok(ret)
     }
@@ -291,7 +308,10 @@ pub mod epoll {
     ) -> Result<usize, WaitError> {
         events.clear();
         match rustix::event::epoll::wait(epoll, rustix::buffer::spare_capacity(events), timeout) {
-            Ok(n) => Ok(n),
+            Ok(n) => {
+                unsafe { events.set_len(n) };
+                Ok(n)
+            }
             Err(rustix::io::Errno::INTR) => Err(WaitError::Interrupted),
             Err(err) => Err(WaitError::Io(err.into())),
         }

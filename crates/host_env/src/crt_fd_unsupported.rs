@@ -56,14 +56,14 @@ impl Owned {
 
     /// Create a `crt_fd::Owned` from a raw file descriptor.
     ///
-    /// Returns an error if `fd` is -1.
+    /// Returns an error if `fd` is negative.
     ///
     /// # Safety
     ///
     /// `fd` must be a valid file descriptor for the embedding host.
     #[inline]
     pub unsafe fn try_from_raw(fd: Raw) -> io::Result<Self> {
-        if fd == -1 {
+        if fd < 0 {
             Err(ebadf())
         } else {
             Ok(unsafe { Self::from_raw(fd) })
@@ -112,14 +112,14 @@ impl<'fd> Borrowed<'fd> {
 
     /// Create a `crt_fd::Borrowed` from a raw file descriptor.
     ///
-    /// Returns an error if `fd` is -1.
+    /// Returns an error if `fd` is negative.
     ///
     /// # Safety
     ///
     /// `fd` must be a valid file descriptor for the embedding host.
     #[inline]
     pub unsafe fn try_borrow_raw(fd: Raw) -> io::Result<Self> {
-        if fd == -1 {
+        if fd < 0 {
             Err(ebadf())
         } else {
             Ok(unsafe { Self::borrow_raw(fd) })

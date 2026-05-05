@@ -79,6 +79,7 @@ impl FileMode {
 pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError> {
     let mut flags = 0;
     let mut plus = false;
+    let mut binary = false;
     let mut rwa = false;
     let mut mode = FileMode::empty();
     for c in mode_str.bytes() {
@@ -121,7 +122,12 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                 plus = true;
                 mode.insert(FileMode::READABLE | FileMode::WRITABLE);
             }
-            b'b' => {}
+            b'b' => {
+                if binary {
+                    return Err(FileModeError::Invalid);
+                }
+                binary = true;
+            }
             _ => return Err(FileModeError::Invalid),
         }
     }

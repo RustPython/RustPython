@@ -529,7 +529,7 @@ pub use windows_sys::Win32::Networking::WinSock::{
 };
 
 #[cfg(windows)]
-pub const SO_EXCLUSIVEADDRUSE: i32 = SO_REUSEADDR;
+pub const SO_EXCLUSIVEADDRUSE: i32 = -5;
 #[cfg(windows)]
 pub const EAI_MEMORY: i32 = windows_sys::Win32::Networking::WinSock::WSA_NOT_ENOUGH_MEMORY;
 #[cfg(windows)]

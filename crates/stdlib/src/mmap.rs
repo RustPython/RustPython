@@ -465,9 +465,8 @@ mod mmap {
                 _ => None,
             };
 
-            // Get file handle from fileno
-            // fileno -1 or 0 means anonymous mapping
-            let fh: Option<host_mmap::Handle> = if fileno != -1 && fileno != 0 {
+            // Get file handle from fileno. fileno -1 means anonymous mapping.
+            let fh: Option<host_mmap::Handle> = if fileno != -1 {
                 // Convert CRT file descriptor to a Windows file mapping handle.
                 // Use suppress_iph! to avoid crashes when the fd is invalid.
                 // This is critical because socket fds wrapped via _open_osfhandle

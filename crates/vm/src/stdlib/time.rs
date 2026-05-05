@@ -118,7 +118,13 @@ mod decl {
                 match sleep_result {
                     Ok(()) => break,
                     Err(err) if err.raw_os_error() == Some(libc::EINTR) => {}
-                    Err(err) => return Err(vm.new_os_error(format!("nanosleep: {err}"))),
+                    Err(err) => {
+                        let errno = err.raw_os_error().unwrap_or(0);
+                        return Err(vm.new_os_error(format!(
+                            "nanosleep: {}",
+                            host_time::nix_errno_display(errno)
+                        )));
+                    }
                 }
                 // EINTR: run signal handlers, then retry with remaining time
                 vm.check_signals()?;

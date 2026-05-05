@@ -300,7 +300,7 @@ pub fn stat_path(
 
     let path = match CString::new(path.as_bytes()) {
         Ok(path) => path,
-        Err(_) => return Ok(None),
+        Err(_) => return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
     };
 
     let mut stat = core::mem::MaybeUninit::uninit();
@@ -463,7 +463,7 @@ pub fn utimes(
 ) -> std::io::Result<()> {
     let tv = |d: core::time::Duration| libc::timeval {
         tv_sec: d.as_secs() as _,
-        tv_usec: d.as_micros() as _,
+        tv_usec: d.subsec_micros() as _,
     };
     nix::sys::stat::utimes(path, &tv(acc).into(), &tv(modif).into()).map_err(std::io::Error::from)
 }
@@ -1653,6 +1653,12 @@ fn close_filetable_fds(above: i32, keep: &[BorrowedFd<'_>]) -> nix::Result<()> {
 }
 
 fn close_fds_brute_force(above: i32, keep: &[BorrowedFd<'_>]) {
+    debug_assert!(
+        keep.windows(2)
+            .all(|fds| fds[0].as_raw_fd() <= fds[1].as_raw_fd()),
+        "close_fds_brute_force requires `keep` to be sorted ascending"
+    );
+
     let max_fd = nix::unistd::sysconf(nix::unistd::SysconfVar::OPEN_MAX)
         .ok()
         .flatten()

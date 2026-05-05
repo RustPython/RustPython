@@ -195,15 +195,20 @@ unsafe fn disable_fatal_signal_handler(handler: &mut FatalSignalHandler) {
 #[cfg(unix)]
 pub fn enable_fatal_handlers(handler: extern "C" fn(libc::c_int), flags: libc::c_int) -> bool {
     unsafe {
+        let mut installed = Vec::new();
         for entry in FATAL_SIGNAL_HANDLERS.iter_mut() {
             if entry.enabled {
                 continue;
             }
 
             if !install_sigaction(entry.signum, handler, flags, &mut entry.previous) {
+                for signum in installed {
+                    disable_fatal_signal(signum);
+                }
                 return false;
             }
             entry.enabled = true;
+            installed.push(entry.signum);
         }
     }
     true
@@ -273,6 +278,9 @@ pub fn register_user_signal(
     chain: bool,
     handler: extern "C" fn(libc::c_int),
 ) -> std::io::Result<()> {
+    if signum < 0 || signum as usize >= USER_SIGNAL_CAPACITY {
+        return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
+    }
     let signum = signum as usize;
     let mut guard = USER_SIGNALS.lock();
     if guard.is_none() {
@@ -309,6 +317,9 @@ pub fn register_user_signal(
 
 #[cfg(unix)]
 pub fn unregister_user_signal(signum: libc::c_int) -> bool {
+    if signum < 0 {
+        return false;
+    }
     let signum = signum as usize;
     let mut guard = USER_SIGNALS.lock();
     let Some(signals) = guard.as_mut() else {
@@ -329,6 +340,9 @@ pub fn unregister_user_signal(signum: libc::c_int) -> bool {
 
 #[cfg(unix)]
 pub fn reraise_user_signal(signum: libc::c_int, handler: extern "C" fn(libc::c_int)) -> bool {
+    if signum < 0 {
+        return false;
+    }
     let signum_usize = signum as usize;
     let previous = {
         let guard = USER_SIGNALS.lock();
@@ -344,16 +358,15 @@ pub fn reraise_user_signal(signum: libc::c_int, handler: extern "C" fn(libc::c_i
         entry.previous
     };
 
-    restore_sigaction(signum, &previous);
     let saved_errno = crate::os::get_errno();
+    restore_sigaction(signum, &previous);
     crate::os::set_errno(saved_errno);
     raise_signal(signum);
-    let errno_after_raise = crate::os::get_errno();
 
     let mut ignored_previous = unsafe { core::mem::zeroed() };
     let _ = install_sigaction(signum, handler, libc::SA_NODEFER, &mut ignored_previous);
 
-    crate::os::set_errno(errno_after_raise);
+    crate::os::set_errno(saved_errno);
     true
 }
 

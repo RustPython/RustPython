@@ -136,13 +136,15 @@ pub fn with_swapped_errno<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    let saved = CTYPES_LOCAL_ERRNO.with(|e| e.get());
-    crate::os::set_errno(saved);
+    let saved_errno = crate::os::get_errno();
+    let saved_ctypes_errno = CTYPES_LOCAL_ERRNO.with(|e| e.get());
+    crate::os::set_errno(saved_ctypes_errno);
 
     let result = f();
 
     let new_error = crate::os::get_errno();
     CTYPES_LOCAL_ERRNO.with(|e| e.set(new_error));
+    crate::os::set_errno(saved_errno);
 
     result
 }
@@ -187,13 +189,15 @@ pub fn with_swapped_last_error<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    let saved = CTYPES_LOCAL_LAST_ERROR.with(|e| e.get());
-    crate::windows::set_last_error(saved);
+    let saved_last_error = crate::windows::get_last_error();
+    let saved_ctypes_last_error = CTYPES_LOCAL_LAST_ERROR.with(|e| e.get());
+    crate::windows::set_last_error(saved_ctypes_last_error);
 
     let result = f();
 
     let new_error = crate::windows::get_last_error();
     CTYPES_LOCAL_LAST_ERROR.with(|e| e.set(new_error));
+    crate::windows::set_last_error(saved_last_error);
 
     result
 }
@@ -239,7 +243,40 @@ pub fn simple_type_size(ty: &str) -> Option<usize> {
 }
 
 pub fn simple_type_align(ty: &str) -> Option<usize> {
-    simple_type_size(ty)
+    match ty {
+        "c" | "b" => Some(core::mem::align_of::<c_schar>()),
+        "u" => Some(core::mem::align_of::<WChar>()),
+        "B" | "?" => Some(core::mem::align_of::<c_uchar>()),
+        "h" | "v" => Some(core::mem::align_of::<c_short>()),
+        "H" => Some(core::mem::align_of::<c_ushort>()),
+        "i" => Some(core::mem::align_of::<c_int>()),
+        "I" => Some(core::mem::align_of::<c_uint>()),
+        "l" => Some(core::mem::align_of::<c_long>()),
+        "L" => Some(core::mem::align_of::<c_ulong>()),
+        "q" => Some(core::mem::align_of::<c_longlong>()),
+        "Q" => Some(core::mem::align_of::<c_ulonglong>()),
+        "f" => Some(core::mem::align_of::<c_float>()),
+        "d" => Some(core::mem::align_of::<c_double>()),
+        "g" => {
+            #[cfg(all(
+                any(target_arch = "x86_64", target_arch = "aarch64"),
+                not(target_os = "windows")
+            ))]
+            {
+                Some(core::mem::align_of::<u128>())
+            }
+            #[cfg(not(all(
+                any(target_arch = "x86_64", target_arch = "aarch64"),
+                not(target_os = "windows")
+            )))]
+            {
+                Some(core::mem::align_of::<c_double>())
+            }
+        }
+        "z" | "Z" | "P" | "X" | "O" => Some(core::mem::align_of::<usize>()),
+        "void" => Some(0),
+        _ => None,
+    }
 }
 
 pub fn c_long_bytes_endian(value: i128, swapped: bool) -> Vec<u8> {
@@ -445,14 +482,12 @@ pub fn wstring_from_bytes(buffer: &[u8]) -> String {
 }
 
 pub fn wchar_array_field_value(buffer: &[u8]) -> String {
-    buffer
+    let wchars: Vec<WChar> = buffer
         .chunks(WCHAR_SIZE)
-        .filter_map(|chunk| {
-            wchar_from_bytes(chunk)
-                .filter(|&wchar| wchar != 0)
-                .and_then(char::from_u32)
-        })
-        .collect()
+        .filter_map(|chunk| wchar_from_bytes(chunk).filter(|&wchar| wchar != 0))
+        .map(|wchar| wchar as WChar)
+        .collect();
+    wide_chars_to_wtf8(&wchars).to_string()
 }
 
 pub fn write_wchar_array_value(buffer: &mut [u8], s: &Wtf8) -> Result<(), WCharArrayWriteError> {
@@ -763,10 +798,13 @@ pub fn read_array_element(
     element_size: usize,
     type_code: Option<&str>,
 ) -> DecodedValue {
+    let Some(rest) = buffer.get(offset..) else {
+        return DecodedValue::Signed(0);
+    };
     match type_code {
         Some("c") => DecodedValue::Bytes(vec![buffer.get(offset).copied().unwrap_or(0)]),
         Some("u") => {
-            let value = wchar_from_bytes(&buffer[offset..])
+            let value = wchar_from_bytes(rest)
                 .and_then(char::from_u32)
                 .map(|c| c.to_string())
                 .unwrap_or_default();
@@ -799,19 +837,17 @@ pub fn read_array_element(
             }
         }
         Some("f") => DecodedValue::Float(
-            buffer[offset..]
-                .first_chunk::<4>()
+            rest.first_chunk::<4>()
                 .copied()
                 .map_or(0.0, f32::from_ne_bytes) as f64,
         ),
         Some("d" | "g") => DecodedValue::Float(
-            buffer[offset..]
-                .first_chunk::<8>()
+            rest.first_chunk::<8>()
                 .copied()
                 .map_or(0.0, f64::from_ne_bytes),
         ),
         _ => {
-            if let Some(bytes) = buffer[offset..].get(..element_size) {
+            if let Some(bytes) = rest.get(..element_size) {
                 let is_unsigned = matches!(type_code, Some("B" | "H" | "I" | "L" | "Q"));
                 match int_from_bytes(bytes, element_size, is_unsigned) {
                     IntegerValue::Signed(value) => DecodedValue::Signed(value),
@@ -1337,8 +1373,14 @@ pub unsafe fn write_callback_result(
         (Some("I"), CallbackResultValue::Unsigned(v)) => unsafe {
             *(result as *mut u32) = v as u32
         },
-        (Some("l" | "q"), CallbackResultValue::Signed(v)) => unsafe { *(result as *mut i64) = v },
-        (Some("L" | "Q"), CallbackResultValue::Unsigned(v)) => unsafe { *(result as *mut u64) = v },
+        (Some("l"), CallbackResultValue::Signed(v)) => unsafe {
+            *(result as *mut c_long) = v as c_long
+        },
+        (Some("L"), CallbackResultValue::Unsigned(v)) => unsafe {
+            *(result as *mut c_ulong) = v as c_ulong
+        },
+        (Some("q"), CallbackResultValue::Signed(v)) => unsafe { *(result as *mut i64) = v },
+        (Some("Q"), CallbackResultValue::Unsigned(v)) => unsafe { *(result as *mut u64) = v },
         (Some("f"), CallbackResultValue::Float(v)) => unsafe { *(result as *mut f32) = v as f32 },
         (Some("d"), CallbackResultValue::Float(v)) => unsafe { *(result as *mut f64) = v },
         (Some("P" | "z" | "Z"), CallbackResultValue::Pointer(v)) => unsafe {
@@ -1932,7 +1974,9 @@ pub fn copy_com_pointer(src_ptr: usize, dst_addr: usize) -> i32 {
         unsafe {
             let iunknown = src_ptr as *mut *const usize;
             let vtable = *iunknown;
-            debug_assert!(!vtable.is_null(), "IUnknown vtable is null");
+            if vtable.is_null() {
+                return HRESULT_E_POINTER;
+            }
             let addref_fn: extern "system" fn(*mut c_void) -> u32 =
                 core::mem::transmute(*vtable.add(1));
             addref_fn(src_ptr as *mut c_void);
@@ -2030,7 +2074,7 @@ pub fn call_result_bytes(raw_result: &CallResult) -> Option<(Vec<u8>, usize)> {
         }
         CallResult::Value(val) => {
             let bytes = val.to_ne_bytes();
-            Some((bytes.to_vec(), core::mem::size_of::<i64>()))
+            Some((bytes.to_vec(), core::mem::size_of_val(val)))
         }
     }
 }
@@ -2260,12 +2304,18 @@ pub unsafe fn read_value_at_address(
         Some("H") => AddressValue::Integer(IntegerValue::Unsigned(
             unsafe { core::ptr::read_unaligned(ptr as *const u16) }.into(),
         )),
-        Some("i" | "l") => AddressValue::Integer(IntegerValue::Signed(
+        Some("i") => AddressValue::Integer(IntegerValue::Signed(
             unsafe { core::ptr::read_unaligned(ptr as *const i32) }.into(),
         )),
-        Some("I" | "L") => AddressValue::Integer(IntegerValue::Unsigned(
+        Some("I") => AddressValue::Integer(IntegerValue::Unsigned(
             unsafe { core::ptr::read_unaligned(ptr as *const u32) }.into(),
         )),
+        Some("l") => AddressValue::Integer(IntegerValue::Signed(unsafe {
+            core::ptr::read_unaligned(ptr as *const c_long)
+        } as i64)),
+        Some("L") => AddressValue::Integer(IntegerValue::Unsigned(unsafe {
+            core::ptr::read_unaligned(ptr as *const c_ulong)
+        } as u64)),
         Some("q") => AddressValue::Integer(IntegerValue::Signed(unsafe {
             core::ptr::read_unaligned(ptr as *const i64)
         })),

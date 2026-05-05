@@ -673,7 +673,9 @@ pub fn batched_wait_for_multiple_objects(
         Some(unsafe { windows_sys::Win32::Foundation::GetLastError() })
     } else if result == windows_sys::Win32::Foundation::WAIT_TIMEOUT {
         Some(windows_sys::Win32::Foundation::WAIT_TIMEOUT)
-    } else if sigint_event.is_some() && result == WAIT_OBJECT_0 + thread_handles_raw.len() as u32 {
+    } else if sigint_event.is_some()
+        && result == WAIT_OBJECT_0 + (thread_handles_raw.len() - 1) as u32
+    {
         Some(windows_sys::Win32::Foundation::ERROR_CONTROL_C_EXIT)
     } else {
         None
