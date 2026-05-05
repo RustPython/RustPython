@@ -2,6 +2,7 @@
 //!
 //! This module provides a centralized array of all slot definitions,
 
+use num_enum::TryFromPrimitive;
 use super::{PyComparisonOp, PyTypeSlots};
 use crate::builtins::descriptor::SlotFunc;
 
@@ -68,7 +69,7 @@ pub struct SlotDef {
 ///
 /// Values match CPython's Py_* slot IDs from typeslots.h.
 /// Unused slots are included for value reservation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum SlotAccessor {
     // Buffer protocol (1-2) - Reserved, not used in RustPython

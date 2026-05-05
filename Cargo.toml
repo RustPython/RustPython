@@ -52,7 +52,7 @@ rustyline = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-pyo3 = { version = "0.28.2", features = ["auto-initialize"] }
+pyo3 = { git = "https://github.com/bschoenmaeckers/pyo3", branch = "RustPython", features = ["auto-initialize"] }
 rustpython-stdlib = { workspace = true }
 ruff_python_parser = { workspace = true }
 
@@ -101,6 +101,7 @@ lto = "thin"
 
 [patch.crates-io]
 parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
+pyo3-ffi = { git = "https://github.com/bschoenmaeckers/pyo3", branch = "RustPython" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
 
