@@ -1,7 +1,10 @@
 //! Implementation of the _thread module
+
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) use _thread::after_fork_child;
+
 pub use _thread::get_ident;
+
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
     CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames,
@@ -463,6 +466,7 @@ pub(crate) mod _thread {
             use std::os::unix::thread::JoinHandleExt;
             handle.as_pthread_t() as _
         }
+
         #[cfg(not(unix))]
         {
             thread_to_rust_id(handle.thread())

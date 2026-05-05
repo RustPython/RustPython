@@ -1,8 +1,7 @@
 // spell-checker: ignore compactlong compactlongs
 
 use crate::anystr::AnyStr;
-#[cfg(feature = "flame")]
-use crate::bytecode::InstructionMetadata;
+
 use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef,
     TryFromObject, VirtualMachine,
@@ -2097,8 +2096,7 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> FrameResult {
         flame_guard!(format!(
-            "Frame::execute_instruction({})",
-            instruction.display(arg, &self.code.code).to_string()
+            "Frame::execute_instruction({instruction:?} {arg:?})"
         ));
 
         #[cfg(feature = "vm-tracing-logging")]
@@ -2110,10 +2108,7 @@ impl ExecutingFrame<'_> {
             }
             */
             trace!("  {:#?}", self);
-            trace!(
-                "  Executing op code: {}",
-                instruction.display(arg, &self.code.code)
-            );
+            trace!("  Executing opcode: {instruction:?} {arg:?}",);
             trace!("=======");
         }
 
