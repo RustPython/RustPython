@@ -7,7 +7,6 @@ use rustpython_vm::vm::thread::{
     CurrentVmAttachState, attach_current_thread, release_current_thread, with_current_vm,
 };
 
-#[allow(dead_code)]
 pub(crate) fn with_vm<R: FfiResult<O>, O>(f: impl FnOnce(&VirtualMachine) -> R) -> O {
     with_current_vm(|vm| f(vm).into_output(vm))
 }
