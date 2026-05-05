@@ -26,6 +26,7 @@ sys.path.append(CPYTHON_TOOLS_LIB.as_posix())
 
 import analyzer
 from generators_common import DEFAULT_INPUT
+from stack import get_stack_effect
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -283,6 +284,36 @@ class OpcodeGen:
                 {arms}
                 _ => 0,
             }}
+        }}
+        """
+
+    @property
+    def fn_stack_effect(self) -> str:
+        arms = ""
+        for instr in self:
+            stack = get_stack_effect(instr)
+            popped = (-stack.base_offset).to_c()
+            pushed = (stack.logical_sp - stack.base_offset).to_c()
+
+            name = instr.name
+            arms += f"Self::{name} => ({pushed}, {popped}),\n"
+
+        arms = arms.strip()
+
+        return f"""
+        fn stack_effect_info(&self, oparg: u32) -> StackEffect {{
+            // Reason for converting oparg to i32 is because of expressions like `1 + (oparg -1)`
+            // that causes underflow errors.
+            let oparg = i32::try_from(oparg).expect("oparg does not fit in an `i32`");
+
+            let (pushed, popped) = match self {{
+                {arms}
+            }};
+
+            debug_assert!(u32::try_from(pushed).is_ok());
+            debug_assert!(u32::try_from(popped).is_ok());
+
+            StackEffect::new(pushed as u32, popped as u32)
         }}
         """
 
