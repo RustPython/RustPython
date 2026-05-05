@@ -307,11 +307,10 @@ fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: &Option<Pat
 /// Calculate stdlib_dir (sys._stdlib_dir)
 /// Returns None if the stdlib directory doesn't exist
 fn calculate_stdlib_dir(prefix: &str) -> Option<String> {
-    #[cfg(not(windows))]
-    let stdlib_dir = PathBuf::from(prefix).join(platform::stdlib_subdir());
-
-    #[cfg(windows)]
-    let stdlib_dir = PathBuf::from(prefix).join(platform::STDLIB_SUBDIR);
+    let stdlib_dir = Path::new(prefix).join(cfg_select! {
+        windows => platform::STDLIB_SUBDIR,
+        _ => platform::stdlib_subdir(),
+    });
 
     if stdlib_dir.is_dir() {
         Some(stdlib_dir.to_string_lossy().into_owned())

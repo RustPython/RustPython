@@ -7,12 +7,11 @@ use core::fmt;
 use core::ops::{Bound, RangeBounds};
 use core::sync::atomic::Ordering::Relaxed;
 
-#[cfg(not(target_arch = "wasm32"))]
 #[allow(non_camel_case_types)]
-pub type wchar_t = libc::wchar_t;
-#[cfg(target_arch = "wasm32")]
-#[allow(non_camel_case_types)]
-pub type wchar_t = u32;
+pub type wchar_t = cfg_select! {
+    target_arch = "wasm32" => u32,
+    _ => libc::wchar_t,
+};
 
 /// Utf8 + state.ascii (+ PyUnicode_Kind in future)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
