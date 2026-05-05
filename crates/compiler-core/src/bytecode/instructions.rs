@@ -469,6 +469,32 @@ impl Opcode {
     }
 
     #[must_use]
+    pub const fn cache_entries(self) -> usize {
+        match self {
+            Self::StoreSubscr => 1,
+            Self::ToBool => 3,
+            Self::BinaryOp => 5,
+            Self::Call => 3,
+            Self::CallKw => 3,
+            Self::CompareOp => 1,
+            Self::ContainsOp => 1,
+            Self::ForIter => 1,
+            Self::JumpBackward => 1,
+            Self::LoadAttr => 9,
+            Self::LoadGlobal => 4,
+            Self::LoadSuperAttr => 1,
+            Self::PopJumpIfFalse => 1,
+            Self::PopJumpIfNone => 1,
+            Self::PopJumpIfNotNone => 1,
+            Self::PopJumpIfTrue => 1,
+            Self::Send => 1,
+            Self::StoreAttr => 4,
+            Self::UnpackSequence => 1,
+            _ => 0,
+        }
+    }
+
+    #[must_use]
     pub const fn deopt(self) -> Option<Self> {
         Some(match self {
             Self::ResumeCheck => Self::Resume,

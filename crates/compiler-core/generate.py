@@ -237,7 +237,7 @@ class OpcodeGen:
                 continue
 
             for member in family.members:
-                if member.name == family.name:
+                if member.name == family_name:
                     continue
 
                 deopts[family_name].append(member.name)
@@ -258,6 +258,39 @@ class OpcodeGen:
                 {arms}
                 _ => return None,
             }})
+        }}
+        """
+
+    @property
+    def fn_cache_entries(self) -> str:
+        arms = ""
+        for instr in self:
+            name = instr.name
+            if getattr(instr, "family", None) and (instr.family.name != name):
+                continue
+
+            if name.startswith("Instrumented"):
+                continue
+
+            try:
+                size = instr.size
+            except AttributeError:
+                continue
+
+            if size > 1:
+                arms += f"Self::{name} => {size - 1},\n"
+
+        arms = arms.strip()
+        if not arms:
+            return ""
+
+        return f"""
+        #[must_use]
+        pub const fn cache_entries(self) -> usize {{
+            match self {{
+                {arms}
+                _ => 0,
+            }}
         }}
         """
 
