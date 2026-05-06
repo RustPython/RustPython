@@ -87,7 +87,7 @@ ucd = { workspace = true }
 adler32 = { workspace = true }
 crc32fast = { workspace = true }
 flate2 = { workspace = true, features = ["zlib-rs"] }
-libz-sys = { package = "libz-rs-sys", workspace = true }
+libz-sys = { workspace = true }
 bzip2 = { workspace = true }
 
 # tkinter
