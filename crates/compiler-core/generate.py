@@ -321,6 +321,45 @@ class OpcodeGen:
         yield from self.instructions
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class InstructioneGen:
+    name: str
+    instructions: list
+    numeric_repr: str
+    analysis: analyzer.Analysis
+
+    def gen(self) -> str:
+        variants = ",\n".join(instr.name for instr in self)
+
+        methods = "\n\n".join(
+            getattr(self, attr).strip()
+            for attr in sorted(dir(self))
+            if attr.startswith("fn_")
+        )
+
+        impls = "\n\n".join(
+            getattr(self, attr).strip()
+            for attr in sorted(dir(self))
+            if attr.startswith("impl_")
+        )
+
+        return f"""
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub enum {self.name} {{
+            {variants}
+        }}
+
+        impl {self.name} {{
+            {methods}
+        }}
+
+        {impls}
+        """
+
+    def __iter__(self):
+        yield from self.instructions
+
+
 def to_pascal_case(s: str) -> str:
     return s.title().replace("_", "")
 
@@ -344,7 +383,7 @@ def main():
 
     outfile = io.StringIO()
     for opcode_enum_name, conf in CONF.items():
-        size = conf["size"]
+        numeric_repr = conf["numeric_repr"]
 
         opcode_range = conf["range"]
         lower, upper = map(int, (opcode_range["min"], opcode_range["max"]))
@@ -365,7 +404,7 @@ def main():
         code = OpcodeGen(
             name=opcode_enum_name,
             instructions=instructions,
-            numeric_repr=size,
+            numeric_repr=numeric_repr,
             analysis=analysis,
         ).gen()
 
