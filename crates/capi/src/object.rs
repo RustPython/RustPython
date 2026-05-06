@@ -4,14 +4,14 @@ use core::ffi::{c_int, c_uint, c_ulong};
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::{AsObject, Context, Py};
 
-const PY_TPFLAGS_LONG_SUBCLASS: u64 = 1 << 24;
-const PY_TPFLAGS_LIST_SUBCLASS: u64 = 1 << 25;
-const PY_TPFLAGS_TUPLE_SUBCLASS: u64 = 1 << 26;
-const PY_TPFLAGS_BYTES_SUBCLASS: u64 = 1 << 27;
-const PY_TPFLAGS_UNICODE_SUBCLASS: u64 = 1 << 28;
-const PY_TPFLAGS_DICT_SUBCLASS: u64 = 1 << 29;
-const PY_TPFLAGS_BASE_EXC_SUBCLASS: u64 = 1 << 30;
-const PY_TPFLAGS_TYPE_SUBCLASS: u64 = 1 << 31;
+const PY_TPFLAGS_LONG_SUBCLASS: u32 = 1 << 24;
+const PY_TPFLAGS_LIST_SUBCLASS: u32 = 1 << 25;
+const PY_TPFLAGS_TUPLE_SUBCLASS: u32 = 1 << 26;
+const PY_TPFLAGS_BYTES_SUBCLASS: u32 = 1 << 27;
+const PY_TPFLAGS_UNICODE_SUBCLASS: u32 = 1 << 28;
+const PY_TPFLAGS_DICT_SUBCLASS: u32 = 1 << 29;
+const PY_TPFLAGS_BASE_EXC_SUBCLASS: u32 = 1 << 30;
+const PY_TPFLAGS_TYPE_SUBCLASS: u32 = 1 << 31;
 
 pub type PyTypeObject = Py<PyType>;
 
@@ -36,7 +36,7 @@ pub unsafe extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
     let exp_zoo = &ctx.exceptions;
 
     let ty = unsafe { &*ptr };
-    let mut flags = ty.slots.flags.bits();
+    let mut flags = ty.slots.flags.bits() as u32;
 
     if ty.is_subtype(zoo.int_type) {
         flags |= PY_TPFLAGS_LONG_SUBCLASS;
