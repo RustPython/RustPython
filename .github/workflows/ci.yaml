@@ -112,9 +112,14 @@ jobs:
         uses: ./.github/actions/install-macos-deps
 
       - name: run rust tests
-        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
         env:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+
+      - name: run c-api tests
+        working-directory: crates/capi
+        run: cargo test
+        if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
       - run: cargo doc --locked
         if: runner.os == 'Linux'

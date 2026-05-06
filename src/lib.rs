@@ -121,7 +121,7 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
     let exitcode = cfg_select! {
         feature = "capi" => {{
             let local_vm = interp.enter(|vm| vm.new_thread());
-            *(rustpython_capi::get_main_interpreter()) = Some(interp);
+            rustpython_capi::set_main_interpreter(interp);
             let result = local_vm.run(|vm| run_rustpython(vm, run_mode));
             rustpython_capi::get_main_interpreter().take().unwrap().finalize(result.err())
         }},
