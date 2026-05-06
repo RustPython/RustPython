@@ -140,7 +140,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
             Ok(Self(seq_iter.into_pyobject(vm)))
         } else {
             Err(vm.new_type_error(format!(
-                "'{}' object is not iterable",
+                "argument of type \'{}\' is not a container or iterable",
                 iter_target.class().name()
             )))
         }
