@@ -3157,7 +3157,6 @@ name = "rustpython-capi"
 version = "0.5.0"
 dependencies = [
  "pyo3",
- "rustpython-pylib",
  "rustpython-stdlib",
  "rustpython-vm",
 ]
