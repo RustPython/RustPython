@@ -1,14 +1,13 @@
-[Opcodes.real]
-opcode_enum_name = "Opcode"
-instruction_enum_name = "Instruction"
-numeric_repr = "u8"
+[Opcode]
+instruction_enum = "Instruction"
+size = "u8"
 range = { min = 0, max = 255 }
 
-[Opcodes.pseudo]
-opcode_enum_name = "PseudoOpcode"
-instruction_enum_name = "PseudoInstruction"
-numeric_repr = "u16"
+[Opcode.opcodes.ContainsOp]
+oparg = { name = "invert", type = "oparg::Invert" }
+
+[PseudoOpcode]
+instruction_enum = "PseudoInstruction"
+size = "u16"
 range = { min = 256, max = 65535 }
 
-[Instructions.real.ContainsOp]
-oparg = { name = "invert", type = "oparg::Invert" }

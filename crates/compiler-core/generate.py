@@ -342,13 +342,9 @@ def main():
 
     analysis = get_analysis()
 
-    opcodes_conf = CONF["Opcodes"]
-    instructions_conf = CONF["Instructions"]
-
     outfile = io.StringIO()
-    for key, conf in opcodes_conf.items():
-        opcode_enum_name = conf["opcode_enum_name"]
-        numeric_repr = conf["numeric_repr"]
+    for opcode_enum_name, conf in CONF.items():
+        size = conf["size"]
 
         opcode_range = conf["range"]
         lower, upper = map(int, (opcode_range["min"], opcode_range["max"]))
@@ -369,7 +365,7 @@ def main():
         code = OpcodeGen(
             name=opcode_enum_name,
             instructions=instructions,
-            numeric_repr=numeric_repr,
+            numeric_repr=size,
             analysis=analysis,
         ).gen()
 
@@ -386,7 +382,7 @@ def main():
 
 use crate::{{
     bytecode::{{instruction::StackEffect, oparg::Arg}},
-    marshal::MarshalError, 
+    marshal::MarshalError,
 }};
 
 {generated}
