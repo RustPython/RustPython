@@ -73,13 +73,13 @@ strum_macros = { workspace = true }
 thiserror = { workspace = true }
 memchr = { workspace = true }
 
-caseless = "0.2.2"
-flamer = { version = "0.5", optional = true }
-half = "2"
-psm = "0.1"
+caseless = { workspace = true }
+flamer = { workspace = true, optional = true }
+half = { workspace = true }
+psm = { workspace = true }
 optional = { workspace = true }
-result-like = "0.5.0"
-timsort = "0.1.2"
+result-like = { workspace = true }
+timsort = { workspace = true }
 
 ## unicode stuff
 # TODO: use unic for this; needed for title case:
@@ -90,21 +90,21 @@ icu_properties = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }
 nix = { workspace = true }
-exitcode = "1.1.2"
-uname = "0.1.1"
+exitcode = { workspace = true }
+uname = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = { workspace = true }
-which = "8"
-errno = "0.3"
+which = { workspace = true }
+errno = { workspace = true }
 widestring = { workspace = true }
 
 [target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
 libffi = { workspace = true, features = ["system"] }
-libloading = "0.9"
+libloading = { workspace = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
-num_cpus = "1.17.0"
+num_cpus = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }
