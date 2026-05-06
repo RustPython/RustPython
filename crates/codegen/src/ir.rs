@@ -2990,8 +2990,15 @@ impl CodeInfo {
     /// Remove NOP instructions from all blocks, but keep NOPs that introduce
     /// a new source line (they serve as line markers for monitoring LINE events).
     fn remove_nops(&mut self) {
+        let layout_predecessors = compute_layout_predecessors(&self.blocks);
         let keep_target_start_nops: Vec<_> = (0..self.blocks.len())
-            .map(|idx| keep_target_start_no_location_nop(&self.blocks, BlockIdx(idx as u32)))
+            .map(|idx| {
+                keep_target_start_no_location_nop(
+                    &self.blocks,
+                    BlockIdx(idx as u32),
+                    &layout_predecessors,
+                )
+            })
             .collect();
         for (block_idx, block) in self.blocks.iter_mut().enumerate() {
             let mut prev_line = None;
@@ -11257,6 +11264,7 @@ fn compute_target_predecessor_flags(blocks: &[Block]) -> TargetPredecessorFlags 
 fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
     let mut changes = 0;
     let plain_jump_targets = compute_target_predecessor_flags(blocks).plain_jump;
+    let layout_predecessors = compute_layout_predecessors(blocks);
     let mut block_order = Vec::new();
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -11265,8 +11273,10 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
     }
     for block_idx in block_order {
         let bi = block_idx.idx();
-        let keep_target_start_nop = keep_target_start_no_location_nop(blocks, block_idx);
-        let follows_pop_iter_cleanup = layout_predecessor_ends_with_pop_iter(blocks, block_idx);
+        let keep_target_start_nop =
+            keep_target_start_no_location_nop(blocks, block_idx, &layout_predecessors);
+        let follows_pop_iter_cleanup =
+            layout_predecessor_ends_with_pop_iter(blocks, block_idx, &layout_predecessors);
         let mut src_instructions = core::mem::take(&mut blocks[bi].instructions);
         if !keep_target_start_nop
             && matches!(
@@ -11860,7 +11870,11 @@ fn block_starts_with_with_exit_none_call(block: &Block) -> bool {
     )
 }
 
-fn keep_target_start_no_location_nop(blocks: &[Block], target: BlockIdx) -> bool {
+fn keep_target_start_no_location_nop(
+    blocks: &[Block],
+    target: BlockIdx,
+    layout_predecessors: &[BlockIdx],
+) -> bool {
     if target == BlockIdx::NULL {
         return false;
     }
@@ -11870,7 +11884,7 @@ fn keep_target_start_no_location_nop(blocks: &[Block], target: BlockIdx) -> bool
     if !matches!(first.instr.real(), Some(Instruction::Nop)) {
         return false;
     }
-    let layout_pred = find_layout_predecessor(blocks, target);
+    let layout_pred = layout_predecessors[target.idx()];
     if layout_pred == BlockIdx::NULL {
         return false;
     }
@@ -11881,8 +11895,12 @@ fn keep_target_start_no_location_nop(blocks: &[Block], target: BlockIdx) -> bool
         && !block_starts_with_with_exit_none_call(&blocks[target.idx()])
 }
 
-fn layout_predecessor_ends_with_pop_iter(blocks: &[Block], target: BlockIdx) -> bool {
-    let layout_pred = find_layout_predecessor(blocks, target);
+fn layout_predecessor_ends_with_pop_iter(
+    blocks: &[Block],
+    target: BlockIdx,
+    layout_predecessors: &[BlockIdx],
+) -> bool {
+    let layout_pred = layout_predecessors[target.idx()];
     layout_pred != BlockIdx::NULL
         && block_has_fallthrough(&blocks[layout_pred.idx()])
         && next_nonempty_block(blocks, blocks[layout_pred.idx()].next) == target
@@ -13564,6 +13582,19 @@ fn find_layout_predecessor(blocks: &[Block], target: BlockIdx) -> BlockIdx {
         current = blocks[current.idx()].next;
     }
     BlockIdx::NULL
+}
+
+fn compute_layout_predecessors(blocks: &[Block]) -> Vec<BlockIdx> {
+    let mut predecessors = vec![BlockIdx::NULL; blocks.len()];
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        let next = blocks[current.idx()].next;
+        if next != BlockIdx::NULL {
+            predecessors[next.idx()] = current;
+        }
+        current = next;
+    }
+    predecessors
 }
 
 fn has_unique_fallthrough_origin(
