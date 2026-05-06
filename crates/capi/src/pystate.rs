@@ -47,6 +47,9 @@ pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
     ptr::null_mut()
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyEval_RestoreThread(_state: *mut PyThreadState) {}
+
 #[cfg(test)]
 mod tests {
     use crate::get_main_interpreter;
