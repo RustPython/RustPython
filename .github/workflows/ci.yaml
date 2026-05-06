@@ -39,7 +39,7 @@ env:
 jobs:
   determine_changes:
     name: Determine changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       # Flag that is raised when any rust code is changed.
       rust_code: ${{ steps.check_rust_code.outputs.changed }}
@@ -168,7 +168,7 @@ jobs:
       ) || github.ref == 'refs/heads/main'
     strategy:
       matrix:
-        include: 
+        include:
         - os: ubuntu-latest
           target: aarch64-linux-android
         - os: ubuntu-latest
