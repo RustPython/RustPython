@@ -119,6 +119,7 @@ jobs:
       - name: run c-api tests
         working-directory: crates/capi
         run: cargo test
+        if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
       - run: cargo doc --locked
         if: runner.os == 'Linux'
