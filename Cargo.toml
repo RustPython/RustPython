@@ -243,7 +243,7 @@ num-traits = "0.2"
 num_cpus = "1.17.0"
 num_enum = { version = "0.7", default-features = false }
 oid-registry = "0.8"
-openssl = "0.10.78"
+openssl = "0.10.79"
 openssl-sys = "0.9.110"
 openssl-probe = "0.2.1"
 optional = "0.5"
