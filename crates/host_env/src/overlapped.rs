@@ -11,10 +11,13 @@ use alloc::sync::Arc;
 use std::{
     collections::HashMap,
     io,
-    sync::{Mutex, OnceLock},
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use windows_sys::Win32::{
-    Foundation::{ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS, HANDLE},
+    Foundation::{CloseHandle, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS, HANDLE},
     Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6},
     System::{
         Diagnostics::Debug::{
@@ -169,6 +172,7 @@ impl Operation {
     pub fn connect_named_pipe(&mut self) -> io::Result<()> {
         use windows_sys::Win32::Foundation::ERROR_PIPE_CONNECTED;
 
+        self.completed = false;
         let err = start_connect_named_pipe(self.handle, &mut *self.overlapped);
         match err {
             ERROR_IO_PENDING => {
@@ -185,12 +189,19 @@ impl Operation {
     }
 
     pub fn write(&mut self, buffer: &[u8]) -> io::Result<u32> {
+        if self.pending {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "overlapped operation is pending",
+            ));
+        }
         let len = core::cmp::min(buffer.len(), u32::MAX as usize) as u32;
         self.write_buffer = Some(buffer[..len as usize].to_vec());
         let write_buf = self
             .write_buffer
             .as_ref()
             .expect("write buffer initialized");
+        self.completed = false;
         let err = start_write_file(self.handle, write_buf.as_ptr(), len, &mut *self.overlapped);
 
         if err != ERROR_SUCCESS && err != ERROR_IO_PENDING {
@@ -204,8 +215,15 @@ impl Operation {
     }
 
     pub fn read(&mut self, size: u32) -> io::Result<u32> {
+        if self.pending {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "overlapped operation is pending",
+            ));
+        }
         self.read_buffer = Some(vec![0u8; size as usize]);
         let read_buf = self.read_buffer.as_mut().expect("read buffer initialized");
+        self.completed = false;
         let err = start_read_file(
             self.handle,
             read_buf.as_mut_ptr(),
@@ -226,8 +244,15 @@ impl Operation {
 
 impl Drop for Operation {
     fn drop(&mut self) {
+        if self.pending {
+            let _ = unsafe { CancelIoEx(self.handle, &*self.overlapped) };
+            let mut transferred = 0;
+            let _ =
+                unsafe { GetOverlappedResult(self.handle, &*self.overlapped, &mut transferred, 1) };
+            self.pending = false;
+        }
         if !self.overlapped.hEvent.is_null() {
-            unsafe { windows_sys::Win32::Foundation::CloseHandle(self.overlapped.hEvent) };
+            unsafe { CloseHandle(self.overlapped.hEvent) };
         }
     }
 }
@@ -242,6 +267,12 @@ pub struct QueuedCompletionStatus {
 pub struct WaitCallbackData {
     completion_port: HANDLE,
     overlapped: *mut OVERLAPPED,
+    fired: AtomicBool,
+}
+
+struct WaitCallbackEntry {
+    data: Arc<WaitCallbackData>,
+    raw_ptr: usize,
 }
 
 pub enum WaitResult {
@@ -266,11 +297,24 @@ static ACCEPT_EX: OnceLock<usize> = OnceLock::new();
 static CONNECT_EX: OnceLock<usize> = OnceLock::new();
 static DISCONNECT_EX: OnceLock<usize> = OnceLock::new();
 static TRANSMIT_FILE: OnceLock<usize> = OnceLock::new();
-static WAIT_CALLBACK_REGISTRY: OnceLock<Mutex<HashMap<isize, Arc<WaitCallbackData>>>> =
-    OnceLock::new();
+static WAIT_CALLBACK_REGISTRY: OnceLock<Mutex<HashMap<isize, WaitCallbackEntry>>> = OnceLock::new();
 
-fn wait_callback_registry() -> &'static Mutex<HashMap<isize, Arc<WaitCallbackData>>> {
+fn wait_callback_registry() -> &'static Mutex<HashMap<isize, WaitCallbackEntry>> {
     WAIT_CALLBACK_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn winsock_extension_or_error(lock: &OnceLock<usize>) -> Result<usize, u32> {
+    use windows_sys::Win32::Networking::WinSock::WSAEOPNOTSUPP;
+
+    if let Some(func) = lock.get() {
+        return Ok(*func);
+    }
+    if initialize_winsock_extensions().is_ok()
+        && let Some(func) = lock.get()
+    {
+        return Ok(*func);
+    }
+    Err(WSAEOPNOTSUPP as u32)
 }
 
 pub fn initialize_winsock_extensions() -> io::Result<()> {
@@ -532,7 +576,10 @@ pub fn start_accept_ex(
         lp_overlapped: *mut OVERLAPPED,
     ) -> i32;
 
-    let accept_ex: AcceptExFn = unsafe { core::mem::transmute(*ACCEPT_EX.get().unwrap()) };
+    let accept_ex = match winsock_extension_or_error(&ACCEPT_EX) {
+        Ok(func) => unsafe { core::mem::transmute::<usize, AcceptExFn>(func) },
+        Err(err) => return err,
+    };
     let mut bytes_received = 0;
     let ret = unsafe {
         accept_ex(
@@ -571,7 +618,10 @@ pub fn start_connect_ex(
         lp_overlapped: *mut OVERLAPPED,
     ) -> i32;
 
-    let connect_ex: ConnectExFn = unsafe { core::mem::transmute(*CONNECT_EX.get().unwrap()) };
+    let connect_ex = match winsock_extension_or_error(&CONNECT_EX) {
+        Ok(func) => unsafe { core::mem::transmute::<usize, ConnectExFn>(func) },
+        Err(err) => return err,
+    };
     let ret = unsafe {
         connect_ex(
             socket,
@@ -600,8 +650,10 @@ pub fn start_disconnect_ex(socket: usize, flags: u32, overlapped: *mut OVERLAPPE
         dw_reserved: u32,
     ) -> i32;
 
-    let disconnect_ex: DisconnectExFn =
-        unsafe { core::mem::transmute(*DISCONNECT_EX.get().unwrap()) };
+    let disconnect_ex = match winsock_extension_or_error(&DISCONNECT_EX) {
+        Ok(func) => unsafe { core::mem::transmute::<usize, DisconnectExFn>(func) },
+        Err(err) => return err,
+    };
     let ret = unsafe { disconnect_ex(socket, overlapped, flags, 0) };
     if ret != 0 {
         ERROR_SUCCESS
@@ -637,8 +689,10 @@ pub fn start_transmit_file(
         (*overlapped).Anonymous.Anonymous.OffsetHigh = offset_high;
     }
 
-    let transmit_file: TransmitFileFn =
-        unsafe { core::mem::transmute(*TRANSMIT_FILE.get().unwrap()) };
+    let transmit_file = match winsock_extension_or_error(&TRANSMIT_FILE) {
+        Ok(func) => unsafe { core::mem::transmute::<usize, TransmitFileFn>(func) },
+        Err(err) => return err,
+    };
     let ret = unsafe {
         transmit_file(
             socket,
@@ -846,7 +900,9 @@ unsafe extern "system" fn post_to_queue_callback(
     parameter: *mut core::ffi::c_void,
     timer_or_wait_fired: bool,
 ) {
-    let data = unsafe { Arc::from_raw(parameter as *const WaitCallbackData) };
+    let raw_ptr = parameter as *const WaitCallbackData;
+    let data = unsafe { Arc::from_raw(raw_ptr) };
+    data.fired.store(true, Ordering::Release);
     unsafe {
         let _ = windows_sys::Win32::System::IO::PostQueuedCompletionStatus(
             data.completion_port,
@@ -870,6 +926,7 @@ pub fn register_wait_with_queue(
     let data = Arc::new(WaitCallbackData {
         completion_port: completion_port as HANDLE,
         overlapped: overlapped as *mut OVERLAPPED,
+        fired: AtomicBool::new(false),
     });
     let data_ptr = Arc::into_raw(data.clone());
 
@@ -893,14 +950,26 @@ pub fn register_wait_with_queue(
 
     let wait_handle = new_wait_object as isize;
     if let Ok(mut registry) = wait_callback_registry().lock() {
-        registry.insert(wait_handle, data);
+        registry.insert(
+            wait_handle,
+            WaitCallbackEntry {
+                data,
+                raw_ptr: data_ptr as usize,
+            },
+        );
     }
     Ok(wait_handle)
 }
 
 fn cleanup_wait_callback_data(wait_handle: isize) {
     if let Ok(mut registry) = wait_callback_registry().lock() {
-        registry.remove(&wait_handle);
+        if let Some(entry) = registry.remove(&wait_handle)
+            && !entry.data.fired.load(Ordering::Acquire)
+        {
+            unsafe {
+                let _ = Arc::from_raw(entry.raw_ptr as *const WaitCallbackData);
+            }
+        }
     }
 }
 
@@ -1066,12 +1135,25 @@ pub fn parse_address_v6_wide(
     Ok((bytes.to_vec(), addr_len))
 }
 
-pub fn unparse_address(addr: &SOCKADDR_IN6, _addr_len: i32) -> io::Result<SocketAddress> {
+pub fn unparse_address(addr: *const SOCKADDR, addr_len: i32) -> io::Result<SocketAddress> {
     use core::net::{Ipv4Addr, Ipv6Addr};
 
-    let family = addr.sin6_family;
+    if addr.is_null() || addr_len < core::mem::size_of::<SOCKADDR>() as i32 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "address buffer too small",
+        ));
+    }
+
+    let family = unsafe { (*addr).sa_family };
     if family == AF_INET {
-        let addr_in = unsafe { &*(addr as *const SOCKADDR_IN6 as *const SOCKADDR_IN) };
+        if addr_len < core::mem::size_of::<SOCKADDR_IN>() as i32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "address buffer too small for AF_INET",
+            ));
+        }
+        let addr_in = unsafe { &*(addr as *const SOCKADDR_IN) };
         let ip_bytes = unsafe { addr_in.sin_addr.S_un.S_un_b };
         Ok(SocketAddress::V4 {
             host: Ipv4Addr::new(ip_bytes.s_b1, ip_bytes.s_b2, ip_bytes.s_b3, ip_bytes.s_b4)
@@ -1079,6 +1161,13 @@ pub fn unparse_address(addr: &SOCKADDR_IN6, _addr_len: i32) -> io::Result<Socket
             port: u16::from_be(addr_in.sin_port),
         })
     } else if family == AF_INET6 {
+        if addr_len < core::mem::size_of::<SOCKADDR_IN6>() as i32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "address buffer too small for AF_INET6",
+            ));
+        }
+        let addr = unsafe { &*(addr as *const SOCKADDR_IN6) };
         let ip_bytes = unsafe { addr.sin6_addr.u.Byte };
         let scope_id = unsafe { addr.Anonymous.sin6_scope_id };
         Ok(SocketAddress::V6 {

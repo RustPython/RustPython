@@ -1,9 +1,12 @@
 use std::io;
 
 use schannel::{RawPointer, cert_context::ValidUses, cert_store::CertStore};
-use windows_sys::Win32::Security::Cryptography::{
-    CERT_CONTEXT, CRL_CONTEXT, CertCloseStore, CertEnumCRLsInStore, CertOpenSystemStoreW,
-    PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
+use windows_sys::Win32::{
+    Foundation::{CRYPT_E_NOT_FOUND, GetLastError},
+    Security::Cryptography::{
+        CERT_CONTEXT, CRL_CONTEXT, CertCloseStore, CertEnumCRLsInStore, CertOpenSystemStoreW,
+        PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,10 +42,12 @@ pub struct CrlEntry {
 }
 
 fn encoding_type(raw: u32) -> EncodingType {
-    match raw {
-        X509_ASN_ENCODING => EncodingType::X509Asn,
-        PKCS_7_ASN_ENCODING => EncodingType::Pkcs7Asn,
-        other => EncodingType::Other(other),
+    if raw & X509_ASN_ENCODING != 0 {
+        EncodingType::X509Asn
+    } else if raw & PKCS_7_ASN_ENCODING != 0 {
+        EncodingType::Pkcs7Asn
+    } else {
+        EncodingType::Other(raw)
     }
 }
 
@@ -101,6 +106,13 @@ pub fn enum_crls(store_name: &str) -> io::Result<Vec<CrlEntry>> {
     loop {
         crl_context = unsafe { CertEnumCRLsInStore(store, crl_context) };
         if crl_context.is_null() {
+            let err = unsafe { GetLastError() };
+            if err != CRYPT_E_NOT_FOUND as u32 {
+                unsafe {
+                    CertCloseStore(store, 0);
+                }
+                return Err(io::Error::from_raw_os_error(err as i32));
+            }
             break;
         }
 

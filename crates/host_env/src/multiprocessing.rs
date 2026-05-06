@@ -90,7 +90,7 @@ use windows_sys::Win32::{
         CloseHandle, ERROR_TOO_MANY_POSTS, GetLastError, HANDLE, INVALID_HANDLE_VALUE, WAIT_FAILED,
         WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
-    Networking::WinSock::{SOCKET, closesocket, recv, send},
+    Networking::WinSock::{SOCKET, WSAGetLastError, closesocket, recv, send},
     System::Threading::{
         CreateSemaphoreW, GetCurrentThreadId, INFINITE, ReleaseSemaphore, WaitForSingleObjectEx,
     },
@@ -126,10 +126,15 @@ impl SemHandle {
             return Err(SemError::from_errno(Errno::last()));
         }
         if unlink {
-            unsafe {
-                libc::sem_unlink(cname.as_ptr());
+            if unsafe { libc::sem_unlink(cname.as_ptr()) } != 0 {
+                let err = SemError::from_errno(Errno::last());
+                unsafe {
+                    libc::sem_close(raw);
+                }
+                Err(err)
+            } else {
+                Ok((Self { raw }, None))
             }
-            Ok((Self { raw }, None))
         } else {
             Ok((Self { raw }, Some(name.to_owned())))
         }
@@ -204,8 +209,8 @@ pub fn current_thread_id() -> u64 {
 
 #[cfg(windows)]
 #[inline]
-pub fn current_thread_id() -> u32 {
-    unsafe { GetCurrentThreadId() }
+pub fn current_thread_id() -> u64 {
+    unsafe { GetCurrentThreadId() as u64 }
 }
 
 #[cfg(windows)]
@@ -231,7 +236,7 @@ pub fn wait_timeout() -> u32 {
 pub fn close_socket(socket: SOCKET) -> io::Result<()> {
     let res = unsafe { closesocket(socket) };
     if res != 0 {
-        Err(io::Error::last_os_error())
+        Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }))
     } else {
         Ok(())
     }
@@ -239,10 +244,13 @@ pub fn close_socket(socket: SOCKET) -> io::Result<()> {
 
 #[cfg(windows)]
 pub fn recv_socket(socket: SOCKET, size: usize) -> io::Result<Vec<u8>> {
+    let len = i32::try_from(size).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "socket receive size too large")
+    })?;
     let mut buf = vec![0u8; size];
-    let n_read = unsafe { recv(socket, buf.as_mut_ptr() as *mut _, size as i32, 0) };
+    let n_read = unsafe { recv(socket, buf.as_mut_ptr() as *mut _, len, 0) };
     if n_read < 0 {
-        Err(io::Error::last_os_error())
+        Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }))
     } else {
         buf.truncate(n_read as usize);
         Ok(buf)
@@ -251,9 +259,11 @@ pub fn recv_socket(socket: SOCKET, size: usize) -> io::Result<Vec<u8>> {
 
 #[cfg(windows)]
 pub fn send_socket(socket: SOCKET, buf: &[u8]) -> io::Result<i32> {
-    let ret = unsafe { send(socket, buf.as_ptr() as *const _, buf.len() as i32, 0) };
+    let len = i32::try_from(buf.len())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "socket send buffer too large"))?;
+    let ret = unsafe { send(socket, buf.as_ptr() as *const _, len, 0) };
     if ret < 0 {
-        Err(io::Error::last_os_error())
+        Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }))
     } else {
         Ok(ret)
     }
@@ -382,14 +392,28 @@ pub fn gettimeofday() -> Result<libc::timeval, SemError> {
 #[cfg(unix)]
 pub fn deadline_from_timeout(timeout: f64) -> Result<libc::timespec, SemError> {
     let timeout = if timeout < 0.0 { 0.0 } else { timeout };
+    if !timeout.is_finite() {
+        return Err(SemError::InvalidInput);
+    }
     let tv = gettimeofday()?;
-    let sec = timeout as libc::c_long;
+    let sec_f64 = timeout.floor();
+    if sec_f64 > libc::time_t::MAX as f64 {
+        return Err(SemError::InvalidInput);
+    }
+    let sec = sec_f64 as libc::time_t;
     let nsec = (1e9 * (timeout - sec as f64) + 0.5) as libc::c_long;
+    let tv_nsec = (tv.tv_usec as libc::c_long)
+        .checked_mul(1000)
+        .and_then(|base| base.checked_add(nsec))
+        .ok_or(SemError::InvalidInput)?;
     let mut deadline = libc::timespec {
-        tv_sec: tv.tv_sec + sec as libc::time_t,
-        tv_nsec: (tv.tv_usec as libc::c_long * 1000 + nsec) as _,
+        tv_sec: tv.tv_sec.checked_add(sec).ok_or(SemError::InvalidInput)?,
+        tv_nsec: tv_nsec as _,
     };
-    deadline.tv_sec += (deadline.tv_nsec / 1_000_000_000) as libc::time_t;
+    deadline.tv_sec = deadline
+        .tv_sec
+        .checked_add((deadline.tv_nsec / 1_000_000_000) as libc::time_t)
+        .ok_or(SemError::InvalidInput)?;
     deadline.tv_nsec %= 1_000_000_000;
     Ok(deadline)
 }

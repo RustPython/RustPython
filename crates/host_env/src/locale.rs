@@ -22,12 +22,6 @@ struct RawLconv {
     n_sep_by_space: libc::c_char,
     p_sign_posn: libc::c_char,
     n_sign_posn: libc::c_char,
-    int_p_cs_precedes: libc::c_char,
-    int_p_sep_by_space: libc::c_char,
-    int_n_cs_precedes: libc::c_char,
-    int_n_sep_by_space: libc::c_char,
-    int_p_sign_posn: libc::c_char,
-    int_n_sign_posn: libc::c_char,
 }
 
 #[cfg(windows)]
@@ -113,13 +107,13 @@ pub fn strcoll(string1: &CStr, string2: &CStr) -> libc::c_int {
     unsafe { libc::strcoll(string1.as_ptr(), string2.as_ptr()) }
 }
 
-pub fn strxfrm(string: &CStr, initial_len: usize) -> Vec<u8> {
-    let mut buff = vec![0u8; initial_len];
-    let n2 = unsafe { libc::strxfrm(buff.as_mut_ptr() as _, string.as_ptr(), initial_len) };
-    buff = vec![0u8; n2 + 1];
+pub fn strxfrm(string: &CStr, _initial_len: usize) -> Vec<u8> {
+    let len = unsafe { libc::strxfrm(ptr::null_mut(), string.as_ptr(), 0) };
+    let mut buff = vec![0u8; len + 1];
     unsafe {
-        libc::strxfrm(buff.as_mut_ptr() as _, string.as_ptr(), n2 + 1);
+        libc::strxfrm(buff.as_mut_ptr() as _, string.as_ptr(), buff.len());
     }
+    buff.truncate(len);
     buff
 }
 
@@ -143,29 +137,19 @@ pub fn decode_ansi_bytes(bytes: &[u8]) -> Option<String> {
     use core::ptr;
     use windows_sys::Win32::Globalization::{CP_ACP, MultiByteToWideChar};
 
-    let len = unsafe {
-        MultiByteToWideChar(
-            CP_ACP,
-            0,
-            bytes.as_ptr(),
-            bytes.len() as i32,
-            ptr::null_mut(),
-            0,
-        )
-    };
+    if bytes.is_empty() {
+        return Some(String::new());
+    }
+    let len_i32 = i32::try_from(bytes.len()).ok()?;
+
+    let len =
+        unsafe { MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), len_i32, ptr::null_mut(), 0) };
     if len <= 0 {
         return None;
     }
     let mut wide = vec![0u16; len as usize];
     unsafe {
-        MultiByteToWideChar(
-            CP_ACP,
-            0,
-            bytes.as_ptr(),
-            bytes.len() as i32,
-            wide.as_mut_ptr(),
-            len,
-        );
+        MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), len_i32, wide.as_mut_ptr(), len);
     }
     Some(String::from_utf16_lossy(&wide))
 }

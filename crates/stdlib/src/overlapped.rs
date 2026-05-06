@@ -234,8 +234,11 @@ mod _overlapped {
         addr_len: i32,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match host_overlapped::unparse_address(addr, addr_len)
-            .map_err(|_| vm.new_value_error("recvfrom returned unsupported address family"))?
+        match host_overlapped::unparse_address(
+            addr as *const _ as *const host_overlapped::SocketAddrRaw,
+            addr_len,
+        )
+        .map_err(|_| vm.new_value_error("recvfrom returned unsupported address family"))?
         {
             host_overlapped::SocketAddress::V4 { host, port } => Ok((host, port).to_pyobject(vm)),
             host_overlapped::SocketAddress::V6 {

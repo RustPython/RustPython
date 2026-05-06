@@ -35,6 +35,12 @@ pub fn write_console_input(fd: i32, data: &[u16]) -> io::Result<()> {
         if res == 0 {
             return Err(io::Error::last_os_error());
         }
+        if wrote == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "WriteConsoleInputW made no progress",
+            ));
+        }
         total += wrote;
     }
 
