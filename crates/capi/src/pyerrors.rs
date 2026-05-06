@@ -266,4 +266,12 @@ mod tests {
             assert!(!PyErr::occurred(py));
         })
     }
+
+    #[test]
+    fn test_error_is_instance() {
+        Python::attach(|py| {
+            let err = PyTypeError::new_err(py.None());
+            assert!(err.is_instance_of::<PyTypeError>(py));
+        })
+    }
 }
