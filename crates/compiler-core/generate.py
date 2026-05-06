@@ -37,8 +37,6 @@ class OpcodeGen:
     analysis: analyzer.Analysis
 
     def gen(self) -> str:
-        variants = ",\n".join(instr.name for instr in self)
-
         methods = "\n\n".join(
             getattr(self, attr).strip()
             for attr in sorted(dir(self))
@@ -50,6 +48,8 @@ class OpcodeGen:
             for attr in sorted(dir(self))
             if attr.startswith("impl_")
         )
+
+        variants = ",\n".join(instr.name for instr in self)
 
         return f"""
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -324,13 +324,12 @@ class OpcodeGen:
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class InstructioneGen:
     name: str
+    opcode_enum: str
     instructions: list
     numeric_repr: str
-    analysis: analyzer.Analysis
+    metadata: dict[str, str]
 
     def gen(self) -> str:
-        variants = ",\n".join(instr.name for instr in self)
-
         methods = "\n\n".join(
             getattr(self, attr).strip()
             for attr in sorted(dir(self))
@@ -343,8 +342,22 @@ class InstructioneGen:
             if attr.startswith("impl_")
         )
 
+        variants = ""
+        for instr in self:
+            name = instr.name
+            variants += name
+
+            if oparg := self.metadata.get(name, {}).get("oparg"):
+                oname, otype = oparg["name"], oparg["type"]
+
+                variants += f"{{ {oname}: Arg<{otype}> }}"
+
+            opcode = instr.opcode
+            variants += f" = {opcode},\n"
+
         return f"""
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr({self.numeric_repr})] // TODO: Remove this `#[repr(...)]`
         pub enum {self.name} {{
             {variants}
         }}
@@ -354,6 +367,27 @@ class InstructioneGen:
         }}
 
         {impls}
+        """
+
+    @property
+    def fn_as_opcode(self) -> str:
+        arms = ""
+        for instr in self:
+            name = instr.name
+            arms += f"Self::{name}"
+            if oparg := self.metadata.get(name, {}).get("oparg"):
+                arms += " { .. }"
+
+            arms += f"=> {self.opcode_enum}::{name},\n"
+
+        return f"""
+        /// Returns self as a [`{self.opcode_enum}`].
+        #[must_use]
+        pub const fn as_opcode(self) -> {self.opcode_enum} {{
+            match self {{
+                {arms}
+            }}
+        }}
         """
 
     def __iter__(self):
@@ -382,8 +416,10 @@ def main():
     analysis = get_analysis()
 
     outfile = io.StringIO()
-    for opcode_enum_name, conf in CONF.items():
+    for opcode_enum, conf in CONF.items():
+        metadata = conf["opcodes"]
         numeric_repr = conf["numeric_repr"]
+        instruction_enum = conf["instruction_enum"]
 
         opcode_range = conf["range"]
         lower, upper = map(int, (opcode_range["min"], opcode_range["max"]))
@@ -401,14 +437,24 @@ def main():
         for instr in instructions:
             instr.name = to_pascal_case(instr.name)
 
-        code = OpcodeGen(
-            name=opcode_enum_name,
+        opcode_code = OpcodeGen(
+            name=opcode_enum,
             instructions=instructions,
             numeric_repr=numeric_repr,
             analysis=analysis,
         ).gen()
 
-        outfile.write(code)
+        outfile.write(opcode_code)
+
+        instruction_code = InstructioneGen(
+            name=instruction_enum,
+            opcode_enum=opcode_enum,
+            instructions=instructions,
+            numeric_repr=numeric_repr,
+            metadata=metadata,
+        ).gen()
+
+        outfile.write(instruction_code)
 
     generated = outfile.getvalue()
 
