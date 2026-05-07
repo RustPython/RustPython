@@ -13,6 +13,7 @@ use crate::{
     IndexMap, IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
+    preprocess,
     symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
@@ -222,12 +223,6 @@ impl CompileContext {
     }
 }
 
-/// Segment of a parsed %-format string for optimize_format_str.
-struct FormatSegment {
-    literal: String,
-    conversion: Option<oparg::ConvertValueOparg>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ComprehensionType {
     Generator,
@@ -266,11 +261,12 @@ fn validate_duplicate_params(params: &ast::Parameters) -> Result<(), CodegenErro
 
 /// Compile an Mod produced from ruff parser
 pub fn compile_top(
-    ast: ruff_python_ast::Mod,
+    mut ast: ruff_python_ast::Mod,
     source_file: SourceFile,
     mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    preprocess::preprocess_mod(&mut ast);
     match ast {
         ruff_python_ast::Mod::Module(module) => match mode {
             Mode::Exec | Mode::Eval => compile_program(&module, source_file, opts),
@@ -8189,15 +8185,6 @@ impl Compiler {
             ast::Expr::BinOp(ast::ExprBinOp {
                 left, op, right, ..
             }) => {
-                // optimize_format_str: 'format' % (args,) → f-string bytecode
-                if matches!(op, ast::Operator::Mod)
-                    && let ast::Expr::StringLiteral(s) = left.as_ref()
-                    && let ast::Expr::Tuple(ast::ExprTuple { elts, .. }) = right.as_ref()
-                    && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
-                    && self.try_optimize_format_str(s.value.to_str(), elts, range)?
-                {
-                    return Ok(());
-                }
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
 
@@ -11009,6 +10996,7 @@ impl Compiler {
     }
 
     fn compile_expr_fstring(&mut self, fstring: &ast::ExprFString) -> CompileResult<()> {
+        let fstring_range = fstring.range;
         let fstring = fstring.value.as_slice();
         if self.count_fstring_parts(fstring) > STACK_USE_GUIDELINE {
             return self.compile_fstring_parts_joined(fstring);
@@ -11016,10 +11004,18 @@ impl Compiler {
 
         let mut element_count = 0;
         let mut pending_literal = None;
+        let mut pending_literal_no_location = false;
         for part in fstring {
-            self.compile_fstring_part_into(part, &mut pending_literal, &mut element_count, false)?;
+            self.compile_fstring_part_into(
+                part,
+                &mut pending_literal,
+                &mut pending_literal_no_location,
+                &mut element_count,
+                false,
+            )?;
         }
-        self.finish_fstring(pending_literal, element_count)
+        self.set_source_range(fstring_range);
+        self.finish_fstring(pending_literal, pending_literal_no_location, element_count)
     }
 
     fn compile_fstring_parts_joined(&mut self, fstring: &[ast::FStringPart]) -> CompileResult<()> {
@@ -11032,10 +11028,17 @@ impl Compiler {
 
         let mut element_count = 0;
         let mut pending_literal = None;
+        let mut pending_literal_no_location = false;
         for part in fstring {
-            self.compile_fstring_part_into(part, &mut pending_literal, &mut element_count, true)?;
+            self.compile_fstring_part_into(
+                part,
+                &mut pending_literal,
+                &mut pending_literal_no_location,
+                &mut element_count,
+                true,
+            )?;
         }
-        self.finish_fstring_join(pending_literal, element_count);
+        self.finish_fstring_join(pending_literal, pending_literal_no_location, element_count);
         Ok(())
     }
 
@@ -11043,16 +11046,20 @@ impl Compiler {
         &mut self,
         part: &ast::FStringPart,
         pending_literal: &mut Option<Wtf8Buf>,
+        pending_literal_no_location: &mut bool,
         element_count: &mut u32,
         append_to_join_list: bool,
     ) -> CompileResult<()> {
         match part {
             ast::FStringPart::Literal(string) => {
                 let value = self.compile_fstring_part_literal_value(string);
-                if let Some(pending) = pending_literal.as_mut() {
-                    pending.push_wtf8(value.as_ref());
-                } else {
+                if pending_literal.is_none() {
+                    self.set_source_range(string.range);
+                    *pending_literal_no_location = string.range == TextRange::default();
                     *pending_literal = Some(value);
+                } else if let Some(pending) = pending_literal.as_mut() {
+                    *pending_literal_no_location &= string.range == TextRange::default();
+                    pending.push_wtf8(value.as_ref());
                 }
                 Ok(())
             }
@@ -11060,6 +11067,7 @@ impl Compiler {
                 fstring.flags,
                 &fstring.elements,
                 pending_literal,
+                pending_literal_no_location,
                 element_count,
                 append_to_join_list,
             ),
@@ -11069,11 +11077,13 @@ impl Compiler {
     fn finish_fstring(
         &mut self,
         mut pending_literal: Option<Wtf8Buf>,
+        mut pending_literal_no_location: bool,
         mut element_count: u32,
     ) -> CompileResult<()> {
         let keep_empty = element_count == 0;
         self.emit_pending_fstring_literal(
             &mut pending_literal,
+            &mut pending_literal_no_location,
             &mut element_count,
             keep_empty,
             false,
@@ -11098,11 +11108,13 @@ impl Compiler {
     fn finish_fstring_join(
         &mut self,
         mut pending_literal: Option<Wtf8Buf>,
+        mut pending_literal_no_location: bool,
         mut element_count: u32,
     ) {
         let keep_empty = element_count == 0;
         self.emit_pending_fstring_literal(
             &mut pending_literal,
+            &mut pending_literal_no_location,
             &mut element_count,
             keep_empty,
             true,
@@ -11113,6 +11125,7 @@ impl Compiler {
     fn emit_pending_fstring_literal(
         &mut self,
         pending_literal: &mut Option<Wtf8Buf>,
+        pending_literal_no_location: &mut bool,
         element_count: &mut u32,
         keep_empty: bool,
         append_to_join_list: bool,
@@ -11120,6 +11133,8 @@ impl Compiler {
         let Some(value) = pending_literal.take() else {
             return;
         };
+        let no_location = *pending_literal_no_location;
+        *pending_literal_no_location = false;
 
         // CPython drops empty literal fragments when they are adjacent to
         // formatted values, but still emits an empty string for a fully-empty
@@ -11129,6 +11144,9 @@ impl Compiler {
         }
 
         self.emit_load_const(ConstantData::Str { value });
+        if no_location {
+            self.set_no_location();
+        }
         *element_count += 1;
         if append_to_join_list {
             emit!(self, Instruction::ListAppend { i: 1 });
@@ -11186,125 +11204,6 @@ impl Compiler {
         *element_count += 1;
     }
 
-    /// Optimize `'format_str' % (args,)` into f-string bytecode.
-    /// Returns true if optimization was applied, false to fall back to normal BINARY_OP %.
-    /// Matches CPython's codegen.c `compiler_formatted_value` optimization.
-    fn try_optimize_format_str(
-        &mut self,
-        format_str: &str,
-        args: &[ast::Expr],
-        range: ruff_text_size::TextRange,
-    ) -> CompileResult<bool> {
-        // Parse format string into segments
-        let Some(segments) = Self::parse_percent_format(format_str) else {
-            return Ok(false);
-        };
-
-        // Verify arg count matches specifier count
-        let spec_count = segments.iter().filter(|s| s.conversion.is_some()).count();
-        if spec_count != args.len() {
-            return Ok(false);
-        }
-
-        self.set_source_range(range);
-
-        // Special case: no specifiers, just %% escaping → constant fold
-        if spec_count == 0 {
-            let folded: String = segments.iter().map(|s| s.literal.as_str()).collect();
-            self.emit_load_const(ConstantData::Str {
-                value: folded.into(),
-            });
-            return Ok(true);
-        }
-
-        // Emit f-string style bytecode
-        let mut part_count: u32 = 0;
-        let mut arg_idx = 0;
-
-        for seg in &segments {
-            if !seg.literal.is_empty() {
-                self.emit_load_const(ConstantData::Str {
-                    value: seg.literal.clone().into(),
-                });
-                part_count += 1;
-            }
-            if let Some(conv) = seg.conversion {
-                self.compile_expression(&args[arg_idx])?;
-                self.set_source_range(range);
-                emit!(self, Instruction::ConvertValue { oparg: conv });
-                emit!(self, Instruction::FormatSimple);
-                part_count += 1;
-                arg_idx += 1;
-            }
-        }
-
-        if part_count == 0 {
-            self.emit_load_const(ConstantData::Str {
-                value: String::new().into(),
-            });
-        } else if part_count > 1 {
-            emit!(self, Instruction::BuildString { count: part_count });
-        }
-
-        Ok(true)
-    }
-
-    /// Parse a %-format string into segments of (literal_prefix, optional conversion).
-    /// Returns None if the format string contains unsupported specifiers.
-    fn parse_percent_format(format_str: &str) -> Option<Vec<FormatSegment>> {
-        let mut segments = Vec::new();
-        let mut chars = format_str.chars().peekable();
-        let mut current_literal = String::new();
-
-        while let Some(ch) = chars.next() {
-            if ch == '%' {
-                match chars.peek() {
-                    Some('%') => {
-                        chars.next();
-                        current_literal.push('%');
-                    }
-                    Some('s') => {
-                        chars.next();
-                        segments.push(FormatSegment {
-                            literal: core::mem::take(&mut current_literal),
-                            conversion: Some(oparg::ConvertValueOparg::Str),
-                        });
-                    }
-                    Some('r') => {
-                        chars.next();
-                        segments.push(FormatSegment {
-                            literal: core::mem::take(&mut current_literal),
-                            conversion: Some(oparg::ConvertValueOparg::Repr),
-                        });
-                    }
-                    Some('a') => {
-                        chars.next();
-                        segments.push(FormatSegment {
-                            literal: core::mem::take(&mut current_literal),
-                            conversion: Some(oparg::ConvertValueOparg::Ascii),
-                        });
-                    }
-                    _ => {
-                        // Unsupported: %d, %f, %(name)s, %10s, etc.
-                        return None;
-                    }
-                }
-            } else {
-                current_literal.push(ch);
-            }
-        }
-
-        // Trailing literal
-        if !current_literal.is_empty() {
-            segments.push(FormatSegment {
-                literal: current_literal,
-                conversion: None,
-            });
-        }
-
-        Some(segments)
-    }
-
     fn compile_fstring_elements(
         &mut self,
         flags: ast::FStringFlags,
@@ -11316,14 +11215,16 @@ impl Compiler {
 
         let mut element_count = 0;
         let mut pending_literal: Option<Wtf8Buf> = None;
+        let mut pending_literal_no_location = false;
         self.compile_fstring_elements_into(
             flags,
             fstring_elements,
             &mut pending_literal,
+            &mut pending_literal_no_location,
             &mut element_count,
             false,
         )?;
-        self.finish_fstring(pending_literal, element_count)
+        self.finish_fstring(pending_literal, pending_literal_no_location, element_count)
     }
 
     fn compile_fstring_elements_joined(
@@ -11340,14 +11241,16 @@ impl Compiler {
 
         let mut element_count = 0;
         let mut pending_literal: Option<Wtf8Buf> = None;
+        let mut pending_literal_no_location = false;
         self.compile_fstring_elements_into(
             flags,
             fstring_elements,
             &mut pending_literal,
+            &mut pending_literal_no_location,
             &mut element_count,
             true,
         )?;
-        self.finish_fstring_join(pending_literal, element_count);
+        self.finish_fstring_join(pending_literal, pending_literal_no_location, element_count);
         Ok(())
     }
 
@@ -11356,6 +11259,7 @@ impl Compiler {
         flags: ast::FStringFlags,
         fstring_elements: &ast::InterpolatedStringElements,
         pending_literal: &mut Option<Wtf8Buf>,
+        pending_literal_no_location: &mut bool,
         element_count: &mut u32,
         append_to_join_list: bool,
     ) -> CompileResult<()> {
@@ -11363,10 +11267,13 @@ impl Compiler {
             match element {
                 ast::InterpolatedStringElement::Literal(string) => {
                     let value = self.compile_fstring_literal_value(string, flags);
-                    if let Some(pending) = pending_literal.as_mut() {
-                        pending.push_wtf8(value.as_ref());
-                    } else {
+                    if pending_literal.is_none() {
+                        self.set_source_range(string.range);
+                        *pending_literal_no_location = string.range == TextRange::default();
                         *pending_literal = Some(value);
+                    } else if let Some(pending) = pending_literal.as_mut() {
+                        *pending_literal_no_location &= string.range == TextRange::default();
+                        pending.push_wtf8(value.as_ref());
                     }
                 }
                 ast::InterpolatedStringElement::Interpolation(fstring_expr) => {
@@ -11388,9 +11295,11 @@ impl Compiler {
                         .concat();
 
                         let text: Wtf8Buf = text.into();
-                        pending_literal
-                            .get_or_insert_with(Wtf8Buf::new)
-                            .push_wtf8(text.as_ref());
+                        if pending_literal.is_none() {
+                            *pending_literal_no_location = false;
+                            *pending_literal = Some(Wtf8Buf::new());
+                        }
+                        pending_literal.as_mut().unwrap().push_wtf8(text.as_ref());
 
                         // If debug text is present, apply repr conversion when no `format_spec` specified.
                         // See action_helpers.c: fstring_find_expr_replacement
@@ -11404,6 +11313,7 @@ impl Compiler {
 
                     self.emit_pending_fstring_literal(
                         pending_literal,
+                        pending_literal_no_location,
                         element_count,
                         false,
                         append_to_join_list,
@@ -12000,7 +11910,8 @@ mod tests {
             ruff_python_parser::Mode::Module.into(),
         )
         .unwrap();
-        let ast = parsed.into_syntax();
+        let mut ast = parsed.into_syntax();
+        preprocess::preprocess_mod(&mut ast);
         let ast = match ast {
             ruff_python_ast::Mod::Module(stmts) => stmts,
             _ => unreachable!(),
@@ -13380,6 +13291,59 @@ def f(msg):
                 [Instruction::Resume { .. }, Instruction::Nop, ..]
             ),
             "expected CPython try-line NOP before setup/fetch, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_percent_format_preprocess_removes_redundant_try_nop() {
+        let code = compile_exec(
+            "\
+def f(self, signal):
+    if self.returncode and self.returncode < 0:
+        try:
+            return \"Command '%s' died with %r.\" % (
+                self.cmd, signal.Signals(-self.returncode))
+        except ValueError:
+            return \"Command '%s' died with unknown signal %d.\" % (
+                self.cmd, -self.returncode)
+    return \"Command '%s' returned non-zero exit status %d.\" % (
+        self.cmd, self.returncode)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::NotTaken,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "expected preprocessed percent-format body immediately after condition, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::NotTaken,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "percent-format preprocessing should let CFG remove the try-line NOP, got ops={ops:?}"
         );
     }
 
