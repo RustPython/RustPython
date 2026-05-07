@@ -1,6 +1,8 @@
 use core::{fmt, marker::PhantomData};
 
-use super::{Instruction, Opcode, PseudoInstruction, PseudoOpcode};
+use crate::marshal::MarshalError;
+
+use super::{Instruction, OpArg, OpArgByte, OpArgType, Opcode, PseudoInstruction, PseudoOpcode};
 
 impl Instruction {
     /// Returns `true` if this is any instrumented opcode
@@ -28,24 +30,6 @@ impl Instruction {
     }
 }
 
-impl InstructionMetadata for Instruction {
-    #[inline]
-    fn label_arg(&self) -> Option<Arg<Label>> {
-        match self {
-            Self::JumpBackward { delta: l }
-            | Self::JumpBackwardNoInterrupt { delta: l }
-            | Self::JumpForward { delta: l }
-            | Self::PopJumpIfTrue { delta: l }
-            | Self::PopJumpIfFalse { delta: l }
-            | Self::PopJumpIfNone { delta: l }
-            | Self::PopJumpIfNotNone { delta: l }
-            | Self::ForIter { delta: l }
-            | Self::Send { delta: l } => Some(*l),
-            _ => None,
-        }
-    }
-}
-
 impl PseudoInstruction {
     /// Returns true if self is one of:
     /// - [`PseudoInstruction::SetupCleanup`]
@@ -66,23 +50,9 @@ impl PseudoInstruction {
             PseudoOpcode::Jump | PseudoOpcode::JumpNoInterrupt
         )
     }
-}
 
-impl InstructionMetadata for PseudoInstruction {
-    fn label_arg(&self) -> Option<Arg<Label>> {
-        match self {
-            Self::Jump { delta: l }
-            | Self::JumpIfFalse { delta: l }
-            | Self::JumpIfTrue { delta: l }
-            | Self::JumpNoInterrupt { delta: l }
-            | Self::SetupCleanup { delta: l }
-            | Self::SetupFinally { delta: l }
-            | Self::SetupWith { delta: l } => Some(*l),
-            _ => None,
-        }
-    }
-
-    fn is_scope_exit(&self) -> bool {
+    #[must_use]
+    pub const fn is_scope_exit(&self) -> bool {
         false
     }
 
@@ -169,20 +139,6 @@ macro_rules! inst_either {
             }
         }
     };
-}
-
-impl InstructionMetadata for AnyInstruction {
-    inst_either!(fn label_arg(&self) -> Option<Arg<Label>>);
-
-    inst_either!(fn is_unconditional_jump(&self) -> bool);
-
-    inst_either!(fn is_scope_exit(&self) -> bool);
-
-    inst_either!(fn stack_effect(&self, oparg: u32) -> i32);
-
-    inst_either!(fn stack_effect_jump(&self, oparg: u32) -> i32);
-
-    inst_either!(fn stack_effect_info(&self, oparg: u32) -> StackEffect);
 }
 
 impl AnyInstruction {

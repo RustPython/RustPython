@@ -538,7 +538,10 @@ def main():
 // Do not edit!
 
 use crate::{{
-    bytecode::{{instruction::StackEffect, oparg::Arg}},
+    bytecode::{{
+        instruction::{{Arg, StackEffect}},
+        oparg,
+    }},
     marshal::MarshalError,
 }};
 
