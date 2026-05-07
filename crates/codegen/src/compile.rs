@@ -14986,6 +14986,48 @@ def f(self):
     }
 
     #[test]
+    fn test_while_exit_before_with_cleanup_materializes_anchor_nop() {
+        let code = compile_exec(
+            "\
+def f(selector, self):
+    with selector:
+        while selector.get_map():
+            pass
+    try:
+        self.wait()
+    except Exception:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            ops_lines.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::JumpBackward { .. }, 4),
+                        (Instruction::Nop, 3),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::Call { .. }, 2),
+                    ]
+                )
+            }),
+            "expected CPython-style while-exit anchor NOP before with cleanup, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
     fn test_nested_boolop_same_or_prefixes_compile_without_extra_boolop_block() {
         let code = compile_exec(
             "\
@@ -22214,6 +22256,69 @@ def f(b, curr, curr_append, decoded_append, packI, curr_clear):
                 )
             }),
             "unexpected inverted conditional with implicit continue backedge before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_loop_if_body_keeps_cpython_fallthrough_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(self, ready, selector, key, input_view, os, BrokenPipeError):
+    for key, events in ready:
+        if key.fileobj is self.stdin:
+            chunk = input_view[self._input_offset:self._input_offset + 1]
+            try:
+                self._input_offset += os.write(key.fd, chunk)
+            except BrokenPipeError:
+                selector.unregister(key.fileobj)
+                key.fileobj.close()
+            else:
+                if self._input_offset >= len(input_view):
+                    selector.unregister(key.fileobj)
+                    key.fileobj.close()
+        elif key.fileobj in (self.stdout, self.stderr):
+            self.read(key)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style try-else if body fallthrough before loop backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted try-else conditional with loop backedge before body, got ops={ops:?}"
         );
     }
 

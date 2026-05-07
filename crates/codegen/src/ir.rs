@@ -10862,6 +10862,13 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                     if chain_has_delete_subscr {
                         continue;
                     }
+                    if target_ins.lineno_override.is_some_and(|lineno| lineno < 0)
+                        && blocks[bi].instructions[..last_idx]
+                            .iter()
+                            .any(|info| matches!(info.instr.real(), Some(Instruction::Nop)))
+                    {
+                        continue;
+                    }
                 }
                 if !include_conditional && source_pos < target_pos && final_target_pos < target_pos
                 {
@@ -11572,17 +11579,97 @@ fn redirect_empty_unconditional_jump_targets(blocks: &mut [Block]) {
 }
 
 fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
+    fn block_starts_with_with_normal_exit(block: &Block) -> bool {
+        matches!(
+            block.instructions.as_slice(),
+            [
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::Call { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::PopTop),
+                    ..
+                },
+                ..
+            ]
+        )
+    }
+
+    fn with_normal_exit_is_followed_by_try(blocks: &[Block], block_idx: BlockIdx) -> bool {
+        if block_idx == BlockIdx::NULL
+            || !block_starts_with_with_normal_exit(&blocks[block_idx.idx()])
+        {
+            return false;
+        }
+        let next = next_nonempty_block(blocks, blocks[block_idx.idx()].next);
+        next != BlockIdx::NULL
+            && blocks[next.idx()].instructions.first().is_some_and(|info| {
+                matches!(
+                    info.instr,
+                    AnyInstruction::Pseudo(PseudoInstruction::SetupFinally { .. })
+                        | AnyInstruction::Real(Instruction::Nop)
+                )
+            })
+    }
+
+    fn has_loop_backedge_to(blocks: &[Block], target: BlockIdx) -> bool {
+        blocks.iter().enumerate().any(|(source_idx, block)| {
+            let source = BlockIdx(source_idx as u32);
+            comes_before(blocks, target, source)
+                && block.instructions.iter().any(|info| {
+                    info.instr.is_unconditional_jump()
+                        && info.target != BlockIdx::NULL
+                        && next_nonempty_block(blocks, info.target) == target
+                })
+        })
+    }
+
     let mut jump_back_inserts = Vec::new();
     let mut inserts = Vec::new();
+    let mut target_start_inserts = Vec::new();
     for (block_idx, block) in blocks.iter().enumerate() {
-        let Some(last) = block.instructions.last() else {
+        let source = BlockIdx(block_idx as u32);
+        let (last, allow_scope_exit_target) = if let Some(last) = block
+            .instructions
+            .last()
+            .filter(|info| is_conditional_jump(&info.instr))
+        {
+            (last, true)
+        } else if let Some(cond_idx) = trailing_conditional_jump_index(block) {
+            (&block.instructions[cond_idx], false)
+        } else {
             continue;
         };
-        if !is_conditional_jump(&last.instr) || last.target == BlockIdx::NULL {
+        if last.target == BlockIdx::NULL {
             continue;
         }
         let target = last.target;
         if !blocks[target.idx()].instructions.is_empty() {
+            if with_normal_exit_is_followed_by_try(blocks, target)
+                && has_loop_backedge_to(blocks, source)
+                && !matches!(
+                    blocks[target.idx()]
+                        .instructions
+                        .first()
+                        .and_then(|info| info.instr.real()),
+                    Some(Instruction::Nop)
+                )
+            {
+                target_start_inserts.push((*last, target));
+            }
             continue;
         }
         let next = next_nonempty_block(blocks, blocks[target.idx()].next);
@@ -11598,10 +11685,14 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
             jump_back_inserts.push((BlockIdx(block_idx as u32), target, next));
             continue;
         }
-        if next == BlockIdx::NULL || !is_scope_exit_block(&blocks[next.idx()]) {
+        if next == BlockIdx::NULL
+            || !((allow_scope_exit_target && is_scope_exit_block(&blocks[next.idx()]))
+                || (with_normal_exit_is_followed_by_try(blocks, next)
+                    && has_loop_backedge_to(blocks, source)))
+        {
             continue;
         }
-        inserts.push((BlockIdx(block_idx as u32), target));
+        inserts.push((*last, target));
     }
 
     for (source, target, next) in jump_back_inserts {
@@ -11620,15 +11711,12 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
         if !blocks[target.idx()].instructions.is_empty() {
             continue;
         }
-        let Some(last) = blocks[source.idx()].instructions.last().copied() else {
-            continue;
-        };
         blocks[target.idx()].instructions.push(InstructionInfo {
             instr: Instruction::Nop.into(),
             arg: OpArg::NULL,
             target: BlockIdx::NULL,
-            location: last.location,
-            end_location: last.end_location,
+            location: source.location,
+            end_location: source.end_location,
             except_handler: None,
             folded_from_nonliteral_expr: false,
             lineno_override: None,
@@ -11637,6 +11725,37 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
             remove_no_location_nop: false,
             preserve_block_start_no_location_nop: false,
         });
+    }
+
+    for (source, target) in target_start_inserts.into_iter().rev() {
+        if !with_normal_exit_is_followed_by_try(blocks, target)
+            || matches!(
+                blocks[target.idx()]
+                    .instructions
+                    .first()
+                    .and_then(|info| info.instr.real()),
+                Some(Instruction::Nop)
+            )
+        {
+            continue;
+        }
+        blocks[target.idx()].instructions.insert(
+            0,
+            InstructionInfo {
+                instr: Instruction::Nop.into(),
+                arg: OpArg::NULL,
+                target: BlockIdx::NULL,
+                location: source.location,
+                end_location: source.end_location,
+                except_handler: None,
+                folded_from_nonliteral_expr: false,
+                lineno_override: None,
+                cache_entries: 0,
+                preserve_redundant_jump_as_nop: false,
+                remove_no_location_nop: false,
+                preserve_block_start_no_location_nop: false,
+            },
+        );
     }
 }
 
@@ -12517,6 +12636,18 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
         }
 
         let after_jump = next_nonempty_block(blocks, blocks[jump_block.idx()].next);
+        let jump_is_artificial = blocks[jump_block.idx()]
+            .instructions
+            .first()
+            .is_some_and(|info| matches!(info.lineno_override, Some(line) if line < 0));
+        if is_generic_false_path_reorder
+            && jump_is_artificial
+            && after_jump != BlockIdx::NULL
+            && is_loop_cleanup_block(&blocks[after_jump.idx()])
+        {
+            current = next;
+            continue;
+        }
         if nonempty_blocks == 1
             && !is_jump_only_block(&blocks[chain_start.idx()])
             && after_jump != BlockIdx::NULL
