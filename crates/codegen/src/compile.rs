@@ -15453,6 +15453,49 @@ def f(tarfile, tarinfo, self):
     }
 
     #[test]
+    fn test_protected_store_finally_cleanup_keeps_borrow_tail() {
+        let code = compile_exec(
+            "\
+def f(re, f):
+    try:
+        try:
+            m = re.search('x', f.read())
+        finally:
+            f.close()
+        if m is not None:
+            return m.group(1)
+    except OSError:
+        pass
+    return None
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let is_m_borrow = |unit: &bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))].as_str() == "m"
+            }
+            _ => false,
+        };
+
+        assert!(
+            ops.windows(3).any(|window| {
+                is_m_borrow(window[0])
+                    && matches!(window[1].op, Instruction::PopJumpIfNone { .. })
+                    && matches!(window[2].op, Instruction::NotTaken)
+            }) && ops.windows(2).any(|window| {
+                is_m_borrow(window[0]) && matches!(window[1].op, Instruction::LoadAttr { .. })
+            }),
+            "finally cleanup RERAISE should not make the outer except deopt the normal m tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_generator_protected_store_subscr_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
@@ -16914,7 +16957,7 @@ def f(self, size):
     }
 
     #[test]
-    fn test_assertion_success_join_deopts_following_debug_tail() {
+    fn test_assertion_success_join_keeps_following_debug_tail_borrowed() {
         let code = compile_exec(
             "\
 def f(self, typ, dat):
@@ -16960,14 +17003,17 @@ def f(self, typ, dat):
         assert!(
             matches!(
                 instructions[debug_attr - 1].op,
-                Instruction::LoadFast { .. }
+                Instruction::LoadFastBorrow { .. }
             ),
-            "CPython uses strong LOAD_FAST after assertion success join, got ops={:?}",
+            "CPython keeps LOAD_FAST_BORROW after assertion success join, got ops={:?}",
             instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
         );
         assert!(
-            matches!(instructions[mesg_attr - 1].op, Instruction::LoadFast { .. }),
-            "CPython uses strong LOAD_FAST in assertion-success debug body, got ops={:?}",
+            matches!(
+                instructions[mesg_attr - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "CPython keeps LOAD_FAST_BORROW in assertion-success debug body, got ops={:?}",
             instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
         );
     }
@@ -23899,6 +23945,47 @@ def f(items, decoded, b32rev):
         assert!(
             matches!(pair, Instruction::LoadFastLoadFast { .. }),
             "terminal-except loop successor augassign should use strong LOAD_FAST_LOAD_FAST, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_loop_backedge_keeps_header_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, value, start=0, stop=None):
+    i = start
+    while stop is None or i < stop:
+        try:
+            v = self[i]
+        except IndexError:
+            break
+        if v is value or v == value:
+            return i
+        i += 1
+    raise ValueError
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            instructions.windows(7).any(|window| {
+                matches!(window[0].op, Instruction::StoreFast { .. })
+                    && matches!(window[1].op, Instruction::LoadFastBorrow { .. })
+                    && matches!(window[2].op, Instruction::PopJumpIfNone { .. })
+                    && matches!(window[3].op, Instruction::NotTaken)
+                    && matches!(
+                        window[4].op,
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                    )
+                    && matches!(window[5].op, Instruction::CompareOp { .. })
+                    && matches!(window[6].op, Instruction::PopJumpIfFalse { .. })
+            }),
+            "terminal-except loop backedge deopt should not cross into the loop header, got instructions={instructions:?}"
         );
     }
 

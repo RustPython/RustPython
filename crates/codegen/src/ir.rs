@@ -372,7 +372,6 @@ impl CodeInfo {
         // before optimize_load_fast.
         convert_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
         remove_redundant_nops_and_jumps(&mut self.blocks);
-        self.mark_assertion_success_tail_borrow_disabled();
         self.mark_unprotected_debug_four_tails_borrow_disabled();
         self.compute_load_fast_start_depths();
         // optimize_load_fast: after normalize_jumps
@@ -3587,180 +3586,6 @@ impl CodeInfo {
         }
     }
 
-    fn mark_assertion_success_tail_borrow_disabled(&mut self) {
-        fn starts_with_fast_load(block: &Block) -> bool {
-            block
-                .instructions
-                .iter()
-                .find(|info| {
-                    info.instr.real().is_some_and(|instr| {
-                        !matches!(instr, Instruction::Nop | Instruction::NotTaken)
-                    })
-                })
-                .is_some_and(|info| {
-                    matches!(
-                        info.instr.real(),
-                        Some(
-                            Instruction::LoadFast { .. }
-                                | Instruction::LoadFastBorrow { .. }
-                                | Instruction::LoadFastLoadFast { .. }
-                                | Instruction::LoadFastBorrowLoadFastBorrow { .. }
-                        )
-                    )
-                })
-        }
-
-        fn starts_with_assertion_error(block: &Block) -> bool {
-            block
-                .instructions
-                .iter()
-                .find(|info| {
-                    info.instr.real().is_some_and(|instr| {
-                        !matches!(instr, Instruction::Nop | Instruction::NotTaken)
-                    })
-                })
-                .is_some_and(|info| {
-                    matches!(
-                        info.instr.real(),
-                        Some(Instruction::LoadCommonConstant { idx })
-                            if idx.get(info.arg) == oparg::CommonConstant::AssertionError
-                    )
-                })
-        }
-
-        fn block_contains_assertion_error(block: &Block) -> bool {
-            block.instructions.iter().any(|info| {
-                matches!(
-                    info.instr.real(),
-                    Some(Instruction::LoadCommonConstant { idx })
-                        if idx.get(info.arg) == oparg::CommonConstant::AssertionError
-                )
-            })
-        }
-
-        fn assert_check_success_target(blocks: &[Block], block: &Block) -> Option<BlockIdx> {
-            if block.next != BlockIdx::NULL
-                && starts_with_assertion_error(&blocks[block.next.idx()])
-            {
-                return block
-                    .instructions
-                    .iter()
-                    .find(|info| is_conditional_jump(&info.instr) && info.target != BlockIdx::NULL)
-                    .map(|info| info.target);
-            }
-
-            let conditional = block.instructions.iter().enumerate().find(|(_, info)| {
-                is_conditional_jump(&info.instr) && info.target != BlockIdx::NULL
-            });
-            let (cond_idx, conditional) = conditional?;
-            let has_inline_assertion_failure =
-                block.instructions[cond_idx + 1..].iter().any(|info| {
-                    matches!(
-                        info.instr.real(),
-                        Some(Instruction::LoadCommonConstant { idx })
-                            if idx.get(info.arg) == oparg::CommonConstant::AssertionError
-                    )
-                }) && block.instructions[cond_idx + 1..].iter().any(|info| {
-                    matches!(info.instr.real(), Some(Instruction::RaiseVarargs { .. }))
-                });
-            has_inline_assertion_failure.then_some(conditional.target)
-        }
-
-        fn block_stores_fast(block: &Block) -> bool {
-            block.instructions.iter().any(|info| {
-                matches!(
-                    info.instr.real(),
-                    Some(
-                        Instruction::StoreFast { .. }
-                            | Instruction::StoreFastLoadFast { .. }
-                            | Instruction::StoreFastStoreFast { .. }
-                    )
-                )
-            })
-        }
-
-        let mut predecessors = vec![Vec::new(); self.blocks.len()];
-        for (pred_idx, block) in self.blocks.iter().enumerate() {
-            if block.next != BlockIdx::NULL {
-                predecessors[block.next.idx()].push(BlockIdx::new(pred_idx as u32));
-            }
-            for info in &block.instructions {
-                if info.target != BlockIdx::NULL {
-                    predecessors[info.target.idx()].push(BlockIdx::new(pred_idx as u32));
-                }
-            }
-        }
-
-        let mut assertion_success_tail = vec![false; self.blocks.len()];
-        for (tail_idx, tail) in self.blocks.iter().enumerate() {
-            if tail.cold
-                || block_is_exceptional(tail)
-                || !starts_with_fast_load(tail)
-                || block_contains_assertion_error(tail)
-                || assert_check_success_target(&self.blocks, tail).is_some()
-            {
-                continue;
-            }
-            let tail_idx = BlockIdx::new(tail_idx as u32);
-            for pred in &predecessors[tail_idx.idx()] {
-                if assert_check_success_target(&self.blocks, &self.blocks[pred.idx()])
-                    == Some(tail_idx)
-                    && trailing_conditional_jump_index(tail).is_some()
-                    && !block_contains_assertion_error(tail)
-                {
-                    assertion_success_tail[tail_idx.idx()] = true;
-                    break;
-                }
-                for assert_check in &predecessors[pred.idx()] {
-                    if assert_check_success_target(&self.blocks, &self.blocks[assert_check.idx()])
-                        == Some(*pred)
-                    {
-                        assertion_success_tail[tail_idx.idx()] = true;
-                        break;
-                    }
-                }
-                if assertion_success_tail[tail_idx.idx()] {
-                    break;
-                }
-            }
-        }
-
-        let mut visited = vec![false; self.blocks.len()];
-        for (idx, is_assertion_success_tail) in assertion_success_tail.iter().enumerate() {
-            if !*is_assertion_success_tail {
-                continue;
-            }
-            let mut segment = Vec::new();
-            let mut cursor = BlockIdx::new(idx as u32);
-            while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
-                let block = &self.blocks[cursor.idx()];
-                if block.cold || block_is_exceptional(block) {
-                    break;
-                }
-                segment.push(cursor);
-                if block_stores_fast(block) {
-                    segment.clear();
-                    break;
-                }
-                if block
-                    .instructions
-                    .last()
-                    .is_some_and(|info| info.instr.is_scope_exit())
-                {
-                    break;
-                }
-                cursor = self.blocks[cursor.idx()].next;
-            }
-            for block_idx in segment {
-                if visited[block_idx.idx()] {
-                    continue;
-                }
-                visited[block_idx.idx()] = true;
-                self.blocks[block_idx.idx()].disable_load_fast_borrow = true;
-            }
-        }
-    }
-
     fn mark_unprotected_debug_four_tails_borrow_disabled(&mut self) {
         fn block_has_protected_instructions(block: &Block) -> bool {
             block
@@ -5932,6 +5757,14 @@ impl CodeInfo {
                     .collect();
             };
             if last.instr.is_scope_exit() {
+                return Vec::new();
+            }
+            if matches!(
+                last.instr.real(),
+                Some(
+                    Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. }
+                )
+            ) {
                 return Vec::new();
             }
             if last.instr.is_unconditional_jump() {
@@ -10014,7 +9847,6 @@ impl CodeInfo {
         let _ = self.max_stackdepth()?;
         convert_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
         remove_redundant_nops_and_jumps(&mut self.blocks);
-        self.mark_assertion_success_tail_borrow_disabled();
         self.mark_unprotected_debug_four_tails_borrow_disabled();
         trace.push((
             "after_convert_pseudo_ops".to_owned(),
@@ -12278,6 +12110,13 @@ fn block_has_exception_match_handler(blocks: &[Block], block: &Block) -> bool {
                 )
             }) {
                 return true;
+            }
+            if blocks[cursor.idx()]
+                .instructions
+                .iter()
+                .any(|info| info.instr.is_scope_exit())
+            {
+                break;
             }
             cursor = blocks[cursor.idx()].next;
         }
