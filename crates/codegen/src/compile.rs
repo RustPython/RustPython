@@ -20136,6 +20136,58 @@ def f(items, outer, cond, sub, out):
     }
 
     #[test]
+    fn test_boolop_continue_deduplicates_marker_jump_back() {
+        let code = compile_exec(
+            "\
+def f(ws, seen, more_than):
+    while ws:
+        w = ws.pop()
+        if w in seen or w <= more_than:
+            continue
+        seen.add(w)
+    return seen
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected adjacent equivalent continue backedges to be deduplicated, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style boolop continue fallthrough before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_elif_nested_if_false_backedge_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\

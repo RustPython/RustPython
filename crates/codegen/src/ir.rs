@@ -14073,6 +14073,12 @@ fn duplicate_fallthrough_jump_back_targets(blocks: &mut Vec<Block>) {
             layout_pred = blocks[layout_pred.idx()].next;
             continue;
         }
+        if !block_has_no_lineno(&blocks[target.idx()])
+            && trailing_conditional_jump_index(&blocks[layout_pred.idx()]).is_some()
+        {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
 
         let jump_target = next_nonempty_block(blocks, blocks[target.idx()].instructions[0].target);
         if jump_target == BlockIdx::NULL
