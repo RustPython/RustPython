@@ -11795,11 +11795,12 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                 && (small_exit_block || no_lineno_no_fallthrough)
             {
                 let removed_jump_kind = jump_thread_kind(last.instr);
-                let removed_jump_had_lineno = blocks[current.idx()]
-                    .instructions
-                    .last()
-                    .is_some_and(instruction_has_lineno);
-                if removed_jump_had_lineno {
+                let keep_removed_jump_nop = removed_jump_kind == Some(JumpThreadKind::NoInterrupt)
+                    || blocks[current.idx()]
+                        .instructions
+                        .last()
+                        .is_some_and(instruction_has_lineno);
+                if keep_removed_jump_nop {
                     if let Some(last_instr) = blocks[current.idx()].instructions.last_mut() {
                         set_to_nop(last_instr);
                     }
@@ -14072,6 +14073,13 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             })
     }
 
+    fn block_has_call(block: &Block) -> bool {
+        block
+            .instructions
+            .iter()
+            .any(|info| matches!(info.instr.real(), Some(Instruction::Call { .. })))
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -14091,6 +14099,10 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
         let body_start = next;
         let body = next_nonempty_block(blocks, body_start);
         let true_jump_loop_target = jump_back_target(blocks, true_jump);
+        let normalized_forward_conditional = blocks[idx]
+            .instructions
+            .get(cond_idx + 1)
+            .is_some_and(|info| matches!(info.instr.real(), Some(Instruction::NotTaken)));
         if true_jump_loop_target.is_some()
             && true_jump_start == true_jump
             && body_start != BlockIdx::NULL
@@ -14107,11 +14119,15 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             let body_tail_is_conditional =
                 trailing_conditional_jump_index(&blocks[body_tail.idx()]).is_some();
             let body_is_single_block = body == body_tail;
+            let body_has_for_iter = body_segment_contains_for_iter(blocks, body, body_tail);
+            let normalized_single_block_can_reorder =
+                !normalized_forward_conditional || !block_has_call(&blocks[body.idx()]);
             let can_reorder = !body_tail_is_conditional
-                && ((body_is_single_block
+                && ((normalized_single_block_can_reorder
+                    && body_is_single_block
                     && matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. })))
                     || (body == body_tail && is_single_delete_subscr_body(&blocks[body.idx()]))
-                    || body_segment_contains_for_iter(blocks, body, body_tail));
+                    || body_has_for_iter);
             if can_reorder && after_jump != BlockIdx::NULL && after_jump != body_start {
                 let cloned_jump_idx = BlockIdx(blocks.len() as u32);
                 let mut cloned_jump = blocks[true_jump.idx()].clone();

@@ -20855,6 +20855,65 @@ def f(source, state, char):
     }
 
     #[test]
+    fn test_call_body_implicit_continue_keeps_cpython_normalized_forward_jump() {
+        let code = compile_exec(
+            "\
+DIGITS = '0123456789'
+
+def f(s, sget, lappend, addgroup, this, c):
+    while True:
+        if c in DIGITS:
+            isoctal = False
+            if s.next in DIGITS:
+                this += sget()
+            if not isoctal:
+                addgroup(int(this[1:]), len(this) - 1)
+        else:
+            lappend(this)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style forward jump over call body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "call body should not be moved after an implicit continue backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_if_pass_uses_line_bearing_jump_back_instead_of_nop() {
         let code = compile_exec(
             "\
