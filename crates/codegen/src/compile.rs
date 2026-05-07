@@ -13760,6 +13760,77 @@ def g2(x):
     }
 
     #[test]
+    fn test_high_index_parameter_stays_initialized_in_fast_scan() {
+        let params = (0..65)
+            .map(|idx| format!("p{idx}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let code = compile_exec(&format!(
+            "\
+def f({params}):
+    return p64
+"
+        ));
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(
+            f.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num }
+                    if f.varnames
+                        [usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))))]
+                        == "p64"
+            )),
+            "expected high-index parameter p64 to use LOAD_FAST, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !f.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::LoadFastCheck { var_num }
+                    if f.varnames
+                        [usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))))]
+                        == "p64"
+            )),
+            "high-index parameter p64 should not use LOAD_FAST_CHECK before deletion"
+        );
+    }
+
+    #[test]
+    fn test_deleted_high_index_parameter_uses_load_fast_check() {
+        let params = (0..65)
+            .map(|idx| format!("p{idx}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let code = compile_exec(&format!(
+            "\
+def f({params}):
+    del p64
+    return p64
+"
+        ));
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(
+            f.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::LoadFastCheck { var_num }
+                    if f.varnames
+                        [usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))))]
+                        == "p64"
+            )),
+            "expected deleted high-index parameter p64 to use LOAD_FAST_CHECK, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn test_assert_without_message_raises_class_directly() {
         let code = compile_exec(
             "\

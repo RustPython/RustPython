@@ -9229,10 +9229,22 @@ impl CodeInfo {
     fn fast_scan_many_locals(
         &mut self,
         nlocals: usize,
+        nparams: usize,
         merged_cell_local: &impl Fn(usize) -> Option<usize>,
     ) {
+        const PARAM_INITIALIZED: usize = usize::MAX;
+
         debug_assert!(nlocals > 64);
         let mut states = vec![0usize; nlocals - 64];
+        let high_params = nparams.saturating_sub(64).min(states.len());
+        for state in states.iter_mut().take(high_params) {
+            *state = PARAM_INITIALIZED;
+        }
+
+        let is_known = |idx: usize, state: usize, blocknum: usize| {
+            state == blocknum || (idx < nparams && state == PARAM_INITIALIZED)
+        };
+
         let mut blocknum = 0usize;
         let mut current = BlockIdx(0);
         while current != BlockIdx::NULL {
@@ -9318,7 +9330,7 @@ impl CodeInfo {
                             states[store_idx - 64] = blocknum;
                         }
                         if load_idx >= 64 && load_idx < nlocals {
-                            if states[load_idx - 64] != blocknum {
+                            if !is_known(load_idx, states[load_idx - 64], blocknum) {
                                 let mut first = info;
                                 first.instr = Instruction::StoreFast {
                                     var_num: Arg::marker(),
@@ -9336,19 +9348,17 @@ impl CodeInfo {
                             } else {
                                 new_instructions.push(info);
                             }
-                            states[load_idx - 64] = blocknum;
                         } else {
                             new_instructions.push(info);
                         }
                     }
                     Some(Instruction::LoadFast { var_num }) => {
                         let idx = usize::from(var_num.get(info.arg));
-                        if idx >= 64 && idx < nlocals {
-                            if states[idx - 64] != blocknum {
-                                info.instr = Opcode::LoadFastCheck.into();
-                                changed = true;
-                            }
+                        if idx >= 64 && idx < nlocals && !is_known(idx, states[idx - 64], blocknum)
+                        {
+                            info.instr = Opcode::LoadFastCheck.into();
                             states[idx - 64] = blocknum;
+                            changed = true;
                         }
                         new_instructions.push(info);
                     }
@@ -9357,16 +9367,15 @@ impl CodeInfo {
                         let (idx1, idx2) = packed.indexes();
                         let idx1 = usize::from(idx1);
                         let idx2 = usize::from(idx2);
-                        let needs_check_1 =
-                            idx1 >= 64 && idx1 < nlocals && states[idx1 - 64] != blocknum;
-                        if idx1 >= 64 && idx1 < nlocals {
+                        let needs_check_1 = idx1 >= 64
+                            && idx1 < nlocals
+                            && !is_known(idx1, states[idx1 - 64], blocknum);
+                        if needs_check_1 {
                             states[idx1 - 64] = blocknum;
                         }
-                        let needs_check_2 =
-                            idx2 >= 64 && idx2 < nlocals && states[idx2 - 64] != blocknum;
-                        if idx2 >= 64 && idx2 < nlocals {
-                            states[idx2 - 64] = blocknum;
-                        }
+                        let needs_check_2 = idx2 >= 64
+                            && idx2 < nlocals
+                            && !is_known(idx2, states[idx2 - 64], blocknum);
 
                         if needs_check_1 || needs_check_2 {
                             let mut first = info;
@@ -9389,6 +9398,9 @@ impl CodeInfo {
                             new_instructions.push(first);
                             new_instructions.push(second);
                             changed = true;
+                            if needs_check_2 {
+                                states[idx2 - 64] = blocknum;
+                            }
                         } else {
                             new_instructions.push(info);
                         }
@@ -9436,7 +9448,7 @@ impl CodeInfo {
         nparams = nparams.min(nlocals);
 
         if nlocals > 64 {
-            self.fast_scan_many_locals(nlocals, &merged_cell_local);
+            self.fast_scan_many_locals(nlocals, nparams, &merged_cell_local);
             nlocals = 64;
         }
 
@@ -10624,20 +10636,39 @@ fn jump_threading_unconditional(blocks: &mut [Block]) {
     jump_threading_impl(blocks, false);
 }
 
-fn opposite_short_circuit_target(block: &Block, source: AnyInstruction) -> bool {
-    let Some(cond_idx) = trailing_conditional_jump_index(block) else {
-        return false;
-    };
+fn short_circuit_stub_conditional(block: &Block) -> Option<Instruction> {
+    let cond_idx = trailing_conditional_jump_index(block)?;
+    if cond_idx < 2 {
+        return None;
+    }
     let [first, second, ..] = block.instructions.as_slice() else {
-        return false;
+        return None;
     };
     if !matches!(first.instr.real(), Some(Instruction::Copy { i }) if i.get(first.arg) == 1)
         || !matches!(second.instr.real(), Some(Instruction::ToBool))
     {
-        return false;
+        return None;
     }
+
+    let only_markers_between = block.instructions[2..cond_idx].iter().all(|info| {
+        matches!(
+            info.instr.real(),
+            None | Some(Instruction::Nop | Instruction::NotTaken)
+        )
+    });
+    if !only_markers_between {
+        return None;
+    }
+
+    block.instructions[cond_idx].instr.real()
+}
+
+fn opposite_short_circuit_target(block: &Block, source: AnyInstruction) -> bool {
+    let Some(conditional) = short_circuit_stub_conditional(block) else {
+        return false;
+    };
     matches!(
-        (source.real(), block.instructions[cond_idx].instr.real()),
+        (source.real(), Some(conditional)),
         (
             Some(Instruction::PopJumpIfFalse { .. }),
             Some(Instruction::PopJumpIfTrue { .. })
@@ -10649,17 +10680,9 @@ fn opposite_short_circuit_target(block: &Block, source: AnyInstruction) -> bool 
 }
 
 fn same_short_circuit_target(block: &Block, source: AnyInstruction) -> Option<BlockIdx> {
-    let cond_idx = trailing_conditional_jump_index(block)?;
-    let [first, second, ..] = block.instructions.as_slice() else {
-        return None;
-    };
-    if !matches!(first.instr.real(), Some(Instruction::Copy { i }) if i.get(first.arg) == 1)
-        || !matches!(second.instr.real(), Some(Instruction::ToBool))
-    {
-        return None;
-    }
+    let conditional = short_circuit_stub_conditional(block)?;
     matches!(
-        (source.real(), block.instructions[cond_idx].instr.real()),
+        (source.real(), Some(conditional)),
         (
             Some(Instruction::PopJumpIfFalse { .. }),
             Some(Instruction::PopJumpIfFalse { .. })
@@ -10668,7 +10691,7 @@ fn same_short_circuit_target(block: &Block, source: AnyInstruction) -> Option<Bl
             Some(Instruction::PopJumpIfTrue { .. })
         )
     )
-    .then_some(block.instructions[cond_idx].target)
+    .then_some(block.instructions[trailing_conditional_jump_index(block)?].target)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -14298,5 +14321,96 @@ pub(crate) fn fixup_deref_opargs(blocks: &mut [Block], cellfixedoffsets: &[u32])
                 info.arg = OpArg::new(cellfixedoffsets[cell_relative]);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn instruction_info(instr: Instruction, arg: u32, target: BlockIdx) -> InstructionInfo {
+        InstructionInfo {
+            instr: instr.into(),
+            arg: OpArg::new(arg),
+            target,
+            location: SourceLocation::default(),
+            end_location: SourceLocation::default(),
+            except_handler: None,
+            folded_from_nonliteral_expr: false,
+            lineno_override: None,
+            cache_entries: 0,
+            preserve_redundant_jump_as_nop: false,
+            remove_no_location_nop: false,
+            preserve_block_start_no_location_nop: false,
+        }
+    }
+
+    #[test]
+    fn short_circuit_stub_allows_only_marker_instructions_before_jump() {
+        let final_target = BlockIdx(7);
+        let block = Block {
+            instructions: vec![
+                instruction_info(Instruction::Copy { i: Arg::marker() }, 1, BlockIdx::NULL),
+                instruction_info(Instruction::ToBool, 0, BlockIdx::NULL),
+                instruction_info(Instruction::Nop, 0, BlockIdx::NULL),
+                instruction_info(Instruction::NotTaken, 0, BlockIdx::NULL),
+                instruction_info(
+                    Instruction::PopJumpIfFalse {
+                        delta: Arg::marker(),
+                    },
+                    0,
+                    final_target,
+                ),
+            ],
+            ..Block::default()
+        };
+
+        assert_eq!(
+            same_short_circuit_target(
+                &block,
+                Instruction::PopJumpIfFalse {
+                    delta: Arg::marker(),
+                }
+                .into(),
+            ),
+            Some(final_target)
+        );
+    }
+
+    #[test]
+    fn short_circuit_stub_rejects_real_instruction_before_jump() {
+        let block = Block {
+            instructions: vec![
+                instruction_info(Instruction::Copy { i: Arg::marker() }, 1, BlockIdx::NULL),
+                instruction_info(Instruction::ToBool, 0, BlockIdx::NULL),
+                instruction_info(Instruction::PopTop, 0, BlockIdx::NULL),
+                instruction_info(
+                    Instruction::PopJumpIfFalse {
+                        delta: Arg::marker(),
+                    },
+                    0,
+                    BlockIdx(7),
+                ),
+            ],
+            ..Block::default()
+        };
+
+        assert_eq!(
+            same_short_circuit_target(
+                &block,
+                Instruction::PopJumpIfFalse {
+                    delta: Arg::marker(),
+                }
+                .into(),
+            ),
+            None
+        );
+        assert!(!opposite_short_circuit_target(
+            &block,
+            Instruction::PopJumpIfTrue {
+                delta: Arg::marker(),
+            }
+            .into()
+        ));
     }
 }
