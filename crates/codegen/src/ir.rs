@@ -195,6 +195,8 @@ pub struct Block {
     pub cold: bool,
     /// Whether LOAD_FAST borrow optimization should be suppressed for this block.
     pub disable_load_fast_borrow: bool,
+    /// Entry block for a try-else orelse suite split after POP_BLOCK.
+    pub try_else_orelse_entry: bool,
 }
 
 impl Default for Block {
@@ -207,6 +209,7 @@ impl Default for Block {
             start_depth: None,
             cold: false,
             disable_load_fast_borrow: false,
+            try_else_orelse_entry: false,
         }
     }
 }
@@ -5535,6 +5538,9 @@ impl CodeInfo {
             .enumerate()
             .filter_map(|(idx, block)| {
                 let cond_idx = trailing_conditional_jump_index(block)?;
+                if block.try_else_orelse_entry {
+                    return None;
+                }
                 let prev_protected = predecessors[idx].iter().any(|pred| {
                     let pred_block = &self.blocks[pred.idx()];
                     block_has_protected_instructions(pred_block)
@@ -6120,6 +6126,15 @@ impl CodeInfo {
             has_pop_except && jumps_to_target
         }
 
+        fn is_unprotected_call_store_bridge_to(block: &Block, successor: BlockIdx) -> bool {
+            !block_is_exceptional(block)
+                && !block.cold
+                && !block_has_protected_instructions(block)
+                && has_call_and_store(block)
+                && trailing_conditional_jump_index(block).is_none()
+                && normal_successors(block).contains(&successor)
+        }
+
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
             if block.next != BlockIdx::NULL {
@@ -6157,6 +6172,7 @@ impl CodeInfo {
                     && block.start_depth.is_some_and(|depth| depth > 0)
                     && !has_protected_call_predecessor
                     && !has_call_store_tail)
+                || block.try_else_orelse_entry
                 || predecessors[idx].iter().any(|pred| {
                     is_handler_resume_predecessor(
                         &self.blocks[pred.idx()],
@@ -6169,6 +6185,10 @@ impl CodeInfo {
                         && !pred_block.cold
                         && !block_has_protected_instructions(pred_block)
                         && block_has_non_nop_real_instructions(pred_block)
+                        && !is_unprotected_call_store_bridge_to(
+                            pred_block,
+                            BlockIdx::new(idx as u32),
+                        )
                 })
                 || !(has_structured_terminal_tail_shape
                     || has_protected_call_predecessor
@@ -6204,6 +6224,10 @@ impl CodeInfo {
                     }
                     break;
                 }
+                if is_unprotected_call_store_bridge_to(pred_block, BlockIdx::new(idx as u32)) {
+                    stack.extend(predecessors[pred.idx()].iter().copied());
+                    continue;
+                }
                 if !block_is_exceptional(pred_block)
                     && !pred_block.cold
                     && !block_has_non_nop_real_instructions(pred_block)
@@ -6226,7 +6250,9 @@ impl CodeInfo {
                 }
                 visited[block_idx.idx()] = true;
                 let successors = normal_successors(&self.blocks[block_idx.idx()]);
-                deoptimize_block_borrows(&mut self.blocks[block_idx.idx()]);
+                if !self.blocks[block_idx.idx()].try_else_orelse_entry {
+                    deoptimize_block_borrows(&mut self.blocks[block_idx.idx()]);
+                }
                 if direct_only {
                     continue;
                 }

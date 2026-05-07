@@ -499,6 +499,12 @@ impl Compiler {
         }
     }
 
+    fn mark_try_else_orelse_entry_block(&mut self, block: BlockIdx) {
+        if block != BlockIdx::NULL {
+            self.current_code_info().blocks[block.idx()].try_else_orelse_entry = true;
+        }
+    }
+
     fn new(opts: CompileOpts, source_file: SourceFile, code_name: String) -> Self {
         let module_code = ir::CodeInfo {
             flags: bytecode::CodeFlags::NEWLOCALS,
@@ -3781,6 +3787,12 @@ impl Compiler {
                 })
             )
         });
+        let has_terminal_raise_handlers = handlers.iter().all(|handler| {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler { body, .. }) =
+                handler;
+            body.last()
+                .is_some_and(|stmt| matches!(stmt, ast::Stmt::Raise(_)))
+        });
         if has_bare_except {
             self.disable_load_fast_borrow_for_block(end_block);
         }
@@ -3798,6 +3810,11 @@ impl Compiler {
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
         self.remove_last_no_location_nop();
+        if !orelse.is_empty() && has_terminal_raise_handlers {
+            let orelse_block = self.new_block();
+            self.switch_to_block(orelse_block);
+            self.mark_try_else_orelse_entry_block(orelse_block);
+        }
         self.compile_statements(orelse)?;
         emit!(
             self,
@@ -11887,7 +11904,10 @@ mod ruff_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustpython_compiler_core::{SourceFileBuilder, bytecode::OpArg};
+    use rustpython_compiler_core::{
+        SourceFileBuilder,
+        bytecode::{CodeUnit, OpArg},
+    };
 
     fn assert_scope_exit_locations(code: &CodeObject) {
         for (instr, (location, _)) in code.instructions.iter().zip(code.locations.iter()) {
@@ -24503,6 +24523,149 @@ def f(buffering, raw, binary, result, BufferedReader):
                 "same protected-region conditional tail should not be terminal-except deoptimized for {name}, got warm_path={warm_path:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_try_except_else_terminal_handler_conditional_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(self, pos, whence):
+    try:
+        pos_index = pos.__index__
+    except AttributeError:
+        raise TypeError(f'{pos!r} is not an integer')
+    else:
+        pos = pos_index()
+    if whence == 0:
+        if pos < 0:
+            raise ValueError(f'negative {pos!r}')
+        self._pos = pos
+    elif whence == 1:
+        self._pos = max(0, self._pos + pos)
+    return self._pos
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_path = &ops[..handler_start];
+
+        let op_mentions_name = |unit: &CodeUnit, name: &str| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))] == name
+            }
+            Instruction::LoadFastLoadFast { var_nums }
+            | Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                let (left, right) = var_nums.get(arg).indexes();
+                f.varnames[usize::from(left)] == name || f.varnames[usize::from(right)] == name
+            }
+            _ => false,
+        };
+        let is_borrow_for_name = |unit: &CodeUnit, name: &str| match unit.op {
+            Instruction::LoadFastBorrow { .. }
+            | Instruction::LoadFastBorrowLoadFastBorrow { .. } => op_mentions_name(unit, name),
+            _ => false,
+        };
+        let is_strong_for_name = |unit: &CodeUnit, name: &str| match unit.op {
+            Instruction::LoadFast { .. } | Instruction::LoadFastLoadFast { .. } => {
+                op_mentions_name(unit, name)
+            }
+            _ => false,
+        };
+
+        assert!(
+            warm_path
+                .iter()
+                .any(|unit| is_borrow_for_name(unit, "pos_index")),
+            "try-else call should remain borrowed before the terminal-handler tail, got warm_path={warm_path:?}"
+        );
+
+        let tail_start = warm_path
+            .iter()
+            .position(|unit| {
+                is_strong_for_name(unit, "whence") || is_borrow_for_name(unit, "whence")
+            })
+            .expect("missing post-try conditional tail");
+        let post_try_tail = &warm_path[tail_start..];
+        for name in ["whence", "pos", "self"] {
+            assert!(
+                post_try_tail
+                    .iter()
+                    .any(|unit| is_strong_for_name(unit, name)),
+                "terminal except conditional tail should use strong loads for {name}, got tail={post_try_tail:?}"
+            );
+            assert!(
+                !post_try_tail
+                    .iter()
+                    .any(|unit| is_borrow_for_name(unit, name)),
+                "terminal except conditional tail should not borrow {name}, got tail={post_try_tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_try_except_else_internal_conditional_keeps_borrowed_loads() {
+        let code = compile_exec(
+            "\
+def f(pos):
+    try:
+        pos_index = pos.__index__
+    except AttributeError:
+        raise TypeError(f'{pos!r} is not an integer')
+    else:
+        pos = pos_index()
+        if pos < 0:
+            raise ValueError(f'negative {pos!r}')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_path = &ops[..handler_start];
+
+        let mentions_pos = |unit: &CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num }
+            | Instruction::LoadFastBorrow { var_num }
+            | Instruction::StoreFast { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))] == "pos"
+            }
+            _ => false,
+        };
+        let else_store = warm_path
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::StoreFast { .. }) && mentions_pos(unit))
+            .expect("missing try-else pos store");
+        let else_tail = &warm_path[else_store + 1..];
+
+        assert!(
+            else_tail.iter().any(|unit| {
+                matches!(unit.op, Instruction::LoadFastBorrow { .. }) && mentions_pos(unit)
+            }),
+            "try-else internal conditional should keep borrowed pos loads, got tail={else_tail:?}"
+        );
+        assert!(
+            !else_tail
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. }) && mentions_pos(unit)),
+            "try-else internal conditional should not deopt pos loads, got tail={else_tail:?}"
+        );
     }
 
     #[test]
