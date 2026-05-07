@@ -298,11 +298,6 @@ jobs:
         - os: windows-2025
           extra_test_args: [] # TODO: Enable '-u all'
           env_polluting_tests: []
-          skips:
-            - test_rlcompleter
-            - test_pathlib # panic by surrogate chars
-            - test_posixpath # OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
-            - test_venv # couple of failing tests
           timeout: 50
       fail-fast: false
     steps:
