@@ -19750,6 +19750,127 @@ def f(new, old):
     }
 
     #[test]
+    fn test_line_bearing_loop_if_false_backedge_keeps_body_before_jump_back() {
+        let code = compile_exec(
+            "\
+def f(self, replacement_pairs):
+    for n, d in [(19, '%OC'), (2, '%Ow')]:
+        if self.LC_alt_digits is None:
+            s = str(n)
+            replacement_pairs.append((s, d))
+            if n < 10:
+                replacement_pairs.append((s[1], d))
+        elif len(self.LC_alt_digits) > n:
+            replacement_pairs.append((self.LC_alt_digits[n], d))
+        else:
+            replacement_pairs.append((d, d))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style line-bearing false target to keep body before backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "unexpected no-lineno-style inverted loop-if body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_elif_nested_if_false_backedge_keeps_body_before_jump_back() {
+        let code = compile_exec(
+            "\
+def f(keys, parse_int, d, ampm, AM, PM):
+    hour = minute = 0
+    for group_key in keys:
+        if group_key == 'I':
+            hour = parse_int(d['I'])
+            if ampm in ('', AM):
+                if hour == 12:
+                    hour = 0
+            elif ampm == PM:
+                if hour != 12:
+                    hour += 12
+        elif group_key == 'M':
+            minute = parse_int(d['M'])
+    return hour, minute
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style nested elif body before false backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted nested elif false path before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_multiblock_conditional_body_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\

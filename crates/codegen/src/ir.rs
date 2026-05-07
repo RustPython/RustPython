@@ -10869,6 +10869,43 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                     {
                         continue;
                     }
+                    let after_target = next_nonempty_block(blocks, blocks[target.idx()].next);
+                    let mut scan = blocks[bi].next;
+                    let mut nonempty_between = 0usize;
+                    let mut first_nonempty_between = BlockIdx::NULL;
+                    let mut reaches_target = false;
+                    let mut seen = vec![false; blocks.len()];
+                    while scan != BlockIdx::NULL && !seen[scan.idx()] {
+                        if scan == target {
+                            reaches_target = true;
+                            break;
+                        }
+                        seen[scan.idx()] = true;
+                        if !blocks[scan.idx()].instructions.is_empty() {
+                            if first_nonempty_between == BlockIdx::NULL {
+                                first_nonempty_between = scan;
+                            }
+                            nonempty_between += 1;
+                        }
+                        scan = blocks[scan.idx()].next;
+                    }
+                    if reaches_target
+                        && nonempty_between <= 2
+                        && first_nonempty_between != BlockIdx::NULL
+                        && !is_marker_jump_only_block(&blocks[first_nonempty_between.idx()])
+                        && !is_pop_top_jump_block(&blocks[first_nonempty_between.idx()])
+                        && !is_scope_exit_block(&blocks[first_nonempty_between.idx()])
+                        && !is_loop_cleanup_block(&blocks[first_nonempty_between.idx()])
+                        && after_target != BlockIdx::NULL
+                        && !blocks[after_target.idx()].cold
+                        && !block_is_exceptional(&blocks[after_target.idx()])
+                        && !is_marker_jump_only_block(&blocks[after_target.idx()])
+                        && !is_pop_top_jump_block(&blocks[after_target.idx()])
+                        && !is_scope_exit_block(&blocks[after_target.idx()])
+                        && !is_loop_cleanup_block(&blocks[after_target.idx()])
+                    {
+                        continue;
+                    }
                 }
                 if !include_conditional && source_pos < target_pos && final_target_pos < target_pos
                 {
@@ -11953,6 +11990,21 @@ fn is_jump_only_block(block: &Block) -> bool {
     instr.instr.is_unconditional_jump() && instr.target != BlockIdx::NULL
 }
 
+fn is_marker_jump_only_block(block: &Block) -> bool {
+    let mut real_instrs = block.instructions.iter().filter(|info| {
+        !matches!(
+            info.instr.real(),
+            Some(Instruction::Nop | Instruction::NotTaken)
+        )
+    });
+    let Some(instr) = real_instrs.next() else {
+        return false;
+    };
+    real_instrs.next().is_none()
+        && instr.instr.is_unconditional_jump()
+        && instr.target != BlockIdx::NULL
+}
+
 fn is_jump_back_only_block(blocks: &[Block], block_idx: BlockIdx) -> bool {
     if block_idx == BlockIdx::NULL || !is_jump_only_block(&blocks[block_idx.idx()]) {
         return false;
@@ -12634,7 +12686,6 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             current = next;
             continue;
         }
-
         let after_jump = next_nonempty_block(blocks, blocks[jump_block.idx()].next);
         let jump_is_artificial = blocks[jump_block.idx()]
             .instructions
