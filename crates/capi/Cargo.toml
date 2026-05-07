@@ -16,7 +16,7 @@ rustpython-vm = { workspace = true, features = ["threading"] }
 rustpython-stdlib = {workspace = true, features = ["threading"] }
 
 [dev-dependencies]
-pyo3 = { version = "0.28", features = ["auto-initialize", "abi3"] }
+pyo3 = { workspace = true, features = ["auto-initialize", "abi3"] }
 
 [lints]
 workspace = true
