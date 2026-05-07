@@ -4951,22 +4951,89 @@ impl CodeInfo {
             false
         }
 
-        fn block_has_nonresuming_reraise_handler(blocks: &[Block], block: &Block) -> bool {
-            let mut seen_handlers = Vec::new();
+        fn nonresuming_reraise_handlers(blocks: &[Block], block: &Block) -> Vec<BlockIdx> {
+            let mut handlers = Vec::new();
             for handler in block
                 .instructions
                 .iter()
                 .filter_map(|info| info.except_handler.map(|handler| handler.handler_block))
             {
-                if seen_handlers.contains(&handler) {
+                if handlers.contains(&handler) {
                     continue;
                 }
-                seen_handlers.push(handler);
                 if handler_chain_has_explicit_reraise(blocks, handler)
                     && !handler_chain_resumes_normally(blocks, handler)
                 {
+                    handlers.push(handler);
+                }
+            }
+            handlers
+        }
+
+        fn normal_successors(block: &Block) -> Vec<BlockIdx> {
+            let Some(last) = block.instructions.last() else {
+                return (block.next != BlockIdx::NULL)
+                    .then_some(block.next)
+                    .into_iter()
+                    .collect();
+            };
+            if last.instr.is_scope_exit() {
+                return Vec::new();
+            }
+            if matches!(
+                last.instr.real(),
+                Some(
+                    Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. }
+                )
+            ) {
+                return Vec::new();
+            }
+            if last.instr.is_unconditional_jump() {
+                return (last.target != BlockIdx::NULL)
+                    .then_some(last.target)
+                    .into_iter()
+                    .collect();
+            }
+            if let Some(cond_idx) = trailing_conditional_jump_index(block) {
+                let mut successors = Vec::with_capacity(2);
+                let target = block.instructions[cond_idx].target;
+                if target != BlockIdx::NULL {
+                    successors.push(target);
+                }
+                if block.next != BlockIdx::NULL {
+                    successors.push(block.next);
+                }
+                return successors;
+            }
+            (block.next != BlockIdx::NULL)
+                .then_some(block.next)
+                .into_iter()
+                .collect()
+        }
+
+        fn normal_path_reaches_handler(
+            blocks: &[Block],
+            start: BlockIdx,
+            handler: BlockIdx,
+        ) -> bool {
+            let mut visited = vec![false; blocks.len()];
+            let mut stack = vec![start];
+            while let Some(block_idx) = stack.pop() {
+                if block_idx == BlockIdx::NULL || visited[block_idx.idx()] {
+                    continue;
+                }
+                visited[block_idx.idx()] = true;
+                let block = &blocks[block_idx.idx()];
+                if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                if block.instructions.iter().any(|info| {
+                    info.except_handler
+                        .is_some_and(|except_handler| except_handler.handler_block == handler)
+                }) {
                     return true;
                 }
+                stack.extend(normal_successors(block));
             }
             false
         }
@@ -5011,8 +5078,15 @@ impl CodeInfo {
                     if block_jumps_backward_to(pred_block, BlockIdx::new(idx as u32)) {
                         continue;
                     }
-                    follows_protected_body[idx] =
-                        block_has_nonresuming_reraise_handler(&self.blocks, pred_block);
+                    let handlers = nonresuming_reraise_handlers(&self.blocks, pred_block);
+                    follows_protected_body[idx] = !handlers.is_empty()
+                        && !handlers.iter().any(|handler| {
+                            normal_path_reaches_handler(
+                                &self.blocks,
+                                BlockIdx::new(idx as u32),
+                                *handler,
+                            )
+                        });
                     break;
                 }
                 if !block_is_exceptional(pred_block)
@@ -5347,6 +5421,94 @@ impl CodeInfo {
             false
         }
 
+        fn nonresuming_handlers(blocks: &[Block], block: &Block) -> Vec<BlockIdx> {
+            let mut handlers = Vec::new();
+            for handler in block
+                .instructions
+                .iter()
+                .filter_map(|info| info.except_handler.map(|handler| handler.handler_block))
+            {
+                if handlers.contains(&handler) {
+                    continue;
+                }
+                if handler_chain_has_explicit_raise(blocks, handler)
+                    && !handler_chain_has_multiple_handled_returns(blocks, handler)
+                    && !handler_chain_resumes_normally(blocks, handler)
+                {
+                    handlers.push(handler);
+                }
+            }
+            handlers
+        }
+
+        fn normal_successors(block: &Block) -> Vec<BlockIdx> {
+            let Some(last) = block.instructions.last() else {
+                return (block.next != BlockIdx::NULL)
+                    .then_some(block.next)
+                    .into_iter()
+                    .collect();
+            };
+            if last.instr.is_scope_exit() {
+                return Vec::new();
+            }
+            if matches!(
+                last.instr.real(),
+                Some(
+                    Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. }
+                )
+            ) {
+                return Vec::new();
+            }
+            if last.instr.is_unconditional_jump() {
+                return (last.target != BlockIdx::NULL)
+                    .then_some(last.target)
+                    .into_iter()
+                    .collect();
+            }
+            if let Some(cond_idx) = trailing_conditional_jump_index(block) {
+                let mut successors = Vec::with_capacity(2);
+                let target = block.instructions[cond_idx].target;
+                if target != BlockIdx::NULL {
+                    successors.push(target);
+                }
+                if block.next != BlockIdx::NULL {
+                    successors.push(block.next);
+                }
+                return successors;
+            }
+            (block.next != BlockIdx::NULL)
+                .then_some(block.next)
+                .into_iter()
+                .collect()
+        }
+
+        fn normal_path_reaches_handler(
+            blocks: &[Block],
+            start: BlockIdx,
+            handler: BlockIdx,
+        ) -> bool {
+            let mut visited = vec![false; blocks.len()];
+            let mut stack = vec![start];
+            while let Some(block_idx) = stack.pop() {
+                if block_idx == BlockIdx::NULL || visited[block_idx.idx()] {
+                    continue;
+                }
+                visited[block_idx.idx()] = true;
+                let block = &blocks[block_idx.idx()];
+                if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                if block.instructions.iter().any(|info| {
+                    info.except_handler
+                        .is_some_and(|except_handler| except_handler.handler_block == handler)
+                }) {
+                    return true;
+                }
+                stack.extend(normal_successors(block));
+            }
+            false
+        }
+
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         let mut is_handler_resume_block = vec![false; self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
@@ -5379,6 +5541,17 @@ impl CodeInfo {
                         && block_has_exception_match_handler(&self.blocks, pred_block)
                         && block_has_nonresuming_exception_match_handler(&self.blocks, pred_block)
                 });
+                let prev_nonresuming_handlers: Vec<_> = predecessors[idx]
+                    .iter()
+                    .flat_map(|pred| {
+                        let pred_block = &self.blocks[pred.idx()];
+                        if block_has_protected_instructions(pred_block) {
+                            nonresuming_handlers(&self.blocks, pred_block)
+                        } else {
+                            Vec::new()
+                        }
+                    })
+                    .collect();
                 let has_unprotected_normal_predecessor = predecessors[idx].iter().any(|pred| {
                     let pred_block = &self.blocks[pred.idx()];
                     !block_is_exceptional(pred_block)
@@ -5406,9 +5579,13 @@ impl CodeInfo {
                 } else {
                     prev_protected
                 };
+                let same_handler_continuation = prev_nonresuming_handlers
+                    .iter()
+                    .any(|handler| normal_path_reaches_handler(&self.blocks, seed, *handler));
                 (!block_is_exceptional(block)
                     && seed != BlockIdx::NULL
                     && seed_enabled
+                    && !same_handler_continuation
                     && !has_unprotected_normal_predecessor)
                     .then_some((seed, force_deopt))
             })
@@ -5768,25 +5945,37 @@ impl CodeInfo {
                 && !handler_chain_resumes_normally(blocks, handler)
         }
 
-        fn trailing_protected_tail_has_terminal_exception_handler(
+        fn trailing_protected_tail_terminal_exception_handler(
             blocks: &[Block],
             block: &Block,
-        ) -> bool {
+        ) -> Option<BlockIdx> {
             for info in block.instructions.iter().rev() {
                 match info.instr.real() {
                     Some(Instruction::Nop | Instruction::NotTaken | Instruction::PopTop) => {}
                     Some(_) => {
-                        let Some(handler) =
-                            info.except_handler.map(|handler| handler.handler_block)
-                        else {
-                            return false;
-                        };
-                        return handler_is_terminal_exception_handler(blocks, handler);
+                        let handler = info.except_handler.map(|handler| handler.handler_block)?;
+                        return handler_is_terminal_exception_handler(blocks, handler)
+                            .then_some(handler);
                     }
                     None => {}
                 }
             }
-            false
+            None
+        }
+
+        fn protected_tail_ends_with_conditional(block: &Block) -> bool {
+            block
+                .instructions
+                .iter()
+                .rev()
+                .filter_map(|info| info.instr.real())
+                .find(|instr| {
+                    !matches!(
+                        instr,
+                        Instruction::Nop | Instruction::NotTaken | Instruction::PopTop
+                    )
+                })
+                .is_some_and(|instr| is_conditional_jump(&AnyInstruction::Real(instr)))
         }
 
         fn normal_successors(block: &Block) -> Vec<BlockIdx> {
@@ -5828,6 +6017,33 @@ impl CodeInfo {
                 .then_some(block.next)
                 .into_iter()
                 .collect()
+        }
+
+        fn normal_path_reaches_handler(
+            blocks: &[Block],
+            start: BlockIdx,
+            handler: BlockIdx,
+        ) -> bool {
+            let mut visited = vec![false; blocks.len()];
+            let mut stack = vec![start];
+            while let Some(block_idx) = stack.pop() {
+                if block_idx == BlockIdx::NULL || visited[block_idx.idx()] {
+                    continue;
+                }
+                visited[block_idx.idx()] = true;
+                let block = &blocks[block_idx.idx()];
+                if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                if block.instructions.iter().any(|info| {
+                    info.except_handler
+                        .is_some_and(|except_handler| except_handler.handler_block == handler)
+                }) {
+                    return true;
+                }
+                stack.extend(normal_successors(block));
+            }
+            false
         }
 
         fn has_call_store_before_trailing_conditional(block: &Block) -> bool {
@@ -5970,12 +6186,18 @@ impl CodeInfo {
                 seen[pred.idx()] = true;
                 let pred_block = &self.blocks[pred.idx()];
                 if block_has_protected_instructions(pred_block) {
-                    if trailing_protected_tail_has_terminal_exception_handler(
-                        &self.blocks,
-                        pred_block,
-                    ) {
+                    if protected_tail_ends_with_conditional(pred_block) {
+                        break;
+                    }
+                    if let Some(handler) =
+                        trailing_protected_tail_terminal_exception_handler(&self.blocks, pred_block)
+                    {
+                        let seed = BlockIdx::new(idx as u32);
+                        if normal_path_reaches_handler(&self.blocks, seed, handler) {
+                            break;
+                        }
                         seeds.push((
-                            BlockIdx::new(idx as u32),
+                            seed,
                             (has_protected_call_predecessor || has_call_store_tail)
                                 && !has_structured_terminal_tail_shape,
                         ));
@@ -11010,10 +11232,10 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                             break;
                         }
                         seen[scan.idx()] = true;
-                        if !blocks[scan.idx()].instructions.is_empty() {
-                            if first_nonempty_between == BlockIdx::NULL {
-                                first_nonempty_between = scan;
-                            }
+                        if !blocks[scan.idx()].instructions.is_empty()
+                            && first_nonempty_between == BlockIdx::NULL
+                        {
+                            first_nonempty_between = scan;
                         }
                         scan = blocks[scan.idx()].next;
                     }
@@ -11393,20 +11615,20 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                 blocks[current.idx()]
                     .instructions
                     .extend(blocks[target.idx()].instructions.clone());
-                if no_lineno_no_fallthrough && removed_jump_kind == Some(JumpThreadKind::Plain) {
-                    if let Some(last) = blocks[current.idx()].instructions.last_mut()
-                        && jump_thread_kind(last.instr) == Some(JumpThreadKind::NoInterrupt)
-                    {
-                        last.instr = match last.instr.into() {
-                            AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt) => {
-                                PseudoOpcode::Jump.into()
-                            }
-                            AnyOpcode::Real(Opcode::JumpBackwardNoInterrupt) => {
-                                Opcode::JumpBackward.into()
-                            }
-                            _ => last.instr,
-                        };
-                    }
+                if no_lineno_no_fallthrough
+                    && removed_jump_kind == Some(JumpThreadKind::Plain)
+                    && let Some(last) = blocks[current.idx()].instructions.last_mut()
+                    && jump_thread_kind(last.instr) == Some(JumpThreadKind::NoInterrupt)
+                {
+                    last.instr = match last.instr.into() {
+                        AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt) => {
+                            PseudoOpcode::Jump.into()
+                        }
+                        AnyOpcode::Real(Opcode::JumpBackwardNoInterrupt) => {
+                            Opcode::JumpBackward.into()
+                        }
+                        _ => last.instr,
+                    };
                 }
                 changes = true;
             }

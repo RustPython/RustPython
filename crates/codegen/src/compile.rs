@@ -24425,6 +24425,87 @@ def f(s):
     }
 
     #[test]
+    fn test_bare_except_internal_condition_keeps_try_body_borrows() {
+        let code = compile_exec(
+            "\
+def f(buffering, raw, binary, result, BufferedReader):
+    try:
+        line_buffering = False
+        if buffering == 1 or buffering < 0 and raw._isatty_open_only():
+            buffering = -1
+            line_buffering = True
+        if buffering < 0:
+            buffering = max(min(raw._blksize, 8192 * 1024), 8192)
+        if buffering < 0:
+            raise ValueError('invalid buffering size')
+        if buffering == 0:
+            if binary:
+                return result
+            raise ValueError(\"can't have unbuffered text I/O\")
+        buffer = BufferedReader(raw, buffering)
+        result = buffer
+        if binary:
+            return result
+        return result
+    except:
+        result.close()
+        raise
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_path = &ops[..handler_start];
+
+        let borrows_name = |name: &str| {
+            warm_path.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    let (left, right) = var_nums.get(arg).indexes();
+                    f.varnames[usize::from(left)] == name || f.varnames[usize::from(right)] == name
+                }
+                _ => false,
+            })
+        };
+        let strong_loads_name = |name: &str| {
+            warm_path.iter().any(|unit| match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                Instruction::LoadFastLoadFast { var_nums } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    let (left, right) = var_nums.get(arg).indexes();
+                    f.varnames[usize::from(left)] == name || f.varnames[usize::from(right)] == name
+                }
+                _ => false,
+            })
+        };
+
+        for name in ["buffering", "raw", "binary", "result", "BufferedReader"] {
+            assert!(
+                borrows_name(name),
+                "CPython keeps {name} borrowed inside the same bare-except protected region, got warm_path={warm_path:?}"
+            );
+            assert!(
+                !strong_loads_name(name),
+                "same protected-region conditional tail should not be terminal-except deoptimized for {name}, got warm_path={warm_path:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_protected_method_call_after_terminal_except_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
