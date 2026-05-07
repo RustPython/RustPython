@@ -11743,6 +11743,16 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
             )
         }) && block_exits_scope(block)
     };
+    let block_is_simple_fast_return = |block: &Block| {
+        matches!(
+            block.instructions.as_slice(),
+            [load, ret]
+                if matches!(
+                    load.instr.real(),
+                    Some(Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. })
+                ) && matches!(ret.instr.real(), Some(Instruction::ReturnValue))
+        )
+    };
     loop {
         let mut changes = false;
         let mut predecessors = vec![0usize; blocks.len()];
@@ -11801,8 +11811,17 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                         .last()
                         .is_some_and(instruction_has_lineno);
                 if keep_removed_jump_nop {
+                    let preserve_empty_end_label_nop = removed_jump_kind
+                        == Some(JumpThreadKind::NoInterrupt)
+                        && small_exit_block
+                        && blocks[current.idx()].instructions.len() == 1
+                        && block_is_simple_fast_return(&blocks[target.idx()]);
                     if let Some(last_instr) = blocks[current.idx()].instructions.last_mut() {
                         set_to_nop(last_instr);
+                        if preserve_empty_end_label_nop {
+                            last_instr.lineno_override = None;
+                            last_instr.preserve_block_start_no_location_nop = true;
+                        }
                     }
                 } else {
                     let _ = blocks[current.idx()].instructions.pop();

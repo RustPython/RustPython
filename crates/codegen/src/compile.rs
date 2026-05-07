@@ -20914,6 +20914,54 @@ def f(s, sget, lappend, addgroup, this, c):
     }
 
     #[test]
+    fn test_empty_if_end_label_preserves_cpython_return_anchor_nop() {
+        let code = compile_exec(
+            "\
+SRE_FLAG_LOCALE = 1
+SRE_FLAG_ASCII = 2
+SRE_FLAG_UNICODE = 4
+
+def f(src, flags):
+    if isinstance(src, str):
+        if flags & SRE_FLAG_LOCALE:
+            raise ValueError('cannot use LOCALE flag with a str pattern')
+        if not flags & SRE_FLAG_ASCII:
+            flags |= SRE_FLAG_UNICODE
+        elif flags & SRE_FLAG_UNICODE:
+            raise ValueError('ASCII and UNICODE flags are incompatible')
+    else:
+        if flags & SRE_FLAG_UNICODE:
+            raise ValueError('cannot use UNICODE flag with a bytes pattern')
+        if flags & SRE_FLAG_LOCALE and flags & SRE_FLAG_ASCII:
+            raise ValueError('ASCII and LOCALE flags are incompatible')
+    return flags
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "expected CPython-style NOP return anchor after elif raise body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_if_pass_uses_line_bearing_jump_back_instead_of_nop() {
         let code = compile_exec(
             "\
