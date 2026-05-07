@@ -13682,6 +13682,67 @@ fn reorder_conditional_implicit_continue_scope_exit_blocks(blocks: &mut [Block])
         }
     }
 
+    fn scope_exit_segment_tail_before_jump(
+        blocks: &[Block],
+        start: BlockIdx,
+        jump_start: BlockIdx,
+    ) -> Option<BlockIdx> {
+        let jump_block = next_nonempty_block(blocks, jump_start);
+        if jump_block == BlockIdx::NULL {
+            return None;
+        }
+
+        let mut segment = Vec::new();
+        let mut cursor = next_nonempty_block(blocks, start);
+        while cursor != BlockIdx::NULL && cursor != jump_block {
+            if segment.len() >= blocks.len() {
+                return None;
+            }
+            let block = &blocks[cursor.idx()];
+            if block_is_exceptional(block) || block_is_protected(block) {
+                return None;
+            }
+            segment.push(cursor);
+            cursor = next_nonempty_block(blocks, block.next);
+        }
+        if cursor != jump_block || segment.is_empty() {
+            return None;
+        }
+
+        let mut in_segment = vec![false; blocks.len()];
+        for block_idx in &segment {
+            in_segment[block_idx.idx()] = true;
+        }
+
+        let mut has_scope_exit = false;
+        for block_idx in &segment {
+            let block = &blocks[block_idx.idx()];
+            if is_scope_exit_block(block) {
+                has_scope_exit = true;
+                continue;
+            }
+
+            if block_has_fallthrough(block) {
+                let next = next_nonempty_block(blocks, block.next);
+                if next == BlockIdx::NULL || !in_segment[next.idx()] {
+                    return None;
+                }
+            }
+
+            for info in &block.instructions {
+                if info.target == BlockIdx::NULL {
+                    continue;
+                }
+                let target = next_nonempty_block(blocks, info.target);
+                if target == BlockIdx::NULL || !in_segment[target.idx()] {
+                    return None;
+                }
+            }
+        }
+
+        has_scope_exit.then_some(*segment.last().expect("non-empty segment"))
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -13728,6 +13789,7 @@ fn reorder_conditional_implicit_continue_scope_exit_blocks(blocks: &mut [Block])
             .instructions
             .first()
             .is_some_and(|info| instruction_lineno(info) >= 0);
+        let exit_segment_tail = scope_exit_segment_tail_before_jump(blocks, exit_start, jump_start);
         if exit_start == BlockIdx::NULL
             || exit_block == BlockIdx::NULL
             || jump_start == BlockIdx::NULL
@@ -13739,26 +13801,26 @@ fn reorder_conditional_implicit_continue_scope_exit_blocks(blocks: &mut [Block])
             || block_is_protected(&blocks[idx])
             || block_is_protected(&blocks[exit_block.idx()])
             || block_is_protected(&blocks[jump_block.idx()])
-            || !is_scope_exit_block(&blocks[exit_block.idx()])
+            || exit_segment_tail.is_none()
             || !is_jump_back_only_block(blocks, jump_block)
             || jumps_to_for_iter
             || (after_jump != BlockIdx::NULL
                 && !blocks[after_jump.idx()].cold
                 && !jump_exits_to_loop_exit
                 && !jump_has_lineno)
-            || next_nonempty_block(blocks, blocks[exit_block.idx()].next) != jump_block
         {
             current = next;
             continue;
         }
 
+        let exit_segment_tail = exit_segment_tail.expect("checked above");
         let after_jump = blocks[jump_block.idx()].next;
         blocks[idx].instructions[cond_idx].instr =
             reversed_conditional(&cond.instr).expect("PopJumpIfFalse has a reversed conditional");
         blocks[idx].instructions[cond_idx].target = exit_start;
         blocks[idx].next = jump_start;
         blocks[jump_block.idx()].next = exit_start;
-        blocks[exit_block.idx()].next = after_jump;
+        blocks[exit_segment_tail.idx()].next = after_jump;
         current = next;
     }
 }

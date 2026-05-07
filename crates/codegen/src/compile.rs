@@ -20774,6 +20774,14 @@ def f(source, state, char):
     if char != '-':
         while True:
             flag = FLAGS[char]
+            if source.istext:
+                if char == 'L':
+                    msg = 'bad inline flags'
+                    raise source.error(msg)
+            else:
+                if char == 'u':
+                    msg = 'bad inline flags'
+                    raise source.error(msg)
             add_flags |= flag
             if (flag & TYPE_FLAGS) and (add_flags & TYPE_FLAGS) != flag:
                 msg = 'bad inline flags'
@@ -20800,6 +20808,9 @@ def f(source, state, char):
             raise source.error(msg, len(char))
         while True:
             flag = FLAGS[char]
+            if flag & TYPE_FLAGS:
+                msg = 'bad inline flags'
+                raise source.error(msg)
             del_flags |= flag
             char = sourceget()
             if char is None:
@@ -20820,8 +20831,9 @@ def f(source, state, char):
             .filter(|op| !matches!(op, Instruction::Cache))
             .collect();
 
-        assert!(
-            ops.windows(5).any(|window| {
+        let cpython_style_not_in_raise_body_count = ops
+            .windows(6)
+            .filter(|window| {
                 matches!(
                     window,
                     [
@@ -20831,10 +20843,14 @@ def f(source, state, char):
                         Instruction::JumpBackward { .. }
                             | Instruction::JumpBackwardNoInterrupt { .. },
                         Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
                     ]
                 )
-            }),
-            "expected CPython-style false-path loop backedge before raising body, got ops={ops:?}"
+            })
+            .count();
+        assert!(
+            cpython_style_not_in_raise_body_count >= 2,
+            "expected both while-loop not-in checks to put the false-path backedge before the conditional-expression raise body, got ops={ops:?}"
         );
     }
 
