@@ -381,6 +381,7 @@ class OpcodeGen:
     def fn_stack_effect(self) -> str:
         return """
         /// Stack effect of [`Self::stack_effect_info`].
+        #[must_use]
         pub fn stack_effect(&self, oparg: u32) -> i32 {
             self.stack_effect_info(oparg).effect()
         }
@@ -560,6 +561,7 @@ class InstructioneGen:
     def fn_stack_effect(self) -> str:
         return """
         /// Stack effect of [`Self::stack_effect_info`].
+        #[must_use]
         pub fn stack_effect(&self, oparg: u32) -> i32 {
             self.as_opcode().stack_effect(oparg)
         }
@@ -596,6 +598,7 @@ class InstructioneGen:
     @property
     def fn_stack_effect_info(self) -> str:
         return f"""
+        #[must_use]
         pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {{
             self.as_opcode().stack_effect_info(oparg)
         }}

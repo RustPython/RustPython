@@ -1195,6 +1195,7 @@ impl Opcode {
     }
 
     /// Stack effect of [`Self::stack_effect_info`].
+    #[must_use]
     pub fn stack_effect(&self, oparg: u32) -> i32 {
         self.stack_effect_info(oparg).effect()
     }
@@ -2408,10 +2409,12 @@ impl Instruction {
     }
 
     /// Stack effect of [`Self::stack_effect_info`].
+    #[must_use]
     pub fn stack_effect(&self, oparg: u32) -> i32 {
         self.as_opcode().stack_effect(oparg)
     }
 
+    #[must_use]
     pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {
         self.as_opcode().stack_effect_info(oparg)
     }
@@ -2583,6 +2586,7 @@ impl PseudoOpcode {
     }
 
     /// Stack effect of [`Self::stack_effect_info`].
+    #[must_use]
     pub fn stack_effect(&self, oparg: u32) -> i32 {
         self.stack_effect_info(oparg).effect()
     }
@@ -2706,10 +2710,12 @@ impl PseudoInstruction {
     }
 
     /// Stack effect of [`Self::stack_effect_info`].
+    #[must_use]
     pub fn stack_effect(&self, oparg: u32) -> i32 {
         self.as_opcode().stack_effect(oparg)
     }
 
+    #[must_use]
     pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {
         self.as_opcode().stack_effect_info(oparg)
     }
