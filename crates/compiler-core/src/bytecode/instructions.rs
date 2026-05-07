@@ -1250,7 +1250,10 @@ impl Opcode {
             Self::UnaryInvert => (1, 1),
             Self::UnaryNegative => (1, 1),
             Self::UnaryNot => (1, 1),
-            Self::WithExceptStart => (6, 5),
+            Self::WithExceptStart => (
+                7, // TODO: Differs from CPython `6`
+                6, // TODO: Differs from CPython `5`
+            ),
             Self::BinaryOp => (1, 2),
             Self::BuildInterpolation => (1, 2 + (oparg & 1)),
             Self::BuildList => (1, oparg),

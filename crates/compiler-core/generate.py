@@ -305,14 +305,32 @@ class OpcodeGen:
         oparg_used = False
         arms = ""
         for instr in self:
+            name = instr.name
             stack = get_stack_effect(instr)
+
             popped = (-stack.base_offset).to_c()
             pushed = (stack.logical_sp - stack.base_offset).to_c()
 
+            pushed_comment = ""
+            popped_comment = ""
+
+            if stack_effect := self.metadata.get(name, {}).get("stack_effect"):
+                if npushed := stack_effect.get("pushed"):
+                    pushed_comment = f"// TODO: Differs from CPython `{pushed}`"
+                    pushed = npushed
+
+                if npopped := stack_effect.get("popped"):
+                    popped_comment = f"// TODO: Differs from CPython `{popped}`"
+                    popped = npopped
+
             oparg_used = oparg_used or any("oparg" in expr for expr in (pushed, popped))
 
-            name = instr.name
-            arms += f"Self::{name} => ({pushed}, {popped}),\n"
+            arms += f"""
+                Self::{name} => (
+                    {pushed}, {pushed_comment}
+                    {popped} {popped_comment}
+                ),
+            """.strip()
 
         arms = arms.strip()
 

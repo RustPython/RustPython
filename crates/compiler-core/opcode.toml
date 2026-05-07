@@ -225,6 +225,9 @@ oparg = { name = "counts", type = "oparg::UnpackExArgs" }
 [Opcode.opcodes.UnpackSequence]
 oparg = { name = "count", type = "u32" }
 
+[Opcode.opcodes.WithExceptStart]
+stack_effect = { pushed = "7", popped = "6" }
+
 [Opcode.opcodes.YieldValue]
 oparg = { name = "arg", type = "u32" }
 
