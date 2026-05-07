@@ -14264,6 +14264,46 @@ def f(fname):
     }
 
     #[test]
+    fn test_chained_compare_assert_message_keeps_borrowed_load_fast() {
+        let code = compile_exec(
+            "\
+def f(month):
+    assert 1 <= month <= 12, f'month must be in 1..12, not {month}'
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let assertion_error = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadCommonConstant { .. }))
+            .expect("missing LOAD_COMMON_CONSTANT AssertionError");
+        let raise = ops[assertion_error..]
+            .iter()
+            .position(|op| matches!(op, Instruction::RaiseVarargs { .. }))
+            .map(|idx| assertion_error + idx)
+            .expect("missing assert raise");
+        let message_path = &ops[assertion_error..raise];
+
+        assert!(
+            message_path
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+            "CPython keeps assert message loads borrowed for same-line chained compare failure blocks, got {message_path:?}"
+        );
+        assert!(
+            !message_path
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "same-line chained compare assert message should not be deoptimized to LOAD_FAST, got {message_path:?}"
+        );
+    }
+
+    #[test]
     fn test_assert_message_after_condition_in_same_block_keeps_borrowed_loads() {
         let code = compile_exec(
             "\

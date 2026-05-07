@@ -3547,13 +3547,32 @@ impl CodeInfo {
             }
         }
 
+        fn has_same_line_target_predecessor(
+            blocks: &[Block],
+            incoming_origins: &[Vec<BlockIdx>],
+            block_idx: BlockIdx,
+            line: i32,
+        ) -> bool {
+            incoming_origins[block_idx.idx()].iter().any(|&pred| {
+                blocks[pred.idx()].instructions.iter().any(|info| {
+                    info.target != BlockIdx::NULL
+                        && next_nonempty_block(blocks, info.target) == block_idx
+                        && instruction_lineno(info) == line
+                })
+            })
+        }
+
         let target_flags = compute_target_predecessor_flags(&self.blocks);
-        for (block_idx, block) in self.blocks.iter_mut().enumerate() {
+        let reachable = compute_reachable_blocks(&self.blocks);
+        let incoming_origins = compute_incoming_origins(&self.blocks, &reachable);
+        for block_idx in 0..self.blocks.len() {
             if block_idx == 0 || !target_flags.targeted[block_idx] {
                 continue;
             }
 
+            let block = &self.blocks[block_idx];
             let mut assert_start = None;
+            let mut ranges = Vec::new();
             for i in 0..block.instructions.len() {
                 if is_assertion_error_load(&block.instructions[i]) {
                     assert_start = Some(i);
@@ -3578,10 +3597,26 @@ impl CodeInfo {
                     continue;
                 }
 
-                for info in &mut block.instructions[start + 1..i] {
+                let assert_line = instruction_lineno(&block.instructions[start]);
+                if has_same_line_target_predecessor(
+                    &self.blocks,
+                    &incoming_origins,
+                    BlockIdx::new(block_idx as u32),
+                    assert_line,
+                ) {
+                    assert_start = None;
+                    continue;
+                }
+
+                ranges.push((start + 1, i));
+                assert_start = None;
+            }
+
+            let block = &mut self.blocks[block_idx];
+            for (start, end) in ranges {
+                for info in &mut block.instructions[start..end] {
                     deoptimize_borrow(info);
                 }
-                assert_start = None;
             }
         }
     }
