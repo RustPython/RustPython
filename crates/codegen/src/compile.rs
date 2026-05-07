@@ -13348,6 +13348,64 @@ def f(self, signal):
     }
 
     #[test]
+    fn test_nested_try_except_in_finally_exception_path_shares_continuation() {
+        let code = compile_exec(
+            "\
+def f(self, exc_type, KeyboardInterrupt, TimeoutExpired):
+    try:
+        if self.stdin:
+            self.stdin.close()
+    finally:
+        if exc_type == KeyboardInterrupt:
+            if self._sigint_wait_secs > 0:
+                try:
+                    self._wait(timeout=self._sigint_wait_secs)
+                except TimeoutExpired:
+                    pass
+            self._sigint_wait_secs = 0
+        else:
+            self.wait()
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let store_reraise_tails = ops
+            .windows(2)
+            .filter(|window| {
+                matches!(
+                    window,
+                    [Instruction::StoreAttr { .. }, Instruction::Reraise { .. },]
+                )
+            })
+            .count();
+
+        assert_eq!(
+            store_reraise_tails, 1,
+            "nested try/except inside an exceptional finally body should share the remaining finalbody tail before RERAISE, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::StoreAttr { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "normal finally body should keep CPython-style borrowed load before STORE_ATTR, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_try_else_return_keeps_nop_before_final_call_return() {
         let code = compile_exec(
             "\

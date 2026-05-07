@@ -5823,6 +5823,9 @@ impl CodeInfo {
             while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
                 visited[cursor.idx()] = true;
                 let block = &blocks[cursor.idx()];
+                if cursor != handler && block.except_handler {
+                    return false;
+                }
                 for info in &block.instructions {
                     match info.instr.real() {
                         Some(Instruction::CheckExcMatch | Instruction::CheckEgMatch) => {
@@ -11507,6 +11510,39 @@ fn redirect_empty_block_targets(blocks: &mut [Block]) {
 }
 
 fn redirect_empty_unconditional_jump_targets(blocks: &mut [Block]) {
+    let block_exits_to_reraise = |block_idx: BlockIdx| {
+        let block = &blocks[block_idx.idx()];
+        let Some(last) = block.instructions.last() else {
+            return false;
+        };
+        if matches!(last.instr.real(), Some(Instruction::Reraise { .. })) {
+            return true;
+        }
+        if !last.instr.is_unconditional_jump() || last.target == BlockIdx::NULL {
+            return false;
+        }
+        let target = next_nonempty_block(blocks, last.target);
+        target != BlockIdx::NULL
+            && blocks[target.idx()]
+                .instructions
+                .last()
+                .is_some_and(|instr| {
+                    matches!(instr.instr.real(), Some(Instruction::Reraise { .. }))
+                })
+    };
+
+    let mut raw_predecessors = vec![0u32; blocks.len()];
+    for block in blocks.iter() {
+        if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
+            raw_predecessors[block.next.idx()] += 1;
+        }
+        for instr in &block.instructions {
+            if instr.target != BlockIdx::NULL {
+                raw_predecessors[instr.target.idx()] += 1;
+            }
+        }
+    }
+
     let redirected_targets: Vec<Vec<BlockIdx>> = blocks
         .iter()
         .map(|block| {
@@ -11517,6 +11553,15 @@ fn redirect_empty_unconditional_jump_targets(blocks: &mut [Block]) {
                     if instr.target == BlockIdx::NULL || !instr.instr.is_unconditional_jump() {
                         instr.target
                     } else {
+                        if blocks[instr.target.idx()].instructions.is_empty()
+                            && raw_predecessors[instr.target.idx()] > 1
+                            && {
+                                let target = next_nonempty_block(blocks, instr.target);
+                                target != BlockIdx::NULL && block_exits_to_reraise(target)
+                            }
+                        {
+                            return instr.target;
+                        }
                         let target = next_nonempty_block(blocks, instr.target);
                         if matches!(
                             jump_thread_kind(instr.instr),
