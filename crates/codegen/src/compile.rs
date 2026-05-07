@@ -15496,6 +15496,54 @@ def f(re, f):
     }
 
     #[test]
+    fn test_try_else_finally_cleanup_keeps_borrow_tail() {
+        let code = compile_exec(
+            "\
+def f(re, open):
+    global _SYSTEM_VERSION
+    if _SYSTEM_VERSION is None:
+        _SYSTEM_VERSION = ''
+        try:
+            f = open('/System/Library/CoreServices/SystemVersion.plist', encoding='utf-8')
+        except OSError:
+            pass
+        else:
+            try:
+                m = re.search('x', f.read())
+            finally:
+                f.close()
+            if m is not None:
+                _SYSTEM_VERSION = '.'.join(m.group(1).split('.')[:2])
+    return _SYSTEM_VERSION
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let is_m_borrow = |unit: &bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))].as_str() == "m"
+            }
+            _ => false,
+        };
+
+        assert!(
+            ops.windows(3).any(|window| {
+                is_m_borrow(window[0])
+                    && matches!(window[1].op, Instruction::PopJumpIfNone { .. })
+                    && matches!(window[2].op, Instruction::NotTaken)
+            }) && ops.windows(2).any(|window| {
+                is_m_borrow(window[0]) && matches!(window[1].op, Instruction::LoadAttr { .. })
+            }),
+            "try/else finally cleanup should keep CPython-style borrowed m tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_generator_protected_store_subscr_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
@@ -23986,6 +24034,95 @@ def f(self, value, start=0, stop=None):
                     && matches!(window[6].op, Instruction::PopJumpIfFalse { .. })
             }),
             "terminal-except loop backedge deopt should not cross into the loop header, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_if_implicit_continue_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(_config_vars, _INITPRE):
+    for k in list(_config_vars):
+        if k.startswith(_INITPRE):
+            del _config_vars[k]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::DeleteSubscr,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::EndFor,
+                    ]
+                )
+            }),
+            "loop if with implicit continue should use CPython body-after-jumpback layout, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_nested_if_delete_slice_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(compiler_so):
+    for idx in reversed(range(len(compiler_so))):
+        if compiler_so[idx] == '-arch' and compiler_so[idx + 1] == 'arm64':
+            del compiler_so[idx:idx + 2]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(15).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "nested loop delete-slice condition should put false jump-back before body, got ops={ops:?}"
         );
     }
 

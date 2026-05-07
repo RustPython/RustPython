@@ -5727,23 +5727,28 @@ impl CodeInfo {
             false
         }
 
-        fn protected_block_has_terminal_exception_handler(blocks: &[Block], block: &Block) -> bool {
-            let mut seen_handlers = Vec::new();
-            for handler in block
-                .instructions
-                .iter()
-                .filter_map(|info| info.except_handler.map(|handler| handler.handler_block))
-            {
-                if seen_handlers.contains(&handler) {
-                    continue;
-                }
-                seen_handlers.push(handler);
-                let has_exception_match = handler_reaches_match_before_terminal(blocks, handler);
-                if has_exception_match
-                    && !handler_chain_has_multiple_handled_returns(blocks, handler)
-                    && !handler_chain_resumes_normally(blocks, handler)
-                {
-                    return true;
+        fn handler_is_terminal_exception_handler(blocks: &[Block], handler: BlockIdx) -> bool {
+            handler_reaches_match_before_terminal(blocks, handler)
+                && !handler_chain_has_multiple_handled_returns(blocks, handler)
+                && !handler_chain_resumes_normally(blocks, handler)
+        }
+
+        fn trailing_protected_tail_has_terminal_exception_handler(
+            blocks: &[Block],
+            block: &Block,
+        ) -> bool {
+            for info in block.instructions.iter().rev() {
+                match info.instr.real() {
+                    Some(Instruction::Nop | Instruction::NotTaken | Instruction::PopTop) => {}
+                    Some(_) => {
+                        let Some(handler) =
+                            info.except_handler.map(|handler| handler.handler_block)
+                        else {
+                            return false;
+                        };
+                        return handler_is_terminal_exception_handler(blocks, handler);
+                    }
+                    None => {}
                 }
             }
             false
@@ -5930,7 +5935,10 @@ impl CodeInfo {
                 seen[pred.idx()] = true;
                 let pred_block = &self.blocks[pred.idx()];
                 if block_has_protected_instructions(pred_block) {
-                    if protected_block_has_terminal_exception_handler(&self.blocks, pred_block) {
+                    if trailing_protected_tail_has_terminal_exception_handler(
+                        &self.blocks,
+                        pred_block,
+                    ) {
                         seeds.push((
                             BlockIdx::new(idx as u32),
                             (has_protected_call_predecessor || has_call_store_tail)
@@ -12418,6 +12426,57 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
         false
     };
 
+    fn is_single_delete_subscr_body(block: &Block) -> bool {
+        let real: Vec<_> = block
+            .instructions
+            .iter()
+            .filter_map(|info| info.instr.real())
+            .filter(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+            .collect();
+        real.iter()
+            .filter(|instr| matches!(instr, Instruction::DeleteSubscr))
+            .count()
+            == 1
+            && matches!(real.last(), Some(Instruction::DeleteSubscr))
+            && real.iter().all(|instr| {
+                matches!(
+                    instr,
+                    Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                        | Instruction::LoadSmallInt { .. }
+                        | Instruction::BinaryOp { .. }
+                        | Instruction::BuildSlice { .. }
+                        | Instruction::DeleteSubscr
+                )
+            })
+    }
+
+    fn chain_is_conditional_single_delete_body(
+        blocks: &[Block],
+        chain_start: BlockIdx,
+        jump_start: BlockIdx,
+    ) -> bool {
+        if chain_start == BlockIdx::NULL || jump_start == BlockIdx::NULL {
+            return false;
+        }
+        let Some(chain_cond_idx) = trailing_conditional_jump_index(&blocks[chain_start.idx()])
+        else {
+            return false;
+        };
+        let chain_cond = blocks[chain_start.idx()].instructions[chain_cond_idx];
+        if !is_false_path_conditional_jump(&chain_cond.instr) || chain_cond.target != jump_start {
+            return false;
+        }
+        let body = next_nonempty_block(blocks, blocks[chain_start.idx()].next);
+        body != BlockIdx::NULL
+            && !block_is_exceptional(&blocks[body.idx()])
+            && !block_is_protected(&blocks[body.idx()])
+            && next_nonempty_block(blocks, blocks[body.idx()].next) == jump_start
+            && is_single_delete_subscr_body(&blocks[body.idx()])
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -12542,7 +12601,12 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             current = next;
             continue;
         }
-        if is_generic_false_path_reorder && nonempty_blocks > 1 {
+        let chain_is_conditional_single_delete_body =
+            chain_is_conditional_single_delete_body(blocks, chain_start, jump_start);
+        if is_generic_false_path_reorder
+            && nonempty_blocks > 1
+            && !chain_is_conditional_single_delete_body
+        {
             current = next;
             continue;
         }
@@ -12586,6 +12650,7 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             && jump_is_artificial
             && after_jump != BlockIdx::NULL
             && is_loop_cleanup_block(&blocks[after_jump.idx()])
+            && !chain_is_conditional_single_delete_body
         {
             current = next;
             continue;
@@ -13206,6 +13271,33 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             )
     }
 
+    fn is_single_delete_subscr_body(block: &Block) -> bool {
+        let real: Vec<_> = block
+            .instructions
+            .iter()
+            .filter_map(|info| info.instr.real())
+            .filter(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+            .collect();
+        real.iter()
+            .filter(|instr| matches!(instr, Instruction::DeleteSubscr))
+            .count()
+            == 1
+            && matches!(real.last(), Some(Instruction::DeleteSubscr))
+            && real.iter().all(|instr| {
+                matches!(
+                    instr,
+                    Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                        | Instruction::LoadSmallInt { .. }
+                        | Instruction::BinaryOp { .. }
+                        | Instruction::BuildSlice { .. }
+                        | Instruction::DeleteSubscr
+                )
+            })
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -13248,6 +13340,7 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 trailing_conditional_jump_index(&blocks[body_tail.idx()]).is_some();
             let can_reorder = !body_tail_is_conditional
                 && (matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. }))
+                    || (body == body_tail && is_single_delete_subscr_body(&blocks[body.idx()]))
                     || body_segment_contains_for_iter(blocks, body, body_tail));
             if can_reorder && after_jump != BlockIdx::NULL && after_jump != body_start {
                 let cloned_jump_idx = BlockIdx(blocks.len() as u32);
