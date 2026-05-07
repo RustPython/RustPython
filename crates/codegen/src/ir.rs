@@ -13358,8 +13358,13 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
                         | Instruction::LoadFastLoadFast { .. }
                         | Instruction::LoadFastBorrowLoadFastBorrow { .. }
                         | Instruction::LoadSmallInt { .. }
+                        | Instruction::LoadConst { .. }
+                        | Instruction::Copy { .. }
+                        | Instruction::Swap { .. }
                         | Instruction::BinaryOp { .. }
+                        | Instruction::BinarySlice
                         | Instruction::BuildSlice { .. }
+                        | Instruction::StoreSubscr
                         | Instruction::DeleteSubscr
                 )
             })
@@ -14235,6 +14240,50 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
         false
     }
 
+    fn body_segment_contains_scope_exit(
+        blocks: &[Block],
+        body_start: BlockIdx,
+        body_tail: BlockIdx,
+    ) -> bool {
+        let mut cursor = body_start;
+        let mut visited = vec![false; blocks.len()];
+        while cursor != BlockIdx::NULL {
+            if visited[cursor.idx()] {
+                return false;
+            }
+            visited[cursor.idx()] = true;
+            if blocks[cursor.idx()]
+                .instructions
+                .iter()
+                .any(|info| info.instr.is_scope_exit())
+            {
+                return true;
+            }
+            if cursor == body_tail {
+                return false;
+            }
+            cursor = blocks[cursor.idx()].next;
+        }
+        false
+    }
+
+    fn empty_chain_reaches(blocks: &[Block], start: BlockIdx, target: BlockIdx) -> bool {
+        let mut cursor = start;
+        let mut visited = vec![false; blocks.len()];
+        while cursor != BlockIdx::NULL && cursor != target {
+            if visited[cursor.idx()]
+                || block_is_exceptional(&blocks[cursor.idx()])
+                || block_is_protected(&blocks[cursor.idx()])
+                || !blocks[cursor.idx()].instructions.is_empty()
+            {
+                return false;
+            }
+            visited[cursor.idx()] = true;
+            cursor = blocks[cursor.idx()].next;
+        }
+        cursor == target
+    }
+
     fn block_starts_loop_cleanup(blocks: &[Block], block_idx: BlockIdx) -> bool {
         block_idx != BlockIdx::NULL
             && matches!(
@@ -14266,8 +14315,13 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                         | Instruction::LoadFastLoadFast { .. }
                         | Instruction::LoadFastBorrowLoadFastBorrow { .. }
                         | Instruction::LoadSmallInt { .. }
+                        | Instruction::LoadConst { .. }
+                        | Instruction::Copy { .. }
+                        | Instruction::Swap { .. }
                         | Instruction::BinaryOp { .. }
+                        | Instruction::BinarySlice
                         | Instruction::BuildSlice { .. }
+                        | Instruction::StoreSubscr
                         | Instruction::DeleteSubscr
                 )
             })
@@ -14304,7 +14358,8 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             .get(cond_idx + 1)
             .is_some_and(|info| matches!(info.instr.real(), Some(Instruction::NotTaken)));
         if true_jump_loop_target.is_some()
-            && true_jump_start == true_jump
+            && (true_jump_start == true_jump
+                || empty_chain_reaches(blocks, true_jump_start, true_jump))
             && body_start != BlockIdx::NULL
             && body != BlockIdx::NULL
             && true_jump != BlockIdx::NULL
@@ -14320,14 +14375,20 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 trailing_conditional_jump_index(&blocks[body_tail.idx()]).is_some();
             let body_is_single_block = body == body_tail;
             let body_has_for_iter = body_segment_contains_for_iter(blocks, body, body_tail);
+            let body_has_scope_exit = body_segment_contains_scope_exit(blocks, body, body_tail);
             let normalized_single_block_can_reorder =
                 !normalized_forward_conditional || !block_has_call(&blocks[body.idx()]);
-            let can_reorder = !body_tail_is_conditional
+            let trailing_implicit_continue_can_reorder = after_jump != BlockIdx::NULL
+                && next_nonempty_block(blocks, after_jump) != body
+                && !block_starts_loop_cleanup(blocks, next_nonempty_block(blocks, after_jump))
+                && !is_scope_exit_block(&blocks[body.idx()]);
+            let can_reorder = (!body_tail_is_conditional
                 && ((normalized_single_block_can_reorder
                     && body_is_single_block
                     && matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. })))
                     || (body == body_tail && is_single_delete_subscr_body(&blocks[body.idx()]))
-                    || body_has_for_iter);
+                    || body_has_for_iter))
+                || (trailing_implicit_continue_can_reorder && body_has_scope_exit);
             if can_reorder && after_jump != BlockIdx::NULL && after_jump != body_start {
                 let cloned_jump_idx = BlockIdx(blocks.len() as u32);
                 let mut cloned_jump = blocks[true_jump.idx()].clone();
@@ -14868,6 +14929,14 @@ fn comes_before(blocks: &[Block], first: BlockIdx, second: BlockIdx) -> bool {
 fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
     let predecessors = compute_predecessors(blocks);
     let mut clones = Vec::new();
+    let mut block_order = vec![usize::MAX; blocks.len()];
+    let mut current = BlockIdx(0);
+    let mut pos = 0usize;
+    while current != BlockIdx::NULL {
+        block_order[current.idx()] = pos;
+        pos += 1;
+        current = blocks[current.idx()].next;
+    }
 
     for target in 0..blocks.len() {
         let target = BlockIdx(target as u32);
@@ -14884,6 +14953,43 @@ fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
         }
 
         let layout_pred = find_layout_predecessor(blocks, target);
+        if layout_pred != BlockIdx::NULL
+            && (!block_has_fallthrough(&blocks[layout_pred.idx()])
+                || next_nonempty_block(blocks, blocks[layout_pred.idx()].next) != target)
+            && predecessors[target.idx()] >= 2
+        {
+            let mut jump_predecessors = Vec::new();
+            for block_idx in 0..blocks.len() {
+                let block_idx = BlockIdx(block_idx as u32);
+                for (instr_idx, info) in blocks[block_idx.idx()].instructions.iter().enumerate() {
+                    if !is_jump_instruction(info) || info.target == BlockIdx::NULL {
+                        continue;
+                    }
+                    if next_nonempty_block(blocks, info.target) == target {
+                        jump_predecessors.push((block_idx, instr_idx));
+                    }
+                }
+            }
+            if jump_predecessors.len() >= 2
+                && jump_predecessors.iter().all(|(block_idx, instr_idx)| {
+                    is_conditional_jump(&blocks[block_idx.idx()].instructions[*instr_idx].instr)
+                        && block_order[block_idx.idx()] < block_order[target.idx()]
+                })
+                && let Some((keep_block, keep_instr)) = jump_predecessors
+                    .iter()
+                    .max_by_key(|(block_idx, _)| block_order[block_idx.idx()])
+                    .copied()
+            {
+                for (block_idx, instr_idx) in jump_predecessors {
+                    if block_idx == keep_block && instr_idx == keep_instr {
+                        continue;
+                    }
+                    clones.push((target, block_idx, instr_idx));
+                }
+                continue;
+            }
+        }
+
         if layout_pred == BlockIdx::NULL
             || !block_has_fallthrough(&blocks[layout_pred.idx()])
             || next_nonempty_block(blocks, blocks[layout_pred.idx()].next) != target

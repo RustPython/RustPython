@@ -25690,6 +25690,108 @@ def f(compiler_so):
     }
 
     #[test]
+    fn test_loop_if_subscr_store_delete_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(chunks):
+    for k in range(len(chunks)-1, 0, -1):
+        if chunks[k-1][-1] > chunks[k][0]:
+            chunks[k-1] = chunks[k-1][:-1] + chunks[k][1:]
+            del chunks[k]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::BinaryOp { .. },
+                    ]
+                )
+            }),
+            "loop if with subscript store/delete body should put false jump-back before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_final_elif_implicit_continue_places_jumpback_before_body() {
+        let code = compile_exec(
+            "\
+def f(state, nextchar, whitespace, token, posix, quoted, debug):
+    while True:
+        if state is None:
+            break
+        elif state == ' ':
+            if not nextchar:
+                state = None
+                break
+            elif nextchar in whitespace:
+                if debug >= 2:
+                    print('x')
+                if token or (posix and quoted):
+                    break
+                else:
+                    continue
+        elif state in ('a', 'c'):
+            if not nextchar:
+                state = None
+                break
+            elif nextchar in whitespace:
+                if debug >= 2:
+                    print('y')
+                state = ' '
+                if token or (posix and quoted):
+                    break
+                else:
+                    continue
+    return token
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadConst { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "final elif with implicit continue should put false jump-back before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_except_handler_with_conditional_raise_and_resume_keeps_borrow() {
         let code = compile_exec(
             "\
