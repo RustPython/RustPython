@@ -3003,6 +3003,44 @@ impl CodeInfo {
                 )
             })
             .collect();
+        let mut conditional_targets = vec![false; self.blocks.len()];
+        for block in &self.blocks {
+            for instr in &block.instructions {
+                if instr.target != BlockIdx::NULL && is_conditional_jump(&instr.instr) {
+                    let target = next_nonempty_block(&self.blocks, instr.target);
+                    if target != BlockIdx::NULL {
+                        conditional_targets[target.idx()] = true;
+                    }
+                }
+            }
+        }
+        let preserve_loop_exit_pop_block_nops: Vec<_> = (0..self.blocks.len())
+            .map(|idx| {
+                let block_idx = BlockIdx(idx as u32);
+                let block = &self.blocks[idx];
+                let layout_pred = layout_predecessors[idx];
+                block.instructions.first().is_some_and(|instr| {
+                    matches!(instr.instr.real(), Some(Instruction::Nop))
+                        && instr.remove_no_location_nop
+                        && instruction_lineno(instr) < 0
+                        && conditional_targets[idx]
+                        && layout_pred != BlockIdx::NULL
+                        && self.blocks[layout_pred.idx()]
+                            .instructions
+                            .last()
+                            .is_some_and(|last| {
+                                matches!(
+                                    last.instr.real(),
+                                    Some(
+                                        Instruction::JumpBackward { .. }
+                                            | Instruction::JumpBackwardNoInterrupt { .. }
+                                    )
+                                ) && next_nonempty_block(&self.blocks, last.target) != block_idx
+                            })
+                })
+            })
+            .collect();
+
         for (block_idx, block) in self.blocks.iter_mut().enumerate() {
             let mut prev_line = None;
             let mut src = 0usize;
@@ -3014,9 +3052,15 @@ impl CodeInfo {
                                 .get(block_idx)
                                 .copied()
                                 .unwrap_or(false);
+                        let keep_loop_exit_pop_block = src == 0
+                            && preserve_loop_exit_pop_block_nops
+                                .get(block_idx)
+                                .copied()
+                                .unwrap_or(false);
                         if ins.remove_no_location_nop
                             && instruction_lineno(ins) < 0
                             && !keep_target_start
+                            && !keep_loop_exit_pop_block
                         {
                             break 'keep false;
                         }
@@ -4518,9 +4562,12 @@ impl CodeInfo {
                         | Instruction::LoadConst { .. }
                         | Instruction::LoadSmallInt { .. }
                         | Instruction::StoreFast { .. }
+                        | Instruction::StoreFastLoadFast { .. }
+                        | Instruction::StoreFastStoreFast { .. }
                         | Instruction::StoreName { .. }
                         | Instruction::LoadFast { .. }
                         | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastCheck { .. }
                         | Instruction::LoadFastLoadFast { .. }
                         | Instruction::LoadFastBorrowLoadFastBorrow { .. }
                         | Instruction::BuildTuple { .. },
@@ -13981,13 +14028,7 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
         let body_start = next;
         let body = next_nonempty_block(blocks, body_start);
         let true_jump_loop_target = jump_back_target(blocks, true_jump);
-        let true_jump_targets_loop_header = true_jump_loop_target.is_some_and(|loop_target| {
-            blocks[loop_target.idx()]
-                .instructions
-                .iter()
-                .any(|info| matches!(info.instr.real(), Some(Instruction::ForIter { .. })))
-        });
-        if true_jump_targets_loop_header
+        if true_jump_loop_target.is_some()
             && true_jump_start == true_jump
             && body_start != BlockIdx::NULL
             && body != BlockIdx::NULL

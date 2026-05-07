@@ -5715,8 +5715,12 @@ impl Compiler {
         self.enter_conditional_block();
 
         let while_block = self.new_block();
-        let else_block = self.new_block();
         let after_block = self.new_block();
+        let else_block = if orelse.is_empty() {
+            after_block
+        } else {
+            self.new_block()
+        };
 
         self.switch_to_block(while_block);
         self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
@@ -5735,7 +5739,9 @@ impl Compiler {
 
         self.pop_fblock(FBlockType::WhileLoop);
         self.compile_statements(orelse)?;
-        self.switch_to_block(after_block);
+        if !orelse.is_empty() {
+            self.switch_to_block(after_block);
+        }
 
         self.leave_conditional_block();
         Ok(())
@@ -16952,6 +16958,49 @@ def f():
     }
 
     #[test]
+    fn test_try_except_while_body_preserves_while_exit_line_nop() {
+        let code = compile_exec(
+            "\
+def f(x, E):
+    try:
+        while x:
+            x -= 1
+    except E:
+        if not x:
+            return None
+    assert x
+    return x
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let assertion_error = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadCommonConstant { .. }))
+            .expect("missing assertion error load");
+
+        assert!(
+            ops[..assertion_error].windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "try/except while body should preserve CPython while-exit NOP before following assert, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_named_except_cleanup_keeps_jump_over_cleanup_and_next_try() {
         let code = compile_exec(
             r#"
@@ -20543,7 +20592,7 @@ def f(xs):
             "\
 def f(native, array):
     for k in native:
-        if not k in 'bBhHiIlLfd':
+        if k not in 'bBhHiIlLfd':
             del array[k]
 ",
         );
@@ -20561,7 +20610,7 @@ def f(native, array):
                     window,
                     [
                         Instruction::ContainsOp { .. },
-                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::PopJumpIfTrue { .. },
                         Instruction::NotTaken,
                         Instruction::JumpBackward { .. }
                             | Instruction::JumpBackwardNoInterrupt { .. },
@@ -20571,6 +20620,50 @@ def f(native, array):
                 )
             }),
             "expected CPython-style true path to jump back before not-in body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_while_implicit_continue_body_after_jumpback_for_boolop_call_arg() {
+        let code = compile_exec(
+            "\
+def f(source, state, verbose, nested):
+    items = []
+    itemsappend = items.append
+    sourcematch = source.match
+    while True:
+        itemsappend(parse(source, state, verbose, nested + 1,
+                          not nested and not items))
+        if not sourcematch('|'):
+            break
+        if not nested:
+            verbose = state.flags & 64
+    return verbose
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style while implicit-continue jumpback before conditional body, got ops={ops:?}"
         );
     }
 
