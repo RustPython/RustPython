@@ -2617,7 +2617,7 @@ class PathTest(PurePathTest):
         self.assertEqual(st, p.lstat())
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_exists(self):
         P = self.cls
         p = P(self.base)
@@ -2638,7 +2638,7 @@ class PathTest(PurePathTest):
         self.assertIs(False, P(self.base + '\x00').exists())
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_dir(self):
         P = self.cls(self.base)
         self.assertTrue((P / 'dirA').is_dir())
@@ -2653,7 +2653,7 @@ class PathTest(PurePathTest):
         self.assertFalse((P / 'dirA\x00').is_dir())
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_dir_no_follow_symlinks(self):
         P = self.cls(self.base)
         self.assertTrue((P / 'dirA').is_dir(follow_symlinks=False))
@@ -2668,7 +2668,7 @@ class PathTest(PurePathTest):
         self.assertFalse((P / 'dirA\x00').is_dir(follow_symlinks=False))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_file(self):
         P = self.cls(self.base)
         self.assertTrue((P / 'fileA').is_file())
@@ -2683,7 +2683,7 @@ class PathTest(PurePathTest):
         self.assertFalse((P / 'fileA\x00').is_file())
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_file_no_follow_symlinks(self):
         P = self.cls(self.base)
         self.assertTrue((P / 'fileA').is_file(follow_symlinks=False))
@@ -2698,7 +2698,7 @@ class PathTest(PurePathTest):
         self.assertFalse((P / 'fileA\x00').is_file(follow_symlinks=False))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_symlink(self):
         P = self.cls(self.base)
         self.assertFalse((P / 'fileA').is_symlink())
@@ -2716,7 +2716,7 @@ class PathTest(PurePathTest):
             self.assertIs((P / 'linkA\x00').is_file(), False)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_junction_false(self):
         P = self.cls(self.base)
         self.assertFalse((P / 'fileA').is_junction())
@@ -2734,7 +2734,7 @@ class PathTest(PurePathTest):
             P.parser.isjunction.assert_called_once_with(P)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_fifo_false(self):
         P = self.cls(self.base)
         self.assertFalse((P / 'fileA').is_fifo())
@@ -2801,7 +2801,7 @@ class PathTest(PurePathTest):
         self.assertIs((P / 'fileA\x00').is_block_device(), False)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_char_device_false(self):
         P = self.cls(self.base)
         self.assertFalse((P / 'fileA').is_char_device())
@@ -2812,7 +2812,7 @@ class PathTest(PurePathTest):
         self.assertIs((P / 'fileA\x00').is_char_device(), False)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_char_device_true(self):
         # os.devnull should generally be a char device.
         P = self.cls(os.devnull)
@@ -2825,7 +2825,7 @@ class PathTest(PurePathTest):
         self.assertIs(self.cls(f'{os.devnull}\x00').is_char_device(), False)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_mount(self):
         P = self.cls(self.base)
         self.assertFalse((P / 'fileA').is_mount())
