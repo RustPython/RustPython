@@ -22562,6 +22562,46 @@ def f(kw):
     }
 
     #[test]
+    fn test_protected_for_is_none_raise_threads_backedge_before_raise() {
+        let code = compile_exec(
+            "\
+def f(stacklevel, frame, skip_file_prefixes):
+    try:
+        for x in range(stacklevel - 1):
+            frame = _next_external_frame(frame, skip_file_prefixes)
+            if frame is None:
+                raise ValueError
+    except ValueError:
+        frame = None
+    return frame
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::PopJumpIfNone { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected protected is-None raise path to match CPython's backedge-before-raise layout, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_exception_handler_loop_conditional_raise_orders_backedge_before_raise() {
         let code = compile_exec(
             "\

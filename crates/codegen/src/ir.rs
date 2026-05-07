@@ -7530,24 +7530,24 @@ impl CodeInfo {
         fn handler_chain_returns(blocks: &[Block], handler_block: BlockIdx) -> bool {
             let mut cursor = handler_block;
             let mut visited = vec![false; blocks.len()];
+            let mut after_pop_except = false;
             while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
                 visited[cursor.idx()] = true;
-                let mut saw_pop_except = false;
                 for info in &blocks[cursor.idx()].instructions {
                     match info.instr.real() {
                         Some(Instruction::ReturnValue) => return true,
-                        Some(Instruction::PopExcept) => saw_pop_except = true,
+                        Some(Instruction::PopExcept) => after_pop_except = true,
+                        Some(_) if after_pop_except && is_conditional_jump(&info.instr) => {
+                            return false;
+                        }
                         Some(instr)
-                            if saw_pop_except
+                            if after_pop_except
                                 && (instr.is_unconditional_jump() || instr.is_scope_exit()) =>
                         {
                             return false;
                         }
                         _ => {}
                     }
-                }
-                if saw_pop_except {
-                    return false;
                 }
                 cursor = blocks[cursor.idx()].next;
             }
@@ -10669,20 +10669,35 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
             {
                 continue;
             }
-            if include_conditional && is_conditional_jump(&ins.instr) {
-                let next = next_nonempty_block(blocks, blocks[bi].next);
-                if next != BlockIdx::NULL
-                    && blocks[next.idx()]
-                        .instructions
-                        .last()
-                        .is_some_and(|instr| instr.instr.is_scope_exit())
-                {
-                    continue;
-                }
-            }
             target = next_nonempty_block(blocks, target);
             if target == BlockIdx::NULL {
                 continue;
+            }
+            if include_conditional && is_conditional_jump(&ins.instr) {
+                let next = next_nonempty_block(blocks, blocks[bi].next);
+                let next_is_scope_exit = next != BlockIdx::NULL
+                    && blocks[next.idx()]
+                        .instructions
+                        .last()
+                        .is_some_and(|instr| instr.instr.is_scope_exit());
+                if next_is_scope_exit {
+                    let next_raises = blocks[next.idx()].instructions.iter().any(|instr| {
+                        matches!(instr.instr.real(), Some(Instruction::RaiseVarargs { .. }))
+                    });
+                    let target_is_loop_backedge = blocks[target.idx()]
+                        .instructions
+                        .first()
+                        .filter(|target_ins| target_ins.instr.is_unconditional_jump())
+                        .map(|target_ins| next_nonempty_block(blocks, target_ins.target))
+                        .is_some_and(|final_target| {
+                            final_target == BlockIdx(bi as u32)
+                                || comes_before(blocks, final_target, BlockIdx(bi as u32))
+                        });
+                    if !(block_is_protected(&blocks[bi]) && next_raises && target_is_loop_backedge)
+                    {
+                        continue;
+                    }
+                }
             }
             if include_conditional
                 && is_conditional_jump(&ins.instr)
