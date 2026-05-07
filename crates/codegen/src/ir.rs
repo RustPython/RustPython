@@ -11055,6 +11055,41 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
             .iter()
             .any(|ins| ins.instr.is_block_push())
     };
+    let block_ends_with_list_to_tuple_jump = |block: &Block| {
+        let ops: Vec<_> = block
+            .instructions
+            .iter()
+            .filter(|info| !matches!(info.instr.real(), Some(Instruction::Nop)))
+            .collect();
+        let Some((last, prefix)) = ops.split_last() else {
+            return false;
+        };
+        if !last.instr.is_unconditional_jump() {
+            return false;
+        }
+        let Some(prev) = prefix.last() else {
+            return false;
+        };
+        match prev.instr.real() {
+            Some(Instruction::CallIntrinsic1 { func }) => {
+                func.get(prev.arg) == IntrinsicFunction1::ListToTuple
+            }
+            _ => false,
+        }
+    };
+    let block_starts_with_store_and_exits = |block: &Block| {
+        block.instructions.first().is_some_and(|info| {
+            matches!(
+                info.instr.real(),
+                Some(
+                    Instruction::StoreFast { .. }
+                        | Instruction::StoreGlobal { .. }
+                        | Instruction::StoreName { .. }
+                        | Instruction::StoreDeref { .. }
+                )
+            )
+        }) && block_exits_scope(block)
+    };
     loop {
         let mut changes = false;
         let mut predecessors = vec![0usize; blocks.len()];
@@ -11098,7 +11133,15 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                 && !instruction_has_lineno(&blocks[target.idx()].instructions[0])
                 && !instruction_has_lineno(&blocks[target.idx()].instructions[1])
                 && !instruction_has_lineno(&blocks[target.idx()].instructions[2]);
-            if !shared_artificial_expr_exit && (small_exit_block || no_lineno_no_fallthrough) {
+            let shared_tuple_genexpr_assignment_tail = small_exit_block
+                && predecessors[target.idx()] > 1
+                && block_ends_with_list_to_tuple_jump(&blocks[current.idx()])
+                && block_starts_with_store_and_exits(&blocks[target.idx()]);
+            if !shared_artificial_expr_exit
+                && !shared_tuple_genexpr_assignment_tail
+                && (small_exit_block || no_lineno_no_fallthrough)
+            {
+                let removed_jump_kind = jump_thread_kind(last.instr);
                 let removed_jump_had_lineno = blocks[current.idx()]
                     .instructions
                     .last()
@@ -11113,6 +11156,21 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                 blocks[current.idx()]
                     .instructions
                     .extend(blocks[target.idx()].instructions.clone());
+                if no_lineno_no_fallthrough && removed_jump_kind == Some(JumpThreadKind::Plain) {
+                    if let Some(last) = blocks[current.idx()].instructions.last_mut()
+                        && jump_thread_kind(last.instr) == Some(JumpThreadKind::NoInterrupt)
+                    {
+                        last.instr = match last.instr.into() {
+                            AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt) => {
+                                PseudoOpcode::Jump.into()
+                            }
+                            AnyOpcode::Real(Opcode::JumpBackwardNoInterrupt) => {
+                                Opcode::JumpBackward.into()
+                            }
+                            _ => last.instr,
+                        };
+                    }
+                }
                 changes = true;
             }
 

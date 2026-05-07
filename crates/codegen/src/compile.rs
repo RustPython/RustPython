@@ -13001,6 +13001,48 @@ def set_f(xs):
     }
 
     #[test]
+    fn test_builtin_tuple_genexpr_try_assignment_uses_shared_tail() {
+        let code = compile_exec(
+            "\
+def f(xs):
+    global y
+    try:
+        y = tuple(int(i) for i in xs.split('.'))
+    except ValueError:
+        y = ()
+    return y
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let intrinsic = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::CallIntrinsic1 { .. }))
+            .expect("tuple(genexpr) fast path should emit LIST_TO_TUPLE");
+        let first_fallback = ops[intrinsic + 1..]
+            .iter()
+            .position(|op| matches!(op, Instruction::PushNull))
+            .map(|offset| intrinsic + 1 + offset)
+            .expect("shadowed tuple fallback call should remain after fast path");
+        let first_store = ops[intrinsic + 1..]
+            .iter()
+            .position(|op| matches!(op, Instruction::StoreGlobal { .. }))
+            .map(|offset| intrinsic + 1 + offset)
+            .expect("tuple(genexpr) result should be stored after fast or fallback call");
+
+        assert!(
+            matches!(ops[intrinsic + 1], Instruction::JumpForward { .. })
+                && first_fallback < first_store,
+            "tuple(genexpr) fast path should jump over fallback to CPython-style shared store tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_module_store_uses_store_global_when_nested_scope_declares_global() {
         let code = compile_exec(
             "\
@@ -17382,6 +17424,56 @@ def f(names, cls):
         assert_eq!(
             return_count, 2,
             "expected CPython-style distinct return sites for normal and except paths"
+        );
+    }
+
+    #[test]
+    fn test_except_break_preserves_plain_jump_when_inlining_no_lineno_tail() {
+        let code = compile_exec(
+            "\
+def f(compiler_so, cc_args):
+    strip_sysroot = True
+    if '-arch' in cc_args:
+        while True:
+            try:
+                index = compiler_so.index('-arch')
+                del compiler_so[index:index + 2]
+            except ValueError:
+                break
+    if strip_sysroot:
+        while True:
+            indices = [i for i, x in enumerate(compiler_so) if x.startswith('-isysroot')]
+            if not indices:
+                break
+            index = indices[0]
+            del compiler_so[index:index + 1]
+    return compiler_so
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [Instruction::PopExcept, Instruction::JumpBackward { .. }]
+                )
+            }) && !ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopExcept,
+                        Instruction::JumpBackwardNoInterrupt { .. }
+                    ]
+                )
+            }),
+            "except-break cleanup should preserve CPython's plain JUMP when a no-lineno tail is inlined, got ops={ops:?}"
         );
     }
 
