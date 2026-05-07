@@ -2604,9 +2604,18 @@ impl PseudoOpcode {
             Self::JumpNoInterrupt => (0, 0),
             Self::LoadClosure => (1, 0),
             Self::PopBlock => (0, 0),
-            Self::SetupCleanup => (2, 0),
-            Self::SetupFinally => (1, 0),
-            Self::SetupWith => (1, 0),
+            Self::SetupCleanup => (
+                0, // TODO: Differs from CPython `2`
+                0,
+            ),
+            Self::SetupFinally => (
+                0, // TODO: Differs from CPython `1`
+                0,
+            ),
+            Self::SetupWith => (
+                0, // TODO: Differs from CPython `1`
+                0,
+            ),
             Self::StoreFastMaybeNull => (0, 1),
         };
 

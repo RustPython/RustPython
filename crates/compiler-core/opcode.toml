@@ -256,12 +256,15 @@ oparg = { name = "i", type = "oparg::NameIdx" }
 
 [PseudoOpcode.opcodes.SetupCleanup]
 oparg = { name = "delta", type = "oparg::Label" }
+stack_effect = { pushed = "0" }
 
 [PseudoOpcode.opcodes.SetupFinally]
 oparg = { name = "delta", type = "oparg::Label" }
+stack_effect = { pushed = "0" }
 
 [PseudoOpcode.opcodes.SetupWith]
 oparg = { name = "delta", type = "oparg::Label" }
+stack_effect = { pushed = "0" }
 
 [PseudoOpcode.opcodes.StoreFastMaybeNull]
 oparg = { name = "var_num", type = "oparg::NameIdx" }
