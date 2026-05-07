@@ -11,7 +11,7 @@ use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
 
 #[derive(Debug, thiserror::Error)]
-pub enum ArgsError {
+pub(super) enum ArgsError {
     #[error("wrong number of arguments passed")]
     WrongNumberOfArgs,
     #[error("argument passed multiple times")]
@@ -39,7 +39,7 @@ impl ToPyObject for AbiValue {
     }
 }
 
-pub fn new_jit_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
+pub(super) fn new_jit_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
     let jit_error = vm.ctx.exceptions.jit_error.to_owned();
     vm.new_exception_msg(jit_error, msg.into())
 }
@@ -66,7 +66,10 @@ fn get_jit_arg_type(dict: &Py<PyDict>, name: &str, vm: &VirtualMachine) -> PyRes
     }
 }
 
-pub fn get_jit_arg_types(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<Vec<JitType>> {
+pub(super) fn get_jit_arg_types(
+    func: &Py<PyFunction>,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<JitType>> {
     let code: &Py<PyCode> = &func.code;
     let arg_names = code.arg_names();
 
@@ -108,7 +111,10 @@ pub fn get_jit_arg_types(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult
     }
 }
 
-pub fn jit_ret_type(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<Option<JitType>> {
+pub(super) fn jit_ret_type(
+    func: &Py<PyFunction>,
+    vm: &VirtualMachine,
+) -> PyResult<Option<JitType>> {
     let func_obj: PyObjectRef = func.as_ref().to_owned();
     let annotations = func_obj.get_attr("__annotations__", vm)?;
     if vm.is_none(&annotations) {

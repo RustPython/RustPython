@@ -125,6 +125,7 @@ pub(crate) mod ssl_error {
         )
     }
 
+    #[allow(dead_code, reason = "This seems like a false positive")]
     pub(crate) fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLZeroReturnError::class(&vm.ctx).to_owned(),
@@ -133,6 +134,7 @@ pub(crate) mod ssl_error {
         )
     }
 
+    #[allow(dead_code, reason = "This seems like a false positive")]
     pub(crate) fn create_ssl_syscall_error(
         vm: &VirtualMachine,
         msg: impl Into<String>,

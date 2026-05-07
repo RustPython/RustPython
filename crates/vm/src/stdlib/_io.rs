@@ -2,6 +2,7 @@
  * I/O core tools.
  */
 pub(crate) use _io::module_def;
+
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) use _io::reinit_std_streams_after_fork;
 

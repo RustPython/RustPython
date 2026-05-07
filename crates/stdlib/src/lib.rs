@@ -5,6 +5,7 @@
 
 #[macro_use]
 extern crate rustpython_derive;
+
 extern crate alloc;
 
 #[macro_use]
@@ -20,8 +21,10 @@ mod cmath;
 mod compression; // internal module
 mod contextvars;
 mod csv;
+
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod lzma;
+
 mod zlib;
 
 mod blake2;
@@ -41,30 +44,40 @@ mod json;
 mod locale;
 
 mod _opcode;
+
 #[path = "_tokenize.rs"]
 mod _tokenize;
+
 mod math;
+
 #[cfg(all(feature = "host_env", any(unix, windows)))]
 mod mmap;
+
 mod pyexpat;
 mod pystruct;
 mod random;
 mod statistics;
 mod suggestions;
+
 // TODO: maybe make this an extension module, if we ever get those
 // mod re;
 #[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
 pub mod socket;
+
 #[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
 mod syslog;
+
 mod unicodedata;
 
 #[cfg(feature = "host_env")]
 mod faulthandler;
+
 #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
 mod fcntl;
+
 #[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
 mod multiprocessing;
+
 #[cfg(all(
     feature = "host_env",
     unix,
@@ -72,28 +85,36 @@ mod multiprocessing;
     not(target_os = "android")
 ))]
 mod posixshmem;
+
 #[cfg(all(feature = "host_env", unix))]
 mod posixsubprocess;
+
 // libc is missing constants on redox
 #[cfg(all(
     feature = "sqlite",
     not(any(target_os = "android", target_arch = "wasm32"))
 ))]
 mod _sqlite3;
+
 #[cfg(all(feature = "host_env", windows))]
 mod _testconsole;
+
 #[cfg(all(
     feature = "host_env",
     unix,
     not(any(target_os = "android", target_os = "redox"))
 ))]
 mod grp;
+
 #[cfg(all(feature = "host_env", windows))]
 mod overlapped;
+
 #[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
 mod resource;
+
 #[cfg(all(feature = "host_env", target_os = "macos"))]
 mod scproxy;
+
 #[cfg(all(feature = "host_env", any(unix, windows, target_os = "wasi")))]
 mod select;
 
@@ -103,14 +124,16 @@ mod select;
     feature = "ssl-openssl"
 ))]
 mod openssl;
+
 #[cfg(all(
     feature = "host_env",
     not(target_arch = "wasm32"),
     feature = "ssl-rustls"
 ))]
 mod ssl;
-#[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls"))]
-compile_error!("features \"ssl-openssl\" and \"ssl-rustls\" are mutually exclusive");
+
+#[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls", not(clippy)))]
+compile_error!(r#"features "ssl-openssl" and "ssl-rustls" are mutually exclusive"#);
 
 #[cfg(all(
     feature = "host_env",
@@ -119,6 +142,7 @@ compile_error!("features \"ssl-openssl\" and \"ssl-rustls\" are mutually exclusi
     not(target_os = "ios")
 ))]
 mod termios;
+
 #[cfg(all(
     feature = "host_env",
     not(any(
