@@ -334,6 +334,7 @@ impl CodeInfo {
         materialize_empty_conditional_exit_targets(&mut self.blocks);
         redirect_empty_block_targets(&mut self.blocks);
         duplicate_end_returns(&mut self.blocks, &self.metadata);
+        duplicate_fallthrough_jump_back_targets(&mut self.blocks);
         duplicate_shared_jump_back_targets(&mut self.blocks);
         self.dce(); // truncate after terminal in blocks that got return duplicated
         self.eliminate_unreachable_blocks(); // remove now-unreachable last block
@@ -7961,6 +7962,36 @@ impl CodeInfo {
             })
         }
 
+        fn protected_store_subscr_operand_start(block: &Block) -> Option<usize> {
+            let store_idx = block.instructions.iter().position(|info| {
+                matches!(info.instr.real(), Some(Instruction::StoreSubscr))
+                    && info.except_handler.is_some()
+            })?;
+
+            let mut stack_items = 0;
+            for start in (0..store_idx).rev() {
+                let produced = match block.instructions[start].instr.real() {
+                    Some(
+                        Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadGlobal { .. }
+                        | Instruction::LoadName { .. }
+                        | Instruction::LoadDeref { .. },
+                    ) => 1,
+                    Some(
+                        Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. },
+                    ) => 2,
+                    _ => return None,
+                };
+                stack_items += produced;
+                if stack_items >= 3 {
+                    return Some(start);
+                }
+            }
+            None
+        }
+
         fn block_has_attr_named(block: &Block, names: &IndexSet<String>, attr: &str) -> bool {
             block.instructions.iter().any(|info| {
                 let raw = u32::from(info.arg) as usize;
@@ -8168,7 +8199,24 @@ impl CodeInfo {
         }
 
         let mut to_deopt = Vec::new();
-        for block in &self.blocks {
+        let has_exception_match_handler = self.blocks.iter().any(|block| {
+            block.instructions.iter().any(|info| {
+                matches!(
+                    info.instr.real(),
+                    Some(Instruction::CheckExcMatch | Instruction::CheckEgMatch)
+                )
+            })
+        });
+        if has_exception_match_handler {
+            for (block_idx, block) in self.blocks.iter().enumerate() {
+                if block_has_protected_instructions(block)
+                    && let Some(start) = protected_store_subscr_operand_start(block)
+                {
+                    to_deopt.push((BlockIdx::new(block_idx as u32), start));
+                }
+            }
+        }
+        for (block_idx, block) in self.blocks.iter().enumerate() {
             if block_is_exceptional(block)
                 || !block
                     .instructions
@@ -8186,6 +8234,10 @@ impl CodeInfo {
                 })
                 || !block_has_exception_match_handler(&self.blocks, block)
             {
+                continue;
+            }
+            if let Some(start) = protected_store_subscr_operand_start(block) {
+                to_deopt.push((BlockIdx::new(block_idx as u32), start));
                 continue;
             }
             let same_block_tail_start = first_unprotected_suffix(block);
@@ -13953,6 +14005,70 @@ fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
         blocks.push(cloned);
         blocks[target.idx()].next = new_idx;
         blocks[block_idx.idx()].instructions[instr_idx].target = new_idx;
+    }
+}
+
+fn duplicate_fallthrough_jump_back_targets(blocks: &mut Vec<Block>) {
+    let predecessors = compute_predecessors(blocks);
+    let mut clones = Vec::new();
+
+    let mut layout_pred = BlockIdx(0);
+    while layout_pred != BlockIdx::NULL {
+        if !block_has_fallthrough(&blocks[layout_pred.idx()]) {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+
+        let target = next_nonempty_block(blocks, blocks[layout_pred.idx()].next);
+        if target == BlockIdx::NULL
+            || predecessors[target.idx()] < 2
+            || !is_jump_back_only_block(blocks, target)
+        {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+
+        let jump_target = next_nonempty_block(blocks, blocks[target.idx()].instructions[0].target);
+        if jump_target == BlockIdx::NULL
+            || !has_non_exception_loop_backedge_to(blocks, target, jump_target)
+        {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+
+        let has_non_layout_jump_predecessor = blocks.iter().enumerate().any(|(idx, block)| {
+            let block_idx = BlockIdx(idx as u32);
+            block_idx != layout_pred
+                && block_idx != target
+                && block.instructions.iter().any(|info| {
+                    is_jump_instruction(info)
+                        && info.target != BlockIdx::NULL
+                        && next_nonempty_block(blocks, info.target) == target
+                })
+        });
+        if has_non_layout_jump_predecessor {
+            clones.push((layout_pred, target));
+        }
+
+        layout_pred = blocks[layout_pred.idx()].next;
+    }
+
+    for (layout_pred, target) in clones.into_iter().rev() {
+        if next_nonempty_block(blocks, blocks[layout_pred.idx()].next) != target {
+            continue;
+        }
+        let Some(last) = blocks[layout_pred.idx()].instructions.last().copied() else {
+            continue;
+        };
+
+        let new_idx = BlockIdx(blocks.len() as u32);
+        let mut cloned = blocks[target.idx()].clone();
+        if let Some(first) = cloned.instructions.first_mut() {
+            overwrite_location(first, last.location, last.end_location);
+        }
+        cloned.next = blocks[layout_pred.idx()].next;
+        blocks.push(cloned);
+        blocks[layout_pred.idx()].next = new_idx;
     }
 }
 

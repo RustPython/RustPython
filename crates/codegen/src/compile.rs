@@ -13086,6 +13086,88 @@ def f(kwonlyargs, kw_only_defaults, arg2value):
     }
 
     #[test]
+    fn test_protected_store_subscr_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(cache, lock, format):
+    with lock:
+        format_regex = cache.get(format)
+        if not format_regex:
+            try:
+                format_regex = cache.compile(format)
+            except KeyError as err:
+                bad_directive = err.args[0]
+                del err
+                raise ValueError(bad_directive) from None
+            cache[format] = format_regex
+    return format_regex.match('x')
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::StoreSubscr,
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style strong loads before protected STORE_SUBSCR tail, got ops={ops:?}"
+        );
+
+        let code = compile_exec(
+            "\
+cache = {}
+def g(lock, format):
+    with lock:
+        format_regex = cache.get(format)
+        if not format_regex:
+            try:
+                format_regex = compile(format)
+            except KeyError as err:
+                bad_directive = err.args[0]
+                del err
+                raise ValueError(bad_directive) from None
+            cache[format] = format_regex
+    return format_regex.match('x')
+",
+        );
+        let g = find_code(&code, "g").expect("missing function code");
+        let ops: Vec<_> = g
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadGlobal { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::StoreSubscr,
+                    ]
+                )
+            }),
+            "expected CPython-style strong value/key loads around global STORE_SUBSCR tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_augassign_two_part_slice_uses_slice_opcodes() {
         let code = compile_exec(
             "\
@@ -19867,6 +19949,34 @@ def f(keys, parse_int, d, ampm, AM, PM):
                 )
             }),
             "unexpected inverted nested elif false path before body, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(15).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style duplicated body/false loop exits for nested elif, got ops={ops:?}"
         );
     }
 
