@@ -3789,10 +3789,6 @@ impl Compiler {
         handlers: &[ast::ExceptHandler],
         orelse: &[ast::Stmt],
     ) -> CompileResult<()> {
-        let normal_exit_range = orelse
-            .last()
-            .map(ast::Stmt::range)
-            .or_else(|| body.last().map(ast::Stmt::range));
         let handler_block = self.new_block();
         let cleanup_block = self.new_block();
         let end_block = self.new_block();
@@ -3947,9 +3943,6 @@ impl Compiler {
         self.set_no_location();
 
         self.switch_to_block(end_block);
-        if let Some(range) = normal_exit_range {
-            self.set_source_range(range);
-        }
         Ok(())
     }
 
