@@ -1689,18 +1689,19 @@ impl CodeInfo {
         };
 
         let tuple_size = u32::from(block.instructions[i].arg) as usize;
-        if block
-            .instructions
-            .get(i + 1)
-            .and_then(|next| next.instr.real())
-            .is_some_and(|next| {
-                matches!(
-                    next,
-                    Instruction::UnpackSequence { .. }
-                        if usize::try_from(u32::from(block.instructions[i + 1].arg)).ok()
-                            == Some(tuple_size)
-                )
-            })
+        if tuple_size <= 3
+            && block
+                .instructions
+                .get(i + 1)
+                .and_then(|next| next.instr.real())
+                .is_some_and(|next| {
+                    matches!(
+                        next,
+                        Instruction::UnpackSequence { .. }
+                            if usize::try_from(u32::from(block.instructions[i + 1].arg)).ok()
+                                == Some(tuple_size)
+                    )
+                })
         {
             return false;
         }

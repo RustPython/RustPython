@@ -21907,6 +21907,36 @@ def f(self):
     }
 
     #[test]
+    fn test_four_item_unpack_assignment_folds_tuple_constant_like_cpython() {
+        let code = compile_exec("a, b, c, d = 1, 2, 3, 4\n");
+
+        assert!(
+            code.instructions.iter().any(|unit| {
+                matches!(unit.op, Instruction::LoadConst { .. })
+                    && matches!(
+                        code.constants.get(usize::from(u8::from(unit.arg))),
+                        Some(ConstantData::Tuple { elements }) if elements.len() == 4
+                    )
+            }),
+            "four-item unpack assignment should fold BUILD_TUPLE before UNPACK_SEQUENCE like CPython, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::UnpackSequence { .. })),
+            "four-item unpack assignment should keep UNPACK_SEQUENCE after tuple folding, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn test_chained_unpack_assignment_keeps_constant_collection_folding() {
         let code = compile_exec("(a, b) = c = d = (1, 2)\n");
 
