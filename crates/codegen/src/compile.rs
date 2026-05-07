@@ -5971,7 +5971,7 @@ impl Compiler {
             if self.ctx.func != FunctionContext::AsyncFunction {
                 return Err(self.error(CodegenErrorType::InvalidAsyncFor));
             }
-            emit!(self, Instruction::GetAIter);
+            emit!(self, Instruction::GetAiter);
 
             self.switch_to_block(for_block);
 
@@ -5980,7 +5980,7 @@ impl Compiler {
 
             // SETUP_FINALLY to guard the __anext__ call
             emit!(self, PseudoInstruction::SetupFinally { delta: else_block });
-            emit!(self, Instruction::GetANext);
+            emit!(self, Instruction::GetAnext);
             self.emit_load_const(ConstantData::None);
             end_async_for_target = self.compile_yield_from_sequence(true)?;
             // POP_BLOCK for SETUP_FINALLY - only GetANext/yield_from are protected
@@ -9445,7 +9445,7 @@ impl Compiler {
 
                 // Get iterator / turn item into an iterator
                 if generator.is_async {
-                    emit!(self, Instruction::GetAIter);
+                    emit!(self, Instruction::GetAiter);
                 } else {
                     emit!(self, Instruction::GetIter);
                 }
@@ -9455,7 +9455,7 @@ impl Compiler {
             let mut end_async_for_target = BlockIdx::NULL;
             if generator.is_async {
                 emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
-                emit!(self, Instruction::GetANext);
+                emit!(self, Instruction::GetAnext);
                 self.push_fblock(
                     FBlockType::AsyncComprehensionGenerator,
                     loop_block,
@@ -9565,7 +9565,7 @@ impl Compiler {
         // Get iterator / turn item into an iterator
         // Use is_async from the first generator, not has_an_async_gen which covers ALL generators
         if outermost.is_async {
-            emit!(self, Instruction::GetAIter);
+            emit!(self, Instruction::GetAiter);
         } else {
             emit!(self, Instruction::GetIter);
         };
@@ -9646,7 +9646,7 @@ impl Compiler {
                 }
             }
             if has_async && generators[0].is_async {
-                emit!(self, Instruction::GetAIter);
+                emit!(self, Instruction::GetAiter);
             } else {
                 emit!(self, Instruction::GetIter);
             }
@@ -9822,7 +9822,7 @@ impl Compiler {
                 if i > 0 {
                     self.compile_for_iterable_expression(&generator.iter, generator.is_async)?;
                     if generator.is_async {
-                        emit!(self, Instruction::GetAIter);
+                        emit!(self, Instruction::GetAiter);
                     } else {
                         emit!(self, Instruction::GetIter);
                     }
@@ -9833,7 +9833,7 @@ impl Compiler {
                 let mut end_async_for_target = BlockIdx::NULL;
                 if generator.is_async {
                     emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
-                    emit!(self, Instruction::GetANext);
+                    emit!(self, Instruction::GetAnext);
                     self.push_fblock(
                         FBlockType::AsyncComprehensionGenerator,
                         loop_block,
@@ -18406,7 +18406,7 @@ async def f(items):
             "async dict comprehension should be inlined"
         );
         assert!(
-            ops.iter().any(|op| matches!(op, Instruction::GetAIter)),
+            ops.iter().any(|op| matches!(op, Instruction::GetAiter)),
             "inlined async dict comprehension should keep GET_AITER in outer code, got ops={ops:?}"
         );
         assert!(
@@ -23486,7 +23486,7 @@ async def name_4():
         let Some(get_aiter_pos) = name_4
             .instructions
             .iter()
-            .position(|unit| matches!(unit.op, Instruction::GetAIter))
+            .position(|unit| matches!(unit.op, Instruction::GetAiter))
         else {
             panic!("missing GET_AITER in name_4");
         };

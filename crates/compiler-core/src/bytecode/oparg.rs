@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{
-    bytecode::{CodeUnit, instruction::Instruction},
+    bytecode::{CodeUnit, instructions::Instruction},
     marshal::MarshalError,
 };
 
