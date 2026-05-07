@@ -434,6 +434,32 @@ class InstructioneGen:
         }}
         """
 
+    @property
+    def fn_label_arg(self) -> str:
+        TARGET = "oparg::Label"
+
+        arms = ""
+        for instr in self:
+            name = instr.name
+            if oparg := self.metadata.get(name, {}).get("oparg"):
+                oname, otype = oparg["name"], oparg["type"]
+                if otype != TARGET:
+                    continue
+
+                arms += f"Self::{name} {{ {oname} }} => *{oname},\n"
+
+        arms = arms.strip()
+
+        return f"""
+        #[must_use]
+        pub const fn label_arg(&self) -> Option<{TARGET}> {{
+            Some(match self {{
+                {arms}
+                _ => return None,
+            }})
+        }}
+        """
+
     def __iter__(self):
         yield from self.instructions
 

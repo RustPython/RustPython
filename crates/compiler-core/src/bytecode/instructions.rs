@@ -2359,6 +2359,22 @@ impl Instruction {
             Self::EnterExecutor => Opcode::EnterExecutor,
         }
     }
+
+    #[must_use]
+    pub const fn label_arg(&self) -> Option<oparg::Label> {
+        Some(match self {
+            Self::ForIter { delta } => *delta,
+            Self::JumpBackward { delta } => *delta,
+            Self::JumpBackwardNoInterrupt { delta } => *delta,
+            Self::JumpForward { delta } => *delta,
+            Self::PopJumpIfFalse { delta } => *delta,
+            Self::PopJumpIfNone { delta } => *delta,
+            Self::PopJumpIfNotNone { delta } => *delta,
+            Self::PopJumpIfTrue { delta } => *delta,
+            Self::Send { delta } => *delta,
+            _ => return None,
+        })
+    }
 }
 
 impl From<Instruction> for Opcode {
@@ -2592,6 +2608,20 @@ impl PseudoInstruction {
             Self::SetupWith { .. } => PseudoOpcode::SetupWith,
             Self::StoreFastMaybeNull { .. } => PseudoOpcode::StoreFastMaybeNull,
         }
+    }
+
+    #[must_use]
+    pub const fn label_arg(&self) -> Option<oparg::Label> {
+        Some(match self {
+            Self::Jump { delta } => *delta,
+            Self::JumpIfFalse { delta } => *delta,
+            Self::JumpIfTrue { delta } => *delta,
+            Self::JumpNoInterrupt { delta } => *delta,
+            Self::SetupCleanup { delta } => *delta,
+            Self::SetupFinally { delta } => *delta,
+            Self::SetupWith { delta } => *delta,
+            _ => return None,
+        })
     }
 }
 
