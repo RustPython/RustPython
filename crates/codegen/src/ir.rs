@@ -11301,24 +11301,9 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
         let bi = block_idx.idx();
         let keep_target_start_nop =
             keep_target_start_no_location_nop(blocks, block_idx, &layout_predecessors);
-        let follows_pop_iter_cleanup =
-            layout_predecessor_ends_with_pop_iter(blocks, block_idx, &layout_predecessors);
+        let follows_same_line_pop_iter =
+            layout_predecessor_ends_with_pop_iter_on_line(blocks, block_idx, &layout_predecessors);
         let mut src_instructions = core::mem::take(&mut blocks[bi].instructions);
-        if !keep_target_start_nop
-            && matches!(
-                src_instructions.as_slice(),
-                [InstructionInfo {
-                    instr: AnyInstruction::Real(Instruction::Nop),
-                    ..
-                }]
-            )
-            && follows_pop_iter_cleanup
-        {
-            changes += 1;
-            src_instructions.clear();
-            blocks[bi].instructions = src_instructions;
-            continue;
-        }
         let mut kept = Vec::with_capacity(src_instructions.len());
         let mut prev_lineno = -1i32;
 
@@ -11328,12 +11313,10 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
             let mut remove = false;
 
             if matches!(instr.instr.real(), Some(Instruction::Nop)) {
-                if (src > 0
-                    && matches!(
-                        src_instructions[src - 1].instr.real(),
-                        Some(Instruction::PopIter)
-                    ))
-                    || (src == 0 && !keep_target_start_nop && follows_pop_iter_cleanup)
+                if src == 0
+                    && !keep_target_start_nop
+                    && lineno > 0
+                    && follows_same_line_pop_iter == Some(lineno)
                 {
                     remove = true;
                 } else if instr.preserve_block_start_no_location_nop {
@@ -11963,19 +11946,20 @@ fn keep_target_start_no_location_nop(
         && !block_starts_with_with_exit_none_call(&blocks[target.idx()])
 }
 
-fn layout_predecessor_ends_with_pop_iter(
+fn layout_predecessor_ends_with_pop_iter_on_line(
     blocks: &[Block],
     target: BlockIdx,
     layout_predecessors: &[BlockIdx],
-) -> bool {
+) -> Option<i32> {
     let layout_pred = layout_predecessors[target.idx()];
-    layout_pred != BlockIdx::NULL
-        && block_has_fallthrough(&blocks[layout_pred.idx()])
-        && next_nonempty_block(blocks, blocks[layout_pred.idx()].next) == target
-        && blocks[layout_pred.idx()]
-            .instructions
-            .last()
-            .is_some_and(|info| matches!(info.instr.real(), Some(Instruction::PopIter)))
+    if layout_pred == BlockIdx::NULL
+        || !block_has_fallthrough(&blocks[layout_pred.idx()])
+        || next_nonempty_block(blocks, blocks[layout_pred.idx()].next) != target
+    {
+        return None;
+    }
+    let last = blocks[layout_pred.idx()].instructions.last()?;
+    matches!(last.instr.real(), Some(Instruction::PopIter)).then_some(instruction_lineno(last))
 }
 
 fn is_with_suppress_exit_block(block: &Block) -> bool {

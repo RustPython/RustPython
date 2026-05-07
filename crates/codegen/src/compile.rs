@@ -583,6 +583,24 @@ impl Compiler {
             .is_some_and(Self::statement_ends_with_scope_exit)
     }
 
+    fn statements_end_with_finally_entry_scope_exit(body: &[ast::Stmt]) -> bool {
+        body.last()
+            .is_some_and(Self::statement_ends_with_finally_entry_scope_exit)
+    }
+
+    fn statement_ends_with_finally_entry_scope_exit(stmt: &ast::Stmt) -> bool {
+        match stmt {
+            ast::Stmt::Return(_)
+            | ast::Stmt::Raise(_)
+            | ast::Stmt::Break(_)
+            | ast::Stmt::Continue(_) => true,
+            ast::Stmt::If(ast::StmtIf { body, .. }) => {
+                Self::statements_end_with_finally_entry_scope_exit(body)
+            }
+            _ => false,
+        }
+    }
+
     fn statement_ends_with_scope_exit(stmt: &ast::Stmt) -> bool {
         match stmt {
             ast::Stmt::Return(_) | ast::Stmt::Raise(_) => true,
@@ -624,6 +642,14 @@ impl Compiler {
             }) => {
                 !finalbody.is_empty()
                     || (!handlers.is_empty() && Self::statements_end_with_scope_exit(body))
+            }
+            ast::Stmt::If(ast::StmtIf {
+                body,
+                elif_else_clauses,
+                ..
+            }) => {
+                elif_else_clauses.is_empty()
+                    && Self::statements_end_with_finally_entry_scope_exit(body)
             }
             _ => false,
         })
@@ -10802,6 +10828,7 @@ impl Compiler {
         }
 
         // Emit cleanup for each fblock
+        let mut jump_no_location = false;
         for action in unwind_actions {
             match action {
                 UnwindAction::With { is_async, range } => {
@@ -10822,6 +10849,7 @@ impl Compiler {
 
                     emit!(self, Instruction::PopTop);
                     self.set_source_range(saved_range);
+                    jump_no_location = true;
                 }
                 UnwindAction::HandlerCleanup { ref name } => {
                     // codegen_unwind_fblock(HANDLER_CLEANUP)
@@ -10858,6 +10886,7 @@ impl Compiler {
                     // this keeps the fblock stack consistent for error checking)
                     let code = self.current_code_info();
                     code.fblock.insert(fblock_idx, saved_fblock);
+                    jump_no_location = true;
                 }
                 UnwindAction::FinallyEnd => {
                     // codegen_unwind_fblock(FINALLY_END)
@@ -10880,6 +10909,9 @@ impl Compiler {
         // Jump to target
         let target = if is_break { exit_block } else { loop_block };
         emit!(self, PseudoInstruction::Jump { delta: target });
+        if jump_no_location {
+            self.set_no_location();
+        }
 
         Ok(())
     }
@@ -13295,6 +13327,93 @@ def f(msg):
     }
 
     #[test]
+    fn test_nested_try_line_nops_after_for_cleanup_are_preserved() {
+        let code = compile_exec(
+            "\
+def f(xs, env):
+    for x in xs:
+        pass
+    try:
+        try:
+            if env is not None:
+                env_list = []
+            else:
+                env_list = None
+        finally:
+            pass
+    finally:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::Nop,
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::PopJumpIfNone { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style outer and inner try-line NOPs after for cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_finally_if_break_false_edge_keeps_finalbody_entry_nop() {
+        let code = compile_exec(
+            "\
+def f(self, pid):
+    while True:
+        try:
+            if pid == self.pid:
+                self.h()
+                break
+        finally:
+            self.r()
+        self.g()
+    return self.x
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ReturnValue,
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "expected CPython-style if-line NOP before fallthrough finally body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_try_percent_format_preprocess_removes_redundant_try_nop() {
         let code = compile_exec(
             "\
@@ -14823,6 +14942,46 @@ def f(tar1, x):
                 )
             }),
             "expected CPython-style break cleanup to jump directly into finally body, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
+    fn test_with_break_cleanup_makes_following_jump_artificial() {
+        let code = compile_exec(
+            "\
+def f(self):
+    while self.returncode is None:
+        with self._waitpid_lock:
+            if self.returncode is not None:
+                break
+            self.work()
+    return self.returncode
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            !ops_lines.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::Nop, 5),
+                        (
+                            Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                            7
+                        ),
+                    ]
+                )
+            }),
+            "expected CPython-style artificial jump after with-break cleanup, got ops_lines={ops_lines:?}",
         );
     }
 
