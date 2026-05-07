@@ -20668,6 +20668,177 @@ def f(source, state, verbose, nested):
     }
 
     #[test]
+    fn test_multiblock_elif_continue_keeps_next_test_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(source, state, verbose, nested, subpatternappend, start, MAXGROUPS):
+    sourceget = source.get
+    sourcematch = source.match
+    while True:
+        this = source.next
+        sourceget()
+        if this == '(':
+            if sourcematch('?'):
+                char = sourceget()
+                if char in '=!<':
+                    dir = 1
+                    if char == '<':
+                        char = sourceget()
+                        if char not in '=!':
+                            raise source.error('unknown extension ?<' + char, len(char) + 2)
+                        dir = -1
+                        lookbehindgroups = state.lookbehindgroups
+                        if lookbehindgroups is None:
+                            state.lookbehindgroups = state.groups
+                    p = parse_sub(source, state, verbose, nested + 1)
+                    if dir < 0:
+                        if lookbehindgroups is None:
+                            state.lookbehindgroups = None
+                    if not sourcematch(')'):
+                        raise source.error('missing ), unterminated subpattern', source.tell() - start)
+                    if char == '=':
+                        subpatternappend(('ASSERT', (dir, p)))
+                    elif p:
+                        subpatternappend(('ASSERT_NOT', (dir, p)))
+                    else:
+                        subpatternappend(('FAILURE', ()))
+                    continue
+                elif char == '(':
+                    condname = source.getuntil(')', 'group name')
+                    if not (condname.isdecimal() and condname.isascii()):
+                        source.checkgroupname(condname, 1)
+                        condgroup = state.groupdict.get(condname)
+                        if condgroup is None:
+                            msg = 'unknown group name %r' % condname
+                            raise source.error(msg, len(condname) + 1)
+                    else:
+                        condgroup = int(condname)
+                        if not condgroup:
+                            raise source.error('bad group number', len(condname) + 1)
+                        if condgroup >= MAXGROUPS:
+                            msg = 'invalid group reference %d' % condgroup
+                            raise source.error(msg, len(condname) + 1)
+                    state.checklookbehindgroup(condgroup, source)
+                    item_yes = parse(source, state, verbose, nested + 1)
+                    if source.match('|'):
+                        item_no = parse(source, state, verbose, nested + 1)
+                        if source.next == '|':
+                            raise source.error('conditional backref with more than two branches')
+                    else:
+                        item_no = None
+                    if not source.match(')'):
+                        raise source.error('missing ), unterminated subpattern', source.tell() - start)
+                    subpatternappend(('GROUPREF_EXISTS', (condgroup, item_yes, item_no)))
+                    continue
+                elif char == '>':
+                    capture = False
+        return
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style elif test between separate continue backedges, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_while_scope_exit_body_keeps_line_backedge_before_raise_body() {
+        let code = compile_exec(
+            "\
+FLAGS = {}
+TYPE_FLAGS = 0
+GLOBAL_FLAGS = 0
+
+def f(source, state, char):
+    sourceget = source.get
+    add_flags = 0
+    del_flags = 0
+    if char != '-':
+        while True:
+            flag = FLAGS[char]
+            add_flags |= flag
+            if (flag & TYPE_FLAGS) and (add_flags & TYPE_FLAGS) != flag:
+                msg = 'bad inline flags'
+                raise source.error(msg)
+            char = sourceget()
+            if char is None:
+                raise source.error('missing -, : or )')
+            if char in ')-:':
+                break
+            if char not in FLAGS:
+                msg = 'unknown flag' if char.isalpha() else 'missing -, : or )'
+                raise source.error(msg, len(char))
+    if char == ')':
+        state.flags |= add_flags
+        return None
+    if add_flags & GLOBAL_FLAGS:
+        raise source.error('bad inline flags: cannot turn on global flag', 1)
+    if char == '-':
+        char = sourceget()
+        if char is None:
+            raise source.error('missing flag')
+        if char not in FLAGS:
+            msg = 'unknown flag' if char.isalpha() else 'missing flag'
+            raise source.error(msg, len(char))
+        while True:
+            flag = FLAGS[char]
+            del_flags |= flag
+            char = sourceget()
+            if char is None:
+                raise source.error('missing :')
+            if char == ':':
+                break
+            if char not in FLAGS:
+                msg = 'unknown flag' if char.isalpha() else 'missing :'
+                raise source.error(msg, len(char))
+    return add_flags, del_flags
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style false-path loop backedge before raising body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_if_pass_uses_line_bearing_jump_back_instead_of_nop() {
         let code = compile_exec(
             "\

@@ -13724,6 +13724,10 @@ fn reorder_conditional_implicit_continue_scope_exit_blocks(blocks: &mut [Block])
                     || next_nonempty_block(blocks, loop_exit_start) == after_jump
             })
         });
+        let jump_has_lineno = blocks[jump_block.idx()]
+            .instructions
+            .first()
+            .is_some_and(|info| instruction_lineno(info) >= 0);
         if exit_start == BlockIdx::NULL
             || exit_block == BlockIdx::NULL
             || jump_start == BlockIdx::NULL
@@ -13737,14 +13741,11 @@ fn reorder_conditional_implicit_continue_scope_exit_blocks(blocks: &mut [Block])
             || block_is_protected(&blocks[jump_block.idx()])
             || !is_scope_exit_block(&blocks[exit_block.idx()])
             || !is_jump_back_only_block(blocks, jump_block)
-            || blocks[jump_block.idx()]
-                .instructions
-                .first()
-                .is_some_and(|info| info.lineno_override.is_some_and(|lineno| lineno >= 0))
             || jumps_to_for_iter
             || (after_jump != BlockIdx::NULL
                 && !blocks[after_jump.idx()].cold
-                && !jump_exits_to_loop_exit)
+                && !jump_exits_to_loop_exit
+                && !jump_has_lineno)
             || next_nonempty_block(blocks, blocks[exit_block.idx()].next) != jump_block
         {
             current = next;
@@ -14043,8 +14044,10 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             let after_jump = blocks[true_jump.idx()].next;
             let body_tail_is_conditional =
                 trailing_conditional_jump_index(&blocks[body_tail.idx()]).is_some();
+            let body_is_single_block = body == body_tail;
             let can_reorder = !body_tail_is_conditional
-                && (matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. }))
+                && ((body_is_single_block
+                    && matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. })))
                     || (body == body_tail && is_single_delete_subscr_body(&blocks[body.idx()]))
                     || body_segment_contains_for_iter(blocks, body, body_tail));
             if can_reorder && after_jump != BlockIdx::NULL && after_jump != body_start {
@@ -14667,6 +14670,10 @@ fn duplicate_fallthrough_jump_back_targets(blocks: &mut Vec<Block>) {
         if !block_has_no_lineno(&blocks[target.idx()])
             && trailing_conditional_jump_index(&blocks[layout_pred.idx()]).is_some()
         {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+        if !block_has_no_lineno(&blocks[target.idx()]) && blocks[layout_pred.idx()].next != target {
             layout_pred = blocks[layout_pred.idx()].next;
             continue;
         }
