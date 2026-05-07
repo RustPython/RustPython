@@ -15416,6 +15416,57 @@ def f():
     }
 
     #[test]
+    fn test_try_import_continue_handler_deopts_loop_tail_borrow() {
+        let code = compile_exec(
+            "\
+def f(size):
+    pos = 0
+    while pos < size:
+        try:
+            import unicodedata
+        except ImportError:
+            continue
+        if pos < size:
+            pos += 1
+    return pos
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let import_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ImportName { .. }))
+            .expect("missing IMPORT_NAME");
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &ops[import_idx + 1..handler_start];
+        let return_idx = normal_tail
+            .iter()
+            .position(|op| matches!(op, Instruction::ReturnValue))
+            .unwrap_or(normal_tail.len());
+        let loop_tail = &normal_tail[..return_idx.saturating_sub(1)];
+
+        assert!(
+            !loop_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "CPython keeps strong LOAD_FAST ops in the loop tail after protected import with continue handler, got tail={loop_tail:?}",
+        );
+    }
+
+    #[test]
     fn test_try_import_pass_else_keeps_borrow() {
         let code = compile_exec(
             "\
@@ -24308,6 +24359,68 @@ def f(curr, decoded_append, packI, curr_clear, Error):
         assert!(
             matches!(curr_clear_load.op, Instruction::LoadFast { .. }),
             "terminal except successor call tail should use strong LOAD_FAST for curr_clear, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_following_if_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(s):
+    try:
+        t = s[1:]
+        d = g(s)
+    except ValueError:
+        raise ValueError('bad') from None
+    if t:
+        try:
+            a, b, c = h(t)
+        except ValueError:
+            raise ValueError('bad') from None
+        else:
+            if b:
+                x, y, z = d
+                if y <= 12 and z <= q(x, y):
+                    z += 1
+                d = [x, y, z]
+    else:
+        a = [0]
+    return k(*(d + a))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail_start = ops
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num }
+                        if f.varnames[usize::from(
+                            var_num.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        )] == "t"
+                )
+            })
+            .expect("missing post-try t load");
+        let tail = &ops[tail_start..handler_start];
+
+        assert!(
+            !tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "terminal except following conditional tail should use CPython-style strong LOAD_FAST ops, got tail={tail:?}"
         );
     }
 

@@ -5999,10 +5999,7 @@ impl CodeInfo {
                     continue;
                 }
                 let block = &self.blocks[block_idx.idx()];
-                if block_is_exceptional(block)
-                    || block.cold
-                    || block_has_protected_instructions(block)
-                {
+                if block_is_exceptional(block) || block.cold {
                     continue;
                 }
                 visited[block_idx.idx()] = true;
@@ -7613,6 +7610,46 @@ impl CodeInfo {
             false
         }
 
+        fn handler_chain_continues_to_or_before(
+            blocks: &[Block],
+            handler_block: BlockIdx,
+            seed: BlockIdx,
+            block_order: &[u32],
+        ) -> bool {
+            let mut cursor = handler_block;
+            let mut visited = vec![false; blocks.len()];
+            let mut after_pop_except = false;
+            while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
+                visited[cursor.idx()] = true;
+                for info in &blocks[cursor.idx()].instructions {
+                    match info.instr.real() {
+                        Some(Instruction::PopExcept) => after_pop_except = true,
+                        Some(
+                            Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        ) if after_pop_except
+                            && info.target != BlockIdx::NULL
+                            && block_order[info.target.idx()] <= block_order[seed.idx()] =>
+                        {
+                            return true;
+                        }
+                        Some(_) if after_pop_except && is_conditional_jump(&info.instr) => {
+                            return false;
+                        }
+                        Some(instr)
+                            if after_pop_except
+                                && (instr.is_unconditional_jump() || instr.is_scope_exit()) =>
+                        {
+                            return false;
+                        }
+                        _ => {}
+                    }
+                }
+                cursor = blocks[cursor.idx()].next;
+            }
+            false
+        }
+
         fn block_has_protected_instructions(block: &Block) -> bool {
             block
                 .instructions
@@ -7632,6 +7669,15 @@ impl CodeInfo {
             }
         }
 
+        let mut block_order = vec![u32::MAX; self.blocks.len()];
+        let mut cursor = BlockIdx(0);
+        let mut pos = 0u32;
+        while cursor != BlockIdx::NULL {
+            block_order[cursor.idx()] = pos;
+            pos += 1;
+            cursor = self.blocks[cursor.idx()].next;
+        }
+
         let seeds: Vec<_> =
             self.blocks
                 .iter()
@@ -7649,24 +7695,25 @@ impl CodeInfo {
                         .is_some_and(|handler| {
                             handler_chain_returns(&self.blocks, handler.handler_block)
                         });
-                    if !handler_returns {
+                    let handler_continues = block.instructions[import_idx]
+                        .except_handler
+                        .is_some_and(|handler| {
+                            handler_chain_continues_to_or_before(
+                                &self.blocks,
+                                handler.handler_block,
+                                BlockIdx::new(idx as u32),
+                                &block_order,
+                            )
+                        });
+                    if !handler_returns && !handler_continues {
                         return None;
                     }
-                    Some((BlockIdx::new(idx as u32), import_idx))
+                    Some((BlockIdx::new(idx as u32), import_idx, handler_continues))
                 })
                 .collect();
 
-        let mut block_order = vec![u32::MAX; self.blocks.len()];
-        let mut cursor = BlockIdx(0);
-        let mut pos = 0u32;
-        while cursor != BlockIdx::NULL {
-            block_order[cursor.idx()] = pos;
-            pos += 1;
-            cursor = self.blocks[cursor.idx()].next;
-        }
-
         let mut visited = vec![false; self.blocks.len()];
-        for (seed, import_idx) in seeds {
+        for (seed, import_idx, handler_continues) in seeds {
             let mut protected_store_locals = vec![false; self.metadata.varnames.len()];
             for info in self.blocks[seed.idx()]
                 .instructions
@@ -7689,7 +7736,9 @@ impl CodeInfo {
             let mut segment = vec![(seed, import_idx + 1)];
             let mut cursor = self.blocks[seed.idx()].next;
             while cursor != BlockIdx::NULL && !block_is_exceptional(&self.blocks[cursor.idx()]) {
-                if block_has_protected_instructions(&self.blocks[cursor.idx()]) {
+                if !handler_continues
+                    && block_has_protected_instructions(&self.blocks[cursor.idx()])
+                {
                     break;
                 }
                 if predecessors[cursor.idx()].iter().any(|pred| {
@@ -7705,6 +7754,7 @@ impl CodeInfo {
                     .instructions
                     .iter()
                     .any(|info| info.instr.real().is_some_and(|instr| instr.is_scope_exit()))
+                    && !handler_continues
                 {
                     break;
                 }
