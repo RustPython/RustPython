@@ -20077,6 +20077,65 @@ def f(self, replacement_pairs):
     }
 
     #[test]
+    fn test_branch_local_implicit_continue_keeps_body_before_jump_back() {
+        let code = compile_exec(
+            "\
+def f(items, outer, cond, sub, out):
+    for x in items:
+        if outer:
+            if cond:
+                out.append(x)
+                if sub:
+                    out.append(1)
+                out.append(2)
+        else:
+            out.append(3)
+    return out
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "expected branch-local implicit continue target to stay after the body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "unexpected direct-loop-body implicit continue layout for branch-local target, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_elif_nested_if_false_backedge_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\

@@ -10781,6 +10781,7 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                 if conditional && final_target_pos <= source_pos {
                     let mut scan = blocks[bi].next;
                     let mut chain_has_delete_subscr = false;
+                    let mut chain_has_for_iter = false;
                     let mut seen = vec![false; blocks.len()];
                     while scan != BlockIdx::NULL && scan != target && !seen[scan.idx()] {
                         seen[scan.idx()] = true;
@@ -10788,6 +10789,9 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                             blocks[scan.idx()].instructions.iter().any(|info| {
                                 matches!(info.instr.real(), Some(Instruction::DeleteSubscr))
                             });
+                        chain_has_for_iter |= blocks[scan.idx()].instructions.iter().any(|info| {
+                            matches!(info.instr.real(), Some(Instruction::ForIter { .. }))
+                        });
                         scan = blocks[scan.idx()].next;
                     }
                     if chain_has_delete_subscr {
@@ -10801,8 +10805,21 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                         continue;
                     }
                     let after_target = next_nonempty_block(blocks, blocks[target.idx()].next);
+                    let final_target_has_for_iter = blocks[final_target.idx()]
+                        .instructions
+                        .iter()
+                        .any(|info| matches!(info.instr.real(), Some(Instruction::ForIter { .. })));
+                    let target_exits_current_loop = trailing_conditional_jump_index(
+                        &blocks[final_target.idx()],
+                    )
+                    .is_some_and(|cond_idx| {
+                        !final_target_has_for_iter
+                            && next_nonempty_block(
+                                blocks,
+                                blocks[final_target.idx()].instructions[cond_idx].target,
+                            ) == after_target
+                    });
                     let mut scan = blocks[bi].next;
-                    let mut nonempty_between = 0usize;
                     let mut first_nonempty_between = BlockIdx::NULL;
                     let mut reaches_target = false;
                     let mut seen = vec![false; blocks.len()];
@@ -10816,12 +10833,11 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                             if first_nonempty_between == BlockIdx::NULL {
                                 first_nonempty_between = scan;
                             }
-                            nonempty_between += 1;
                         }
                         scan = blocks[scan.idx()].next;
                     }
                     if reaches_target
-                        && nonempty_between <= 2
+                        && !chain_has_for_iter
                         && first_nonempty_between != BlockIdx::NULL
                         && !is_marker_jump_only_block(&blocks[first_nonempty_between.idx()])
                         && !is_pop_top_jump_block(&blocks[first_nonempty_between.idx()])
@@ -10834,6 +10850,7 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                         && !is_pop_top_jump_block(&blocks[after_target.idx()])
                         && !is_scope_exit_block(&blocks[after_target.idx()])
                         && !is_loop_cleanup_block(&blocks[after_target.idx()])
+                        && !target_exits_current_loop
                     {
                         continue;
                     }
