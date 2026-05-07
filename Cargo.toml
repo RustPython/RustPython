@@ -256,6 +256,7 @@ pkcs8 = "0.10"
 proc-macro2 = "1.0.105"
 psm = "0.1"
 pymath = { version = "0.2.0", features = ["mul_add", "malachite-bigint", "complex"] }
+pyo3 = "0.28"
 quote = "1.0.45"
 radium = "1.1.1"
 rand = "0.9"
