@@ -4533,6 +4533,60 @@ impl CodeInfo {
             false
         }
 
+        fn is_return_value_through_with_exit(block: &Block) -> bool {
+            let reals: Vec<_> = block
+                .instructions
+                .iter()
+                .filter_map(|info| info.instr.real())
+                .collect();
+            if !matches!(
+                reals.first(),
+                Some(
+                    Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            ) {
+                return false;
+            }
+            if !matches!(reals.last(), Some(Instruction::ReturnValue)) {
+                return false;
+            }
+            reals.iter().skip(1).all(|instr| {
+                matches!(
+                    instr,
+                    Instruction::Swap { .. }
+                        | Instruction::LoadConst { .. }
+                        | Instruction::Call { .. }
+                        | Instruction::PopTop
+                        | Instruction::ReturnValue
+                )
+            })
+        }
+
+        fn is_simple_store_attr_tail(block: &Block) -> bool {
+            let reals: Vec<_> = block
+                .instructions
+                .iter()
+                .filter_map(|info| info.instr.real())
+                .filter(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+                .collect();
+            matches!(
+                reals.as_slice(),
+                [
+                    Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                    Instruction::StoreAttr { .. },
+                    ..
+                ] | [
+                    Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. },
+                    Instruction::StoreAttr { .. },
+                    ..
+                ]
+            )
+        }
+
         fn leading_bool_guard_has_scope_exit_successor(blocks: &[Block], block: &Block) -> bool {
             let Some(cond_idx) = trailing_conditional_jump_index(block) else {
                 return false;
@@ -4778,6 +4832,14 @@ impl CodeInfo {
                     leading_bool_guard_local(&self.blocks[block_idx.idx()]) == Some(local)
                 });
                 if !requires_deopt && !is_same_guard_fallback {
+                    continue;
+                }
+                if requires_deopt
+                    && is_return_value_through_with_exit(&self.blocks[block_idx.idx()])
+                {
+                    continue;
+                }
+                if requires_deopt && is_simple_store_attr_tail(&self.blocks[block_idx.idx()]) {
                     continue;
                 }
                 if block_idx != seed
@@ -6239,6 +6301,20 @@ impl CodeInfo {
 
         let mut visited = vec![false; self.blocks.len()];
         for (seed, direct_only) in seeds {
+            let mut reachable_from_seed = vec![false; self.blocks.len()];
+            let mut reachability_stack = vec![seed];
+            while let Some(block_idx) = reachability_stack.pop() {
+                if block_idx == BlockIdx::NULL || reachable_from_seed[block_idx.idx()] {
+                    continue;
+                }
+                let block = &self.blocks[block_idx.idx()];
+                if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                reachable_from_seed[block_idx.idx()] = true;
+                reachability_stack.extend(normal_successors(block));
+            }
+
             let mut stack = vec![seed];
             while let Some(block_idx) = stack.pop() {
                 if block_idx == BlockIdx::NULL || visited[block_idx.idx()] {
@@ -6246,6 +6322,17 @@ impl CodeInfo {
                 }
                 let block = &self.blocks[block_idx.idx()];
                 if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                if block_idx != seed
+                    && predecessors[block_idx.idx()].iter().any(|pred| {
+                        let pred_block = &self.blocks[pred.idx()];
+                        !block_is_exceptional(pred_block)
+                            && !pred_block.cold
+                            && !reachable_from_seed[pred.idx()]
+                            && normal_successors(pred_block).contains(&block_idx)
+                    })
+                {
                     continue;
                 }
                 visited[block_idx.idx()] = true;
