@@ -4394,7 +4394,6 @@ impl CodeInfo {
             for block_idx in &segment {
                 in_segment[block_idx.idx()] = true;
             }
-
             for block_idx in segment {
                 if visited[block_idx.idx()] {
                     continue;
@@ -4823,7 +4822,6 @@ impl CodeInfo {
             for block_idx in &segment {
                 in_segment[block_idx.idx()] = true;
             }
-
             for block_idx in segment {
                 if visited[block_idx.idx()] {
                     continue;
@@ -5131,6 +5129,15 @@ impl CodeInfo {
             if block_is_exceptional(block) || block.cold || !starts_with_fast_load(block) {
                 continue;
             }
+            if block_has_protected_instructions(block) {
+                continue;
+            }
+            if predecessors[idx]
+                .iter()
+                .any(|pred| is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()]))
+            {
+                continue;
+            }
             let mut seen = vec![false; self.blocks.len()];
             let mut stack = predecessors[idx].clone();
             while let Some(pred) = stack.pop() {
@@ -5172,6 +5179,13 @@ impl CodeInfo {
             while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
                 let block = &self.blocks[cursor.idx()];
                 if block_is_exceptional(block) || block.cold {
+                    break;
+                }
+                if block_has_protected_instructions(block)
+                    || predecessors[cursor.idx()].iter().any(|pred| {
+                        is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()])
+                    })
+                {
                     break;
                 }
                 visited[cursor.idx()] = true;
@@ -5667,8 +5681,24 @@ impl CodeInfo {
                 if block_is_exceptional(&self.blocks[cursor.idx()]) {
                     break;
                 }
+                if cursor != seed
+                    && predecessors[cursor.idx()].iter().any(|pred| {
+                        is_handler_resume_block[pred.idx()]
+                            || is_handler_resume_predecessor(&self.blocks[pred.idx()], cursor)
+                            || is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()])
+                    })
+                {
+                    break;
+                }
                 segment.push(cursor);
                 cursor = self.blocks[cursor.idx()].next;
+            }
+            if segment.iter().any(|block_idx| {
+                predecessors[block_idx.idx()]
+                    .iter()
+                    .any(|pred| is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()]))
+            }) {
+                continue;
             }
 
             let segment_ops: Vec<_> = segment
@@ -5797,7 +5827,11 @@ impl CodeInfo {
                 if predecessors[block_idx.idx()].iter().any(|pred| {
                     is_handler_resume_block[pred.idx()]
                         || is_handler_resume_predecessor(&self.blocks[pred.idx()], block_idx)
+                        || is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()])
                 }) {
+                    continue;
+                }
+                if block_has_protected_instructions(&self.blocks[block_idx.idx()]) {
                     continue;
                 }
                 if !force_deopt

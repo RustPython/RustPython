@@ -654,6 +654,17 @@ impl Compiler {
         })
     }
 
+    fn has_resuming_bare_except(handlers: &[ast::ExceptHandler]) -> bool {
+        handlers.iter().any(|handler| {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                type_,
+                body,
+                ..
+            }) = handler;
+            type_.is_none() && !Self::statements_end_with_scope_exit(body)
+        })
+    }
+
     fn preserves_finally_entry_nop(body: &[ast::Stmt]) -> bool {
         body.last().is_some_and(|stmt| match stmt {
             ast::Stmt::Try(ast::StmtTry {
@@ -3396,16 +3407,7 @@ impl Compiler {
         // End block - continuation point after try-finally
         // Normal path jumps here to skip exception path blocks
         let end_block = self.new_block();
-        let has_bare_except = handlers.iter().any(|handler| {
-            matches!(
-                handler,
-                ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
-                    type_: None,
-                    ..
-                })
-            )
-        });
-        if has_bare_except {
+        if Self::has_resuming_bare_except(handlers) {
             self.disable_load_fast_borrow_for_block(end_block);
         }
 
@@ -3794,22 +3796,13 @@ impl Compiler {
         let handler_block = self.new_block();
         let cleanup_block = self.new_block();
         let end_block = self.new_block();
-        let has_bare_except = handlers.iter().any(|handler| {
-            matches!(
-                handler,
-                ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
-                    type_: None,
-                    ..
-                })
-            )
-        });
         let has_terminal_raise_handlers = handlers.iter().all(|handler| {
             let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler { body, .. }) =
                 handler;
             body.last()
                 .is_some_and(|stmt| matches!(stmt, ast::Stmt::Raise(_)))
         });
-        if has_bare_except {
+        if Self::has_resuming_bare_except(handlers) {
             self.disable_load_fast_borrow_for_block(end_block);
         }
 
@@ -23931,12 +23924,29 @@ def f(self):
     fn test_named_except_conditional_reraise_final_store_attr_keeps_borrow() {
         let code = compile_exec(
             "\
-def f(self, fd, OSError, errno):
+def f(self, fd, file, closefd, owned_fd, OSError, AttributeError, errno, os, stat, _setmode):
     try:
-        os.lseek(fd, 0, SEEK_END)
-    except OSError as e:
-        if e.errno != errno.ESPIPE:
-            raise
+        self._closefd = closefd
+        self._stat_atopen = os.fstat(fd)
+        try:
+            if stat.S_ISDIR(self._stat_atopen.st_mode):
+                raise IsADirectoryError(errno.EISDIR, os.strerror(errno.EISDIR), file)
+        except AttributeError:
+            pass
+        if _setmode:
+            _setmode(fd, os.O_BINARY)
+        self.name = file
+        if self._appending:
+            try:
+                os.lseek(fd, 0, SEEK_END)
+            except OSError as e:
+                if e.errno != errno.ESPIPE:
+                    raise
+    except:
+        self._stat_atopen = None
+        if owned_fd is not None:
+            os.close(owned_fd)
+        raise
     self._fd = fd
 ",
         );
@@ -23946,6 +23956,18 @@ def f(self, fd, OSError, errno):
             .iter()
             .filter(|unit| !matches!(unit.op, Instruction::Cache))
             .collect();
+        let load_attr_name = |unit: &&bytecode::CodeUnit, expected: &str| match unit.op {
+            Instruction::LoadAttr { namei } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                let load_attr = namei.get(arg);
+                f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == expected
+            }
+            _ => false,
+        };
+        let lseek_attr = instructions
+            .iter()
+            .position(|unit| load_attr_name(unit, "lseek"))
+            .expect("missing lseek load");
         let store_attr = instructions
             .iter()
             .position(|unit| match unit.op {
@@ -23957,6 +23979,22 @@ def f(self, fd, OSError, errno):
             })
             .expect("missing _fd store");
 
+        assert!(
+            matches!(
+                instructions
+                    .get(lseek_attr.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "nested conditional reraise try body should keep borrowed os receiver, got instructions={instructions:?}"
+        );
+        assert!(
+            matches!(
+                instructions.get(lseek_attr + 1).map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "nested conditional reraise try body should keep borrowed fd argument, got instructions={instructions:?}"
+        );
         assert!(
             matches!(
                 instructions
