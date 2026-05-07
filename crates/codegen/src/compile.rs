@@ -21873,6 +21873,55 @@ def f(items, limit):
     }
 
     #[test]
+    fn test_simple_for_conditional_raise_orders_backedge_before_raise() {
+        let code = compile_exec(
+            "\
+def f(kw):
+    for k in ('stdout', 'check'):
+        if k in kw:
+            raise ValueError(f'{k} argument not allowed, it will be overridden.')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style true jump to raise path after loop backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "unexpected conditional raise body before loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_exception_handler_loop_conditional_raise_orders_backedge_before_raise() {
         let code = compile_exec(
             "\

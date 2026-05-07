@@ -12550,6 +12550,20 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
             && jump_targets_for_iter(blocks, jump_block)
     }
 
+    fn is_explicit_continue_after_conditional(
+        blocks: &[Block],
+        jump_block: BlockIdx,
+        cond: InstructionInfo,
+    ) -> bool {
+        if !is_explicit_continue_to_for_iter(blocks, jump_block) {
+            return false;
+        }
+        let Some(info) = blocks[jump_block.idx()].instructions.first() else {
+            return false;
+        };
+        instruction_lineno(info) > instruction_lineno(&cond)
+    }
+
     fn is_explicit_non_for_jump_back(blocks: &[Block], jump_block: BlockIdx) -> bool {
         if jump_block == BlockIdx::NULL || jump_targets_for_iter(blocks, jump_block) {
             return false;
@@ -12636,7 +12650,7 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
             || !is_scope_exit_block(&blocks[exit_block.idx()])
             || !is_jump_only_block(&blocks[jump_block.idx()])
             || (jump_targets_for_iter(blocks, jump_block)
-                && !is_explicit_continue_to_for_iter(blocks, jump_block))
+                && !is_explicit_continue_after_conditional(blocks, jump_block, cond))
             || next_nonempty_block(blocks, blocks[jump_block.idx()].next) != exit_block
             || !comes_before(
                 blocks,
