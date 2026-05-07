@@ -187,7 +187,7 @@ bitflagset = "0.0.3"
 bstr = "1"
 bzip2 = "0.6"
 caseless = "0.2.2"
-chrono = { version = "0.4.44", default-features = false, features = ["clock", "oldtime", "std"] }
+chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 constant_time_eq = "0.4"
 cranelift = "0.131.0"
 cranelift-jit = "0.131.1"
@@ -261,7 +261,7 @@ radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
 result-like = "0.5.0"
-rustix = { version = "1.1", features = ["event"] }
+rustix = { version = "1.1", features = ["event", "system"] }
 rustls = { version = "0.23.39", default-features = false }
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
@@ -291,7 +291,6 @@ icu_properties = "2"
 icu_normalizer = "2"
 uuid = "1.23.1"
 ucd = "0.1.1"
-uname = "0.1.1"
 unicode-casing = "0.1.1"
 unic-ucd-age = "0.9.0"
 unicode_names2 = "2.0.0"

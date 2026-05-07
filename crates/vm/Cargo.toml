@@ -91,7 +91,6 @@ icu_properties = { workspace = true }
 rustix = { workspace = true }
 nix = { workspace = true }
 exitcode = { workspace = true }
-uname = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = { workspace = true }
