@@ -28,6 +28,8 @@ import analyzer
 from generators_common import DEFAULT_INPUT
 from stack import get_stack_effect
 
+STATE = collections.defaultdict(dict)
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class OpcodeGen:
@@ -79,11 +81,11 @@ class OpcodeGen:
         """
 
     @property
-    def fn_tryfrom_numeric(self) -> str:
+    def fn_try_from_numeric(self) -> str:
         arms = ",\n".join(f"{instr.opcode} => Self::{instr.name}" for instr in self)
         return f"""
         #[must_use]
-        pub const fn from_{self.numeric_repr}(
+        pub const fn try_from_{self.numeric_repr}(
             value: {self.numeric_repr}
         ) -> Result<Self, MarshalError> {{
             Ok(match value {{
@@ -94,13 +96,13 @@ class OpcodeGen:
         """
 
     @property
-    def impl_tryfrom_numeric(self) -> str:
+    def impl_try_from_numeric(self) -> str:
         return f"""
         impl TryFrom<{self.numeric_repr}> for {self.name} {{
             type Error = MarshalError;
 
             fn try_from(value: {self.numeric_repr}) -> Result<Self, Self::Error> {{
-                Self::from_{self.numeric_repr}(value)
+                Self::try_from_{self.numeric_repr}(value)
             }}
         }}
         """
@@ -169,6 +171,8 @@ class OpcodeGen:
 
     @property
     def fn_to_base(self) -> str:
+        STATE[self.name]["to_base"] = True
+
         inames = {instr.name for instr in self.instrumented}
         names = {instr.name for instr in self} - inames
 
@@ -181,6 +185,7 @@ class OpcodeGen:
 
         arms = arms.strip()
         if not arms:
+            STATE[self.name]["to_base"] = False
             return ""
 
         return f"""
@@ -223,6 +228,8 @@ class OpcodeGen:
 
     @property
     def fn_deopt(self) -> str:
+        STATE[self.name]["deopt"] = True
+
         names = {instr.name for instr in self}
 
         deopts = collections.defaultdict(list)
@@ -244,6 +251,7 @@ class OpcodeGen:
 
         arms = arms.strip()
         if not arms:
+            STATE[self.name]["deopt"] = False
             return ""
 
         return f"""
@@ -258,6 +266,8 @@ class OpcodeGen:
 
     @property
     def fn_cache_entries(self) -> str:
+        STATE[self.name]["cache_entries"] = True
+
         arms = ""
         for instr in self:
             name = instr.name
@@ -277,6 +287,7 @@ class OpcodeGen:
 
         arms = arms.strip()
         if not arms:
+            STATE[self.name]["cache_entries"] = False
             return ""
 
         return f"""
@@ -290,7 +301,7 @@ class OpcodeGen:
         """
 
     @property
-    def fn_stack_effect(self) -> str:
+    def fn_stack_effect_info(self) -> str:
         arms = ""
         for instr in self:
             stack = get_stack_effect(instr)
@@ -303,9 +314,10 @@ class OpcodeGen:
         arms = arms.strip()
 
         return f"""
-        fn stack_effect_info(&self, oparg: u32) -> StackEffect {{
+        pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {{
             // Reason for converting oparg to i32 is because of expressions like `1 + (oparg -1)`
             // that causes underflow errors.
+            #[allow(unused, reason = "This is auto generated code")]
             let oparg = i32::try_from(oparg).expect("oparg does not fit in an `i32`");
 
             let (pushed, popped) = match self {{
@@ -313,7 +325,10 @@ class OpcodeGen:
             }};
 
             debug_assert!(u32::try_from(pushed).is_ok());
+            debug_assert!(i32::try_from(pushed).is_ok());
+
             debug_assert!(u32::try_from(popped).is_ok());
+            debug_assert!(i32::try_from(popped).is_ok());
 
             StackEffect::new(pushed as u32, popped as u32)
         }}
@@ -349,6 +364,29 @@ class OpcodeGen:
                 opcode.as_instruction()
             }}
         }}
+        """
+
+    @property
+    def fn_stack_effect_jump(self) -> str:
+        return """
+        /// Stack effect when the instruction takes its branch (jump=true).
+        ///
+        /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
+        /// For most instructions this equals the fallthrough effect.
+        /// Override for instructions where branch and fallthrough differ
+        /// (e.g. `FOR_ITER`: fallthrough = +1, branch = −1).
+        pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
+            self.stack_effect(oparg)
+        }
+        """
+
+    @property
+    def fn_stack_effect(self) -> str:
+        return """
+        /// Stack effect of [`Self::stack_effect_info`].
+        pub fn stack_effect(&self, oparg: u32) -> i32 {
+            self.stack_effect_info(oparg).effect()
+        }
         """
 
     def __iter__(self):
@@ -435,6 +473,25 @@ class InstructioneGen:
         """
 
     @property
+    def fn_as_numeric_repr(self) -> str:
+        return f"""
+        #[must_use]
+        pub const fn as_{self.numeric_repr}(self) -> {self.numeric_repr} {{
+            self.as_opcode().as_{self.numeric_repr}()
+        }}
+        """
+
+    @property
+    def impl_as_numeric_repr(self) -> str:
+        return f"""
+        impl From<{self.name}> for {self.numeric_repr} {{
+            fn from(instruction: {self.name}) -> Self {{
+                instruction.as_{self.numeric_repr}()
+            }}
+        }}
+        """
+
+    @property
     def fn_label_arg(self) -> str:
         TARGET = "oparg::Label"
 
@@ -452,11 +509,90 @@ class InstructioneGen:
 
         return f"""
         #[must_use]
-        pub const fn label_arg(&self) -> Option<{TARGET}> {{
+        pub const fn label_arg(&self) -> Option<Arg<{TARGET}>> {{
             Some(match self {{
                 {arms}
                 _ => return None,
             }})
+        }}
+        """
+
+    @property
+    def fn_to_base(self) -> str:
+        if not STATE[self.opcode_enum]["to_base"]:
+            return ""
+
+        return f"""
+        #[must_use]
+        pub const fn to_base(self) -> Option<Self> {{
+            if let Some(opcode) = self.as_opcode().to_base() {{
+                Some(opcode.as_instruction())
+            }} else {{
+                None
+            }}
+        }}
+        """
+
+    @property
+    def fn_try_from_numeric(self) -> str:
+        return f"""
+        #[must_use]
+        pub const fn try_from_{self.numeric_repr}(
+            value: {self.numeric_repr}
+        ) -> Result<Self, MarshalError> {{
+            match {self.opcode_enum}::try_from_{self.numeric_repr}(value) {{
+                Ok(opcode) => Ok(opcode.as_instruction()),
+                Err(e) => Err(e),
+            }}
+        }}
+        """
+
+    @property
+    def impl_try_from_numeric(self) -> str:
+        return f"""
+        impl TryFrom<{self.numeric_repr}> for {self.name} {{
+            type Error = MarshalError;
+
+            fn try_from(value: {self.numeric_repr}) -> Result<Self, Self::Error> {{
+                Self::try_from_{self.numeric_repr}(value)
+            }}
+        }}
+        """
+
+    @property
+    def fn_stack_effect(self) -> str:
+        return """
+        /// Stack effect of [`Self::stack_effect_info`].
+        pub fn stack_effect(&self, oparg: u32) -> i32 {
+            self.as_opcode().stack_effect(oparg)
+        }
+        """
+
+    @property
+    def fn_cache_entries(self) -> str:
+        if not STATE[self.opcode_enum]["cache_entries"]:
+            return ""
+
+        return f"""
+        #[must_use]
+        pub const fn cache_entries(self) -> usize {{
+            self.as_opcode().cache_entries()
+        }}
+        """
+
+    @property
+    def fn_deopt(self) -> str:
+        if not STATE[self.opcode_enum]["deopt"]:
+            return ""
+
+        return f"""
+        #[must_use]
+        pub const fn deopt(self) -> Option<Self> {{
+            if let Some(opcode) = self.as_opcode().deopt() {{
+                Some(opcode.as_instruction())
+            }} else {{
+                None
+            }}
         }}
         """
 

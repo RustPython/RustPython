@@ -1194,9 +1194,15 @@ impl Opcode {
         )
     }
 
-    fn stack_effect_info(&self, oparg: u32) -> StackEffect {
+    /// Stack effect of [`Self::stack_effect_info`].
+    pub fn stack_effect(&self, oparg: u32) -> i32 {
+        self.stack_effect_info(oparg).effect()
+    }
+
+    pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {
         // Reason for converting oparg to i32 is because of expressions like `1 + (oparg -1)`
         // that causes underflow errors.
+        #[allow(unused, reason = "This is auto generated code")]
         let oparg = i32::try_from(oparg).expect("oparg does not fit in an `i32`");
 
         let (pushed, popped) = match self {
@@ -1430,9 +1436,22 @@ impl Opcode {
         };
 
         debug_assert!(u32::try_from(pushed).is_ok());
+        debug_assert!(i32::try_from(pushed).is_ok());
+
         debug_assert!(u32::try_from(popped).is_ok());
+        debug_assert!(i32::try_from(popped).is_ok());
 
         StackEffect::new(pushed as u32, popped as u32)
+    }
+
+    /// Stack effect when the instruction takes its branch (jump=true).
+    ///
+    /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
+    /// For most instructions this equals the fallthrough effect.
+    /// Override for instructions where branch and fallthrough differ
+    /// (e.g. `FOR_ITER`: fallthrough = +1, branch = −1).
+    pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
+        self.stack_effect(oparg)
     }
 
     #[must_use]
@@ -1488,7 +1507,7 @@ impl Opcode {
     }
 
     #[must_use]
-    pub const fn from_u8(value: u8) -> Result<Self, MarshalError> {
+    pub const fn try_from_u8(value: u8) -> Result<Self, MarshalError> {
         Ok(match value {
             0 => Self::Cache,
             1 => Self::BinarySlice,
@@ -1738,7 +1757,7 @@ impl TryFrom<u8> for Opcode {
     type Error = MarshalError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::from_u8(value)
+        Self::try_from_u8(value)
     }
 }
 
@@ -2127,6 +2146,11 @@ pub enum Instruction {
 }
 
 impl Instruction {
+    #[must_use]
+    pub const fn as_u8(self) -> u8 {
+        self.as_opcode().as_u8()
+    }
+
     /// Returns self as a [`Opcode`].
     #[must_use]
     pub const fn as_opcode(self) -> Opcode {
@@ -2364,7 +2388,21 @@ impl Instruction {
     }
 
     #[must_use]
-    pub const fn label_arg(&self) -> Option<oparg::Label> {
+    pub const fn cache_entries(self) -> usize {
+        self.as_opcode().cache_entries()
+    }
+
+    #[must_use]
+    pub const fn deopt(self) -> Option<Self> {
+        if let Some(opcode) = self.as_opcode().deopt() {
+            Some(opcode.as_instruction())
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn label_arg(&self) -> Option<Arg<oparg::Label>> {
         Some(match self {
             Self::ForIter { delta } => *delta,
             Self::JumpBackward { delta } => *delta,
@@ -2378,11 +2416,47 @@ impl Instruction {
             _ => return None,
         })
     }
+
+    /// Stack effect of [`Self::stack_effect_info`].
+    pub fn stack_effect(&self, oparg: u32) -> i32 {
+        self.as_opcode().stack_effect(oparg)
+    }
+
+    #[must_use]
+    pub const fn to_base(self) -> Option<Self> {
+        if let Some(opcode) = self.as_opcode().to_base() {
+            Some(opcode.as_instruction())
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn try_from_u8(value: u8) -> Result<Self, MarshalError> {
+        match Opcode::try_from_u8(value) {
+            Ok(opcode) => Ok(opcode.as_instruction()),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+impl From<Instruction> for u8 {
+    fn from(instruction: Instruction) -> Self {
+        instruction.as_u8()
+    }
 }
 
 impl From<Instruction> for Opcode {
     fn from(instruction: Instruction) -> Self {
         instruction.as_opcode()
+    }
+}
+
+impl TryFrom<u8> for Instruction {
+    type Error = MarshalError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::try_from_u8(value)
     }
 }
 
@@ -2514,9 +2588,15 @@ impl PseudoOpcode {
         false
     }
 
-    fn stack_effect_info(&self, oparg: u32) -> StackEffect {
+    /// Stack effect of [`Self::stack_effect_info`].
+    pub fn stack_effect(&self, oparg: u32) -> i32 {
+        self.stack_effect_info(oparg).effect()
+    }
+
+    pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {
         // Reason for converting oparg to i32 is because of expressions like `1 + (oparg -1)`
         // that causes underflow errors.
+        #[allow(unused, reason = "This is auto generated code")]
         let oparg = i32::try_from(oparg).expect("oparg does not fit in an `i32`");
 
         let (pushed, popped) = match self {
@@ -2534,13 +2614,26 @@ impl PseudoOpcode {
         };
 
         debug_assert!(u32::try_from(pushed).is_ok());
+        debug_assert!(i32::try_from(pushed).is_ok());
+
         debug_assert!(u32::try_from(popped).is_ok());
+        debug_assert!(i32::try_from(popped).is_ok());
 
         StackEffect::new(pushed as u32, popped as u32)
     }
 
+    /// Stack effect when the instruction takes its branch (jump=true).
+    ///
+    /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
+    /// For most instructions this equals the fallthrough effect.
+    /// Override for instructions where branch and fallthrough differ
+    /// (e.g. `FOR_ITER`: fallthrough = +1, branch = −1).
+    pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
+        self.stack_effect(oparg)
+    }
+
     #[must_use]
-    pub const fn from_u16(value: u16) -> Result<Self, MarshalError> {
+    pub const fn try_from_u16(value: u16) -> Result<Self, MarshalError> {
         Ok(match value {
             256 => Self::AnnotationsPlaceholder,
             257 => Self::Jump,
@@ -2574,7 +2667,7 @@ impl TryFrom<u16> for PseudoOpcode {
     type Error = MarshalError;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
-        Self::from_u16(value)
+        Self::try_from_u16(value)
     }
 }
 
@@ -2595,6 +2688,11 @@ pub enum PseudoInstruction {
 }
 
 impl PseudoInstruction {
+    #[must_use]
+    pub const fn as_u16(self) -> u16 {
+        self.as_opcode().as_u16()
+    }
+
     /// Returns self as a [`PseudoOpcode`].
     #[must_use]
     pub const fn as_opcode(self) -> PseudoOpcode {
@@ -2614,7 +2712,7 @@ impl PseudoInstruction {
     }
 
     #[must_use]
-    pub const fn label_arg(&self) -> Option<oparg::Label> {
+    pub const fn label_arg(&self) -> Option<Arg<oparg::Label>> {
         Some(match self {
             Self::Jump { delta } => *delta,
             Self::JumpIfFalse { delta } => *delta,
@@ -2626,10 +2724,37 @@ impl PseudoInstruction {
             _ => return None,
         })
     }
+
+    /// Stack effect of [`Self::stack_effect_info`].
+    pub fn stack_effect(&self, oparg: u32) -> i32 {
+        self.as_opcode().stack_effect(oparg)
+    }
+
+    #[must_use]
+    pub const fn try_from_u16(value: u16) -> Result<Self, MarshalError> {
+        match PseudoOpcode::try_from_u16(value) {
+            Ok(opcode) => Ok(opcode.as_instruction()),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+impl From<PseudoInstruction> for u16 {
+    fn from(instruction: PseudoInstruction) -> Self {
+        instruction.as_u16()
+    }
 }
 
 impl From<PseudoInstruction> for PseudoOpcode {
     fn from(instruction: PseudoInstruction) -> Self {
         instruction.as_opcode()
+    }
+}
+
+impl TryFrom<u16> for PseudoInstruction {
+    type Error = MarshalError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        Self::try_from_u16(value)
     }
 }

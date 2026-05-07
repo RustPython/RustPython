@@ -28,6 +28,21 @@ impl Instruction {
             Opcode::ReturnValue | Opcode::RaiseVarargs | Opcode::Reraise
         )
     }
+
+    /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
+    #[must_use]
+    pub const fn deoptimize(self) -> Self {
+        match self.deopt() {
+            Some(v) => v,
+            None => {
+                // Instrumented opcodes map back to their base
+                match self.to_base() {
+                    Some(v) => v,
+                    None => self,
+                }
+            }
+        }
+    }
 }
 
 impl PseudoInstruction {
@@ -164,7 +179,7 @@ impl AnyInstruction {
     #[must_use]
     pub const fn real_opcode(self) -> Option<Opcode> {
         match self.real() {
-            Some(ins) => Some(ins.opcode()),
+            Some(ins) => Some(ins.as_opcode()),
             _ => None,
         }
     }
@@ -173,7 +188,7 @@ impl AnyInstruction {
     #[must_use]
     pub const fn pseudo_opcode(self) -> Option<PseudoOpcode> {
         match self.pseudo() {
-            Some(ins) => Some(ins.opcode()),
+            Some(ins) => Some(ins.as_opcode()),
             _ => None,
         }
     }
