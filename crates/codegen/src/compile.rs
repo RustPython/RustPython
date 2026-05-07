@@ -28,9 +28,9 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
-        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, IntrinsicFunction1,
-        Invert, LoadAttr, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction, SpecialMethod,
-        UnpackExArgs, oparg,
+        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, InstructionMetadata,
+        IntrinsicFunction1, Invert, LoadAttr, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction,
+        SpecialMethod, UnpackExArgs, oparg,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -606,6 +606,16 @@ impl Compiler {
             }
             _ => false,
         }
+    }
+
+    fn statements_end_with_with_cleanup_scope_exit(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::With(ast::StmtWith { body, .. }) => {
+                Self::statements_end_with_scope_exit(body)
+                    || Self::statements_end_with_with_cleanup_scope_exit(body)
+            }
+            _ => false,
+        })
     }
 
     fn preserves_finally_entry_nop(body: &[ast::Stmt]) -> bool {
@@ -5818,6 +5828,10 @@ impl Compiler {
             self.compile_with(items, body, is_async)?;
         }
 
+        let preserve_outer_cleanup_target_nop = !is_async
+            && (Self::statements_end_with_with_cleanup_scope_exit(body)
+                || self.current_block_has_terminal_with_suppress_exit_predecessor());
+
         // Pop fblock before normal exit.  CPython emits this POP_BLOCK with
         // no location for sync with, but with the with-item location for
         // async with.
@@ -5827,7 +5841,11 @@ impl Compiler {
         emit!(self, PseudoInstruction::PopBlock);
         if !is_async {
             self.set_no_location();
-            self.remove_last_no_location_nop();
+            if preserve_outer_cleanup_target_nop {
+                self.preserve_last_redundant_nop();
+            } else {
+                self.remove_last_no_location_nop();
+            }
             self.set_source_range(with_range);
         }
         self.pop_fblock(if is_async {
@@ -10001,6 +10019,44 @@ impl Compiler {
         if let Some(info) = self.current_block().instructions.last_mut() {
             info.preserve_block_start_no_location_nop = true;
         }
+    }
+
+    fn current_block_has_terminal_with_suppress_exit_predecessor(&self) -> bool {
+        let code = self.code_stack.last().expect("no code on stack");
+        let target = code.current_block;
+        let mut has_suppress_exit = false;
+        let mut has_normal_exit = false;
+
+        for block in &code.blocks {
+            let Some((last, prefix)) = block.instructions.split_last() else {
+                continue;
+            };
+            if last.target != target {
+                continue;
+            }
+            match last.instr.pseudo() {
+                Some(PseudoInstruction::JumpNoInterrupt { .. }) => {
+                    let real_instrs: Vec<_> =
+                        prefix.iter().filter_map(|info| info.instr.real()).collect();
+                    has_suppress_exit |= matches!(
+                        real_instrs.as_slice(),
+                        [
+                            Instruction::PopTop,
+                            Instruction::PopExcept,
+                            Instruction::PopTop,
+                            Instruction::PopTop,
+                            Instruction::PopTop,
+                        ]
+                    );
+                }
+                Some(PseudoInstruction::Jump { .. }) => {
+                    has_normal_exit |= !prefix.iter().any(|info| info.instr.is_scope_exit());
+                }
+                _ => {}
+            }
+        }
+
+        has_suppress_exit && !has_normal_exit
     }
 
     fn remove_last_no_location_nop(&mut self) {
@@ -20178,6 +20234,78 @@ async def foo():
                 )
             }),
             "unexpected POP_BLOCK NOP before async-with normal cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_terminal_with_keeps_outer_cleanup_target_nop() {
+        let code = compile_exec(
+            "\
+def f():
+    with a():
+        with b():
+            raise E()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Copy { .. },
+                        Instruction::PopExcept,
+                        Instruction::Reraise { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style outer with-exit target NOP after terminal nested with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_nonterminal_with_drops_outer_cleanup_target_nop() {
+        let code = compile_exec(
+            "\
+def f():
+    with a():
+        with b():
+            x()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Copy { .. },
+                        Instruction::PopExcept,
+                        Instruction::Reraise { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "unexpected outer with-exit target NOP for nested with with normal fallthrough, got ops={ops:?}"
         );
     }
 
