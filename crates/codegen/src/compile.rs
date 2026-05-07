@@ -15535,6 +15535,66 @@ def f(tarfile, tarinfo, self):
     }
 
     #[test]
+    fn test_nested_exception_handler_resume_update_tail_uses_strong_load() {
+        let code = compile_exec(
+            "\
+def f(inpos, size, g, replacement):
+    while inpos < size:
+        try:
+            g()
+        except KeyError:
+            try:
+                for y in replacement:
+                    g(y)
+            except KeyError:
+                raise ValueError(inpos)
+        inpos += 1
+    return inpos
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let arg = |unit: &&bytecode::CodeUnit| OpArg::new(u32::from(u8::from(unit.arg)));
+        let is_inpos_load = |unit: &&bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                f.varnames[usize::from(var_num.get(arg(unit)))].as_str() == "inpos"
+            }
+            _ => false,
+        };
+        let is_inpos_store = |unit: &&bytecode::CodeUnit| match unit.op {
+            Instruction::StoreFast { var_num } => {
+                f.varnames[usize::from(var_num.get(arg(unit)))].as_str() == "inpos"
+            }
+            _ => false,
+        };
+        let update = ops
+            .windows(4)
+            .find(|window| {
+                is_inpos_load(&window[0])
+                    && matches!(
+                        window[1].op,
+                        Instruction::LoadSmallInt { i } if i.get(arg(&window[1])) == 1
+                    )
+                    && matches!(
+                        window[2].op,
+                        Instruction::BinaryOp { op }
+                            if op.get(arg(&window[2])) == BinaryOperator::InplaceAdd
+                    )
+                    && is_inpos_store(&window[3])
+            })
+            .expect("missing inpos += 1 update");
+
+        assert!(
+            matches!(update[0].op, Instruction::LoadFast { .. }),
+            "CPython keeps a strong LOAD_FAST for nested-handler resumed inplace update, got update={update:?}"
+        );
+    }
+
+    #[test]
     fn test_protected_store_finally_cleanup_keeps_borrow_tail() {
         let code = compile_exec(
             "\

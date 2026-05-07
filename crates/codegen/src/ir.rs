@@ -7847,6 +7847,44 @@ impl CodeInfo {
             false
         }
 
+        fn handler_chain_has_nested_exception_match(blocks: &[Block], block: &Block) -> bool {
+            let mut visited = vec![false; blocks.len()];
+            let mut stack: Vec<_> = block
+                .instructions
+                .iter()
+                .filter_map(|info| info.except_handler.map(|handler| handler.handler_block))
+                .collect();
+            let mut matches_seen = 0;
+            while let Some(cursor) = stack.pop() {
+                if cursor == BlockIdx::NULL || visited[cursor.idx()] {
+                    continue;
+                }
+                visited[cursor.idx()] = true;
+                let handler = &blocks[cursor.idx()];
+                for info in &handler.instructions {
+                    if matches!(
+                        info.instr.real(),
+                        Some(Instruction::CheckExcMatch | Instruction::CheckEgMatch)
+                    ) {
+                        matches_seen += 1;
+                        if matches_seen > 1 {
+                            return true;
+                        }
+                    }
+                    if is_conditional_jump(&info.instr) && info.target != BlockIdx::NULL {
+                        stack.push(info.target);
+                    }
+                    if info.instr.is_unconditional_jump() && info.target != BlockIdx::NULL {
+                        stack.push(info.target);
+                    }
+                }
+                if handler.next != BlockIdx::NULL {
+                    stack.push(handler.next);
+                }
+            }
+            false
+        }
+
         fn block_has_tail_deopt_trigger_from(block: &Block, start: usize) -> bool {
             block.instructions.iter().skip(start).any(|info| {
                 matches!(
@@ -7976,6 +8014,47 @@ impl CodeInfo {
                 })
         }
 
+        fn borrowed_inplace_local_update_start(block: &Block) -> Option<usize> {
+            for i in 0..block.instructions.len().saturating_sub(3) {
+                let local = match block.instructions[i].instr.real() {
+                    Some(Instruction::LoadFastBorrow { var_num }) => {
+                        usize::from(var_num.get(block.instructions[i].arg))
+                    }
+                    _ => continue,
+                };
+                let Some(Instruction::BinaryOp { op }) = block.instructions[i + 2].instr.real()
+                else {
+                    continue;
+                };
+                if !matches!(
+                    op.get(block.instructions[i + 2].arg),
+                    oparg::BinaryOperator::InplaceAdd
+                        | oparg::BinaryOperator::InplaceSubtract
+                        | oparg::BinaryOperator::InplaceMultiply
+                        | oparg::BinaryOperator::InplaceMatrixMultiply
+                        | oparg::BinaryOperator::InplaceTrueDivide
+                        | oparg::BinaryOperator::InplaceFloorDivide
+                        | oparg::BinaryOperator::InplaceRemainder
+                        | oparg::BinaryOperator::InplacePower
+                        | oparg::BinaryOperator::InplaceLshift
+                        | oparg::BinaryOperator::InplaceRshift
+                        | oparg::BinaryOperator::InplaceAnd
+                        | oparg::BinaryOperator::InplaceXor
+                        | oparg::BinaryOperator::InplaceOr
+                ) {
+                    continue;
+                }
+                if matches!(
+                    block.instructions[i + 3].instr.real(),
+                    Some(Instruction::StoreFast { var_num })
+                        if usize::from(var_num.get(block.instructions[i + 3].arg)) == local
+                ) {
+                    return Some(i);
+                }
+            }
+            None
+        }
+
         fn starts_with_borrowed_local_bool_guard(block: &Block, locals: &[usize]) -> bool {
             let mut reals = block
                 .instructions
@@ -8086,6 +8165,43 @@ impl CodeInfo {
             })
         }
 
+        fn collect_unprotected_tail_segment(
+            blocks: &[Block],
+            tail: BlockIdx,
+        ) -> (Vec<(BlockIdx, usize)>, Vec<bool>) {
+            let mut in_segment = vec![false; blocks.len()];
+            let mut segment = Vec::new();
+            let mut cursor = tail;
+            if cursor == BlockIdx::NULL
+                || block_is_exceptional(&blocks[cursor.idx()])
+                || block_has_protected_instructions(&blocks[cursor.idx()])
+            {
+                return (segment, in_segment);
+            }
+            while cursor != BlockIdx::NULL {
+                let segment_block = &blocks[cursor.idx()];
+                if block_is_exceptional(segment_block)
+                    || block_has_protected_instructions(segment_block)
+                {
+                    break;
+                }
+                segment.push((cursor, 0));
+                in_segment[cursor.idx()] = true;
+                let last_real = segment_block
+                    .instructions
+                    .iter()
+                    .rev()
+                    .find_map(|info| info.instr.real());
+                if last_real.is_some_and(|instr| {
+                    instr.is_scope_exit() || AnyInstruction::Real(instr).is_unconditional_jump()
+                }) {
+                    break;
+                }
+                cursor = next_nonempty_block(blocks, segment_block.next);
+            }
+            (segment, in_segment)
+        }
+
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
             if block.next != BlockIdx::NULL {
@@ -8144,12 +8260,24 @@ impl CodeInfo {
             if same_block_tail_start.is_some() {
                 continue;
             }
+            let tail = next_nonempty_block(&self.blocks, block.next);
+            let (segment, in_segment) = collect_unprotected_tail_segment(&self.blocks, tail);
+            if handler_chain_has_nested_exception_match(&self.blocks, block)
+                && handler_chain_can_resume_to_segment(&self.blocks, block, &in_segment)
+            {
+                for (block_idx, start) in &segment {
+                    if let Some(update_start) =
+                        borrowed_inplace_local_update_start(&self.blocks[block_idx.idx()])
+                    {
+                        to_deopt.push((*block_idx, (*start).max(update_start)));
+                    }
+                }
+            }
             let stored_locals = collect_stored_fast_locals_until(block, block.instructions.len());
             if stored_locals.is_empty() {
                 continue;
             }
             let handler_has_explicit_raise = handler_chain_has_explicit_raise(&self.blocks, block);
-            let tail = next_nonempty_block(&self.blocks, block.next);
             if tail != BlockIdx::NULL
                 && !block_is_exceptional(&self.blocks[tail.idx()])
                 && !block_has_protected_instructions(&self.blocks[tail.idx()])
@@ -8177,38 +8305,6 @@ impl CodeInfo {
                         }
                     }
                 }
-            }
-            let mut in_segment = vec![false; self.blocks.len()];
-            let mut segment = Vec::new();
-            let mut cursor = {
-                if tail == BlockIdx::NULL
-                    || block_is_exceptional(&self.blocks[tail.idx()])
-                    || block_has_protected_instructions(&self.blocks[tail.idx()])
-                {
-                    continue;
-                }
-                tail
-            };
-            while cursor != BlockIdx::NULL {
-                let segment_block = &self.blocks[cursor.idx()];
-                if block_is_exceptional(segment_block)
-                    || block_has_protected_instructions(segment_block)
-                {
-                    break;
-                }
-                segment.push((cursor, 0));
-                in_segment[cursor.idx()] = true;
-                let last_real = segment_block
-                    .instructions
-                    .iter()
-                    .rev()
-                    .find_map(|info| info.instr.real());
-                if last_real.is_some_and(|instr| {
-                    instr.is_scope_exit() || AnyInstruction::Real(instr).is_unconditional_jump()
-                }) {
-                    break;
-                }
-                cursor = next_nonempty_block(&self.blocks, segment_block.next);
             }
             if segment.is_empty()
                 || segment.iter().any(|(block_idx, _)| {
