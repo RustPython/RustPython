@@ -7086,6 +7086,23 @@ impl CodeInfo {
             })
         }
 
+        fn block_has_loop_back_to_or_before(
+            blocks: &[Block],
+            block: &Block,
+            target_block: BlockIdx,
+        ) -> bool {
+            block.instructions.iter().any(|info| {
+                matches!(
+                    info.instr.real(),
+                    Some(
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. }
+                    )
+                ) && (info.target == target_block
+                    || comes_before(blocks, info.target, target_block))
+            })
+        }
+
         fn block_has_for_iter(block: &Block) -> bool {
             block
                 .instructions
@@ -7337,12 +7354,18 @@ impl CodeInfo {
                 let should_seed = (has_protected_predecessor && has_finally_except_loop_tail)
                     || (has_bool_guard_tail && has_handler_resume_predecessor)
                     || has_handler_resume_loop_tail;
-                should_seed.then_some((BlockIdx::new(idx as u32), has_handler_resume_loop_tail))
+                let allow_any_loop_back =
+                    has_finally_except_loop_tail || has_handler_resume_loop_tail;
+                should_seed.then_some((
+                    BlockIdx::new(idx as u32),
+                    has_handler_resume_loop_tail,
+                    allow_any_loop_back,
+                ))
             })
             .collect();
 
         let mut visited = vec![false; self.blocks.len()];
-        for (seed, include_join_tail) in seeds {
+        for (seed, include_join_tail, allow_any_loop_back) in seeds {
             let mut segment = Vec::new();
             let mut found_loop_back = false;
             let mut seen = vec![false; self.blocks.len()];
@@ -7358,7 +7381,8 @@ impl CodeInfo {
                 }
                 segment.push(cursor);
                 if block_has_loop_back(block) {
-                    found_loop_back = true;
+                    found_loop_back |= allow_any_loop_back
+                        || block_has_loop_back_to_or_before(&self.blocks, block, seed);
                     continue;
                 }
                 for successor in tail_successors(&self.blocks, &predecessors, cursor) {

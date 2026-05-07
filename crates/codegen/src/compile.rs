@@ -21880,6 +21880,90 @@ def f(self):
     }
 
     #[test]
+    fn test_handler_resume_before_later_loop_keeps_borrowed_tail_loads() {
+        let code = compile_exec(
+            "\
+def f(msg, category):
+    s = 'x'
+    if msg.line is None:
+        try:
+            import linecache
+            line = linecache.getline(msg.filename, msg.lineno)
+        except Exception:
+            line = None
+            linecache = None
+    else:
+        line = msg.line
+    if line:
+        line = line.strip()
+        s += '  %s\\n' % line
+    if msg.source is not None:
+        try:
+            import tracemalloc
+        except Exception:
+            suggest_tracemalloc = False
+            tb = None
+        else:
+            try:
+                suggest_tracemalloc = not tracemalloc.is_tracing()
+                tb = tracemalloc.get_object_traceback(msg.source)
+            except Exception:
+                suggest_tracemalloc = False
+                tb = None
+        if tb is not None:
+            for frame in tb:
+                s += frame.filename
+        elif suggest_tracemalloc:
+            s += category
+    return s
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let is_borrow_load = |unit: &&bytecode::CodeUnit, name: &str| match unit.op {
+            Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))] == name
+            }
+            _ => false,
+        };
+
+        assert!(
+            ops.windows(5).any(|window| {
+                is_borrow_load(&window[0], "line")
+                    && matches!(window[1].op, Instruction::ToBool)
+                    && matches!(window[2].op, Instruction::PopJumpIfFalse { .. })
+                    && matches!(window[3].op, Instruction::NotTaken)
+                    && is_borrow_load(&window[4], "line")
+            }),
+            "handler resume before a later independent loop should preserve CPython-style borrowed line loads, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            ops.windows(2)
+                .filter(|window| {
+                    is_borrow_load(&window[0], "tracemalloc")
+                        && matches!(window[1].op, Instruction::LoadAttr { .. })
+                })
+                .count()
+                >= 2,
+            "independent later loop should not deopt tracemalloc loads before the loop, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            ops.windows(2).any(|window| {
+                is_borrow_load(&window[0], "s") && matches!(window[1].op, Instruction::ReturnValue)
+            }),
+            "final return should keep CPython-style borrowed s load, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
     fn test_async_early_return_send_tail_uses_strong_load_fast_after_entry() {
         let code = compile_exec(
             "\
