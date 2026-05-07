@@ -4,31 +4,7 @@ use crate::marshal::MarshalError;
 
 use super::{Instruction, OpArg, OpArgByte, OpArgType, Opcode, PseudoInstruction, PseudoOpcode};
 
-impl Instruction {
-    /// Returns `true` if this is any instrumented opcode
-    /// (regular INSTRUMENTED_*, INSTRUMENTED_LINE, or INSTRUMENTED_INSTRUCTION).
-    #[must_use]
-    pub const fn is_instrumented(self) -> bool {
-        self.to_base().is_some()
-            || matches!(self, Self::InstrumentedLine | Self::InstrumentedInstruction)
-    }
-
-    #[must_use]
-    pub const fn is_unconditional_jump(&self) -> bool {
-        matches!(
-            self.as_opcode(),
-            Opcode::JumpForward | Opcode::JumpBackward | Opcode::JumpBackwardNoInterrupt
-        )
-    }
-
-    #[must_use]
-    pub const fn is_scope_exit(&self) -> bool {
-        matches!(
-            self.as_opcode(),
-            Opcode::ReturnValue | Opcode::RaiseVarargs | Opcode::Reraise
-        )
-    }
-
+impl Opcode {
     /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
     #[must_use]
     pub const fn deoptimize(self) -> Self {
@@ -42,6 +18,62 @@ impl Instruction {
                 }
             }
         }
+    }
+
+    /// Returns `true` if this is any instrumented opcode
+    /// (regular INSTRUMENTED_*, INSTRUMENTED_LINE, or INSTRUMENTED_INSTRUCTION).
+    #[must_use]
+    pub const fn is_instrumented(self) -> bool {
+        self.to_base().is_some()
+            || matches!(self, Self::InstrumentedLine | Self::InstrumentedInstruction)
+    }
+
+    #[must_use]
+    pub const fn is_unconditional_jump(&self) -> bool {
+        matches!(
+            self,
+            Self::JumpForward | Self::JumpBackward | Self::JumpBackwardNoInterrupt
+        )
+    }
+
+    #[must_use]
+    pub const fn is_scope_exit(&self) -> bool {
+        matches!(self, Self::ReturnValue | Self::RaiseVarargs | Self::Reraise)
+    }
+}
+
+impl Instruction {
+    /// Returns `true` if this is any instrumented opcode
+    /// (regular INSTRUMENTED_*, INSTRUMENTED_LINE, or INSTRUMENTED_INSTRUCTION).
+    #[must_use]
+    pub const fn is_instrumented(self) -> bool {
+        self.as_opcode().is_instrumented()
+    }
+
+    #[must_use]
+    pub const fn is_unconditional_jump(&self) -> bool {
+        self.as_opcode().is_unconditional_jump()
+    }
+
+    #[must_use]
+    pub const fn is_scope_exit(&self) -> bool {
+        self.as_opcode().is_scope_exit()
+    }
+
+    /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
+    #[must_use]
+    pub const fn deoptimize(self) -> Self {
+        self.as_opcode().deoptimize().as_instruction()
+    }
+
+    /// Stack effect when the instruction takes its branch (jump=true).
+    ///
+    /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
+    /// For most instructions this equals the fallthrough effect.
+    /// Override for instructions where branch and fallthrough differ
+    /// (e.g. [`Self::ForIter`]: fallthrough = +1, branch = −1).
+    pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
+        self.stack_effect(oparg)
     }
 }
 
@@ -78,7 +110,7 @@ impl PseudoInstruction {
     ///   SETUP_FINALLY:  +1  (exc)
     ///   SETUP_CLEANUP:  +2  (lasti + exc)
     ///   SETUP_WITH:     +1  (pops __enter__ result, pushes lasti + exc)
-    fn stack_effect_jump(&self, oparg: u32) -> i32 {
+    pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
         match self {
             Self::SetupFinally { .. } | Self::SetupWith { .. } => 1,
             Self::SetupCleanup { .. } => 2,
@@ -87,10 +119,67 @@ impl PseudoInstruction {
     }
 }
 
+macro_rules! either_real_pseudo {
+    // Const
+    (
+        $(#[$meta:meta])*
+        $vis:vis const fn $name:ident(&self $(, $arg:ident : $arg_ty:ty)*) -> $ret:ty
+    ) => {
+        $(#[$meta])*
+        $vis const fn $name(&self $(, $arg: $arg_ty)*) -> $ret {
+            match self {
+                Self::Real(v) => v.$name($($arg),*),
+                Self::Pseudo(v) => v.$name($($arg),*),
+            }
+        }
+    };
+
+    // Not const
+    (
+        $(#[$meta:meta])*
+        $vis:vis fn $name:ident(&self $(, $arg:ident : $arg_ty:ty)*) -> $ret:ty
+    ) => {
+        $(#[$meta])*
+        $vis fn $name(&self $(, $arg: $arg_ty)*) -> $ret {
+            match self {
+                Self::Real(v) => v.$name($($arg),*),
+                Self::Pseudo(v) => v.$name($($arg),*),
+            }
+        }
+    };
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum AnyInstruction {
     Real(Instruction),
     Pseudo(PseudoInstruction),
+}
+
+impl AnyInstruction {
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn is_unconditional_jump(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn is_scope_exit(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub fn stack_effect(&self, oparg: u32) -> i32
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub fn stack_effect_jump(&self, oparg: u32) -> i32
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub fn stack_effect_info(&self, oparg: u32) -> StackEffect
+    );
 }
 
 impl From<Instruction> for AnyInstruction {
@@ -143,17 +232,6 @@ impl From<AnyOpcode> for AnyInstruction {
             AnyOpcode::Pseudo(op) => op.into(),
         }
     }
-}
-
-macro_rules! inst_either {
-    (fn $name:ident ( &self $(, $arg:ident : $arg_ty:ty )* ) -> $ret:ty ) => {
-        fn $name(&self $(, $arg : $arg_ty )* ) -> $ret {
-            match self {
-                Self::Real(op) => op.$name($($arg),*),
-                Self::Pseudo(op) => op.$name($($arg),*),
-            }
-        }
-    };
 }
 
 impl AnyInstruction {

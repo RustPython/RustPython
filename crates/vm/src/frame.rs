@@ -2548,14 +2548,14 @@ impl ExecutingFrame<'_> {
 
                 Ok(None)
             }
-            Instruction::GetAIter => {
+            Instruction::GetAiter => {
                 let aiterable = self.pop_value();
                 let aiter = vm.call_special_method(&aiterable, identifier!(vm, __aiter__), ())?;
                 self.push_value(aiter);
                 Ok(None)
             }
-            Instruction::GetANext => {
-                #[cfg(debug_assertions)] // remove when GetANext is fully implemented
+            Instruction::GetAnext => {
+                #[cfg(debug_assertions)] // remove when GetAnext is fully implemented
                 let orig_stack_len = self.localsplus.stack_len();
 
                 let aiter = self.top_value();

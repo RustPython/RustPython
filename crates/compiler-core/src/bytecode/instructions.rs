@@ -824,7 +824,7 @@ impl Opcode {
 
     #[must_use]
     pub const fn cache_entries(self) -> usize {
-        match self {
+        match self.deoptimize() {
             Self::StoreSubscr => 1,
             Self::ToBool => 3,
             Self::BinaryOp => 5,
@@ -1199,10 +1199,10 @@ impl Opcode {
         self.stack_effect_info(oparg).effect()
     }
 
+    #[must_use]
     pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {
         // Reason for converting oparg to i32 is because of expressions like `1 + (oparg -1)`
         // that causes underflow errors.
-        #[allow(unused, reason = "This is auto generated code")]
         let oparg = i32::try_from(oparg).expect("oparg does not fit in an `i32`");
 
         let (pushed, popped) = match self {
@@ -1442,16 +1442,6 @@ impl Opcode {
         debug_assert!(i32::try_from(popped).is_ok());
 
         StackEffect::new(pushed as u32, popped as u32)
-    }
-
-    /// Stack effect when the instruction takes its branch (jump=true).
-    ///
-    /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
-    /// For most instructions this equals the fallthrough effect.
-    /// Override for instructions where branch and fallthrough differ
-    /// (e.g. `FOR_ITER`: fallthrough = +1, branch = −1).
-    pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
-        self.stack_effect(oparg)
     }
 
     #[must_use]
@@ -2422,6 +2412,10 @@ impl Instruction {
         self.as_opcode().stack_effect(oparg)
     }
 
+    pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {
+        self.as_opcode().stack_effect_info(oparg)
+    }
+
     #[must_use]
     pub const fn to_base(self) -> Option<Self> {
         if let Some(opcode) = self.as_opcode().to_base() {
@@ -2593,12 +2587,8 @@ impl PseudoOpcode {
         self.stack_effect_info(oparg).effect()
     }
 
-    pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {
-        // Reason for converting oparg to i32 is because of expressions like `1 + (oparg -1)`
-        // that causes underflow errors.
-        #[allow(unused, reason = "This is auto generated code")]
-        let oparg = i32::try_from(oparg).expect("oparg does not fit in an `i32`");
-
+    #[must_use]
+    pub fn stack_effect_info(&self, _oparg: u32) -> StackEffect {
         let (pushed, popped) = match self {
             Self::AnnotationsPlaceholder => (0, 0),
             Self::Jump => (0, 0),
@@ -2620,16 +2610,6 @@ impl PseudoOpcode {
         debug_assert!(i32::try_from(popped).is_ok());
 
         StackEffect::new(pushed as u32, popped as u32)
-    }
-
-    /// Stack effect when the instruction takes its branch (jump=true).
-    ///
-    /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
-    /// For most instructions this equals the fallthrough effect.
-    /// Override for instructions where branch and fallthrough differ
-    /// (e.g. `FOR_ITER`: fallthrough = +1, branch = −1).
-    pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
-        self.stack_effect(oparg)
     }
 
     #[must_use]
@@ -2728,6 +2708,10 @@ impl PseudoInstruction {
     /// Stack effect of [`Self::stack_effect_info`].
     pub fn stack_effect(&self, oparg: u32) -> i32 {
         self.as_opcode().stack_effect(oparg)
+    }
+
+    pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {
+        self.as_opcode().stack_effect_info(oparg)
     }
 
     #[must_use]

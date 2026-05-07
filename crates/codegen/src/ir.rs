@@ -12,9 +12,8 @@ use rustpython_compiler_core::{
     bytecode::{
         AnyInstruction, AnyOpcode, Arg, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
         CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
-        InstrDisplayContext, Instruction, InstructionMetadata, IntrinsicFunction1, Label, OpArg,
-        Opcode, PseudoInstruction, PseudoOpcode, PyCodeLocationInfoKind, encode_exception_table,
-        oparg,
+        InstrDisplayContext, Instruction, IntrinsicFunction1, Label, OpArg, Opcode,
+        PseudoInstruction, PseudoOpcode, PyCodeLocationInfoKind, encode_exception_table, oparg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -3227,7 +3226,7 @@ impl CodeInfo {
                     }
                     AnyInstruction::Real(
                         Instruction::FormatSimple
-                        | Instruction::GetANext
+                        | Instruction::GetAnext
                         | Instruction::GetLen
                         | Instruction::GetYieldFromIter
                         | Instruction::ImportFrom { .. }
@@ -6896,7 +6895,7 @@ impl CodeInfo {
             block
                 .instructions
                 .iter()
-                .any(|info| matches!(info.instr.real(), Some(Instruction::GetANext)))
+                .any(|info| matches!(info.instr.real(), Some(Instruction::GetAnext)))
         }
 
         fn block_has_return(block: &Block) -> bool {
@@ -11624,7 +11623,7 @@ fn block_contains_suspension_point(block: &Block) -> bool {
                 instr,
                 Instruction::YieldValue { .. }
                     | Instruction::GetAwaitable { .. }
-                    | Instruction::GetANext
+                    | Instruction::GetAnext
                     | Instruction::EndAsyncFor
             )
         })

@@ -293,7 +293,7 @@ class OpcodeGen:
         return f"""
         #[must_use]
         pub const fn cache_entries(self) -> usize {{
-            match self {{
+            match self.deoptimize() {{
                 {arms}
                 _ => 0,
             }}
@@ -302,23 +302,34 @@ class OpcodeGen:
 
     @property
     def fn_stack_effect_info(self) -> str:
+        oparg_used = False
         arms = ""
         for instr in self:
             stack = get_stack_effect(instr)
             popped = (-stack.base_offset).to_c()
             pushed = (stack.logical_sp - stack.base_offset).to_c()
 
+            oparg_used = oparg_used or any("oparg" in expr for expr in (pushed, popped))
+
             name = instr.name
             arms += f"Self::{name} => ({pushed}, {popped}),\n"
 
         arms = arms.strip()
 
-        return f"""
-        pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {{
-            // Reason for converting oparg to i32 is because of expressions like `1 + (oparg -1)`
+        oparg_arg = "_oparg"
+        oparg_cast = ""
+        if oparg_used:
+            oparg_arg = "oparg"
+            oparg_cast = f"""
+            // Reason for converting {oparg_arg} to i32 is because of expressions like `1 + (oparg -1)`
             // that causes underflow errors.
-            #[allow(unused, reason = "This is auto generated code")]
-            let oparg = i32::try_from(oparg).expect("oparg does not fit in an `i32`");
+            let oparg = i32::try_from({oparg_arg}).expect("{oparg_arg} does not fit in an `i32`");
+            """
+
+        return f"""
+        #[must_use]
+        pub fn stack_effect_info(&self, {oparg_arg}: u32) -> StackEffect {{
+            {oparg_cast}
 
             let (pushed, popped) = match self {{
                 {arms}
@@ -364,20 +375,6 @@ class OpcodeGen:
                 opcode.as_instruction()
             }}
         }}
-        """
-
-    @property
-    def fn_stack_effect_jump(self) -> str:
-        return """
-        /// Stack effect when the instruction takes its branch (jump=true).
-        ///
-        /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
-        /// For most instructions this equals the fallthrough effect.
-        /// Override for instructions where branch and fallthrough differ
-        /// (e.g. `FOR_ITER`: fallthrough = +1, branch = −1).
-        pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
-            self.stack_effect(oparg)
-        }
         """
 
     @property
@@ -593,6 +590,14 @@ class InstructioneGen:
             }} else {{
                 None
             }}
+        }}
+        """
+
+    @property
+    def fn_stack_effect_info(self) -> str:
+        return f"""
+        pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {{
+            self.as_opcode().stack_effect_info(oparg)
         }}
         """
 
