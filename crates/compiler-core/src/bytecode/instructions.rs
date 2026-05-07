@@ -238,6 +238,354 @@ pub enum Opcode {
 }
 
 impl Opcode {
+    /// Returns self as [`Instruction`].
+    #[must_use]
+    pub const fn as_instruction(self) -> Instruction {
+        match self {
+            Self::Cache => Instruction::Cache,
+            Self::BinarySlice => Instruction::BinarySlice,
+            Self::BuildTemplate => Instruction::BuildTemplate,
+            Self::BinaryOpInplaceAddUnicode => Instruction::BinaryOpInplaceAddUnicode,
+            Self::CallFunctionEx => Instruction::CallFunctionEx,
+            Self::CheckEgMatch => Instruction::CheckEgMatch,
+            Self::CheckExcMatch => Instruction::CheckExcMatch,
+            Self::CleanupThrow => Instruction::CleanupThrow,
+            Self::DeleteSubscr => Instruction::DeleteSubscr,
+            Self::EndFor => Instruction::EndFor,
+            Self::EndSend => Instruction::EndSend,
+            Self::ExitInitCheck => Instruction::ExitInitCheck,
+            Self::FormatSimple => Instruction::FormatSimple,
+            Self::FormatWithSpec => Instruction::FormatWithSpec,
+            Self::GetAiter => Instruction::GetAiter,
+            Self::GetAnext => Instruction::GetAnext,
+            Self::GetIter => Instruction::GetIter,
+            Self::Reserved => Instruction::Reserved,
+            Self::GetLen => Instruction::GetLen,
+            Self::GetYieldFromIter => Instruction::GetYieldFromIter,
+            Self::InterpreterExit => Instruction::InterpreterExit,
+            Self::LoadBuildClass => Instruction::LoadBuildClass,
+            Self::LoadLocals => Instruction::LoadLocals,
+            Self::MakeFunction => Instruction::MakeFunction,
+            Self::MatchKeys => Instruction::MatchKeys,
+            Self::MatchMapping => Instruction::MatchMapping,
+            Self::MatchSequence => Instruction::MatchSequence,
+            Self::Nop => Instruction::Nop,
+            Self::NotTaken => Instruction::NotTaken,
+            Self::PopExcept => Instruction::PopExcept,
+            Self::PopIter => Instruction::PopIter,
+            Self::PopTop => Instruction::PopTop,
+            Self::PushExcInfo => Instruction::PushExcInfo,
+            Self::PushNull => Instruction::PushNull,
+            Self::ReturnGenerator => Instruction::ReturnGenerator,
+            Self::ReturnValue => Instruction::ReturnValue,
+            Self::SetupAnnotations => Instruction::SetupAnnotations,
+            Self::StoreSlice => Instruction::StoreSlice,
+            Self::StoreSubscr => Instruction::StoreSubscr,
+            Self::ToBool => Instruction::ToBool,
+            Self::UnaryInvert => Instruction::UnaryInvert,
+            Self::UnaryNegative => Instruction::UnaryNegative,
+            Self::UnaryNot => Instruction::UnaryNot,
+            Self::WithExceptStart => Instruction::WithExceptStart,
+            Self::BinaryOp => Instruction::BinaryOp { op: Arg::marker() },
+            Self::BuildInterpolation => Instruction::BuildInterpolation {
+                format: Arg::marker(),
+            },
+            Self::BuildList => Instruction::BuildList {
+                count: Arg::marker(),
+            },
+            Self::BuildMap => Instruction::BuildMap {
+                count: Arg::marker(),
+            },
+            Self::BuildSet => Instruction::BuildSet {
+                count: Arg::marker(),
+            },
+            Self::BuildSlice => Instruction::BuildSlice {
+                argc: Arg::marker(),
+            },
+            Self::BuildString => Instruction::BuildString {
+                count: Arg::marker(),
+            },
+            Self::BuildTuple => Instruction::BuildTuple {
+                count: Arg::marker(),
+            },
+            Self::Call => Instruction::Call {
+                argc: Arg::marker(),
+            },
+            Self::CallIntrinsic1 => Instruction::CallIntrinsic1 {
+                func: Arg::marker(),
+            },
+            Self::CallIntrinsic2 => Instruction::CallIntrinsic2 {
+                func: Arg::marker(),
+            },
+            Self::CallKw => Instruction::CallKw {
+                argc: Arg::marker(),
+            },
+            Self::CompareOp => Instruction::CompareOp {
+                opname: Arg::marker(),
+            },
+            Self::ContainsOp => Instruction::ContainsOp {
+                invert: Arg::marker(),
+            },
+            Self::ConvertValue => Instruction::ConvertValue {
+                oparg: Arg::marker(),
+            },
+            Self::Copy => Instruction::Copy { i: Arg::marker() },
+            Self::CopyFreeVars => Instruction::CopyFreeVars { n: Arg::marker() },
+            Self::DeleteAttr => Instruction::DeleteAttr {
+                namei: Arg::marker(),
+            },
+            Self::DeleteDeref => Instruction::DeleteDeref { i: Arg::marker() },
+            Self::DeleteFast => Instruction::DeleteFast {
+                var_num: Arg::marker(),
+            },
+            Self::DeleteGlobal => Instruction::DeleteGlobal {
+                namei: Arg::marker(),
+            },
+            Self::DeleteName => Instruction::DeleteName {
+                namei: Arg::marker(),
+            },
+            Self::DictMerge => Instruction::DictMerge { i: Arg::marker() },
+            Self::DictUpdate => Instruction::DictUpdate { i: Arg::marker() },
+            Self::EndAsyncFor => Instruction::EndAsyncFor,
+            Self::ExtendedArg => Instruction::ExtendedArg,
+            Self::ForIter => Instruction::ForIter {
+                delta: Arg::marker(),
+            },
+            Self::GetAwaitable => Instruction::GetAwaitable {
+                r#where: Arg::marker(),
+            },
+            Self::ImportFrom => Instruction::ImportFrom {
+                namei: Arg::marker(),
+            },
+            Self::ImportName => Instruction::ImportName {
+                namei: Arg::marker(),
+            },
+            Self::IsOp => Instruction::IsOp {
+                invert: Arg::marker(),
+            },
+            Self::JumpBackward => Instruction::JumpBackward {
+                delta: Arg::marker(),
+            },
+            Self::JumpBackwardNoInterrupt => Instruction::JumpBackwardNoInterrupt {
+                delta: Arg::marker(),
+            },
+            Self::JumpForward => Instruction::JumpForward {
+                delta: Arg::marker(),
+            },
+            Self::ListAppend => Instruction::ListAppend { i: Arg::marker() },
+            Self::ListExtend => Instruction::ListExtend { i: Arg::marker() },
+            Self::LoadAttr => Instruction::LoadAttr {
+                namei: Arg::marker(),
+            },
+            Self::LoadCommonConstant => Instruction::LoadCommonConstant { idx: Arg::marker() },
+            Self::LoadConst => Instruction::LoadConst {
+                consti: Arg::marker(),
+            },
+            Self::LoadDeref => Instruction::LoadDeref { i: Arg::marker() },
+            Self::LoadFast => Instruction::LoadFast {
+                var_num: Arg::marker(),
+            },
+            Self::LoadFastAndClear => Instruction::LoadFastAndClear {
+                var_num: Arg::marker(),
+            },
+            Self::LoadFastBorrow => Instruction::LoadFastBorrow {
+                var_num: Arg::marker(),
+            },
+            Self::LoadFastBorrowLoadFastBorrow => Instruction::LoadFastBorrowLoadFastBorrow {
+                var_nums: Arg::marker(),
+            },
+            Self::LoadFastCheck => Instruction::LoadFastCheck {
+                var_num: Arg::marker(),
+            },
+            Self::LoadFastLoadFast => Instruction::LoadFastLoadFast {
+                var_nums: Arg::marker(),
+            },
+            Self::LoadFromDictOrDeref => Instruction::LoadFromDictOrDeref { i: Arg::marker() },
+            Self::LoadFromDictOrGlobals => Instruction::LoadFromDictOrGlobals { i: Arg::marker() },
+            Self::LoadGlobal => Instruction::LoadGlobal {
+                namei: Arg::marker(),
+            },
+            Self::LoadName => Instruction::LoadName {
+                namei: Arg::marker(),
+            },
+            Self::LoadSmallInt => Instruction::LoadSmallInt { i: Arg::marker() },
+            Self::LoadSpecial => Instruction::LoadSpecial {
+                method: Arg::marker(),
+            },
+            Self::LoadSuperAttr => Instruction::LoadSuperAttr {
+                namei: Arg::marker(),
+            },
+            Self::MakeCell => Instruction::MakeCell { i: Arg::marker() },
+            Self::MapAdd => Instruction::MapAdd { i: Arg::marker() },
+            Self::MatchClass => Instruction::MatchClass {
+                count: Arg::marker(),
+            },
+            Self::PopJumpIfFalse => Instruction::PopJumpIfFalse {
+                delta: Arg::marker(),
+            },
+            Self::PopJumpIfNone => Instruction::PopJumpIfNone {
+                delta: Arg::marker(),
+            },
+            Self::PopJumpIfNotNone => Instruction::PopJumpIfNotNone {
+                delta: Arg::marker(),
+            },
+            Self::PopJumpIfTrue => Instruction::PopJumpIfTrue {
+                delta: Arg::marker(),
+            },
+            Self::RaiseVarargs => Instruction::RaiseVarargs {
+                argc: Arg::marker(),
+            },
+            Self::Reraise => Instruction::Reraise {
+                depth: Arg::marker(),
+            },
+            Self::Send => Instruction::Send {
+                delta: Arg::marker(),
+            },
+            Self::SetAdd => Instruction::SetAdd { i: Arg::marker() },
+            Self::SetFunctionAttribute => Instruction::SetFunctionAttribute {
+                flag: Arg::marker(),
+            },
+            Self::SetUpdate => Instruction::SetUpdate { i: Arg::marker() },
+            Self::StoreAttr => Instruction::StoreAttr {
+                namei: Arg::marker(),
+            },
+            Self::StoreDeref => Instruction::StoreDeref { i: Arg::marker() },
+            Self::StoreFast => Instruction::StoreFast {
+                var_num: Arg::marker(),
+            },
+            Self::StoreFastLoadFast => Instruction::StoreFastLoadFast {
+                var_nums: Arg::marker(),
+            },
+            Self::StoreFastStoreFast => Instruction::StoreFastStoreFast {
+                var_nums: Arg::marker(),
+            },
+            Self::StoreGlobal => Instruction::StoreGlobal {
+                namei: Arg::marker(),
+            },
+            Self::StoreName => Instruction::StoreName {
+                namei: Arg::marker(),
+            },
+            Self::Swap => Instruction::Swap { i: Arg::marker() },
+            Self::UnpackEx => Instruction::UnpackEx {
+                counts: Arg::marker(),
+            },
+            Self::UnpackSequence => Instruction::UnpackSequence {
+                count: Arg::marker(),
+            },
+            Self::YieldValue => Instruction::YieldValue { arg: Arg::marker() },
+            Self::Resume => Instruction::Resume {
+                context: Arg::marker(),
+            },
+            Self::BinaryOpAddFloat => Instruction::BinaryOpAddFloat,
+            Self::BinaryOpAddInt => Instruction::BinaryOpAddInt,
+            Self::BinaryOpAddUnicode => Instruction::BinaryOpAddUnicode,
+            Self::BinaryOpExtend => Instruction::BinaryOpExtend,
+            Self::BinaryOpMultiplyFloat => Instruction::BinaryOpMultiplyFloat,
+            Self::BinaryOpMultiplyInt => Instruction::BinaryOpMultiplyInt,
+            Self::BinaryOpSubscrDict => Instruction::BinaryOpSubscrDict,
+            Self::BinaryOpSubscrGetitem => Instruction::BinaryOpSubscrGetitem,
+            Self::BinaryOpSubscrListInt => Instruction::BinaryOpSubscrListInt,
+            Self::BinaryOpSubscrListSlice => Instruction::BinaryOpSubscrListSlice,
+            Self::BinaryOpSubscrStrInt => Instruction::BinaryOpSubscrStrInt,
+            Self::BinaryOpSubscrTupleInt => Instruction::BinaryOpSubscrTupleInt,
+            Self::BinaryOpSubtractFloat => Instruction::BinaryOpSubtractFloat,
+            Self::BinaryOpSubtractInt => Instruction::BinaryOpSubtractInt,
+            Self::CallAllocAndEnterInit => Instruction::CallAllocAndEnterInit,
+            Self::CallBoundMethodExactArgs => Instruction::CallBoundMethodExactArgs,
+            Self::CallBoundMethodGeneral => Instruction::CallBoundMethodGeneral,
+            Self::CallBuiltinClass => Instruction::CallBuiltinClass,
+            Self::CallBuiltinFast => Instruction::CallBuiltinFast,
+            Self::CallBuiltinFastWithKeywords => Instruction::CallBuiltinFastWithKeywords,
+            Self::CallBuiltinO => Instruction::CallBuiltinO,
+            Self::CallIsinstance => Instruction::CallIsinstance,
+            Self::CallKwBoundMethod => Instruction::CallKwBoundMethod,
+            Self::CallKwNonPy => Instruction::CallKwNonPy,
+            Self::CallKwPy => Instruction::CallKwPy,
+            Self::CallLen => Instruction::CallLen,
+            Self::CallListAppend => Instruction::CallListAppend,
+            Self::CallMethodDescriptorFast => Instruction::CallMethodDescriptorFast,
+            Self::CallMethodDescriptorFastWithKeywords => {
+                Instruction::CallMethodDescriptorFastWithKeywords
+            }
+            Self::CallMethodDescriptorNoargs => Instruction::CallMethodDescriptorNoargs,
+            Self::CallMethodDescriptorO => Instruction::CallMethodDescriptorO,
+            Self::CallNonPyGeneral => Instruction::CallNonPyGeneral,
+            Self::CallPyExactArgs => Instruction::CallPyExactArgs,
+            Self::CallPyGeneral => Instruction::CallPyGeneral,
+            Self::CallStr1 => Instruction::CallStr1,
+            Self::CallTuple1 => Instruction::CallTuple1,
+            Self::CallType1 => Instruction::CallType1,
+            Self::CompareOpFloat => Instruction::CompareOpFloat,
+            Self::CompareOpInt => Instruction::CompareOpInt,
+            Self::CompareOpStr => Instruction::CompareOpStr,
+            Self::ContainsOpDict => Instruction::ContainsOpDict,
+            Self::ContainsOpSet => Instruction::ContainsOpSet,
+            Self::ForIterGen => Instruction::ForIterGen,
+            Self::ForIterList => Instruction::ForIterList,
+            Self::ForIterRange => Instruction::ForIterRange,
+            Self::ForIterTuple => Instruction::ForIterTuple,
+            Self::JumpBackwardJit => Instruction::JumpBackwardJit,
+            Self::JumpBackwardNoJit => Instruction::JumpBackwardNoJit,
+            Self::LoadAttrClass => Instruction::LoadAttrClass,
+            Self::LoadAttrClassWithMetaclassCheck => Instruction::LoadAttrClassWithMetaclassCheck,
+            Self::LoadAttrGetattributeOverridden => Instruction::LoadAttrGetattributeOverridden,
+            Self::LoadAttrInstanceValue => Instruction::LoadAttrInstanceValue,
+            Self::LoadAttrMethodLazyDict => Instruction::LoadAttrMethodLazyDict,
+            Self::LoadAttrMethodNoDict => Instruction::LoadAttrMethodNoDict,
+            Self::LoadAttrMethodWithValues => Instruction::LoadAttrMethodWithValues,
+            Self::LoadAttrModule => Instruction::LoadAttrModule,
+            Self::LoadAttrNondescriptorNoDict => Instruction::LoadAttrNondescriptorNoDict,
+            Self::LoadAttrNondescriptorWithValues => Instruction::LoadAttrNondescriptorWithValues,
+            Self::LoadAttrProperty => Instruction::LoadAttrProperty,
+            Self::LoadAttrSlot => Instruction::LoadAttrSlot,
+            Self::LoadAttrWithHint => Instruction::LoadAttrWithHint,
+            Self::LoadConstImmortal => Instruction::LoadConstImmortal,
+            Self::LoadConstMortal => Instruction::LoadConstMortal,
+            Self::LoadGlobalBuiltin => Instruction::LoadGlobalBuiltin,
+            Self::LoadGlobalModule => Instruction::LoadGlobalModule,
+            Self::LoadSuperAttrAttr => Instruction::LoadSuperAttrAttr,
+            Self::LoadSuperAttrMethod => Instruction::LoadSuperAttrMethod,
+            Self::ResumeCheck => Instruction::ResumeCheck,
+            Self::SendGen => Instruction::SendGen,
+            Self::StoreAttrInstanceValue => Instruction::StoreAttrInstanceValue,
+            Self::StoreAttrSlot => Instruction::StoreAttrSlot,
+            Self::StoreAttrWithHint => Instruction::StoreAttrWithHint,
+            Self::StoreSubscrDict => Instruction::StoreSubscrDict,
+            Self::StoreSubscrListInt => Instruction::StoreSubscrListInt,
+            Self::ToBoolAlwaysTrue => Instruction::ToBoolAlwaysTrue,
+            Self::ToBoolBool => Instruction::ToBoolBool,
+            Self::ToBoolInt => Instruction::ToBoolInt,
+            Self::ToBoolList => Instruction::ToBoolList,
+            Self::ToBoolNone => Instruction::ToBoolNone,
+            Self::ToBoolStr => Instruction::ToBoolStr,
+            Self::UnpackSequenceList => Instruction::UnpackSequenceList,
+            Self::UnpackSequenceTuple => Instruction::UnpackSequenceTuple,
+            Self::UnpackSequenceTwoTuple => Instruction::UnpackSequenceTwoTuple,
+            Self::InstrumentedEndFor => Instruction::InstrumentedEndFor,
+            Self::InstrumentedPopIter => Instruction::InstrumentedPopIter,
+            Self::InstrumentedEndSend => Instruction::InstrumentedEndSend,
+            Self::InstrumentedForIter => Instruction::InstrumentedForIter,
+            Self::InstrumentedInstruction => Instruction::InstrumentedInstruction,
+            Self::InstrumentedJumpForward => Instruction::InstrumentedJumpForward,
+            Self::InstrumentedNotTaken => Instruction::InstrumentedNotTaken,
+            Self::InstrumentedPopJumpIfTrue => Instruction::InstrumentedPopJumpIfTrue,
+            Self::InstrumentedPopJumpIfFalse => Instruction::InstrumentedPopJumpIfFalse,
+            Self::InstrumentedPopJumpIfNone => Instruction::InstrumentedPopJumpIfNone,
+            Self::InstrumentedPopJumpIfNotNone => Instruction::InstrumentedPopJumpIfNotNone,
+            Self::InstrumentedResume => Instruction::InstrumentedResume,
+            Self::InstrumentedReturnValue => Instruction::InstrumentedReturnValue,
+            Self::InstrumentedYieldValue => Instruction::InstrumentedYieldValue,
+            Self::InstrumentedEndAsyncFor => Instruction::InstrumentedEndAsyncFor,
+            Self::InstrumentedLoadSuperAttr => Instruction::InstrumentedLoadSuperAttr,
+            Self::InstrumentedCall => Instruction::InstrumentedCall,
+            Self::InstrumentedCallKw => Instruction::InstrumentedCallKw,
+            Self::InstrumentedCallFunctionEx => Instruction::InstrumentedCallFunctionEx,
+            Self::InstrumentedJumpBackward => Instruction::InstrumentedJumpBackward,
+            Self::InstrumentedLine => Instruction::InstrumentedLine,
+            Self::EnterExecutor => Instruction::EnterExecutor,
+        }
+    }
+
     #[must_use]
     pub const fn as_u8(self) -> u8 {
         match self {
@@ -1371,6 +1719,12 @@ impl Opcode {
     }
 }
 
+impl From<Opcode> for Instruction {
+    fn from(opcode: Opcode) -> Self {
+        opcode.as_instruction()
+    }
+}
+
 impl From<Opcode> for u8 {
     fn from(opcode: Opcode) -> Self {
         opcode.as_u8()
@@ -2007,6 +2361,12 @@ impl Instruction {
     }
 }
 
+impl From<Instruction> for Opcode {
+    fn from(instruction: Instruction) -> Self {
+        instruction.as_opcode()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PseudoOpcode {
     AnnotationsPlaceholder,
@@ -2023,6 +2383,40 @@ pub enum PseudoOpcode {
 }
 
 impl PseudoOpcode {
+    /// Returns self as [`PseudoInstruction`].
+    #[must_use]
+    pub const fn as_instruction(self) -> PseudoInstruction {
+        match self {
+            Self::AnnotationsPlaceholder => PseudoInstruction::AnnotationsPlaceholder,
+            Self::Jump => PseudoInstruction::Jump {
+                delta: Arg::marker(),
+            },
+            Self::JumpIfFalse => PseudoInstruction::JumpIfFalse {
+                delta: Arg::marker(),
+            },
+            Self::JumpIfTrue => PseudoInstruction::JumpIfTrue {
+                delta: Arg::marker(),
+            },
+            Self::JumpNoInterrupt => PseudoInstruction::JumpNoInterrupt {
+                delta: Arg::marker(),
+            },
+            Self::LoadClosure => PseudoInstruction::LoadClosure { i: Arg::marker() },
+            Self::PopBlock => PseudoInstruction::PopBlock,
+            Self::SetupCleanup => PseudoInstruction::SetupCleanup {
+                delta: Arg::marker(),
+            },
+            Self::SetupFinally => PseudoInstruction::SetupFinally {
+                delta: Arg::marker(),
+            },
+            Self::SetupWith => PseudoInstruction::SetupWith {
+                delta: Arg::marker(),
+            },
+            Self::StoreFastMaybeNull => PseudoInstruction::StoreFastMaybeNull {
+                var_num: Arg::marker(),
+            },
+        }
+    }
+
     #[must_use]
     pub const fn as_u16(self) -> u16 {
         match self {
@@ -2145,6 +2539,12 @@ impl PseudoOpcode {
     }
 }
 
+impl From<PseudoOpcode> for PseudoInstruction {
+    fn from(opcode: PseudoOpcode) -> Self {
+        opcode.as_instruction()
+    }
+}
+
 impl From<PseudoOpcode> for u16 {
     fn from(opcode: PseudoOpcode) -> Self {
         opcode.as_u16()
@@ -2192,5 +2592,11 @@ impl PseudoInstruction {
             Self::SetupWith { .. } => PseudoOpcode::SetupWith,
             Self::StoreFastMaybeNull { .. } => PseudoOpcode::StoreFastMaybeNull,
         }
+    }
+}
+
+impl From<PseudoInstruction> for PseudoOpcode {
+    fn from(instruction: PseudoInstruction) -> Self {
+        instruction.as_opcode()
     }
 }

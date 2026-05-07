@@ -32,8 +32,10 @@ from stack import get_stack_effect
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class OpcodeGen:
     name: str
+    instruction_enum: str
     instructions: list
     numeric_repr: str
+    metadata: dict[str, str]
     analysis: analyzer.Analysis
 
     def gen(self) -> str:
@@ -106,7 +108,7 @@ class OpcodeGen:
     @property
     def impl_into_numeric(self) -> str:
         return f"""
-        impl From<{self.name}> for {self.numeric_repr}{{
+        impl From<{self.name}> for {self.numeric_repr} {{
             fn from(opcode: {self.name}) -> Self {{
                 opcode.as_{self.numeric_repr}()
             }}
@@ -317,6 +319,38 @@ class OpcodeGen:
         }}
         """
 
+    @property
+    def fn_as_instruction(self) -> str:
+        arms = ""
+        for instr in self:
+            name = instr.name
+            arms += f"Self::{name} => {self.instruction_enum}::{name}"
+            if oparg := self.metadata.get(name, {}).get("oparg"):
+                oname = oparg["name"]
+                arms += f" {{ {oname}: Arg::marker() }}"
+
+            arms += ",\n"
+
+        return f"""
+        /// Returns self as [`{self.instruction_enum}`].
+        #[must_use]
+        pub const fn as_instruction(self) -> {self.instruction_enum} {{
+            match self {{
+                {arms}
+            }}
+        }}
+        """
+
+    @property
+    def impl_as_instruction(self) -> str:
+        return f"""
+        impl From<{self.name}> for {self.instruction_enum} {{
+            fn from(opcode: {self.name}) -> Self {{
+                opcode.as_instruction()
+            }}
+        }}
+        """
+
     def __iter__(self):
         yield from self.instructions
 
@@ -390,6 +424,16 @@ class InstructioneGen:
         }}
         """
 
+    @property
+    def impl_as_opcode(self) -> str:
+        return f"""
+        impl From<{self.name}> for {self.opcode_enum} {{
+            fn from(instruction: {self.name}) -> Self {{
+                instruction.as_opcode()
+            }}
+        }}
+        """
+
     def __iter__(self):
         yield from self.instructions
 
@@ -439,8 +483,10 @@ def main():
 
         opcode_code = OpcodeGen(
             name=opcode_enum,
+            instruction_enum=instruction_enum,
             instructions=instructions,
             numeric_repr=numeric_repr,
+            metadata=metadata,
             analysis=analysis,
         ).gen()
 
