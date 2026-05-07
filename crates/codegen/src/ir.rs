@@ -376,6 +376,8 @@ impl CodeInfo {
         convert_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
         remove_redundant_nops_and_jumps(&mut self.blocks);
         self.mark_unprotected_debug_four_tails_borrow_disabled();
+        self.mark_exception_handler_transition_targets_borrow_disabled();
+        self.mark_targeted_nop_for_tails_borrow_disabled();
         self.compute_load_fast_start_depths();
         // optimize_load_fast: after normalize_jumps
         self.optimize_load_fast_borrow();
@@ -3854,6 +3856,182 @@ impl CodeInfo {
         to_disable.dedup();
         for block_idx in to_disable {
             self.blocks[block_idx.idx()].disable_load_fast_borrow = true;
+        }
+    }
+
+    fn mark_exception_handler_transition_targets_borrow_disabled(&mut self) {
+        fn first_real_handler(block: &Block) -> Option<ExceptHandlerInfo> {
+            block
+                .instructions
+                .iter()
+                .find(|info| {
+                    info.instr.real().is_some_and(|instr| {
+                        !matches!(instr, Instruction::Nop | Instruction::NotTaken)
+                    })
+                })
+                .and_then(|info| info.except_handler)
+        }
+
+        fn last_real_handler(block: &Block) -> Option<ExceptHandlerInfo> {
+            block
+                .instructions
+                .iter()
+                .rev()
+                .find(|info| {
+                    info.instr.real().is_some_and(|instr| {
+                        !matches!(instr, Instruction::Nop | Instruction::NotTaken)
+                    })
+                })
+                .and_then(|info| info.except_handler)
+        }
+
+        fn has_direct_tuple_return_tail(block: &Block) -> bool {
+            let reals: Vec<_> = block
+                .instructions
+                .iter()
+                .filter_map(|info| info.instr.real())
+                .filter(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+                .collect();
+            reals
+                .iter()
+                .any(|instr| matches!(instr, Instruction::BuildTuple { .. }))
+                && reals
+                    .last()
+                    .is_some_and(|instr| matches!(instr, Instruction::ReturnValue))
+                && !reals.iter().any(|instr| {
+                    matches!(
+                        instr,
+                        Instruction::Swap { .. }
+                            | Instruction::PopExcept
+                            | Instruction::Reraise { .. }
+                            | Instruction::WithExceptStart
+                    )
+                })
+        }
+
+        let mut predecessors = vec![Vec::new(); self.blocks.len()];
+        for (idx, block) in self.blocks.iter().enumerate() {
+            let block_idx = BlockIdx::new(idx as u32);
+            if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
+                predecessors[block.next.idx()].push(block_idx);
+            }
+            for info in &block.instructions {
+                if info.target != BlockIdx::NULL {
+                    predecessors[info.target.idx()].push(block_idx);
+                }
+            }
+        }
+
+        let mut to_disable = Vec::new();
+        for (idx, block) in self.blocks.iter().enumerate() {
+            if !has_direct_tuple_return_tail(block) {
+                continue;
+            }
+            let Some(handler) = first_real_handler(block) else {
+                continue;
+            };
+            if predecessors[idx].iter().any(|pred| {
+                last_real_handler(&self.blocks[pred.idx()])
+                    .is_some_and(|pred_handler| pred_handler != handler)
+            }) {
+                to_disable.push(idx);
+            }
+        }
+
+        for idx in to_disable {
+            self.blocks[idx].disable_load_fast_borrow = true;
+        }
+    }
+
+    fn mark_targeted_nop_for_tails_borrow_disabled(&mut self) {
+        fn is_nop_only_block(block: &Block) -> bool {
+            !block.instructions.is_empty()
+                && block.instructions.iter().all(|info| {
+                    matches!(
+                        info.instr.real(),
+                        Some(Instruction::Nop | Instruction::NotTaken)
+                    )
+                })
+        }
+
+        fn starts_for_iter_tail(block: &Block) -> bool {
+            let mut saw_iterable = false;
+            for info in block.instructions.iter().filter(|info| {
+                info.instr
+                    .real()
+                    .is_some_and(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+            }) {
+                match info.instr.real() {
+                    Some(
+                        Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadName { .. }
+                        | Instruction::LoadGlobal { .. },
+                    ) if !saw_iterable => saw_iterable = true,
+                    Some(Instruction::GetIter) if saw_iterable => return true,
+                    Some(Instruction::BuildList { .. } | Instruction::StoreFast { .. })
+                        if !saw_iterable => {}
+                    _ => return false,
+                }
+            }
+            false
+        }
+
+        let mut fallthrough_predecessors = vec![Vec::new(); self.blocks.len()];
+        let mut jump_predecessors = vec![Vec::new(); self.blocks.len()];
+        for (idx, block) in self.blocks.iter().enumerate() {
+            let block_idx = BlockIdx::new(idx as u32);
+            if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
+                fallthrough_predecessors[block.next.idx()].push(block_idx);
+            }
+            for info in &block.instructions {
+                if info.target != BlockIdx::NULL {
+                    jump_predecessors[info.target.idx()].push(block_idx);
+                }
+            }
+        }
+
+        let mut seeds = Vec::new();
+        for (idx, block) in self.blocks.iter().enumerate() {
+            if !starts_for_iter_tail(block) {
+                continue;
+            }
+            let has_targeted_nop_predecessor = fallthrough_predecessors[idx].iter().any(|pred| {
+                is_nop_only_block(&self.blocks[pred.idx()])
+                    && !jump_predecessors[pred.idx()].is_empty()
+            });
+            if has_targeted_nop_predecessor {
+                seeds.push(BlockIdx::new(idx as u32));
+            }
+        }
+
+        let mut seen = vec![false; self.blocks.len()];
+        for seed in seeds {
+            let mut stack = vec![seed];
+            while let Some(block_idx) = stack.pop() {
+                if block_idx == BlockIdx::NULL || seen[block_idx.idx()] {
+                    continue;
+                }
+                seen[block_idx.idx()] = true;
+                self.blocks[block_idx.idx()].disable_load_fast_borrow = true;
+
+                let block = &self.blocks[block_idx.idx()];
+                if block
+                    .instructions
+                    .last()
+                    .is_some_and(|info| info.instr.is_scope_exit())
+                {
+                    continue;
+                }
+                if block.next != BlockIdx::NULL && block.next.idx() >= seed.idx() {
+                    stack.push(block.next);
+                }
+                for info in &block.instructions {
+                    if info.target != BlockIdx::NULL && info.target.idx() >= seed.idx() {
+                        stack.push(info.target);
+                    }
+                }
+            }
         }
     }
 
@@ -10477,6 +10655,8 @@ impl CodeInfo {
         convert_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
         remove_redundant_nops_and_jumps(&mut self.blocks);
         self.mark_unprotected_debug_four_tails_borrow_disabled();
+        self.mark_exception_handler_transition_targets_borrow_disabled();
+        self.mark_targeted_nop_for_tails_borrow_disabled();
         trace.push((
             "after_convert_pseudo_ops".to_owned(),
             self.debug_block_dump(),

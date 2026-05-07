@@ -20962,6 +20962,148 @@ def f(src, flags):
     }
 
     #[test]
+    fn test_nested_except_normal_exit_return_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+LITERAL = 1
+
+def f(source, escape):
+    try:
+        c = escape[1:2]
+        if c == 'N' and source.istext:
+            try:
+                c = ord(source.lookup())
+            except (KeyError, TypeError):
+                raise source.error() from None
+            return LITERAL, c
+    except ValueError:
+        pass
+    raise source.error(escape)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadGlobal { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::BuildTuple { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "expected CPython-style strong LOAD_FAST in nested except normal-exit return, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_targeted_nop_after_prefix_for_else_uses_strong_for_tail_loads() {
+        let code = compile_exec(
+            "\
+LITERAL = 1
+IN = 2
+NEGATE = 3
+
+def f(items):
+    while True:
+        prefix = None
+        for item in items:
+            if not item:
+                break
+            if prefix is None:
+                prefix = item[0]
+            elif item[0] != prefix:
+                break
+        else:
+            for item in items:
+                del item[0]
+            continue
+        break
+    set = []
+    for item in items:
+        if len(item) != 1:
+            break
+        op, av = item[0]
+        if op is LITERAL:
+            set.append((op, av))
+        elif op is IN and av[0][0] is not NEGATE:
+            set.extend(av)
+        else:
+            break
+    return set
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let get_iter_idx = ops
+            .iter()
+            .rposition(|op| matches!(op, Instruction::GetIter))
+            .expect("missing GET_ITER");
+        assert!(
+            matches!(ops[get_iter_idx - 1], Instruction::LoadFast { .. }),
+            "targeted NOP after prefix for/else should use strong iterable LOAD_FAST, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFastLoadFast { .. },
+                        Instruction::BuildTuple { .. },
+                    ]
+                )
+            }),
+            "targeted NOP after prefix for/else should keep set.append tuple loads strong, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_plain_pass_before_for_tail_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(xs):
+    pass
+    for x in xs:
+        pass
+    return xs
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let get_iter_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::GetIter))
+            .expect("missing GET_ITER");
+        assert!(
+            matches!(ops[get_iter_idx - 1], Instruction::LoadFastBorrow { .. }),
+            "plain pass before for-tail should keep borrowed iterable load, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_if_pass_uses_line_bearing_jump_back_instead_of_nop() {
         let code = compile_exec(
             "\
