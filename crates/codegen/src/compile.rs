@@ -25792,6 +25792,114 @@ def f(state, nextchar, whitespace, token, posix, quoted, debug):
     }
 
     #[test]
+    fn test_final_attribute_elif_implicit_continue_places_jumpback_before_body() {
+        let code = compile_exec(
+            "\
+def f(self, nextchar, quoted):
+    while True:
+        if self.state is None:
+            break
+        elif self.state in ('a', 'c'):
+            if not nextchar:
+                self.state = None
+                break
+            elif nextchar in self.whitespace:
+                self.state = ' '
+                if self.token or (self.posix and quoted):
+                    break
+                else:
+                    continue
+    return self.token
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadConst { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "final attribute elif with implicit continue should put false jump-back before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_inner_if_implicit_continue_keeps_line_bearing_body_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(self, nextchar, quoted):
+    while True:
+        if self.state is None:
+            break
+        elif self.state in ('a', 'c'):
+            if not nextchar:
+                self.state = None
+                break
+            elif nextchar in self.whitespace:
+                self.state = ' '
+                if self.token or (self.posix and quoted):
+                    break
+                else:
+                    continue
+            elif nextchar in self.commenters:
+                self.instream.readline()
+                self.lineno += 1
+                if self.posix:
+                    self.state = ' '
+                    if self.token or (self.posix and quoted):
+                        break
+                    else:
+                        continue
+            elif self.state == 'c':
+                break
+    return self.token
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadAttr { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::StoreAttr { .. },
+                    ]
+                )
+            }),
+            "line-bearing inner if with implicit continue should keep body before backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_except_handler_with_conditional_raise_and_resume_keeps_borrow() {
         let code = compile_exec(
             "\
