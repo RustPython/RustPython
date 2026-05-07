@@ -80,7 +80,14 @@ class BaseTest(unittest.TestCase, ExtraAssertions):
             self.lib = ('lib', f'python{sysconfig._get_python_version_abi()}')
             self.include = 'include'
         executable = sys._base_executable
-        self.exe = os.path.split(executable)[-1]
+        if sys.platform == 'win32':
+            exe_name = os.path.split(executable)[-1]
+            if os.path.splitext(exe_name)[0].endswith('_d'):
+                self.exe = 'python_d.exe'
+            else:
+                self.exe = 'python.exe'
+        else:
+            self.exe = os.path.split(executable)[-1]
         if (sys.platform == 'win32'
             and os.path.lexists(executable)
             and not os.path.exists(executable)):
