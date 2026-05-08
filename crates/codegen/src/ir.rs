@@ -8337,6 +8337,7 @@ impl CodeInfo {
                     Some((
                         BlockIdx::new(idx as u32),
                         import_idx,
+                        handler_returns,
                         handler_continues,
                         nested_protected_tail,
                     ))
@@ -8344,7 +8345,7 @@ impl CodeInfo {
                 .collect();
 
         let mut visited = vec![false; self.blocks.len()];
-        for (seed, import_idx, handler_continues, nested_protected_tail) in seeds {
+        for (seed, import_idx, handler_returns, handler_continues, nested_protected_tail) in seeds {
             let mut protected_store_locals = vec![false; self.metadata.varnames.len()];
             for info in self.blocks[seed.idx()]
                 .instructions
@@ -8368,6 +8369,7 @@ impl CodeInfo {
             let mut cursor = self.blocks[seed.idx()].next;
             while cursor != BlockIdx::NULL && !block_is_exceptional(&self.blocks[cursor.idx()]) {
                 if !handler_continues
+                    && !handler_returns
                     && !nested_protected_tail
                     && block_has_protected_instructions(&self.blocks[cursor.idx()])
                 {
@@ -8386,6 +8388,7 @@ impl CodeInfo {
                     .instructions
                     .iter()
                     .any(|info| info.instr.real().is_some_and(|instr| instr.is_scope_exit()))
+                    && !handler_returns
                     && !handler_continues
                 {
                     break;
@@ -15409,12 +15412,23 @@ fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
 }
 
 fn duplicate_fallthrough_jump_back_targets(blocks: &mut Vec<Block>) {
+    fn block_has_real_fallthrough_body(block: &Block) -> bool {
+        block.instructions.iter().any(|info| {
+            !matches!(
+                info.instr.real(),
+                Some(Instruction::Nop | Instruction::NotTaken | Instruction::PopTop)
+            )
+        })
+    }
+
     let predecessors = compute_predecessors(blocks);
     let mut clones = Vec::new();
 
     let mut layout_pred = BlockIdx(0);
     while layout_pred != BlockIdx::NULL {
-        if !block_has_fallthrough(&blocks[layout_pred.idx()]) {
+        if !block_has_fallthrough(&blocks[layout_pred.idx()])
+            || !block_has_real_fallthrough_body(&blocks[layout_pred.idx()])
+        {
             layout_pred = blocks[layout_pred.idx()].next;
             continue;
         }

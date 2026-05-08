@@ -15394,6 +15394,55 @@ def f():
     }
 
     #[test]
+    fn test_try_import_return_handler_deopts_later_protected_tail_borrow() {
+        let code = compile_exec(
+            "\
+def f(info_add):
+    try:
+        import pwd
+    except ImportError:
+        return
+    import os
+    uid = os.getuid()
+    try:
+        entry = pwd.getpwuid(uid)
+    except KeyError:
+        entry = None
+    info_add(uid, entry)
+    if entry is None:
+        return
+    if hasattr(os, 'getgrouplist'):
+        groups = os.getgrouplist(entry.pw_name, entry.pw_gid)
+        groups = ', '.join(map(str, groups))
+        info_add('os.getgrouplist', groups)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let import_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ImportName { .. }))
+            .expect("missing IMPORT_NAME");
+        let protected_tail = &ops[import_idx + 1..];
+
+        assert!(
+            !protected_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "CPython keeps strong LOAD_FAST ops after protected import with return handler, even across later protected tails, got tail={protected_tail:?}"
+        );
+    }
+
+    #[test]
     fn test_try_import_continue_handler_deopts_loop_tail_borrow() {
         let code = compile_exec(
             "\
@@ -24124,6 +24173,69 @@ def f(data, use):
                 )
             }),
             "if-not continue should keep CPython's forward true edge over the continue backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_chained_compare_continue_does_not_duplicate_cleanup_backedge() {
+        let code = compile_exec(
+            "\
+def f(items):
+    offsets = []
+    ranges = [(0, 10), (20, 30)]
+    for item in items:
+        trans_time, offset_before, offset_after = item
+        for dt_min, dt_max in ranges:
+            if trans_time is not None and not (dt_min <= trans_time <= dt_max):
+                continue
+            if offset_before not in offsets:
+                offsets.append(offset_before)
+            if offset_after not in offsets:
+                offsets.append(offset_after)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. }
+                            | Instruction::LoadFast { .. }
+                            | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::ContainsOp { .. }
+                            | Instruction::LoadFastBorrow { .. }
+                            | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "chained-compare continue cleanup should fall through to the following body after one backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "chained-compare continue cleanup should not duplicate the loop backedge, got ops={ops:?}"
         );
     }
 
