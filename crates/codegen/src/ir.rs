@@ -260,6 +260,9 @@ pub struct CodeInfo {
     // u_in_conditional_block
     pub in_conditional_block: u32,
 
+    // Track when compiling the final direct statement in a sync with body.
+    pub in_final_with_cleanup_statement: u32,
+
     // PEP 649: Next index for conditional annotation tracking
     // u_next_conditional_annotation_index
     pub next_conditional_annotation_index: u32,
@@ -444,6 +447,7 @@ impl CodeInfo {
             fblock: _,
             symbol_table_index: _,
             in_conditional_block: _,
+            in_final_with_cleanup_statement: _,
             next_conditional_annotation_index: _,
         } = self;
 

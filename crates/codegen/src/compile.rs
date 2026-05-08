@@ -19,7 +19,6 @@ use crate::{
 };
 use alloc::borrow::Cow;
 use core::mem;
-use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive, Zero};
@@ -541,6 +540,7 @@ impl Compiler {
             fblock: Vec::with_capacity(MAXBLOCKS),
             symbol_table_index: 0, // Module is always the first symbol table
             in_conditional_block: 0,
+            in_final_with_cleanup_statement: 0,
             next_conditional_annotation_index: 0,
         };
         Self {
@@ -659,9 +659,9 @@ impl Compiler {
         body.last().is_some_and(|stmt| match stmt {
             ast::Stmt::If(ast::StmtIf {
                 elif_else_clauses, ..
-            }) => !elif_else_clauses
+            }) => elif_else_clauses
                 .last()
-                .is_some_and(|clause| clause.test.is_none()),
+                .is_none_or(|clause| clause.test.is_some()),
             _ => false,
         })
     }
@@ -1521,6 +1521,7 @@ impl Compiler {
             fblock: Vec::with_capacity(MAXBLOCKS),
             symbol_table_index: key,
             in_conditional_block: 0,
+            in_final_with_cleanup_statement: 0,
             next_conditional_annotation_index: 0,
         };
 
@@ -2326,6 +2327,20 @@ impl Compiler {
     fn compile_statements(&mut self, statements: &[ast::Stmt]) -> CompileResult<()> {
         for statement in statements {
             self.compile_statement(statement)?
+        }
+        Ok(())
+    }
+
+    fn compile_with_body_statements(&mut self, statements: &[ast::Stmt]) -> CompileResult<()> {
+        for (idx, statement) in statements.iter().enumerate() {
+            if idx + 1 == statements.len() && matches!(statement, ast::Stmt::Try(_)) {
+                self.current_code_info().in_final_with_cleanup_statement += 1;
+                let result = self.compile_statement(statement);
+                self.current_code_info().in_final_with_cleanup_statement -= 1;
+                result?;
+            } else {
+                self.compile_statement(statement)?;
+            }
         }
         Ok(())
     }
@@ -3476,7 +3491,8 @@ impl Compiler {
         // if handlers is empty, compile body directly
         // without wrapping in TryExcept (only FinallyTry is needed)
         if handlers.is_empty() {
-            let preserve_finally_entry_nop = Self::preserves_finally_entry_nop(body);
+            let preserve_finally_entry_nop = Self::preserves_finally_entry_nop(body)
+                || self.statements_end_with_loop_fallthrough(body)?;
 
             // Just compile body with FinallyTry fblock active (if finalbody exists)
             self.compile_statements(body)?;
@@ -3833,6 +3849,11 @@ impl Compiler {
             body.last()
                 .is_some_and(|stmt| matches!(stmt, ast::Stmt::Raise(_)))
         });
+        let handlers_end_with_scope_exit = handlers.iter().all(|handler| {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler { body, .. }) =
+                handler;
+            Self::statements_end_with_scope_exit(body)
+        });
         if Self::has_resuming_bare_except(handlers) {
             self.disable_load_fast_borrow_for_block(end_block);
         }
@@ -3849,10 +3870,13 @@ impl Compiler {
         self.pop_fblock(FBlockType::TryExcept);
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
-        let exits_to_with_cleanup =
-            self.current_code_info().fblock.last().is_some_and(|info| {
-                matches!(info.fb_type, FBlockType::With | FBlockType::AsyncWith)
-            });
+        let exits_directly_to_with_cleanup = {
+            let code_info = self.current_code_info();
+            code_info.in_final_with_cleanup_statement > 0
+                && code_info.fblock.last().is_some_and(|info| {
+                    matches!(info.fb_type, FBlockType::With | FBlockType::AsyncWith)
+                })
+        };
         if !orelse.is_empty() && self.statements_end_with_conditional_scope_exit(body) {
             self.preserve_last_redundant_nop();
         } else {
@@ -3870,7 +3894,7 @@ impl Compiler {
         );
         self.set_no_location();
         if (!orelse.is_empty() && self.statements_end_with_loop_fallthrough(orelse)?)
-            || (orelse.is_empty() && exits_to_with_cleanup)
+            || (orelse.is_empty() && exits_directly_to_with_cleanup && handlers_end_with_scope_exit)
         {
             self.preserve_last_redundant_jump_as_nop();
         } else {
@@ -4935,6 +4959,9 @@ impl Compiler {
             if funcflags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
                 num_typeparam_args += 1;
             }
+            if num_typeparam_args == 2 {
+                emit!(self, Instruction::Swap { i: 2 });
+            }
 
             // Enter type params scope
             let type_params_name = format!("<generic parameters of {name}>");
@@ -5017,33 +5044,17 @@ impl Compiler {
             // Make closure for type params code
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::new())?;
 
-            // Call the type params closure with defaults/kwdefaults as arguments.
-            // Call protocol: [callable, self_or_null, arg1, ..., argN]
-            // We need to reorder: [args..., closure] -> [closure, NULL, args...]
-            // Using Swap operations to move closure down and insert NULL.
-            // Note: num_typeparam_args is at most 2 (defaults tuple, kwdefaults dict).
             if num_typeparam_args > 0 {
-                match num_typeparam_args {
-                    1 => {
-                        // Stack: [arg1, closure]
-                        emit!(self, Instruction::Swap { i: 2 }); // [closure, arg1]
-                        emit!(self, Instruction::PushNull); // [closure, arg1, NULL]
-                        emit!(self, Instruction::Swap { i: 2 }); // [closure, NULL, arg1]
+                emit!(
+                    self,
+                    Instruction::Swap {
+                        i: num_typeparam_args as u32 + 1
                     }
-                    2 => {
-                        // Stack: [arg1, arg2, closure]
-                        emit!(self, Instruction::Swap { i: 3 }); // [closure, arg2, arg1]
-                        emit!(self, Instruction::Swap { i: 2 }); // [closure, arg1, arg2]
-                        emit!(self, Instruction::PushNull); // [closure, arg1, arg2, NULL]
-                        emit!(self, Instruction::Swap { i: 3 }); // [closure, NULL, arg2, arg1]
-                        emit!(self, Instruction::Swap { i: 2 }); // [closure, NULL, arg1, arg2]
-                    }
-                    _ => unreachable!("only defaults and kwdefaults are supported"),
-                }
+                );
                 emit!(
                     self,
                     Instruction::Call {
-                        argc: num_typeparam_args as u32
+                        argc: num_typeparam_args as u32 - 1
                     }
                 );
             } else {
@@ -5584,7 +5595,7 @@ impl Compiler {
             let has_double_star =
                 arguments.is_some_and(|args| args.keywords.iter().any(|kw| kw.arg.is_none()));
 
-            if has_starred || has_double_star {
+            if has_starred {
                 // Use CallFunctionEx for *bases or **kwargs
                 // Stack has: [__build_class__, NULL, class_func, name]
                 // Need to build: args tuple = (class_func, name, *bases, .generic_base)
@@ -5619,12 +5630,25 @@ impl Compiler {
                     }
                 );
 
-                // Build kwargs if needed
-                if arguments.is_some_and(|args| !args.keywords.is_empty()) {
-                    self.compile_keywords(&arguments.unwrap().keywords)?;
-                } else {
-                    emit!(self, Instruction::PushNull);
+                self.compile_call_function_ex_keywords(
+                    arguments.map_or(&[][..], |args| &args.keywords[..]),
+                )?;
+                emit!(self, Instruction::CallFunctionEx);
+            } else if has_double_star {
+                if let Some(arguments) = arguments {
+                    for arg in &arguments.args {
+                        self.compile_expression(arg)?;
+                    }
                 }
+                self.load_name(".generic_base")?;
+                emit!(
+                    self,
+                    Instruction::BuildTuple {
+                        count: 3 + arguments
+                            .map_or(0, |args| u32::try_from(args.args.len()).unwrap())
+                    }
+                );
+                self.compile_call_function_ex_keywords(&arguments.unwrap().keywords[..])?;
                 emit!(self, Instruction::CallFunctionEx);
             } else {
                 // Simple case: no starred bases, no **kwargs
@@ -5919,7 +5943,7 @@ impl Compiler {
             if body.is_empty() {
                 return Err(self.error(CodegenErrorType::EmptyWithBody));
             }
-            self.compile_statements(body)?;
+            self.compile_with_body_statements(body)?;
         } else {
             self.set_source_range(with_range);
             self.compile_with(items, body, is_async)?;
@@ -5929,8 +5953,7 @@ impl Compiler {
             && (Self::statements_end_with_with_cleanup_scope_exit(body)
                 || self.statements_end_with_conditional_scope_exit(body)
                 || Self::statements_end_with_try_finally(body)
-                || self.statements_end_with_loop_fallthrough(body)?
-                || self.current_block_has_terminal_with_suppress_exit_predecessor());
+                || self.statements_end_with_loop_fallthrough(body)?);
 
         // Pop fblock before normal exit.  CPython emits this POP_BLOCK with
         // no location for sync with, but with the with-item location for
@@ -8781,39 +8804,6 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_keywords(&mut self, keywords: &[ast::Keyword]) -> CompileResult<()> {
-        let mut size = 0;
-        let groupby = keywords.iter().chunk_by(|e| e.arg.is_none());
-        for (is_unpacking, sub_keywords) in &groupby {
-            if is_unpacking {
-                for keyword in sub_keywords {
-                    self.compile_expression(&keyword.value)?;
-                    size += 1;
-                }
-            } else {
-                let mut sub_size = 0;
-                for keyword in sub_keywords {
-                    if let Some(name) = &keyword.arg {
-                        self.emit_load_const(ConstantData::Str {
-                            value: name.as_str().into(),
-                        });
-                        self.compile_expression(&keyword.value)?;
-                        sub_size += 1;
-                    }
-                }
-                emit!(self, Instruction::BuildMap { count: sub_size });
-                size += 1;
-            }
-        }
-        if size > 1 {
-            // Merge all dicts: first dict is accumulator, merge rest into it
-            for _ in 1..size {
-                emit!(self, Instruction::DictMerge { i: 1 });
-            }
-        }
-        Ok(())
-    }
-
     fn detect_builtin_generator_call(
         &self,
         func: &ast::Expr,
@@ -9156,54 +9146,59 @@ impl Compiler {
                 );
             }
 
-            // Compile keyword arguments
-            if nkwelts > 0 {
-                let mut have_dict = false;
-                let mut nseen = 0usize;
-
-                for (i, keyword) in arguments.keywords.iter().enumerate() {
-                    if keyword.arg.is_none() {
-                        // **kwargs unpacking
-                        if nseen > 0 {
-                            // Pack up preceding keywords using codegen_subkwargs
-                            self.codegen_subkwargs(&arguments.keywords, i - nseen, i)?;
-                            if have_dict {
-                                emit!(self, Instruction::DictMerge { i: 1 });
-                            }
-                            have_dict = true;
-                            nseen = 0;
-                        }
-
-                        if !have_dict {
-                            emit!(self, Instruction::BuildMap { count: 0 });
-                            have_dict = true;
-                        }
-
-                        self.compile_expression_without_const_boolop_folding(&keyword.value)?;
-                        emit!(self, Instruction::DictMerge { i: 1 });
-                    } else {
-                        nseen += 1;
-                    }
-                }
-
-                // Pack up any trailing keyword arguments
-                if nseen > 0 {
-                    self.codegen_subkwargs(&arguments.keywords, nkwelts - nseen, nkwelts)?;
-                    if have_dict {
-                        emit!(self, Instruction::DictMerge { i: 1 });
-                    }
-                    have_dict = true;
-                }
-
-                assert!(have_dict);
-            } else {
-                emit!(self, Instruction::PushNull);
-            }
+            self.compile_call_function_ex_keywords(&arguments.keywords)?;
 
             self.set_source_range(call_range);
             emit!(self, Instruction::CallFunctionEx);
         }
 
+        Ok(())
+    }
+
+    fn compile_call_function_ex_keywords(
+        &mut self,
+        keywords: &[ast::Keyword],
+    ) -> CompileResult<()> {
+        if keywords.is_empty() {
+            emit!(self, Instruction::PushNull);
+            return Ok(());
+        }
+
+        let mut have_dict = false;
+        let mut nseen = 0usize;
+
+        for (i, keyword) in keywords.iter().enumerate() {
+            if keyword.arg.is_none() {
+                if nseen > 0 {
+                    self.codegen_subkwargs(keywords, i - nseen, i)?;
+                    if have_dict {
+                        emit!(self, Instruction::DictMerge { i: 1 });
+                    }
+                    have_dict = true;
+                    nseen = 0;
+                }
+
+                if !have_dict {
+                    emit!(self, Instruction::BuildMap { count: 0 });
+                    have_dict = true;
+                }
+
+                self.compile_expression_without_const_boolop_folding(&keyword.value)?;
+                emit!(self, Instruction::DictMerge { i: 1 });
+            } else {
+                nseen += 1;
+            }
+        }
+
+        if nseen > 0 {
+            self.codegen_subkwargs(keywords, keywords.len() - nseen, keywords.len())?;
+            if have_dict {
+                emit!(self, Instruction::DictMerge { i: 1 });
+            }
+            have_dict = true;
+        }
+
+        debug_assert!(have_dict);
         Ok(())
     }
 
@@ -10103,37 +10098,6 @@ impl Compiler {
         if let Some(info) = self.current_block().instructions.last_mut() {
             info.preserve_block_start_no_location_nop = true;
         }
-    }
-
-    fn current_block_has_terminal_with_suppress_exit_predecessor(&self) -> bool {
-        let code = self.code_stack.last().expect("no code on stack");
-        let target = code.current_block;
-        let mut has_suppress_exit = false;
-
-        for block in &code.blocks {
-            let Some((last, prefix)) = block.instructions.split_last() else {
-                continue;
-            };
-            if last.target != target {
-                continue;
-            }
-            if let Some(PseudoInstruction::JumpNoInterrupt { .. }) = last.instr.pseudo() {
-                let real_instrs: Vec<_> =
-                    prefix.iter().filter_map(|info| info.instr.real()).collect();
-                has_suppress_exit |= matches!(
-                    real_instrs.as_slice(),
-                    [
-                        Instruction::PopTop,
-                        Instruction::PopExcept,
-                        Instruction::PopTop,
-                        Instruction::PopTop,
-                        Instruction::PopTop,
-                    ]
-                );
-            }
-        }
-
-        has_suppress_exit
     }
 
     fn remove_last_no_location_nop(&mut self) {
@@ -15351,6 +15315,139 @@ def f(cm, names, modname):
     }
 
     #[test]
+    fn test_with_try_except_return_handler_keeps_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm):
+    with cm:
+        try:
+            x = 1
+        except OSError:
+            return False
+    return True
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "scope-exiting except handler inside with should preserve the CPython body-exit NOP before with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_nonterminal_try_except_normal_cleanup_drops_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm):
+    with cm:
+        try:
+            x = 1
+        except Exception:
+            pass
+    return x
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "non-terminal except inside with should not preserve a body-exit NOP before with cleanup, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style direct fallthrough into with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_nested_if_try_except_normal_cleanup_drops_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, root):
+    with cm:
+        if root:
+            try:
+                x = 1
+            except Exception as e:
+                raise ValueError from e
+    return root
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "nested try/except should not preserve a body-exit NOP before with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_try_except_finally_normal_cleanup_keeps_body_exit_nop() {
         let code = compile_exec(
             "\
@@ -15392,6 +15489,48 @@ def f(self, x):
                 Some(Instruction::Nop)
             ),
             "expected CPython-style NOP between try/except normal body exit and finally cleanup, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_try_finally_loop_fallthrough_keeps_finalbody_entry_nop() {
+        let code = compile_exec(
+            "\
+def f(close, dup, first, second):
+    try:
+        retries = 0
+        while second != first + 1:
+            close(first)
+            retries += 1
+            if retries > 10:
+                raise RuntimeError
+            first, second = second, dup(second)
+    finally:
+        close(second)
+    close(first)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::PushNull,
+                    ]
+                )
+            }),
+            "try/finally loop fallthrough should preserve CPython finalbody-entry NOP, got ops={ops:?}"
         );
     }
 
@@ -19702,6 +19841,92 @@ class C[T: int]:
             .map(|name| name.as_str())
             .collect::<Vec<_>>();
         assert_eq!(varnames, vec![".format"]);
+    }
+
+    #[test]
+    fn test_generic_class_double_star_bases_use_tuple_ex_call_path() {
+        let code = compile_exec(
+            "\
+def f(Base, kwargs):
+    class C[T](Base, **kwargs):
+        pass
+    return C
+",
+        );
+        let type_params =
+            find_code(&code, "<generic parameters of C>").expect("missing type params code");
+        let ops: Vec<_> = type_params
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !has_intrinsic_1(type_params, IntrinsicFunction1::ListToTuple),
+            "generic class call with **kwargs but no starred bases should not use list-to-tuple, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::BuildTuple { .. },
+                        Instruction::BuildMap { .. },
+                        Instruction::LoadDeref { .. } | Instruction::LoadFast { .. },
+                        Instruction::DictMerge { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style BUILD_TUPLE/BUILD_MAP/DICT_MERGE ex-call path, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_generic_function_defaults_call_type_params_like_cpython() {
+        let code = compile_exec(
+            "\
+def func[T](a: T = 'a', *, b: T = 'b'):
+    return a, b
+",
+        );
+        let ops: Vec<_> = code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Swap { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::MakeFunction,
+                        Instruction::Swap { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "expected CPython generic defaults call pattern SWAP/MAKE_FUNCTION/SWAP/CALL, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::MakeFunction,
+                        Instruction::Swap { .. },
+                        Instruction::Swap { .. },
+                        Instruction::PushNull,
+                        Instruction::Swap { .. },
+                    ]
+                )
+            }),
+            "generic defaults call should not use RustPython-specific PUSH_NULL reshuffle, got ops={ops:?}"
+        );
     }
 
     #[test]
