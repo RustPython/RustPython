@@ -11650,6 +11650,9 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                 {
                     continue;
                 }
+                if !include_conditional && instruction_has_lineno(&target_ins) {
+                    continue;
+                }
                 let source_pos = block_order[bi];
                 let target_pos = block_order.get(target.idx()).copied().unwrap_or(u32::MAX);
                 let final_target = target_ins.target;
@@ -14608,7 +14611,17 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 !normalized_forward_conditional || !block_has_call(&blocks[body.idx()]);
             let after_jump_target = next_nonempty_block(blocks, after_jump);
             let after_jump_continues_conditional_chain = after_jump_target != BlockIdx::NULL
-                && trailing_conditional_jump_index(&blocks[after_jump_target.idx()]).is_some();
+                && block_is_pure_conditional_test(&blocks[after_jump_target.idx()]);
+            let simple_single_block_can_reorder = body_is_single_block
+                && !body_tail_is_conditional
+                && !block_has_call(&blocks[body.idx()])
+                && !body_has_scope_exit
+                && !blocks[body.idx()]
+                    .instructions
+                    .iter()
+                    .any(|info| info.instr.is_unconditional_jump())
+                && !after_jump_continues_conditional_chain
+                && matches!(cond.instr.real(), Some(Instruction::PopJumpIfFalse { .. }));
             let body_starts_with_conditional_test =
                 block_is_pure_conditional_test(&blocks[body.idx()]);
             let trailing_implicit_continue_can_reorder = after_jump != BlockIdx::NULL
@@ -14620,7 +14633,8 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                     && body_is_single_block
                     && matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. })))
                     || (body == body_tail && is_single_delete_subscr_body(&blocks[body.idx()]))
-                    || body_has_for_iter))
+                    || body_has_for_iter
+                    || simple_single_block_can_reorder))
                 || (trailing_implicit_continue_can_reorder
                     && (body_has_scope_exit || body_has_loop_backedge)
                     && (!after_jump_continues_conditional_chain

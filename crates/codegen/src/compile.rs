@@ -21540,6 +21540,50 @@ def while_not_chained(a, b, c):
     }
 
     #[test]
+    fn test_nested_while_chained_compare_break_keeps_break_jump_block() {
+        let code = compile_exec(
+            "\
+def f(start, self, stop, size):
+    while size > 0:
+        while True:
+            if start <= self.position < stop:
+                break
+            else:
+                self.map_index += 1
+                if self.map_index == len(self.map):
+                    self.map_index = 0
+        length = min(size, stop - self.position)
+        size -= length
+    return size
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpForward { .. },
+                        Instruction::PopTop,
+                        Instruction::JumpForward { .. },
+                        Instruction::JumpForward { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style chained-compare success hop into the break jump block, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_while_break_else_keeps_true_edge_into_forward_break_body() {
         let code = compile_exec(
             "\
