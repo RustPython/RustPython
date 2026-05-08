@@ -1545,6 +1545,7 @@ impl Compiler {
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
             folded_operand_nop: false,
+            no_location_exit: false,
             preserve_block_start_no_location_nop: false,
         });
     }
@@ -10040,6 +10041,7 @@ impl Compiler {
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
             folded_operand_nop: false,
+            no_location_exit: false,
             preserve_block_start_no_location_nop: false,
         });
     }
@@ -10111,6 +10113,12 @@ impl Compiler {
     fn set_no_location(&mut self) {
         if let Some(last) = self.current_block().instructions.last_mut() {
             last.lineno_override = Some(-1);
+        }
+    }
+
+    fn mark_last_no_location_exit(&mut self) {
+        if let Some(last) = self.current_block().instructions.last_mut() {
+            last.no_location_exit = true;
         }
     }
 
@@ -10627,8 +10635,10 @@ impl Compiler {
     fn emit_return_const_no_location(&mut self, constant: ConstantData) {
         self.emit_load_const(constant);
         self.set_no_location();
+        self.mark_last_no_location_exit();
         emit!(self, Instruction::ReturnValue);
         self.set_no_location();
+        self.mark_last_no_location_exit();
     }
 
     fn emit_end_async_for(&mut self, send_target: BlockIdx) {
@@ -17029,6 +17039,95 @@ def f():
                 )
             }),
             "expected CPython nop_out-style folded tuple operand NOP to be removed, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_if_else_normal_fallthrough_end_label_drops_return_anchor_nop() {
+        let code = compile_exec(
+            "\
+def f(s):
+    if s[0] in (0o200, 0o377):
+        n = 0
+        for i in range(len(s) - 1):
+            n <<= 8
+            n += s[i + 1]
+        if s[0] == 0o377:
+            n = -(256 ** (len(s) - 1) - n)
+    else:
+        try:
+            s = nts(s, 'ascii', 'strict')
+            n = int(s.strip() or '0', 8)
+        except ValueError:
+            raise InvalidHeaderError('invalid header')
+    return n
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "normal fallthrough into an if-end final return should not keep a CPython return-anchor NOP, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_explicit_final_return_none_is_not_duplicated() {
+        let code = compile_exec(
+            "\
+def f(src, dst, length, exception, bufsize):
+    if length == 0:
+        return
+    if length is None:
+        copyfileobj(src, dst, bufsize)
+        return
+
+    blocks, remainder = divmod(length, bufsize)
+    for b in range(blocks):
+        buf = src.read(bufsize)
+        if len(buf) < bufsize:
+            raise exception('unexpected end of data')
+        dst.write(buf)
+
+    if remainder != 0:
+        buf = src.read(remainder)
+        if len(buf) < remainder:
+            raise exception('unexpected end of data')
+        dst.write(buf)
+    return
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let return_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .count();
+
+        assert_eq!(
+            return_count,
+            3,
+            "explicit final return None should not be duplicated as a synthetic no-location epilogue, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
         );
     }
 

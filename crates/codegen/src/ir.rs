@@ -128,6 +128,8 @@ pub struct InstructionInfo {
     pub remove_no_location_nop: bool,
     /// This no-location NOP was created by CPython-style nop_out() folding.
     pub folded_operand_nop: bool,
+    /// This instruction was emitted as part of a synthetic no-location exit.
+    pub no_location_exit: bool,
     /// Keep this no-location NOP until line propagation when it starts a block.
     pub preserve_block_start_no_location_nop: bool,
 }
@@ -152,6 +154,7 @@ fn set_to_nop(info: &mut InstructionInfo) {
     info.preserve_redundant_jump_as_nop = false;
     info.remove_no_location_nop = false;
     info.folded_operand_nop = false;
+    info.no_location_exit = false;
     info.preserve_block_start_no_location_nop = false;
 }
 
@@ -11230,6 +11233,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
             folded_operand_nop: false,
+            no_location_exit: false,
             preserve_block_start_no_location_nop: false,
         });
         jump_block.next = blocks[cold_idx.idx()].next;
@@ -11761,6 +11765,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                     preserve_redundant_jump_as_nop: false,
                     remove_no_location_nop: false,
                     folded_operand_nop: false,
+                    no_location_exit: false,
                     preserve_block_start_no_location_nop: false,
                 };
                 blocks[idx].instructions.push(not_taken);
@@ -11797,6 +11802,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                         preserve_redundant_jump_as_nop: false,
                         remove_no_location_nop: false,
                         folded_operand_nop: false,
+                        no_location_exit: false,
                         preserve_block_start_no_location_nop: false,
                     });
                     new_block.instructions.push(InstructionInfo {
@@ -11812,6 +11818,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                         preserve_redundant_jump_as_nop: false,
                         remove_no_location_nop: false,
                         folded_operand_nop: false,
+                        no_location_exit: false,
                         preserve_block_start_no_location_nop: false,
                     });
                     new_block.next = old_next;
@@ -11942,6 +11949,19 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                 ) && matches!(ret.instr.real(), Some(Instruction::ReturnValue))
         )
     };
+    let normal_layout_fallthrough_into = |blocks: &[Block], target: BlockIdx| {
+        let mut current = BlockIdx(0);
+        let mut previous_nonempty = BlockIdx::NULL;
+        while current != BlockIdx::NULL && current != target {
+            if !blocks[current.idx()].instructions.is_empty() {
+                previous_nonempty = current;
+            }
+            current = blocks[current.idx()].next;
+        }
+        previous_nonempty != BlockIdx::NULL
+            && block_has_fallthrough(&blocks[previous_nonempty.idx()])
+            && next_nonempty_block(blocks, blocks[previous_nonempty.idx()].next) == target
+    };
     loop {
         let mut changes = false;
         let mut predecessors = vec![0usize; blocks.len()];
@@ -12004,9 +12024,12 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                         == Some(JumpThreadKind::NoInterrupt)
                         && small_exit_block
                         && blocks[current.idx()].instructions.len() == 1
-                        && block_is_simple_fast_return(&blocks[target.idx()]);
+                        && block_is_simple_fast_return(&blocks[target.idx()])
+                        && !normal_layout_fallthrough_into(blocks, current);
                     if let Some(last_instr) = blocks[current.idx()].instructions.last_mut() {
+                        let lineno_override = last_instr.lineno_override;
                         set_to_nop(last_instr);
+                        last_instr.lineno_override = lineno_override;
                         if preserve_empty_end_label_nop {
                             last_instr.lineno_override = None;
                             last_instr.preserve_block_start_no_location_nop = true;
@@ -12575,6 +12598,7 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
             folded_operand_nop: false,
+            no_location_exit: false,
             preserve_block_start_no_location_nop: false,
         });
     }
@@ -12606,6 +12630,7 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
                 preserve_redundant_jump_as_nop: false,
                 remove_no_location_nop: false,
                 folded_operand_nop: false,
+                no_location_exit: false,
                 preserve_block_start_no_location_nop: false,
             },
         );
@@ -15257,6 +15282,8 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
             AnyInstruction::Real(Instruction::LoadConst { .. })
         )
         && is_load_const_none(&last_insts[0], metadata)
+        && last_insts[0].no_location_exit
+        && last_insts[1].no_location_exit
         && matches!(
             last_insts[1].instr,
             AnyInstruction::Real(Instruction::ReturnValue)
@@ -15839,6 +15866,7 @@ mod tests {
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
             folded_operand_nop: false,
+            no_location_exit: false,
             preserve_block_start_no_location_nop: false,
         }
     }
