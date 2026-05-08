@@ -565,7 +565,6 @@ class InstructioneGen:
     @property
     def fn_try_from_numeric(self) -> str:
         return f"""
-        #[must_use]
         pub const fn try_from_{self.numeric_repr}(
             value: {self.numeric_repr}
         ) -> Result<Self, MarshalError> {{

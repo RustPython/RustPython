@@ -2436,7 +2436,6 @@ impl Instruction {
         }
     }
 
-    #[must_use]
     pub const fn try_from_u8(value: u8) -> Result<Self, MarshalError> {
         match Opcode::try_from_u8(value) {
             Ok(opcode) => Ok(opcode.as_instruction()),
@@ -2785,7 +2784,6 @@ impl PseudoInstruction {
         }
     }
 
-    #[must_use]
     pub const fn try_from_u16(value: u16) -> Result<Self, MarshalError> {
         match PseudoOpcode::try_from_u16(value) {
             Ok(opcode) => Ok(opcode.as_instruction()),
