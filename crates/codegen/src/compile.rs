@@ -662,6 +662,11 @@ impl Compiler {
         })
     }
 
+    fn statements_end_with_loop_fallthrough(body: &[ast::Stmt]) -> bool {
+        body.last()
+            .is_some_and(|stmt| matches!(stmt, ast::Stmt::For(_) | ast::Stmt::While(_)))
+    }
+
     fn has_resuming_bare_except(handlers: &[ast::ExceptHandler]) -> bool {
         handlers.iter().any(|handler| {
             let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
@@ -3819,7 +3824,11 @@ impl Compiler {
         self.pop_fblock(FBlockType::TryExcept);
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
-        self.remove_last_no_location_nop();
+        if !orelse.is_empty() && Self::statements_end_with_conditional_scope_exit(body) {
+            self.preserve_last_redundant_nop();
+        } else {
+            self.remove_last_no_location_nop();
+        }
         if !orelse.is_empty() && has_terminal_raise_handlers {
             let orelse_block = self.new_block();
             self.switch_to_block(orelse_block);
@@ -3831,7 +3840,11 @@ impl Compiler {
             PseudoInstruction::JumpNoInterrupt { delta: end_block }
         );
         self.set_no_location();
-        self.remove_last_no_location_nop();
+        if !orelse.is_empty() && Self::statements_end_with_loop_fallthrough(orelse) {
+            self.preserve_last_redundant_jump_as_nop();
+        } else {
+            self.remove_last_no_location_nop();
+        }
 
         self.switch_to_block(handler_block);
         emit!(
@@ -5884,6 +5897,7 @@ impl Compiler {
         let preserve_outer_cleanup_target_nop = !is_async
             && (Self::statements_end_with_with_cleanup_scope_exit(body)
                 || Self::statements_end_with_conditional_scope_exit(body)
+                || Self::statements_end_with_loop_fallthrough(body)
                 || self.current_block_has_terminal_with_suppress_exit_predecessor());
 
         // Pop fblock before normal exit.  CPython emits this POP_BLOCK with
@@ -13648,6 +13662,104 @@ def f(msg):
                 )
             }),
             "expected CPython-style NOP between conditional return and final call return, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_conditional_scope_exit_keeps_pop_block_nop() {
+        let code = compile_exec(
+            "\
+def f(values, check):
+    found = ''
+    for value in values:
+        try:
+            if check(value):
+                raise UnicodeError
+        except UnicodeError:
+            pass
+        else:
+            found = value
+            break
+    return found
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "try-else after conditional scope exit should keep CPython's POP_BLOCK NOP anchor, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_loop_fallthrough_keeps_end_jump_nop_before_finally() {
+        let code = compile_exec(
+            "\
+def f(locale, category, locales):
+    try:
+        orig_locale = locale.setlocale(category)
+    except AttributeError:
+        raise
+    except Exception:
+        locale = orig_locale = None
+        if '' not in locales:
+            raise SkipTest('no locales')
+    else:
+        for loc in locales:
+            try:
+                locale.setlocale(category, loc)
+                break
+            except locale.Error:
+                pass
+        else:
+            if '' not in locales:
+                raise SkipTest(locales)
+    try:
+        yield
+    finally:
+        if locale and orig_locale:
+            locale.setlocale(category, orig_locale)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::Nop,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::YieldValue { .. },
+                    ]
+                )
+            }),
+            "try-else loop fallthrough should keep CPython's end-label NOP before following try/finally, got ops={ops:?}"
         );
     }
 
@@ -21608,6 +21720,70 @@ def f(s, size, encodeSetO, encodeWhiteSpace):
     }
 
     #[test]
+    fn test_exception_cleanup_backedge_target_is_shared() {
+        let code = compile_exec(
+            "\
+def f(enum_class, value, Flag, int_type, is_single_bit):
+    try:
+        try:
+            enum_member = enum_class[value]
+        except TypeError:
+            raise KeyError
+    except KeyError:
+        if Flag is None or not issubclass(enum_class, Flag):
+            enum_class.names.append(value)
+        elif (
+            Flag is not None
+            and issubclass(enum_class, Flag)
+            and isinstance(value, int_type)
+            and is_single_bit(value)
+        ):
+            enum_class.names.append(value)
+    enum_class.add(enum_member)
+    return enum_member
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopExcept,
+                        Instruction::JumpBackwardNoInterrupt { .. }
+                            | Instruction::JumpBackward { .. },
+                        Instruction::Reraise { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style shared exception cleanup backedge before reraise, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopExcept,
+                        Instruction::JumpBackwardNoInterrupt { .. }
+                            | Instruction::JumpBackward { .. },
+                        Instruction::PopExcept,
+                        Instruction::JumpBackwardNoInterrupt { .. }
+                            | Instruction::JumpBackward { .. },
+                    ]
+                )
+            }),
+            "exception cleanup backedge should be shared, not duplicated per conditional edge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_protected_loop_conditional_keeps_forward_body_entry() {
         let code = compile_exec(
             "\
@@ -24075,6 +24251,64 @@ def f(chunk, dec, i):
     }
 
     #[test]
+    fn test_exception_handler_loop_conditional_return_orders_backedge_before_return() {
+        let code = compile_exec(
+            "\
+def f(cls, value):
+    try:
+        return cls[value]
+    except TypeError:
+        for name, values in cls.items():
+            if value in values:
+                return cls[name]
+        for name, member in cls.items():
+            if value == member.value:
+                return cls[name]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastLoadFast { .. }
+                            | Instruction::LoadFastBorrowLoadFastBorrow { .. },
+                    ]
+                )
+            }),
+            "expected exception-handler loop false path to jump back before return body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastLoadFast { .. }
+                            | Instruction::LoadFastBorrowLoadFastBorrow { .. },
+                    ]
+                )
+            }),
+            "unexpected exception-handler loop return body before backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_if_body_keeps_fallthrough_before_implicit_continue_backedge() {
         let code = compile_exec(
             "\
@@ -25064,6 +25298,45 @@ def f(self):
                 )
             }),
             "with fallthrough cleanup should preserve the CPython POP_BLOCK NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_while_fallthrough_preserves_cleanup_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, source):
+    with cm as out:
+        s = source.read()
+        while s:
+            out.write(s)
+            s = source.read()
+    source.close()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .map(|unit| unit.op)
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "with cleanup after while fallthrough should preserve the CPython POP_BLOCK NOP, got ops={ops:?}"
         );
     }
 

@@ -342,7 +342,7 @@ impl CodeInfo {
         reorder_conditional_explicit_continue_scope_exit_blocks(&mut self.blocks);
         reorder_conditional_implicit_continue_scope_exit_blocks(&mut self.blocks);
         reorder_conditional_scope_exit_and_jump_back_blocks(&mut self.blocks, true, true);
-        reorder_exception_handler_conditional_continue_raise_blocks(&mut self.blocks);
+        reorder_exception_handler_conditional_continue_scope_exit_blocks(&mut self.blocks);
         deduplicate_adjacent_jump_back_blocks(&mut self.blocks);
         reorder_conditional_body_and_implicit_continue_blocks(&mut self.blocks);
         reorder_conditional_scope_exit_and_jump_back_blocks(&mut self.blocks, true, true);
@@ -12374,13 +12374,14 @@ fn remove_redundant_jumps_in_blocks(blocks: &mut [Block]) -> usize {
                         (!matches!(instr.instr.real(), Some(Instruction::Nop)) || line >= 0)
                             .then_some(line)
                     });
-                    line > 0
-                        && !block_jump_follows_async_send_pop(&blocks[idx])
-                        && !(block_jump_follows_with_normal_exit(&blocks[idx])
-                            && block_tail_starts_with_async_with_normal_exit(
-                                &blocks[next.idx()].instructions,
-                            ))
-                        && next_line.is_some_and(|next_line| next_line < line)
+                    line < 0
+                        || line > 0
+                            && !block_jump_follows_async_send_pop(&blocks[idx])
+                            && !(block_jump_follows_with_normal_exit(&blocks[idx])
+                                && block_tail_starts_with_async_with_normal_exit(
+                                    &blocks[next.idx()].instructions,
+                                ))
+                            && next_line.is_some_and(|next_line| next_line < line)
                 } else {
                     false
                 };
@@ -14297,7 +14298,18 @@ fn reorder_conditional_implicit_continue_scope_exit_blocks(blocks: &mut [Block])
     }
 }
 
-fn reorder_exception_handler_conditional_continue_raise_blocks(blocks: &mut [Block]) {
+fn reorder_exception_handler_conditional_continue_scope_exit_blocks(blocks: &mut [Block]) {
+    fn handler_scope_exit_returns(block: &Block) -> bool {
+        block
+            .instructions
+            .iter()
+            .any(|info| matches!(info.instr.real(), Some(Instruction::PopExcept)))
+            && block
+                .instructions
+                .last()
+                .is_some_and(|info| matches!(info.instr.real(), Some(Instruction::ReturnValue)))
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -14325,6 +14337,13 @@ fn reorder_exception_handler_conditional_continue_raise_blocks(blocks: &mut [Blo
         } else {
             BlockIdx::NULL
         };
+        let exit_raises = exit_block != BlockIdx::NULL
+            && blocks[exit_block.idx()]
+                .instructions
+                .iter()
+                .any(|info| matches!(info.instr.real(), Some(Instruction::RaiseVarargs { .. })));
+        let exit_returns =
+            exit_block != BlockIdx::NULL && handler_scope_exit_returns(&blocks[exit_block.idx()]);
         if exit_start == BlockIdx::NULL
             || exit_block == BlockIdx::NULL
             || jump_start == BlockIdx::NULL
@@ -14333,10 +14352,7 @@ fn reorder_exception_handler_conditional_continue_raise_blocks(blocks: &mut [Blo
             || exit_block == jump_block
             || !is_scope_exit_block(&blocks[exit_block.idx()])
             || !is_jump_back_only_block(blocks, jump_block)
-            || !blocks[exit_block.idx()]
-                .instructions
-                .iter()
-                .any(|info| matches!(info.instr.real(), Some(Instruction::RaiseVarargs { .. })))
+            || !(exit_raises || exit_returns)
             || !blocks[jump_target.idx()]
                 .instructions
                 .first()
@@ -15322,6 +15338,13 @@ fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
         let Some(jump_target) = shared_jump_back_target(&blocks[target.idx()]) else {
             continue;
         };
+        if blocks[target.idx()]
+            .instructions
+            .iter()
+            .any(|info| matches!(info.instr.real(), Some(Instruction::PopExcept)))
+        {
+            continue;
+        }
 
         let jump_target = next_nonempty_block(blocks, jump_target);
         if jump_target == BlockIdx::NULL || !comes_before(blocks, jump_target, target) {
