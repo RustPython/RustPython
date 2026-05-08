@@ -12868,6 +12868,30 @@ fn is_exit_without_lineno(blocks: &[Block], block_idx: BlockIdx) -> bool {
         && has_non_exception_loop_backedge_to(blocks, block_idx, last.target)
 }
 
+fn is_eval_break_without_lineno(blocks: &[Block], block_idx: BlockIdx) -> bool {
+    let block = &blocks[block_idx.idx()];
+    let Some(first) = block.instructions.first() else {
+        return false;
+    };
+    !instruction_has_lineno(first) && block_has_no_lineno(block) && block_has_eval_break(block)
+}
+
+fn block_has_eval_break(block: &Block) -> bool {
+    block.instructions.iter().any(|info| {
+        matches!(
+            info.instr,
+            AnyInstruction::Pseudo(PseudoInstruction::Jump { .. })
+                | AnyInstruction::Real(
+                    Instruction::Call { .. }
+                        | Instruction::CallFunctionEx
+                        | Instruction::CallKw { .. }
+                        | Instruction::JumpBackward { .. }
+                        | Instruction::Resume { .. }
+                )
+            )
+    })
+}
+
 fn block_has_no_lineno(block: &Block) -> bool {
     block
         .instructions
@@ -14970,7 +14994,14 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>, predecessors: &mut Ve
         };
 
         let target = next_nonempty_block(blocks, last.target);
-        if target == BlockIdx::NULL || !is_exit_without_lineno(blocks, target) {
+        if target == BlockIdx::NULL {
+            current = blocks[current.idx()].next;
+            continue;
+        }
+        let target_is_exit_without_lineno = is_exit_without_lineno(blocks, target);
+        let target_is_protected_eval_break =
+            is_eval_break_without_lineno(blocks, target) && last.except_handler.is_some();
+        if !target_is_exit_without_lineno && !target_is_protected_eval_break {
             current = blocks[current.idx()].next;
             continue;
         }
@@ -15019,7 +15050,8 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>, predecessors: &mut Ve
                         current,
                         target,
                     ))
-                && is_exit_without_lineno(blocks, target)
+                && (is_exit_without_lineno(blocks, target)
+                    || is_eval_break_without_lineno(blocks, target))
                 && let Some((location, end_location)) = propagation_location(last)
                 && let Some(first) = blocks[target.idx()].instructions.first_mut()
             {

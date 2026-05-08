@@ -20384,6 +20384,55 @@ def f(new, old):
     }
 
     #[test]
+    fn test_try_loop_inner_if_keeps_duplicate_jump_back_paths() {
+        let code = compile_exec(
+            "\
+def f(config, logging):
+    handlers = config.get('handlers', {})
+    for name in handlers:
+        if name not in logging._handlers:
+            raise ValueError('missing')
+        else:
+            try:
+                handler = logging._handlers[name]
+                handler_config = handlers[name]
+                level = handler_config.get('level', None)
+                if level:
+                    handler.setLevel(logging._checkLevel(level))
+            except Exception as e:
+                raise ValueError('bad') from e
+    loggers = config.get('loggers', {})
+    for name in loggers:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::EndFor,
+                    ]
+                )
+            }),
+            "expected CPython-style separate body and false-path jump-back blocks, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_line_bearing_loop_if_false_backedge_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\
