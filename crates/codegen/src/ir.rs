@@ -14569,7 +14569,8 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             }
             visited[cursor.idx()] = true;
             if block_is_exceptional(&blocks[cursor.idx()])
-                || block_is_protected(&blocks[cursor.idx()])
+                || (block_is_protected(&blocks[cursor.idx()])
+                    && !block_has_only_stop_iteration_error_handlers(&blocks[cursor.idx()], blocks))
             {
                 return None;
             }
@@ -14596,6 +14597,29 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 .iter()
                 .any(|info| matches!(info.instr.real(), Some(Instruction::ForIter { .. })))
             {
+                return true;
+            }
+            if cursor == body_tail {
+                return false;
+            }
+            cursor = blocks[cursor.idx()].next;
+        }
+        false
+    }
+
+    fn body_segment_contains_protected_block(
+        blocks: &[Block],
+        body_start: BlockIdx,
+        body_tail: BlockIdx,
+    ) -> bool {
+        let mut cursor = body_start;
+        let mut visited = vec![false; blocks.len()];
+        while cursor != BlockIdx::NULL {
+            if visited[cursor.idx()] {
+                return false;
+            }
+            visited[cursor.idx()] = true;
+            if block_is_protected(&blocks[cursor.idx()]) {
                 return true;
             }
             if cursor == body_tail {
@@ -14912,6 +14936,7 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             continue;
         }
         if !body_segment_contains_for_iter(blocks, body, body_tail)
+            || body_segment_contains_protected_block(blocks, body, body_tail)
             || trailing_conditional_jump_index(&blocks[body.idx()]).is_some()
             || block_starts_loop_cleanup(blocks, next_nonempty_block(blocks, after_body))
         {

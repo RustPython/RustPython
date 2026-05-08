@@ -3849,6 +3849,10 @@ impl Compiler {
         self.pop_fblock(FBlockType::TryExcept);
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
+        let exits_to_with_cleanup =
+            self.current_code_info().fblock.last().is_some_and(|info| {
+                matches!(info.fb_type, FBlockType::With | FBlockType::AsyncWith)
+            });
         if !orelse.is_empty() && self.statements_end_with_conditional_scope_exit(body) {
             self.preserve_last_redundant_nop();
         } else {
@@ -3865,7 +3869,9 @@ impl Compiler {
             PseudoInstruction::JumpNoInterrupt { delta: end_block }
         );
         self.set_no_location();
-        if !orelse.is_empty() && self.statements_end_with_loop_fallthrough(orelse)? {
+        if (!orelse.is_empty() && self.statements_end_with_loop_fallthrough(orelse)?)
+            || (orelse.is_empty() && exits_to_with_cleanup)
+        {
             self.preserve_last_redundant_jump_as_nop();
         } else {
             self.remove_last_no_location_nop();
@@ -14730,6 +14736,77 @@ def f(values):
     }
 
     #[test]
+    fn test_final_elif_with_inlined_comprehensions_threads_backedge_before_body() {
+        let code = compile_exec(
+            "\
+def f(checks, enumeration, named):
+    for check in checks:
+        if check == 1:
+            pass
+        elif check is named:
+            member_names = enumeration._member_names_
+            member_values = [m.value for m in enumeration]
+            missing_names = []
+            missing_value = 0
+            for name, alias in enumeration._member_map_.items():
+                if name in member_names:
+                    continue
+                if alias.value < 0:
+                    continue
+                values = list(_iter_bits_lsb(alias.value))
+                missed = [v for v in values if v not in member_values]
+                if missed:
+                    missing_names.append(name)
+                    for val in missed:
+                        missing_value |= val
+            if missing_names:
+                raise ValueError('x')
+    return enumeration
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::IsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style final elif to put loop backedge before the inlined-comprehension body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::IsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "unexpected final elif body before loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_multi_with_header_uses_store_fast_load_fast() {
         let code = compile_exec(
             "\
@@ -15230,6 +15307,46 @@ def f(cm):
                 )
             }),
             "expected CPython-style redundant finally cleanup jump to become a line NOP before with-exit cleanup, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
+    fn test_with_try_except_normal_cleanup_keeps_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, names, modname):
+    with cm:
+        try:
+            exec('import %s' % modname, names)
+        except:
+            raise FailedImport(modname)
+    return names
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "try/except inside with should preserve the CPython body-exit NOP before with cleanup, got ops={ops:?}"
         );
     }
 
