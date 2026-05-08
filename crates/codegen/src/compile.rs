@@ -9719,15 +9719,10 @@ impl Compiler {
                     if sym.flags.contains(SymbolFlags::PARAMETER) {
                         continue; // skip .0
                     }
-                    // Walrus operator targets (ASSIGNED_IN_COMPREHENSION without ITER)
-                    // are not local to the comprehension; they leak to the outer scope.
-                    let is_walrus = sym.flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
-                        && !sym.flags.contains(SymbolFlags::ITER);
                     let is_local = sym
                         .flags
                         .intersects(SymbolFlags::ASSIGNED | SymbolFlags::ITER)
-                        && !sym.flags.contains(SymbolFlags::NONLOCAL)
-                        && !is_walrus;
+                        && !sym.flags.contains(SymbolFlags::NONLOCAL);
                     if is_local {
                         pushed_locals.push(name);
                     }
@@ -20363,6 +20358,72 @@ def f():
                 ]
             )),
             "expected PopIter/SWAP 2/STORE_FAST/STORE_FAST restore tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_inlined_comprehension_namedexpr_target_stays_parent_fast_local() {
+        let code = compile_exec(
+            "\
+def f(seq, emit):
+    return [(x, y) for x in seq if (y := emit(x))]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(f.varnames.iter().any(|name| name == "y"));
+        assert!(!f.cellvars.iter().any(|name| name == "y"));
+        assert!(!f.freevars.iter().any(|name| name == "y"));
+        assert!(
+            !f.names.iter().any(|name| name == "y"),
+            "inlined comprehension namedexpr target should not use NAME ops, got names={:?}",
+            f.names
+        );
+    }
+
+    #[test]
+    fn test_global_namedexpr_in_inlined_comprehension_saves_fast_slot() {
+        let code = compile_exec(
+            "\
+def f(seq, value):
+    global G
+    [G := value for _ in seq]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(f.varnames.iter().any(|name| name == "G"));
+        assert!(f.instructions.iter().any(|unit| match unit.op {
+            Instruction::LoadFastAndClear { var_num } => {
+                let idx = var_num.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                f.varnames[usize::from(idx)] == "G"
+            }
+            _ => false,
+        }));
+        assert!(f.instructions.iter().any(|unit| match unit.op {
+            Instruction::StoreGlobal { namei } => {
+                let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                f.names[usize::try_from(idx).unwrap()] == "G"
+            }
+            _ => false,
+        }));
+    }
+
+    #[test]
+    fn test_genexpr_namedexpr_target_is_cell_not_fast_local() {
+        let code = compile_exec(
+            "\
+def f(seq):
+    a = 1
+    return (c := x + a for x in seq)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(!f.varnames.iter().any(|name| name == "c"));
+        assert_eq!(
+            f.cellvars.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["a", "c"]
         );
     }
 

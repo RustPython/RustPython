@@ -2219,6 +2219,7 @@ impl SymbolTableBuilder {
                     self.check_name(id, ExpressionContext::Store, *range)?;
                     let table = self.tables.last().unwrap();
                     if table.typ == CompilerScope::Comprehension {
+                        self.extend_namedexpr_scope(id, *range)?;
                         self.register_name(
                             id,
                             SymbolUsage::AssignedNamedExprInComprehension,
@@ -2653,6 +2654,127 @@ impl SymbolTableBuilder {
             }
         }
         Ok(())
+    }
+
+    fn add_varname_to_scope(&mut self, table_idx: usize, name: &str) {
+        let varnames = if table_idx + 1 == self.tables.len() {
+            &mut self.current_varnames
+        } else {
+            &mut self.varnames_stack[table_idx + 1]
+        };
+        if !varnames.iter().any(|existing| existing == name) {
+            varnames.push(name.to_owned());
+        }
+    }
+
+    // Mirrors CPython symtable_extend_namedexpr_scope(): assignment expressions
+    // inside comprehensions bind in the nearest function/module-like scope, not
+    // in the synthetic comprehension scope itself.
+    fn extend_namedexpr_scope(&mut self, name: &str, range: TextRange) -> SymbolTableResult {
+        let location = Some(
+            self.source_file
+                .to_source_code()
+                .source_location(range.start(), PositionEncoding::Utf8),
+        );
+
+        for table_idx in (0..self.tables.len()).rev() {
+            let table_type = self.tables[table_idx].typ;
+            let mangled = maybe_mangle_name(
+                self.class_name.as_deref(),
+                self.tables[table_idx].mangled_names.as_ref(),
+                name,
+            )
+            .into_owned();
+
+            if table_type == CompilerScope::Comprehension {
+                if self.tables[table_idx]
+                    .symbols
+                    .get(mangled.as_str())
+                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::ITER))
+                {
+                    return Err(SymbolTableError {
+                        error: format!(
+                            "assignment expression cannot rebind comprehension iteration variable '{}'",
+                            mangled
+                        ),
+                        location,
+                    });
+                }
+                continue;
+            }
+
+            match table_type {
+                CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda => {
+                    let current_comp_inlined = self.tables.last().is_some_and(|table| {
+                        table.typ == CompilerScope::Comprehension && table.comp_inlined
+                    });
+                    let parent_is_global = self.tables[table_idx]
+                        .symbols
+                        .get(mangled.as_str())
+                        .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::GLOBAL));
+                    let current = self.tables.last_mut().unwrap();
+                    let current_symbol = current
+                        .symbols
+                        .entry(mangled.clone())
+                        .or_insert_with(|| Symbol::new(mangled.as_str()));
+                    if parent_is_global {
+                        current_symbol.flags.insert(SymbolFlags::GLOBAL);
+                        current_symbol.scope = SymbolScope::GlobalExplicit;
+                    } else {
+                        current_symbol.flags.insert(SymbolFlags::NONLOCAL);
+                        current_symbol.scope = SymbolScope::Free;
+                    }
+
+                    let symbol = self.tables[table_idx]
+                        .symbols
+                        .entry(mangled.clone())
+                        .or_insert_with(|| Symbol::new(mangled.as_str()));
+                    symbol.flags.insert(SymbolFlags::ASSIGNED);
+                    if !parent_is_global && current_comp_inlined {
+                        self.add_varname_to_scope(table_idx, mangled.as_str());
+                    }
+                    return Ok(());
+                }
+                CompilerScope::Module => {
+                    let current = self.tables.last_mut().unwrap();
+                    let current_symbol = current
+                        .symbols
+                        .entry(mangled.clone())
+                        .or_insert_with(|| Symbol::new(mangled.as_str()));
+                    current_symbol.flags.insert(SymbolFlags::GLOBAL);
+                    current_symbol.scope = SymbolScope::GlobalExplicit;
+
+                    let symbol = self.tables[table_idx]
+                        .symbols
+                        .entry(mangled.clone())
+                        .or_insert_with(|| Symbol::new(mangled.as_str()));
+                    symbol.flags.insert(SymbolFlags::GLOBAL);
+                    symbol.scope = SymbolScope::GlobalExplicit;
+                    return Ok(());
+                }
+                CompilerScope::Class => {
+                    return Err(SymbolTableError {
+                        error: "assignment expression within a comprehension cannot be used in a class body".to_string(),
+                        location,
+                    });
+                }
+                CompilerScope::TypeParams => {
+                    return Err(SymbolTableError {
+                        error: "assignment expression within a comprehension cannot be used within the definition of a generic".to_string(),
+                        location,
+                    });
+                }
+                CompilerScope::Annotation => {
+                    return Err(SymbolTableError {
+                        error: "named expression cannot be used within an annotation".to_string(),
+                        location,
+                    });
+                }
+                CompilerScope::Comprehension => unreachable!(),
+            }
+        }
+
+        unreachable!("named expression scope extension requires an enclosing scope")
     }
 
     fn register_name(
