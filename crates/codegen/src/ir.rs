@@ -14745,9 +14745,11 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                         | Instruction::LoadFastBorrow { .. }
                         | Instruction::LoadFastLoadFast { .. }
                         | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                        | Instruction::LoadDeref { .. }
                         | Instruction::LoadConst { .. }
                         | Instruction::LoadSmallInt { .. }
                         | Instruction::LoadAttr { .. }
+                        | Instruction::BinaryOp { .. }
                         | Instruction::ContainsOp { .. }
                         | Instruction::CompareOp { .. }
                         | Instruction::ToBool
@@ -14812,6 +14814,10 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 block_starts_loop_cleanup(blocks, after_jump_target);
             let after_jump_continues_conditional_chain = after_jump_target != BlockIdx::NULL
                 && block_is_pure_conditional_test(&blocks[after_jump_target.idx()]);
+            if after_jump_continues_conditional_chain {
+                current = next;
+                continue;
+            }
             let simple_single_block_can_reorder = body_is_single_block
                 && !body_tail_is_conditional
                 && !has_exceptional_duplicate_condition_line
@@ -15528,6 +15534,13 @@ fn duplicate_fallthrough_jump_back_targets(blocks: &mut Vec<Block>) {
         if target == BlockIdx::NULL
             || predecessors[target.idx()] < 2
             || !is_jump_back_only_block(blocks, target)
+        {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+        if blocks[target.idx()].instructions[0]
+            .lineno_override
+            .is_some_and(|lineno| lineno >= 0)
         {
             layout_pred = blocks[layout_pred.idx()].next;
             continue;

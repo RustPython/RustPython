@@ -20930,6 +20930,69 @@ def f(obj, flags, writer, value, Error):
     }
 
     #[test]
+    fn test_nested_continue_shares_backedge_with_fallthrough_body() {
+        let code = compile_exec(
+            "\
+def f(names, show_empty, keywords, args_buffer, args, cls, object, level):
+    for name in names:
+        value = getattr(cls, name)
+        if not show_empty:
+            if value == []:
+                field_type = cls._field_types.get(name, object)
+                if getattr(field_type, '__origin__', ...) is list:
+                    if not keywords:
+                        args_buffer.append(repr(value))
+                    continue
+            if not keywords:
+                args.extend(args_buffer)
+                args_buffer = []
+        value, simple = _format(value, level)
+        if keywords:
+            args.append('%s=%s' % (name, value))
+        else:
+            args.append(value)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache | Instruction::NotTaken))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "expected CPython-style shared continue backedge before outer condition, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "unexpected duplicated continue/backedge jumps, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_line_bearing_loop_if_false_backedge_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\
@@ -21186,6 +21249,72 @@ def f(keys, parse_int, d, ampm, AM, PM):
                 )
             }),
             "expected CPython-style duplicated body/false loop exits for nested elif, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_nested_if_before_elif_keeps_body_before_false_backedge() {
+        let code = compile_exec(
+            "\
+def f(keys, parse_int, found_dict, locale_time):
+    hour = minute = 0
+    for group_key in keys:
+        if group_key == 'I':
+            hour = parse_int(found_dict['I'])
+            ampm = found_dict.get('p', '').lower()
+            if ampm in ('', locale_time.am_pm[0]):
+                if hour == 12:
+                    hour = 0
+            elif ampm == locale_time.am_pm[1]:
+                if hour != 12:
+                    hour += 12
+        elif group_key == 'M':
+            minute = parse_int(found_dict['M'])
+    return hour, minute
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style nested if body before false backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted nested if body after false backedge, got ops={ops:?}"
         );
     }
 
