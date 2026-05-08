@@ -11,7 +11,7 @@ import typing
 
 ROOT = pathlib.Path(__file__).parents[1]
 BYTECODE_FILE = (
-    ROOT / "crates" / "compiler-core" / "src" / "bytecode" / "instruction.rs"
+    ROOT / "crates" / "compiler-core" / "src" / "bytecode" / "instructions.rs"
 )
 OPCODE_METADATA_FILE = ROOT / "Lib" / "_opcode_metadata.py"
 
@@ -33,13 +33,16 @@ def to_snake_case(s: str) -> str:
 
 class Opcode(typing.NamedTuple):
     rust_name: str
-    cpython_name: str
     id: int
     have_oparg: bool
 
     @property
     def is_instrumented(self):
         return self.cpython_name.startswith("INSTRUMENTED_")
+
+    @property
+    def cpython_name(self):
+        return to_snake_case(self.rust_name)
 
     @classmethod
     def from_str(cls, text: str):
@@ -51,13 +54,8 @@ class Opcode(typing.NamedTuple):
                 continue
             have_oparg = "Arg<" in entry  # Hacky but works
             rust_name = re.match(r"(\w+)", entry).group(1)
-            id_num, cpython_name = re.search(r'\((\d+),\s*"([^"]+)"\)', entry).groups()
-            yield cls(
-                rust_name=rust_name,
-                cpython_name=cpython_name,
-                id=int(id_num),
-                have_oparg=have_oparg,
-            )
+            id_num = re.findall(r"= (\d+)", entry)[0]
+            yield cls(rust_name=rust_name, id=int(id_num), have_oparg=have_oparg)
 
     def __lt__(self, other: typing.Self) -> bool:
         sprio, oprio = (
@@ -109,7 +107,7 @@ def build_deopts(text: str) -> dict[str, list[str]]:
     match_body = raw_body[block_start:block_end]
 
     arm_pattern = re.compile(
-        r"((?:Self::\w+\s*\|\s*)*Self::\w+)\s*=>\s*(?:\{\s*)?Opcode::(\w+)", re.DOTALL
+        r"((?:Self::\w+\s*\|\s*)*Self::\w+)\s*=>\s*(?:\{\s*)?Self::(\w+)", re.DOTALL
     )
     variants_pattern = re.compile(r"Self::(\w+)")
 
