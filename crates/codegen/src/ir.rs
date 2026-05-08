@@ -12075,9 +12075,8 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
             }
 
             let target = last.target;
-            if block_is_exceptional(&blocks[target.idx()])
-                || (is_named_except_cleanup_normal_exit_block(&blocks[current.idx()])
-                    && target_pushes_handler(&blocks[target.idx()]))
+            if is_named_except_cleanup_normal_exit_block(&blocks[current.idx()])
+                && target_pushes_handler(&blocks[target.idx()])
             {
                 current = next;
                 continue;
@@ -12467,20 +12466,23 @@ fn redirect_empty_block_targets(blocks: &mut [Block]) {
 }
 
 fn redirect_empty_unconditional_jump_targets(blocks: &mut [Block]) {
-    let block_exits_to_reraise = |block_idx: BlockIdx| {
+    const MAX_COPY_SIZE: usize = 4;
+
+    let block_exits_to_large_reraise = |block_idx: BlockIdx| {
         let block = &blocks[block_idx.idx()];
         let Some(last) = block.instructions.last() else {
             return false;
         };
-        if matches!(last.instr.real(), Some(Instruction::Reraise { .. })) {
-            return true;
-        }
-        if !last.instr.is_unconditional_jump() || last.target == BlockIdx::NULL {
-            return false;
-        }
-        let target = next_nonempty_block(blocks, last.target);
-        target != BlockIdx::NULL
-            && blocks[target.idx()]
+        let reraise_block = if matches!(last.instr.real(), Some(Instruction::Reraise { .. })) {
+            block_idx
+        } else if last.instr.is_unconditional_jump() && last.target != BlockIdx::NULL {
+            next_nonempty_block(blocks, last.target)
+        } else {
+            BlockIdx::NULL
+        };
+        reraise_block != BlockIdx::NULL
+            && blocks[reraise_block.idx()].instructions.len() > MAX_COPY_SIZE
+            && blocks[reraise_block.idx()]
                 .instructions
                 .last()
                 .is_some_and(|instr| {
@@ -12514,7 +12516,7 @@ fn redirect_empty_unconditional_jump_targets(blocks: &mut [Block]) {
                             && raw_predecessors[instr.target.idx()] > 1
                             && {
                                 let target = next_nonempty_block(blocks, instr.target);
-                                target != BlockIdx::NULL && block_exits_to_reraise(target)
+                                target != BlockIdx::NULL && block_exits_to_large_reraise(target)
                             }
                         {
                             return instr.target;

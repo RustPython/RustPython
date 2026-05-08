@@ -14572,6 +14572,54 @@ def f():
     }
 
     #[test]
+    fn test_finally_exception_path_inlines_except_pass_reraise_tail() {
+        let source = "\
+def f(self, file, backupfilename):
+    try:
+        if file:
+            file.close()
+    finally:
+        backupfilename = self._backupfilename
+        self._backupfilename = None
+        if backupfilename and not self._backup:
+            try:
+                os.unlink(backupfilename)
+            except OSError:
+                pass
+        self._isstdin = False
+";
+        let code = compile_exec(source);
+        let f = find_code(&code, "f").expect("missing f code");
+        assert!(
+            f.instructions.windows(9).any(|window| {
+                matches!(
+                    [
+                        window[0].op,
+                        window[1].op,
+                        window[2].op,
+                        window[3].op,
+                        window[8].op,
+                    ],
+                    [
+                        Instruction::PopExcept,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::StoreAttr { .. },
+                        Instruction::Reraise { .. },
+                    ]
+                ) && match window[8].op {
+                    Instruction::Reraise { depth } => {
+                        depth.get(OpArg::new(u32::from(u8::from(window[8].arg)))) == 0
+                    }
+                    _ => false,
+                }
+            }),
+            "except-pass normal exit in a finally exception path should inline the CPython reraise tail, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
     fn test_non_simple_bare_name_annotation_does_not_create_local_binding() {
         let code = compile_exec(
             "\
