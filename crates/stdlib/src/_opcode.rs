@@ -119,7 +119,7 @@ mod _opcode {
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
         try_from_i32(opcode)
-            .map(|op| op.deopt().is_none() && !op.is_instrumented() && op.has_jump())
+            .map(|op| op.deopt().is_none() && op.has_jump())
             .unwrap_or(false)
     }
 
@@ -139,10 +139,6 @@ mod _opcode {
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        // No instructions have exception info in RustPython
-        // (exception handling is done via exception table)
-        // This is for compatibility with CPython
-
         try_from_i32(opcode)
             .map(|op| op.deopt().is_none() && op.has_exc())
             .unwrap_or(false)
