@@ -17,7 +17,7 @@ freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib"
 no-start-func = []
 
 [dependencies]
-rustpython-common = { workspace = true }
+rustpython-common = { workspace = true, features = ["wasm_js"] }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, default-features = false, optional = true }
 # make sure no threading! otherwise wasm build will fail

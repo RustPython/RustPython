@@ -303,7 +303,7 @@ pub fn to_hex(value: f64) -> String {
 
 #[test]
 fn test_to_hex() {
-    use rand::Rng;
+    use rand::RngExt;
     for _ in 0..20000 {
         let bytes = rand::rng().random::<u64>();
         let f = f64::from_bits(bytes);
