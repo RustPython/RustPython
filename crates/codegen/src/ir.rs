@@ -5184,6 +5184,13 @@ impl CodeInfo {
             })
         }
 
+        fn block_jumps_unconditionally_to(block: &Block, target: BlockIdx) -> bool {
+            block
+                .instructions
+                .iter()
+                .any(|info| info.target == target && info.instr.is_unconditional_jump())
+        }
+
         fn handler_chain_has_explicit_reraise(blocks: &[Block], handler: BlockIdx) -> bool {
             let mut cursor = handler;
             let mut visited = vec![false; blocks.len()];
@@ -5407,6 +5414,9 @@ impl CodeInfo {
                 let pred_block = &self.blocks[pred.idx()];
                 if block_has_protected_instructions(pred_block) {
                     if block_jumps_backward_to(pred_block, BlockIdx::new(idx as u32)) {
+                        continue;
+                    }
+                    if block_jumps_unconditionally_to(pred_block, BlockIdx::new(idx as u32)) {
                         continue;
                     }
                     let handlers = nonresuming_reraise_handlers(&self.blocks, pred_block);
@@ -7866,6 +7876,7 @@ impl CodeInfo {
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         let mut is_handler_resume_block = vec![false; self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
+            let block_idx = BlockIdx::new(pred_idx as u32);
             if block
                 .instructions
                 .iter()
@@ -7876,12 +7887,12 @@ impl CodeInfo {
             {
                 is_handler_resume_block[pred_idx] = true;
             }
-            if block.next != BlockIdx::NULL {
-                predecessors[block.next.idx()].push(BlockIdx::new(pred_idx as u32));
+            if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
+                predecessors[block.next.idx()].push(block_idx);
             }
             for info in &block.instructions {
                 if info.target != BlockIdx::NULL {
-                    predecessors[info.target.idx()].push(BlockIdx::new(pred_idx as u32));
+                    predecessors[info.target.idx()].push(block_idx);
                 }
             }
         }
@@ -12309,8 +12320,11 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
                     } else if src_instructions[src + 1].instr.is_unconditional_jump()
                         && src_instructions[src + 1].target != block_idx
                     {
-                        src_instructions[src + 1].lineno_override = Some(lineno);
-                        remove = true;
+                        let next_lineno = instruction_lineno(&src_instructions[src + 1]);
+                        if next_lineno == lineno || next_lineno < 0 {
+                            src_instructions[src + 1].lineno_override = Some(lineno);
+                            remove = true;
+                        }
                     } else if src_instructions[src + 1].folded_from_nonliteral_expr {
                         remove = true;
                     } else {

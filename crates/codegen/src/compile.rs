@@ -23484,6 +23484,99 @@ def f(self):
     }
 
     #[test]
+    fn test_reraising_except_loop_break_tail_keeps_post_loop_borrows() {
+        let code = compile_exec(
+            "\
+def f(flag=1, count=0):
+    value = 2
+    while value:
+        count += 1
+        try:
+            if flag and value == 1:
+                flag -= 1
+                break
+            value -= 1
+            continue
+        except:
+            raise
+    return count > 2 or value != 1
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let return_idx = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .expect("missing return");
+        let tail = &instructions[return_idx.saturating_sub(12)..return_idx];
+
+        let load_name = |unit: &CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+        for name in ["count", "value"] {
+            assert!(
+                tail.iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })
+                        && load_name(unit) == Some(name)),
+                "post-loop condition should borrow {name}, got tail={tail:?}"
+            );
+            assert!(
+                !tail
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })
+                        && load_name(unit) == Some(name)),
+                "post-loop condition should not deopt {name} to LOAD_FAST, got tail={tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_try_except_continue_keeps_try_line_nop_before_continue_jump() {
+        let code = compile_exec(
+            "\
+def f(done=False):
+    while not done:
+        done = True
+        try:
+            continue
+        except:
+            done = False
+    return done
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        assert!(
+            instructions.windows(2).any(|window| matches!(
+                window,
+                [
+                    CodeUnit {
+                        op: Instruction::Nop,
+                        ..
+                    },
+                    CodeUnit {
+                        op: Instruction::JumpBackward { .. },
+                        ..
+                    }
+                ]
+            )),
+            "try/except continue should keep CPython-style try-line NOP before continue jump, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
     fn test_handler_resume_before_later_loop_keeps_borrowed_tail_loads() {
         let code = compile_exec(
             "\
