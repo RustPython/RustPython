@@ -20,7 +20,7 @@ rustpython-wtf8 = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }
-getrandom = { workspace = true }
+getrandom = { workspace = true, features = ["std"] }
 itertools = { workspace = true }
 libc = { workspace = true }
 malachite-bigint = { workspace = true }
@@ -34,6 +34,9 @@ radium = { workspace = true }
 lock_api = { workspace = true }
 siphasher = { workspace = true }
 num-complex = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { workspace = true, features = ["std", "wasm_js"] }
 
 [lints]
 workspace = true

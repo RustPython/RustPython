@@ -206,7 +206,7 @@ flamer = "0.5"
 flate2 = { version = "1.1.9", default-features = false }
 foreign-types-shared = "0.3.1"
 gethostname = "1.0.2"
-getrandom = { version = "0.3", features = ["std"] }
+getrandom = "0.4"
 glob = "0.3"
 half = "2"
 hex = "0.4.3"
@@ -236,7 +236,7 @@ maplit = "1.0.2"
 md-5 = "0.10.1"
 memchr = "2.8.0"
 memmap2 = "0.9.10"
-mt19937 = "<=3.2"  # upgrade it once rand is upgraded
+mt19937 = "3.3"
 num-complex = "0.4.6"
 num-integer = "0.1.46"
 num-traits = "0.2"
@@ -258,8 +258,7 @@ psm = "0.1"
 pymath = { version = "0.2.0", features = ["mul_add", "malachite-bigint", "complex"] }
 quote = "1.0.45"
 radium = "1.1.1"
-rand = "0.9"
-rand_core = { version = "0.9", features = ["os_rng"] }
+rand = "0.10"
 result-like = "0.5.0"
 rustix = { version = "1.1", features = ["event"] }
 rustls = { version = "0.23.39", default-features = false }
