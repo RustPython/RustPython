@@ -14796,6 +14796,34 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             .any(|info| matches!(info.instr.real(), Some(Instruction::Call { .. })))
     }
 
+    fn protected_region_has_prior_scope_exit(
+        blocks: &[Block],
+        loop_target: BlockIdx,
+        current: BlockIdx,
+    ) -> bool {
+        let mut cursor = next_nonempty_block(blocks, loop_target);
+        let mut visited = vec![false; blocks.len()];
+        let mut saw_protected = false;
+        while cursor != BlockIdx::NULL && cursor != current {
+            if visited[cursor.idx()] {
+                return false;
+            }
+            visited[cursor.idx()] = true;
+            let block = &blocks[cursor.idx()];
+            saw_protected |= block_is_protected(block);
+            if saw_protected
+                && block
+                    .instructions
+                    .iter()
+                    .any(|info| info.instr.is_scope_exit())
+            {
+                return true;
+            }
+            cursor = block.next;
+        }
+        false
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -14847,6 +14875,8 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 !normalized_forward_conditional || !block_has_call(&blocks[body.idx()]);
             let has_exceptional_duplicate_condition_line =
                 has_exceptional_duplicate_lineno(blocks, current, instruction_lineno(&cond));
+            let has_prior_protected_scope_exit =
+                protected_region_has_prior_scope_exit(blocks, loop_target, current);
             let after_jump_target = next_nonempty_block(blocks, after_jump);
             let after_jump_starts_loop_cleanup =
                 block_starts_loop_cleanup(blocks, after_jump_target);
@@ -14875,6 +14905,7 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 && (!after_jump_starts_loop_cleanup || body_has_any_loop_backedge)
                 && !is_scope_exit_block(&blocks[body.idx()]);
             let can_reorder = !has_exceptional_duplicate_condition_line
+                && !has_prior_protected_scope_exit
                 && ((!body_tail_is_conditional
                     && ((normalized_single_block_can_reorder
                         && body_is_single_block

@@ -646,6 +646,16 @@ impl Compiler {
         })
     }
 
+    fn statements_end_with_nonterminal_with_cleanup(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::With(ast::StmtWith { body, .. }) => {
+                !Self::statements_end_with_scope_exit(body)
+                    && !Self::statements_end_with_with_cleanup_scope_exit(body)
+            }
+            _ => false,
+        })
+    }
+
     fn statements_end_with_try_finally(body: &[ast::Stmt]) -> bool {
         body.last().is_some_and(|stmt| {
             matches!(
@@ -3894,7 +3904,10 @@ impl Compiler {
         );
         self.set_no_location();
         if (!orelse.is_empty() && self.statements_end_with_loop_fallthrough(orelse)?)
-            || (orelse.is_empty() && exits_directly_to_with_cleanup && handlers_end_with_scope_exit)
+            || (orelse.is_empty()
+                && exits_directly_to_with_cleanup
+                && handlers_end_with_scope_exit
+                && !Self::statements_end_with_nonterminal_with_cleanup(body))
         {
             self.preserve_last_redundant_jump_as_nop();
         } else {
@@ -15547,6 +15560,65 @@ def f(cm):
     }
 
     #[test]
+    fn test_with_try_except_nested_with_normal_cleanup_drops_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(open, src, dst, copyfileobj):
+    with open(src) as fsrc:
+        try:
+            with open(dst) as fdst:
+                copyfileobj(fsrc, fdst)
+        except IsADirectoryError:
+            raise
+    return dst
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "nested with normal cleanup in try/except should fall directly into outer with cleanup, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "nested with normal cleanup in try/except should not preserve a body-exit NOP before outer with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_with_nested_if_try_except_normal_cleanup_drops_body_exit_nop() {
         let code = compile_exec(
             "\
@@ -25663,6 +25735,67 @@ def f(self, ready, selector, key, input_view, os, BrokenPipeError):
                 )
             }),
             "unexpected inverted try-else conditional with loop backedge before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_after_conditional_raise_keeps_loop_if_body_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(seq, flag, stat, OSError, pred, SpecialFileError):
+    for i in seq:
+        try:
+            st = stat(i)
+        except OSError:
+            pass
+        else:
+            if pred(st.mode):
+                raise SpecialFileError(i)
+            if flag and i == 0:
+                x = st.real
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "try-else tail after conditional raise should keep CPython body-before-backedge layout, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "try-else tail should not invert the inner condition before its body, got ops={ops:?}"
         );
     }
 
