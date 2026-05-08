@@ -12257,9 +12257,12 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
 
             if matches!(instr.instr.real(), Some(Instruction::Nop)) {
                 if src == 0
-                    && !keep_target_start_nop
                     && lineno > 0
-                    && follows_same_line_pop_iter == Some(lineno)
+                    && ((!keep_target_start_nop && follows_same_line_pop_iter == Some(lineno))
+                        || (instr.preserve_block_start_no_location_nop
+                            && block_tail_starts_with_async_with_normal_exit(
+                                &src_instructions[src + 1..],
+                            )))
                 {
                     remove = true;
                 } else if instr.preserve_block_start_no_location_nop {
@@ -12368,7 +12371,13 @@ fn remove_redundant_jumps_in_blocks(blocks: &mut [Block]) -> usize {
                         (!matches!(instr.instr.real(), Some(Instruction::Nop)) || line >= 0)
                             .then_some(line)
                     });
-                    line > 0 && next_line.is_some_and(|next_line| next_line < line)
+                    line > 0
+                        && !block_jump_follows_async_send_pop(&blocks[idx])
+                        && !(block_jump_follows_with_normal_exit(&blocks[idx])
+                            && block_tail_starts_with_async_with_normal_exit(
+                                &blocks[next.idx()].instructions,
+                            ))
+                        && next_line.is_some_and(|next_line| next_line < line)
                 } else {
                     false
                 };
@@ -12764,6 +12773,35 @@ fn is_load_const_none(instr: &InstructionInfo, metadata: &CodeUnitMetadata) -> b
         )
 }
 
+fn block_tail_starts_with_async_with_normal_exit(instructions: &[InstructionInfo]) -> bool {
+    matches!(
+        instructions,
+        [
+            InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                ..
+            },
+            InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                ..
+            },
+            InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                ..
+            },
+            InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::Call { .. }),
+                ..
+            },
+            InstructionInfo {
+                instr: AnyInstruction::Real(Instruction::GetAwaitable { .. }),
+                ..
+            },
+            ..
+        ]
+    )
+}
+
 fn instruction_lineno(instr: &InstructionInfo) -> i32 {
     instr
         .lineno_override
@@ -13102,6 +13140,52 @@ fn block_contains_suspension_point(block: &Block) -> bool {
                     | Instruction::EndAsyncFor
             )
         })
+}
+
+fn block_jump_follows_async_send_pop(block: &Block) -> bool {
+    let mut before_jump =
+        block
+            .instructions
+            .iter()
+            .rev()
+            .skip(1)
+            .filter_map(|info| match info.instr.real() {
+                Some(Instruction::Nop) => None,
+                instr => instr,
+            });
+    matches!(
+        (before_jump.next(), before_jump.next()),
+        (Some(Instruction::PopTop), Some(Instruction::EndSend))
+    )
+}
+
+fn block_jump_follows_with_normal_exit(block: &Block) -> bool {
+    let mut before_jump =
+        block
+            .instructions
+            .iter()
+            .rev()
+            .skip(1)
+            .filter_map(|info| match info.instr.real() {
+                Some(Instruction::Nop) => None,
+                instr => instr,
+            });
+    matches!(
+        (
+            before_jump.next(),
+            before_jump.next(),
+            before_jump.next(),
+            before_jump.next(),
+            before_jump.next(),
+        ),
+        (
+            Some(Instruction::PopTop),
+            Some(Instruction::Call { .. }),
+            Some(Instruction::LoadConst { .. }),
+            Some(Instruction::LoadConst { .. }),
+            Some(Instruction::LoadConst { .. }),
+        )
+    )
 }
 
 fn is_stop_iteration_error_handler_block(block: &Block) -> bool {

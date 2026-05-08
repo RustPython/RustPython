@@ -29,9 +29,9 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, AnyInstruction, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount, CodeObject,
-        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, InstructionMetadata,
-        IntrinsicFunction1, Invert, LoadAttr, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction,
-        SpecialMethod, UnpackExArgs, oparg,
+        ComparisonOperator, ConstantData, ConvertValueOparg, Instruction, IntrinsicFunction1,
+        Invert, LoadAttr, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction, SpecialMethod,
+        UnpackExArgs, oparg,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -10068,7 +10068,6 @@ impl Compiler {
         let code = self.code_stack.last().expect("no code on stack");
         let target = code.current_block;
         let mut has_suppress_exit = false;
-        let mut has_normal_exit = false;
 
         for block in &code.blocks {
             let Some((last, prefix)) = block.instructions.split_last() else {
@@ -10077,29 +10076,23 @@ impl Compiler {
             if last.target != target {
                 continue;
             }
-            match last.instr.pseudo() {
-                Some(PseudoInstruction::JumpNoInterrupt { .. }) => {
-                    let real_instrs: Vec<_> =
-                        prefix.iter().filter_map(|info| info.instr.real()).collect();
-                    has_suppress_exit |= matches!(
-                        real_instrs.as_slice(),
-                        [
-                            Instruction::PopTop,
-                            Instruction::PopExcept,
-                            Instruction::PopTop,
-                            Instruction::PopTop,
-                            Instruction::PopTop,
-                        ]
-                    );
-                }
-                Some(PseudoInstruction::Jump { .. }) => {
-                    has_normal_exit |= !prefix.iter().any(|info| info.instr.is_scope_exit());
-                }
-                _ => {}
+            if let Some(PseudoInstruction::JumpNoInterrupt { .. }) = last.instr.pseudo() {
+                let real_instrs: Vec<_> =
+                    prefix.iter().filter_map(|info| info.instr.real()).collect();
+                has_suppress_exit |= matches!(
+                    real_instrs.as_slice(),
+                    [
+                        Instruction::PopTop,
+                        Instruction::PopExcept,
+                        Instruction::PopTop,
+                        Instruction::PopTop,
+                        Instruction::PopTop,
+                    ]
+                );
             }
         }
 
-        has_suppress_exit && !has_normal_exit
+        has_suppress_exit
     }
 
     fn remove_last_no_location_nop(&mut self) {
