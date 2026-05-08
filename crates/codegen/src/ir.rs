@@ -126,6 +126,10 @@ pub struct InstructionInfo {
     pub preserve_redundant_jump_as_nop: bool,
     /// Drop this NOP before line propagation if it still has no location.
     pub remove_no_location_nop: bool,
+    /// This no-location NOP was created by CPython-style nop_out() folding.
+    pub folded_operand_nop: bool,
+    /// This instruction was emitted as part of a synthetic no-location exit.
+    pub no_location_exit: bool,
     /// Keep this no-location NOP until line propagation when it starts a block.
     pub preserve_block_start_no_location_nop: bool,
 }
@@ -149,6 +153,8 @@ fn set_to_nop(info: &mut InstructionInfo) {
     info.cache_entries = 0;
     info.preserve_redundant_jump_as_nop = false;
     info.remove_no_location_nop = false;
+    info.folded_operand_nop = false;
+    info.no_location_exit = false;
     info.preserve_block_start_no_location_nop = false;
 }
 
@@ -156,6 +162,7 @@ fn nop_out_no_location(info: &mut InstructionInfo) {
     set_to_nop(info);
     info.lineno_override = Some(-1);
     info.remove_no_location_nop = true;
+    info.folded_operand_nop = true;
 }
 
 fn is_named_except_cleanup_normal_exit_block(block: &Block) -> bool {
@@ -177,6 +184,19 @@ fn is_named_except_cleanup_normal_exit_block(block: &Block) -> bool {
         && tail[4].instr.is_unconditional_jump()
 }
 
+fn is_standalone_named_except_cleanup_normal_exit_block(block: &Block) -> bool {
+    let len = block.instructions.len();
+    if len < 5 || !is_named_except_cleanup_normal_exit_block(block) {
+        return false;
+    }
+    block.instructions[..len - 5].iter().all(|info| {
+        matches!(
+            info.instr.real(),
+            Some(Instruction::Nop | Instruction::NotTaken)
+        )
+    })
+}
+
 // spell-checker:ignore petgraph
 // TODO: look into using petgraph for handling blocks and stuff? it's heavier than this, but it
 // might enable more analysis/optimizations
@@ -195,6 +215,8 @@ pub struct Block {
     pub cold: bool,
     /// Whether LOAD_FAST borrow optimization should be suppressed for this block.
     pub disable_load_fast_borrow: bool,
+    /// Entry block for a try-else orelse suite split after POP_BLOCK.
+    pub try_else_orelse_entry: bool,
 }
 
 impl Default for Block {
@@ -207,6 +229,7 @@ impl Default for Block {
             start_depth: None,
             cold: false,
             disable_load_fast_borrow: false,
+            try_else_orelse_entry: false,
         }
     }
 }
@@ -332,9 +355,9 @@ impl CodeInfo {
         self.eliminate_unreachable_blocks();
         resolve_line_numbers(&mut self.blocks);
         materialize_empty_conditional_exit_targets(&mut self.blocks);
-        materialize_exception_cleanup_jump_targets(&mut self.blocks);
         redirect_empty_block_targets(&mut self.blocks);
         duplicate_end_returns(&mut self.blocks, &self.metadata);
+        duplicate_fallthrough_jump_back_targets(&mut self.blocks);
         duplicate_shared_jump_back_targets(&mut self.blocks);
         self.dce(); // truncate after terminal in blocks that got return duplicated
         self.eliminate_unreachable_blocks(); // remove now-unreachable last block
@@ -372,8 +395,9 @@ impl CodeInfo {
         // before optimize_load_fast.
         convert_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
         remove_redundant_nops_and_jumps(&mut self.blocks);
-        self.mark_assertion_success_tail_borrow_disabled();
         self.mark_unprotected_debug_four_tails_borrow_disabled();
+        self.mark_exception_handler_transition_targets_borrow_disabled();
+        self.mark_targeted_nop_for_tails_borrow_disabled();
         self.compute_load_fast_start_depths();
         // optimize_load_fast: after normalize_jumps
         self.optimize_load_fast_borrow();
@@ -473,7 +497,14 @@ impl CodeInfo {
                 let mut remove = false;
 
                 if matches!(instr.instr.real(), Some(Instruction::Nop)) {
-                    if lineno < 0 || prev_lineno == lineno {
+                    if lineno < 0
+                        || prev_lineno == lineno
+                        || (src > 0
+                            && matches!(
+                                src_instructions[src - 1].instr.real(),
+                                Some(Instruction::PopIter)
+                            ))
+                    {
                         remove = true;
                     } else if src < src_instructions.len() - 1 {
                         if src_instructions[src + 1].instr.is_block_push() {
@@ -592,6 +623,7 @@ impl CodeInfo {
                             op = Opcode::Nop.into();
                             info.instr = op.into();
                             info.target = BlockIdx::NULL;
+                            recompile = true;
                             let updated_cache = op.cache_entries() as u32;
                             recompile |= updated_cache != old_cache_entries;
                             info.cache_entries = updated_cache;
@@ -1677,18 +1709,19 @@ impl CodeInfo {
         };
 
         let tuple_size = u32::from(block.instructions[i].arg) as usize;
-        if block
-            .instructions
-            .get(i + 1)
-            .and_then(|next| next.instr.real())
-            .is_some_and(|next| {
-                matches!(
-                    next,
-                    Instruction::UnpackSequence { .. }
-                        if usize::try_from(u32::from(block.instructions[i + 1].arg)).ok()
-                            == Some(tuple_size)
-                )
-            })
+        if tuple_size <= 3
+            && block
+                .instructions
+                .get(i + 1)
+                .and_then(|next| next.instr.real())
+                .is_some_and(|next| {
+                    matches!(
+                        next,
+                        Instruction::UnpackSequence { .. }
+                            if usize::try_from(u32::from(block.instructions[i + 1].arg)).ok()
+                                == Some(tuple_size)
+                    )
+                })
         {
             return false;
         }
@@ -2596,7 +2629,7 @@ impl CodeInfo {
                 Instruction::LoadSmallInt { i } => Some(i.get(arg) != 0),
                 _ => None,
             };
-        for block in &mut self.blocks {
+        for (block_idx, block) in self.blocks.iter_mut().enumerate() {
             let mut i = 0;
             while i + 1 < block.instructions.len() {
                 let curr = &block.instructions[i];
@@ -2646,6 +2679,22 @@ impl CodeInfo {
                             _ => unreachable!(),
                         };
                         set_to_nop(&mut block.instructions[i]);
+                        let preserves_pure_self_loop_anchor = i == 0
+                            && block.instructions[i + 1..].iter().all(|info| {
+                                if info.target == BlockIdx(block_idx as u32)
+                                    && info.instr.is_unconditional_jump()
+                                {
+                                    return true;
+                                }
+                                matches!(info.instr.real(), Some(Instruction::Nop))
+                            })
+                            && block.instructions[i + 1..].iter().any(|info| {
+                                info.target == BlockIdx(block_idx as u32)
+                                    && info.instr.is_unconditional_jump()
+                            });
+                        if preserves_pure_self_loop_anchor {
+                            block.instructions[i].preserve_block_start_no_location_nop = true;
+                        }
                         if is_true == jump_if_true {
                             block.instructions[i + 1].instr = PseudoInstruction::Jump {
                                 delta: Arg::marker(),
@@ -2967,13 +3016,75 @@ impl CodeInfo {
     /// Remove NOP instructions from all blocks, but keep NOPs that introduce
     /// a new source line (they serve as line markers for monitoring LINE events).
     fn remove_nops(&mut self) {
-        for block in &mut self.blocks {
+        let layout_predecessors = compute_layout_predecessors(&self.blocks);
+        let keep_target_start_nops: Vec<_> = (0..self.blocks.len())
+            .map(|idx| {
+                keep_target_start_no_location_nop(
+                    &self.blocks,
+                    BlockIdx(idx as u32),
+                    &layout_predecessors,
+                )
+            })
+            .collect();
+        let mut conditional_targets = vec![false; self.blocks.len()];
+        for block in &self.blocks {
+            for instr in &block.instructions {
+                if instr.target != BlockIdx::NULL && is_conditional_jump(&instr.instr) {
+                    let target = next_nonempty_block(&self.blocks, instr.target);
+                    if target != BlockIdx::NULL {
+                        conditional_targets[target.idx()] = true;
+                    }
+                }
+            }
+        }
+        let preserve_loop_exit_pop_block_nops: Vec<_> = (0..self.blocks.len())
+            .map(|idx| {
+                let block_idx = BlockIdx(idx as u32);
+                let block = &self.blocks[idx];
+                let layout_pred = layout_predecessors[idx];
+                block.instructions.first().is_some_and(|instr| {
+                    matches!(instr.instr.real(), Some(Instruction::Nop))
+                        && instr.remove_no_location_nop
+                        && instruction_lineno(instr) < 0
+                        && conditional_targets[idx]
+                        && layout_pred != BlockIdx::NULL
+                        && self.blocks[layout_pred.idx()]
+                            .instructions
+                            .last()
+                            .is_some_and(|last| {
+                                matches!(
+                                    last.instr.real(),
+                                    Some(
+                                        Instruction::JumpBackward { .. }
+                                            | Instruction::JumpBackwardNoInterrupt { .. }
+                                    )
+                                ) && next_nonempty_block(&self.blocks, last.target) != block_idx
+                            })
+                })
+            })
+            .collect();
+
+        for (block_idx, block) in self.blocks.iter_mut().enumerate() {
             let mut prev_line = None;
             let mut src = 0usize;
             block.instructions.retain(|ins| {
                 let keep = 'keep: {
                     if matches!(ins.instr.real(), Some(Instruction::Nop)) {
-                        if ins.remove_no_location_nop && instruction_lineno(ins) < 0 {
+                        let keep_loop_exit_pop_block = src == 0
+                            && preserve_loop_exit_pop_block_nops
+                                .get(block_idx)
+                                .copied()
+                                .unwrap_or(false);
+                        let keep_target_start = src == 0
+                            && keep_target_start_nops
+                                .get(block_idx)
+                                .copied()
+                                .unwrap_or(false);
+                        if ins.remove_no_location_nop
+                            && instruction_lineno(ins) < 0
+                            && !keep_loop_exit_pop_block
+                            && (!keep_target_start || ins.folded_operand_nop)
+                        {
                             break 'keep false;
                         }
                         let line = ins.location.line.get() as i32;
@@ -3506,13 +3617,32 @@ impl CodeInfo {
             }
         }
 
+        fn has_same_line_target_predecessor(
+            blocks: &[Block],
+            incoming_origins: &[Vec<BlockIdx>],
+            block_idx: BlockIdx,
+            line: i32,
+        ) -> bool {
+            incoming_origins[block_idx.idx()].iter().any(|&pred| {
+                blocks[pred.idx()].instructions.iter().any(|info| {
+                    info.target != BlockIdx::NULL
+                        && next_nonempty_block(blocks, info.target) == block_idx
+                        && instruction_lineno(info) == line
+                })
+            })
+        }
+
         let target_flags = compute_target_predecessor_flags(&self.blocks);
-        for (block_idx, block) in self.blocks.iter_mut().enumerate() {
+        let reachable = compute_reachable_blocks(&self.blocks);
+        let incoming_origins = compute_incoming_origins(&self.blocks, &reachable);
+        for block_idx in 0..self.blocks.len() {
             if block_idx == 0 || !target_flags.targeted[block_idx] {
                 continue;
             }
 
+            let block = &self.blocks[block_idx];
             let mut assert_start = None;
+            let mut ranges = Vec::new();
             for i in 0..block.instructions.len() {
                 if is_assertion_error_load(&block.instructions[i]) {
                     assert_start = Some(i);
@@ -3537,184 +3667,26 @@ impl CodeInfo {
                     continue;
                 }
 
-                for info in &mut block.instructions[start + 1..i] {
-                    deoptimize_borrow(info);
-                }
-                assert_start = None;
-            }
-        }
-    }
-
-    fn mark_assertion_success_tail_borrow_disabled(&mut self) {
-        fn starts_with_fast_load(block: &Block) -> bool {
-            block
-                .instructions
-                .iter()
-                .find(|info| {
-                    info.instr.real().is_some_and(|instr| {
-                        !matches!(instr, Instruction::Nop | Instruction::NotTaken)
-                    })
-                })
-                .is_some_and(|info| {
-                    matches!(
-                        info.instr.real(),
-                        Some(
-                            Instruction::LoadFast { .. }
-                                | Instruction::LoadFastBorrow { .. }
-                                | Instruction::LoadFastLoadFast { .. }
-                                | Instruction::LoadFastBorrowLoadFastBorrow { .. }
-                        )
-                    )
-                })
-        }
-
-        fn starts_with_assertion_error(block: &Block) -> bool {
-            block
-                .instructions
-                .iter()
-                .find(|info| {
-                    info.instr.real().is_some_and(|instr| {
-                        !matches!(instr, Instruction::Nop | Instruction::NotTaken)
-                    })
-                })
-                .is_some_and(|info| {
-                    matches!(
-                        info.instr.real(),
-                        Some(Instruction::LoadCommonConstant { idx })
-                            if idx.get(info.arg) == oparg::CommonConstant::AssertionError
-                    )
-                })
-        }
-
-        fn block_contains_assertion_error(block: &Block) -> bool {
-            block.instructions.iter().any(|info| {
-                matches!(
-                    info.instr.real(),
-                    Some(Instruction::LoadCommonConstant { idx })
-                        if idx.get(info.arg) == oparg::CommonConstant::AssertionError
-                )
-            })
-        }
-
-        fn assert_check_success_target(blocks: &[Block], block: &Block) -> Option<BlockIdx> {
-            if block.next != BlockIdx::NULL
-                && starts_with_assertion_error(&blocks[block.next.idx()])
-            {
-                return block
-                    .instructions
-                    .iter()
-                    .find(|info| is_conditional_jump(&info.instr) && info.target != BlockIdx::NULL)
-                    .map(|info| info.target);
-            }
-
-            let conditional = block.instructions.iter().enumerate().find(|(_, info)| {
-                is_conditional_jump(&info.instr) && info.target != BlockIdx::NULL
-            });
-            let (cond_idx, conditional) = conditional?;
-            let has_inline_assertion_failure =
-                block.instructions[cond_idx + 1..].iter().any(|info| {
-                    matches!(
-                        info.instr.real(),
-                        Some(Instruction::LoadCommonConstant { idx })
-                            if idx.get(info.arg) == oparg::CommonConstant::AssertionError
-                    )
-                }) && block.instructions[cond_idx + 1..].iter().any(|info| {
-                    matches!(info.instr.real(), Some(Instruction::RaiseVarargs { .. }))
-                });
-            has_inline_assertion_failure.then_some(conditional.target)
-        }
-
-        fn block_stores_fast(block: &Block) -> bool {
-            block.instructions.iter().any(|info| {
-                matches!(
-                    info.instr.real(),
-                    Some(
-                        Instruction::StoreFast { .. }
-                            | Instruction::StoreFastLoadFast { .. }
-                            | Instruction::StoreFastStoreFast { .. }
-                    )
-                )
-            })
-        }
-
-        let mut predecessors = vec![Vec::new(); self.blocks.len()];
-        for (pred_idx, block) in self.blocks.iter().enumerate() {
-            if block.next != BlockIdx::NULL {
-                predecessors[block.next.idx()].push(BlockIdx::new(pred_idx as u32));
-            }
-            for info in &block.instructions {
-                if info.target != BlockIdx::NULL {
-                    predecessors[info.target.idx()].push(BlockIdx::new(pred_idx as u32));
-                }
-            }
-        }
-
-        let mut assertion_success_tail = vec![false; self.blocks.len()];
-        for (tail_idx, tail) in self.blocks.iter().enumerate() {
-            if tail.cold
-                || block_is_exceptional(tail)
-                || !starts_with_fast_load(tail)
-                || block_contains_assertion_error(tail)
-                || assert_check_success_target(&self.blocks, tail).is_some()
-            {
-                continue;
-            }
-            let tail_idx = BlockIdx::new(tail_idx as u32);
-            for pred in &predecessors[tail_idx.idx()] {
-                if assert_check_success_target(&self.blocks, &self.blocks[pred.idx()])
-                    == Some(tail_idx)
-                    && trailing_conditional_jump_index(tail).is_some()
-                    && !block_contains_assertion_error(tail)
-                {
-                    assertion_success_tail[tail_idx.idx()] = true;
-                    break;
-                }
-                for assert_check in &predecessors[pred.idx()] {
-                    if assert_check_success_target(&self.blocks, &self.blocks[assert_check.idx()])
-                        == Some(*pred)
-                    {
-                        assertion_success_tail[tail_idx.idx()] = true;
-                        break;
-                    }
-                }
-                if assertion_success_tail[tail_idx.idx()] {
-                    break;
-                }
-            }
-        }
-
-        let mut visited = vec![false; self.blocks.len()];
-        for (idx, is_assertion_success_tail) in assertion_success_tail.iter().enumerate() {
-            if !*is_assertion_success_tail {
-                continue;
-            }
-            let mut segment = Vec::new();
-            let mut cursor = BlockIdx::new(idx as u32);
-            while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
-                let block = &self.blocks[cursor.idx()];
-                if block.cold || block_is_exceptional(block) {
-                    break;
-                }
-                segment.push(cursor);
-                if block_stores_fast(block) {
-                    segment.clear();
-                    break;
-                }
-                if block
-                    .instructions
-                    .last()
-                    .is_some_and(|info| info.instr.is_scope_exit())
-                {
-                    break;
-                }
-                cursor = self.blocks[cursor.idx()].next;
-            }
-            for block_idx in segment {
-                if visited[block_idx.idx()] {
+                let assert_line = instruction_lineno(&block.instructions[start]);
+                if has_same_line_target_predecessor(
+                    &self.blocks,
+                    &incoming_origins,
+                    BlockIdx::new(block_idx as u32),
+                    assert_line,
+                ) {
+                    assert_start = None;
                     continue;
                 }
-                visited[block_idx.idx()] = true;
-                self.blocks[block_idx.idx()].disable_load_fast_borrow = true;
+
+                ranges.push((start + 1, i));
+                assert_start = None;
+            }
+
+            let block = &mut self.blocks[block_idx];
+            for (start, end) in ranges {
+                for info in &mut block.instructions[start..end] {
+                    deoptimize_borrow(info);
+                }
             }
         }
     }
@@ -3905,6 +3877,182 @@ impl CodeInfo {
         to_disable.dedup();
         for block_idx in to_disable {
             self.blocks[block_idx.idx()].disable_load_fast_borrow = true;
+        }
+    }
+
+    fn mark_exception_handler_transition_targets_borrow_disabled(&mut self) {
+        fn first_real_handler(block: &Block) -> Option<ExceptHandlerInfo> {
+            block
+                .instructions
+                .iter()
+                .find(|info| {
+                    info.instr.real().is_some_and(|instr| {
+                        !matches!(instr, Instruction::Nop | Instruction::NotTaken)
+                    })
+                })
+                .and_then(|info| info.except_handler)
+        }
+
+        fn last_real_handler(block: &Block) -> Option<ExceptHandlerInfo> {
+            block
+                .instructions
+                .iter()
+                .rev()
+                .find(|info| {
+                    info.instr.real().is_some_and(|instr| {
+                        !matches!(instr, Instruction::Nop | Instruction::NotTaken)
+                    })
+                })
+                .and_then(|info| info.except_handler)
+        }
+
+        fn has_direct_tuple_return_tail(block: &Block) -> bool {
+            let reals: Vec<_> = block
+                .instructions
+                .iter()
+                .filter_map(|info| info.instr.real())
+                .filter(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+                .collect();
+            reals
+                .iter()
+                .any(|instr| matches!(instr, Instruction::BuildTuple { .. }))
+                && reals
+                    .last()
+                    .is_some_and(|instr| matches!(instr, Instruction::ReturnValue))
+                && !reals.iter().any(|instr| {
+                    matches!(
+                        instr,
+                        Instruction::Swap { .. }
+                            | Instruction::PopExcept
+                            | Instruction::Reraise { .. }
+                            | Instruction::WithExceptStart
+                    )
+                })
+        }
+
+        let mut predecessors = vec![Vec::new(); self.blocks.len()];
+        for (idx, block) in self.blocks.iter().enumerate() {
+            let block_idx = BlockIdx::new(idx as u32);
+            if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
+                predecessors[block.next.idx()].push(block_idx);
+            }
+            for info in &block.instructions {
+                if info.target != BlockIdx::NULL {
+                    predecessors[info.target.idx()].push(block_idx);
+                }
+            }
+        }
+
+        let mut to_disable = Vec::new();
+        for (idx, block) in self.blocks.iter().enumerate() {
+            if !has_direct_tuple_return_tail(block) {
+                continue;
+            }
+            let Some(handler) = first_real_handler(block) else {
+                continue;
+            };
+            if predecessors[idx].iter().any(|pred| {
+                last_real_handler(&self.blocks[pred.idx()])
+                    .is_some_and(|pred_handler| pred_handler != handler)
+            }) {
+                to_disable.push(idx);
+            }
+        }
+
+        for idx in to_disable {
+            self.blocks[idx].disable_load_fast_borrow = true;
+        }
+    }
+
+    fn mark_targeted_nop_for_tails_borrow_disabled(&mut self) {
+        fn is_nop_only_block(block: &Block) -> bool {
+            !block.instructions.is_empty()
+                && block.instructions.iter().all(|info| {
+                    matches!(
+                        info.instr.real(),
+                        Some(Instruction::Nop | Instruction::NotTaken)
+                    )
+                })
+        }
+
+        fn starts_for_iter_tail(block: &Block) -> bool {
+            let mut saw_iterable = false;
+            for info in block.instructions.iter().filter(|info| {
+                info.instr
+                    .real()
+                    .is_some_and(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+            }) {
+                match info.instr.real() {
+                    Some(
+                        Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadName { .. }
+                        | Instruction::LoadGlobal { .. },
+                    ) if !saw_iterable => saw_iterable = true,
+                    Some(Instruction::GetIter) if saw_iterable => return true,
+                    Some(Instruction::BuildList { .. } | Instruction::StoreFast { .. })
+                        if !saw_iterable => {}
+                    _ => return false,
+                }
+            }
+            false
+        }
+
+        let mut fallthrough_predecessors = vec![Vec::new(); self.blocks.len()];
+        let mut jump_predecessors = vec![Vec::new(); self.blocks.len()];
+        for (idx, block) in self.blocks.iter().enumerate() {
+            let block_idx = BlockIdx::new(idx as u32);
+            if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
+                fallthrough_predecessors[block.next.idx()].push(block_idx);
+            }
+            for info in &block.instructions {
+                if info.target != BlockIdx::NULL {
+                    jump_predecessors[info.target.idx()].push(block_idx);
+                }
+            }
+        }
+
+        let mut seeds = Vec::new();
+        for (idx, block) in self.blocks.iter().enumerate() {
+            if !starts_for_iter_tail(block) {
+                continue;
+            }
+            let has_targeted_nop_predecessor = fallthrough_predecessors[idx].iter().any(|pred| {
+                is_nop_only_block(&self.blocks[pred.idx()])
+                    && !jump_predecessors[pred.idx()].is_empty()
+            });
+            if has_targeted_nop_predecessor {
+                seeds.push(BlockIdx::new(idx as u32));
+            }
+        }
+
+        let mut seen = vec![false; self.blocks.len()];
+        for seed in seeds {
+            let mut stack = vec![seed];
+            while let Some(block_idx) = stack.pop() {
+                if block_idx == BlockIdx::NULL || seen[block_idx.idx()] {
+                    continue;
+                }
+                seen[block_idx.idx()] = true;
+                self.blocks[block_idx.idx()].disable_load_fast_borrow = true;
+
+                let block = &self.blocks[block_idx.idx()];
+                if block
+                    .instructions
+                    .last()
+                    .is_some_and(|info| info.instr.is_scope_exit())
+                {
+                    continue;
+                }
+                if block.next != BlockIdx::NULL && block.next.idx() >= seed.idx() {
+                    stack.push(block.next);
+                }
+                for info in &block.instructions {
+                    if info.target != BlockIdx::NULL && info.target.idx() >= seed.idx() {
+                        stack.push(info.target);
+                    }
+                }
+            }
         }
     }
 
@@ -4489,7 +4637,6 @@ impl CodeInfo {
             for block_idx in &segment {
                 in_segment[block_idx.idx()] = true;
             }
-
             for block_idx in segment {
                 if visited[block_idx.idx()] {
                     continue;
@@ -4602,6 +4749,99 @@ impl CodeInfo {
                 .then_some(block.next)
                 .into_iter()
                 .collect()
+        }
+
+        fn block_has_simple_scope_exit(block: &Block) -> bool {
+            for info in &block.instructions {
+                match info.instr.real() {
+                    Some(instr) if instr.is_scope_exit() => return true,
+                    Some(
+                        Instruction::Nop
+                        | Instruction::NotTaken
+                        | Instruction::LoadConst { .. }
+                        | Instruction::LoadSmallInt { .. }
+                        | Instruction::StoreFast { .. }
+                        | Instruction::StoreFastLoadFast { .. }
+                        | Instruction::StoreFastStoreFast { .. }
+                        | Instruction::StoreName { .. }
+                        | Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastCheck { .. }
+                        | Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                        | Instruction::BuildTuple { .. },
+                    ) => {}
+                    Some(_) => return false,
+                    None => {}
+                }
+            }
+            false
+        }
+
+        fn is_return_value_through_with_exit(block: &Block) -> bool {
+            let reals: Vec<_> = block
+                .instructions
+                .iter()
+                .filter_map(|info| info.instr.real())
+                .collect();
+            if !matches!(
+                reals.first(),
+                Some(
+                    Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            ) {
+                return false;
+            }
+            if !matches!(reals.last(), Some(Instruction::ReturnValue)) {
+                return false;
+            }
+            reals.iter().skip(1).all(|instr| {
+                matches!(
+                    instr,
+                    Instruction::Swap { .. }
+                        | Instruction::LoadConst { .. }
+                        | Instruction::Call { .. }
+                        | Instruction::PopTop
+                        | Instruction::ReturnValue
+                )
+            })
+        }
+
+        fn is_simple_store_attr_tail(block: &Block) -> bool {
+            let reals: Vec<_> = block
+                .instructions
+                .iter()
+                .filter_map(|info| info.instr.real())
+                .filter(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+                .collect();
+            matches!(
+                reals.as_slice(),
+                [
+                    Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                    Instruction::StoreAttr { .. },
+                    ..
+                ] | [
+                    Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. },
+                    Instruction::StoreAttr { .. },
+                    ..
+                ]
+            )
+        }
+
+        fn leading_bool_guard_has_scope_exit_successor(blocks: &[Block], block: &Block) -> bool {
+            let Some(cond_idx) = trailing_conditional_jump_index(block) else {
+                return false;
+            };
+            [block.instructions[cond_idx].target, block.next]
+                .into_iter()
+                .any(|successor| {
+                    successor != BlockIdx::NULL
+                        && block_has_simple_scope_exit(&blocks[successor.idx()])
+                })
         }
 
         fn path_reaches_named_cleanup(
@@ -4794,6 +5034,7 @@ impl CodeInfo {
             let seed = BlockIdx::new(idx as u32);
             let mut segment = Vec::new();
             let mut cursor = seed;
+            let seed_guard_local = leading_bool_guard_local(&self.blocks[seed.idx()]);
             let mut fallback_guard_local = None;
             while cursor != BlockIdx::NULL {
                 let block = &self.blocks[cursor.idx()];
@@ -4803,6 +5044,12 @@ impl CodeInfo {
                 if cursor != seed
                     && let Some(local) = leading_bool_guard_local(block)
                 {
+                    if !leading_bool_guard_has_scope_exit_successor(&self.blocks, block) {
+                        break;
+                    }
+                    if seed_guard_local.is_some_and(|seed_local| seed_local != local) {
+                        break;
+                    }
                     match fallback_guard_local {
                         None => fallback_guard_local = Some(local),
                         Some(expected) if expected != local => break,
@@ -4812,7 +5059,8 @@ impl CodeInfo {
                 segment.push(cursor);
                 cursor = block.next;
             }
-            if fallback_guard_local.is_none() && !named_cleanup_requires_deopt[idx] {
+            let requires_deopt = named_cleanup_requires_deopt[idx];
+            if fallback_guard_local.is_none() && !requires_deopt {
                 continue;
             }
 
@@ -4820,7 +5068,6 @@ impl CodeInfo {
             for block_idx in &segment {
                 in_segment[block_idx.idx()] = true;
             }
-
             for block_idx in segment {
                 if visited[block_idx.idx()] {
                     continue;
@@ -4828,6 +5075,17 @@ impl CodeInfo {
                 let is_same_guard_fallback = fallback_guard_local.is_some_and(|local| {
                     leading_bool_guard_local(&self.blocks[block_idx.idx()]) == Some(local)
                 });
+                if !requires_deopt && !is_same_guard_fallback {
+                    continue;
+                }
+                if requires_deopt
+                    && is_return_value_through_with_exit(&self.blocks[block_idx.idx()])
+                {
+                    continue;
+                }
+                if requires_deopt && is_simple_store_attr_tail(&self.blocks[block_idx.idx()]) {
+                    continue;
+                }
                 if block_idx != seed
                     && !is_same_guard_fallback
                     && predecessors[block_idx.idx()].iter().any(|pred| {
@@ -5002,22 +5260,89 @@ impl CodeInfo {
             false
         }
 
-        fn block_has_nonresuming_reraise_handler(blocks: &[Block], block: &Block) -> bool {
-            let mut seen_handlers = Vec::new();
+        fn nonresuming_reraise_handlers(blocks: &[Block], block: &Block) -> Vec<BlockIdx> {
+            let mut handlers = Vec::new();
             for handler in block
                 .instructions
                 .iter()
                 .filter_map(|info| info.except_handler.map(|handler| handler.handler_block))
             {
-                if seen_handlers.contains(&handler) {
+                if handlers.contains(&handler) {
                     continue;
                 }
-                seen_handlers.push(handler);
                 if handler_chain_has_explicit_reraise(blocks, handler)
                     && !handler_chain_resumes_normally(blocks, handler)
                 {
+                    handlers.push(handler);
+                }
+            }
+            handlers
+        }
+
+        fn normal_successors(block: &Block) -> Vec<BlockIdx> {
+            let Some(last) = block.instructions.last() else {
+                return (block.next != BlockIdx::NULL)
+                    .then_some(block.next)
+                    .into_iter()
+                    .collect();
+            };
+            if last.instr.is_scope_exit() {
+                return Vec::new();
+            }
+            if matches!(
+                last.instr.real(),
+                Some(
+                    Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. }
+                )
+            ) {
+                return Vec::new();
+            }
+            if last.instr.is_unconditional_jump() {
+                return (last.target != BlockIdx::NULL)
+                    .then_some(last.target)
+                    .into_iter()
+                    .collect();
+            }
+            if let Some(cond_idx) = trailing_conditional_jump_index(block) {
+                let mut successors = Vec::with_capacity(2);
+                let target = block.instructions[cond_idx].target;
+                if target != BlockIdx::NULL {
+                    successors.push(target);
+                }
+                if block.next != BlockIdx::NULL {
+                    successors.push(block.next);
+                }
+                return successors;
+            }
+            (block.next != BlockIdx::NULL)
+                .then_some(block.next)
+                .into_iter()
+                .collect()
+        }
+
+        fn normal_path_reaches_handler(
+            blocks: &[Block],
+            start: BlockIdx,
+            handler: BlockIdx,
+        ) -> bool {
+            let mut visited = vec![false; blocks.len()];
+            let mut stack = vec![start];
+            while let Some(block_idx) = stack.pop() {
+                if block_idx == BlockIdx::NULL || visited[block_idx.idx()] {
+                    continue;
+                }
+                visited[block_idx.idx()] = true;
+                let block = &blocks[block_idx.idx()];
+                if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                if block.instructions.iter().any(|info| {
+                    info.except_handler
+                        .is_some_and(|except_handler| except_handler.handler_block == handler)
+                }) {
                     return true;
                 }
+                stack.extend(normal_successors(block));
             }
             false
         }
@@ -5050,6 +5375,15 @@ impl CodeInfo {
             if block_is_exceptional(block) || block.cold || !starts_with_fast_load(block) {
                 continue;
             }
+            if block_has_protected_instructions(block) {
+                continue;
+            }
+            if predecessors[idx]
+                .iter()
+                .any(|pred| is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()]))
+            {
+                continue;
+            }
             let mut seen = vec![false; self.blocks.len()];
             let mut stack = predecessors[idx].clone();
             while let Some(pred) = stack.pop() {
@@ -5062,8 +5396,15 @@ impl CodeInfo {
                     if block_jumps_backward_to(pred_block, BlockIdx::new(idx as u32)) {
                         continue;
                     }
-                    follows_protected_body[idx] =
-                        block_has_nonresuming_reraise_handler(&self.blocks, pred_block);
+                    let handlers = nonresuming_reraise_handlers(&self.blocks, pred_block);
+                    follows_protected_body[idx] = !handlers.is_empty()
+                        && !handlers.iter().any(|handler| {
+                            normal_path_reaches_handler(
+                                &self.blocks,
+                                BlockIdx::new(idx as u32),
+                                *handler,
+                            )
+                        });
                     break;
                 }
                 if !block_is_exceptional(pred_block)
@@ -5084,6 +5425,13 @@ impl CodeInfo {
             while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
                 let block = &self.blocks[cursor.idx()];
                 if block_is_exceptional(block) || block.cold {
+                    break;
+                }
+                if block_has_protected_instructions(block)
+                    || predecessors[cursor.idx()].iter().any(|pred| {
+                        is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()])
+                    })
+                {
                     break;
                 }
                 visited[cursor.idx()] = true;
@@ -5398,6 +5746,94 @@ impl CodeInfo {
             false
         }
 
+        fn nonresuming_handlers(blocks: &[Block], block: &Block) -> Vec<BlockIdx> {
+            let mut handlers = Vec::new();
+            for handler in block
+                .instructions
+                .iter()
+                .filter_map(|info| info.except_handler.map(|handler| handler.handler_block))
+            {
+                if handlers.contains(&handler) {
+                    continue;
+                }
+                if handler_chain_has_explicit_raise(blocks, handler)
+                    && !handler_chain_has_multiple_handled_returns(blocks, handler)
+                    && !handler_chain_resumes_normally(blocks, handler)
+                {
+                    handlers.push(handler);
+                }
+            }
+            handlers
+        }
+
+        fn normal_successors(block: &Block) -> Vec<BlockIdx> {
+            let Some(last) = block.instructions.last() else {
+                return (block.next != BlockIdx::NULL)
+                    .then_some(block.next)
+                    .into_iter()
+                    .collect();
+            };
+            if last.instr.is_scope_exit() {
+                return Vec::new();
+            }
+            if matches!(
+                last.instr.real(),
+                Some(
+                    Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. }
+                )
+            ) {
+                return Vec::new();
+            }
+            if last.instr.is_unconditional_jump() {
+                return (last.target != BlockIdx::NULL)
+                    .then_some(last.target)
+                    .into_iter()
+                    .collect();
+            }
+            if let Some(cond_idx) = trailing_conditional_jump_index(block) {
+                let mut successors = Vec::with_capacity(2);
+                let target = block.instructions[cond_idx].target;
+                if target != BlockIdx::NULL {
+                    successors.push(target);
+                }
+                if block.next != BlockIdx::NULL {
+                    successors.push(block.next);
+                }
+                return successors;
+            }
+            (block.next != BlockIdx::NULL)
+                .then_some(block.next)
+                .into_iter()
+                .collect()
+        }
+
+        fn normal_path_reaches_handler(
+            blocks: &[Block],
+            start: BlockIdx,
+            handler: BlockIdx,
+        ) -> bool {
+            let mut visited = vec![false; blocks.len()];
+            let mut stack = vec![start];
+            while let Some(block_idx) = stack.pop() {
+                if block_idx == BlockIdx::NULL || visited[block_idx.idx()] {
+                    continue;
+                }
+                visited[block_idx.idx()] = true;
+                let block = &blocks[block_idx.idx()];
+                if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                if block.instructions.iter().any(|info| {
+                    info.except_handler
+                        .is_some_and(|except_handler| except_handler.handler_block == handler)
+                }) {
+                    return true;
+                }
+                stack.extend(normal_successors(block));
+            }
+            false
+        }
+
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         let mut is_handler_resume_block = vec![false; self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
@@ -5424,12 +5860,26 @@ impl CodeInfo {
             .enumerate()
             .filter_map(|(idx, block)| {
                 let cond_idx = trailing_conditional_jump_index(block)?;
+                if block.try_else_orelse_entry {
+                    return None;
+                }
                 let prev_protected = predecessors[idx].iter().any(|pred| {
                     let pred_block = &self.blocks[pred.idx()];
                     block_has_protected_instructions(pred_block)
                         && block_has_exception_match_handler(&self.blocks, pred_block)
                         && block_has_nonresuming_exception_match_handler(&self.blocks, pred_block)
                 });
+                let prev_nonresuming_handlers: Vec<_> = predecessors[idx]
+                    .iter()
+                    .flat_map(|pred| {
+                        let pred_block = &self.blocks[pred.idx()];
+                        if block_has_protected_instructions(pred_block) {
+                            nonresuming_handlers(&self.blocks, pred_block)
+                        } else {
+                            Vec::new()
+                        }
+                    })
+                    .collect();
                 let has_unprotected_normal_predecessor = predecessors[idx].iter().any(|pred| {
                     let pred_block = &self.blocks[pred.idx()];
                     !block_is_exceptional(pred_block)
@@ -5457,9 +5907,13 @@ impl CodeInfo {
                 } else {
                     prev_protected
                 };
+                let same_handler_continuation = prev_nonresuming_handlers
+                    .iter()
+                    .any(|handler| normal_path_reaches_handler(&self.blocks, seed, *handler));
                 (!block_is_exceptional(block)
                     && seed != BlockIdx::NULL
                     && seed_enabled
+                    && !same_handler_continuation
                     && !has_unprotected_normal_predecessor)
                     .then_some((seed, force_deopt))
             })
@@ -5473,8 +5927,24 @@ impl CodeInfo {
                 if block_is_exceptional(&self.blocks[cursor.idx()]) {
                     break;
                 }
+                if cursor != seed
+                    && predecessors[cursor.idx()].iter().any(|pred| {
+                        is_handler_resume_block[pred.idx()]
+                            || is_handler_resume_predecessor(&self.blocks[pred.idx()], cursor)
+                            || is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()])
+                    })
+                {
+                    break;
+                }
                 segment.push(cursor);
                 cursor = self.blocks[cursor.idx()].next;
+            }
+            if segment.iter().any(|block_idx| {
+                predecessors[block_idx.idx()]
+                    .iter()
+                    .any(|pred| is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()]))
+            }) {
+                continue;
             }
 
             let segment_ops: Vec<_> = segment
@@ -5603,7 +6073,11 @@ impl CodeInfo {
                 if predecessors[block_idx.idx()].iter().any(|pred| {
                     is_handler_resume_block[pred.idx()]
                         || is_handler_resume_predecessor(&self.blocks[pred.idx()], block_idx)
+                        || is_named_except_cleanup_normal_exit_block(&self.blocks[pred.idx()])
                 }) {
+                    continue;
+                }
+                if block_has_protected_instructions(&self.blocks[block_idx.idx()]) {
                     continue;
                 }
                 if !force_deopt
@@ -5735,6 +6209,9 @@ impl CodeInfo {
             while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
                 visited[cursor.idx()] = true;
                 let block = &blocks[cursor.idx()];
+                if cursor != handler && block.except_handler {
+                    return false;
+                }
                 for info in &block.instructions {
                     match info.instr.real() {
                         Some(Instruction::CheckExcMatch | Instruction::CheckEgMatch) => {
@@ -5810,26 +6287,43 @@ impl CodeInfo {
             false
         }
 
-        fn protected_block_has_terminal_exception_handler(blocks: &[Block], block: &Block) -> bool {
-            let mut seen_handlers = Vec::new();
-            for handler in block
-                .instructions
-                .iter()
-                .filter_map(|info| info.except_handler.map(|handler| handler.handler_block))
-            {
-                if seen_handlers.contains(&handler) {
-                    continue;
-                }
-                seen_handlers.push(handler);
-                let has_exception_match = handler_reaches_match_before_terminal(blocks, handler);
-                if has_exception_match
-                    && !handler_chain_has_multiple_handled_returns(blocks, handler)
-                    && !handler_chain_resumes_normally(blocks, handler)
-                {
-                    return true;
+        fn handler_is_terminal_exception_handler(blocks: &[Block], handler: BlockIdx) -> bool {
+            handler_reaches_match_before_terminal(blocks, handler)
+                && !handler_chain_has_multiple_handled_returns(blocks, handler)
+                && !handler_chain_resumes_normally(blocks, handler)
+        }
+
+        fn trailing_protected_tail_terminal_exception_handler(
+            blocks: &[Block],
+            block: &Block,
+        ) -> Option<BlockIdx> {
+            for info in block.instructions.iter().rev() {
+                match info.instr.real() {
+                    Some(Instruction::Nop | Instruction::NotTaken | Instruction::PopTop) => {}
+                    Some(_) => {
+                        let handler = info.except_handler.map(|handler| handler.handler_block)?;
+                        return handler_is_terminal_exception_handler(blocks, handler)
+                            .then_some(handler);
+                    }
+                    None => {}
                 }
             }
-            false
+            None
+        }
+
+        fn protected_tail_ends_with_conditional(block: &Block) -> bool {
+            block
+                .instructions
+                .iter()
+                .rev()
+                .filter_map(|info| info.instr.real())
+                .find(|instr| {
+                    !matches!(
+                        instr,
+                        Instruction::Nop | Instruction::NotTaken | Instruction::PopTop
+                    )
+                })
+                .is_some_and(|instr| is_conditional_jump(&AnyInstruction::Real(instr)))
         }
 
         fn normal_successors(block: &Block) -> Vec<BlockIdx> {
@@ -5840,6 +6334,14 @@ impl CodeInfo {
                     .collect();
             };
             if last.instr.is_scope_exit() {
+                return Vec::new();
+            }
+            if matches!(
+                last.instr.real(),
+                Some(
+                    Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. }
+                )
+            ) {
                 return Vec::new();
             }
             if last.instr.is_unconditional_jump() {
@@ -5863,6 +6365,33 @@ impl CodeInfo {
                 .then_some(block.next)
                 .into_iter()
                 .collect()
+        }
+
+        fn normal_path_reaches_handler(
+            blocks: &[Block],
+            start: BlockIdx,
+            handler: BlockIdx,
+        ) -> bool {
+            let mut visited = vec![false; blocks.len()];
+            let mut stack = vec![start];
+            while let Some(block_idx) = stack.pop() {
+                if block_idx == BlockIdx::NULL || visited[block_idx.idx()] {
+                    continue;
+                }
+                visited[block_idx.idx()] = true;
+                let block = &blocks[block_idx.idx()];
+                if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                if block.instructions.iter().any(|info| {
+                    info.except_handler
+                        .is_some_and(|except_handler| except_handler.handler_block == handler)
+                }) {
+                    return true;
+                }
+                stack.extend(normal_successors(block));
+            }
+            false
         }
 
         fn has_call_store_before_trailing_conditional(block: &Block) -> bool {
@@ -5939,6 +6468,15 @@ impl CodeInfo {
             has_pop_except && jumps_to_target
         }
 
+        fn is_unprotected_call_store_bridge_to(block: &Block, successor: BlockIdx) -> bool {
+            !block_is_exceptional(block)
+                && !block.cold
+                && !block_has_protected_instructions(block)
+                && has_call_and_store(block)
+                && trailing_conditional_jump_index(block).is_none()
+                && normal_successors(block).contains(&successor)
+        }
+
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
             if block.next != BlockIdx::NULL {
@@ -5976,6 +6514,7 @@ impl CodeInfo {
                     && block.start_depth.is_some_and(|depth| depth > 0)
                     && !has_protected_call_predecessor
                     && !has_call_store_tail)
+                || block.try_else_orelse_entry
                 || predecessors[idx].iter().any(|pred| {
                     is_handler_resume_predecessor(
                         &self.blocks[pred.idx()],
@@ -5988,6 +6527,10 @@ impl CodeInfo {
                         && !pred_block.cold
                         && !block_has_protected_instructions(pred_block)
                         && block_has_non_nop_real_instructions(pred_block)
+                        && !is_unprotected_call_store_bridge_to(
+                            pred_block,
+                            BlockIdx::new(idx as u32),
+                        )
                 })
                 || !(has_structured_terminal_tail_shape
                     || has_protected_call_predecessor
@@ -6005,14 +6548,27 @@ impl CodeInfo {
                 seen[pred.idx()] = true;
                 let pred_block = &self.blocks[pred.idx()];
                 if block_has_protected_instructions(pred_block) {
-                    if protected_block_has_terminal_exception_handler(&self.blocks, pred_block) {
+                    if protected_tail_ends_with_conditional(pred_block) {
+                        break;
+                    }
+                    if let Some(handler) =
+                        trailing_protected_tail_terminal_exception_handler(&self.blocks, pred_block)
+                    {
+                        let seed = BlockIdx::new(idx as u32);
+                        if normal_path_reaches_handler(&self.blocks, seed, handler) {
+                            break;
+                        }
                         seeds.push((
-                            BlockIdx::new(idx as u32),
+                            seed,
                             (has_protected_call_predecessor || has_call_store_tail)
                                 && !has_structured_terminal_tail_shape,
                         ));
                     }
                     break;
+                }
+                if is_unprotected_call_store_bridge_to(pred_block, BlockIdx::new(idx as u32)) {
+                    stack.extend(predecessors[pred.idx()].iter().copied());
+                    continue;
                 }
                 if !block_is_exceptional(pred_block)
                     && !pred_block.cold
@@ -6025,21 +6581,45 @@ impl CodeInfo {
 
         let mut visited = vec![false; self.blocks.len()];
         for (seed, direct_only) in seeds {
+            let mut reachable_from_seed = vec![false; self.blocks.len()];
+            let mut reachability_stack = vec![seed];
+            while let Some(block_idx) = reachability_stack.pop() {
+                if block_idx == BlockIdx::NULL || reachable_from_seed[block_idx.idx()] {
+                    continue;
+                }
+                let block = &self.blocks[block_idx.idx()];
+                if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                reachable_from_seed[block_idx.idx()] = true;
+                reachability_stack.extend(normal_successors(block));
+            }
+
             let mut stack = vec![seed];
             while let Some(block_idx) = stack.pop() {
                 if block_idx == BlockIdx::NULL || visited[block_idx.idx()] {
                     continue;
                 }
                 let block = &self.blocks[block_idx.idx()];
-                if block_is_exceptional(block)
-                    || block.cold
-                    || block_has_protected_instructions(block)
+                if block_is_exceptional(block) || block.cold {
+                    continue;
+                }
+                if block_idx != seed
+                    && predecessors[block_idx.idx()].iter().any(|pred| {
+                        let pred_block = &self.blocks[pred.idx()];
+                        !block_is_exceptional(pred_block)
+                            && !pred_block.cold
+                            && !reachable_from_seed[pred.idx()]
+                            && normal_successors(pred_block).contains(&block_idx)
+                    })
                 {
                     continue;
                 }
                 visited[block_idx.idx()] = true;
                 let successors = normal_successors(&self.blocks[block_idx.idx()]);
-                deoptimize_block_borrows(&mut self.blocks[block_idx.idx()]);
+                if !self.blocks[block_idx.idx()].try_else_orelse_entry {
+                    deoptimize_block_borrows(&mut self.blocks[block_idx.idx()]);
+                }
                 if direct_only {
                     continue;
                 }
@@ -6140,36 +6720,6 @@ impl CodeInfo {
                 }
             }
             handlers
-        }
-
-        fn protected_method_call_count(blocks: &[Block], block: &Block) -> usize {
-            block
-                .instructions
-                .iter()
-                .filter(|info| {
-                    let is_method_load = matches!(
-                        info.instr.real(),
-                        Some(Instruction::LoadAttr { namei }) if namei.get(info.arg).is_method()
-                    );
-                    is_method_load
-                        && info.except_handler.is_some_and(|handler| {
-                            handler_chain_has_exception_match(blocks, handler.handler_block)
-                        })
-                })
-                .count()
-        }
-
-        fn block_stores_fast(block: &Block) -> bool {
-            block.instructions.iter().any(|info| {
-                matches!(
-                    info.instr.real(),
-                    Some(
-                        Instruction::StoreFast { .. }
-                            | Instruction::StoreFastLoadFast { .. }
-                            | Instruction::StoreFastStoreFast { .. }
-                    )
-                )
-            })
         }
 
         fn block_shares_handler(block: &Block, handlers: &[BlockIdx]) -> bool {
@@ -6385,16 +6935,6 @@ impl CodeInfo {
 
         let mut to_deopt = Vec::new();
         for (idx, block) in self.blocks.iter().enumerate() {
-            if !block_is_exceptional(block)
-                && !block.cold
-                && !block_stores_fast(block)
-                && protected_method_call_count(&self.blocks, block) >= 2
-                && protected_block_has_terminal_exception_handler(&self.blocks, block)
-                && protected_block_has_raising_exception_handler(&self.blocks, block)
-            {
-                to_deopt.push(BlockIdx::new(idx as u32));
-                continue;
-            }
             if block_is_exceptional(block)
                 || block.cold
                 || starts_with_inlined_comprehension_restore(block)
@@ -7153,6 +7693,23 @@ impl CodeInfo {
             })
         }
 
+        fn block_has_loop_back_to_or_before(
+            blocks: &[Block],
+            block: &Block,
+            target_block: BlockIdx,
+        ) -> bool {
+            block.instructions.iter().any(|info| {
+                matches!(
+                    info.instr.real(),
+                    Some(
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. }
+                    )
+                ) && (info.target == target_block
+                    || comes_before(blocks, info.target, target_block))
+            })
+        }
+
         fn block_has_for_iter(block: &Block) -> bool {
             block
                 .instructions
@@ -7375,11 +7932,10 @@ impl CodeInfo {
                         .any(|info| info.except_handler.is_some())
                 });
                 let has_handler_resume_predecessor = predecessors[idx].iter().any(|pred| {
-                    is_handler_resume_block[pred.idx()]
-                        || is_handler_resume_predecessor(
-                            &self.blocks[pred.idx()],
-                            BlockIdx::new(idx as u32),
-                        )
+                    let pred_block = &self.blocks[pred.idx()];
+                    !is_named_except_cleanup_normal_exit_block(pred_block)
+                        && (is_handler_resume_block[pred.idx()]
+                            || is_handler_resume_predecessor(pred_block, BlockIdx::new(idx as u32)))
                 });
                 let has_suppressing_with_resume_predecessor =
                     predecessors[idx].iter().any(|pred| {
@@ -7405,12 +7961,18 @@ impl CodeInfo {
                 let should_seed = (has_protected_predecessor && has_finally_except_loop_tail)
                     || (has_bool_guard_tail && has_handler_resume_predecessor)
                     || has_handler_resume_loop_tail;
-                should_seed.then_some((BlockIdx::new(idx as u32), has_handler_resume_loop_tail))
+                let allow_any_loop_back =
+                    has_finally_except_loop_tail || has_handler_resume_loop_tail;
+                should_seed.then_some((
+                    BlockIdx::new(idx as u32),
+                    has_handler_resume_loop_tail,
+                    allow_any_loop_back,
+                ))
             })
             .collect();
 
         let mut visited = vec![false; self.blocks.len()];
-        for (seed, include_join_tail) in seeds {
+        for (seed, include_join_tail, allow_any_loop_back) in seeds {
             let mut segment = Vec::new();
             let mut found_loop_back = false;
             let mut seen = vec![false; self.blocks.len()];
@@ -7426,7 +7988,8 @@ impl CodeInfo {
                 }
                 segment.push(cursor);
                 if block_has_loop_back(block) {
-                    found_loop_back = true;
+                    found_loop_back |= allow_any_loop_back
+                        || block_has_loop_back_to_or_before(&self.blocks, block, seed);
                     continue;
                 }
                 for successor in tail_successors(&self.blocks, &predecessors, cursor) {
@@ -7543,34 +8106,36 @@ impl CodeInfo {
         fn deoptimize_protected_block_borrows_from(
             block: &mut Block,
             start: usize,
-            protected_store_locals: &[bool],
+            protected_store_locals: Option<&[bool]>,
         ) {
             for info in block.instructions.iter_mut().skip(start) {
                 if info.except_handler.is_none() {
                     break;
                 }
-                match info.instr.real() {
-                    Some(Instruction::LoadFastBorrow { var_num }) => {
-                        let local = usize::from(var_num.get(info.arg));
-                        if protected_store_locals.get(local).copied().unwrap_or(false) {
-                            continue;
+                if let Some(protected_store_locals) = protected_store_locals {
+                    match info.instr.real() {
+                        Some(Instruction::LoadFastBorrow { var_num }) => {
+                            let local = usize::from(var_num.get(info.arg));
+                            if protected_store_locals.get(local).copied().unwrap_or(false) {
+                                continue;
+                            }
                         }
-                    }
-                    Some(Instruction::LoadFastBorrowLoadFastBorrow { var_nums }) => {
-                        let (left, right) = var_nums.get(info.arg).indexes();
-                        let skip_left = protected_store_locals
-                            .get(usize::from(left))
-                            .copied()
-                            .unwrap_or(false);
-                        let skip_right = protected_store_locals
-                            .get(usize::from(right))
-                            .copied()
-                            .unwrap_or(false);
-                        if skip_left && skip_right {
-                            continue;
+                        Some(Instruction::LoadFastBorrowLoadFastBorrow { var_nums }) => {
+                            let (left, right) = var_nums.get(info.arg).indexes();
+                            let skip_left = protected_store_locals
+                                .get(usize::from(left))
+                                .copied()
+                                .unwrap_or(false);
+                            let skip_right = protected_store_locals
+                                .get(usize::from(right))
+                                .copied()
+                                .unwrap_or(false);
+                            if skip_left && skip_right {
+                                continue;
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
                 deoptimize_borrow(info);
             }
@@ -7598,15 +8163,18 @@ impl CodeInfo {
         fn handler_chain_returns(blocks: &[Block], handler_block: BlockIdx) -> bool {
             let mut cursor = handler_block;
             let mut visited = vec![false; blocks.len()];
+            let mut after_pop_except = false;
             while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
                 visited[cursor.idx()] = true;
-                let mut saw_pop_except = false;
                 for info in &blocks[cursor.idx()].instructions {
                     match info.instr.real() {
                         Some(Instruction::ReturnValue) => return true,
-                        Some(Instruction::PopExcept) => saw_pop_except = true,
+                        Some(Instruction::PopExcept) => after_pop_except = true,
+                        Some(_) if after_pop_except && is_conditional_jump(&info.instr) => {
+                            return false;
+                        }
                         Some(instr)
-                            if saw_pop_except
+                            if after_pop_except
                                 && (instr.is_unconditional_jump() || instr.is_scope_exit()) =>
                         {
                             return false;
@@ -7614,8 +8182,45 @@ impl CodeInfo {
                         _ => {}
                     }
                 }
-                if saw_pop_except {
-                    return false;
+                cursor = blocks[cursor.idx()].next;
+            }
+            false
+        }
+
+        fn handler_chain_continues_to_or_before(
+            blocks: &[Block],
+            handler_block: BlockIdx,
+            seed: BlockIdx,
+            block_order: &[u32],
+        ) -> bool {
+            let mut cursor = handler_block;
+            let mut visited = vec![false; blocks.len()];
+            let mut after_pop_except = false;
+            while cursor != BlockIdx::NULL && !visited[cursor.idx()] {
+                visited[cursor.idx()] = true;
+                for info in &blocks[cursor.idx()].instructions {
+                    match info.instr.real() {
+                        Some(Instruction::PopExcept) => after_pop_except = true,
+                        Some(
+                            Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        ) if after_pop_except
+                            && info.target != BlockIdx::NULL
+                            && block_order[info.target.idx()] <= block_order[seed.idx()] =>
+                        {
+                            return true;
+                        }
+                        Some(_) if after_pop_except && is_conditional_jump(&info.instr) => {
+                            return false;
+                        }
+                        Some(instr)
+                            if after_pop_except
+                                && (instr.is_unconditional_jump() || instr.is_scope_exit()) =>
+                        {
+                            return false;
+                        }
+                        _ => {}
+                    }
                 }
                 cursor = blocks[cursor.idx()].next;
             }
@@ -7629,6 +8234,49 @@ impl CodeInfo {
                 .any(|info| info.except_handler.is_some())
         }
 
+        fn push_normal_successors(stack: &mut Vec<BlockIdx>, block: &Block) {
+            if block.next != BlockIdx::NULL {
+                stack.push(block.next);
+            }
+            for info in &block.instructions {
+                if info.target != BlockIdx::NULL {
+                    stack.push(info.target);
+                }
+            }
+        }
+
+        fn has_nested_protected_import_tail(
+            blocks: &[Block],
+            seed: BlockIdx,
+            import_idx: usize,
+        ) -> bool {
+            let Some(import_handler) = blocks[seed.idx()].instructions[import_idx].except_handler
+            else {
+                return false;
+            };
+            let mut cursor = seed;
+            let mut start = import_idx + 1;
+            while cursor != BlockIdx::NULL && !block_is_exceptional(&blocks[cursor.idx()]) {
+                let block = &blocks[cursor.idx()];
+                let mut saw_protected = false;
+                for info in block.instructions.iter().skip(start) {
+                    let Some(handler) = info.except_handler else {
+                        return false;
+                    };
+                    saw_protected = true;
+                    if handler.handler_block != import_handler.handler_block {
+                        return true;
+                    }
+                }
+                if !saw_protected {
+                    return false;
+                }
+                cursor = block.next;
+                start = 0;
+            }
+            false
+        }
+
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
             if block.next != BlockIdx::NULL {
@@ -7639,6 +8287,15 @@ impl CodeInfo {
                     predecessors[info.target.idx()].push(BlockIdx::new(pred_idx as u32));
                 }
             }
+        }
+
+        let mut block_order = vec![u32::MAX; self.blocks.len()];
+        let mut cursor = BlockIdx(0);
+        let mut pos = 0u32;
+        while cursor != BlockIdx::NULL {
+            block_order[cursor.idx()] = pos;
+            pos += 1;
+            cursor = self.blocks[cursor.idx()].next;
         }
 
         let seeds: Vec<_> =
@@ -7658,24 +8315,35 @@ impl CodeInfo {
                         .is_some_and(|handler| {
                             handler_chain_returns(&self.blocks, handler.handler_block)
                         });
-                    if !handler_returns {
+                    let handler_continues = block.instructions[import_idx]
+                        .except_handler
+                        .is_some_and(|handler| {
+                            handler_chain_continues_to_or_before(
+                                &self.blocks,
+                                handler.handler_block,
+                                BlockIdx::new(idx as u32),
+                                &block_order,
+                            )
+                        });
+                    let nested_protected_tail = has_nested_protected_import_tail(
+                        &self.blocks,
+                        BlockIdx::new(idx as u32),
+                        import_idx,
+                    );
+                    if !handler_returns && !handler_continues && !nested_protected_tail {
                         return None;
                     }
-                    Some((BlockIdx::new(idx as u32), import_idx))
+                    Some((
+                        BlockIdx::new(idx as u32),
+                        import_idx,
+                        handler_continues,
+                        nested_protected_tail,
+                    ))
                 })
                 .collect();
 
-        let mut block_order = vec![u32::MAX; self.blocks.len()];
-        let mut cursor = BlockIdx(0);
-        let mut pos = 0u32;
-        while cursor != BlockIdx::NULL {
-            block_order[cursor.idx()] = pos;
-            pos += 1;
-            cursor = self.blocks[cursor.idx()].next;
-        }
-
         let mut visited = vec![false; self.blocks.len()];
-        for (seed, import_idx) in seeds {
+        for (seed, import_idx, handler_continues, nested_protected_tail) in seeds {
             let mut protected_store_locals = vec![false; self.metadata.varnames.len()];
             for info in self.blocks[seed.idx()]
                 .instructions
@@ -7698,7 +8366,10 @@ impl CodeInfo {
             let mut segment = vec![(seed, import_idx + 1)];
             let mut cursor = self.blocks[seed.idx()].next;
             while cursor != BlockIdx::NULL && !block_is_exceptional(&self.blocks[cursor.idx()]) {
-                if block_has_protected_instructions(&self.blocks[cursor.idx()]) {
+                if !handler_continues
+                    && !nested_protected_tail
+                    && block_has_protected_instructions(&self.blocks[cursor.idx()])
+                {
                     break;
                 }
                 if predecessors[cursor.idx()].iter().any(|pred| {
@@ -7714,10 +8385,37 @@ impl CodeInfo {
                     .instructions
                     .iter()
                     .any(|info| info.instr.real().is_some_and(|instr| instr.is_scope_exit()))
+                    && !handler_continues
                 {
                     break;
                 }
                 cursor = self.blocks[cursor.idx()].next;
+            }
+
+            if nested_protected_tail {
+                let mut stack = Vec::new();
+                for (block_idx, _) in &segment {
+                    push_normal_successors(&mut stack, &self.blocks[block_idx.idx()]);
+                }
+                while let Some(candidate) = stack.pop() {
+                    if candidate == BlockIdx::NULL
+                        || in_segment[candidate.idx()]
+                        || block_is_exceptional(&self.blocks[candidate.idx()])
+                        || !block_has_protected_instructions(&self.blocks[candidate.idx()])
+                    {
+                        continue;
+                    }
+                    if predecessors[candidate.idx()].iter().any(|pred| {
+                        !in_segment[pred.idx()]
+                            && block_order[pred.idx()] < block_order[candidate.idx()]
+                            && !is_handler_resume_predecessor(&self.blocks[pred.idx()], candidate)
+                    }) {
+                        continue;
+                    }
+                    in_segment[candidate.idx()] = true;
+                    segment.push((candidate, 0));
+                    push_normal_successors(&mut stack, &self.blocks[candidate.idx()]);
+                }
             }
 
             for (block_idx, start) in segment {
@@ -7726,10 +8424,12 @@ impl CodeInfo {
                 }
                 visited[block_idx.idx()] = true;
                 if block_idx == seed {
+                    let protected_store_locals =
+                        (!nested_protected_tail).then_some(protected_store_locals.as_slice());
                     deoptimize_protected_block_borrows_from(
                         &mut self.blocks[block_idx.idx()],
                         start,
-                        &protected_store_locals,
+                        protected_store_locals,
                     );
                 } else {
                     deoptimize_block_borrows_from(&mut self.blocks[block_idx.idx()], start);
@@ -7856,6 +8556,44 @@ impl CodeInfo {
             false
         }
 
+        fn handler_chain_has_nested_exception_match(blocks: &[Block], block: &Block) -> bool {
+            let mut visited = vec![false; blocks.len()];
+            let mut stack: Vec<_> = block
+                .instructions
+                .iter()
+                .filter_map(|info| info.except_handler.map(|handler| handler.handler_block))
+                .collect();
+            let mut matches_seen = 0;
+            while let Some(cursor) = stack.pop() {
+                if cursor == BlockIdx::NULL || visited[cursor.idx()] {
+                    continue;
+                }
+                visited[cursor.idx()] = true;
+                let handler = &blocks[cursor.idx()];
+                for info in &handler.instructions {
+                    if matches!(
+                        info.instr.real(),
+                        Some(Instruction::CheckExcMatch | Instruction::CheckEgMatch)
+                    ) {
+                        matches_seen += 1;
+                        if matches_seen > 1 {
+                            return true;
+                        }
+                    }
+                    if is_conditional_jump(&info.instr) && info.target != BlockIdx::NULL {
+                        stack.push(info.target);
+                    }
+                    if info.instr.is_unconditional_jump() && info.target != BlockIdx::NULL {
+                        stack.push(info.target);
+                    }
+                }
+                if handler.next != BlockIdx::NULL {
+                    stack.push(handler.next);
+                }
+            }
+            false
+        }
+
         fn block_has_tail_deopt_trigger_from(block: &Block, start: usize) -> bool {
             block.instructions.iter().skip(start).any(|info| {
                 matches!(
@@ -7869,6 +8607,36 @@ impl CodeInfo {
                     )
                 )
             })
+        }
+
+        fn protected_store_subscr_operand_start(block: &Block) -> Option<usize> {
+            let store_idx = block.instructions.iter().position(|info| {
+                matches!(info.instr.real(), Some(Instruction::StoreSubscr))
+                    && info.except_handler.is_some()
+            })?;
+
+            let mut stack_items = 0;
+            for start in (0..store_idx).rev() {
+                let produced = match block.instructions[start].instr.real() {
+                    Some(
+                        Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadGlobal { .. }
+                        | Instruction::LoadName { .. }
+                        | Instruction::LoadDeref { .. },
+                    ) => 1,
+                    Some(
+                        Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. },
+                    ) => 2,
+                    _ => return None,
+                };
+                stack_items += produced;
+                if stack_items >= 3 {
+                    return Some(start);
+                }
+            }
+            None
         }
 
         fn block_has_attr_named(block: &Block, names: &IndexSet<String>, attr: &str) -> bool {
@@ -7953,6 +8721,47 @@ impl CodeInfo {
                     }
                     _ => false,
                 })
+        }
+
+        fn borrowed_inplace_local_update_start(block: &Block) -> Option<usize> {
+            for i in 0..block.instructions.len().saturating_sub(3) {
+                let local = match block.instructions[i].instr.real() {
+                    Some(Instruction::LoadFastBorrow { var_num }) => {
+                        usize::from(var_num.get(block.instructions[i].arg))
+                    }
+                    _ => continue,
+                };
+                let Some(Instruction::BinaryOp { op }) = block.instructions[i + 2].instr.real()
+                else {
+                    continue;
+                };
+                if !matches!(
+                    op.get(block.instructions[i + 2].arg),
+                    oparg::BinaryOperator::InplaceAdd
+                        | oparg::BinaryOperator::InplaceSubtract
+                        | oparg::BinaryOperator::InplaceMultiply
+                        | oparg::BinaryOperator::InplaceMatrixMultiply
+                        | oparg::BinaryOperator::InplaceTrueDivide
+                        | oparg::BinaryOperator::InplaceFloorDivide
+                        | oparg::BinaryOperator::InplaceRemainder
+                        | oparg::BinaryOperator::InplacePower
+                        | oparg::BinaryOperator::InplaceLshift
+                        | oparg::BinaryOperator::InplaceRshift
+                        | oparg::BinaryOperator::InplaceAnd
+                        | oparg::BinaryOperator::InplaceXor
+                        | oparg::BinaryOperator::InplaceOr
+                ) {
+                    continue;
+                }
+                if matches!(
+                    block.instructions[i + 3].instr.real(),
+                    Some(Instruction::StoreFast { var_num })
+                        if usize::from(var_num.get(block.instructions[i + 3].arg)) == local
+                ) {
+                    return Some(i);
+                }
+            }
+            None
         }
 
         fn starts_with_borrowed_local_bool_guard(block: &Block, locals: &[usize]) -> bool {
@@ -8065,6 +8874,43 @@ impl CodeInfo {
             })
         }
 
+        fn collect_unprotected_tail_segment(
+            blocks: &[Block],
+            tail: BlockIdx,
+        ) -> (Vec<(BlockIdx, usize)>, Vec<bool>) {
+            let mut in_segment = vec![false; blocks.len()];
+            let mut segment = Vec::new();
+            let mut cursor = tail;
+            if cursor == BlockIdx::NULL
+                || block_is_exceptional(&blocks[cursor.idx()])
+                || block_has_protected_instructions(&blocks[cursor.idx()])
+            {
+                return (segment, in_segment);
+            }
+            while cursor != BlockIdx::NULL {
+                let segment_block = &blocks[cursor.idx()];
+                if block_is_exceptional(segment_block)
+                    || block_has_protected_instructions(segment_block)
+                {
+                    break;
+                }
+                segment.push((cursor, 0));
+                in_segment[cursor.idx()] = true;
+                let last_real = segment_block
+                    .instructions
+                    .iter()
+                    .rev()
+                    .find_map(|info| info.instr.real());
+                if last_real.is_some_and(|instr| {
+                    instr.is_scope_exit() || AnyInstruction::Real(instr).is_unconditional_jump()
+                }) {
+                    break;
+                }
+                cursor = next_nonempty_block(blocks, segment_block.next);
+            }
+            (segment, in_segment)
+        }
+
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
             if block.next != BlockIdx::NULL {
@@ -8078,7 +8924,24 @@ impl CodeInfo {
         }
 
         let mut to_deopt = Vec::new();
-        for block in &self.blocks {
+        let has_exception_match_handler = self.blocks.iter().any(|block| {
+            block.instructions.iter().any(|info| {
+                matches!(
+                    info.instr.real(),
+                    Some(Instruction::CheckExcMatch | Instruction::CheckEgMatch)
+                )
+            })
+        });
+        if has_exception_match_handler {
+            for (block_idx, block) in self.blocks.iter().enumerate() {
+                if block_has_protected_instructions(block)
+                    && let Some(start) = protected_store_subscr_operand_start(block)
+                {
+                    to_deopt.push((BlockIdx::new(block_idx as u32), start));
+                }
+            }
+        }
+        for (block_idx, block) in self.blocks.iter().enumerate() {
             if block_is_exceptional(block)
                 || !block
                     .instructions
@@ -8098,16 +8961,32 @@ impl CodeInfo {
             {
                 continue;
             }
+            if let Some(start) = protected_store_subscr_operand_start(block) {
+                to_deopt.push((BlockIdx::new(block_idx as u32), start));
+                continue;
+            }
             let same_block_tail_start = first_unprotected_suffix(block);
             if same_block_tail_start.is_some() {
                 continue;
+            }
+            let tail = next_nonempty_block(&self.blocks, block.next);
+            let (segment, in_segment) = collect_unprotected_tail_segment(&self.blocks, tail);
+            if handler_chain_has_nested_exception_match(&self.blocks, block)
+                && handler_chain_can_resume_to_segment(&self.blocks, block, &in_segment)
+            {
+                for (block_idx, start) in &segment {
+                    if let Some(update_start) =
+                        borrowed_inplace_local_update_start(&self.blocks[block_idx.idx()])
+                    {
+                        to_deopt.push((*block_idx, (*start).max(update_start)));
+                    }
+                }
             }
             let stored_locals = collect_stored_fast_locals_until(block, block.instructions.len());
             if stored_locals.is_empty() {
                 continue;
             }
             let handler_has_explicit_raise = handler_chain_has_explicit_raise(&self.blocks, block);
-            let tail = next_nonempty_block(&self.blocks, block.next);
             if tail != BlockIdx::NULL
                 && !block_is_exceptional(&self.blocks[tail.idx()])
                 && !block_has_protected_instructions(&self.blocks[tail.idx()])
@@ -8135,38 +9014,6 @@ impl CodeInfo {
                         }
                     }
                 }
-            }
-            let mut in_segment = vec![false; self.blocks.len()];
-            let mut segment = Vec::new();
-            let mut cursor = {
-                if tail == BlockIdx::NULL
-                    || block_is_exceptional(&self.blocks[tail.idx()])
-                    || block_has_protected_instructions(&self.blocks[tail.idx()])
-                {
-                    continue;
-                }
-                tail
-            };
-            while cursor != BlockIdx::NULL {
-                let segment_block = &self.blocks[cursor.idx()];
-                if block_is_exceptional(segment_block)
-                    || block_has_protected_instructions(segment_block)
-                {
-                    break;
-                }
-                segment.push((cursor, 0));
-                in_segment[cursor.idx()] = true;
-                let last_real = segment_block
-                    .instructions
-                    .iter()
-                    .rev()
-                    .find_map(|info| info.instr.real());
-                if last_real.is_some_and(|instr| {
-                    instr.is_scope_exit() || AnyInstruction::Real(instr).is_unconditional_jump()
-                }) {
-                    break;
-                }
-                cursor = next_nonempty_block(&self.blocks, segment_block.next);
             }
             if segment.is_empty()
                 || segment.iter().any(|(block_idx, _)| {
@@ -9139,18 +9986,217 @@ impl CodeInfo {
         }
     }
 
+    fn fast_scan_many_locals(
+        &mut self,
+        nlocals: usize,
+        nparams: usize,
+        merged_cell_local: &impl Fn(usize) -> Option<usize>,
+    ) {
+        const PARAM_INITIALIZED: usize = usize::MAX;
+
+        debug_assert!(nlocals > 64);
+        let mut states = vec![0usize; nlocals - 64];
+        let high_params = nparams.saturating_sub(64).min(states.len());
+        for state in states.iter_mut().take(high_params) {
+            *state = PARAM_INITIALIZED;
+        }
+
+        let is_known = |idx: usize, state: usize, blocknum: usize| {
+            state == blocknum || (idx < nparams && state == PARAM_INITIALIZED)
+        };
+
+        let mut blocknum = 0usize;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            blocknum += 1;
+            let old_instructions = self.blocks[current.idx()].instructions.clone();
+            let mut new_instructions = Vec::with_capacity(old_instructions.len());
+            let mut changed = false;
+
+            for mut info in old_instructions {
+                match info.instr.real() {
+                    Some(
+                        Instruction::DeleteFast { var_num }
+                        | Instruction::LoadFastAndClear { var_num },
+                    ) => {
+                        let idx = usize::from(var_num.get(info.arg));
+                        if idx >= 64 && idx < nlocals {
+                            states[idx - 64] = blocknum - 1;
+                        }
+                        new_instructions.push(info);
+                    }
+                    None if matches!(
+                        info.instr.pseudo(),
+                        Some(PseudoInstruction::StoreFastMaybeNull { .. })
+                    ) =>
+                    {
+                        let Some(PseudoInstruction::StoreFastMaybeNull { var_num }) =
+                            info.instr.pseudo()
+                        else {
+                            unreachable!();
+                        };
+                        let idx = var_num.get(info.arg) as usize;
+                        if idx >= 64 && idx < nlocals {
+                            states[idx - 64] = blocknum - 1;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::DeleteDeref { i }) => {
+                        let cell_relative = usize::from(i.get(info.arg));
+                        if let Some(idx) = merged_cell_local(cell_relative)
+                            && idx >= 64
+                            && idx < nlocals
+                        {
+                            states[idx - 64] = blocknum - 1;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::StoreFast { var_num }) => {
+                        let idx = usize::from(var_num.get(info.arg));
+                        if idx >= 64 && idx < nlocals {
+                            states[idx - 64] = blocknum;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::StoreDeref { i }) => {
+                        let cell_relative = usize::from(i.get(info.arg));
+                        if let Some(idx) = merged_cell_local(cell_relative)
+                            && idx >= 64
+                            && idx < nlocals
+                        {
+                            states[idx - 64] = blocknum;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::StoreFastStoreFast { var_nums }) => {
+                        let packed = var_nums.get(info.arg);
+                        let (idx1, idx2) = packed.indexes();
+                        let idx1 = usize::from(idx1);
+                        let idx2 = usize::from(idx2);
+                        if idx1 >= 64 && idx1 < nlocals {
+                            states[idx1 - 64] = blocknum;
+                        }
+                        if idx2 >= 64 && idx2 < nlocals {
+                            states[idx2 - 64] = blocknum;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::StoreFastLoadFast { var_nums }) => {
+                        let packed = var_nums.get(info.arg);
+                        let (store_idx, load_idx) = packed.indexes();
+                        let store_idx = usize::from(store_idx);
+                        let load_idx = usize::from(load_idx);
+                        if store_idx >= 64 && store_idx < nlocals {
+                            states[store_idx - 64] = blocknum;
+                        }
+                        if load_idx >= 64 && load_idx < nlocals {
+                            if !is_known(load_idx, states[load_idx - 64], blocknum) {
+                                let mut first = info;
+                                first.instr = Instruction::StoreFast {
+                                    var_num: Arg::marker(),
+                                }
+                                .into();
+                                first.arg = OpArg::new(store_idx as u32);
+
+                                let mut second = info;
+                                second.instr = Opcode::LoadFastCheck.into();
+                                second.arg = OpArg::new(load_idx as u32);
+
+                                new_instructions.push(first);
+                                new_instructions.push(second);
+                                changed = true;
+                            } else {
+                                new_instructions.push(info);
+                            }
+                        } else {
+                            new_instructions.push(info);
+                        }
+                    }
+                    Some(Instruction::LoadFast { var_num }) => {
+                        let idx = usize::from(var_num.get(info.arg));
+                        if idx >= 64 && idx < nlocals && !is_known(idx, states[idx - 64], blocknum)
+                        {
+                            info.instr = Opcode::LoadFastCheck.into();
+                            states[idx - 64] = blocknum;
+                            changed = true;
+                        }
+                        new_instructions.push(info);
+                    }
+                    Some(Instruction::LoadFastLoadFast { var_nums }) => {
+                        let packed = var_nums.get(info.arg);
+                        let (idx1, idx2) = packed.indexes();
+                        let idx1 = usize::from(idx1);
+                        let idx2 = usize::from(idx2);
+                        let needs_check_1 = idx1 >= 64
+                            && idx1 < nlocals
+                            && !is_known(idx1, states[idx1 - 64], blocknum);
+                        if needs_check_1 {
+                            states[idx1 - 64] = blocknum;
+                        }
+                        let needs_check_2 = idx2 >= 64
+                            && idx2 < nlocals
+                            && !is_known(idx2, states[idx2 - 64], blocknum);
+
+                        if needs_check_1 || needs_check_2 {
+                            let mut first = info;
+                            first.instr = if needs_check_1 {
+                                Opcode::LoadFastCheck
+                            } else {
+                                Opcode::LoadFast
+                            }
+                            .into();
+                            first.arg = OpArg::new(idx1 as u32);
+
+                            let mut second = info;
+                            second.instr = if needs_check_2 {
+                                Opcode::LoadFastCheck.into()
+                            } else {
+                                Opcode::LoadFast.into()
+                            };
+                            second.arg = OpArg::new(idx2 as u32);
+
+                            new_instructions.push(first);
+                            new_instructions.push(second);
+                            changed = true;
+                            if needs_check_2 {
+                                states[idx2 - 64] = blocknum;
+                            }
+                        } else {
+                            new_instructions.push(info);
+                        }
+                    }
+                    Some(Instruction::LoadFastCheck { var_num }) => {
+                        let idx = usize::from(var_num.get(info.arg));
+                        if idx >= 64 && idx < nlocals {
+                            states[idx - 64] = blocknum;
+                        }
+                        new_instructions.push(info);
+                    }
+                    _ => new_instructions.push(info),
+                }
+            }
+
+            if changed {
+                self.blocks[current.idx()].instructions = new_instructions;
+            }
+            current = self.blocks[current.idx()].next;
+        }
+    }
+
     fn add_checks_for_loads_of_uninitialized_variables(&mut self) {
-        let nlocals = self.metadata.varnames.len();
+        let mut nlocals = self.metadata.varnames.len();
         if nlocals == 0 {
             return;
         }
 
-        let merged_cell_local = |cell_relative: usize| {
-            self.metadata
-                .cellvars
-                .get_index(cell_relative)
-                .and_then(|name| self.metadata.varnames.get_index_of(name.as_str()))
-        };
+        let cell_to_local: Vec<_> = self
+            .metadata
+            .cellvars
+            .iter()
+            .map(|name| self.metadata.varnames.get_index_of(name.as_str()))
+            .collect();
+        let merged_cell_local =
+            |cell_relative: usize| cell_to_local.get(cell_relative).copied().flatten();
 
         let mut nparams = self.metadata.argcount as usize + self.metadata.kwonlyargcount as usize;
         if self.flags.contains(CodeFlags::VARARGS) {
@@ -9160,6 +10206,11 @@ impl CodeInfo {
             nparams += 1;
         }
         nparams = nparams.min(nlocals);
+
+        if nlocals > 64 {
+            self.fast_scan_many_locals(nlocals, nparams, &merged_cell_local);
+            nlocals = 64;
+        }
 
         let mut in_masks: Vec<Option<Vec<bool>>> = vec![None; self.blocks.len()];
         let mut start_mask = vec![false; nlocals];
@@ -9600,7 +10651,6 @@ impl CodeInfo {
         ));
 
         materialize_empty_conditional_exit_targets(&mut self.blocks);
-        materialize_exception_cleanup_jump_targets(&mut self.blocks);
         trace.push((
             "after_materialize_empty_conditional_exit_targets".to_owned(),
             self.debug_block_dump(),
@@ -9668,8 +10718,9 @@ impl CodeInfo {
         let _ = self.max_stackdepth()?;
         convert_pseudo_ops(&mut self.blocks, &cellfixedoffsets);
         remove_redundant_nops_and_jumps(&mut self.blocks);
-        self.mark_assertion_success_tail_borrow_disabled();
         self.mark_unprotected_debug_four_tails_borrow_disabled();
+        self.mark_exception_handler_transition_targets_borrow_disabled();
+        self.mark_targeted_nop_for_tails_borrow_disabled();
         trace.push((
             "after_convert_pseudo_ops".to_owned(),
             self.debug_block_dump(),
@@ -10237,6 +11288,8 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
             cache_entries: 0,
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
+            folded_operand_nop: false,
+            no_location_exit: false,
             preserve_block_start_no_location_nop: false,
         });
         jump_block.next = blocks[cold_idx.idx()].next;
@@ -10345,6 +11398,64 @@ fn jump_threading_unconditional(blocks: &mut [Block]) {
     jump_threading_impl(blocks, false);
 }
 
+fn short_circuit_stub_conditional(block: &Block) -> Option<Instruction> {
+    let cond_idx = trailing_conditional_jump_index(block)?;
+    if cond_idx < 2 {
+        return None;
+    }
+    let [first, second, ..] = block.instructions.as_slice() else {
+        return None;
+    };
+    if !matches!(first.instr.real(), Some(Instruction::Copy { i }) if i.get(first.arg) == 1)
+        || !matches!(second.instr.real(), Some(Instruction::ToBool))
+    {
+        return None;
+    }
+
+    let only_markers_between = block.instructions[2..cond_idx].iter().all(|info| {
+        matches!(
+            info.instr.real(),
+            None | Some(Instruction::Nop | Instruction::NotTaken)
+        )
+    });
+    if !only_markers_between {
+        return None;
+    }
+
+    block.instructions[cond_idx].instr.real()
+}
+
+fn opposite_short_circuit_target(block: &Block, source: AnyInstruction) -> bool {
+    let Some(conditional) = short_circuit_stub_conditional(block) else {
+        return false;
+    };
+    matches!(
+        (source.real(), Some(conditional)),
+        (
+            Some(Instruction::PopJumpIfFalse { .. }),
+            Some(Instruction::PopJumpIfTrue { .. })
+        ) | (
+            Some(Instruction::PopJumpIfTrue { .. }),
+            Some(Instruction::PopJumpIfFalse { .. })
+        )
+    )
+}
+
+fn same_short_circuit_target(block: &Block, source: AnyInstruction) -> Option<BlockIdx> {
+    let conditional = short_circuit_stub_conditional(block)?;
+    matches!(
+        (source.real(), Some(conditional)),
+        (
+            Some(Instruction::PopJumpIfFalse { .. }),
+            Some(Instruction::PopJumpIfFalse { .. })
+        ) | (
+            Some(Instruction::PopJumpIfTrue { .. }),
+            Some(Instruction::PopJumpIfTrue { .. })
+        )
+    )
+    .then_some(block.instructions[trailing_conditional_jump_index(block)?].target)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum JumpThreadKind {
     Plain,
@@ -10425,19 +11536,56 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
             {
                 continue;
             }
+            target = next_nonempty_block(blocks, target);
+            if target == BlockIdx::NULL {
+                continue;
+            }
             if include_conditional && is_conditional_jump(&ins.instr) {
                 let next = next_nonempty_block(blocks, blocks[bi].next);
-                if next != BlockIdx::NULL
+                let next_is_scope_exit = next != BlockIdx::NULL
                     && blocks[next.idx()]
                         .instructions
                         .last()
-                        .is_some_and(|instr| instr.instr.is_scope_exit())
-                {
+                        .is_some_and(|instr| instr.instr.is_scope_exit());
+                if next_is_scope_exit {
+                    let next_raises = blocks[next.idx()].instructions.iter().any(|instr| {
+                        matches!(instr.instr.real(), Some(Instruction::RaiseVarargs { .. }))
+                    });
+                    let target_is_loop_backedge = blocks[target.idx()]
+                        .instructions
+                        .first()
+                        .filter(|target_ins| target_ins.instr.is_unconditional_jump())
+                        .map(|target_ins| next_nonempty_block(blocks, target_ins.target))
+                        .is_some_and(|final_target| {
+                            final_target == BlockIdx(bi as u32)
+                                || comes_before(blocks, final_target, BlockIdx(bi as u32))
+                        });
+                    if !(block_is_protected(&blocks[bi]) && next_raises && target_is_loop_backedge)
+                    {
+                        continue;
+                    }
+                }
+            }
+            if include_conditional
+                && is_conditional_jump(&ins.instr)
+                && opposite_short_circuit_target(&blocks[target.idx()], ins.instr)
+            {
+                let final_target = next_nonempty_block(blocks, blocks[target.idx()].next);
+                if final_target != BlockIdx::NULL && ins.target != final_target {
+                    blocks[bi].instructions[last_idx].target = final_target;
+                    changed = true;
                     continue;
                 }
             }
-            target = next_nonempty_block(blocks, target);
-            if target == BlockIdx::NULL {
+            if include_conditional
+                && is_conditional_jump(&ins.instr)
+                && let Some(final_target) =
+                    same_short_circuit_target(&blocks[target.idx()], ins.instr)
+                && final_target != BlockIdx::NULL
+                && ins.target != final_target
+            {
+                blocks[bi].instructions[last_idx].target = final_target;
+                changed = true;
                 continue;
             }
             if include_conditional && is_conditional_jump(&ins.instr) {
@@ -10465,6 +11613,18 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                 && target_ins.target != BlockIdx::NULL
                 && target_ins.target != target
             {
+                if !include_conditional
+                    && blocks[target.idx()]
+                        .instructions
+                        .iter()
+                        .take_while(|info| matches!(info.instr.real(), Some(Instruction::Nop)))
+                        .any(instruction_has_lineno)
+                {
+                    continue;
+                }
+                if !include_conditional && instruction_has_lineno(&target_ins) {
+                    continue;
+                }
                 let source_pos = block_order[bi];
                 let target_pos = block_order.get(target.idx()).copied().unwrap_or(u32::MAX);
                 let final_target = target_ins.target;
@@ -10476,6 +11636,7 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                 if conditional && final_target_pos <= source_pos {
                     let mut scan = blocks[bi].next;
                     let mut chain_has_delete_subscr = false;
+                    let mut chain_has_for_iter = false;
                     let mut seen = vec![false; blocks.len()];
                     while scan != BlockIdx::NULL && scan != target && !seen[scan.idx()] {
                         seen[scan.idx()] = true;
@@ -10483,9 +11644,69 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                             blocks[scan.idx()].instructions.iter().any(|info| {
                                 matches!(info.instr.real(), Some(Instruction::DeleteSubscr))
                             });
+                        chain_has_for_iter |= blocks[scan.idx()].instructions.iter().any(|info| {
+                            matches!(info.instr.real(), Some(Instruction::ForIter { .. }))
+                        });
                         scan = blocks[scan.idx()].next;
                     }
                     if chain_has_delete_subscr {
+                        continue;
+                    }
+                    if target_ins.lineno_override.is_some_and(|lineno| lineno < 0)
+                        && blocks[bi].instructions[..last_idx]
+                            .iter()
+                            .any(|info| matches!(info.instr.real(), Some(Instruction::Nop)))
+                    {
+                        continue;
+                    }
+                    let after_target = next_nonempty_block(blocks, blocks[target.idx()].next);
+                    let final_target_has_for_iter = blocks[final_target.idx()]
+                        .instructions
+                        .iter()
+                        .any(|info| matches!(info.instr.real(), Some(Instruction::ForIter { .. })));
+                    let target_exits_current_loop = trailing_conditional_jump_index(
+                        &blocks[final_target.idx()],
+                    )
+                    .is_some_and(|cond_idx| {
+                        !final_target_has_for_iter
+                            && next_nonempty_block(
+                                blocks,
+                                blocks[final_target.idx()].instructions[cond_idx].target,
+                            ) == after_target
+                    });
+                    let mut scan = blocks[bi].next;
+                    let mut first_nonempty_between = BlockIdx::NULL;
+                    let mut reaches_target = false;
+                    let mut seen = vec![false; blocks.len()];
+                    while scan != BlockIdx::NULL && !seen[scan.idx()] {
+                        if scan == target {
+                            reaches_target = true;
+                            break;
+                        }
+                        seen[scan.idx()] = true;
+                        if !blocks[scan.idx()].instructions.is_empty()
+                            && first_nonempty_between == BlockIdx::NULL
+                        {
+                            first_nonempty_between = scan;
+                        }
+                        scan = blocks[scan.idx()].next;
+                    }
+                    if reaches_target
+                        && !chain_has_for_iter
+                        && first_nonempty_between != BlockIdx::NULL
+                        && !is_marker_jump_only_block(&blocks[first_nonempty_between.idx()])
+                        && !is_pop_top_jump_block(&blocks[first_nonempty_between.idx()])
+                        && !is_scope_exit_block(&blocks[first_nonempty_between.idx()])
+                        && !is_loop_cleanup_block(&blocks[first_nonempty_between.idx()])
+                        && after_target != BlockIdx::NULL
+                        && !blocks[after_target.idx()].cold
+                        && !block_is_exceptional(&blocks[after_target.idx()])
+                        && !is_marker_jump_only_block(&blocks[after_target.idx()])
+                        && !is_pop_top_jump_block(&blocks[after_target.idx()])
+                        && !is_scope_exit_block(&blocks[after_target.idx()])
+                        && !is_loop_cleanup_block(&blocks[after_target.idx()])
+                        && !target_exits_current_loop
+                    {
                         continue;
                     }
                 }
@@ -10611,6 +11832,8 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                     cache_entries: 0,
                     preserve_redundant_jump_as_nop: false,
                     remove_no_location_nop: false,
+                    folded_operand_nop: false,
+                    no_location_exit: false,
                     preserve_block_start_no_location_nop: false,
                 };
                 blocks[idx].instructions.push(not_taken);
@@ -10646,6 +11869,8 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                         cache_entries: 0,
                         preserve_redundant_jump_as_nop: false,
                         remove_no_location_nop: false,
+                        folded_operand_nop: false,
+                        no_location_exit: false,
                         preserve_block_start_no_location_nop: false,
                     });
                     new_block.instructions.push(InstructionInfo {
@@ -10660,6 +11885,8 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                         cache_entries: 0,
                         preserve_redundant_jump_as_nop: false,
                         remove_no_location_nop: false,
+                        folded_operand_nop: false,
+                        no_location_exit: false,
                         preserve_block_start_no_location_nop: false,
                     });
                     new_block.next = old_next;
@@ -10745,6 +11972,64 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
             .iter()
             .any(|ins| ins.instr.is_block_push())
     };
+    let block_ends_with_list_to_tuple_jump = |block: &Block| {
+        let ops: Vec<_> = block
+            .instructions
+            .iter()
+            .filter(|info| !matches!(info.instr.real(), Some(Instruction::Nop)))
+            .collect();
+        let Some((last, prefix)) = ops.split_last() else {
+            return false;
+        };
+        if !last.instr.is_unconditional_jump() {
+            return false;
+        }
+        let Some(prev) = prefix.last() else {
+            return false;
+        };
+        match prev.instr.real() {
+            Some(Instruction::CallIntrinsic1 { func }) => {
+                func.get(prev.arg) == IntrinsicFunction1::ListToTuple
+            }
+            _ => false,
+        }
+    };
+    let block_starts_with_store_and_exits = |block: &Block| {
+        block.instructions.first().is_some_and(|info| {
+            matches!(
+                info.instr.real(),
+                Some(
+                    Instruction::StoreFast { .. }
+                        | Instruction::StoreGlobal { .. }
+                        | Instruction::StoreName { .. }
+                        | Instruction::StoreDeref { .. }
+                )
+            )
+        }) && block_exits_scope(block)
+    };
+    let block_is_simple_fast_return = |block: &Block| {
+        matches!(
+            block.instructions.as_slice(),
+            [load, ret]
+                if matches!(
+                    load.instr.real(),
+                    Some(Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. })
+                ) && matches!(ret.instr.real(), Some(Instruction::ReturnValue))
+        )
+    };
+    let normal_layout_fallthrough_into = |blocks: &[Block], target: BlockIdx| {
+        let mut current = BlockIdx(0);
+        let mut previous_nonempty = BlockIdx::NULL;
+        while current != BlockIdx::NULL && current != target {
+            if !blocks[current.idx()].instructions.is_empty() {
+                previous_nonempty = current;
+            }
+            current = blocks[current.idx()].next;
+        }
+        previous_nonempty != BlockIdx::NULL
+            && block_has_fallthrough(&blocks[previous_nonempty.idx()])
+            && next_nonempty_block(blocks, blocks[previous_nonempty.idx()].next) == target
+    };
     loop {
         let mut changes = false;
         let mut predecessors = vec![0usize; blocks.len()];
@@ -10788,14 +12073,35 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                 && !instruction_has_lineno(&blocks[target.idx()].instructions[0])
                 && !instruction_has_lineno(&blocks[target.idx()].instructions[1])
                 && !instruction_has_lineno(&blocks[target.idx()].instructions[2]);
-            if !shared_artificial_expr_exit && (small_exit_block || no_lineno_no_fallthrough) {
-                let removed_jump_had_lineno = blocks[current.idx()]
-                    .instructions
-                    .last()
-                    .is_some_and(instruction_has_lineno);
-                if removed_jump_had_lineno {
+            let shared_tuple_genexpr_assignment_tail = small_exit_block
+                && predecessors[target.idx()] > 1
+                && block_ends_with_list_to_tuple_jump(&blocks[current.idx()])
+                && block_starts_with_store_and_exits(&blocks[target.idx()]);
+            if !shared_artificial_expr_exit
+                && !shared_tuple_genexpr_assignment_tail
+                && (small_exit_block || no_lineno_no_fallthrough)
+            {
+                let removed_jump_kind = jump_thread_kind(last.instr);
+                let keep_removed_jump_nop = removed_jump_kind == Some(JumpThreadKind::NoInterrupt)
+                    || blocks[current.idx()]
+                        .instructions
+                        .last()
+                        .is_some_and(instruction_has_lineno);
+                if keep_removed_jump_nop {
+                    let preserve_empty_end_label_nop = removed_jump_kind
+                        == Some(JumpThreadKind::NoInterrupt)
+                        && small_exit_block
+                        && blocks[current.idx()].instructions.len() == 1
+                        && block_is_simple_fast_return(&blocks[target.idx()])
+                        && !normal_layout_fallthrough_into(blocks, current);
                     if let Some(last_instr) = blocks[current.idx()].instructions.last_mut() {
+                        let lineno_override = last_instr.lineno_override;
                         set_to_nop(last_instr);
+                        last_instr.lineno_override = lineno_override;
+                        if preserve_empty_end_label_nop {
+                            last_instr.lineno_override = None;
+                            last_instr.preserve_block_start_no_location_nop = true;
+                        }
                     }
                 } else {
                     let _ = blocks[current.idx()].instructions.pop();
@@ -10803,6 +12109,21 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
                 blocks[current.idx()]
                     .instructions
                     .extend(blocks[target.idx()].instructions.clone());
+                if no_lineno_no_fallthrough
+                    && removed_jump_kind == Some(JumpThreadKind::Plain)
+                    && let Some(last) = blocks[current.idx()].instructions.last_mut()
+                    && jump_thread_kind(last.instr) == Some(JumpThreadKind::NoInterrupt)
+                {
+                    last.instr = match last.instr.into() {
+                        AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt) => {
+                            PseudoOpcode::Jump.into()
+                        }
+                        AnyOpcode::Real(Opcode::JumpBackwardNoInterrupt) => {
+                            Opcode::JumpBackward.into()
+                        }
+                        _ => last.instr,
+                    };
+                }
                 changes = true;
             }
 
@@ -10915,47 +12236,20 @@ fn compute_target_predecessor_flags(blocks: &[Block]) -> TargetPredecessorFlags 
 
 fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
     let mut changes = 0;
-    let TargetPredecessorFlags {
-        targeted: targeted_blocks,
-        plain_jump: plain_jump_targets,
-        ..
-    } = compute_target_predecessor_flags(blocks);
+    let plain_jump_targets = compute_target_predecessor_flags(blocks).plain_jump;
+    let layout_predecessors = compute_layout_predecessors(blocks);
     let mut block_order = Vec::new();
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         block_order.push(current);
         current = blocks[current.idx()].next;
     }
-    let mut fallthrough_prev_lineno = vec![None; blocks.len()];
-    let mut fallthrough_prev_pop_top_lineno = vec![None; blocks.len()];
-    let mut prev_nonempty = BlockIdx::NULL;
-    for &block_idx in &block_order {
-        if blocks[block_idx.idx()].instructions.is_empty() {
-            continue;
-        }
-        if prev_nonempty != BlockIdx::NULL
-            && !targeted_blocks[block_idx.idx()]
-            && block_has_fallthrough(&blocks[prev_nonempty.idx()])
-            && next_nonempty_block(blocks, blocks[prev_nonempty.idx()].next) == block_idx
-        {
-            fallthrough_prev_lineno[block_idx.idx()] = blocks[prev_nonempty.idx()]
-                .instructions
-                .last()
-                .map(instruction_lineno);
-        }
-        if prev_nonempty != BlockIdx::NULL
-            && block_has_fallthrough(&blocks[prev_nonempty.idx()])
-            && next_nonempty_block(blocks, blocks[prev_nonempty.idx()].next) == block_idx
-            && let Some(last) = blocks[prev_nonempty.idx()].instructions.last()
-            && matches!(last.instr.real(), Some(Instruction::PopTop))
-        {
-            fallthrough_prev_pop_top_lineno[block_idx.idx()] = Some(instruction_lineno(last));
-        }
-        prev_nonempty = block_idx;
-    }
-
     for block_idx in block_order {
         let bi = block_idx.idx();
+        let keep_target_start_nop =
+            keep_target_start_no_location_nop(blocks, block_idx, &layout_predecessors);
+        let follows_same_line_pop_iter =
+            layout_predecessor_ends_with_pop_iter_on_line(blocks, block_idx, &layout_predecessors);
         let mut src_instructions = core::mem::take(&mut blocks[bi].instructions);
         let mut kept = Vec::with_capacity(src_instructions.len());
         let mut prev_lineno = -1i32;
@@ -10966,21 +12260,21 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
             let mut remove = false;
 
             if matches!(instr.instr.real(), Some(Instruction::Nop)) {
-                if instr.preserve_block_start_no_location_nop {
-                    remove = false;
-                } else if lineno < 0
-                    || (src == 0
-                        && fallthrough_prev_lineno[block_idx.idx()]
-                            .is_some_and(|prev_lineno| prev_lineno == lineno))
-                    || (src == 0
-                        && src_instructions.len() == 1
-                        && fallthrough_prev_pop_top_lineno[block_idx.idx()]
-                            .is_some_and(|prev_lineno| prev_lineno == lineno))
+                if src == 0
+                    && !keep_target_start_nop
+                    && lineno > 0
+                    && follows_same_line_pop_iter == Some(lineno)
                 {
+                    remove = true;
+                } else if instr.preserve_block_start_no_location_nop {
+                    remove = false;
+                } else if lineno < 0 {
                     remove = true;
                 } else if instr.remove_no_location_nop
                     && src == 0
                     && plain_jump_targets[block_idx.idx()]
+                    && instr.lineno_override.is_some()
+                    && !keep_target_start_nop
                 {
                     let next_lineno = src_instructions[src + 1..].iter().find_map(|next_instr| {
                         let line = instruction_lineno(next_instr);
@@ -10998,7 +12292,9 @@ fn remove_redundant_nops_in_blocks(blocks: &mut [Block]) -> usize {
                 } else if src < src_instructions.len() - 1 {
                     if src_instructions[src + 1].instr.is_block_push() {
                         remove = false;
-                    } else if src_instructions[src + 1].instr.is_unconditional_jump() {
+                    } else if src_instructions[src + 1].instr.is_unconditional_jump()
+                        && src_instructions[src + 1].target != block_idx
+                    {
                         src_instructions[src + 1].lineno_override = Some(lineno);
                         remove = true;
                     } else if src_instructions[src + 1].folded_from_nonliteral_expr {
@@ -11090,10 +12386,12 @@ fn remove_redundant_jumps_in_blocks(blocks: &mut [Block]) -> usize {
                 }
                 let last_instr = blocks[idx].instructions.last_mut().unwrap();
                 let remove_no_location_nop = last_instr.remove_no_location_nop;
+                let folded_operand_nop = last_instr.folded_operand_nop;
                 let preserve_block_start_no_location_nop =
                     last_instr.preserve_block_start_no_location_nop;
                 set_to_nop(last_instr);
                 last_instr.remove_no_location_nop = remove_no_location_nop;
+                last_instr.folded_operand_nop = folded_operand_nop;
                 last_instr.preserve_block_start_no_location_nop =
                     preserve_block_start_no_location_nop;
                 changes += 1;
@@ -11144,6 +12442,39 @@ fn redirect_empty_block_targets(blocks: &mut [Block]) {
 }
 
 fn redirect_empty_unconditional_jump_targets(blocks: &mut [Block]) {
+    let block_exits_to_reraise = |block_idx: BlockIdx| {
+        let block = &blocks[block_idx.idx()];
+        let Some(last) = block.instructions.last() else {
+            return false;
+        };
+        if matches!(last.instr.real(), Some(Instruction::Reraise { .. })) {
+            return true;
+        }
+        if !last.instr.is_unconditional_jump() || last.target == BlockIdx::NULL {
+            return false;
+        }
+        let target = next_nonempty_block(blocks, last.target);
+        target != BlockIdx::NULL
+            && blocks[target.idx()]
+                .instructions
+                .last()
+                .is_some_and(|instr| {
+                    matches!(instr.instr.real(), Some(Instruction::Reraise { .. }))
+                })
+    };
+
+    let mut raw_predecessors = vec![0u32; blocks.len()];
+    for block in blocks.iter() {
+        if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
+            raw_predecessors[block.next.idx()] += 1;
+        }
+        for instr in &block.instructions {
+            if instr.target != BlockIdx::NULL {
+                raw_predecessors[instr.target.idx()] += 1;
+            }
+        }
+    }
+
     let redirected_targets: Vec<Vec<BlockIdx>> = blocks
         .iter()
         .map(|block| {
@@ -11154,6 +12485,15 @@ fn redirect_empty_unconditional_jump_targets(blocks: &mut [Block]) {
                     if instr.target == BlockIdx::NULL || !instr.instr.is_unconditional_jump() {
                         instr.target
                     } else {
+                        if blocks[instr.target.idx()].instructions.is_empty()
+                            && raw_predecessors[instr.target.idx()] > 1
+                            && {
+                                let target = next_nonempty_block(blocks, instr.target);
+                                target != BlockIdx::NULL && block_exits_to_reraise(target)
+                            }
+                        {
+                            return instr.target;
+                        }
                         let target = next_nonempty_block(blocks, instr.target);
                         if matches!(
                             jump_thread_kind(instr.instr),
@@ -11181,17 +12521,97 @@ fn redirect_empty_unconditional_jump_targets(blocks: &mut [Block]) {
 }
 
 fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
+    fn block_starts_with_with_normal_exit(block: &Block) -> bool {
+        matches!(
+            block.instructions.as_slice(),
+            [
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::LoadConst { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::Call { .. }),
+                    ..
+                },
+                InstructionInfo {
+                    instr: AnyInstruction::Real(Instruction::PopTop),
+                    ..
+                },
+                ..
+            ]
+        )
+    }
+
+    fn with_normal_exit_is_followed_by_try(blocks: &[Block], block_idx: BlockIdx) -> bool {
+        if block_idx == BlockIdx::NULL
+            || !block_starts_with_with_normal_exit(&blocks[block_idx.idx()])
+        {
+            return false;
+        }
+        let next = next_nonempty_block(blocks, blocks[block_idx.idx()].next);
+        next != BlockIdx::NULL
+            && blocks[next.idx()].instructions.first().is_some_and(|info| {
+                matches!(
+                    info.instr,
+                    AnyInstruction::Pseudo(PseudoInstruction::SetupFinally { .. })
+                        | AnyInstruction::Real(Instruction::Nop)
+                )
+            })
+    }
+
+    fn has_loop_backedge_to(blocks: &[Block], target: BlockIdx) -> bool {
+        blocks.iter().enumerate().any(|(source_idx, block)| {
+            let source = BlockIdx(source_idx as u32);
+            comes_before(blocks, target, source)
+                && block.instructions.iter().any(|info| {
+                    info.instr.is_unconditional_jump()
+                        && info.target != BlockIdx::NULL
+                        && next_nonempty_block(blocks, info.target) == target
+                })
+        })
+    }
+
     let mut jump_back_inserts = Vec::new();
     let mut inserts = Vec::new();
+    let mut target_start_inserts = Vec::new();
     for (block_idx, block) in blocks.iter().enumerate() {
-        let Some(last) = block.instructions.last() else {
+        let source = BlockIdx(block_idx as u32);
+        let (last, allow_scope_exit_target) = if let Some(last) = block
+            .instructions
+            .last()
+            .filter(|info| is_conditional_jump(&info.instr))
+        {
+            (last, true)
+        } else if let Some(cond_idx) = trailing_conditional_jump_index(block) {
+            (&block.instructions[cond_idx], false)
+        } else {
             continue;
         };
-        if !is_conditional_jump(&last.instr) || last.target == BlockIdx::NULL {
+        if last.target == BlockIdx::NULL {
             continue;
         }
         let target = last.target;
         if !blocks[target.idx()].instructions.is_empty() {
+            if with_normal_exit_is_followed_by_try(blocks, target)
+                && has_loop_backedge_to(blocks, source)
+                && !matches!(
+                    blocks[target.idx()]
+                        .instructions
+                        .first()
+                        .and_then(|info| info.instr.real()),
+                    Some(Instruction::Nop)
+                )
+            {
+                target_start_inserts.push((*last, target));
+            }
             continue;
         }
         let next = next_nonempty_block(blocks, blocks[target.idx()].next);
@@ -11207,10 +12627,14 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
             jump_back_inserts.push((BlockIdx(block_idx as u32), target, next));
             continue;
         }
-        if next == BlockIdx::NULL || !is_scope_exit_block(&blocks[next.idx()]) {
+        if next == BlockIdx::NULL
+            || !((allow_scope_exit_target && is_scope_exit_block(&blocks[next.idx()]))
+                || (with_normal_exit_is_followed_by_try(blocks, next)
+                    && has_loop_backedge_to(blocks, source)))
+        {
             continue;
         }
-        inserts.push((BlockIdx(block_idx as u32), target));
+        inserts.push((*last, target));
     }
 
     for (source, target, next) in jump_back_inserts {
@@ -11229,110 +12653,56 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
         if !blocks[target.idx()].instructions.is_empty() {
             continue;
         }
-        let Some(last) = blocks[source.idx()].instructions.last().copied() else {
-            continue;
-        };
         blocks[target.idx()].instructions.push(InstructionInfo {
             instr: Instruction::Nop.into(),
             arg: OpArg::NULL,
             target: BlockIdx::NULL,
-            location: last.location,
-            end_location: last.end_location,
+            location: source.location,
+            end_location: source.end_location,
             except_handler: None,
             folded_from_nonliteral_expr: false,
             lineno_override: None,
             cache_entries: 0,
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
+            folded_operand_nop: false,
+            no_location_exit: false,
             preserve_block_start_no_location_nop: false,
         });
     }
-}
 
-fn materialize_exception_cleanup_jump_targets(blocks: &mut [Block]) {
-    let mut inserts = Vec::new();
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let idx = current.idx();
-        let Some(last) = blocks[idx].instructions.last() else {
-            current = blocks[idx].next;
-            continue;
-        };
-        if !last.instr.is_unconditional_jump() || last.target == BlockIdx::NULL {
-            current = blocks[idx].next;
-            continue;
-        }
-
-        let mut cursor = blocks[idx].next;
-        let mut saw_cleanup = false;
-        while cursor != BlockIdx::NULL && cursor != last.target {
-            let block = &blocks[cursor.idx()];
-            if !block_is_exceptional(block) && !is_exception_cleanup_block(block) {
-                break;
-            }
-            saw_cleanup = true;
-            cursor = block.next;
-        }
-        if saw_cleanup
-            && cursor == last.target
-            && !blocks[last.target.idx()].instructions.is_empty()
-            && !block_starts_with_with_exit_none_call(&blocks[last.target.idx()])
-            && !matches!(
-                blocks[last.target.idx()]
+    for (source, target) in target_start_inserts.into_iter().rev() {
+        if !with_normal_exit_is_followed_by_try(blocks, target)
+            || matches!(
+                blocks[target.idx()]
                     .instructions
                     .first()
                     .and_then(|info| info.instr.real()),
                 Some(Instruction::Nop)
             )
         {
-            inserts.push(last.target);
-        }
-
-        current = blocks[idx].next;
-    }
-
-    inserts.sort_by_key(|idx| idx.idx());
-    inserts.dedup();
-    for target in inserts {
-        let Some(first) = blocks[target.idx()].instructions.first().copied() else {
             continue;
-        };
+        }
         blocks[target.idx()].instructions.insert(
             0,
             InstructionInfo {
                 instr: Instruction::Nop.into(),
                 arg: OpArg::NULL,
                 target: BlockIdx::NULL,
-                location: first.location,
-                end_location: first.end_location,
+                location: source.location,
+                end_location: source.end_location,
                 except_handler: None,
                 folded_from_nonliteral_expr: false,
-                lineno_override: Some(-1),
+                lineno_override: None,
                 cache_entries: 0,
                 preserve_redundant_jump_as_nop: false,
                 remove_no_location_nop: false,
-                preserve_block_start_no_location_nop: true,
+                folded_operand_nop: false,
+                no_location_exit: false,
+                preserve_block_start_no_location_nop: false,
             },
         );
     }
-}
-
-fn block_starts_with_with_exit_none_call(block: &Block) -> bool {
-    let real_instrs: Vec<_> = block
-        .instructions
-        .iter()
-        .filter_map(|info| info.instr.real())
-        .take(4)
-        .collect();
-    matches!(
-        real_instrs.as_slice(),
-        [
-            Instruction::LoadConst { .. },
-            Instruction::LoadConst { .. },
-            Instruction::LoadConst { .. },
-            Instruction::Call { .. },
-        ]
-    )
 }
 
 fn merge_unsafe_mask(slot: &mut Option<Vec<bool>>, incoming: &[bool]) -> bool {
@@ -11470,6 +12840,30 @@ fn is_exit_without_lineno(blocks: &[Block], block_idx: BlockIdx) -> bool {
         && has_non_exception_loop_backedge_to(blocks, block_idx, last.target)
 }
 
+fn is_eval_break_without_lineno(blocks: &[Block], block_idx: BlockIdx) -> bool {
+    let block = &blocks[block_idx.idx()];
+    let Some(first) = block.instructions.first() else {
+        return false;
+    };
+    !instruction_has_lineno(first) && block_has_no_lineno(block) && block_has_eval_break(block)
+}
+
+fn block_has_eval_break(block: &Block) -> bool {
+    block.instructions.iter().any(|info| {
+        matches!(
+            info.instr,
+            AnyInstruction::Pseudo(PseudoInstruction::Jump { .. })
+                | AnyInstruction::Real(
+                    Instruction::Call { .. }
+                        | Instruction::CallFunctionEx
+                        | Instruction::CallKw { .. }
+                        | Instruction::JumpBackward { .. }
+                        | Instruction::Resume { .. }
+                )
+        )
+    })
+}
+
 fn block_has_no_lineno(block: &Block) -> bool {
     block
         .instructions
@@ -11529,6 +12923,21 @@ fn is_jump_only_block(block: &Block) -> bool {
     instr.instr.is_unconditional_jump() && instr.target != BlockIdx::NULL
 }
 
+fn is_marker_jump_only_block(block: &Block) -> bool {
+    let mut real_instrs = block.instructions.iter().filter(|info| {
+        !matches!(
+            info.instr.real(),
+            Some(Instruction::Nop | Instruction::NotTaken)
+        )
+    });
+    let Some(instr) = real_instrs.next() else {
+        return false;
+    };
+    real_instrs.next().is_none()
+        && instr.instr.is_unconditional_jump()
+        && instr.target != BlockIdx::NULL
+}
+
 fn is_jump_back_only_block(blocks: &[Block], block_idx: BlockIdx) -> bool {
     if block_idx == BlockIdx::NULL || !is_jump_only_block(&blocks[block_idx.idx()]) {
         return false;
@@ -11577,6 +12986,13 @@ fn is_loop_cleanup_block(block: &Block) -> bool {
         })
 }
 
+fn is_async_loop_cleanup_block(block: &Block) -> bool {
+    block
+        .instructions
+        .iter()
+        .any(|info| matches!(info.instr.real(), Some(Instruction::EndAsyncFor)))
+}
+
 fn is_exception_cleanup_block(block: &Block) -> bool {
     block
         .instructions
@@ -11586,6 +13002,68 @@ fn is_exception_cleanup_block(block: &Block) -> bool {
             .instructions
             .last()
             .is_some_and(|instr| matches!(instr.instr.real(), Some(Instruction::Reraise { .. })))
+}
+
+fn block_starts_with_with_exit_none_call(block: &Block) -> bool {
+    let real_instrs: Vec<_> = block
+        .instructions
+        .iter()
+        .filter_map(|info| {
+            let instr = info.instr.real()?;
+            (!matches!(instr, Instruction::Nop)).then_some(instr)
+        })
+        .take(4)
+        .collect();
+    matches!(
+        real_instrs.as_slice(),
+        [
+            Instruction::LoadConst { .. },
+            Instruction::LoadConst { .. },
+            Instruction::LoadConst { .. },
+            Instruction::Call { .. },
+        ]
+    )
+}
+
+fn keep_target_start_no_location_nop(
+    blocks: &[Block],
+    target: BlockIdx,
+    layout_predecessors: &[BlockIdx],
+) -> bool {
+    if target == BlockIdx::NULL {
+        return false;
+    }
+    let Some(first) = blocks[target.idx()].instructions.first() else {
+        return false;
+    };
+    if !matches!(first.instr.real(), Some(Instruction::Nop)) {
+        return false;
+    }
+    let layout_pred = layout_predecessors[target.idx()];
+    if layout_pred == BlockIdx::NULL {
+        return false;
+    }
+    if is_async_loop_cleanup_block(&blocks[layout_pred.idx()]) {
+        return true;
+    }
+    is_exception_cleanup_block(&blocks[layout_pred.idx()])
+        && !block_starts_with_with_exit_none_call(&blocks[target.idx()])
+}
+
+fn layout_predecessor_ends_with_pop_iter_on_line(
+    blocks: &[Block],
+    target: BlockIdx,
+    layout_predecessors: &[BlockIdx],
+) -> Option<i32> {
+    let layout_pred = layout_predecessors[target.idx()];
+    if layout_pred == BlockIdx::NULL
+        || !block_has_fallthrough(&blocks[layout_pred.idx()])
+        || next_nonempty_block(blocks, blocks[layout_pred.idx()].next) != target
+    {
+        return None;
+    }
+    let last = blocks[layout_pred.idx()].instructions.last()?;
+    matches!(last.instr.real(), Some(Instruction::PopIter)).then_some(instruction_lineno(last))
 }
 
 fn is_with_suppress_exit_block(block: &Block) -> bool {
@@ -11681,6 +13159,13 @@ fn block_has_exception_match_handler(blocks: &[Block], block: &Block) -> bool {
                 )
             }) {
                 return true;
+            }
+            if blocks[cursor.idx()]
+                .instructions
+                .iter()
+                .any(|info| info.instr.is_scope_exit())
+            {
+                break;
             }
             cursor = blocks[cursor.idx()].next;
         }
@@ -11982,6 +13467,62 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
         false
     };
 
+    fn is_single_delete_subscr_body(block: &Block) -> bool {
+        let real: Vec<_> = block
+            .instructions
+            .iter()
+            .filter_map(|info| info.instr.real())
+            .filter(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+            .collect();
+        real.iter()
+            .filter(|instr| matches!(instr, Instruction::DeleteSubscr))
+            .count()
+            == 1
+            && matches!(real.last(), Some(Instruction::DeleteSubscr))
+            && real.iter().all(|instr| {
+                matches!(
+                    instr,
+                    Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                        | Instruction::LoadSmallInt { .. }
+                        | Instruction::LoadConst { .. }
+                        | Instruction::Copy { .. }
+                        | Instruction::Swap { .. }
+                        | Instruction::BinaryOp { .. }
+                        | Instruction::BinarySlice
+                        | Instruction::BuildSlice { .. }
+                        | Instruction::StoreSubscr
+                        | Instruction::DeleteSubscr
+                )
+            })
+    }
+
+    fn chain_is_conditional_single_delete_body(
+        blocks: &[Block],
+        chain_start: BlockIdx,
+        jump_start: BlockIdx,
+    ) -> bool {
+        if chain_start == BlockIdx::NULL || jump_start == BlockIdx::NULL {
+            return false;
+        }
+        let Some(chain_cond_idx) = trailing_conditional_jump_index(&blocks[chain_start.idx()])
+        else {
+            return false;
+        };
+        let chain_cond = blocks[chain_start.idx()].instructions[chain_cond_idx];
+        if !is_false_path_conditional_jump(&chain_cond.instr) || chain_cond.target != jump_start {
+            return false;
+        }
+        let body = next_nonempty_block(blocks, blocks[chain_start.idx()].next);
+        body != BlockIdx::NULL
+            && !block_is_exceptional(&blocks[body.idx()])
+            && !block_is_protected(&blocks[body.idx()])
+            && next_nonempty_block(blocks, blocks[body.idx()].next) == jump_start
+            && is_single_delete_subscr_body(&blocks[body.idx()])
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -12106,7 +13647,12 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             current = next;
             continue;
         }
-        if is_generic_false_path_reorder && nonempty_blocks > 1 {
+        let chain_is_conditional_single_delete_body =
+            chain_is_conditional_single_delete_body(blocks, chain_start, jump_start);
+        if is_generic_false_path_reorder
+            && nonempty_blocks > 1
+            && !chain_is_conditional_single_delete_body
+        {
             current = next;
             continue;
         }
@@ -12141,8 +13687,20 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             current = next;
             continue;
         }
-
         let after_jump = next_nonempty_block(blocks, blocks[jump_block.idx()].next);
+        let jump_is_artificial = blocks[jump_block.idx()]
+            .instructions
+            .first()
+            .is_some_and(|info| matches!(info.lineno_override, Some(line) if line < 0));
+        if is_generic_false_path_reorder
+            && jump_is_artificial
+            && after_jump != BlockIdx::NULL
+            && is_loop_cleanup_block(&blocks[after_jump.idx()])
+            && !chain_is_conditional_single_delete_body
+        {
+            current = next;
+            continue;
+        }
         if nonempty_blocks == 1
             && !is_jump_only_block(&blocks[chain_start.idx()])
             && after_jump != BlockIdx::NULL
@@ -12174,6 +13732,42 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
     allow_for_iter_jump_targets: bool,
     allow_true_scope_exit_reorder: bool,
 ) {
+    fn retarget_empty_chain_targets(
+        blocks: &mut [Block],
+        chain_start: BlockIdx,
+        chain_end: BlockIdx,
+        replacement: BlockIdx,
+    ) {
+        if chain_start == BlockIdx::NULL
+            || chain_end == BlockIdx::NULL
+            || replacement == BlockIdx::NULL
+        {
+            return;
+        }
+
+        let mut in_chain = vec![false; blocks.len()];
+        let mut cursor = chain_start;
+        while cursor != BlockIdx::NULL && cursor != chain_end {
+            let block = &blocks[cursor.idx()];
+            if !block.instructions.is_empty() {
+                return;
+            }
+            in_chain[cursor.idx()] = true;
+            cursor = block.next;
+        }
+        if cursor != chain_end {
+            return;
+        }
+
+        for block in blocks {
+            for instr in &mut block.instructions {
+                if instr.target != BlockIdx::NULL && in_chain[instr.target.idx()] {
+                    instr.target = replacement;
+                }
+            }
+        }
+    }
+
     fn jump_targets_for_iter(blocks: &[Block], jump_block: BlockIdx) -> bool {
         if jump_block == BlockIdx::NULL {
             return false;
@@ -12203,6 +13797,20 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
             Some(Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. })
         ) && !matches!(info.lineno_override, Some(line) if line < 0)
             && jump_targets_for_iter(blocks, jump_block)
+    }
+
+    fn is_explicit_continue_after_conditional(
+        blocks: &[Block],
+        jump_block: BlockIdx,
+        cond: InstructionInfo,
+    ) -> bool {
+        if !is_explicit_continue_to_for_iter(blocks, jump_block) {
+            return false;
+        }
+        let Some(info) = blocks[jump_block.idx()].instructions.first() else {
+            return false;
+        };
+        instruction_lineno(info) > instruction_lineno(&cond)
     }
 
     fn is_explicit_non_for_jump_back(blocks: &[Block], jump_block: BlockIdx) -> bool {
@@ -12291,7 +13899,7 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
             || !is_scope_exit_block(&blocks[exit_block.idx()])
             || !is_jump_only_block(&blocks[jump_block.idx()])
             || (jump_targets_for_iter(blocks, jump_block)
-                && !is_explicit_continue_to_for_iter(blocks, jump_block))
+                && !is_explicit_continue_after_conditional(blocks, jump_block, cond))
             || next_nonempty_block(blocks, blocks[jump_block.idx()].next) != exit_block
             || !comes_before(
                 blocks,
@@ -12304,6 +13912,7 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
         }
 
         let after_exit = blocks[exit_block.idx()].next;
+        retarget_empty_chain_targets(blocks, next, jump_block, jump_block);
         blocks[idx].instructions[cond_idx].instr =
             reversed_conditional(&cond.instr).expect("PopJumpIfTrue has a reversed conditional");
         blocks[idx].instructions[cond_idx].target = jump_block;
@@ -12445,6 +14054,67 @@ fn reorder_conditional_implicit_continue_scope_exit_blocks(blocks: &mut [Block])
         }
     }
 
+    fn scope_exit_segment_tail_before_jump(
+        blocks: &[Block],
+        start: BlockIdx,
+        jump_start: BlockIdx,
+    ) -> Option<BlockIdx> {
+        let jump_block = next_nonempty_block(blocks, jump_start);
+        if jump_block == BlockIdx::NULL {
+            return None;
+        }
+
+        let mut segment = Vec::new();
+        let mut cursor = next_nonempty_block(blocks, start);
+        while cursor != BlockIdx::NULL && cursor != jump_block {
+            if segment.len() >= blocks.len() {
+                return None;
+            }
+            let block = &blocks[cursor.idx()];
+            if block_is_exceptional(block) || block_is_protected(block) {
+                return None;
+            }
+            segment.push(cursor);
+            cursor = next_nonempty_block(blocks, block.next);
+        }
+        if cursor != jump_block || segment.is_empty() {
+            return None;
+        }
+
+        let mut in_segment = vec![false; blocks.len()];
+        for block_idx in &segment {
+            in_segment[block_idx.idx()] = true;
+        }
+
+        let mut has_scope_exit = false;
+        for block_idx in &segment {
+            let block = &blocks[block_idx.idx()];
+            if is_scope_exit_block(block) {
+                has_scope_exit = true;
+                continue;
+            }
+
+            if block_has_fallthrough(block) {
+                let next = next_nonempty_block(blocks, block.next);
+                if next == BlockIdx::NULL || !in_segment[next.idx()] {
+                    return None;
+                }
+            }
+
+            for info in &block.instructions {
+                if info.target == BlockIdx::NULL {
+                    continue;
+                }
+                let target = next_nonempty_block(blocks, info.target);
+                if target == BlockIdx::NULL || !in_segment[target.idx()] {
+                    return None;
+                }
+            }
+        }
+
+        has_scope_exit.then_some(*segment.last().expect("non-empty segment"))
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -12487,6 +14157,11 @@ fn reorder_conditional_implicit_continue_scope_exit_blocks(blocks: &mut [Block])
                     || next_nonempty_block(blocks, loop_exit_start) == after_jump
             })
         });
+        let jump_has_lineno = blocks[jump_block.idx()]
+            .instructions
+            .first()
+            .is_some_and(|info| instruction_lineno(info) >= 0);
+        let exit_segment_tail = scope_exit_segment_tail_before_jump(blocks, exit_start, jump_start);
         if exit_start == BlockIdx::NULL
             || exit_block == BlockIdx::NULL
             || jump_start == BlockIdx::NULL
@@ -12498,29 +14173,26 @@ fn reorder_conditional_implicit_continue_scope_exit_blocks(blocks: &mut [Block])
             || block_is_protected(&blocks[idx])
             || block_is_protected(&blocks[exit_block.idx()])
             || block_is_protected(&blocks[jump_block.idx()])
-            || !is_scope_exit_block(&blocks[exit_block.idx()])
+            || exit_segment_tail.is_none()
             || !is_jump_back_only_block(blocks, jump_block)
-            || blocks[jump_block.idx()]
-                .instructions
-                .first()
-                .is_some_and(|info| info.lineno_override.is_some_and(|lineno| lineno >= 0))
             || jumps_to_for_iter
             || (after_jump != BlockIdx::NULL
                 && !blocks[after_jump.idx()].cold
-                && !jump_exits_to_loop_exit)
-            || next_nonempty_block(blocks, blocks[exit_block.idx()].next) != jump_block
+                && !jump_exits_to_loop_exit
+                && !jump_has_lineno)
         {
             current = next;
             continue;
         }
 
+        let exit_segment_tail = exit_segment_tail.expect("checked above");
         let after_jump = blocks[jump_block.idx()].next;
         blocks[idx].instructions[cond_idx].instr =
             reversed_conditional(&cond.instr).expect("PopJumpIfFalse has a reversed conditional");
         blocks[idx].instructions[cond_idx].target = exit_start;
         blocks[idx].next = jump_start;
         blocks[jump_block.idx()].next = exit_start;
-        blocks[exit_block.idx()].next = after_jump;
+        blocks[exit_segment_tail.idx()].next = after_jump;
         current = next;
     }
 }
@@ -12600,6 +14272,33 @@ fn deduplicate_adjacent_jump_back_blocks(blocks: &mut [Block]) {
         }
     }
 
+    fn jump_back_lineno(block: &Block) -> Option<i32> {
+        let [info] = block.instructions.as_slice() else {
+            return None;
+        };
+        matches!(info.instr.real(), Some(Instruction::JumpBackward { .. }))
+            .then(|| instruction_lineno(info))
+    }
+
+    fn has_protected_conditional_predecessor(
+        blocks: &[Block],
+        incoming_origins: &[Vec<BlockIdx>],
+        target: BlockIdx,
+    ) -> bool {
+        incoming_origins[target.idx()]
+            .iter()
+            .copied()
+            .any(|origin| {
+                blocks[origin.idx()].instructions.iter().any(|info| {
+                    info.except_handler.is_some()
+                        && is_conditional_jump(&info.instr)
+                        && next_nonempty_block(blocks, info.target) == target
+                })
+            })
+    }
+
+    let reachable = compute_reachable_blocks(blocks);
+    let incoming_origins = compute_incoming_origins(blocks, &reachable);
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let Some(target) = jump_back_target(&blocks[current.idx()]) else {
@@ -12619,6 +14318,10 @@ fn deduplicate_adjacent_jump_back_blocks(blocks: &mut [Block]) {
             || block_is_exceptional(&blocks[duplicate.idx()])
             || block_is_protected(&blocks[duplicate.idx()])
             || jump_back_target(&blocks[duplicate.idx()]) != Some(target)
+            || jump_back_lineno(&blocks[duplicate.idx()])
+                != jump_back_lineno(&blocks[current.idx()])
+            || has_protected_conditional_predecessor(blocks, &incoming_origins, current)
+            || has_protected_conditional_predecessor(blocks, &incoming_origins, duplicate)
         {
             current = blocks[current.idx()].next;
             continue;
@@ -12635,7 +14338,7 @@ fn deduplicate_adjacent_jump_back_blocks(blocks: &mut [Block]) {
     }
 }
 
-fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
+fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>) {
     fn jump_back_target(blocks: &[Block], block_idx: BlockIdx) -> Option<BlockIdx> {
         if block_idx == BlockIdx::NULL {
             return None;
@@ -12683,6 +14386,30 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
         None
     }
 
+    fn find_body_tail_before_jump(
+        blocks: &[Block],
+        body_start: BlockIdx,
+        jump_start: BlockIdx,
+    ) -> Option<BlockIdx> {
+        let mut cursor = body_start;
+        let mut tail = BlockIdx::NULL;
+        let mut visited = vec![false; blocks.len()];
+        while cursor != BlockIdx::NULL && cursor != jump_start {
+            if visited[cursor.idx()] {
+                return None;
+            }
+            visited[cursor.idx()] = true;
+            if block_is_exceptional(&blocks[cursor.idx()])
+                || block_is_protected(&blocks[cursor.idx()])
+            {
+                return None;
+            }
+            tail = cursor;
+            cursor = blocks[cursor.idx()].next;
+        }
+        (tail != BlockIdx::NULL && cursor == jump_start).then_some(tail)
+    }
+
     fn body_segment_contains_for_iter(
         blocks: &[Block],
         body_start: BlockIdx,
@@ -12710,6 +14437,159 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
         false
     }
 
+    fn body_segment_contains_scope_exit(
+        blocks: &[Block],
+        body_start: BlockIdx,
+        body_tail: BlockIdx,
+    ) -> bool {
+        let mut cursor = body_start;
+        let mut visited = vec![false; blocks.len()];
+        while cursor != BlockIdx::NULL {
+            if visited[cursor.idx()] {
+                return false;
+            }
+            visited[cursor.idx()] = true;
+            if blocks[cursor.idx()]
+                .instructions
+                .iter()
+                .any(|info| info.instr.is_scope_exit())
+            {
+                return true;
+            }
+            if cursor == body_tail {
+                return false;
+            }
+            cursor = blocks[cursor.idx()].next;
+        }
+        false
+    }
+
+    fn body_segment_contains_jump_back_to(
+        blocks: &[Block],
+        body_start: BlockIdx,
+        body_tail: BlockIdx,
+        target: BlockIdx,
+    ) -> bool {
+        let mut cursor = body_start;
+        let mut visited = vec![false; blocks.len()];
+        while cursor != BlockIdx::NULL {
+            if visited[cursor.idx()] {
+                return false;
+            }
+            visited[cursor.idx()] = true;
+            if jump_back_target(blocks, cursor) == Some(target) {
+                return true;
+            }
+            if cursor == body_tail {
+                return false;
+            }
+            cursor = blocks[cursor.idx()].next;
+        }
+        false
+    }
+
+    fn empty_chain_reaches(blocks: &[Block], start: BlockIdx, target: BlockIdx) -> bool {
+        let mut cursor = start;
+        let mut visited = vec![false; blocks.len()];
+        while cursor != BlockIdx::NULL && cursor != target {
+            if visited[cursor.idx()]
+                || block_is_exceptional(&blocks[cursor.idx()])
+                || block_is_protected(&blocks[cursor.idx()])
+                || !blocks[cursor.idx()].instructions.is_empty()
+            {
+                return false;
+            }
+            visited[cursor.idx()] = true;
+            cursor = blocks[cursor.idx()].next;
+        }
+        cursor == target
+    }
+
+    fn block_starts_loop_cleanup(blocks: &[Block], block_idx: BlockIdx) -> bool {
+        block_idx != BlockIdx::NULL
+            && matches!(
+                blocks[block_idx.idx()]
+                    .instructions
+                    .first()
+                    .and_then(|info| info.instr.real()),
+                Some(Instruction::EndFor | Instruction::PopIter)
+            )
+    }
+
+    fn is_single_delete_subscr_body(block: &Block) -> bool {
+        let real: Vec<_> = block
+            .instructions
+            .iter()
+            .filter_map(|info| info.instr.real())
+            .filter(|instr| !matches!(instr, Instruction::Nop | Instruction::NotTaken))
+            .collect();
+        real.iter()
+            .filter(|instr| matches!(instr, Instruction::DeleteSubscr))
+            .count()
+            == 1
+            && matches!(real.last(), Some(Instruction::DeleteSubscr))
+            && real.iter().all(|instr| {
+                matches!(
+                    instr,
+                    Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                        | Instruction::LoadSmallInt { .. }
+                        | Instruction::LoadConst { .. }
+                        | Instruction::Copy { .. }
+                        | Instruction::Swap { .. }
+                        | Instruction::BinaryOp { .. }
+                        | Instruction::BinarySlice
+                        | Instruction::BuildSlice { .. }
+                        | Instruction::StoreSubscr
+                        | Instruction::DeleteSubscr
+                )
+            })
+    }
+
+    fn block_has_call(block: &Block) -> bool {
+        block
+            .instructions
+            .iter()
+            .any(|info| matches!(info.instr.real(), Some(Instruction::Call { .. })))
+    }
+
+    fn block_is_pure_conditional_test(block: &Block) -> bool {
+        let Some(cond_idx) = trailing_conditional_jump_index(block) else {
+            return false;
+        };
+        block.instructions[..cond_idx].iter().all(|info| {
+            matches!(
+                info.instr.real(),
+                Some(
+                    Instruction::Nop
+                        | Instruction::LoadFast { .. }
+                        | Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastLoadFast { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                        | Instruction::LoadConst { .. }
+                        | Instruction::LoadSmallInt { .. }
+                        | Instruction::LoadAttr { .. }
+                        | Instruction::ContainsOp { .. }
+                        | Instruction::CompareOp { .. }
+                        | Instruction::ToBool
+                )
+            )
+        })
+    }
+
+    fn has_exceptional_duplicate_lineno(blocks: &[Block], source: BlockIdx, lineno: i32) -> bool {
+        blocks.iter().enumerate().any(|(idx, block)| {
+            BlockIdx(idx as u32) != source
+                && (block.cold || block_is_exceptional(block) || block_is_protected(block))
+                && block
+                    .instructions
+                    .iter()
+                    .any(|info| instruction_lineno(info) == lineno)
+        })
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -12719,6 +14599,96 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
             continue;
         };
         let cond = blocks[idx].instructions[cond_idx];
+        let Some(reversed_cond) = reversed_conditional(&cond.instr) else {
+            current = next;
+            continue;
+        };
+
+        let true_jump_start = cond.target;
+        let true_jump = next_nonempty_block(blocks, true_jump_start);
+        let body_start = next;
+        let body = next_nonempty_block(blocks, body_start);
+        let true_jump_loop_target = jump_back_target(blocks, true_jump);
+        let normalized_forward_conditional = blocks[idx]
+            .instructions
+            .get(cond_idx + 1)
+            .is_some_and(|info| matches!(info.instr.real(), Some(Instruction::NotTaken)));
+        if true_jump_loop_target.is_some()
+            && (true_jump_start == true_jump
+                || empty_chain_reaches(blocks, true_jump_start, true_jump))
+            && body_start != BlockIdx::NULL
+            && body != BlockIdx::NULL
+            && true_jump != BlockIdx::NULL
+            && !block_is_exceptional(&blocks[idx])
+            && !block_is_exceptional(&blocks[true_jump.idx()])
+            && !block_is_protected(&blocks[idx])
+            && !block_is_protected(&blocks[true_jump.idx()])
+            && next_nonempty_block(blocks, blocks[true_jump.idx()].next) != body
+            && let Some(body_tail) = find_body_tail_before_jump(blocks, body, true_jump_start)
+        {
+            let loop_target = true_jump_loop_target.expect("checked above");
+            let after_jump = blocks[true_jump.idx()].next;
+            let body_tail_is_conditional =
+                trailing_conditional_jump_index(&blocks[body_tail.idx()]).is_some();
+            let body_is_single_block = body == body_tail;
+            let body_has_for_iter = body_segment_contains_for_iter(blocks, body, body_tail);
+            let body_has_scope_exit = body_segment_contains_scope_exit(blocks, body, body_tail);
+            let body_has_loop_backedge =
+                body_segment_contains_jump_back_to(blocks, body, body_tail, loop_target);
+            let normalized_single_block_can_reorder =
+                !normalized_forward_conditional || !block_has_call(&blocks[body.idx()]);
+            let after_jump_target = next_nonempty_block(blocks, after_jump);
+            let after_jump_continues_conditional_chain = after_jump_target != BlockIdx::NULL
+                && block_is_pure_conditional_test(&blocks[after_jump_target.idx()]);
+            let simple_single_block_can_reorder = body_is_single_block
+                && !body_tail_is_conditional
+                && (!block_has_call(&blocks[body.idx()])
+                    || (block_starts_loop_cleanup(blocks, after_jump_target)
+                        && !block_is_protected(&blocks[body.idx()])
+                        && !has_exceptional_duplicate_lineno(
+                            blocks,
+                            current,
+                            instruction_lineno(&cond),
+                        )))
+                && !body_has_scope_exit
+                && !blocks[body.idx()]
+                    .instructions
+                    .iter()
+                    .any(|info| info.instr.is_unconditional_jump())
+                && !after_jump_continues_conditional_chain
+                && matches!(cond.instr.real(), Some(Instruction::PopJumpIfFalse { .. }));
+            let body_starts_with_conditional_test =
+                block_is_pure_conditional_test(&blocks[body.idx()]);
+            let trailing_implicit_continue_can_reorder = after_jump != BlockIdx::NULL
+                && next_nonempty_block(blocks, after_jump) != body
+                && !block_starts_loop_cleanup(blocks, next_nonempty_block(blocks, after_jump))
+                && !is_scope_exit_block(&blocks[body.idx()]);
+            let can_reorder = (!body_tail_is_conditional
+                && ((normalized_single_block_can_reorder
+                    && body_is_single_block
+                    && matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. })))
+                    || (body == body_tail && is_single_delete_subscr_body(&blocks[body.idx()]))
+                    || body_has_for_iter
+                    || simple_single_block_can_reorder))
+                || (trailing_implicit_continue_can_reorder
+                    && (body_has_scope_exit || body_has_loop_backedge)
+                    && (!after_jump_continues_conditional_chain
+                        || body_starts_with_conditional_test));
+            if can_reorder && after_jump != BlockIdx::NULL && after_jump != body_start {
+                let cloned_jump_idx = BlockIdx(blocks.len() as u32);
+                let mut cloned_jump = blocks[true_jump.idx()].clone();
+                cloned_jump.next = body_start;
+                blocks.push(cloned_jump);
+
+                blocks[idx].instructions[cond_idx].instr = reversed_cond;
+                blocks[idx].instructions[cond_idx].target = body_start;
+                blocks[idx].next = cloned_jump_idx;
+                blocks[body_tail.idx()].next = true_jump_start;
+                current = blocks[idx].next;
+                continue;
+            }
+        }
+
         if !matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. })) {
             current = next;
             continue;
@@ -12753,12 +14723,14 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut [Block]) {
             current = next;
             continue;
         };
-        if !body_segment_contains_for_iter(blocks, body, body_tail) {
+        let after_body = blocks[body_tail.idx()].next;
+        if after_body == BlockIdx::NULL || after_body == false_jump_start {
             current = next;
             continue;
         }
-        let after_body = blocks[body_tail.idx()].next;
-        if after_body == BlockIdx::NULL || after_body == false_jump_start {
+        if !body_segment_contains_for_iter(blocks, body, body_tail)
+            || block_starts_loop_cleanup(blocks, next_nonempty_block(blocks, after_body))
+        {
             current = next;
             continue;
         }
@@ -13033,7 +15005,14 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>, predecessors: &mut Ve
         };
 
         let target = next_nonempty_block(blocks, last.target);
-        if target == BlockIdx::NULL || !is_exit_without_lineno(blocks, target) {
+        if target == BlockIdx::NULL {
+            current = blocks[current.idx()].next;
+            continue;
+        }
+        let target_is_exit_without_lineno = is_exit_without_lineno(blocks, target);
+        let target_is_protected_eval_break =
+            is_eval_break_without_lineno(blocks, target) && last.except_handler.is_some();
+        if !target_is_exit_without_lineno && !target_is_protected_eval_break {
             current = blocks[current.idx()].next;
             continue;
         }
@@ -13082,7 +15061,8 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>, predecessors: &mut Ve
                         current,
                         target,
                     ))
-                && is_exit_without_lineno(blocks, target)
+                && (is_exit_without_lineno(blocks, target)
+                    || is_eval_break_without_lineno(blocks, target))
                 && let Some((location, end_location)) = propagation_location(last)
                 && let Some(first) = blocks[target.idx()].instructions.first_mut()
             {
@@ -13176,6 +15156,19 @@ fn find_layout_predecessor(blocks: &[Block], target: BlockIdx) -> BlockIdx {
     BlockIdx::NULL
 }
 
+fn compute_layout_predecessors(blocks: &[Block]) -> Vec<BlockIdx> {
+    let mut predecessors = vec![BlockIdx::NULL; blocks.len()];
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        let next = blocks[current.idx()].next;
+        if next != BlockIdx::NULL {
+            predecessors[next.idx()] = current;
+        }
+        current = next;
+    }
+    predecessors
+}
+
 fn has_unique_fallthrough_origin(
     blocks: &[Block],
     reachable: &[bool],
@@ -13229,6 +15222,14 @@ fn comes_before(blocks: &[Block], first: BlockIdx, second: BlockIdx) -> bool {
 fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
     let predecessors = compute_predecessors(blocks);
     let mut clones = Vec::new();
+    let mut block_order = vec![usize::MAX; blocks.len()];
+    let mut current = BlockIdx(0);
+    let mut pos = 0usize;
+    while current != BlockIdx::NULL {
+        block_order[current.idx()] = pos;
+        pos += 1;
+        current = blocks[current.idx()].next;
+    }
 
     for target in 0..blocks.len() {
         let target = BlockIdx(target as u32);
@@ -13245,6 +15246,43 @@ fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
         }
 
         let layout_pred = find_layout_predecessor(blocks, target);
+        if layout_pred != BlockIdx::NULL
+            && (!block_has_fallthrough(&blocks[layout_pred.idx()])
+                || next_nonempty_block(blocks, blocks[layout_pred.idx()].next) != target)
+            && predecessors[target.idx()] >= 2
+        {
+            let mut jump_predecessors = Vec::new();
+            for block_idx in 0..blocks.len() {
+                let block_idx = BlockIdx(block_idx as u32);
+                for (instr_idx, info) in blocks[block_idx.idx()].instructions.iter().enumerate() {
+                    if !is_jump_instruction(info) || info.target == BlockIdx::NULL {
+                        continue;
+                    }
+                    if next_nonempty_block(blocks, info.target) == target {
+                        jump_predecessors.push((block_idx, instr_idx));
+                    }
+                }
+            }
+            if jump_predecessors.len() >= 2
+                && jump_predecessors.iter().all(|(block_idx, instr_idx)| {
+                    is_conditional_jump(&blocks[block_idx.idx()].instructions[*instr_idx].instr)
+                        && block_order[block_idx.idx()] < block_order[target.idx()]
+                })
+                && let Some((keep_block, keep_instr)) = jump_predecessors
+                    .iter()
+                    .max_by_key(|(block_idx, _)| block_order[block_idx.idx()])
+                    .copied()
+            {
+                for (block_idx, instr_idx) in jump_predecessors {
+                    if block_idx == keep_block && instr_idx == keep_instr {
+                        continue;
+                    }
+                    clones.push((target, block_idx, instr_idx));
+                }
+                continue;
+            }
+        }
+
         if layout_pred == BlockIdx::NULL
             || !block_has_fallthrough(&blocks[layout_pred.idx()])
             || next_nonempty_block(blocks, blocks[layout_pred.idx()].next) != target
@@ -13287,6 +15325,80 @@ fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
     }
 }
 
+fn duplicate_fallthrough_jump_back_targets(blocks: &mut Vec<Block>) {
+    let predecessors = compute_predecessors(blocks);
+    let mut clones = Vec::new();
+
+    let mut layout_pred = BlockIdx(0);
+    while layout_pred != BlockIdx::NULL {
+        if !block_has_fallthrough(&blocks[layout_pred.idx()]) {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+
+        let target = next_nonempty_block(blocks, blocks[layout_pred.idx()].next);
+        if target == BlockIdx::NULL
+            || predecessors[target.idx()] < 2
+            || !is_jump_back_only_block(blocks, target)
+        {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+        if !block_has_no_lineno(&blocks[target.idx()])
+            && trailing_conditional_jump_index(&blocks[layout_pred.idx()]).is_some()
+        {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+        if !block_has_no_lineno(&blocks[target.idx()]) && blocks[layout_pred.idx()].next != target {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+
+        let jump_target = next_nonempty_block(blocks, blocks[target.idx()].instructions[0].target);
+        if jump_target == BlockIdx::NULL
+            || !has_non_exception_loop_backedge_to(blocks, target, jump_target)
+        {
+            layout_pred = blocks[layout_pred.idx()].next;
+            continue;
+        }
+
+        let has_non_layout_jump_predecessor = blocks.iter().enumerate().any(|(idx, block)| {
+            let block_idx = BlockIdx(idx as u32);
+            block_idx != layout_pred
+                && block_idx != target
+                && block.instructions.iter().any(|info| {
+                    is_jump_instruction(info)
+                        && info.target != BlockIdx::NULL
+                        && next_nonempty_block(blocks, info.target) == target
+                })
+        });
+        if has_non_layout_jump_predecessor {
+            clones.push((layout_pred, target));
+        }
+
+        layout_pred = blocks[layout_pred.idx()].next;
+    }
+
+    for (layout_pred, target) in clones.into_iter().rev() {
+        if next_nonempty_block(blocks, blocks[layout_pred.idx()].next) != target {
+            continue;
+        }
+        let Some(last) = blocks[layout_pred.idx()].instructions.last().copied() else {
+            continue;
+        };
+
+        let new_idx = BlockIdx(blocks.len() as u32);
+        let mut cloned = blocks[target.idx()].clone();
+        if let Some(first) = cloned.instructions.first_mut() {
+            overwrite_location(first, last.location, last.end_location);
+        }
+        cloned.next = blocks[layout_pred.idx()].next;
+        blocks.push(cloned);
+        blocks[layout_pred.idx()].next = new_idx;
+    }
+}
+
 /// Duplicate `LOAD_CONST None + RETURN_VALUE` for blocks that fall through
 /// to the final return block.
 fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
@@ -13320,6 +15432,8 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
             AnyInstruction::Real(Instruction::LoadConst { .. })
         )
         && is_load_const_none(&last_insts[0], metadata)
+        && last_insts[0].no_location_exit
+        && last_insts[1].no_location_exit
         && matches!(
             last_insts[1].instr,
             AnyInstruction::Real(Instruction::ReturnValue)
@@ -13623,7 +15737,7 @@ fn inline_named_except_cleanup_normal_exit_jumps(blocks: &mut [Block]) {
         let target = next_nonempty_block(blocks, jump.target);
         if target == BlockIdx::NULL
             || target == BlockIdx(block_idx as u32)
-            || !is_named_except_cleanup_normal_exit_block(&blocks[target.idx()])
+            || !is_standalone_named_except_cleanup_normal_exit_block(&blocks[target.idx()])
         {
             continue;
         }
@@ -13706,10 +15820,12 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 stack.pop();
                 // POP_BLOCK → NOP
                 let remove_no_location_nop = blocks[bi].instructions[i].remove_no_location_nop;
+                let folded_operand_nop = blocks[bi].instructions[i].folded_operand_nop;
                 let preserve_block_start_no_location_nop =
                     blocks[bi].instructions[i].preserve_block_start_no_location_nop;
                 set_to_nop(&mut blocks[bi].instructions[i]);
                 blocks[bi].instructions[i].remove_no_location_nop = remove_no_location_nop;
+                blocks[bi].instructions[i].folded_operand_nop = folded_operand_nop;
                 blocks[bi].instructions[i].preserve_block_start_no_location_nop =
                     preserve_block_start_no_location_nop;
             } else {
@@ -13796,10 +15912,12 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], cellfixedoffsets: &[u32])
                 // label_exception_targets. Dead blocks may still have them.
                 PseudoInstruction::PopBlock => {
                     let remove_no_location_nop = info.remove_no_location_nop;
+                    let folded_operand_nop = info.folded_operand_nop;
                     let preserve_block_start_no_location_nop =
                         info.preserve_block_start_no_location_nop;
                     set_to_nop(info);
                     info.remove_no_location_nop = remove_no_location_nop;
+                    info.folded_operand_nop = folded_operand_nop;
                     info.preserve_block_start_no_location_nop =
                         preserve_block_start_no_location_nop;
                 }
@@ -13877,5 +15995,98 @@ pub(crate) fn fixup_deref_opargs(blocks: &mut [Block], cellfixedoffsets: &[u32])
                 info.arg = OpArg::new(cellfixedoffsets[cell_relative]);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn instruction_info(instr: Instruction, arg: u32, target: BlockIdx) -> InstructionInfo {
+        InstructionInfo {
+            instr: instr.into(),
+            arg: OpArg::new(arg),
+            target,
+            location: SourceLocation::default(),
+            end_location: SourceLocation::default(),
+            except_handler: None,
+            folded_from_nonliteral_expr: false,
+            lineno_override: None,
+            cache_entries: 0,
+            preserve_redundant_jump_as_nop: false,
+            remove_no_location_nop: false,
+            folded_operand_nop: false,
+            no_location_exit: false,
+            preserve_block_start_no_location_nop: false,
+        }
+    }
+
+    #[test]
+    fn short_circuit_stub_allows_only_marker_instructions_before_jump() {
+        let final_target = BlockIdx(7);
+        let block = Block {
+            instructions: vec![
+                instruction_info(Instruction::Copy { i: Arg::marker() }, 1, BlockIdx::NULL),
+                instruction_info(Instruction::ToBool, 0, BlockIdx::NULL),
+                instruction_info(Instruction::Nop, 0, BlockIdx::NULL),
+                instruction_info(Instruction::NotTaken, 0, BlockIdx::NULL),
+                instruction_info(
+                    Instruction::PopJumpIfFalse {
+                        delta: Arg::marker(),
+                    },
+                    0,
+                    final_target,
+                ),
+            ],
+            ..Block::default()
+        };
+
+        assert_eq!(
+            same_short_circuit_target(
+                &block,
+                Instruction::PopJumpIfFalse {
+                    delta: Arg::marker(),
+                }
+                .into(),
+            ),
+            Some(final_target)
+        );
+    }
+
+    #[test]
+    fn short_circuit_stub_rejects_real_instruction_before_jump() {
+        let block = Block {
+            instructions: vec![
+                instruction_info(Instruction::Copy { i: Arg::marker() }, 1, BlockIdx::NULL),
+                instruction_info(Instruction::ToBool, 0, BlockIdx::NULL),
+                instruction_info(Instruction::PopTop, 0, BlockIdx::NULL),
+                instruction_info(
+                    Instruction::PopJumpIfFalse {
+                        delta: Arg::marker(),
+                    },
+                    0,
+                    BlockIdx(7),
+                ),
+            ],
+            ..Block::default()
+        };
+
+        assert_eq!(
+            same_short_circuit_target(
+                &block,
+                Instruction::PopJumpIfFalse {
+                    delta: Arg::marker(),
+                }
+                .into(),
+            ),
+            None
+        );
+        assert!(!opposite_short_circuit_target(
+            &block,
+            Instruction::PopJumpIfTrue {
+                delta: Arg::marker(),
+            }
+            .into()
+        ));
     }
 }
