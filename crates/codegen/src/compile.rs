@@ -17306,6 +17306,46 @@ def f(self):
     }
 
     #[test]
+    fn test_named_except_with_suppress_does_not_duplicate_following_with() {
+        let code = compile_exec(
+            "\
+def f(StringIO, captured_output, print):
+    try:
+        raise KeyError
+    except KeyError as e:
+        with captured_output('stderr') as tbstderr:
+            print('x')
+        with captured_output('stderr') as tbstderr:
+            print('y')
+    else:
+        print('else')
+    s = StringIO()
+    return s
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let load_y_count = f
+            .instructions
+            .iter()
+            .filter(|unit| match unit.op {
+                Instruction::LoadConst { consti } => {
+                    matches!(
+                        &f.constants
+                            [consti.get(OpArg::new(u32::from(u8::from(unit.arg))))],
+                        ConstantData::Str { value } if value.as_str() == Ok("y")
+                    )
+                }
+                _ => false,
+            })
+            .count();
+
+        assert_eq!(
+            load_y_count, 1,
+            "following with body should not be duplicated into the previous with suppress path"
+        );
+    }
+
+    #[test]
     fn test_bare_except_deopts_post_handler_load_fast_borrow() {
         let code = compile_exec(
             "\
@@ -17595,7 +17635,7 @@ def f(self, typ, dat):
     }
 
     #[test]
-    fn test_multi_protected_method_call_terminal_handler_deopts_block() {
+    fn test_multi_protected_method_call_terminal_handler_keeps_try_body_borrows() {
         let code = compile_exec(
             "\
 def f(self, literal):
@@ -17638,22 +17678,22 @@ def f(self, literal):
         assert!(
             matches!(
                 instructions[first_send - 1].op,
-                Instruction::LoadFast { .. }
+                Instruction::LoadFastBorrow { .. }
             ),
-            "CPython uses strong LOAD_FAST for first protected send receiver, got ops={:?}",
+            "CPython keeps first protected send receiver borrowed, got ops={:?}",
             instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
         );
         assert!(
-            matches!(first_literal, Instruction::LoadFast { .. }),
-            "CPython uses strong LOAD_FAST for first protected send arg, got ops={:?}",
+            matches!(first_literal, Instruction::LoadFastBorrow { .. }),
+            "CPython keeps first protected send arg borrowed, got ops={:?}",
             instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
         );
         assert!(
             matches!(
                 instructions[second_send - 1].op,
-                Instruction::LoadFast { .. }
+                Instruction::LoadFastBorrow { .. }
             ),
-            "CPython uses strong LOAD_FAST for second protected send receiver, got ops={:?}",
+            "CPython keeps second protected send receiver borrowed, got ops={:?}",
             instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
         );
     }
@@ -25973,6 +26013,54 @@ def f(items, chunk, out, packI, Error):
                 "protected method-call after terminal except tail should not borrow {name}, got tail={tail:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_terminal_reraising_handler_keeps_try_body_method_borrows() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        self.console.prepare()
+        self.arg = None
+        self.finished = False
+        del self.buffer[:]
+        self.pos = 0
+        self.dirty = True
+        self.last_command = None
+        self.calc_screen()
+    except BaseException:
+        self.restore()
+        raise
+    while self.scheduled_commands:
+        cmd = self.scheduled_commands.pop()
+        self.do_cmd((cmd, []))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let first_handler = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let try_body = &instructions[..first_handler];
+        let self_borrows = try_body
+            .iter()
+            .filter(|unit| {
+                matches!(unit.op, Instruction::LoadFastBorrow { var_num }
+                    if f.varnames[usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))))]
+                        == "self")
+            })
+            .count();
+
+        assert!(
+            self_borrows >= 8,
+            "terminal reraising handler should keep try-body self loads borrowed, got try_body={try_body:?}"
+        );
     }
 
     #[test]

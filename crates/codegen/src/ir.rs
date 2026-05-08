@@ -184,6 +184,19 @@ fn is_named_except_cleanup_normal_exit_block(block: &Block) -> bool {
         && tail[4].instr.is_unconditional_jump()
 }
 
+fn is_standalone_named_except_cleanup_normal_exit_block(block: &Block) -> bool {
+    let len = block.instructions.len();
+    if len < 5 || !is_named_except_cleanup_normal_exit_block(block) {
+        return false;
+    }
+    block.instructions[..len - 5].iter().all(|info| {
+        matches!(
+            info.instr.real(),
+            Some(Instruction::Nop | Instruction::NotTaken)
+        )
+    })
+}
+
 // spell-checker:ignore petgraph
 // TODO: look into using petgraph for handling blocks and stuff? it's heavier than this, but it
 // might enable more analysis/optimizations
@@ -6709,36 +6722,6 @@ impl CodeInfo {
             handlers
         }
 
-        fn protected_method_call_count(blocks: &[Block], block: &Block) -> usize {
-            block
-                .instructions
-                .iter()
-                .filter(|info| {
-                    let is_method_load = matches!(
-                        info.instr.real(),
-                        Some(Instruction::LoadAttr { namei }) if namei.get(info.arg).is_method()
-                    );
-                    is_method_load
-                        && info.except_handler.is_some_and(|handler| {
-                            handler_chain_has_exception_match(blocks, handler.handler_block)
-                        })
-                })
-                .count()
-        }
-
-        fn block_stores_fast(block: &Block) -> bool {
-            block.instructions.iter().any(|info| {
-                matches!(
-                    info.instr.real(),
-                    Some(
-                        Instruction::StoreFast { .. }
-                            | Instruction::StoreFastLoadFast { .. }
-                            | Instruction::StoreFastStoreFast { .. }
-                    )
-                )
-            })
-        }
-
         fn block_shares_handler(block: &Block, handlers: &[BlockIdx]) -> bool {
             block
                 .instructions
@@ -6952,16 +6935,6 @@ impl CodeInfo {
 
         let mut to_deopt = Vec::new();
         for (idx, block) in self.blocks.iter().enumerate() {
-            if !block_is_exceptional(block)
-                && !block.cold
-                && !block_stores_fast(block)
-                && protected_method_call_count(&self.blocks, block) >= 2
-                && protected_block_has_terminal_exception_handler(&self.blocks, block)
-                && protected_block_has_raising_exception_handler(&self.blocks, block)
-            {
-                to_deopt.push(BlockIdx::new(idx as u32));
-                continue;
-            }
             if block_is_exceptional(block)
                 || block.cold
                 || starts_with_inlined_comprehension_restore(block)
@@ -15765,7 +15738,7 @@ fn inline_named_except_cleanup_normal_exit_jumps(blocks: &mut [Block]) {
         let target = next_nonempty_block(blocks, jump.target);
         if target == BlockIdx::NULL
             || target == BlockIdx(block_idx as u32)
-            || !is_named_except_cleanup_normal_exit_block(&blocks[target.idx()])
+            || !is_standalone_named_except_cleanup_normal_exit_block(&blocks[target.idx()])
         {
             continue;
         }
