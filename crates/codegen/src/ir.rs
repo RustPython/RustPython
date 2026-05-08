@@ -14717,7 +14717,6 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             let body_tail_is_conditional =
                 trailing_conditional_jump_index(&blocks[body_tail.idx()]).is_some();
             let body_is_single_block = body == body_tail;
-            let body_has_for_iter = body_segment_contains_for_iter(blocks, body, body_tail);
             let body_has_scope_exit = body_segment_contains_scope_exit(blocks, body, body_tail);
             let body_has_loop_backedge =
                 body_segment_contains_jump_back_to(blocks, body, body_tail, loop_target);
@@ -14742,8 +14741,6 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                     .any(|info| info.instr.is_unconditional_jump())
                 && !after_jump_continues_conditional_chain
                 && matches!(cond.instr.real(), Some(Instruction::PopJumpIfFalse { .. }));
-            let body_starts_with_conditional_test =
-                block_is_pure_conditional_test(&blocks[body.idx()]);
             let trailing_implicit_continue_can_reorder = after_jump != BlockIdx::NULL
                 && next_nonempty_block(blocks, after_jump) != body
                 && !block_starts_loop_cleanup(blocks, next_nonempty_block(blocks, after_jump))
@@ -14755,12 +14752,10 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                         && matches!(cond.instr.real(), Some(Instruction::PopJumpIfTrue { .. })))
                         || (body == body_tail
                             && is_single_delete_subscr_body(&blocks[body.idx()]))
-                        || body_has_for_iter
                         || simple_single_block_can_reorder))
                     || (trailing_implicit_continue_can_reorder
                         && (body_has_scope_exit || body_has_loop_backedge)
-                        && (!after_jump_continues_conditional_chain
-                            || body_starts_with_conditional_test)));
+                        && !after_jump_continues_conditional_chain));
             if can_reorder && after_jump != BlockIdx::NULL && after_jump != body_start {
                 let cloned_jump_idx = BlockIdx(blocks.len() as u32);
                 let mut cloned_jump = blocks[true_jump.idx()].clone();
@@ -14816,6 +14811,7 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             continue;
         }
         if !body_segment_contains_for_iter(blocks, body, body_tail)
+            || trailing_conditional_jump_index(&blocks[body.idx()]).is_some()
             || block_starts_loop_cleanup(blocks, next_nonempty_block(blocks, after_body))
         {
             current = next;

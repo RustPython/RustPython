@@ -24086,6 +24086,48 @@ def f(b, curr, curr_append, decoded_append, packI, curr_clear):
     }
 
     #[test]
+    fn test_if_not_continue_before_conditional_listcomp_body_keeps_cpython_layout() {
+        let code = compile_exec(
+            "\
+def f(data, use):
+    for line in data:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith('@'):
+            continue
+        values = [use(x) for x in line]
+        use(values)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "if-not continue should keep CPython's forward true edge over the continue backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_try_else_loop_if_body_keeps_cpython_fallthrough_before_backedge() {
         let code = compile_exec(
             "\
