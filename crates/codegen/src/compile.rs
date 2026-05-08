@@ -3479,11 +3479,11 @@ impl Compiler {
             }
 
             // Jump to end (skip exception path blocks)
+            self.set_no_location();
             emit!(
                 self,
                 PseudoInstruction::JumpNoInterrupt { delta: end_block }
             );
-            self.set_no_location();
             self.preserve_last_redundant_jump_as_nop();
 
             if let Some(finally_except) = finally_except_block {
@@ -3718,11 +3718,11 @@ impl Compiler {
             self.compile_statements(finalbody)?;
             // Jump to end_block to skip exception path blocks
             // This prevents fall-through to finally_except_block
+            self.set_no_location();
             emit!(
                 self,
                 PseudoInstruction::JumpNoInterrupt { delta: end_block }
             );
-            self.set_no_location();
             self.preserve_last_redundant_jump_as_nop();
 
             // finally (exception path)

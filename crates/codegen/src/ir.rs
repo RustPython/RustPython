@@ -14631,6 +14631,7 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 && block_is_pure_conditional_test(&blocks[after_jump_target.idx()]);
             let simple_single_block_can_reorder = body_is_single_block
                 && !body_tail_is_conditional
+                && !has_exceptional_duplicate_lineno(blocks, current, instruction_lineno(&cond))
                 && (!block_has_call(&blocks[body.idx()])
                     || (block_starts_loop_cleanup(blocks, after_jump_target)
                         && !block_is_protected(&blocks[body.idx()])
