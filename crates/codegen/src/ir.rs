@@ -12359,25 +12359,6 @@ fn remove_redundant_jumps_in_blocks(blocks: &mut [Block]) -> usize {
                 && last_instr.target != BlockIdx::NULL
                 && next_nonempty_block(blocks, last_instr.target) == next
             {
-                let preserve_as_nop = if last_instr.preserve_redundant_jump_as_nop {
-                    let line = instruction_lineno(&last_instr);
-                    let next_line = blocks[next.idx()].instructions.iter().find_map(|instr| {
-                        let line = instruction_lineno(instr);
-                        (!matches!(instr.instr.real(), Some(Instruction::Nop)) || line >= 0)
-                            .then_some(line)
-                    });
-                    line > 0 && next_line.is_some_and(|next_line| next_line < line)
-                } else {
-                    false
-                };
-                if preserve_as_nop {
-                    current = blocks[idx].next;
-                    continue;
-                }
-                if last_instr.preserve_redundant_jump_as_nop {
-                    let last_instr = blocks[idx].instructions.last_mut().unwrap();
-                    last_instr.preserve_redundant_jump_as_nop = false;
-                }
                 let last_instr = blocks[idx].instructions.last_mut().unwrap();
                 let remove_no_location_nop = last_instr.remove_no_location_nop;
                 let folded_operand_nop = last_instr.folded_operand_nop;
