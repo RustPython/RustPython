@@ -1544,6 +1544,7 @@ impl Compiler {
             cache_entries: 0,
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
+            folded_operand_nop: false,
             preserve_block_start_no_location_nop: false,
         });
     }
@@ -10038,6 +10039,7 @@ impl Compiler {
             cache_entries: 0,
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
+            folded_operand_nop: false,
             preserve_block_start_no_location_nop: false,
         });
     }
@@ -16990,6 +16992,43 @@ def f(x, E):
                 )
             }),
             "try/except while body should preserve CPython while-exit NOP before following assert, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_continuation_folded_tuple_drops_operand_nop() {
+        let code = compile_exec(
+            "\
+def f():
+    try:
+        import sqlite3
+    except ImportError:
+        return
+
+    attributes = ('sqlite_version',)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython nop_out-style folded tuple operand NOP to be removed, got ops={ops:?}",
         );
     }
 

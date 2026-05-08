@@ -126,6 +126,8 @@ pub struct InstructionInfo {
     pub preserve_redundant_jump_as_nop: bool,
     /// Drop this NOP before line propagation if it still has no location.
     pub remove_no_location_nop: bool,
+    /// This no-location NOP was created by CPython-style nop_out() folding.
+    pub folded_operand_nop: bool,
     /// Keep this no-location NOP until line propagation when it starts a block.
     pub preserve_block_start_no_location_nop: bool,
 }
@@ -149,6 +151,7 @@ fn set_to_nop(info: &mut InstructionInfo) {
     info.cache_entries = 0;
     info.preserve_redundant_jump_as_nop = false;
     info.remove_no_location_nop = false;
+    info.folded_operand_nop = false;
     info.preserve_block_start_no_location_nop = false;
 }
 
@@ -156,6 +159,7 @@ fn nop_out_no_location(info: &mut InstructionInfo) {
     set_to_nop(info);
     info.lineno_override = Some(-1);
     info.remove_no_location_nop = true;
+    info.folded_operand_nop = true;
 }
 
 fn is_named_except_cleanup_normal_exit_block(block: &Block) -> bool {
@@ -3050,20 +3054,20 @@ impl CodeInfo {
             block.instructions.retain(|ins| {
                 let keep = 'keep: {
                     if matches!(ins.instr.real(), Some(Instruction::Nop)) {
-                        let keep_target_start = src == 0
-                            && keep_target_start_nops
-                                .get(block_idx)
-                                .copied()
-                                .unwrap_or(false);
                         let keep_loop_exit_pop_block = src == 0
                             && preserve_loop_exit_pop_block_nops
                                 .get(block_idx)
                                 .copied()
                                 .unwrap_or(false);
+                        let keep_target_start = src == 0
+                            && keep_target_start_nops
+                                .get(block_idx)
+                                .copied()
+                                .unwrap_or(false);
                         if ins.remove_no_location_nop
                             && instruction_lineno(ins) < 0
-                            && !keep_target_start
                             && !keep_loop_exit_pop_block
+                            && (!keep_target_start || ins.folded_operand_nop)
                         {
                             break 'keep false;
                         }
@@ -11225,6 +11229,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
             cache_entries: 0,
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
+            folded_operand_nop: false,
             preserve_block_start_no_location_nop: false,
         });
         jump_block.next = blocks[cold_idx.idx()].next;
@@ -11755,6 +11760,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                     cache_entries: 0,
                     preserve_redundant_jump_as_nop: false,
                     remove_no_location_nop: false,
+                    folded_operand_nop: false,
                     preserve_block_start_no_location_nop: false,
                 };
                 blocks[idx].instructions.push(not_taken);
@@ -11790,6 +11796,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                         cache_entries: 0,
                         preserve_redundant_jump_as_nop: false,
                         remove_no_location_nop: false,
+                        folded_operand_nop: false,
                         preserve_block_start_no_location_nop: false,
                     });
                     new_block.instructions.push(InstructionInfo {
@@ -11804,6 +11811,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) {
                         cache_entries: 0,
                         preserve_redundant_jump_as_nop: false,
                         remove_no_location_nop: false,
+                        folded_operand_nop: false,
                         preserve_block_start_no_location_nop: false,
                     });
                     new_block.next = old_next;
@@ -12287,10 +12295,12 @@ fn remove_redundant_jumps_in_blocks(blocks: &mut [Block]) -> usize {
                 }
                 let last_instr = blocks[idx].instructions.last_mut().unwrap();
                 let remove_no_location_nop = last_instr.remove_no_location_nop;
+                let folded_operand_nop = last_instr.folded_operand_nop;
                 let preserve_block_start_no_location_nop =
                     last_instr.preserve_block_start_no_location_nop;
                 set_to_nop(last_instr);
                 last_instr.remove_no_location_nop = remove_no_location_nop;
+                last_instr.folded_operand_nop = folded_operand_nop;
                 last_instr.preserve_block_start_no_location_nop =
                     preserve_block_start_no_location_nop;
                 changes += 1;
@@ -12564,6 +12574,7 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
             cache_entries: 0,
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
+            folded_operand_nop: false,
             preserve_block_start_no_location_nop: false,
         });
     }
@@ -12594,6 +12605,7 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
                 cache_entries: 0,
                 preserve_redundant_jump_as_nop: false,
                 remove_no_location_nop: false,
+                folded_operand_nop: false,
                 preserve_block_start_no_location_nop: false,
             },
         );
@@ -15631,10 +15643,12 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 stack.pop();
                 // POP_BLOCK → NOP
                 let remove_no_location_nop = blocks[bi].instructions[i].remove_no_location_nop;
+                let folded_operand_nop = blocks[bi].instructions[i].folded_operand_nop;
                 let preserve_block_start_no_location_nop =
                     blocks[bi].instructions[i].preserve_block_start_no_location_nop;
                 set_to_nop(&mut blocks[bi].instructions[i]);
                 blocks[bi].instructions[i].remove_no_location_nop = remove_no_location_nop;
+                blocks[bi].instructions[i].folded_operand_nop = folded_operand_nop;
                 blocks[bi].instructions[i].preserve_block_start_no_location_nop =
                     preserve_block_start_no_location_nop;
             } else {
@@ -15721,10 +15735,12 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut [Block], cellfixedoffsets: &[u32])
                 // label_exception_targets. Dead blocks may still have them.
                 PseudoInstruction::PopBlock => {
                     let remove_no_location_nop = info.remove_no_location_nop;
+                    let folded_operand_nop = info.folded_operand_nop;
                     let preserve_block_start_no_location_nop =
                         info.preserve_block_start_no_location_nop;
                     set_to_nop(info);
                     info.remove_no_location_nop = remove_no_location_nop;
+                    info.folded_operand_nop = folded_operand_nop;
                     info.preserve_block_start_no_location_nop =
                         preserve_block_start_no_location_nop;
                 }
@@ -15822,6 +15838,7 @@ mod tests {
             cache_entries: 0,
             preserve_redundant_jump_as_nop: false,
             remove_no_location_nop: false,
+            folded_operand_nop: false,
             preserve_block_start_no_location_nop: false,
         }
     }
