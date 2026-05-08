@@ -14308,6 +14308,22 @@ fn deduplicate_adjacent_jump_back_blocks(blocks: &mut [Block]) {
             .then(|| instruction_lineno(info))
     }
 
+    fn has_protected_conditional_predecessor(
+        blocks: &[Block],
+        incoming_origins: &[Vec<BlockIdx>],
+        target: BlockIdx,
+    ) -> bool {
+        incoming_origins[target.idx()].iter().copied().any(|origin| {
+            blocks[origin.idx()].instructions.iter().any(|info| {
+                info.except_handler.is_some()
+                    && is_conditional_jump(&info.instr)
+                    && next_nonempty_block(blocks, info.target) == target
+            })
+        })
+    }
+
+    let reachable = compute_reachable_blocks(blocks);
+    let incoming_origins = compute_incoming_origins(blocks, &reachable);
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let Some(target) = jump_back_target(&blocks[current.idx()]) else {
@@ -14329,6 +14345,8 @@ fn deduplicate_adjacent_jump_back_blocks(blocks: &mut [Block]) {
             || jump_back_target(&blocks[duplicate.idx()]) != Some(target)
             || jump_back_lineno(&blocks[duplicate.idx()])
                 != jump_back_lineno(&blocks[current.idx()])
+            || has_protected_conditional_predecessor(blocks, &incoming_origins, current)
+            || has_protected_conditional_predecessor(blocks, &incoming_origins, duplicate)
         {
             current = blocks[current.idx()].next;
             continue;

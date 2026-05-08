@@ -20433,6 +20433,56 @@ def f(config, logging):
     }
 
     #[test]
+    fn test_try_loop_nested_bool_tail_keeps_duplicate_jump_back_paths() {
+        let code = compile_exec(
+            "\
+def f(obj, flags, writer, value, Error):
+    while obj.running:
+        try:
+            if value == 0:
+                return
+            elif obj.ready and obj.active and value == 1:
+                obj.work()
+                if flags.verbose and obj.chatty:
+                    writer.write('trace')
+            elif value == 2:
+                obj.other()
+            else:
+                obj.default()
+        except Error as e:
+            obj.running = False
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style body and both bool false-path jump-back blocks, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_line_bearing_loop_if_false_backedge_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\
