@@ -646,8 +646,18 @@ impl Compiler {
         })
     }
 
-    fn statements_end_with_conditional_scope_exit(body: &[ast::Stmt]) -> bool {
+    fn statements_end_with_try_finally(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| {
+            matches!(
+                stmt,
+                ast::Stmt::Try(ast::StmtTry { finalbody, .. }) if !finalbody.is_empty()
+            )
+        })
+    }
+
+    fn statements_end_with_conditional_scope_exit(&self, body: &[ast::Stmt]) -> bool {
         body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::Assert(_) => self.opts.optimize == 0,
             ast::Stmt::If(ast::StmtIf {
                 body,
                 elif_else_clauses,
@@ -662,9 +672,14 @@ impl Compiler {
         })
     }
 
-    fn statements_end_with_loop_fallthrough(body: &[ast::Stmt]) -> bool {
-        body.last()
-            .is_some_and(|stmt| matches!(stmt, ast::Stmt::For(_) | ast::Stmt::While(_)))
+    fn statements_end_with_loop_fallthrough(&mut self, body: &[ast::Stmt]) -> CompileResult<bool> {
+        match body.last() {
+            Some(ast::Stmt::For(_)) => Ok(true),
+            Some(ast::Stmt::While(ast::StmtWhile { test, .. })) => {
+                Ok(!matches!(self.constant_expr_truthiness(test)?, Some(true)))
+            }
+            _ => Ok(false),
+        }
     }
 
     fn has_resuming_bare_except(handlers: &[ast::ExceptHandler]) -> bool {
@@ -3489,7 +3504,6 @@ impl Compiler {
                 PseudoInstruction::JumpNoInterrupt { delta: end_block }
             );
             self.set_no_location();
-            self.preserve_last_redundant_jump_as_nop();
 
             if let Some(finally_except) = finally_except_block {
                 // Restore sub_tables for exception path compilation
@@ -3728,7 +3742,6 @@ impl Compiler {
                 PseudoInstruction::JumpNoInterrupt { delta: end_block }
             );
             self.set_no_location();
-            self.preserve_last_redundant_jump_as_nop();
 
             // finally (exception path)
             // This is where exceptions go to run finally before reraise
@@ -3824,7 +3837,7 @@ impl Compiler {
         self.pop_fblock(FBlockType::TryExcept);
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
-        if !orelse.is_empty() && Self::statements_end_with_conditional_scope_exit(body) {
+        if !orelse.is_empty() && self.statements_end_with_conditional_scope_exit(body) {
             self.preserve_last_redundant_nop();
         } else {
             self.remove_last_no_location_nop();
@@ -3840,7 +3853,7 @@ impl Compiler {
             PseudoInstruction::JumpNoInterrupt { delta: end_block }
         );
         self.set_no_location();
-        if !orelse.is_empty() && Self::statements_end_with_loop_fallthrough(orelse) {
+        if !orelse.is_empty() && self.statements_end_with_loop_fallthrough(orelse)? {
             self.preserve_last_redundant_jump_as_nop();
         } else {
             self.remove_last_no_location_nop();
@@ -5896,8 +5909,9 @@ impl Compiler {
 
         let preserve_outer_cleanup_target_nop = !is_async
             && (Self::statements_end_with_with_cleanup_scope_exit(body)
-                || Self::statements_end_with_conditional_scope_exit(body)
-                || Self::statements_end_with_loop_fallthrough(body)
+                || self.statements_end_with_conditional_scope_exit(body)
+                || Self::statements_end_with_try_finally(body)
+                || self.statements_end_with_loop_fallthrough(body)?
                 || self.current_block_has_terminal_with_suppress_exit_predecessor());
 
         // Pop fblock before normal exit.  CPython emits this POP_BLOCK with
@@ -19649,6 +19663,36 @@ def f(a, b, c, x):
     }
 
     #[test]
+    fn test_unary_not_membership_and_identity_invert_compare_op() {
+        let code = compile_exec(
+            "\
+def f(a, b, d):
+    x = not (a in d)
+    y = not (a is b)
+    return x, y
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let ops: Vec<_> = instructions.iter().map(|unit| unit.op).collect();
+
+        assert!(
+            !ops.iter().any(|op| matches!(op, Instruction::UnaryNot)),
+            "CPython folds CONTAINS_OP/IS_OP + UNARY_NOT into inverted op, got ops={ops:?}"
+        );
+        assert!(instructions.iter().any(|unit| {
+            matches!(unit.op, Instruction::ContainsOp { invert } if invert.get(OpArg::new(unit.arg.as_u32())) == Invert::Yes)
+        }));
+        assert!(instructions.iter().any(|unit| {
+            matches!(unit.op, Instruction::IsOp { invert } if invert.get(OpArg::new(unit.arg.as_u32())) == Invert::Yes)
+        }));
+    }
+
+    #[test]
     fn test_starred_tuple_iterable_drops_list_to_tuple_before_get_iter() {
         let code = compile_exec(
             "\
@@ -25337,6 +25381,80 @@ def f(cm, source):
                 )
             }),
             "with cleanup after while fallthrough should preserve the CPython POP_BLOCK NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_while_true_break_drops_cleanup_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, source):
+    with cm as out:
+        while True:
+            data = source.read()
+            if not data:
+                break
+            out.write(data)
+    source.close()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .map(|unit| unit.op)
+            .collect();
+
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "with cleanup after while True break should not preserve a POP_BLOCK NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_final_assert_preserves_cleanup_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, dst):
+    with cm:
+        assert not dst.closed
+    return dst
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .map(|unit| unit.op)
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "with cleanup after a final assert should preserve CPython's POP_BLOCK NOP anchor, got ops={ops:?}"
         );
     }
 

@@ -2667,6 +2667,18 @@ impl CodeInfo {
                     continue;
                 }
 
+                if matches!(
+                    curr_instr,
+                    Instruction::ContainsOp { .. } | Instruction::IsOp { .. }
+                ) && matches!(next_instr, Instruction::UnaryNot)
+                {
+                    set_to_nop(&mut block.instructions[i]);
+                    block.instructions[i + 1].instr = curr_instr.into();
+                    block.instructions[i + 1].arg = OpArg::new(u32::from(curr_arg) ^ 1);
+                    i += 1;
+                    continue;
+                }
+
                 if let Some(is_true) = const_truthiness(curr_instr, curr.arg, &self.metadata) {
                     let jump_if_true = match next_instr {
                         Instruction::PopJumpIfTrue { .. } => Some(true),
