@@ -14639,6 +14639,53 @@ def gen(fields):
     }
 
     #[test]
+    fn test_loop_filter_with_nested_loop_body_uses_cpython_implicit_continue_layout() {
+        let code = compile_exec(
+            "\
+def f(values):
+    for fmt, items in values:
+        nd = make(items, fmt)
+        for i in range(-5, 5):
+            check(nd[i], items[i])
+        check(nd[-6])
+        check(nd[5])
+        if is_memoryview_format(fmt):
+            mv = memoryview(nd)
+            check(mv, nd)
+            for i in range(-5, 5):
+                check(mv[i], items[i])
+            check(mv[-6])
+            check(mv[5])
+    return None
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style nested loop filter to fall through into the implicit continue and jump on true into the body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_multi_with_header_uses_store_fast_load_fast() {
         let code = compile_exec(
             "\

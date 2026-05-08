@@ -14616,6 +14616,48 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
         false
     }
 
+    fn body_segment_contains_any_jump_back(
+        blocks: &[Block],
+        body_start: BlockIdx,
+        body_tail: BlockIdx,
+    ) -> bool {
+        fn jump_back_or_self_target(blocks: &[Block], block_idx: BlockIdx) -> Option<BlockIdx> {
+            if block_idx == BlockIdx::NULL {
+                return None;
+            }
+            let jump = blocks[block_idx.idx()].instructions.last()?;
+            if !jump.instr.is_unconditional_jump() {
+                return None;
+            }
+            if jump.target == BlockIdx::NULL {
+                return None;
+            }
+            let target = next_nonempty_block(blocks, jump.target);
+            if target == block_idx || comes_before(blocks, target, block_idx) {
+                Some(jump.target)
+            } else {
+                None
+            }
+        }
+
+        let mut cursor = body_start;
+        let mut visited = vec![false; blocks.len()];
+        while cursor != BlockIdx::NULL {
+            if visited[cursor.idx()] {
+                return false;
+            }
+            visited[cursor.idx()] = true;
+            if jump_back_or_self_target(blocks, cursor).is_some() {
+                return true;
+            }
+            if cursor == body_tail {
+                return false;
+            }
+            cursor = blocks[cursor.idx()].next;
+        }
+        false
+    }
+
     fn empty_chain_reaches(blocks: &[Block], start: BlockIdx, target: BlockIdx) -> bool {
         let mut cursor = start;
         let mut visited = vec![false; blocks.len()];
@@ -14751,11 +14793,16 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             let body_has_scope_exit = body_segment_contains_scope_exit(blocks, body, body_tail);
             let body_has_loop_backedge =
                 body_segment_contains_jump_back_to(blocks, body, body_tail, loop_target);
+            let body_has_inner_for_iter = body_segment_contains_for_iter(blocks, body, body_tail);
+            let body_has_any_loop_backedge = body_has_inner_for_iter
+                && body_segment_contains_any_jump_back(blocks, body, body_tail);
             let normalized_single_block_can_reorder =
                 !normalized_forward_conditional || !block_has_call(&blocks[body.idx()]);
             let has_exceptional_duplicate_condition_line =
                 has_exceptional_duplicate_lineno(blocks, current, instruction_lineno(&cond));
             let after_jump_target = next_nonempty_block(blocks, after_jump);
+            let after_jump_starts_loop_cleanup =
+                block_starts_loop_cleanup(blocks, after_jump_target);
             let after_jump_continues_conditional_chain = after_jump_target != BlockIdx::NULL
                 && block_is_pure_conditional_test(&blocks[after_jump_target.idx()]);
             let simple_single_block_can_reorder = body_is_single_block
@@ -14774,7 +14821,7 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 && matches!(cond.instr.real(), Some(Instruction::PopJumpIfFalse { .. }));
             let trailing_implicit_continue_can_reorder = after_jump != BlockIdx::NULL
                 && next_nonempty_block(blocks, after_jump) != body
-                && !block_starts_loop_cleanup(blocks, next_nonempty_block(blocks, after_jump))
+                && (!after_jump_starts_loop_cleanup || body_has_any_loop_backedge)
                 && !is_scope_exit_block(&blocks[body.idx()]);
             let can_reorder = !has_exceptional_duplicate_condition_line
                 && ((!body_tail_is_conditional
@@ -14785,7 +14832,9 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                             && is_single_delete_subscr_body(&blocks[body.idx()]))
                         || simple_single_block_can_reorder))
                     || (trailing_implicit_continue_can_reorder
-                        && (body_has_scope_exit || body_has_loop_backedge)
+                        && (body_has_scope_exit
+                            || body_has_loop_backedge
+                            || (after_jump_starts_loop_cleanup && body_has_any_loop_backedge))
                         && !after_jump_continues_conditional_chain));
             if can_reorder && after_jump != BlockIdx::NULL && after_jump != body_start {
                 let cloned_jump_idx = BlockIdx(blocks.len() as u32);
