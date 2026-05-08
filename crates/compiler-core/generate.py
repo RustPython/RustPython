@@ -201,6 +201,8 @@ class OpcodeGen:
 
     @property
     def fn_to_instrumented(self) -> str:
+        STATE[self.name]["to_instrumented"] = True
+
         inames = {instr.name for instr in self.instrumented}
         names = {instr.name for instr in self} - inames
 
@@ -213,6 +215,7 @@ class OpcodeGen:
 
         arms = arms.strip()
         if not arms:
+            STATE[self.name]["to_instrumented"] = False
             return ""
 
         return f"""
@@ -542,6 +545,22 @@ class InstructioneGen:
         #[must_use]
         pub const fn to_base(self) -> Option<Self> {{
             if let Some(opcode) = self.as_opcode().to_base() {{
+                Some(opcode.as_instruction())
+            }} else {{
+                None
+            }}
+        }}
+        """
+
+    @property
+    def fn_to_instrumented(self) -> str:
+        if not STATE[self.opcode_enum]["to_instrumented"]:
+            return ""
+
+        return f"""
+        #[must_use]
+        pub const fn to_instrumented(self) -> Option<Self> {{
+            if let Some(opcode) = self.as_opcode().to_instrumented() {{
                 Some(opcode.as_instruction())
             }} else {{
                 None

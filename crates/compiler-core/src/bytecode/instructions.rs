@@ -2432,6 +2432,15 @@ impl Instruction {
     }
 
     #[must_use]
+    pub const fn to_instrumented(self) -> Option<Self> {
+        if let Some(opcode) = self.as_opcode().to_instrumented() {
+            Some(opcode.as_instruction())
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
     pub const fn try_from_u8(value: u8) -> Result<Self, MarshalError> {
         match Opcode::try_from_u8(value) {
             Ok(opcode) => Ok(opcode.as_instruction()),
