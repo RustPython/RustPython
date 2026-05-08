@@ -7264,7 +7264,8 @@ impl Compiler {
         self.compile_addcompare(last_op);
 
         let end = self.new_block();
-        emit!(self, PseudoInstruction::Jump { delta: end });
+        emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
+        self.set_no_location();
 
         // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
         self.switch_to_block(cleanup);
@@ -7315,7 +7316,8 @@ impl Compiler {
         self.compile_addcompare(last_op);
         emit!(self, Instruction::ToBool);
         self.emit_pop_jump_by_condition(condition, target_block);
-        emit!(self, PseudoInstruction::Jump { delta: end });
+        emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
+        self.set_no_location();
 
         self.switch_to_block(cleanup);
         emit!(self, Instruction::PopTop);
@@ -10946,10 +10948,13 @@ impl Compiler {
 
         // Jump to target
         let target = if is_break { exit_block } else { loop_block };
+        let saved_range = self.current_source_range;
+        self.set_source_range(range);
         emit!(self, PseudoInstruction::Jump { delta: target });
         if jump_no_location {
             self.set_no_location();
         }
+        self.set_source_range(saved_range);
 
         Ok(())
     }
@@ -23093,6 +23098,64 @@ def f(s, size, pos, errors):
                 .iter()
                 .any(|op| matches!(op, Instruction::LoadFastLoadFast { .. })),
             "expected protected import tail to keep LOAD_FAST_LOAD_FAST ops, got tail={protected_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_protected_import_tail_keeps_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(self, mode, compresslevel):
+    try:
+        try:
+            import zlib
+        except ImportError:
+            raise RuntimeError from None
+        self.zlib = zlib
+        self.crc = zlib.crc32(b'')
+        if mode == 'r':
+            self.exception = zlib.error
+            self._init_read_gz()
+        else:
+            self._init_write_gz(compresslevel)
+    except:
+        self.closed = True
+        raise
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let import_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ImportName { .. }))
+            .expect("missing IMPORT_NAME");
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let nested_protected_tail = &ops[import_idx + 1..handler_start];
+
+        assert!(
+            !nested_protected_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "CPython keeps strong LOAD_FAST ops after a nested protected import tail, got tail={nested_protected_tail:?}"
+        );
+        assert!(
+            nested_protected_tail
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFastLoadFast { .. })),
+            "expected nested protected import tail to keep LOAD_FAST_LOAD_FAST, got tail={nested_protected_tail:?}"
         );
     }
 

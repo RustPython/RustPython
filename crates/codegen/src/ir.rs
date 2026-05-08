@@ -8133,34 +8133,36 @@ impl CodeInfo {
         fn deoptimize_protected_block_borrows_from(
             block: &mut Block,
             start: usize,
-            protected_store_locals: &[bool],
+            protected_store_locals: Option<&[bool]>,
         ) {
             for info in block.instructions.iter_mut().skip(start) {
                 if info.except_handler.is_none() {
                     break;
                 }
-                match info.instr.real() {
-                    Some(Instruction::LoadFastBorrow { var_num }) => {
-                        let local = usize::from(var_num.get(info.arg));
-                        if protected_store_locals.get(local).copied().unwrap_or(false) {
-                            continue;
+                if let Some(protected_store_locals) = protected_store_locals {
+                    match info.instr.real() {
+                        Some(Instruction::LoadFastBorrow { var_num }) => {
+                            let local = usize::from(var_num.get(info.arg));
+                            if protected_store_locals.get(local).copied().unwrap_or(false) {
+                                continue;
+                            }
                         }
-                    }
-                    Some(Instruction::LoadFastBorrowLoadFastBorrow { var_nums }) => {
-                        let (left, right) = var_nums.get(info.arg).indexes();
-                        let skip_left = protected_store_locals
-                            .get(usize::from(left))
-                            .copied()
-                            .unwrap_or(false);
-                        let skip_right = protected_store_locals
-                            .get(usize::from(right))
-                            .copied()
-                            .unwrap_or(false);
-                        if skip_left && skip_right {
-                            continue;
+                        Some(Instruction::LoadFastBorrowLoadFastBorrow { var_nums }) => {
+                            let (left, right) = var_nums.get(info.arg).indexes();
+                            let skip_left = protected_store_locals
+                                .get(usize::from(left))
+                                .copied()
+                                .unwrap_or(false);
+                            let skip_right = protected_store_locals
+                                .get(usize::from(right))
+                                .copied()
+                                .unwrap_or(false);
+                            if skip_left && skip_right {
+                                continue;
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
                 deoptimize_borrow(info);
             }
@@ -8259,6 +8261,49 @@ impl CodeInfo {
                 .any(|info| info.except_handler.is_some())
         }
 
+        fn push_normal_successors(stack: &mut Vec<BlockIdx>, block: &Block) {
+            if block.next != BlockIdx::NULL {
+                stack.push(block.next);
+            }
+            for info in &block.instructions {
+                if info.target != BlockIdx::NULL {
+                    stack.push(info.target);
+                }
+            }
+        }
+
+        fn has_nested_protected_import_tail(
+            blocks: &[Block],
+            seed: BlockIdx,
+            import_idx: usize,
+        ) -> bool {
+            let Some(import_handler) = blocks[seed.idx()].instructions[import_idx].except_handler
+            else {
+                return false;
+            };
+            let mut cursor = seed;
+            let mut start = import_idx + 1;
+            while cursor != BlockIdx::NULL && !block_is_exceptional(&blocks[cursor.idx()]) {
+                let block = &blocks[cursor.idx()];
+                let mut saw_protected = false;
+                for info in block.instructions.iter().skip(start) {
+                    let Some(handler) = info.except_handler else {
+                        return false;
+                    };
+                    saw_protected = true;
+                    if handler.handler_block != import_handler.handler_block {
+                        return true;
+                    }
+                }
+                if !saw_protected {
+                    return false;
+                }
+                cursor = block.next;
+                start = 0;
+            }
+            false
+        }
+
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         for (pred_idx, block) in self.blocks.iter().enumerate() {
             if block.next != BlockIdx::NULL {
@@ -8307,15 +8352,25 @@ impl CodeInfo {
                                 &block_order,
                             )
                         });
-                    if !handler_returns && !handler_continues {
+                    let nested_protected_tail = has_nested_protected_import_tail(
+                        &self.blocks,
+                        BlockIdx::new(idx as u32),
+                        import_idx,
+                    );
+                    if !handler_returns && !handler_continues && !nested_protected_tail {
                         return None;
                     }
-                    Some((BlockIdx::new(idx as u32), import_idx, handler_continues))
+                    Some((
+                        BlockIdx::new(idx as u32),
+                        import_idx,
+                        handler_continues,
+                        nested_protected_tail,
+                    ))
                 })
                 .collect();
 
         let mut visited = vec![false; self.blocks.len()];
-        for (seed, import_idx, handler_continues) in seeds {
+        for (seed, import_idx, handler_continues, nested_protected_tail) in seeds {
             let mut protected_store_locals = vec![false; self.metadata.varnames.len()];
             for info in self.blocks[seed.idx()]
                 .instructions
@@ -8339,6 +8394,7 @@ impl CodeInfo {
             let mut cursor = self.blocks[seed.idx()].next;
             while cursor != BlockIdx::NULL && !block_is_exceptional(&self.blocks[cursor.idx()]) {
                 if !handler_continues
+                    && !nested_protected_tail
                     && block_has_protected_instructions(&self.blocks[cursor.idx()])
                 {
                     break;
@@ -8363,16 +8419,44 @@ impl CodeInfo {
                 cursor = self.blocks[cursor.idx()].next;
             }
 
+            if nested_protected_tail {
+                let mut stack = Vec::new();
+                for (block_idx, _) in &segment {
+                    push_normal_successors(&mut stack, &self.blocks[block_idx.idx()]);
+                }
+                while let Some(candidate) = stack.pop() {
+                    if candidate == BlockIdx::NULL
+                        || in_segment[candidate.idx()]
+                        || block_is_exceptional(&self.blocks[candidate.idx()])
+                        || !block_has_protected_instructions(&self.blocks[candidate.idx()])
+                    {
+                        continue;
+                    }
+                    if predecessors[candidate.idx()].iter().any(|pred| {
+                        !in_segment[pred.idx()]
+                            && block_order[pred.idx()] < block_order[candidate.idx()]
+                            && !is_handler_resume_predecessor(&self.blocks[pred.idx()], candidate)
+                    }) {
+                        continue;
+                    }
+                    in_segment[candidate.idx()] = true;
+                    segment.push((candidate, 0));
+                    push_normal_successors(&mut stack, &self.blocks[candidate.idx()]);
+                }
+            }
+
             for (block_idx, start) in segment {
                 if visited[block_idx.idx()] {
                     continue;
                 }
                 visited[block_idx.idx()] = true;
                 if block_idx == seed {
+                    let protected_store_locals =
+                        (!nested_protected_tail).then_some(protected_store_locals.as_slice());
                     deoptimize_protected_block_borrows_from(
                         &mut self.blocks[block_idx.idx()],
                         start,
-                        &protected_store_locals,
+                        protected_store_locals,
                     );
                 } else {
                     deoptimize_block_borrows_from(&mut self.blocks[block_idx.idx()], start);
@@ -11557,6 +11641,15 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
                 && target_ins.target != BlockIdx::NULL
                 && target_ins.target != target
             {
+                if !include_conditional
+                    && blocks[target.idx()]
+                        .instructions
+                        .iter()
+                        .take_while(|info| matches!(info.instr.real(), Some(Instruction::Nop)))
+                        .any(instruction_has_lineno)
+                {
+                    continue;
+                }
                 let source_pos = block_order[bi];
                 let target_pos = block_order.get(target.idx()).copied().unwrap_or(u32::MAX);
                 let final_target = target_ins.target;
