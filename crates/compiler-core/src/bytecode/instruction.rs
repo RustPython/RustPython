@@ -42,6 +42,13 @@ impl Opcode {
     }
 }
 
+impl PseudoOpcode {
+    #[must_use]
+    pub const fn is_instrumented(&self) -> bool {
+        false
+    }
+}
+
 impl Instruction {
     /// Returns `true` if this is any instrumented opcode
     /// (regular INSTRUMENTED_*, INSTRUMENTED_LINE, or INSTRUMENTED_INSTRUCTION).
@@ -72,6 +79,7 @@ impl Instruction {
     /// For most instructions this equals the fallthrough effect.
     /// Override for instructions where branch and fallthrough differ
     /// (e.g. [`Self::ForIter`]: fallthrough = +1, branch = −1).
+    #[must_use]
     pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
         self.stack_effect(oparg)
     }
@@ -110,10 +118,11 @@ impl PseudoInstruction {
     ///   SETUP_FINALLY:  +1  (exc)
     ///   SETUP_CLEANUP:  +2  (lasti + exc)
     ///   SETUP_WITH:     +1  (pops __enter__ result, pushes lasti + exc)
+    #[must_use]
     pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
-        match self {
-            Self::SetupFinally { .. } | Self::SetupWith { .. } => 1,
-            Self::SetupCleanup { .. } => 2,
+        match self.as_opcode() {
+            PseudoOpcode::SetupFinally | PseudoOpcode::SetupWith => 1,
+            PseudoOpcode::SetupCleanup => 2,
             _ => self.stack_effect(oparg),
         }
     }
@@ -428,16 +437,28 @@ impl AnyOpcode {
     pub const fn has_exc(&self) -> bool
     );
 
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn is_instrumented(&self) -> bool
+    );
+
     #[must_use]
     pub const fn deopt(&self) -> Option<Self> {
-        if let Some(opcode) = self.real() {
-            if let Some(deopt) = opcode.deopt() {
-                Some(Self::Real(deopt))
-            } else {
-                None
+        match self {
+            Self::Real(opcode) => {
+                if let Some(op) = opcode.deopt() {
+                    Some(Self::Real(op))
+                } else {
+                    None
+                }
             }
-        } else {
-            None
+            Self::Pseudo(opcode) => {
+                if let Some(op) = opcode.deopt() {
+                    Some(Self::Pseudo(op))
+                } else {
+                    None
+                }
+            }
         }
     }
 }

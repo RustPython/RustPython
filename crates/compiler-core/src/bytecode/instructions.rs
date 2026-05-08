@@ -2536,6 +2536,16 @@ impl PseudoOpcode {
         }
     }
 
+    #[must_use]
+    pub const fn cache_entries(self) -> usize {
+        0
+    }
+
+    #[must_use]
+    pub const fn deopt(self) -> Option<Self> {
+        None
+    }
+
     /// Does this opcode have 'HAS_ARG_FLAG' set.
     #[must_use]
     pub const fn has_arg(self) -> bool {
@@ -2638,6 +2648,16 @@ impl PseudoOpcode {
     }
 
     #[must_use]
+    pub const fn to_base(self) -> Option<Self> {
+        None
+    }
+
+    #[must_use]
+    pub const fn to_instrumented(self) -> Option<Self> {
+        None
+    }
+
+    #[must_use]
     pub const fn try_from_u16(value: u16) -> Result<Self, MarshalError> {
         Ok(match value {
             256 => Self::AnnotationsPlaceholder,
@@ -2717,6 +2737,20 @@ impl PseudoInstruction {
     }
 
     #[must_use]
+    pub const fn cache_entries(self) -> usize {
+        self.as_opcode().cache_entries()
+    }
+
+    #[must_use]
+    pub const fn deopt(self) -> Option<Self> {
+        if let Some(opcode) = self.as_opcode().deopt() {
+            Some(opcode.as_instruction())
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
     pub const fn label_arg(&self) -> Option<Arg<oparg::Label>> {
         Some(match self {
             Self::Jump { delta } => *delta,
@@ -2739,6 +2773,24 @@ impl PseudoInstruction {
     #[must_use]
     pub fn stack_effect_info(&self, oparg: u32) -> StackEffect {
         self.as_opcode().stack_effect_info(oparg)
+    }
+
+    #[must_use]
+    pub const fn to_base(self) -> Option<Self> {
+        if let Some(opcode) = self.as_opcode().to_base() {
+            Some(opcode.as_instruction())
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn to_instrumented(self) -> Option<Self> {
+        if let Some(opcode) = self.as_opcode().to_instrumented() {
+            Some(opcode.as_instruction())
+        } else {
+            None
+        }
     }
 
     #[must_use]

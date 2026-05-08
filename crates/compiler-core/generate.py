@@ -28,8 +28,6 @@ import analyzer
 from generators_common import DEFAULT_INPUT
 from stack import get_stack_effect
 
-STATE = collections.defaultdict(dict)
-
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class OpcodeGen:
@@ -171,8 +169,6 @@ class OpcodeGen:
 
     @property
     def fn_to_base(self) -> str:
-        STATE[self.name]["to_base"] = True
-
         inames = {instr.name for instr in self.instrumented}
         names = {instr.name for instr in self} - inames
 
@@ -185,24 +181,25 @@ class OpcodeGen:
 
         arms = arms.strip()
         if not arms:
-            STATE[self.name]["to_base"] = False
-            return ""
-
-        return f"""
-        #[must_use]
-        pub const fn to_base(self) -> Option<Self> {{
+            inner = "None"
+        else:
+            inner = f"""
             Some(match self {{
                 {arms}
                 _ => return None,
 
             }})
+            """
+
+        return f"""
+        #[must_use]
+        pub const fn to_base(self) -> Option<Self> {{
+            {inner}
         }}
         """
 
     @property
     def fn_to_instrumented(self) -> str:
-        STATE[self.name]["to_instrumented"] = True
-
         inames = {instr.name for instr in self.instrumented}
         names = {instr.name for instr in self} - inames
 
@@ -215,24 +212,25 @@ class OpcodeGen:
 
         arms = arms.strip()
         if not arms:
-            STATE[self.name]["to_instrumented"] = False
-            return ""
-
-        return f"""
-        #[must_use]
-        pub const fn to_instrumented(self) -> Option<Self> {{
+            inner = "None"
+        else:
+            inner = f"""
             Some(match self {{
                 {arms}
                 _ => return None,
 
             }})
+            """
+
+        return f"""
+        #[must_use]
+        pub const fn to_instrumented(self) -> Option<Self> {{
+            {inner}
         }}
         """
 
     @property
     def fn_deopt(self) -> str:
-        STATE[self.name]["deopt"] = True
-
         names = {instr.name for instr in self}
 
         deopts = collections.defaultdict(list)
@@ -253,24 +251,27 @@ class OpcodeGen:
             arms += f"{ops} => Self::{target},\n"
 
         arms = arms.strip()
+
         if not arms:
-            STATE[self.name]["deopt"] = False
-            return ""
+            inner = "None"
+        else:
+            inner = f"""
+            Some(match self {{
+                {arms}
+                _ => return None,
+
+            }})
+            """
 
         return f"""
         #[must_use]
         pub const fn deopt(self) -> Option<Self> {{
-            Some(match self {{
-                {arms}
-                _ => return None,
-            }})
+            {inner}
         }}
         """
 
     @property
     def fn_cache_entries(self) -> str:
-        STATE[self.name]["cache_entries"] = True
-
         arms = ""
         for instr in self:
             name = instr.name
@@ -290,16 +291,19 @@ class OpcodeGen:
 
         arms = arms.strip()
         if not arms:
-            STATE[self.name]["cache_entries"] = False
-            return ""
-
-        return f"""
-        #[must_use]
-        pub const fn cache_entries(self) -> usize {{
+            inner = "0"
+        else:
+            inner = f"""
             match self.deoptimize() {{
                 {arms}
                 _ => 0,
             }}
+            """
+
+        return f"""
+        #[must_use]
+        pub const fn cache_entries(self) -> usize {{
+            {inner}
         }}
         """
 
@@ -538,9 +542,6 @@ class InstructioneGen:
 
     @property
     def fn_to_base(self) -> str:
-        if not STATE[self.opcode_enum]["to_base"]:
-            return ""
-
         return f"""
         #[must_use]
         pub const fn to_base(self) -> Option<Self> {{
@@ -554,9 +555,6 @@ class InstructioneGen:
 
     @property
     def fn_to_instrumented(self) -> str:
-        if not STATE[self.opcode_enum]["to_instrumented"]:
-            return ""
-
         return f"""
         #[must_use]
         pub const fn to_instrumented(self) -> Option<Self> {{
@@ -606,9 +604,6 @@ class InstructioneGen:
 
     @property
     def fn_cache_entries(self) -> str:
-        if not STATE[self.opcode_enum]["cache_entries"]:
-            return ""
-
         return f"""
         #[must_use]
         pub const fn cache_entries(self) -> usize {{
@@ -618,9 +613,6 @@ class InstructioneGen:
 
     @property
     def fn_deopt(self) -> str:
-        if not STATE[self.opcode_enum]["deopt"]:
-            return ""
-
         return f"""
         #[must_use]
         pub const fn deopt(self) -> Option<Self> {{
