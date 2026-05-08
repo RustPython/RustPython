@@ -40,12 +40,25 @@ impl Opcode {
     pub const fn is_scope_exit(&self) -> bool {
         matches!(self, Self::ReturnValue | Self::RaiseVarargs | Self::Reraise)
     }
+
+    #[must_use]
+    pub const fn is_block_push(&self) -> bool {
+        false
+    }
 }
 
 impl PseudoOpcode {
     #[must_use]
     pub const fn is_instrumented(&self) -> bool {
         false
+    }
+
+    #[must_use]
+    pub const fn is_block_push(&self) -> bool {
+        matches!(
+            self,
+            Self::SetupCleanup | Self::SetupFinally | Self::SetupWith
+        )
     }
 }
 
@@ -60,6 +73,11 @@ impl Instruction {
     #[must_use]
     pub const fn is_unconditional_jump(&self) -> bool {
         self.as_opcode().is_unconditional_jump()
+    }
+
+    #[must_use]
+    pub const fn is_block_push(&self) -> bool {
+        self.as_opcode().is_block_push()
     }
 
     #[must_use]
@@ -92,10 +110,7 @@ impl PseudoInstruction {
     /// - [`PseudoInstruction::SetupWith`]
     #[must_use]
     pub const fn is_block_push(&self) -> bool {
-        matches!(
-            self.as_opcode(),
-            PseudoOpcode::SetupCleanup | PseudoOpcode::SetupFinally | PseudoOpcode::SetupWith
-        )
+        self.as_opcode().is_block_push()
     }
 
     #[must_use]
@@ -440,6 +455,11 @@ impl AnyOpcode {
     either_real_pseudo!(
     #[must_use]
     pub const fn is_instrumented(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn is_block_push(&self) -> bool
     );
 
     #[must_use]

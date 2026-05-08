@@ -140,7 +140,7 @@ mod _opcode {
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
         try_from_i32(opcode)
-            .map(|op| op.deopt().is_none() && op.has_exc())
+            .map(|op| op.is_block_push())
             .unwrap_or(false)
     }
 
