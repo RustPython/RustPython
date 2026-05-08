@@ -105,35 +105,35 @@ mod _opcode {
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
         try_from_i32(opcode)
-            .map(|op| op.has_const())
+            .map(|op| op.deopt().is_none() && op.has_const())
             .unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
         try_from_i32(opcode)
-            .map(|op| op.has_name())
+            .map(|op| op.deopt().is_none() && op.has_name())
             .unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
         try_from_i32(opcode)
-            .map(|op| op.has_jump())
+            .map(|op| op.deopt().is_none() && op.has_jump())
             .unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
         try_from_i32(opcode)
-            .map(|op| op.has_free())
+            .map(|op| op.deopt().is_none() && op.has_free())
             .unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
         try_from_i32(opcode)
-            .map(|op| op.has_local())
+            .map(|op| op.deopt().is_none() && op.has_local())
             .unwrap_or(false)
     }
 

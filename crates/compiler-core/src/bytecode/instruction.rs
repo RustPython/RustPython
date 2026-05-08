@@ -427,6 +427,19 @@ impl AnyOpcode {
     #[must_use]
     pub const fn has_exc(&self) -> bool
     );
+
+    #[must_use]
+    pub const fn deopt(&self) -> Option<Self> {
+        if let Some(opcode) = self.real() {
+            if let Some(deopt) = opcode.deopt() {
+                Some(Self::Real(deopt))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
 }
 
 /// What effect the instruction has on the stack.
