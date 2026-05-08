@@ -14929,6 +14929,47 @@ def f(a, b, d):
     }
 
     #[test]
+    fn test_with_try_finally_normal_cleanup_keeps_redundant_jump_nop() {
+        let code = compile_exec(
+            "\
+def f(cm):
+    with cm:
+        try:
+            x = 1
+        finally:
+            del x
+    return x
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            ops_lines.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::DeleteFast { .. }, 6),
+                        (Instruction::Nop, 6),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::Call { .. }, 2),
+                    ]
+                )
+            }),
+            "expected CPython-style redundant finally cleanup jump to become a line NOP before with-exit cleanup, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
     fn test_try_except_finally_normal_cleanup_keeps_body_exit_nop() {
         let code = compile_exec(
             "\

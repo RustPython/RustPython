@@ -496,7 +496,9 @@ impl CodeInfo {
                 let mut remove = false;
 
                 if matches!(instr.instr.real(), Some(Instruction::Nop)) {
-                    if lineno < 0
+                    if instr.preserve_redundant_jump_as_nop {
+                        remove = false;
+                    } else if lineno < 0
                         || prev_lineno == lineno
                         || (src > 0
                             && matches!(
@@ -12359,16 +12361,28 @@ fn remove_redundant_jumps_in_blocks(blocks: &mut [Block]) -> usize {
                 && last_instr.target != BlockIdx::NULL
                 && next_nonempty_block(blocks, last_instr.target) == next
             {
+                let preserve_redundant_jump_nop = if last_instr.preserve_redundant_jump_as_nop {
+                    let line = instruction_lineno(&last_instr);
+                    let next_line = blocks[next.idx()].instructions.iter().find_map(|instr| {
+                        let line = instruction_lineno(instr);
+                        (!matches!(instr.instr.real(), Some(Instruction::Nop)) || line >= 0)
+                            .then_some(line)
+                    });
+                    line > 0 && next_line.is_some_and(|next_line| next_line < line)
+                } else {
+                    false
+                };
                 let last_instr = blocks[idx].instructions.last_mut().unwrap();
                 let remove_no_location_nop = last_instr.remove_no_location_nop;
                 let folded_operand_nop = last_instr.folded_operand_nop;
                 let preserve_block_start_no_location_nop =
                     last_instr.preserve_block_start_no_location_nop;
                 set_to_nop(last_instr);
+                last_instr.preserve_redundant_jump_as_nop = preserve_redundant_jump_nop;
                 last_instr.remove_no_location_nop = remove_no_location_nop;
                 last_instr.folded_operand_nop = folded_operand_nop;
                 last_instr.preserve_block_start_no_location_nop =
-                    preserve_block_start_no_location_nop;
+                    preserve_block_start_no_location_nop || preserve_redundant_jump_nop;
                 changes += 1;
                 current = blocks[idx].next;
                 continue;
