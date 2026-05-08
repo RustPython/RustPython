@@ -85,14 +85,8 @@ mod _ssl {
     };
     use sha2::{Digest, Sha256};
 
-    #[cfg(all(feature = "ssl-rustls-aws-lc-rs", feature = "ssl-rustls-ring"))]
-    compile_error!("Enable only one rustls provider: ssl-rustls-aws-lc-rs or ssl-rustls-ring");
-
-    #[cfg(feature = "ssl-rustls-aws-lc-rs")]
+    #[cfg(feature = "ssl-rustls")]
     use rustls::crypto::aws_lc_rs::{ALL_CIPHER_SUITES, Ticketer, sign};
-
-    #[cfg(feature = "ssl-rustls-ring")]
-    use rustls::crypto::ring::{ALL_CIPHER_SUITES, Ticketer, sign};
 
     // Import certificate operations module
     use super::cert;

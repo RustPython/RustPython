@@ -54,14 +54,8 @@ static INIT_PROVIDER: Once = Once::new();
 
 pub(super) fn ensure_default_provider() {
     INIT_PROVIDER.call_once(|| {
-        #[cfg(feature = "ssl-rustls-aws-lc-rs")]
         let _ = rustls::crypto::CryptoProvider::install_default(
             rustls::crypto::aws_lc_rs::default_provider(),
-        );
-
-        #[cfg(feature = "ssl-rustls-ring")]
-        let _ = rustls::crypto::CryptoProvider::install_default(
-            rustls::crypto::ring::default_provider(),
         );
     });
 }

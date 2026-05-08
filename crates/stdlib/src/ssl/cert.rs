@@ -24,11 +24,8 @@ use x509_parser::prelude::*;
 
 use super::_ssl::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT};
 
-#[cfg(feature = "ssl-rustls-aws-lc-rs")]
+#[cfg(feature = "ssl-rustls")]
 use rustls::crypto::aws_lc_rs::sign;
-
-#[cfg(feature = "ssl-rustls-ring")]
-use rustls::crypto::ring::sign;
 
 // Certificate Verification Constants
 
