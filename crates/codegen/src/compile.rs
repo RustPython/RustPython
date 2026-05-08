@@ -25978,6 +25978,50 @@ def f(_config_vars, _INITPRE):
     }
 
     #[test]
+    fn test_loop_if_call_body_implicit_continue_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(seq, db):
+    count = 0
+    for c in seq:
+        dec = db.value(c, -1)
+        if dec != -1:
+            db.check(dec, c)
+            count += 1
+    return count
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "no-else loop call body should use CPython body-after-jumpback layout, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_nested_if_delete_slice_places_body_after_jumpback() {
         let code = compile_exec(
             "\

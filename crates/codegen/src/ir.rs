@@ -14604,6 +14604,23 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
         })
     }
 
+    fn has_exceptional_duplicate_lineno(
+        blocks: &[Block],
+        source: BlockIdx,
+        lineno: i32,
+    ) -> bool {
+        blocks.iter().enumerate().any(|(idx, block)| {
+            BlockIdx(idx as u32) != source
+                && (block.cold
+                    || block_is_exceptional(block)
+                    || block_is_protected(block))
+                && block
+                    .instructions
+                    .iter()
+                    .any(|info| instruction_lineno(info) == lineno)
+        })
+    }
+
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -14656,7 +14673,14 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 && block_is_pure_conditional_test(&blocks[after_jump_target.idx()]);
             let simple_single_block_can_reorder = body_is_single_block
                 && !body_tail_is_conditional
-                && !block_has_call(&blocks[body.idx()])
+                && (!block_has_call(&blocks[body.idx()])
+                    || (block_starts_loop_cleanup(blocks, after_jump_target)
+                        && !block_is_protected(&blocks[body.idx()])
+                        && !has_exceptional_duplicate_lineno(
+                            blocks,
+                            current,
+                            instruction_lineno(&cond),
+                        )))
                 && !body_has_scope_exit
                 && !blocks[body.idx()]
                     .instructions
