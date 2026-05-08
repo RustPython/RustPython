@@ -35,5 +35,8 @@ lock_api = { workspace = true }
 siphasher = { workspace = true }
 num-complex = { workspace = true }
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
+
 [lints]
 workspace = true
