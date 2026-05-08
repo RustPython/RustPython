@@ -1440,10 +1440,7 @@ impl Opcode {
         };
 
         debug_assert!(u32::try_from(pushed).is_ok());
-        debug_assert!(i32::try_from(pushed).is_ok());
-
         debug_assert!(u32::try_from(popped).is_ok());
-        debug_assert!(i32::try_from(popped).is_ok());
 
         StackEffect::new(pushed as u32, popped as u32)
     }
@@ -1500,7 +1497,6 @@ impl Opcode {
         })
     }
 
-    #[must_use]
     pub const fn try_from_u8(value: u8) -> Result<Self, MarshalError> {
         Ok(match value {
             0 => Self::Cache,
@@ -2639,10 +2635,7 @@ impl PseudoOpcode {
         };
 
         debug_assert!(u32::try_from(pushed).is_ok());
-        debug_assert!(i32::try_from(pushed).is_ok());
-
         debug_assert!(u32::try_from(popped).is_ok());
-        debug_assert!(i32::try_from(popped).is_ok());
 
         StackEffect::new(pushed as u32, popped as u32)
     }
@@ -2657,7 +2650,6 @@ impl PseudoOpcode {
         None
     }
 
-    #[must_use]
     pub const fn try_from_u16(value: u16) -> Result<Self, MarshalError> {
         Ok(match value {
             256 => Self::AnnotationsPlaceholder,

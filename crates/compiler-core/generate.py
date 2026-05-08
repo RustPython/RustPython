@@ -82,7 +82,6 @@ class OpcodeGen:
     def fn_try_from_numeric(self) -> str:
         arms = ",\n".join(f"{instr.opcode} => Self::{instr.name}" for instr in self)
         return f"""
-        #[must_use]
         pub const fn try_from_{self.numeric_repr}(
             value: {self.numeric_repr}
         ) -> Result<Self, MarshalError> {{
@@ -361,10 +360,7 @@ class OpcodeGen:
             }};
 
             debug_assert!(u32::try_from(pushed).is_ok());
-            debug_assert!(i32::try_from(pushed).is_ok());
-
             debug_assert!(u32::try_from(popped).is_ok());
-            debug_assert!(i32::try_from(popped).is_ok());
 
             StackEffect::new(pushed as u32, popped as u32)
         }}
