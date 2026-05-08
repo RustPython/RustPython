@@ -392,6 +392,41 @@ impl AnyOpcode {
         self.pseudo()
             .expect("Expected AnyOpcode::Pseudo, found AnyOpcode::Real")
     }
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_arg(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_jump(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_free(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_local(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_name(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_const(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_exc(&self) -> bool
+    );
 }
 
 /// What effect the instruction has on the stack.
