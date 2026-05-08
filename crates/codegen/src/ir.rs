@@ -13312,6 +13312,32 @@ fn trailing_conditional_jump_index(block: &Block) -> Option<usize> {
     }
 }
 
+fn block_is_pure_conditional_test(block: &Block) -> bool {
+    let Some(cond_idx) = trailing_conditional_jump_index(block) else {
+        return false;
+    };
+    block.instructions[..cond_idx].iter().all(|info| {
+        matches!(
+            info.instr.real(),
+            Some(
+                Instruction::Nop
+                    | Instruction::LoadFast { .. }
+                    | Instruction::LoadFastBorrow { .. }
+                    | Instruction::LoadFastLoadFast { .. }
+                    | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                    | Instruction::LoadDeref { .. }
+                    | Instruction::LoadConst { .. }
+                    | Instruction::LoadSmallInt { .. }
+                    | Instruction::LoadAttr { .. }
+                    | Instruction::BinaryOp { .. }
+                    | Instruction::ContainsOp { .. }
+                    | Instruction::CompareOp { .. }
+                    | Instruction::ToBool
+            )
+        )
+    })
+}
+
 fn reorder_conditional_exit_and_jump_blocks(blocks: &mut [Block]) {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -13519,6 +13545,12 @@ fn reorder_conditional_jump_and_exit_blocks(blocks: &mut [Block]) {
             jump_instr.instr.real(),
             Some(Instruction::JumpForward { .. })
         ) {
+            current = next;
+            continue;
+        }
+        if jump_instr.lineno_override.is_some_and(|line| line >= 0)
+            && instruction_lineno(&jump_instr) != instruction_lineno(&last)
+        {
             current = next;
             continue;
         }
@@ -13963,11 +13995,14 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
             } else {
                 BlockIdx::NULL
             };
+            let after_jump_continues_conditional_chain = after_jump != BlockIdx::NULL
+                && block_is_pure_conditional_test(&blocks[after_jump.idx()]);
             if exit_start == BlockIdx::NULL
                 || exit_block == BlockIdx::NULL
                 || jump_start == BlockIdx::NULL
                 || jump_block == BlockIdx::NULL
                 || jump_block == exit_block
+                || after_jump_continues_conditional_chain
                 || block_is_exceptional(&blocks[idx])
                 || block_is_exceptional(&blocks[jump_block.idx()])
                 || block_is_exceptional(&blocks[exit_block.idx()])
@@ -13983,8 +14018,7 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
                     })
                 || (!allow_for_iter_jump_targets
                     && is_explicit_non_for_jump_back(blocks, jump_block))
-                || (!allow_for_iter_jump_targets
-                    && after_jump != BlockIdx::NULL
+                || (after_jump != BlockIdx::NULL
                     && !blocks[after_jump.idx()].cold
                     && !is_scope_exit_block(&blocks[after_jump.idx()])
                     && !is_loop_cleanup_block(&blocks[after_jump.idx()]))
@@ -14730,32 +14764,6 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
             .instructions
             .iter()
             .any(|info| matches!(info.instr.real(), Some(Instruction::Call { .. })))
-    }
-
-    fn block_is_pure_conditional_test(block: &Block) -> bool {
-        let Some(cond_idx) = trailing_conditional_jump_index(block) else {
-            return false;
-        };
-        block.instructions[..cond_idx].iter().all(|info| {
-            matches!(
-                info.instr.real(),
-                Some(
-                    Instruction::Nop
-                        | Instruction::LoadFast { .. }
-                        | Instruction::LoadFastBorrow { .. }
-                        | Instruction::LoadFastLoadFast { .. }
-                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
-                        | Instruction::LoadDeref { .. }
-                        | Instruction::LoadConst { .. }
-                        | Instruction::LoadSmallInt { .. }
-                        | Instruction::LoadAttr { .. }
-                        | Instruction::BinaryOp { .. }
-                        | Instruction::ContainsOp { .. }
-                        | Instruction::CompareOp { .. }
-                        | Instruction::ToBool
-                )
-            )
-        })
     }
 
     let mut current = BlockIdx(0);

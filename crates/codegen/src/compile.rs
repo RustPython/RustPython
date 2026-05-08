@@ -655,6 +655,17 @@ impl Compiler {
         })
     }
 
+    fn statements_end_with_open_conditional_fallthrough(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::If(ast::StmtIf {
+                elif_else_clauses, ..
+            }) => !elif_else_clauses
+                .last()
+                .is_some_and(|clause| clause.test.is_none()),
+            _ => false,
+        })
+    }
+
     fn statements_end_with_conditional_scope_exit(&self, body: &[ast::Stmt]) -> bool {
         body.last().is_some_and(|stmt| match stmt {
             ast::Stmt::Assert(_) => self.opts.optimize == 0,
@@ -702,6 +713,7 @@ impl Compiler {
                 ..
             }) => {
                 !finalbody.is_empty()
+                    && !Self::statements_end_with_open_conditional_fallthrough(finalbody)
                     || (!handlers.is_empty() && Self::statements_end_with_scope_exit(body))
             }
             ast::Stmt::If(ast::StmtIf {
@@ -15127,6 +15139,60 @@ def f(a, b, d):
     }
 
     #[test]
+    fn test_nested_finally_open_conditional_falls_through_without_entry_nop() {
+        let code = compile_exec(
+            "\
+def f(self, f, closed, new_key):
+    try:
+        try:
+            work()
+        finally:
+            if self._locked:
+                _unlock_file(f)
+    finally:
+        if not closed:
+            _sync_close(f)
+    return new_key
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache | Instruction::NotTaken))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "expected CPython-style fallthrough from inner finally body into outer finalbody condition, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "unexpected preserved inner-finally entry NOP before outer finalbody condition, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_with_try_finally_normal_cleanup_keeps_redundant_jump_nop() {
         let code = compile_exec(
             "\
@@ -21319,6 +21385,59 @@ def f(keys, parse_int, found_dict, locale_time):
     }
 
     #[test]
+    fn test_elif_pass_before_raise_keeps_line_bearing_forward_jump() {
+        let code = compile_exec(
+            "\
+def f(entries, path, self):
+    if entries == ['.mh_sequences']:
+        os.remove(os.path.join(path, '.mh_sequences'))
+    elif entries == []:
+        pass
+    else:
+        raise NotEmptyError('Folder not empty: %s' % self._path)
+    os.rmdir(path)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpForward { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style pass branch forward jump before raise body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted pass branch before raise body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_multiblock_conditional_body_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\
@@ -24629,6 +24748,59 @@ def f(kw):
                 )
             }),
             "unexpected conditional raise body before loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_conditional_raise_before_elif_keeps_raise_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(checks, missing, named):
+    for check in checks:
+        if check == 1:
+            if missing:
+                raise ValueError('x')
+        elif check is named:
+            pass
+    return checks
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadGlobal { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style false edge into raise body before following elif chain, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                    ]
+                )
+            }),
+            "unexpected loop backedge before conditional raise body in if/elif chain, got ops={ops:?}"
         );
     }
 
