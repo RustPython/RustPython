@@ -8948,6 +8948,12 @@ impl Compiler {
                             self.emit_load_zero_super_attr(idx);
                         }
                     }
+                    // CPython's Attribute_kind super path emits an attr-line
+                    // NOP after LOAD_SUPER_ATTR, even when the call later uses
+                    // CALL_FUNCTION_EX for starred arguments.
+                    self.set_source_range(attr.range());
+                    emit!(self, Instruction::Nop);
+                    self.set_source_range(super_range);
                     emit!(self, Instruction::PushNull);
                     self.codegen_call_helper(0, args, call_range)?;
                 } else {
@@ -12915,6 +12921,42 @@ def f(obj, arg):
     }
 
     #[test]
+    fn test_starred_super_call_keeps_attr_line_nop() {
+        let code = compile_exec(
+            "\
+def outer(log):
+    class DelegatingHTTPRequestHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            if log:
+                super(DelegatingHTTPRequestHandler,
+                      self).log_message(format, *args)
+",
+        );
+        let log_message = find_code(&code, "log_message").expect("missing log_message code");
+        let ops: Vec<_> = log_message
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadSuperAttr { .. },
+                        Instruction::Nop,
+                        Instruction::PushNull,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "starred super call should keep CPython's attr-line NOP after LOAD_SUPER_ATTR, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_builtin_any_genexpr_call_is_optimized() {
         let code = compile_exec(
             "\
@@ -14478,6 +14520,55 @@ def f(expected_ns, namespace):
                 "expected strong {name} load in post-try tail, got {tail:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_bare_function_annotations_check_attribute_and_subscript_expressions() {
+        assert_dis_snapshot!(compile_exec(
+            "\
+def f(one: int):
+    int.new_attr: int
+    [list][0].new_attr: [int, str]
+    my_lst = [1]
+    my_lst[one]: int
+    return my_lst
+"
+        ));
+    }
+
+    #[test]
+    fn test_function_local_annassign_annotation_does_not_capture_outer_local() {
+        let code = compile_exec(
+            "\
+def f():
+    from collections import namedtuple
+
+    class MyHandler:
+        def __init__(self, resource):
+            self.resource: namedtuple = resource
+
+    return namedtuple
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let class_code = find_code(&code, "MyHandler").expect("missing MyHandler code");
+        let init = find_code(&code, "__init__").expect("missing __init__ code");
+
+        assert!(
+            !f.cellvars.iter().any(|name| name == "namedtuple"),
+            "function-local AnnAssign annotation must not make namedtuple a cell, got cellvars={:?}",
+            f.cellvars
+        );
+        assert!(
+            !class_code.freevars.iter().any(|name| name == "namedtuple"),
+            "class body must not close over function-local annotation-only name, got freevars={:?}",
+            class_code.freevars
+        );
+        assert!(
+            !init.freevars.iter().any(|name| name == "namedtuple"),
+            "method body must not close over function-local annotation-only name, got freevars={:?}",
+            init.freevars
+        );
     }
 
     #[test]

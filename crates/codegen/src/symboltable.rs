@@ -1015,6 +1015,9 @@ struct SymbolTableBuilder {
     in_iter_def_exp: bool,
     // Track if we're inside an annotation (yield/await/named expr not allowed)
     in_annotation: bool,
+    // CPython's ste_in_unevaluated_annotation: function-local AnnAssign
+    // annotations are not executed and do not contribute name bindings.
+    in_unevaluated_annotation: bool,
     // Track if we're inside a type alias (yield/await/named expr not allowed)
     in_type_alias: bool,
     // Track if we're scanning an inner loop iteration target (not the first generator)
@@ -1049,6 +1052,7 @@ impl SymbolTableBuilder {
             varnames_stack: Vec::new(),
             in_iter_def_exp: false,
             in_annotation: false,
+            in_unevaluated_annotation: false,
             in_type_alias: false,
             in_comp_inner_loop_target: false,
             scope_info: None,
@@ -1324,6 +1328,13 @@ impl SymbolTableBuilder {
         is_ann_assign: bool,
     ) -> SymbolTableResult {
         let current_scope = self.tables.last().map(|t| t.typ);
+        let is_unevaluated = is_ann_assign
+            && current_scope.is_some_and(|scope| {
+                matches!(
+                    scope,
+                    CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
+                )
+            });
         let needs_conditional_annotations = is_ann_assign
             && (matches!(current_scope, Some(CompilerScope::Module))
                 || (matches!(current_scope, Some(CompilerScope::Class))
@@ -1365,9 +1376,12 @@ impl SymbolTableBuilder {
         // PEP 649: scan expression for symbol references
         // Class annotations are evaluated in class locals (not module globals)
         let was_in_annotation = self.in_annotation;
+        let was_in_unevaluated_annotation = self.in_unevaluated_annotation;
         self.in_annotation = true;
+        self.in_unevaluated_annotation = is_unevaluated;
         let result = self.scan_expression(annotation, ExpressionContext::Load);
         self.in_annotation = was_in_annotation;
+        self.in_unevaluated_annotation = was_in_unevaluated_annotation;
 
         self.leave_annotation_scope();
 
@@ -2088,32 +2102,34 @@ impl SymbolTableBuilder {
 
                 self.check_name(id, context, *range)?;
 
-                // Determine the contextual usage of this symbol:
-                match context {
-                    ExpressionContext::Delete => {
-                        self.register_name(id, SymbolUsage::Assigned, *range)?;
-                        self.register_name(id, SymbolUsage::Used, *range)?;
+                if !self.in_unevaluated_annotation {
+                    // Determine the contextual usage of this symbol:
+                    match context {
+                        ExpressionContext::Delete => {
+                            self.register_name(id, SymbolUsage::Assigned, *range)?;
+                            self.register_name(id, SymbolUsage::Used, *range)?;
+                        }
+                        ExpressionContext::Load | ExpressionContext::IterDefinitionExp => {
+                            self.register_name(id, SymbolUsage::Used, *range)?;
+                        }
+                        ExpressionContext::Store => {
+                            self.register_name(id, SymbolUsage::Assigned, *range)?;
+                        }
+                        ExpressionContext::Iter => {
+                            self.register_name(id, SymbolUsage::Iter, *range)?;
+                        }
                     }
-                    ExpressionContext::Load | ExpressionContext::IterDefinitionExp => {
-                        self.register_name(id, SymbolUsage::Used, *range)?;
+                    // Interesting stuff about the __class__ variable:
+                    // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
+                    if context == ExpressionContext::Load
+                        && matches!(
+                            self.tables.last().unwrap().typ,
+                            CompilerScope::Function | CompilerScope::AsyncFunction
+                        )
+                        && id == "super"
+                    {
+                        self.register_name("__class__", SymbolUsage::Used, *range)?;
                     }
-                    ExpressionContext::Store => {
-                        self.register_name(id, SymbolUsage::Assigned, *range)?;
-                    }
-                    ExpressionContext::Iter => {
-                        self.register_name(id, SymbolUsage::Iter, *range)?;
-                    }
-                }
-                // Interesting stuff about the __class__ variable:
-                // https://docs.python.org/3/reference/datamodel.html?highlight=__class__#creating-the-class-object
-                if context == ExpressionContext::Load
-                    && matches!(
-                        self.tables.last().unwrap().typ,
-                        CompilerScope::Function | CompilerScope::AsyncFunction
-                    )
-                    && id == "super"
-                {
-                    self.register_name("__class__", SymbolUsage::Used, *range)?;
                 }
             }
             Expr::Lambda(ExprLambda {
