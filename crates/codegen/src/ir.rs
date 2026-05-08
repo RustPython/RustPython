@@ -498,14 +498,7 @@ impl CodeInfo {
                 if matches!(instr.instr.real(), Some(Instruction::Nop)) {
                     if instr.preserve_redundant_jump_as_nop {
                         remove = false;
-                    } else if lineno < 0
-                        || prev_lineno == lineno
-                        || (src > 0
-                            && matches!(
-                                src_instructions[src - 1].instr.real(),
-                                Some(Instruction::PopIter)
-                            ))
-                    {
+                    } else if lineno < 0 || prev_lineno == lineno {
                         remove = true;
                     } else if src < src_instructions.len() - 1 {
                         if src_instructions[src + 1].instr.is_block_push() {
@@ -15700,7 +15693,9 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
             .last()
             .map(|instr| (instr.location, instr.end_location));
         let mut cloned_return = return_insts.clone();
-        if let Some((location, end_location)) = propagated_location {
+        if !instruction_has_lineno(&cloned_return[0])
+            && let Some((location, end_location)) = propagated_location
+        {
             for instr in &mut cloned_return {
                 overwrite_location(instr, location, end_location);
             }

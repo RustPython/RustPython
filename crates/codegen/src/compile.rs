@@ -12128,6 +12128,43 @@ mod tests {
 
     #[test]
     #[ignore = "debug helper"]
+    fn debug_trace_nested_continue_after_optional_body() {
+        let trace = compile_single_function_late_cfg_trace(
+            "\
+def f(names, show_empty, keywords, args_buffer, args, cls, object, level):
+    for name in names:
+        value = getattr(cls, name)
+        if not show_empty:
+            if value == []:
+                field_type = cls._field_types.get(name, object)
+                if getattr(field_type, '__origin__', ...) is list:
+                    if not keywords:
+                        args_buffer.append(repr(value))
+                    continue
+            if not keywords:
+                args.extend(args_buffer)
+                args_buffer = []
+        value, simple = _format(value, level)
+        if keywords:
+            args.append('%s=%s' % (name, value))
+        else:
+            args.append(value)
+",
+            "f",
+        );
+        for (label, dump) in trace {
+            if label == "after_reorder"
+                || label == "after_remove_redundant_nops_and_jumps"
+                || label == "after_final_cfg_cleanup"
+                || label == "after_borrow_deopts"
+            {
+                eprintln!("=== {label} ===\n{dump}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "debug helper"]
     fn debug_trace_make_dataclass_borrow_tail() {
         let trace = compile_single_function_late_cfg_trace(
             r#"
@@ -23573,6 +23610,72 @@ def f(done=False):
                 ]
             )),
             "try/except continue should keep CPython-style try-line NOP before continue jump, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_for_else_pass_keeps_line_marker_after_pop_iter() {
+        let code = compile_exec(
+            "\
+def f():
+    for item in ():
+        pass
+    else:
+        pass
+    marker = 1
+    return marker
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            instructions.windows(2).any(|window| matches!(
+                window,
+                [
+                    CodeUnit {
+                        op: Instruction::PopIter,
+                        ..
+                    },
+                    CodeUnit {
+                        op: Instruction::Nop,
+                        ..
+                    }
+                ]
+            )),
+            "for-else pass should keep CPython-style else-line NOP after POP_ITER, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_folded_if_chain_after_previous_chain_keeps_final_elif_line_marker() {
+        let code = compile_exec(
+            "\
+def f():
+    if 0: pass
+    elif 0: pass
+    if 0: pass
+    elif 0: pass
+    elif 0: pass
+    elif 0: pass
+    else: pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let nop_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::Nop))
+            .count();
+
+        assert_eq!(
+            nop_count, 6,
+            "folded if chains should preserve CPython-style line-marker NOPs, got instructions={:?}",
+            f.instructions
         );
     }
 
