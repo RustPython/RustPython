@@ -2129,16 +2129,8 @@ impl Compiler {
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let (doc, statements) = split_doc(&body.body, &self.opts);
-        if let Some(value) = doc {
-            self.emit_load_const(ConstantData::Str {
-                value: value.into(),
-            });
-            let doc = self.name("__doc__");
-            emit!(self, Instruction::StoreName { namei: doc })
-        }
-
-        // Handle annotation bookkeeping in CPython order: initialize the
-        // conditional annotation set first, then materialize __annotations__.
+        // Handle annotation bookkeeping before the docstring assignment, as
+        // codegen_body() does after _PyCodegen_Module() inserts the prefix set.
         if Self::find_ann(statements) {
             if Self::scope_needs_conditional_annotations_cell(self.current_symbol_table()) {
                 emit!(self, Instruction::BuildSet { count: 0 });
@@ -2148,6 +2140,14 @@ impl Compiler {
             if self.future_annotations {
                 emit!(self, Instruction::SetupAnnotations);
             }
+        }
+
+        if let Some(value) = doc {
+            self.emit_load_const(ConstantData::Str {
+                value: value.into(),
+            });
+            let doc = self.name("__doc__");
+            emit!(self, Instruction::StoreName { namei: doc })
         }
 
         // Compile all statements
@@ -2292,13 +2292,8 @@ impl Compiler {
 
     fn scope_needs_conditional_annotations_cell(symbol_table: &SymbolTable) -> bool {
         match symbol_table.typ {
-            CompilerScope::Module => {
+            CompilerScope::Module | CompilerScope::Class => {
                 symbol_table.has_conditional_annotations
-                    || (symbol_table.future_annotations && symbol_table.annotation_block.is_some())
-            }
-            CompilerScope::Class => {
-                symbol_table.has_conditional_annotations
-                    || symbol_table.lookup("__conditional_annotations__").is_some()
             }
             _ => false,
         }
@@ -5335,13 +5330,6 @@ impl Compiler {
             emit!(self, Instruction::StoreDeref { i: classdict_idx });
         }
 
-        // Store __doc__ only if there's an explicit docstring.
-        if let Some(doc) = doc_str {
-            self.emit_load_const(ConstantData::Str { value: doc.into() });
-            let doc_name = self.name("__doc__");
-            emit!(self, Instruction::StoreName { namei: doc_name });
-        }
-
         // Handle class annotation bookkeeping in CPython order.
         if Self::find_ann(body) {
             if Self::scope_needs_conditional_annotations_cell(self.current_symbol_table()) {
@@ -5352,6 +5340,13 @@ impl Compiler {
             if self.future_annotations {
                 emit!(self, Instruction::SetupAnnotations);
             }
+        }
+
+        // Store __doc__ only if there's an explicit docstring.
+        if let Some(doc) = doc_str {
+            self.emit_load_const(ConstantData::Str { value: doc.into() });
+            let doc_name = self.name("__doc__");
+            emit!(self, Instruction::StoreName { namei: doc_name });
         }
 
         // 3. Compile the class body
@@ -16747,7 +16742,7 @@ class C:
     }
 
     #[test]
-    fn test_future_annotations_class_keeps_conditional_annotations_cell() {
+    fn test_future_annotations_class_uses_direct_annotation_store() {
         let code = compile_exec(
             "\
 from __future__ import annotations
@@ -16758,12 +16753,137 @@ class C:
         let class_code = find_code(&code, "C").expect("missing class code");
 
         assert!(
+            !class_code
+                .cellvars
+                .iter()
+                .any(|name| name.as_str() == "__conditional_annotations__"),
+            "future annotations should not create __conditional_annotations__ cellvar, got cellvars={:?}",
+            class_code.cellvars
+        );
+        let ops: Vec<_> = class_code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Instruction::SetupAnnotations)),
+            "future annotations should emit SETUP_ANNOTATIONS, got ops={ops:?}"
+        );
+        assert!(
+            ops.iter().any(|op| matches!(op, Instruction::StoreSubscr)),
+            "future annotations should store directly into __annotations__, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::BuildSet { .. })),
+            "future annotations should not initialize __conditional_annotations__, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_future_annotations_module_keeps_conditional_annotations_cell() {
+        let code = compile_exec(
+            "\
+from __future__ import annotations
+x: int = 1
+",
+        );
+
+        assert!(
+            code.cellvars
+                .iter()
+                .any(|name| name.as_str() == "__conditional_annotations__"),
+            "module annotations should create __conditional_annotations__ cellvar, got cellvars={:?}",
+            code.cellvars
+        );
+    }
+
+    #[test]
+    fn test_future_annotations_conditional_class_keeps_conditional_annotations_cell() {
+        let code = compile_exec(
+            "\
+from __future__ import annotations
+class C:
+    if True:
+        x: int = 1
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+
+        assert!(
             class_code
                 .cellvars
                 .iter()
                 .any(|name| name.as_str() == "__conditional_annotations__"),
-            "expected __conditional_annotations__ cellvar, got cellvars={:?}",
+            "conditional class annotations should create __conditional_annotations__ cellvar, got cellvars={:?}",
             class_code.cellvars
+        );
+    }
+
+    #[test]
+    fn test_future_annotations_setup_precedes_docstring() {
+        let code = compile_exec(
+            "\
+\"module doc\"
+from __future__ import annotations
+x: int = 1
+
+class C:
+    \"class doc\"
+    x: int = 1
+",
+        );
+        let module_setup = code
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::SetupAnnotations))
+            .expect("missing module SETUP_ANNOTATIONS");
+        let module_doc = code
+            .instructions
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::StoreName { namei }
+                        if code.names
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            .as_str()
+                            == "__doc__"
+                )
+            })
+            .expect("missing module doc store");
+        assert!(
+            module_setup < module_doc,
+            "module SETUP_ANNOTATIONS should precede docstring store, got instructions={:?}",
+            code.instructions
+        );
+
+        let class_code = find_code(&code, "C").expect("missing class code");
+        let class_setup = class_code
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::SetupAnnotations))
+            .expect("missing class SETUP_ANNOTATIONS");
+        let class_doc = class_code
+            .instructions
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::StoreName { namei }
+                        if class_code.names
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            .as_str()
+                            == "__doc__"
+                )
+            })
+            .expect("missing class doc store");
+        assert!(
+            class_setup < class_doc,
+            "class SETUP_ANNOTATIONS should precede docstring store, got instructions={:?}",
+            class_code.instructions
         );
     }
 

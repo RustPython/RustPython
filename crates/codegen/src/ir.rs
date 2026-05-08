@@ -12888,7 +12888,7 @@ fn block_has_eval_break(block: &Block) -> bool {
                         | Instruction::JumpBackward { .. }
                         | Instruction::Resume { .. }
                 )
-            )
+        )
     })
 }
 
@@ -14313,13 +14313,16 @@ fn deduplicate_adjacent_jump_back_blocks(blocks: &mut [Block]) {
         incoming_origins: &[Vec<BlockIdx>],
         target: BlockIdx,
     ) -> bool {
-        incoming_origins[target.idx()].iter().copied().any(|origin| {
-            blocks[origin.idx()].instructions.iter().any(|info| {
-                info.except_handler.is_some()
-                    && is_conditional_jump(&info.instr)
-                    && next_nonempty_block(blocks, info.target) == target
+        incoming_origins[target.idx()]
+            .iter()
+            .copied()
+            .any(|origin| {
+                blocks[origin.idx()].instructions.iter().any(|info| {
+                    info.except_handler.is_some()
+                        && is_conditional_jump(&info.instr)
+                        && next_nonempty_block(blocks, info.target) == target
+                })
             })
-        })
     }
 
     let reachable = compute_reachable_blocks(blocks);
@@ -14604,16 +14607,10 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
         })
     }
 
-    fn has_exceptional_duplicate_lineno(
-        blocks: &[Block],
-        source: BlockIdx,
-        lineno: i32,
-    ) -> bool {
+    fn has_exceptional_duplicate_lineno(blocks: &[Block], source: BlockIdx, lineno: i32) -> bool {
         blocks.iter().enumerate().any(|(idx, block)| {
             BlockIdx(idx as u32) != source
-                && (block.cold
-                    || block_is_exceptional(block)
-                    || block_is_protected(block))
+                && (block.cold || block_is_exceptional(block) || block_is_protected(block))
                 && block
                     .instructions
                     .iter()

@@ -1328,24 +1328,16 @@ impl SymbolTableBuilder {
         is_ann_assign: bool,
     ) -> SymbolTableResult {
         let current_scope = self.tables.last().map(|t| t.typ);
-        let needs_future_annotation_bookkeeping = is_ann_assign
-            && self.future_annotations
-            && matches!(
-                current_scope,
-                Some(CompilerScope::Module | CompilerScope::Class)
-            );
-        let needs_non_future_conditional_annotations = is_ann_assign
-            && !self.future_annotations
+        let needs_conditional_annotations = is_ann_assign
             && (matches!(current_scope, Some(CompilerScope::Module))
                 || (matches!(current_scope, Some(CompilerScope::Class))
                     && self.in_conditional_block));
-        let should_register_conditional_annotations = needs_future_annotation_bookkeeping
-            || (needs_non_future_conditional_annotations
-                && !self.tables.last().unwrap().has_conditional_annotations);
+        let should_register_conditional_annotations = needs_conditional_annotations
+            && !self.tables.last().unwrap().has_conditional_annotations;
 
         // PEP 649: Only AnnAssign annotations can be conditional.
         // Function parameter/return annotations are never conditional.
-        if needs_non_future_conditional_annotations {
+        if needs_conditional_annotations {
             self.tables.last_mut().unwrap().has_conditional_annotations = true;
         }
 
