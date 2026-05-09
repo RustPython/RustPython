@@ -724,6 +724,21 @@ impl SymbolTableAnalyzer {
                             self.found_in_inner_scope(sub_tables, &symbol.name, st_typ)
                                 .unwrap_or(SymbolScope::Local)
                         }
+                    } else if let Some(scope) = class_entry
+                        .and_then(|class_symbols| class_symbols.get(&symbol.name))
+                        .and_then(|class_sym| {
+                            if class_sym.flags.contains(SymbolFlags::GLOBAL) {
+                                Some(SymbolScope::GlobalExplicit)
+                            } else if class_sym.is_bound() && class_sym.scope != SymbolScope::Free {
+                                // If name is bound in enclosing class, use GlobalImplicit
+                                // so it can be accessed via __classdict__
+                                Some(SymbolScope::GlobalImplicit)
+                            } else {
+                                None
+                            }
+                        })
+                    {
+                        scope
                     } else if let Some(scope) = self.found_in_outer_scope(
                         &symbol.name,
                         st_typ,
@@ -731,14 +746,6 @@ impl SymbolTableAnalyzer {
                     ) {
                         // If found in enclosing scope (function/TypeParams), use that
                         scope
-                    } else if let Some(class_symbols) = class_entry
-                        && let Some(class_sym) = class_symbols.get(&symbol.name)
-                        && class_sym.is_bound()
-                        && class_sym.scope != SymbolScope::Free
-                    {
-                        // If name is bound in enclosing class, use GlobalImplicit
-                        // so it can be accessed via __classdict__
-                        SymbolScope::GlobalImplicit
                     } else if self.tables.is_empty() {
                         // Don't make assumptions when we don't know.
                         SymbolScope::Unknown
