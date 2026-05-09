@@ -92,7 +92,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(unot, 'POP_JUMP_IF_TRUE')
         self.check_lnotab(unot)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_elim_inversion_of_is_or_in(self):
         for line, cmp_op, invert in (
             ('not a is b', 'IS_OP', 1,),

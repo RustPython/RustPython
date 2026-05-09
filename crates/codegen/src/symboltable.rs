@@ -632,6 +632,29 @@ impl SymbolTableAnalyzer {
             drop_class_free(symbol_table, &mut newfree);
         }
 
+        // CPython update_symbols(..., classflag): after class implicit frees
+        // are dropped, a class block, or an annotation/type-params block that
+        // can see a class scope, records existing child-free names with
+        // DEF_FREE_CLASS. This preserves the current scope's own lookup kind
+        // (for example GLOBAL_IMPLICIT via __classdict__) while still making
+        // the name available as a closure cell for nested children such as
+        // generator expressions.
+        if symbol_table.typ == CompilerScope::Class {
+            for name in &newfree {
+                if let Some(symbol) = symbol_table.symbols.get_mut(name) {
+                    symbol.flags.insert(SymbolFlags::FREE_CLASS);
+                }
+            }
+        } else if symbol_table.can_see_class_scope {
+            for name in &newfree {
+                if let Some(symbol) = symbol_table.symbols.get_mut(name)
+                    && !symbol.is_local()
+                {
+                    symbol.flags.insert(SymbolFlags::FREE_CLASS);
+                }
+            }
+        }
+
         Ok(newfree)
     }
 
@@ -872,7 +895,10 @@ impl SymbolTableAnalyzer {
                 return self.found_in_inner_scope(&st.sub_tables, name, st_typ);
             }
             let sym = st.symbols.get(name)?;
-            if sym.scope == SymbolScope::Free || sym.flags.contains(SymbolFlags::FREE_CLASS) {
+            if sym.scope == SymbolScope::Free
+                || (sym.flags.contains(SymbolFlags::FREE_CLASS)
+                    && !matches!(st_typ, CompilerScope::Module))
+            {
                 if st_typ == CompilerScope::Class && name != "__class__" {
                     None
                 } else {

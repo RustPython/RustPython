@@ -184,7 +184,7 @@ fn simple_format_arg_parse(
     let width = parse_digits(chars, pos, &mut ch)?;
     let precision = if ch == '.' {
         ch = next_char(chars, pos)?;
-        parse_digits(chars, pos, &mut ch)?
+        Some(parse_digits(chars, pos, &mut ch)?.unwrap_or(0))
     } else {
         None
     };
