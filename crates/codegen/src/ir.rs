@@ -10653,6 +10653,7 @@ impl CodeInfo {
         reorder_conditional_explicit_continue_scope_exit_blocks(&mut self.blocks);
         reorder_conditional_implicit_continue_scope_exit_blocks(&mut self.blocks);
         reorder_conditional_scope_exit_and_jump_back_blocks(&mut self.blocks, true, true);
+        reorder_exception_handler_conditional_continue_scope_exit_blocks(&mut self.blocks);
         deduplicate_adjacent_jump_back_blocks(&mut self.blocks);
         reorder_conditional_body_and_implicit_continue_blocks(&mut self.blocks);
         reorder_conditional_scope_exit_and_jump_back_blocks(&mut self.blocks, true, true);
@@ -10684,9 +10685,10 @@ impl CodeInfo {
         ));
 
         duplicate_end_returns(&mut self.blocks, &self.metadata);
+        duplicate_fallthrough_jump_back_targets(&mut self.blocks);
         duplicate_shared_jump_back_targets(&mut self.blocks);
         trace.push((
-            "after_duplicate_end_returns".to_owned(),
+            "after_duplicate_jump_back_targets".to_owned(),
             self.debug_block_dump(),
         ));
 
@@ -12609,6 +12611,7 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
     let mut jump_back_inserts = Vec::new();
     let mut inserts = Vec::new();
     let mut target_start_inserts = Vec::new();
+    let mut jump_back_target_locations = Vec::new();
     for (block_idx, block) in blocks.iter().enumerate() {
         let source = BlockIdx(block_idx as u32);
         let (last, allow_scope_exit_target) = if let Some(last) = block
@@ -12627,6 +12630,10 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
         }
         let target = last.target;
         if !blocks[target.idx()].instructions.is_empty() {
+            if is_jump_back_only_block(blocks, target) && block_has_no_lineno(&blocks[target.idx()])
+            {
+                jump_back_target_locations.push((*last, target));
+            }
             if with_normal_exit_is_followed_by_try(blocks, target)
                 && has_loop_backedge_to(blocks, source)
                 && !matches!(
@@ -12662,6 +12669,15 @@ fn materialize_empty_conditional_exit_targets(blocks: &mut [Block]) {
             continue;
         }
         inserts.push((*last, target));
+    }
+
+    for (source, target) in jump_back_target_locations {
+        if !is_jump_back_only_block(blocks, target) || !block_has_no_lineno(&blocks[target.idx()]) {
+            continue;
+        }
+        if let Some(first) = blocks[target.idx()].instructions.first_mut() {
+            overwrite_location(first, source.location, source.end_location);
+        }
     }
 
     for (source, target, next) in jump_back_inserts {
@@ -15456,7 +15472,14 @@ fn propagate_line_numbers(blocks: &mut [Block], predecessors: &[u32]) {
                     target = blocks[target.idx()].next;
                 }
                 if target != BlockIdx::NULL
-                    && predecessors[target.idx()] == 1
+                    && (predecessors[target.idx()] == 1
+                        || has_unique_jump_origin(
+                            blocks,
+                            &reachable,
+                            &incoming_origins,
+                            current,
+                            target,
+                        ))
                     && let Some((location, end_location)) = prev_location
                     && let Some(first) = blocks[target.idx()].instructions.first_mut()
                 {
@@ -15537,6 +15560,31 @@ fn has_unique_fallthrough_origin(
         .all(|origin| allowed[origin.idx()])
 }
 
+fn has_unique_jump_origin(
+    blocks: &[Block],
+    reachable: &[bool],
+    incoming_origins: &[Vec<BlockIdx>],
+    source: BlockIdx,
+    target: BlockIdx,
+) -> bool {
+    if source == BlockIdx::NULL
+        || target == BlockIdx::NULL
+        || !reachable[source.idx()]
+        || !blocks[source.idx()]
+            .instructions
+            .last()
+            .is_some_and(|instr| is_jump_instruction(instr) && instr.target != BlockIdx::NULL)
+    {
+        return false;
+    }
+
+    incoming_origins[target.idx()].iter().all(|&origin| {
+        origin == source
+            || (blocks[origin.idx()].instructions.is_empty()
+                && next_nonempty_block(blocks, blocks[origin.idx()].next) == target)
+    })
+}
+
 fn comes_before(blocks: &[Block], first: BlockIdx, second: BlockIdx) -> bool {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -15554,6 +15602,7 @@ fn comes_before(blocks: &[Block], first: BlockIdx, second: BlockIdx) -> bool {
 fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
     let predecessors = compute_predecessors(blocks);
     let mut clones = Vec::new();
+    let mut lineful_clones_before_target = Vec::new();
     let mut block_order = vec![usize::MAX; blocks.len()];
     let mut current = BlockIdx(0);
     let mut pos = 0usize;
@@ -15565,6 +15614,39 @@ fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
 
     for target in 0..blocks.len() {
         let target = BlockIdx(target as u32);
+        if is_jump_back_only_block(blocks, target)
+            && instruction_lineno(&blocks[target.idx()].instructions[0]) >= 0
+        {
+            let jump_target =
+                next_nonempty_block(blocks, blocks[target.idx()].instructions[0].target);
+            let layout_pred = find_layout_predecessor(blocks, target);
+            if jump_target != BlockIdx::NULL
+                && comes_before(blocks, jump_target, target)
+                && layout_pred != BlockIdx::NULL
+                && !block_has_fallthrough(&blocks[layout_pred.idx()])
+                && predecessors[target.idx()] >= 2
+            {
+                let target_lineno = instruction_lineno(&blocks[target.idx()].instructions[0]);
+                for block_idx in 0..blocks.len() {
+                    let block_idx = BlockIdx(block_idx as u32);
+                    for (instr_idx, info) in blocks[block_idx.idx()].instructions.iter().enumerate()
+                    {
+                        if !is_conditional_jump(&info.instr)
+                            || info.target == BlockIdx::NULL
+                            || next_nonempty_block(blocks, info.target) != target
+                            || block_order[block_idx.idx()] >= block_order[target.idx()]
+                        {
+                            continue;
+                        }
+                        let jump_lineno = instruction_lineno(info);
+                        if jump_lineno >= 0 && jump_lineno != target_lineno {
+                            lineful_clones_before_target.push((target, block_idx, instr_idx));
+                        }
+                    }
+                }
+            }
+        }
+
         let Some(jump_target) = shared_jump_back_target(&blocks[target.idx()]) else {
             continue;
         };
@@ -15646,6 +15728,37 @@ fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
                 clones.push((target, block_idx, instr_idx));
             }
         }
+    }
+
+    lineful_clones_before_target.sort_by_key(|(target, block_idx, _)| {
+        (
+            block_order[target.idx()],
+            usize::MAX - block_order[block_idx.idx()],
+        )
+    });
+    for (target, block_idx, instr_idx) in lineful_clones_before_target {
+        if next_nonempty_block(
+            blocks,
+            blocks[block_idx.idx()].instructions[instr_idx].target,
+        ) != target
+        {
+            continue;
+        }
+        let jump = blocks[block_idx.idx()].instructions[instr_idx];
+        let layout_pred = find_layout_predecessor(blocks, target);
+        if layout_pred == BlockIdx::NULL {
+            continue;
+        }
+
+        let mut cloned = blocks[target.idx()].clone();
+        if let Some(first) = cloned.instructions.first_mut() {
+            overwrite_location(first, jump.location, jump.end_location);
+        }
+        let new_idx = BlockIdx(blocks.len() as u32);
+        cloned.next = target;
+        blocks.push(cloned);
+        blocks[layout_pred.idx()].next = new_idx;
+        blocks[block_idx.idx()].instructions[instr_idx].target = new_idx;
     }
 
     for (target, block_idx, instr_idx) in clones.into_iter().rev() {

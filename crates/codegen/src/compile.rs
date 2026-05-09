@@ -25392,6 +25392,69 @@ def f(kw):
     }
 
     #[test]
+    fn test_loop_nested_boolop_exit_keeps_cpython_backedge_line_order() {
+        let code = compile_exec(
+            "\
+def f(found, value, m, done, name, renamed_variables, keep_unresolved, variables):
+    for _ in [0]:
+        if m is not None:
+            if found:
+                if '$' in value:
+                    done[name] = value
+                else:
+                    try:
+                        value = int(value)
+                    except ValueError:
+                        done[name] = value.strip()
+                    else:
+                        done[name] = value
+                    variables.remove(name)
+                    if name.startswith('PY_') \\
+                    and name[3:] in renamed_variables:
+                        name = name[3:]
+                        if name not in done:
+                            done[name] = value
+        else:
+            if keep_unresolved:
+                done[name] = value
+            variables.remove(name)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            ops_lines.windows(9).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::StoreSubscr, 19),
+                        (Instruction::JumpBackward { .. }, 19),
+                        (Instruction::JumpBackward { .. }, 18),
+                        (Instruction::JumpBackward { .. }, 16),
+                        (Instruction::JumpBackward { .. }, 15),
+                        (Instruction::JumpBackward { .. }, 4),
+                        (
+                            Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                            21
+                        ),
+                        (Instruction::ToBool, 21),
+                        (Instruction::PopJumpIfFalse { .. }, 21),
+                    ]
+                )
+            }),
+            "expected CPython-style nested boolop backedge line order before enclosing else, got ops_lines={ops_lines:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_conditional_raise_before_elif_keeps_raise_before_backedge() {
         let code = compile_exec(
             "\
