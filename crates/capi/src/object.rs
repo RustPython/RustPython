@@ -372,7 +372,7 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     .to_str()
                     .expect("method name must be valid UTF-8")
             };
-            let method = build_method_def(vm, method, None).build_method(class_static, vm);
+            let method = build_method_def(vm, method).build_method(class_static, vm);
             class
                 .attributes
                 .write()
