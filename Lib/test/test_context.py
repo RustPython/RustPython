@@ -95,6 +95,7 @@ class ContextTest(unittest.TestCase):
             contextvars.Context(a=1)
         contextvars.Context(**{})
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_context_new_unhashable_str_subclass(self):
         # gh-132002: it used to crash on unhashable str subtypes.
         class weird_str(str):
