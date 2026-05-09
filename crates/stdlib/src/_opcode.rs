@@ -112,7 +112,7 @@ mod _opcode {
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
         try_from_i32(opcode)
-            .map(|op| &&op.has_name())
+            .map(|op| op.has_name())
             .unwrap_or(false)
     }
 

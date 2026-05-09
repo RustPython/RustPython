@@ -45,6 +45,17 @@ impl Opcode {
     pub const fn is_block_push(&self) -> bool {
         false
     }
+
+    /// Stack effect when the instruction takes its branch (jump=true).
+    ///
+    /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
+    /// For most instructions this equals the fallthrough effect.
+    /// Override for instructions where branch and fallthrough differ
+    /// (e.g. [`Self::ForIter`]: fallthrough = +1, branch = −1).
+    #[must_use]
+    pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
+        self.stack_effect(oparg)
+    }
 }
 
 impl PseudoOpcode {
@@ -59,6 +70,22 @@ impl PseudoOpcode {
             self,
             Self::SetupCleanup | Self::SetupFinally | Self::SetupWith
         )
+    }
+
+    /// Handler entry effect for SETUP_* pseudo ops.
+    ///
+    /// Fallthrough effect is 0 (NOPs), but when the branch is taken the
+    /// handler block starts with extra values on the stack:
+    ///   SETUP_FINALLY:  +1  (exc)
+    ///   SETUP_CLEANUP:  +2  (lasti + exc)
+    ///   SETUP_WITH:     +1  (pops __enter__ result, pushes lasti + exc)
+    #[must_use]
+    pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
+        match self {
+            Self::SetupFinally | Self::SetupWith => 1,
+            Self::SetupCleanup => 2,
+            _ => self.stack_effect(oparg),
+        }
     }
 }
 
@@ -91,15 +118,9 @@ impl Instruction {
         self.as_opcode().deoptimize().as_instruction()
     }
 
-    /// Stack effect when the instruction takes its branch (jump=true).
-    ///
-    /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
-    /// For most instructions this equals the fallthrough effect.
-    /// Override for instructions where branch and fallthrough differ
-    /// (e.g. [`Self::ForIter`]: fallthrough = +1, branch = −1).
     #[must_use]
     pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
-        self.stack_effect(oparg)
+        self.as_opcode().stack_effect(oparg)
     }
 }
 
@@ -126,20 +147,9 @@ impl PseudoInstruction {
         false
     }
 
-    /// Handler entry effect for SETUP_* pseudo ops.
-    ///
-    /// Fallthrough effect is 0 (NOPs), but when the branch is taken the
-    /// handler block starts with extra values on the stack:
-    ///   SETUP_FINALLY:  +1  (exc)
-    ///   SETUP_CLEANUP:  +2  (lasti + exc)
-    ///   SETUP_WITH:     +1  (pops __enter__ result, pushes lasti + exc)
     #[must_use]
     pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
-        match self.as_opcode() {
-            PseudoOpcode::SetupFinally | PseudoOpcode::SetupWith => 1,
-            PseudoOpcode::SetupCleanup => 2,
-            _ => self.stack_effect(oparg),
-        }
+        self.as_opcode().stack_effect_jump(oparg)
     }
 }
 
@@ -455,6 +465,16 @@ impl AnyOpcode {
     either_real_pseudo!(
     #[must_use]
     pub const fn is_block_push(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub fn stack_effect_jump(&self, oparg: u32) -> i32
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub fn stack_effect(&self, oparg: u32) -> i32
     );
 
     #[must_use]
