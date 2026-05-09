@@ -13036,6 +13036,21 @@ fn is_scope_exit_block(block: &Block) -> bool {
         .is_some_and(|instr| instr.instr.is_scope_exit())
 }
 
+fn is_pop_top_scope_exit_block(block: &Block) -> bool {
+    is_scope_exit_block(block)
+        && matches!(
+            block
+                .instructions
+                .first()
+                .and_then(|info| info.instr.real()),
+            Some(Instruction::PopTop)
+        )
+}
+
+fn is_pop_top_exit_like_block(block: &Block) -> bool {
+    is_pop_top_scope_exit_block(block) || is_pop_top_jump_block(block)
+}
+
 fn is_loop_cleanup_block(block: &Block) -> bool {
     block
         .instructions
@@ -13332,11 +13347,13 @@ fn block_is_pure_conditional_test(block: &Block) -> bool {
                     | Instruction::LoadFastLoadFast { .. }
                     | Instruction::LoadFastBorrowLoadFastBorrow { .. }
                     | Instruction::LoadDeref { .. }
+                    | Instruction::LoadGlobal { .. }
                     | Instruction::LoadConst { .. }
                     | Instruction::LoadSmallInt { .. }
                     | Instruction::LoadAttr { .. }
                     | Instruction::BinaryOp { .. }
                     | Instruction::ContainsOp { .. }
+                    | Instruction::IsOp { .. }
                     | Instruction::CompareOp { .. }
                     | Instruction::ToBool
             )
@@ -13459,7 +13476,9 @@ fn reorder_conditional_exit_and_jump_blocks(blocks: &mut [Block]) {
                     .instructions
                     .iter()
                     .any(|info| matches!(info.instr.real(), Some(Instruction::EndAsyncFor)));
-            if after_jump_is_end_async_for {
+            let after_jump_is_adjacent_scope_exit = after_jump != BlockIdx::NULL
+                && is_pop_top_exit_like_block(&blocks[after_jump.idx()]);
+            if after_jump_is_end_async_for || after_jump_is_adjacent_scope_exit {
                 current = next;
                 continue;
             }
@@ -13850,6 +13869,15 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             .instructions
             .first()
             .is_some_and(|info| matches!(info.lineno_override, Some(line) if line < 0));
+        let after_jump_is_adjacent_scope_exit =
+            after_jump != BlockIdx::NULL && is_pop_top_exit_like_block(&blocks[after_jump.idx()]);
+        if !is_generic_false_path_reorder
+            && chain_is_single_exit_block
+            && after_jump_is_adjacent_scope_exit
+        {
+            current = next;
+            continue;
+        }
         if is_generic_false_path_reorder
             && jump_is_artificial
             && after_jump != BlockIdx::NULL
@@ -14025,9 +14053,12 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
                 || (!allow_for_iter_jump_targets
                     && is_explicit_non_for_jump_back(blocks, jump_block))
                 || (after_jump != BlockIdx::NULL
+                    && is_pop_top_exit_like_block(&blocks[after_jump.idx()]))
+                || (after_jump != BlockIdx::NULL
                     && !blocks[after_jump.idx()].cold
                     && !is_scope_exit_block(&blocks[after_jump.idx()])
-                    && !is_loop_cleanup_block(&blocks[after_jump.idx()]))
+                    && !is_loop_cleanup_block(&blocks[after_jump.idx()])
+                    && jump_targets_for_iter(blocks, jump_block))
                 || next_nonempty_block(blocks, blocks[exit_block.idx()].next) != jump_block
             {
                 current = next;
@@ -14574,10 +14605,7 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 return None;
             }
             visited[cursor.idx()] = true;
-            if block_is_exceptional(&blocks[cursor.idx()])
-                || (block_is_protected(&blocks[cursor.idx()])
-                    && !block_has_only_stop_iteration_error_handlers(&blocks[cursor.idx()], blocks))
-            {
+            if block_is_exceptional(&blocks[cursor.idx()]) {
                 return None;
             }
             tail = cursor;
@@ -14729,6 +14757,33 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
         false
     }
 
+    fn block_ends_with_jump_back_to(
+        blocks: &[Block],
+        block_idx: BlockIdx,
+        target: BlockIdx,
+    ) -> bool {
+        let Some(last) = blocks[block_idx.idx()].instructions.last() else {
+            return false;
+        };
+        last.instr.is_unconditional_jump()
+            && last.target != BlockIdx::NULL
+            && next_nonempty_block(blocks, last.target) == next_nonempty_block(blocks, target)
+            && comes_before(blocks, next_nonempty_block(blocks, target), block_idx)
+    }
+
+    fn conditional_jump_target_count(blocks: &[Block], target: BlockIdx) -> usize {
+        let target = next_nonempty_block(blocks, target);
+        blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .filter(|info| {
+                is_conditional_jump(&info.instr)
+                    && info.target != BlockIdx::NULL
+                    && next_nonempty_block(blocks, info.target) == target
+            })
+            .count()
+    }
+
     fn empty_chain_reaches(blocks: &[Block], start: BlockIdx, target: BlockIdx) -> bool {
         let mut cursor = start;
         let mut visited = vec![false; blocks.len()];
@@ -14866,8 +14921,16 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 trailing_conditional_jump_index(&blocks[body_tail.idx()]).is_some();
             let body_is_single_block = body == body_tail;
             let body_has_scope_exit = body_segment_contains_scope_exit(blocks, body, body_tail);
-            let body_has_loop_backedge =
-                body_segment_contains_jump_back_to(blocks, body, body_tail, loop_target);
+            let body_tail_has_scope_exit = is_scope_exit_block(&blocks[body_tail.idx()]);
+            let body_starts_conditional_chain = block_is_pure_conditional_test(&blocks[body.idx()]);
+            let body_tail_ends_with_loop_backedge =
+                block_ends_with_jump_back_to(blocks, body_tail, loop_target);
+            let body_has_loop_backedge = body_tail_ends_with_loop_backedge
+                || body_segment_contains_jump_back_to(blocks, body, body_tail, loop_target);
+            if body_has_scope_exit && !body_tail_has_scope_exit {
+                current = next;
+                continue;
+            }
             let body_has_inner_for_iter = body_segment_contains_for_iter(blocks, body, body_tail);
             let body_has_any_loop_backedge = body_has_inner_for_iter
                 && body_segment_contains_any_jump_back(blocks, body, body_tail);
@@ -14882,30 +14945,47 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                 block_starts_loop_cleanup(blocks, after_jump_target);
             let after_jump_continues_conditional_chain = after_jump_target != BlockIdx::NULL
                 && block_is_pure_conditional_test(&blocks[after_jump_target.idx()]);
+            let body_is_pop_top_exit_like =
+                body_is_single_block && is_pop_top_exit_like_block(&blocks[body.idx()]);
+            if (body_has_scope_exit || body_is_pop_top_exit_like)
+                && after_jump_target != BlockIdx::NULL
+                && is_pop_top_exit_like_block(&blocks[after_jump_target.idx()])
+            {
+                current = next;
+                continue;
+            }
             if after_jump_continues_conditional_chain {
                 current = next;
                 continue;
             }
+            let jump_target_has_multiple_conditional_predecessors =
+                conditional_jump_target_count(blocks, true_jump_start) > 1;
+            let body_has_call = block_has_call(&blocks[body.idx()]);
             let simple_single_block_can_reorder = body_is_single_block
                 && !body_tail_is_conditional
                 && !has_exceptional_duplicate_condition_line
-                && (!block_has_call(&blocks[body.idx()])
-                    || (block_starts_loop_cleanup(blocks, after_jump_target)
-                        && !block_is_protected(&blocks[body.idx()])
-                        && !has_exceptional_duplicate_condition_line))
+                && (!body_has_call || block_starts_loop_cleanup(blocks, after_jump_target))
                 && !body_has_scope_exit
-                && !blocks[body.idx()]
+                && (!blocks[body.idx()]
                     .instructions
                     .iter()
                     .any(|info| info.instr.is_unconditional_jump())
+                    || body_tail_ends_with_loop_backedge)
                 && !after_jump_continues_conditional_chain
                 && matches!(cond.instr.real(), Some(Instruction::PopJumpIfFalse { .. }));
             let trailing_implicit_continue_can_reorder = after_jump != BlockIdx::NULL
                 && next_nonempty_block(blocks, after_jump) != body
-                && (!after_jump_starts_loop_cleanup || body_has_any_loop_backedge)
+                && (!after_jump_starts_loop_cleanup
+                    || body_has_loop_backedge
+                    || body_has_any_loop_backedge)
+                && !(body_has_scope_exit
+                    && after_jump_target != BlockIdx::NULL
+                    && is_scope_exit_block(&blocks[after_jump_target.idx()])
+                    && !body_starts_conditional_chain)
                 && !is_scope_exit_block(&blocks[body.idx()]);
             let can_reorder = !has_exceptional_duplicate_condition_line
                 && !has_prior_protected_scope_exit
+                && (!jump_target_has_multiple_conditional_predecessors || body_tail_has_scope_exit)
                 && ((!body_tail_is_conditional
                     && ((normalized_single_block_can_reorder
                         && body_is_single_block
@@ -14914,20 +14994,26 @@ fn reorder_conditional_body_and_implicit_continue_blocks(blocks: &mut Vec<Block>
                             && is_single_delete_subscr_body(&blocks[body.idx()]))
                         || simple_single_block_can_reorder))
                     || (trailing_implicit_continue_can_reorder
-                        && (body_has_scope_exit
+                        && ((body_has_scope_exit && body_tail_has_scope_exit)
                             || body_has_loop_backedge
                             || (after_jump_starts_loop_cleanup && body_has_any_loop_backedge))
                         && !after_jump_continues_conditional_chain));
             if can_reorder && after_jump != BlockIdx::NULL && after_jump != body_start {
-                let cloned_jump_idx = BlockIdx(blocks.len() as u32);
-                let mut cloned_jump = blocks[true_jump.idx()].clone();
-                cloned_jump.next = body_start;
-                blocks.push(cloned_jump);
-
                 blocks[idx].instructions[cond_idx].instr = reversed_cond;
                 blocks[idx].instructions[cond_idx].target = body_start;
-                blocks[idx].next = cloned_jump_idx;
-                blocks[body_tail.idx()].next = true_jump_start;
+                if body_tail_ends_with_loop_backedge && true_jump_start == true_jump {
+                    blocks[idx].next = true_jump_start;
+                    blocks[true_jump.idx()].next = body_start;
+                    blocks[body_tail.idx()].next = after_jump;
+                } else {
+                    let cloned_jump_idx = BlockIdx(blocks.len() as u32);
+                    let mut cloned_jump = blocks[true_jump.idx()].clone();
+                    cloned_jump.next = body_start;
+                    blocks.push(cloned_jump);
+
+                    blocks[idx].next = cloned_jump_idx;
+                    blocks[body_tail.idx()].next = true_jump_start;
+                }
                 current = blocks[idx].next;
                 continue;
             }

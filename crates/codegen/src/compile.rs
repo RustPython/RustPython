@@ -3904,8 +3904,7 @@ impl Compiler {
         );
         self.set_no_location();
         if (!orelse.is_empty() && self.statements_end_with_loop_fallthrough(orelse)?)
-            || (orelse.is_empty()
-                && exits_directly_to_with_cleanup
+            || (exits_directly_to_with_cleanup
                 && handlers_end_with_scope_exit
                 && !Self::statements_end_with_nonterminal_with_cleanup(body))
         {
@@ -15506,6 +15505,48 @@ def f(cm):
     }
 
     #[test]
+    fn test_with_try_except_else_return_handler_keeps_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, func, check):
+    with cm:
+        try:
+            func()
+        except ValueError:
+            return False
+        else:
+            check()
+    return True
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "try/except/else inside with with scope-exiting handler should preserve the CPython body-exit NOP before with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_with_nonterminal_try_except_normal_cleanup_drops_body_exit_nop() {
         let code = compile_exec(
             "\
@@ -25141,6 +25182,52 @@ def f(self, tag):
     }
 
     #[test]
+    fn test_while_boolop_conditional_return_splits_backedges_before_return_body() {
+        let code = compile_exec(
+            "\
+def f(flags, A, B, stop):
+    while True:
+        if stop:
+            break
+        if flags & A and flags & B:
+            return None
+    return flags
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(12).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::BinaryOp { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "boolop conditional return in a while tail should split CPython-style false backedges before the return body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_for_break_to_return_orders_backedge_before_return() {
         let code = compile_exec(
             "\
@@ -27931,6 +28018,338 @@ def f(seq, db):
     }
 
     #[test]
+    fn test_nested_loop_if_try_body_implicit_continue_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(seq, broken, codecs, LookupError, s, Queue, bytes):
+    for encoding in seq:
+        if encoding not in broken:
+            q = Queue(b'')
+            writer = codecs.getwriter(encoding)(q)
+            encodedresult = b''
+            for c in s:
+                writer.write(c)
+                chunk = q.read()
+                encodedresult += chunk
+            q = Queue(b'')
+            reader = codecs.getreader(encoding)(q)
+            decodedresult = ''
+            for c in encodedresult:
+                q.write(bytes([c]))
+                decodedresult += reader.read()
+        if encoding not in broken:
+            try:
+                encoder = codecs.getincrementalencoder(encoding)()
+            except LookupError:
+                pass
+            else:
+                encoder.encode('x')
+            if encoding not in ('idna', 'mbcs'):
+                try:
+                    encoder = codecs.getincrementalencoder(encoding)('ignore')
+                except LookupError:
+                    pass
+                else:
+                    encodedresult = b''.join(encoder.encode(c) for c in s)
+                    decoder = codecs.getincrementaldecoder(encoding)('ignore')
+                    decodedresult = ''.join(decoder.decode(bytes([c])) for c in encodedresult)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "nested final if with try body should put false backedge before body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "nested final if with try body should not leave body before false backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_branch_raise_before_elif_keeps_body_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(checks, UNIQUE, CONTINUOUS, ValueError):
+    for check in checks:
+        if check is UNIQUE:
+            duplicates = []
+            for name in checks:
+                if name:
+                    duplicates.append(name)
+            if duplicates:
+                detail = ', '.join(str(name) for name in duplicates)
+                raise ValueError('aliases: %s' % detail)
+        elif check is CONTINUOUS:
+            value = 1
+    return value
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "raise body before an elif chain should stay before the branch backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "raise body before an elif chain should not be moved after the branch backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_nested_raise_then_append_places_body_after_false_backedge() {
+        let code = compile_exec(
+            "\
+def f(args, parameters, enforce_default_ordering, type_var_tuple_encountered, default_encountered, TypeError):
+    for t in args:
+        if t not in parameters:
+            if enforce_default_ordering:
+                if type_var_tuple_encountered and t.has_default():
+                    raise TypeError('a')
+                if t.has_default():
+                    default_encountered = True
+                elif default_encountered:
+                    raise TypeError('b')
+            parameters.append(t)
+    return parameters
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "CPython places the nested raise/append body after the false backedge for this loop tail, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "this case should not keep the body before the false backedge; CPython emits the split backedge first, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_break_before_adjacent_break_keeps_body_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(pattern, prefix, get_prefix):
+    for op, av in pattern:
+        if op == 1:
+            prefix.append(av)
+        elif op == 2:
+            prefix1, got_all = get_prefix(av)
+            prefix.extend(prefix1)
+            if not got_all:
+                break
+        else:
+            break
+    else:
+        return prefix, True
+    return prefix, False
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::PopTop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::BuildTuple { .. },
+                    ]
+                )
+            }),
+            "break before an adjacent break exit should stay before the loop backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "break before an adjacent break exit should not be moved after the loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_elif_and_pass_keeps_shared_false_backedge_after_body() {
+        let code = compile_exec(
+            "\
+def f(methods, simple_keys, checked_keys, checked_enum, simple_enum, failed):
+    for method in methods:
+        if method in simple_keys and method in checked_keys:
+            continue
+        elif method not in simple_keys and method not in checked_keys:
+            checked_method = getattr(checked_enum, method, None)
+            simple_method = getattr(simple_enum, method, None)
+            if hasattr(checked_method, '__func__'):
+                checked_method = checked_method.__func__
+                simple_method = simple_method.__func__
+            if checked_method != simple_method:
+                failed.append(method)
+        else:
+            pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(9).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadGlobal { .. },
+                        _,
+                    ]
+                )
+            }),
+            "elif-and body should stay before the shared false backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "elif-and shared false backedge should not be split before the body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_nested_if_delete_slice_places_body_after_jumpback() {
         let code = compile_exec(
             "\
@@ -28062,18 +28481,17 @@ def f(state, nextchar, whitespace, token, posix, quoted, debug):
             .collect();
 
         assert!(
-            ops.windows(7).any(|window| {
+            ops.windows(5).any(|window| {
                 matches!(
                     window,
                     [
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
                         Instruction::ContainsOp { .. },
                         Instruction::PopJumpIfTrue { .. },
                         Instruction::NotTaken,
                         Instruction::JumpBackward { .. }
                             | Instruction::JumpBackwardNoInterrupt { .. },
-                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
-                        Instruction::ToBool,
                     ]
                 )
             }),
@@ -28111,18 +28529,18 @@ def f(self, nextchar, quoted):
             .collect();
 
         assert!(
-            ops.windows(7).any(|window| {
+            ops.windows(6).any(|window| {
                 matches!(
                     window,
                     [
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadAttr { .. },
                         Instruction::ContainsOp { .. },
                         Instruction::PopJumpIfTrue { .. },
                         Instruction::NotTaken,
                         Instruction::JumpBackward { .. }
                             | Instruction::JumpBackwardNoInterrupt { .. },
-                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
-                        Instruction::ToBool,
                     ]
                 )
             }),
