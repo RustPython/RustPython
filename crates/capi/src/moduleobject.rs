@@ -1,9 +1,12 @@
 use crate::PyObject;
 use crate::methodobject::PyMethodDef;
+use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use rustpython_vm::AsObject;
 use rustpython_vm::builtins::PyModule;
 use std::ffi::{CStr, c_char, c_int, c_void};
+
+define_py_check!(PyModule_Check, types.module_type);
 
 const PY_MOD_CREATE: c_int = 1;
 const PY_MOD_EXEC: c_int = 2;

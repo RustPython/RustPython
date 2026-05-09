@@ -1,3 +1,4 @@
+use crate::object::define_py_check;
 use crate::{PyObject, with_vm};
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
@@ -5,6 +6,8 @@ use core::slice;
 use core::str;
 use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyStr;
+
+define_py_check!(PyUnicode_Check, types.str_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *mut PyObject {

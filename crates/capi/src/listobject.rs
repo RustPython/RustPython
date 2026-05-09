@@ -1,9 +1,12 @@
 use crate::PyObject;
+use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use core::ffi::c_int;
 use core::ptr::NonNull;
 use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyList;
+
+define_py_check!(PyList_Check, types.list_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyList_New(size: isize) -> *mut PyObject {

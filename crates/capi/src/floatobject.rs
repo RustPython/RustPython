@@ -1,6 +1,9 @@
+use crate::object::define_py_check;
 use crate::{PyObject, with_vm};
 use core::ffi::c_double;
 use rustpython_vm::builtins::PyFloat;
+
+define_py_check!(PyFloat_Check, types.float_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyFloat_FromDouble(value: c_double) -> *mut PyObject {

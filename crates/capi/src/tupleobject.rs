@@ -1,7 +1,10 @@
 use crate::PyObject;
+use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use rustpython_vm::PyResult;
 use rustpython_vm::builtins::PyTuple;
+
+define_py_check!(PyTuple_Check, types.tuple_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyTuple_New(len: isize) -> *mut PyObject {

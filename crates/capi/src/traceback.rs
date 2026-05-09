@@ -1,7 +1,10 @@
 use crate::PyObject;
+use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use core::ffi::c_int;
 use rustpython_vm::function::{FuncArgs, KwArgs};
+
+define_py_check!(exact PyTraceBack_Check, types.traceback_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyTraceBack_Print(tb: *mut PyObject, file: *mut PyObject) -> c_int {
