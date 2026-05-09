@@ -483,10 +483,8 @@ mod _contextvars {
     #[derive(FromArgs)]
     struct ContextVarOptions {
         #[pyarg(positional)]
-        #[allow(dead_code)] // TODO: RUSTPYTHON
         name: PyStrRef,
         #[pyarg(any, optional)]
-        #[allow(dead_code)] // TODO: RUSTPYTHON
         default: OptionalArg<PyObjectRef>,
     }
 
@@ -533,15 +531,15 @@ mod _contextvars {
     impl Representable for ContextVar {
         #[inline]
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            // unimplemented!("<ContextVar name={{}} default={{}} at {{}}")
-            Ok(format!(
-                "<ContextVar name={} default={:?} at {:#x}>",
-                zelf.name.as_str(),
-                zelf.default
-                    .as_ref()
-                    .and_then(|default| default.str(vm).ok()),
-                zelf.get_id()
-            ))
+            let name = zelf.name.as_str();
+            let id = zelf.get_id();
+
+            Ok(if let Some(arg) = zelf.default.as_ref() {
+                let default = arg.str(vm).ok();
+                format!("<ContextVar name='{name}' default={default:?} at {id:#x}>",)
+            } else {
+                format!("<ContextVar name='{name}' at {id:#x}>")
+            })
         }
     }
 

@@ -149,6 +149,30 @@ class TestFoo(unittest.TestCase):
         specs = patches["TestFoo"]["test_one"]
         self.assertEqual(len(specs), 2)
 
+    def test_comment_confusion(self):
+        """
+        Test that we only extract our patches when CPython set one of the UT methods,
+        that we search for
+        """
+
+        code = f"""
+class TestFoo(unittest.TestCase):
+    @unittest.expectedSuccess # {COMMENT}; reason
+    @unittest.expectedFailure
+    def test_one(self):
+        pass
+        """
+
+        patches = extract_patches(code)
+        specs = patches["TestFoo"]["test_one"]
+        self.assertEqual(len(specs), 1)
+
+        spec = specs[0]
+        self.assertEqual(
+            spec,
+            PatchSpec(ut_method=UtMethod.ExpectedSuccess, cond=None, reason="reason"),
+        )
+
 
 class TestApplyPatches(unittest.TestCase):
     """Tests for apply_patches function."""
