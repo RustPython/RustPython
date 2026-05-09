@@ -534,7 +534,7 @@ mod _contextvars {
             let name = zelf.name.as_str();
             let id = zelf.get_id();
 
-            Ok(if let Some(ref arg) = zelf.default.as_ref() {
+            Ok(if let Some(arg) = zelf.default.as_ref() {
                 let default = arg.str(vm).ok();
                 format!("<ContextVar name='{name}' default={default:?} at {id:#x}>",)
             } else {
