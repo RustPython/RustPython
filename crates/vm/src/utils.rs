@@ -1,3 +1,5 @@
+use core::fmt;
+
 use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 
 use crate::{
@@ -71,4 +73,17 @@ where
     }
 
     Ok(repr)
+}
+
+/// Wrapper around a bytes vector that implements [`fmt::Write`].
+///
+/// # Safety
+/// Don't assume the contents of the internal vector are valid UTF-8/WTF-8.
+pub(crate) struct VecFmtWriter(pub Vec<u8>);
+
+impl fmt::Write for VecFmtWriter {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.0.extend(s.bytes());
+        Ok(())
+    }
 }
