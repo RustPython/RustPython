@@ -4,6 +4,7 @@ use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
+use rustpython_vm::builtins::PyStr;
 use rustpython_vm::function::{FuncArgs, HeapMethodDef, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
@@ -63,11 +64,9 @@ enum Binding {
 }
 
 impl Binding {
-    fn self_ptr(self, args: &mut FuncArgs, slf: Option<&PyObjectRef>) -> *mut PyObject {
+    fn self_ptr(self, args: &mut FuncArgs) -> *mut PyObject {
         if self == Binding::Static {
             core::ptr::null_mut()
-        } else if let Some(slf) = slf {
-            slf.as_object().as_raw().cast_mut()
         } else if !args.args.is_empty() {
             args.args.remove(0).as_object().as_raw().cast_mut()
         } else {
@@ -123,7 +122,6 @@ impl FunctionType {
         name: &'static str,
         flags: PyMethodFlags,
         method: PyMethodPointer,
-        slf: Option<PyObjectRef>,
         doc: Option<&'static str>,
     ) -> PyRef<HeapMethodDef> {
         let binding = self.binding;
@@ -131,7 +129,7 @@ impl FunctionType {
             CallConvention::NoArgs => {
                 let f = unsafe { method.function };
                 let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-                    let slf_ptr = binding.self_ptr(&mut args, slf.as_ref());
+                    let slf_ptr = binding.self_ptr(&mut args);
                     let arg_tuple = vm.ctx.new_tuple(args.args);
                     debug_assert!(arg_tuple.is_empty(), "Expected no arguments, but got some");
                     let ret_ptr = unsafe { f(slf_ptr, arg_tuple.as_object().as_raw().cast_mut()) };
@@ -142,7 +140,7 @@ impl FunctionType {
             CallConvention::VarArgs => {
                 let f = unsafe { method.function };
                 let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-                    let slf_ptr = binding.self_ptr(&mut args, slf.as_ref());
+                    let slf_ptr = binding.self_ptr(&mut args);
                     let arg_tuple = vm.ctx.new_tuple(args.args);
                     let ret_ptr = unsafe { f(slf_ptr, arg_tuple.as_object().as_raw().cast_mut()) };
                     ret_ptr_to_pyresult(vm, ret_ptr)
@@ -152,7 +150,7 @@ impl FunctionType {
             CallConvention::VarArgsKeywords => {
                 let f = unsafe { method.function_with_keywords };
                 let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-                    let slf_ptr = binding.self_ptr(&mut args, slf.as_ref());
+                    let slf_ptr = binding.self_ptr(&mut args);
                     let arg_tuple = vm.ctx.new_tuple(args.args);
                     let kwargs = vm.ctx.new_dict();
                     for (k, v) in args.kwargs {
@@ -172,7 +170,7 @@ impl FunctionType {
             CallConvention::FastCallKeywords => {
                 let f = unsafe { method.function_fast_with_keywords };
                 let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-                    let slf_ptr = binding.self_ptr(&mut args, slf.as_ref());
+                    let slf_ptr = binding.self_ptr(&mut args);
                     let nargs = args.args.len();
                     let mut fastcall_args = args.args;
                     let mut kwnames_tuple = None;
@@ -228,11 +226,7 @@ fn ret_ptr_to_pyresult(vm: &VirtualMachine, ret_ptr: *mut PyObject) -> PyResult 
     Ok(unsafe { PyObjectRef::from_raw(ret_ptr) })
 }
 
-pub(crate) fn build_method_def(
-    vm: &VirtualMachine,
-    ml: &PyMethodDef,
-    slf: Option<PyObjectRef>,
-) -> PyRef<HeapMethodDef> {
+pub(crate) fn build_method_def(vm: &VirtualMachine, ml: &PyMethodDef) -> PyRef<HeapMethodDef> {
     let name = unsafe { CStr::from_ptr(ml.ml_name) }
         .to_str()
         .expect("Method name was not valid UTF-8");
@@ -246,7 +240,7 @@ pub(crate) fn build_method_def(
     let flags =
         PyMethodFlags::from_bits(ml.ml_flags as u32).expect("PyMethodDef contains unknown flags");
 
-    FunctionType::from_flags(flags).build_heap_method_def(vm, name, flags, ml.ml_meth, slf, doc)
+    FunctionType::from_flags(flags).build_heap_method_def(vm, name, flags, ml.ml_meth, doc)
 }
 
 #[unsafe(no_mangle)]
@@ -257,9 +251,13 @@ pub extern "C" fn PyCMethod_New(
     _cls: *mut PyTypeObject,
 ) -> *mut PyObject {
     with_vm(|vm| -> PyResult {
+        assert!(
+            _cls.is_null(),
+            "PyCMethod_New does not support METH_METHOD yet"
+        );
         let ml = unsafe { &*ml };
-        let slf = NonNull::new(slf).map(|ptr| unsafe { ptr.as_ref().to_owned() });
-        Ok(build_method_def(vm, ml, slf).build_function(vm).into())
+        let zelf = unsafe { slf.as_ref().map(|obj| obj.to_owned()) };
+        Ok(build_method_def(vm, ml).build_function(vm, zelf).into())
     })
 }
 
