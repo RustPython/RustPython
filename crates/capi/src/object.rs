@@ -23,19 +23,31 @@ macro_rules! define_py_check {
     ($name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(obj: *mut PyObject) -> core::ffi::c_int {
-            with_vm(|vm| unsafe { (&*obj).class().is_subtype(vm.ctx.$($ctx_path).+) })
+            with_vm(|vm| unsafe {
+                obj
+                .as_ref()
+                .map(|obj| obj.class().is_subtype(vm.ctx.$($ctx_path).+))
+                .unwrap_or_default()
+            })
         }
     };
     (exact $name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(obj: *mut PyObject) -> core::ffi::c_int {
-            with_vm(|vm| unsafe { (&*obj).class().is(vm.ctx.$($ctx_path).+) })
+            use rustpython_vm::AsObject;
+            with_vm(|vm| unsafe {
+                obj
+                .as_ref()
+                .map(|obj| obj.class().is(vm.ctx.$($ctx_path).+))
+                .unwrap_or_default()
+            })
         }
     };
 }
 
 pub(crate) use define_py_check;
 define_py_check!(PyType_Check, types.type_type);
+define_py_check!(exact PyType_CheckExact, types.type_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {

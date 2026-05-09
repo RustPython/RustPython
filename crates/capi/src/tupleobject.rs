@@ -5,6 +5,7 @@ use rustpython_vm::PyResult;
 use rustpython_vm::builtins::PyTuple;
 
 define_py_check!(PyTuple_Check, types.tuple_type);
+define_py_check!(exact PyTuple_CheckExact, types.tuple_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyTuple_New(len: isize) -> *mut PyObject {

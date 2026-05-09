@@ -6,6 +6,7 @@ use rustpython_vm::AsObject;
 use rustpython_vm::builtins::PyDict;
 
 define_py_check!(PyDict_Check, types.dict_type);
+define_py_check!(exact PyDict_CheckExact, types.dict_type);
 define_py_check!(PyDictKeys_Check, types.dict_keys_type);
 define_py_check!(PyDictValues_Check, types.dict_values_type);
 define_py_check!(PyDictItems_Check, types.dict_items_type);
