@@ -3567,7 +3567,6 @@ dependencies = [
  "strum_macros",
  "thiserror 2.0.18",
  "timsort",
- "uname",
  "unicode-casing",
  "wasm-bindgen",
  "which",
@@ -4254,15 +4253,6 @@ name = "ucd"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe4fa6e588762366f1eb4991ce59ad1b93651d0b769dfb4e4d1c5c4b943d1159"
-
-[[package]]
-name = "uname"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b72f89f0ca32e4db1c04e2a72f5345d59796d4866a1ee0609084569f73683dc8"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "unic-char-property"

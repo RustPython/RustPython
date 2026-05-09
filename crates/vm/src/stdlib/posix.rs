@@ -1475,15 +1475,15 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn uname(vm: &VirtualMachine) -> PyResult<_os::UnameResultData> {
-        let info = uname::uname().map_err(|err| err.into_pyexception(vm))?;
-        Ok(_os::UnameResultData {
-            sysname: info.sysname,
-            nodename: info.nodename,
-            release: info.release,
-            version: info.version,
-            machine: info.machine,
-        })
+    fn uname() -> _os::UnameResultData {
+        let info = rustix::system::uname();
+        _os::UnameResultData {
+            sysname: info.sysname().to_string_lossy().into(),
+            nodename: info.nodename().to_string_lossy().into(),
+            release: info.release().to_string_lossy().into(),
+            version: info.version().to_string_lossy().into(),
+            machine: info.machine().to_string_lossy().into(),
+        }
     }
 
     #[pyfunction]
