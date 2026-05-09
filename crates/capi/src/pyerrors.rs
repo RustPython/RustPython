@@ -166,6 +166,16 @@ pub extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyExceptionClass_Check(obj: *mut PyObject) -> c_int {
+    with_vm(|vm| unsafe {
+        obj.as_ref()
+            .and_then(|obj| obj.downcast_ref::<PyType>())
+            .map(|ty| ty.is_subtype(vm.ctx.exceptions.base_exception_type))
+            .unwrap_or_default()
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyErr_NewException(
     name: *const c_char,
     base: *mut PyObject,
