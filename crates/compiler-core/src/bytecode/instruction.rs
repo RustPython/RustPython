@@ -449,11 +449,6 @@ impl AnyOpcode {
 
     either_real_pseudo!(
     #[must_use]
-    pub const fn has_exc(&self) -> bool
-    );
-
-    either_real_pseudo!(
-    #[must_use]
     pub const fn is_instrumented(&self) -> bool
     );
 

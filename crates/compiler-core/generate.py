@@ -158,25 +158,27 @@ class OpcodeGen:
         lambda self: self.build_has_attr_fn("local", "uses_locals", "HAS_LOCAL_FLAG")
     )
 
-    fn_has_exc = property(
-        lambda self: self.build_has_attr_fn("exc", "pure", "HAS_PURE_FLAG")
-    )
-
     @property
-    def instrumented(self) -> list:
-        return [instr for instr in self if instr.name.startswith("Instrumented")]
-
-    @property
-    def fn_to_base(self) -> str:
-        inames = {instr.name for instr in self.instrumented}
+    def instrumented_mapping(self) -> dict[str, str]:
+        inames = {instr.name for instr in self if instr.name.startswith("Instrumented")}
         names = {instr.name for instr in self} - inames
 
-        arms = ""
+        res = {}
         for iname in sorted(inames):
             name = iname.removeprefix("Instrumented")
             if name not in names:
                 continue
-            arms += f"Self::{iname} => Self::{name},\n"
+
+            res[name] = iname
+
+        return res
+
+    @property
+    def fn_to_base(self) -> str:
+        arms = ",\n".join(
+            f"Self::{iname} => Self::{name}"
+            for name, iname in self.instrumented_mapping.items()
+        )
 
         arms = arms.strip()
         if not arms:
@@ -184,7 +186,7 @@ class OpcodeGen:
         else:
             inner = f"""
             Some(match self {{
-                {arms}
+                {arms},
                 _ => return None,
 
             }})
@@ -199,15 +201,10 @@ class OpcodeGen:
 
     @property
     def fn_to_instrumented(self) -> str:
-        inames = {instr.name for instr in self.instrumented}
-        names = {instr.name for instr in self} - inames
-
-        arms = ""
-        for iname in sorted(inames):
-            name = iname.removeprefix("Instrumented")
-            if name not in names:
-                continue
-            arms += f"Self::{name} => Self::{iname},\n"
+        arms = ",\n".join(
+            f"Self::{name} => Self::{iname}"
+            for name, iname in self.instrumented_mapping.items()
+        )
 
         arms = arms.strip()
         if not arms:
@@ -215,7 +212,7 @@ class OpcodeGen:
         else:
             inner = f"""
             Some(match self {{
-                {arms}
+                {arms},
                 _ => return None,
 
             }})
@@ -334,7 +331,7 @@ class OpcodeGen:
             arms += f"""
                 Self::{name} => (
                     {pushed}, {pushed_comment}
-                    {popped} {popped_comment}
+                    {popped}, {popped_comment}
                 ),
             """.strip()
 
@@ -413,7 +410,7 @@ class OpcodeGen:
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class InstructioneGen:
+class InstructionGen:
     name: str
     opcode_enum: str
     instructions: list
@@ -686,7 +683,7 @@ def main():
 
         outfile.write(opcode_code)
 
-        instruction_code = InstructioneGen(
+        instruction_code = InstructionGen(
             name=instruction_enum,
             opcode_enum=opcode_enum,
             instructions=instructions,

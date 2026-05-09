@@ -1094,25 +1094,6 @@ impl Opcode {
         )
     }
 
-    /// Does this opcode have 'HAS_PURE_FLAG' set.
-    #[must_use]
-    pub const fn has_exc(self) -> bool {
-        matches!(
-            self,
-            Self::EndSend
-                | Self::Nop
-                | Self::NotTaken
-                | Self::PopIter
-                | Self::PopTop
-                | Self::PushNull
-                | Self::UnaryNot
-                | Self::Copy
-                | Self::LoadFast
-                | Self::LoadFastBorrow
-                | Self::Swap
-        )
-    }
-
     /// Does this opcode have 'HAS_FREE_FLAG' set.
     #[must_use]
     pub const fn has_free(self) -> bool {
@@ -2559,20 +2540,6 @@ impl PseudoOpcode {
     #[must_use]
     pub const fn has_const(self) -> bool {
         false
-    }
-
-    /// Does this opcode have 'HAS_PURE_FLAG' set.
-    #[must_use]
-    pub const fn has_exc(self) -> bool {
-        matches!(
-            self,
-            Self::AnnotationsPlaceholder
-                | Self::LoadClosure
-                | Self::PopBlock
-                | Self::SetupCleanup
-                | Self::SetupFinally
-                | Self::SetupWith
-        )
     }
 
     /// Does this opcode have 'HAS_FREE_FLAG' set.
