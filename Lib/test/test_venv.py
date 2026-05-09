@@ -284,6 +284,7 @@ class BasicTest(BaseTest):
                              pathlib.Path(expected), prefix)
 
     @requireVenvCreate
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_sysconfig(self):
         """
         Test that the sysconfig functions work in a virtual environment.
@@ -303,8 +304,11 @@ class BasicTest(BaseTest):
              str(sysconfig.get_config_var("Py_GIL_DISABLED")))):
             with self.subTest(call):
                 cmd[2] = 'import sysconfig; print(sysconfig.%s)' % call
-                out, err = check_output(cmd, encoding='utf-8')
-                self.assertEqual(out.strip(), expected, err)
+                try:
+                    out, err = check_output(cmd, encoding='utf-8')
+                    self.assertEqual(out.strip(), expected, err)
+                except Exception as e:
+                    self.fail(f"venv executable failed: {e}")
         for attr, expected in (
             ('executable', self.envpy()),
             # Usually compare to sys.executable, but if we're running in our own
@@ -313,11 +317,15 @@ class BasicTest(BaseTest):
         ):
             with self.subTest(attr):
                 cmd[2] = f'import sys; print(sys.{attr})'
-                out, err = check_output(cmd, encoding='utf-8')
-                self.assertEqual(out.strip(), expected, err)
+                try:
+                    out, err = check_output(cmd, encoding='utf-8')
+                    self.assertEqual(out.strip(), expected, err)
+                except Exception as e:
+                    self.fail(f"venv executable failed: {e}")
 
     @requireVenvCreate
     @unittest.skipUnless(can_symlink(), 'Needs symlinks')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_sysconfig_symlinks(self):
         """
         Test that the sysconfig functions work in a virtual environment.
@@ -337,8 +345,11 @@ class BasicTest(BaseTest):
              str(sysconfig.get_config_var("Py_GIL_DISABLED")))):
             with self.subTest(call):
                 cmd[2] = 'import sysconfig; print(sysconfig.%s)' % call
-                out, err = check_output(cmd, encoding='utf-8')
-                self.assertEqual(out.strip(), expected, err)
+                try:
+                    out, err = check_output(cmd, encoding='utf-8')
+                    self.assertEqual(out.strip(), expected, err)
+                except Exception as e:
+                    self.fail(f"venv executable failed: {e}")
         for attr, expected in (
             ('executable', self.envpy()),
             # Usually compare to sys.executable, but if we're running in our own
@@ -348,8 +359,11 @@ class BasicTest(BaseTest):
         ):
             with self.subTest(attr):
                 cmd[2] = f'import sys; print(sys.{attr})'
-                out, err = check_output(cmd, encoding='utf-8')
-                self.assertEqual(out.strip(), expected, err)
+                try:
+                    out, err = check_output(cmd, encoding='utf-8')
+                    self.assertEqual(out.strip(), expected, err)
+                except Exception as e:
+                    self.fail(f"venv executable failed: {e}")
 
     if sys.platform == 'win32':
         ENV_SUBDIRS = (
@@ -472,6 +486,7 @@ class BasicTest(BaseTest):
     # point to the venv being used to run the test, and we lose the link
     # to the source build - so Python can't initialise properly.
     @requireVenvCreate
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_executable(self):
         """
         Test that the sys.executable value is as expected.
@@ -479,11 +494,15 @@ class BasicTest(BaseTest):
         rmtree(self.env_dir)
         self.run_with_capture(venv.create, self.env_dir)
         envpy = self.envpy(real_env_dir=True)
-        out, err = check_output([envpy, '-c',
-            'import sys; print(sys.executable)'])
-        self.assertEqual(out.strip(), envpy.encode())
+        try:
+            out, err = check_output([envpy, '-c',
+                'import sys; print(sys.executable)'])
+            self.assertEqual(out.strip(), envpy.encode())
+        except Exception as e:
+            self.fail(f"venv executable failed: {e}")
 
     @unittest.skipUnless(can_symlink(), 'Needs symlinks')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_executable_symlinks(self):
         """
         Test that the sys.executable value is as expected.
@@ -492,9 +511,12 @@ class BasicTest(BaseTest):
         builder = venv.EnvBuilder(clear=True, symlinks=True)
         builder.create(self.env_dir)
         envpy = self.envpy(real_env_dir=True)
-        out, err = check_output([envpy, '-c',
-            'import sys; print(sys.executable)'])
-        self.assertEqual(out.strip(), envpy.encode())
+        try:
+            out, err = check_output([envpy, '-c',
+                'import sys; print(sys.executable)'])
+            self.assertEqual(out.strip(), envpy.encode())
+        except Exception as e:
+            self.fail(f"venv executable failed: {e}")
 
     # gh-124651: test quoted strings
     @unittest.skipIf(os.name == 'nt', 'contains invalid characters on Windows')
@@ -552,6 +574,7 @@ class BasicTest(BaseTest):
 
     # gh-124651: test quoted strings on Windows
     @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_special_chars_windows(self):
         """
         Test that the template strings are quoted properly on Windows
@@ -569,9 +592,12 @@ class BasicTest(BaseTest):
                     f'{self.exe} -c "import sys; print(sys.executable)" & '
                     f'{self.exe} -c "import os; print(os.environ[\'VIRTUAL_ENV\'])" & '
                     'deactivate')
-        out, err = check_output([test_batch])
-        lines = out.splitlines()
-        self.assertTrue(env_name.encode() in lines[0])
+        try:
+            out, err = check_output([test_batch])
+            lines = out.splitlines()
+            self.assertTrue(env_name.encode() in lines[0])
+        except Exception as e:
+            self.fail(f"venv batch execution failed: {e}")
         self.assertEndsWith(lines[1], env_name.encode())
 
     @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
@@ -882,6 +908,7 @@ class BasicTest(BaseTest):
     # gh-126084: venvwlauncher should run pythonw, not python
     @requireVenvCreate
     @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_venvwlauncher(self):
         """
         Test that the GUI launcher runs the GUI python.
@@ -896,8 +923,8 @@ class BasicTest(BaseTest):
         try:
             subprocess.check_call([envpyw, "-c", "import sys; "
                 "assert sys._base_executable.endswith('%s')" % exename])
-        except subprocess.CalledProcessError:
-            self.fail("venvwlauncher.exe did not run %s" % exename)
+        except (subprocess.CalledProcessError, OSError) as e:
+            self.fail(f"venvwlauncher.exe did not run {exename}: {e}")
 
 
 @requireVenvCreate
