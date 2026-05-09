@@ -5,6 +5,7 @@ use rustpython_vm::PyResult;
 use rustpython_vm::builtins::PyInt;
 
 define_py_check!(PyLong_Check, types.int_type);
+define_py_check!(exact PyLong_CheckExact, types.int_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyLong_FromLong(value: c_long) -> *mut PyObject {

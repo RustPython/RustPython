@@ -7,6 +7,7 @@ use rustpython_vm::builtins::PyModule;
 use std::ffi::{CStr, c_char, c_int, c_void};
 
 define_py_check!(PyModule_Check, types.module_type);
+define_py_check!(exact PyModule_CheckExact, types.module_type);
 
 const PY_MOD_CREATE: c_int = 1;
 const PY_MOD_EXEC: c_int = 2;

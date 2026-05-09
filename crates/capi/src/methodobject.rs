@@ -8,6 +8,7 @@ use rustpython_vm::function::{FuncArgs, HeapMethodDef, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 define_py_check!(PyCFunction_Check, types.builtin_function_or_method_type);
+define_py_check!(exact PyCFunction_CheckExact, types.builtin_function_or_method_type);
 
 type PyCFunction = unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject;
 type PyCFunctionWithKeywords = unsafe extern "C" fn(

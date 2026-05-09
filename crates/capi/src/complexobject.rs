@@ -6,6 +6,7 @@ use rustpython_vm::builtins::PyComplex;
 use rustpython_vm::{PyResult, VirtualMachine};
 
 define_py_check!(PyComplex_Check, types.complex_type);
+define_py_check!(exact PyComplex_CheckExact, types.complex_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyComplex_FromDoubles(real: c_double, imag: c_double) -> *mut PyObject {

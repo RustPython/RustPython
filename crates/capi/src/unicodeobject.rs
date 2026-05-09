@@ -8,6 +8,7 @@ use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyStr;
 
 define_py_check!(PyUnicode_Check, types.str_type);
+define_py_check!(exact PyUnicode_CheckExact, types.str_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *mut PyObject {
