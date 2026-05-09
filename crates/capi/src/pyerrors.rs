@@ -1,3 +1,4 @@
+use crate::object::define_py_check;
 use crate::{PyObject, with_vm};
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_int};
@@ -94,6 +95,8 @@ define_exception_statics! {
     PyExc_ResourceWarning => resource_warning,
     PyExc_EncodingWarning => encoding_warning,
 }
+
+define_py_check!(PyExceptionInstance_Check, exceptions.base_exception_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {

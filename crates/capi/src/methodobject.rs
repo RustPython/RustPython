@@ -1,10 +1,13 @@
 use crate::PyObject;
 use crate::object::PyTypeObject;
+use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use rustpython_vm::function::{FuncArgs, HeapMethodDef, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
+
+define_py_check!(PyCFunction_Check, types.builtin_function_or_method_type);
 
 type PyCFunction = unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject;
 type PyCFunctionWithKeywords = unsafe extern "C" fn(

@@ -20,23 +20,22 @@ const PY_TPFLAGS_TYPE_SUBCLASS: c_ulong = 1 << 31;
 pub type PyTypeObject = Py<PyType>;
 
 macro_rules! define_py_check {
-    ($name:ident, $type_name:ident) => {
+    ($name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
-        pub extern "C" fn $name(obj: *mut PyObject) -> c_int {
-            with_vm(|vm| unsafe { (*obj).is_instance(vm.ctx.types.$type_name.as_object(), vm) })
+        pub unsafe extern "C" fn $name(obj: *mut PyObject) -> core::ffi::c_int {
+            with_vm(|vm| unsafe { (&*obj).class().is_subtype(vm.ctx.$($ctx_path).+) })
         }
     };
-    (exact $name:ident, $type_name:ident) => {
+    (exact $name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
-        pub extern "C" fn $name(obj: *mut PyObject) -> c_int {
-            with_vm(|vm| unsafe { (*obj).class().is(vm.ctx.types.$type_name) })
+        pub unsafe extern "C" fn $name(obj: *mut PyObject) -> core::ffi::c_int {
+            with_vm(|vm| unsafe { (&*obj).class().is(vm.ctx.$($ctx_path).+) })
         }
     };
 }
 
-define_py_check!(PyFloat_Check, float_type);
-define_py_check!(PyModule_Check, module_type);
-define_py_check!(PyBool_Check, bool_type);
+pub(crate) use define_py_check;
+define_py_check!(PyType_Check, types.type_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
