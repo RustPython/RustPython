@@ -11,9 +11,36 @@ pub const MICRO: usize = 0;
 pub const RELEASELEVEL: &str = "alpha";
 pub const RELEASELEVEL_N: usize = 0xA;
 pub const SERIAL: usize = 0;
-
 pub const VERSION_HEX: usize =
     (MAJOR << 24) | (MINOR << 16) | (MICRO << 8) | (RELEASELEVEL_N << 4) | SERIAL;
+
+pub const GIT_REVISION: &str = env!("RUSTPYTHON_GIT_HASH");
+const GIT_TAG: &str = env!("RUSTPYTHON_GIT_TAG");
+const GIT_BRANCH: &str = env!("RUSTPYTHON_GIT_BRANCH");
+
+// RustPython version
+pub const MAJOR_IMPL: usize = match usize::from_str_radix(env!("CARGO_PKG_VERSION_MAJOR"), 10) {
+    Ok(v) => v,
+    Err(_) => panic!("Compile with Cargo to get 'CARGO_PKG_VERSION_MAJOR'"),
+};
+pub const MINOR_IMPL: usize = match usize::from_str_radix(env!("CARGO_PKG_VERSION_MINOR"), 10) {
+    Ok(v) => v,
+    Err(_) => panic!("Compile with Cargo to get 'CARGO_PKG_VERSION_MINOR'"),
+};
+pub const MICRO_IMPL: usize = match usize::from_str_radix(env!("CARGO_PKG_VERSION_PATCH"), 10) {
+    Ok(v) => v,
+    Err(_) => panic!("Compile with Cargo to get 'CARGO_PKG_VERSION_PATCH'"),
+};
+pub const RELEASELEVEL_IMPL: &str = env!("RUSTPYTHON_RELEASE_LEVEL");
+pub const SERIAL_IMPL: usize = match usize::from_str_radix(env!("RUSTPYTHON_RELEASE_SERIAL"), 10) {
+    Ok(v) => v,
+    Err(_) => panic!("Compile with Cargo to get 'RUSTPYTHON_RELEASE_SERIAL'"),
+};
+pub const VERSION_HEX_IMPL: usize = (MAJOR_IMPL << 24)
+    | (MINOR_IMPL << 16)
+    | (MICRO_IMPL << 8)
+    | (RELEASELEVEL_N << 4)
+    | SERIAL_IMPL;
 
 #[must_use]
 pub fn get_version() -> String {
@@ -57,59 +84,35 @@ const COMPILER: &str = env!("RUSTC_VERSION");
 #[must_use]
 pub fn get_build_info() -> String {
     // See: https://reproducible-builds.org/docs/timestamps/
-    let git_revision = get_git_revision();
-    let separator = if git_revision.is_empty() { "" } else { ":" };
-
+    let separator = if GIT_REVISION.is_empty() { "" } else { ":" };
     let git_identifier = get_git_identifier();
 
     format!(
         "{id}{sep}{revision}, {date:.20}, {time:.9}",
         id = if git_identifier.is_empty() {
-            "default".to_owned()
+            "default"
         } else {
             git_identifier
         },
         sep = separator,
-        revision = git_revision,
+        revision = GIT_REVISION,
         date = get_git_date(),
         time = get_git_time(),
     )
 }
 
 #[must_use]
-pub fn get_git_revision() -> String {
-    option_env!("RUSTPYTHON_GIT_HASH").unwrap_or("").to_owned()
-}
-
-#[must_use]
-pub fn get_git_tag() -> String {
-    option_env!("RUSTPYTHON_GIT_TAG").unwrap_or("").to_owned()
-}
-
-#[must_use]
-pub fn get_git_branch() -> String {
-    option_env!("RUSTPYTHON_GIT_BRANCH")
-        .unwrap_or("")
-        .to_owned()
-}
-
-#[must_use]
-pub fn get_git_identifier() -> String {
-    let git_tag = get_git_tag();
-    let git_branch = get_git_branch();
-
-    if git_tag.is_empty() || git_tag == "undefined" {
-        git_branch
+pub const fn get_git_identifier() -> &'static str {
+    if GIT_TAG.is_empty() || GIT_TAG.eq_ignore_ascii_case("undefined") {
+        GIT_BRANCH
     } else {
-        git_tag
+        GIT_TAG
     }
 }
 
 fn get_git_timestamp_datetime() -> DateTime<Local> {
-    let timestamp = option_env!("RUSTPYTHON_GIT_TIMESTAMP")
-        .unwrap_or("")
-        .to_owned();
-    let timestamp = timestamp.parse::<u64>().unwrap_or(0);
+    let timestamp = option_env!("RUSTPYTHON_GIT_TIMESTAMP").unwrap_or_default();
+    let timestamp = timestamp.parse::<u64>().unwrap_or_default();
 
     let datetime = UNIX_EPOCH + Duration::from_secs(timestamp);
 
