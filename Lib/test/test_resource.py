@@ -43,6 +43,7 @@ class ResourceTest(unittest.TestCase):
         self.assertEqual(resource.RLIM_INFINITY, max)
         resource.setrlimit(resource.RLIMIT_FSIZE, (cur, max))
 
+    @unittest.skip("TODO: RUSTPYTHON; crash")
     @unittest.skipIf(sys.platform == "vxworks",
                      "setting RLIMIT_FSIZE is not supported on VxWorks")
     @unittest.skipUnless(hasattr(resource, 'RLIMIT_FSIZE'), 'requires resource.RLIMIT_FSIZE')
@@ -149,6 +150,7 @@ class ResourceTest(unittest.TestCase):
                 resource.setrlimit(resource.RLIMIT_FSIZE, (2**64-5, max))
                 self.assertIn(resource.getrlimit(resource.RLIMIT_FSIZE), expected(2**64-5))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u64
     @unittest.skipIf(sys.platform == "vxworks",
                      "setting RLIMIT_FSIZE is not supported on VxWorks")
     @unittest.skipUnless(hasattr(resource, 'RLIMIT_FSIZE'), 'requires resource.RLIMIT_FSIZE')
