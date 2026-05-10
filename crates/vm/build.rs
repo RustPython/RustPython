@@ -4,7 +4,13 @@
 )]
 
 use itertools::Itertools;
-use std::{env, io::prelude::*, path::PathBuf, process::Command};
+use std::{
+    env,
+    io::{self, prelude::*},
+    path::PathBuf,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 fn main() {
     let frozen_libs = if cfg!(feature = "freeze-stdlib") {
@@ -27,6 +33,11 @@ fn main() {
     println!("cargo:rustc-env=RUSTPYTHON_GIT_BRANCH={}", git_branch());
     println!("cargo:rustc-env=RUSTC_VERSION={}", rustc_version());
 
+    let release_level = option_env!("RUSTPYTHON_RELEASE_LEVEL").unwrap_or("alpha");
+    println!("cargo:rustc-env=RUSTPYTHON_RELEASE_LEVEL={release_level}");
+    let release_serial = option_env!("RUSTPYTHON_RELEASE_SERIAL").unwrap_or("0");
+    println!("cargo:rustc-env=RUSTPYTHON_RELEASE_SERIAL={release_serial}");
+
     println!(
         "cargo:rustc-env=RUSTPYTHON_TARGET_TRIPLE={}",
         env::var("TARGET").unwrap()
@@ -44,36 +55,50 @@ fn main() {
 }
 
 fn git_hash() -> String {
-    git(&["rev-parse", "--short", "HEAD"])
+    git(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|_| "0000000".into())
 }
 
 fn git_timestamp() -> String {
-    git(&["log", "-1", "--format=%ct"])
+    git(&["log", "-1", "--format=%ct"]).unwrap_or_else(|_| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .to_string()
+    })
 }
 
 fn git_tag() -> String {
     git(&["describe", "--all", "--always", "--dirty"])
+        .unwrap_or_else(|_| "heads/unknown-branch".into())
 }
 
 fn git_branch() -> String {
-    git(&["name-rev", "--name-only", "HEAD"])
+    git(&["name-rev", "--name-only", "HEAD"]).unwrap_or_else(|_| "unknown-branch".into())
 }
 
-fn git(args: &[&str]) -> String {
+fn git(args: &[&str]) -> io::Result<String> {
     command("git", args)
 }
 
 fn rustc_version() -> String {
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-    command(rustc, &["-V"])
+    command(rustc, &["-V"]).unwrap_or_else(|_| "rustc [unknown]".into())
 }
 
-fn command(cmd: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> String {
-    match Command::new(cmd).args(args).output() {
-        Ok(output) => match String::from_utf8(output.stdout) {
-            Ok(s) => s,
-            Err(err) => format!("(output error: {err})"),
-        },
-        Err(err) => format!("(command error: {err})"),
-    }
+fn command(cmd: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> io::Result<String> {
+    Command::new(&cmd).args(args).output().and_then(|output| {
+        // TODO: Switch to exit_ok()? when stable.
+        if !output.status.success() {
+            Err(io::Error::other(format!(
+                "command '{}' exited with status {}",
+                cmd.as_ref().to_string_lossy(),
+                output.status
+            )))?
+        }
+
+        str::from_utf8(&output.stdout)
+            .map(|s| s.trim().to_owned())
+            .map_err(io::Error::other)
+    })
 }
