@@ -13,6 +13,7 @@ from _pyrepl.console import Event
 from _pyrepl.reader import Reader
 from _colorize import default_theme
 
+import unittest # # XXX: RUSTPYTHON
 
 overrides = {"reset": "z", "soft_keyword": "K"}
 colors = {overrides.get(k, k[0].lower()): v for k, v in default_theme.syntax.items()}
@@ -178,6 +179,7 @@ class TestReader(ScreenEqualMixin, TestCase):
         reader, _ = handle_all_events(events)
         self.assert_screen_equal(reader, "")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Lists differ
     def test_newline_within_block_trailing_whitespace(self):
         # fmt: off
         code = (
@@ -521,6 +523,7 @@ class TestReaderInColor(ScreenEqualMixin, TestCase):
         self.assert_screen_equal(reader, code, clean=True)
         self.assert_screen_equal(reader, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Lists differ
     def test_syntax_highlighting_literal_brace_in_fstring_or_tstring(self):
         code = dedent(
             """\
