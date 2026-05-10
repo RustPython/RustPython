@@ -920,28 +920,9 @@ impl PyBytesInner {
         }
     }
 
+    #[inline]
     pub fn title(&self) -> Vec<u8> {
-        let mut res = vec![];
-        let mut spaced = true;
-
-        for i in &self.elements {
-            match i {
-                b'A'..=b'Z' | b'a'..=b'z' => {
-                    if spaced {
-                        res.push(i.to_ascii_uppercase());
-                        spaced = false
-                    } else {
-                        res.push(i.to_ascii_lowercase());
-                    }
-                }
-                _ => {
-                    res.push(*i);
-                    spaced = true
-                }
-            }
-        }
-
-        res
+        title_ascii(self.as_bytes())
     }
 
     pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -1235,4 +1216,25 @@ pub(crate) fn bytes_to_hex(
 
 pub(crate) const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
+}
+
+/// ASCII-only title casing.
+///
+/// This is purposely naive as is CPython's implementation.
+pub(crate) fn title_ascii(bytes: &[u8]) -> Vec<u8> {
+    let mut next_upper = true;
+    let mut out = Vec::with_capacity(bytes.len());
+    for &b in bytes {
+        let b = if !b.is_ascii_alphabetic() {
+            next_upper = true;
+            b
+        } else if next_upper {
+            next_upper = false;
+            b.to_ascii_uppercase()
+        } else {
+            b.to_ascii_lowercase()
+        };
+        out.push(b);
+    }
+    out
 }
