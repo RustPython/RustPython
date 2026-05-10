@@ -11,9 +11,7 @@ use crate::{
     types::Representable,
 };
 use num_traits::Zero;
-use rustpython_compiler_core::bytecode::{
-    self, Constant, Instruction, InstructionMetadata, StackEffect,
-};
+use rustpython_compiler_core::bytecode::{self, Constant, Instruction, StackEffect};
 use stack_analysis::*;
 
 /// Stack state analysis for safe line-number jumps.
@@ -237,7 +235,7 @@ pub(crate) mod stack_analysis {
                             }
                         }
                     }
-                    Instruction::GetIter | Instruction::GetAIter => {
+                    Instruction::GetIter | Instruction::GetAiter => {
                         next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;

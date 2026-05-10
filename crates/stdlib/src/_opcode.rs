@@ -5,7 +5,7 @@ mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
-        bytecode::{AnyInstruction, AnyOpcode, InstructionMetadata, Opcode, PseudoOpcode, oparg},
+        bytecode::{AnyOpcode, oparg},
     };
 
     fn try_from_i32(raw: i32) -> Result<AnyOpcode, ()> {
@@ -14,9 +14,6 @@ mod _opcode {
             .try_into()
             .map_err(|_| ())
     }
-
-    // https://github.com/python/cpython/blob/v3.14.2/Include/opcode_ids.h#L252
-    const HAVE_ARGUMENT: i32 = 43;
 
     // prepare specialization
     #[pyattr]
@@ -74,7 +71,7 @@ mod _opcode {
             .opcode
             .try_to_primitive::<u16>(vm)
             .and_then(|v| {
-                AnyInstruction::try_from(v)
+                AnyOpcode::try_from(v)
                     .map_err(|_| vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned()))
             })
             .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
@@ -102,108 +99,49 @@ mod _opcode {
 
     #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
-        try_from_i32(opcode).is_ok_and(|_| opcode > HAVE_ARGUMENT)
+        try_from_i32(opcode).map(|op| op.has_arg()).unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        matches!(try_from_i32(opcode), Ok(AnyOpcode::Real(Opcode::LoadConst)))
+        try_from_i32(opcode)
+            .map(|op| op.has_const())
+            .unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Real(
-                Opcode::DeleteAttr
-                    | Opcode::DeleteGlobal
-                    | Opcode::DeleteName
-                    | Opcode::ImportFrom
-                    | Opcode::ImportName
-                    | Opcode::LoadAttr
-                    | Opcode::LoadFromDictOrGlobals
-                    | Opcode::LoadGlobal
-                    | Opcode::LoadName
-                    | Opcode::LoadSuperAttr
-                    | Opcode::StoreAttr
-                    | Opcode::StoreGlobal
-                    | Opcode::StoreName
-                    | Opcode::InstrumentedLoadSuperAttr
-            ))
-        )
+        try_from_i32(opcode)
+            .map(|op| op.has_name())
+            .unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Real(
-                Opcode::EndAsyncFor
-                    | Opcode::ForIter
-                    | Opcode::JumpBackward
-                    | Opcode::JumpBackwardNoInterrupt
-                    | Opcode::JumpForward
-                    | Opcode::PopJumpIfFalse
-                    | Opcode::PopJumpIfNone
-                    | Opcode::PopJumpIfNotNone
-                    | Opcode::PopJumpIfTrue
-                    | Opcode::Send
-                    | Opcode::InstrumentedForIter
-                    | Opcode::InstrumentedEndAsyncFor
-            ) | AnyOpcode::Pseudo(
-                PseudoOpcode::Jump
-                    | PseudoOpcode::JumpIfFalse
-                    | PseudoOpcode::JumpIfTrue
-                    | PseudoOpcode::JumpNoInterrupt
-            ))
-        )
+        try_from_i32(opcode)
+            .map(|op| op.has_jump())
+            .unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Real(
-                Opcode::DeleteDeref
-                    | Opcode::LoadFromDictOrDeref
-                    | Opcode::MakeCell
-                    | Opcode::StoreDeref
-            ))
-        )
+        try_from_i32(opcode)
+            .map(|op| op.has_free())
+            .unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Real(
-                Opcode::DeleteFast
-                    | Opcode::LoadDeref
-                    | Opcode::LoadFast
-                    | Opcode::LoadFastAndClear
-                    | Opcode::LoadFastBorrow
-                    | Opcode::LoadFastBorrowLoadFastBorrow
-                    | Opcode::LoadFastCheck
-                    | Opcode::LoadFastLoadFast
-                    | Opcode::StoreFast
-                    | Opcode::StoreFastLoadFast
-                    | Opcode::StoreFastStoreFast
-            ) | AnyOpcode::Pseudo(PseudoOpcode::LoadClosure | PseudoOpcode::StoreFastMaybeNull))
-        )
+        try_from_i32(opcode)
+            .map(|op| op.has_local())
+            .unwrap_or(false)
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        // No instructions have exception info in RustPython
-        // (exception handling is done via exception table)
-        // This is for compatibility with CPython
-
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Pseudo(
-                PseudoOpcode::SetupCleanup | PseudoOpcode::SetupFinally | PseudoOpcode::SetupWith
-            ))
-        )
+        try_from_i32(opcode)
+            .map(|op| op.is_block_push())
+            .unwrap_or(false)
     }
 
     #[pyfunction]
