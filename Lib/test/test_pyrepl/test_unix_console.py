@@ -57,15 +57,12 @@ handle_events_unix_console_height_3 = partial(
     handle_all_events, prepare_console=partial(unix_console, height=3)
 )
 
+def __rustpython_patch_terminfo_tparm(s, *args):
+    return s + b":" + b",".join(str(i).encode() for i in args)
 
-@unittest.skipIf(sys.platform == "win32", "No Unix event queue on Windows")
-@patch(
-    "_pyrepl.terminfo.tparm",
-    lambda s, *args: s + b":" + b",".join(str(i).encode() for i in args),
-)
-@patch(
-    "termios.tcgetattr",
-    lambda _: [
+
+def __rustpython_patch_termios_tcgetattr(_):
+    return [
         27394,
         3,
         19200,
@@ -94,9 +91,60 @@ handle_events_unix_console_height_3 = partial(
             b"\x14",
             b"\x00",
         ],
-    ],
+    ]
+
+
+def __rustpython_patch_termios_tcsetattr(a, b, c):
+    return None
+
+@unittest.skipIf(sys.platform == "win32", "No Unix event queue on Windows")
+@patch(
+    "_pyrepl.terminfo.tparm",
+    # TODO: RUSTPYTHON; SyntaxError: the symbol 's' must be present in the symbol table
+    # lambda s, *args: s + b":" + b",".join(str(i).encode() for i in args),
+    __rustpython_patch_terminfo_tparm,
 )
-@patch("termios.tcsetattr", lambda a, b, c: None)
+# TODO: RUSTPYTHON; SyntaxError: no symbol table available in lambda (type: Lambda)
+# @patch(
+#     "termios.tcgetattr",
+#     lambda _: [
+#         27394,
+#         3,
+#         19200,
+#         536872399,
+#         38400,
+#         38400,
+#         [
+#             b"\x04",
+#             b"\xff",
+#             b"\xff",
+#             b"\x7f",
+#             b"\x17",
+#             b"\x15",
+#             b"\x12",
+#             b"\x00",
+#             b"\x03",
+#             b"\x1c",
+#             b"\x1a",
+#             b"\x19",
+#             b"\x11",
+#             b"\x13",
+#             b"\x16",
+#             b"\x0f",
+#             b"\x01",
+#             b"\x00",
+#             b"\x14",
+#             b"\x00",
+#         ],
+#     ],
+# )
+@patch("termios.tcgetattr", __rustpython_patch_termios_tcgetattr)
+@patch(
+        "termios.tcsetattr",
+        # TODO: RUSTPYTHON; SyntaxError: no symbol table available in lambda (type: Lambda)
+        # lambda a, b, c: None
+        __rustpython_patch_termios_tcsetattr
+)
 @patch("os.write")
 @force_not_colorized_test_class
 class TestConsole(TestCase):
