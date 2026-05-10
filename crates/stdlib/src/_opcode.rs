@@ -107,32 +107,32 @@ mod _opcode {
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        try_from_i32(opcode).map_or(false, |op| op.has_const())
+        try_from_i32(opcode).is_ok_and(|op| op.has_const())
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        try_from_i32(opcode).map_or(false, |op| op.has_name())
+        try_from_i32(opcode).is_ok_and(|op| op.has_name())
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        try_from_i32(opcode).map_or(false, |op| op.has_jump())
+        try_from_i32(opcode).is_ok_and(|op| op.has_jump())
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        try_from_i32(opcode).map_or(false, |op| op.has_free())
+        try_from_i32(opcode).is_ok_and(|op| op.has_free())
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        try_from_i32(opcode).map_or(false, |op| op.has_local())
+        try_from_i32(opcode).is_ok_and(|op| op.has_local())
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        try_from_i32(opcode).map_or(false, |op| op.is_block_push())
+        try_from_i32(opcode).is_ok_and(|op| op.is_block_push())
     }
 
     #[pyfunction]
