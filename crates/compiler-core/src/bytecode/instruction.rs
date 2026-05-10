@@ -741,6 +741,11 @@ impl Instruction {
             _ => 0,
         }
     }
+
+    #[must_use]
+    pub const fn is_block_push(&self) -> bool {
+        self.opcode().is_block_push()
+    }
 }
 
 impl InstructionMetadata for Instruction {
@@ -1024,6 +1029,103 @@ impl InstructionMetadata for Instruction {
     // Only pseudo-instructions (SETUP_*) differ — see PseudoInstruction.
 }
 
+impl Opcode {
+    /// Does this opcode have 'HAS_CONST_FLAG' set.
+    #[must_use]
+    pub const fn has_const(self) -> bool {
+        matches!(
+            self,
+            Self::LoadConst | Self::LoadConstImmortal | Self::LoadConstMortal
+        )
+    }
+
+    /// Does this opcode have 'HAS_FREE_FLAG' set.
+    #[must_use]
+    pub const fn has_free(self) -> bool {
+        matches!(
+            self,
+            Self::DeleteDeref | Self::LoadFromDictOrDeref | Self::MakeCell | Self::StoreDeref
+        )
+    }
+
+    /// Does this opcode have 'HAS_JUMP_FLAG' set.
+    #[must_use]
+    pub const fn has_jump(self) -> bool {
+        matches!(
+            self,
+            Self::EndAsyncFor
+                | Self::ForIter
+                | Self::JumpBackward
+                | Self::JumpBackwardNoInterrupt
+                | Self::JumpForward
+                | Self::PopJumpIfFalse
+                | Self::PopJumpIfNone
+                | Self::PopJumpIfNotNone
+                | Self::PopJumpIfTrue
+                | Self::Send
+                | Self::ForIterList
+                | Self::ForIterRange
+                | Self::ForIterTuple
+                | Self::JumpBackwardJit
+                | Self::JumpBackwardNoJit
+                | Self::InstrumentedForIter
+                | Self::InstrumentedEndAsyncFor
+        )
+    }
+
+    /// Does this opcode have 'HAS_LOCAL_FLAG' set.
+    #[must_use]
+    pub const fn has_local(self) -> bool {
+        matches!(
+            self,
+            Self::BinaryOpInplaceAddUnicode
+                | Self::DeleteFast
+                | Self::LoadDeref
+                | Self::LoadFast
+                | Self::LoadFastAndClear
+                | Self::LoadFastBorrow
+                | Self::LoadFastBorrowLoadFastBorrow
+                | Self::LoadFastCheck
+                | Self::LoadFastLoadFast
+                | Self::StoreFast
+                | Self::StoreFastLoadFast
+                | Self::StoreFastStoreFast
+        )
+    }
+
+    /// Does this opcode have 'HAS_NAME_FLAG' set.
+    #[must_use]
+    pub const fn has_name(self) -> bool {
+        matches!(
+            self,
+            Self::DeleteAttr
+                | Self::DeleteGlobal
+                | Self::DeleteName
+                | Self::ImportFrom
+                | Self::ImportName
+                | Self::LoadAttr
+                | Self::LoadFromDictOrGlobals
+                | Self::LoadGlobal
+                | Self::LoadName
+                | Self::LoadSuperAttr
+                | Self::StoreAttr
+                | Self::StoreGlobal
+                | Self::StoreName
+                | Self::LoadAttrGetattributeOverridden
+                | Self::LoadAttrWithHint
+                | Self::LoadSuperAttrAttr
+                | Self::LoadSuperAttrMethod
+                | Self::StoreAttrWithHint
+                | Self::InstrumentedLoadSuperAttr
+        )
+    }
+
+    #[must_use]
+    pub const fn is_block_push(&self) -> bool {
+        false
+    }
+}
+
 define_opcodes!(
     #[repr(u16)]
     pub enum PseudoOpcode;
@@ -1044,16 +1146,10 @@ define_opcodes!(
 );
 
 impl PseudoInstruction {
-    /// Returns true if self is one of:
-    /// - [`PseudoInstruction::SetupCleanup`]
-    /// - [`PseudoInstruction::SetupFinally`]
-    /// - [`PseudoInstruction::SetupWith`]
+    /// See [`PseudoOpcode::is_block_push`].
     #[must_use]
     pub const fn is_block_push(&self) -> bool {
-        matches!(
-            self.opcode(),
-            PseudoOpcode::SetupCleanup | PseudoOpcode::SetupFinally | PseudoOpcode::SetupWith
-        )
+        self.opcode().is_block_push()
     }
 }
 
@@ -1124,6 +1220,53 @@ impl InstructionMetadata for PseudoInstruction {
     }
 }
 
+impl PseudoOpcode {
+    /// Does this opcode have 'HAS_CONST_FLAG' set.
+    #[must_use]
+    pub const fn has_const(self) -> bool {
+        false
+    }
+
+    /// Does this opcode have 'HAS_FREE_FLAG' set.
+    #[must_use]
+    pub const fn has_free(self) -> bool {
+        false
+    }
+
+    /// Does this opcode have 'HAS_JUMP_FLAG' set.
+    #[must_use]
+    pub const fn has_jump(self) -> bool {
+        matches!(
+            self,
+            Self::Jump | Self::JumpIfFalse | Self::JumpIfTrue | Self::JumpNoInterrupt
+        )
+    }
+
+    /// Does this opcode have 'HAS_LOCAL_FLAG' set.
+    #[must_use]
+    pub const fn has_local(self) -> bool {
+        matches!(self, Self::LoadClosure | Self::StoreFastMaybeNull)
+    }
+
+    /// Does this opcode have 'HAS_NAME_FLAG' set.
+    #[must_use]
+    pub const fn has_name(self) -> bool {
+        false
+    }
+
+    /// Returns true if self is one of:
+    /// - [`Self::SetupCleanup`]
+    /// - [`Self::SetupFinally`]
+    /// - [`Self::SetupWith`]
+    #[must_use]
+    pub const fn is_block_push(&self) -> bool {
+        matches!(
+            self,
+            Self::SetupCleanup | Self::SetupFinally | Self::SetupWith
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum AnyInstruction {
     Real(Instruction),
@@ -1182,29 +1325,48 @@ impl From<AnyOpcode> for AnyInstruction {
     }
 }
 
-macro_rules! inst_either {
-    (fn $name:ident ( &self $(, $arg:ident : $arg_ty:ty )* ) -> $ret:ty ) => {
-        fn $name(&self $(, $arg : $arg_ty )* ) -> $ret {
+macro_rules! either_real_pseudo {
+    // Const
+    (
+        $(#[$meta:meta])*
+        $vis:vis const fn $name:ident(&self $(, $arg:ident : $arg_ty:ty)*) -> $ret:ty
+    ) => {
+        $(#[$meta])*
+        $vis const fn $name(&self $(, $arg: $arg_ty)*) -> $ret {
             match self {
-                Self::Real(op) => op.$name($($arg),*),
-                Self::Pseudo(op) => op.$name($($arg),*),
+                Self::Real(v) => v.$name($($arg),*),
+                Self::Pseudo(v) => v.$name($($arg),*),
+            }
+        }
+    };
+
+    // Not const
+    (
+        $(#[$meta:meta])*
+        $vis:vis fn $name:ident(&self $(, $arg:ident : $arg_ty:ty)*) -> $ret:ty
+    ) => {
+        $(#[$meta])*
+        $vis fn $name(&self $(, $arg: $arg_ty)*) -> $ret {
+            match self {
+                Self::Real(v) => v.$name($($arg),*),
+                Self::Pseudo(v) => v.$name($($arg),*),
             }
         }
     };
 }
 
 impl InstructionMetadata for AnyInstruction {
-    inst_either!(fn label_arg(&self) -> Option<Arg<Label>>);
+    either_real_pseudo!(fn label_arg(&self) -> Option<Arg<Label>>);
 
-    inst_either!(fn is_unconditional_jump(&self) -> bool);
+    either_real_pseudo!(fn is_unconditional_jump(&self) -> bool);
 
-    inst_either!(fn is_scope_exit(&self) -> bool);
+    either_real_pseudo!(fn is_scope_exit(&self) -> bool);
 
-    inst_either!(fn stack_effect(&self, oparg: u32) -> i32);
+    either_real_pseudo!(fn stack_effect(&self, oparg: u32) -> i32);
 
-    inst_either!(fn stack_effect_jump(&self, oparg: u32) -> i32);
+    either_real_pseudo!(fn stack_effect_jump(&self, oparg: u32) -> i32);
 
-    inst_either!(fn stack_effect_info(&self, oparg: u32) -> StackEffect);
+    either_real_pseudo!(fn stack_effect_info(&self, oparg: u32) -> StackEffect);
 }
 
 impl AnyInstruction {
@@ -1272,11 +1434,10 @@ impl AnyInstruction {
         matches!(self, Self::Pseudo(PseudoInstruction::PopBlock))
     }
 
-    /// See [`PseudoInstruction::is_block_push`].
+    either_real_pseudo!(
     #[must_use]
-    pub const fn is_block_push(self) -> bool {
-        matches!(self, Self::Pseudo(p) if p.is_block_push())
-    }
+    pub const fn is_block_push(&self) -> bool
+    );
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1365,6 +1526,36 @@ impl AnyOpcode {
         self.pseudo()
             .expect("Expected AnyOpcode::Pseudo, found AnyOpcode::Real")
     }
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_const(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_name(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_jump(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_free(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn has_local(&self) -> bool
+    );
+
+    either_real_pseudo!(
+    #[must_use]
+    pub const fn is_block_push(&self) -> bool
+    );
 }
 
 /// What effect the instruction has on the stack.

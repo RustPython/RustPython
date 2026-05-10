@@ -5,7 +5,7 @@ mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
-        bytecode::{AnyInstruction, AnyOpcode, InstructionMetadata, Opcode, PseudoOpcode, oparg},
+        bytecode::{AnyInstruction, AnyOpcode, InstructionMetadata, oparg},
     };
 
     fn try_from_i32(raw: i32) -> Result<AnyOpcode, ()> {
@@ -107,103 +107,32 @@ mod _opcode {
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        matches!(try_from_i32(opcode), Ok(AnyOpcode::Real(Opcode::LoadConst)))
+        try_from_i32(opcode).map_or(false, |op| op.has_const())
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Real(
-                Opcode::DeleteAttr
-                    | Opcode::DeleteGlobal
-                    | Opcode::DeleteName
-                    | Opcode::ImportFrom
-                    | Opcode::ImportName
-                    | Opcode::LoadAttr
-                    | Opcode::LoadFromDictOrGlobals
-                    | Opcode::LoadGlobal
-                    | Opcode::LoadName
-                    | Opcode::LoadSuperAttr
-                    | Opcode::StoreAttr
-                    | Opcode::StoreGlobal
-                    | Opcode::StoreName
-                    | Opcode::InstrumentedLoadSuperAttr
-            ))
-        )
+        try_from_i32(opcode).map_or(false, |op| op.has_name())
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Real(
-                Opcode::EndAsyncFor
-                    | Opcode::ForIter
-                    | Opcode::JumpBackward
-                    | Opcode::JumpBackwardNoInterrupt
-                    | Opcode::JumpForward
-                    | Opcode::PopJumpIfFalse
-                    | Opcode::PopJumpIfNone
-                    | Opcode::PopJumpIfNotNone
-                    | Opcode::PopJumpIfTrue
-                    | Opcode::Send
-                    | Opcode::InstrumentedForIter
-                    | Opcode::InstrumentedEndAsyncFor
-            ) | AnyOpcode::Pseudo(
-                PseudoOpcode::Jump
-                    | PseudoOpcode::JumpIfFalse
-                    | PseudoOpcode::JumpIfTrue
-                    | PseudoOpcode::JumpNoInterrupt
-            ))
-        )
+        try_from_i32(opcode).map_or(false, |op| op.has_jump())
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Real(
-                Opcode::DeleteDeref
-                    | Opcode::LoadFromDictOrDeref
-                    | Opcode::MakeCell
-                    | Opcode::StoreDeref
-            ))
-        )
+        try_from_i32(opcode).map_or(false, |op| op.has_free())
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Real(
-                Opcode::DeleteFast
-                    | Opcode::LoadDeref
-                    | Opcode::LoadFast
-                    | Opcode::LoadFastAndClear
-                    | Opcode::LoadFastBorrow
-                    | Opcode::LoadFastBorrowLoadFastBorrow
-                    | Opcode::LoadFastCheck
-                    | Opcode::LoadFastLoadFast
-                    | Opcode::StoreFast
-                    | Opcode::StoreFastLoadFast
-                    | Opcode::StoreFastStoreFast
-            ) | AnyOpcode::Pseudo(PseudoOpcode::LoadClosure | PseudoOpcode::StoreFastMaybeNull))
-        )
+        try_from_i32(opcode).map_or(false, |op| op.has_local())
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        // No instructions have exception info in RustPython
-        // (exception handling is done via exception table)
-        // This is for compatibility with CPython
-
-        matches!(
-            try_from_i32(opcode),
-            Ok(AnyOpcode::Pseudo(
-                PseudoOpcode::SetupCleanup | PseudoOpcode::SetupFinally | PseudoOpcode::SetupWith
-            ))
-        )
+        try_from_i32(opcode).map_or(false, |op| op.is_block_push())
     }
 
     #[pyfunction]
