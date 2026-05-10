@@ -36,7 +36,7 @@ pub(crate) mod ssl_error {
     #[pyexception(name = "SSLError", base = PyOSError)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct PySSLError(PyOSError);
+    pub(crate) struct PySSLError(PyOSError);
 
     #[pyexception]
     impl PySSLError {
@@ -65,7 +65,7 @@ pub(crate) mod ssl_error {
     #[pyexception(name = "SSLZeroReturnError", base = PySSLError)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct PySSLZeroReturnError(PySSLError);
+    pub(crate) struct PySSLZeroReturnError(PySSLError);
 
     #[pyexception]
     impl PySSLZeroReturnError {}
@@ -74,34 +74,34 @@ pub(crate) mod ssl_error {
     #[pyexception(name = "SSLWantReadError", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct PySSLWantReadError(PySSLError);
+    pub(crate) struct PySSLWantReadError(PySSLError);
 
     #[pyattr]
     #[pyexception(name = "SSLWantWriteError", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct PySSLWantWriteError(PySSLError);
+    pub(crate) struct PySSLWantWriteError(PySSLError);
 
     #[pyattr]
     #[pyexception(name = "SSLSyscallError", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct PySSLSyscallError(PySSLError);
+    pub(crate) struct PySSLSyscallError(PySSLError);
 
     #[pyattr]
     #[pyexception(name = "SSLEOFError", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct PySSLEOFError(PySSLError);
+    pub(crate) struct PySSLEOFError(PySSLError);
 
     #[pyattr]
     #[pyexception(name = "SSLCertVerificationError", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct PySSLCertVerificationError(PySSLError);
+    pub(crate) struct PySSLCertVerificationError(PySSLError);
 
     // Helper functions to create SSL exceptions with proper errno attribute
-    pub fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+    pub(crate) fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLWantReadError::class(&vm.ctx).to_owned(),
             Some(SSL_ERROR_WANT_READ),
@@ -109,7 +109,7 @@ pub(crate) mod ssl_error {
         )
     }
 
-    pub fn create_ssl_want_write_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+    pub(crate) fn create_ssl_want_write_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLWantWriteError::class(&vm.ctx).to_owned(),
             Some(SSL_ERROR_WANT_WRITE),
@@ -117,7 +117,7 @@ pub(crate) mod ssl_error {
         )
     }
 
-    pub fn create_ssl_eof_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+    pub(crate) fn create_ssl_eof_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLEOFError::class(&vm.ctx).to_owned(),
             Some(SSL_ERROR_EOF),
@@ -125,7 +125,7 @@ pub(crate) mod ssl_error {
         )
     }
 
-    pub fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
+    pub(crate) fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLZeroReturnError::class(&vm.ctx).to_owned(),
             Some(SSL_ERROR_ZERO_RETURN),
@@ -133,7 +133,7 @@ pub(crate) mod ssl_error {
         )
     }
 
-    pub fn create_ssl_syscall_error(
+    pub(crate) fn create_ssl_syscall_error(
         vm: &VirtualMachine,
         msg: impl Into<String>,
     ) -> PyRef<PyOSError> {

@@ -118,7 +118,15 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
     builder = builder.settings(settings);
 
     let interp = builder.interpreter();
-    let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
+    let exitcode = cfg_select! {
+        feature = "capi" => {{
+            let local_vm = interp.enter(|vm| vm.new_thread());
+            rustpython_capi::set_main_interpreter(interp);
+            let result = local_vm.run(|vm| run_rustpython(vm, run_mode));
+            rustpython_capi::get_main_interpreter().take().unwrap().finalize(result.err())
+        }},
+        _ => interp.run(move |vm| run_rustpython(vm, run_mode)),
+    };
 
     rustpython_vm::host_env::os::exit_code(exitcode)
 }
@@ -176,18 +184,16 @@ fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
         vm.insert_sys_path(vm.new_pyobj(dir))?;
     }
 
-    #[cfg(feature = "host_env")]
-    {
-        vm.run_any_file(scope, path)
-    }
-    #[cfg(not(feature = "host_env"))]
-    {
-        // In sandbox mode, the binary reads the file and feeds source to the VM.
-        // The VM itself has no filesystem access.
-        let path = if path.is_empty() { "???" } else { path };
-        match std::fs::read_to_string(path) {
-            Ok(source) => vm.run_string(scope, &source, path.to_owned()).map(drop),
-            Err(err) => Err(vm.new_os_error(err.to_string())),
+    cfg_select! {
+        feature = "host_env" => vm.run_any_file(scope, path),
+        _ => {
+            // In sandbox mode, the binary reads the file and feeds source to the VM.
+            // The VM itself has no filesystem access.
+            let path = if path.is_empty() { "???" } else { path };
+            match std::fs::read_to_string(path) {
+                Ok(source) => vm.run_string(scope, &source, path.to_owned()).map(drop),
+                Err(err) => Err(vm.new_os_error(err.to_string())),
+            }
         }
     }
 }

@@ -87,7 +87,7 @@ impl IterNext for PyEnumerate {
 
 #[pyclass(module = false, name = "reversed", traverse)]
 #[derive(Debug)]
-pub struct PyReverseSequenceIterator {
+pub(crate) struct PyReverseSequenceIterator {
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
@@ -100,7 +100,7 @@ impl PyPayload for PyReverseSequenceIterator {
 
 #[pyclass(with(IterNext, Iterable))]
 impl PyReverseSequenceIterator {
-    pub const fn new(obj: PyObjectRef, len: usize) -> Self {
+    pub(crate) const fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len.saturating_sub(1);
         Self {
             internal: PyMutex::new(PositionIterInternal::new(obj, position)),
@@ -144,7 +144,7 @@ impl IterNext for PyReverseSequenceIterator {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyEnumerate::extend_class(context, context.types.enumerate_type);
     PyReverseSequenceIterator::extend_class(context, context.types.reverse_iter_type);
 }

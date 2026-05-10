@@ -147,7 +147,7 @@ struct ModuleContext {
     errors: Vec<syn::Error>,
 }
 
-pub fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<TokenStream> {
     let PyModuleArgs { metas, with_items } = args;
     let (doc, mut module_item) = match module_item {
         Item::Mod(m) => (m.attrs.doc(), m),
@@ -469,9 +469,8 @@ where
                     continue;
                 } else if closed {
                     bail_span!(attr, "Only one #[pyattr] annotated #[py*] item can exist")
-                } else {
-                    bail_span!(attr, "#[pymodule] doesn't accept #[{}]", wrong_name)
                 }
+                bail_span!(attr, "#[pymodule] doesn't accept #[{}]", wrong_name)
             }
         };
 

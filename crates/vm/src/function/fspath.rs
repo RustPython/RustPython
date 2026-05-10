@@ -89,6 +89,7 @@ impl FsPath {
         }
     }
 
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         // TODO: FS encodings
         match self {
@@ -97,6 +98,7 @@ impl FsPath {
         }
     }
 
+    #[must_use]
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         match self {
             Self::Str(s) => s.to_string_lossy(),

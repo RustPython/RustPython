@@ -16,6 +16,7 @@ pub fn duration_since_system_now() -> Result<Duration, SystemTimeError> {
 
 #[cfg(target_env = "msvc")]
 #[cfg(not(target_arch = "wasm32"))]
+#[must_use]
 pub fn get_tz_info() -> windows_sys::Win32::System::Time::TIME_ZONE_INFORMATION {
     let mut info = unsafe { core::mem::zeroed() };
     unsafe { windows_sys::Win32::System::Time::GetTimeZoneInformation(&mut info) };
@@ -23,6 +24,7 @@ pub fn get_tz_info() -> windows_sys::Win32::System::Time::TIME_ZONE_INFORMATION 
 }
 
 #[cfg(any(unix, windows))]
+#[must_use]
 pub fn asctime_from_tm(tm: &libc::tm) -> String {
     const WDAY_NAME: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const MON_NAME: [&str; 12] = [

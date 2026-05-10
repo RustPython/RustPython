@@ -25,6 +25,7 @@ fn global_ident() -> &'static RwLock<Option<GlobalIdent>> {
     IDENT.get_or_init(|| RwLock::new(None))
 }
 
+#[must_use]
 pub fn is_open() -> bool {
     global_ident()
         .read()
@@ -55,14 +56,17 @@ pub fn closelog() {
     }
 }
 
+#[must_use]
 pub fn setlogmask(maskpri: i32) -> i32 {
     unsafe { libc::setlogmask(maskpri) }
 }
 
+#[must_use]
 pub const fn log_mask(pri: i32) -> i32 {
     pri << 1
 }
 
+#[must_use]
 pub const fn log_upto(pri: i32) -> i32 {
     (1 << (pri + 1)) - 1
 }

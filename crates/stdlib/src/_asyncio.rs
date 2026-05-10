@@ -197,7 +197,7 @@ pub(crate) mod _asyncio {
 
             // Check if loop has get_debug method and call it
             if let Ok(Some(get_debug)) =
-                vm.get_attribute_opt(loop_obj.clone(), vm.ctx.intern_str("get_debug"))
+                vm.get_attribute_opt(loop_obj, vm.ctx.intern_str("get_debug"))
                 && let Ok(debug) = get_debug.call((), vm)
                 && debug.try_to_bool(vm).unwrap_or(false)
             {
@@ -1923,8 +1923,10 @@ pub(crate) mod _asyncio {
                 let state = zelf.base.fut_state.load().as_str().to_lowercase();
                 let name = zelf.task_name.read().as_ref().and_then(|n| n.str(vm).ok());
                 let coro_repr = zelf.task_coro.read().as_ref().and_then(|c| c.repr(vm).ok());
-                let name = name.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
-                let coro_repr = coro_repr.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
+                let name = name.as_ref().map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
+                let coro_repr = coro_repr
+                    .as_ref()
+                    .map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
                 Ok(wtf8_concat!(
                     "<", class_name, " ", state, " name='", name, "' coro=", coro_repr, ">"
                 ))
@@ -1971,8 +1973,8 @@ pub(crate) mod _asyncio {
             let coro_ref = match coro {
                 Some(c) => c,
                 None => {
-                    let _ = _swap_current_task(loop_obj.clone(), prev_task, vm);
-                    _unregister_eager_task(task_obj.clone(), vm)?;
+                    let _ = _swap_current_task(loop_obj, prev_task, vm);
+                    _unregister_eager_task(task_obj, vm)?;
                     return Ok(());
                 }
             };
@@ -1983,18 +1985,18 @@ pub(crate) mod _asyncio {
             match coro {
                 Some(c) => vm.call_method(&c, "send", (vm.ctx.none(),)),
                 None => {
-                    let _ = _swap_current_task(loop_obj.clone(), prev_task, vm);
-                    _unregister_eager_task(task_obj.clone(), vm)?;
+                    let _ = _swap_current_task(loop_obj, prev_task, vm);
+                    _unregister_eager_task(task_obj, vm)?;
                     return Ok(());
                 }
             }
         };
 
         // Restore previous task
-        let _ = _swap_current_task(loop_obj.clone(), prev_task, vm);
+        let _ = _swap_current_task(loop_obj, prev_task, vm);
 
         // Unregister from eager tasks
-        _unregister_eager_task(task_obj.clone(), vm)?;
+        _unregister_eager_task(task_obj, vm)?;
 
         // Handle the result
         match step_result {
@@ -2032,7 +2034,7 @@ pub(crate) mod _asyncio {
                 let exc = new_invalid_state_error(vm, "step(): already done");
                 let context = vm.ctx.new_dict();
                 context.set_item("message", vm.new_pyobj("step(): already done"), vm)?;
-                context.set_item("exception", exc.clone().into(), vm)?;
+                context.set_item("exception", exc.into(), vm)?;
                 context.set_item("task", task.clone(), vm)?;
                 let _ = vm.call_method(&loop_obj, "call_exception_handler", (context,));
             }

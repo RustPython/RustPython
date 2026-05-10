@@ -29,10 +29,12 @@ pub fn setmode_binary(fd: crt_fd::Borrowed<'_>) {
     unsafe { suppress_iph!(_setmode(fd, libc::O_BINARY)) };
 }
 
+#[must_use]
 pub fn getch() -> Vec<u8> {
     vec![unsafe { _getch() } as u8]
 }
 
+#[must_use]
 pub fn getwch() -> String {
     let value = unsafe { _getwch() };
     char::from_u32(value)
@@ -40,10 +42,12 @@ pub fn getwch() -> String {
         .to_string()
 }
 
+#[must_use]
 pub fn getche() -> Vec<u8> {
     vec![unsafe { _getche() } as u8]
 }
 
+#[must_use]
 pub fn getwche() -> String {
     let value = unsafe { _getwche() };
     char::from_u32(value)
@@ -77,6 +81,7 @@ pub fn ungetwch(c: char) -> io::Result<()> {
     }
 }
 
+#[must_use]
 pub fn kbhit() -> i32 {
     unsafe { _kbhit() }
 }

@@ -19,10 +19,11 @@ pub enum ReadlineResult {
 }
 
 #[allow(unused)]
-mod basic_readline {
+pub mod basic_readline {
     use super::*;
 
     pub trait Helper {}
+
     impl<T> Helper for T {}
 
     pub struct Readline<H: Helper> {
@@ -65,7 +66,7 @@ mod basic_readline {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-mod rustyline_readline {
+pub mod rustyline_readline {
     use super::*;
 
     pub trait Helper: rustyline::Helper {}

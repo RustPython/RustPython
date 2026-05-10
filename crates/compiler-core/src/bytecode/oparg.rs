@@ -66,6 +66,7 @@ impl OpArg {
 
     /// Returns how many CodeUnits a instruction with this op_arg will be encoded as
     #[inline]
+    #[must_use]
     pub const fn instr_size(self) -> usize {
         (self.0 > 0xff) as usize + (self.0 > 0xff_ff) as usize + (self.0 > 0xff_ff_ff) as usize + 1
     }

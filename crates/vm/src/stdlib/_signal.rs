@@ -16,11 +16,11 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
 
-    #[cfg(any(unix, windows))]
-    use libc::sighandler_t;
     #[allow(non_camel_case_types)]
-    #[cfg(not(any(unix, windows)))]
-    type sighandler_t = usize;
+    type sighandler_t = cfg_select! {
+        any(unix, windows) => libc::sighandler_t,
+        _ => usize,
+    };
 
     cfg_select! {
         windows => {
@@ -57,13 +57,14 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
-    pub use libc::SIG_ERR;
+    pub(crate) use libc::SIG_ERR;
+
     #[cfg(unix)]
-    pub use nix::unistd::alarm as sig_alarm;
+    pub(crate) use nix::unistd::alarm as sig_alarm;
 
     #[cfg(unix)]
     #[pyattr]
-    pub use libc::{SIG_DFL, SIG_IGN};
+    pub(crate) use libc::{SIG_DFL, SIG_IGN};
 
     // pthread_sigmask 'how' constants
     #[cfg(unix)]
@@ -72,13 +73,15 @@ pub(crate) mod _signal {
 
     #[cfg(not(unix))]
     #[pyattr]
-    pub const SIG_DFL: sighandler_t = 0;
+    pub(crate) const SIG_DFL: sighandler_t = 0;
+
     #[cfg(not(unix))]
     #[pyattr]
-    pub const SIG_IGN: sighandler_t = 1;
+    pub(crate) const SIG_IGN: sighandler_t = 1;
+
     #[cfg(not(unix))]
     #[allow(dead_code)]
-    pub const SIG_ERR: sighandler_t = -1 as _;
+    pub(crate) const SIG_ERR: sighandler_t = -1 as _;
 
     #[cfg(all(unix, not(target_os = "redox")))]
     unsafe extern "C" {
@@ -88,8 +91,11 @@ pub(crate) mod _signal {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     mod ffi {
         unsafe extern "C" {
-            pub fn getitimer(which: libc::c_int, curr_value: *mut libc::itimerval) -> libc::c_int;
-            pub fn setitimer(
+            pub(super) fn getitimer(
+                which: libc::c_int,
+                curr_value: *mut libc::itimerval,
+            ) -> libc::c_int;
+            pub(super) fn setitimer(
                 which: libc::c_int,
                 new_value: *const libc::itimerval,
                 old_value: *mut libc::itimerval,
@@ -102,7 +108,7 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows))]
     #[pyattr]
-    pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
+    pub(crate) use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
     #[cfg(windows)]
     #[pyattr]
@@ -204,7 +210,7 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows))]
     #[pyfunction]
-    pub fn signal(
+    pub(crate) fn signal(
         signalnum: i32,
         handler: PyObjectRef,
         vm: &VirtualMachine,
@@ -552,40 +558,39 @@ pub(crate) mod _signal {
         use crate::PyPayload;
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
-        #[cfg(unix)]
-        {
-            // Use sigfillset to get all valid signals
-            let mut mask: libc::sigset_t = unsafe { core::mem::zeroed() };
-            // SAFETY: mask is a valid pointer
-            if unsafe { libc::sigfillset(&mut mask) } != 0 {
-                return Err(vm.new_os_error("sigfillset failed".to_owned()));
-            }
-            // Convert the filled mask to a Python set
-            for signum in 1..signal::NSIG {
-                if unsafe { libc::sigismember(&mask, signum as i32) } == 1 {
-                    set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
+        cfg_select! {
+            unix => {
+                // Use sigfillset to get all valid signals
+                let mut mask: libc::sigset_t = unsafe { core::mem::zeroed() };
+                // SAFETY: mask is a valid pointer
+                if unsafe { libc::sigfillset(&mut mask) } != 0 {
+                    return Err(vm.new_os_error("sigfillset failed".to_owned()));
+                }
+                // Convert the filled mask to a Python set
+                for signum in 1..signal::NSIG {
+                    if unsafe { libc::sigismember(&mask, signum as i32) } == 1 {
+                        set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
+                    }
                 }
             }
-        }
-        #[cfg(windows)]
-        {
-            // Windows only supports a limited set of signals
-            for &signum in &[
-                libc::SIGINT,
-                libc::SIGILL,
-                libc::SIGFPE,
-                libc::SIGSEGV,
-                libc::SIGTERM,
-                SIGBREAK,
-                libc::SIGABRT,
-            ] {
-                set.add(vm.ctx.new_int(signum).into(), vm)?;
+            windows => {
+                // Windows only supports a limited set of signals
+                for &signum in &[
+                    libc::SIGINT,
+                    libc::SIGILL,
+                    libc::SIGFPE,
+                    libc::SIGSEGV,
+                    libc::SIGTERM,
+                    SIGBREAK,
+                    libc::SIGABRT,
+                ] {
+                    set.add(vm.ctx.new_int(signum).into(), vm)?;
+                }
             }
-        }
-        #[cfg(not(any(unix, windows)))]
-        {
-            // Empty set for platforms without signal support (e.g., WASM)
-            let _ = &set;
+            _ => {
+                // Empty set for platforms without signal support (e.g., WASM)
+                let _ = &set;
+            }
         }
         Ok(set.into())
     }
@@ -660,7 +665,7 @@ pub(crate) mod _signal {
     }
 
     #[cfg(any(unix, windows))]
-    pub extern "C" fn run_signal(signum: i32) {
+    pub(crate) extern "C" fn run_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
         #[cfg(windows)]

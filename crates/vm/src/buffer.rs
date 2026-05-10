@@ -37,7 +37,7 @@ impl Endianness {
             Some(b'@') => Self::Native,
             Some(b'=') => Self::Host,
             Some(b'<') => Self::Little,
-            Some(b'>') | Some(b'!') => Self::Big,
+            Some(b'>' | b'!') => Self::Big,
             _ => return Self::Native,
         };
         chars.next().unwrap();
@@ -61,10 +61,10 @@ impl ByteOrder for LittleEndian {
     }
 }
 
-#[cfg(target_endian = "big")]
-type NativeEndian = BigEndian;
-#[cfg(target_endian = "little")]
-type NativeEndian = LittleEndian;
+type NativeEndian = cfg_select! {
+    target_endian = "big" => BigEndian,
+    target_endian = "little" => LittleEndian,
+};
 
 #[derive(Copy, Clone, num_enum::TryFromPrimitive)]
 #[repr(u8)]
@@ -209,7 +209,7 @@ pub(crate) struct FormatCode {
 }
 
 impl FormatCode {
-    pub const fn arg_count(&self) -> usize {
+    pub(crate) const fn arg_count(&self) -> usize {
         match self.code {
             FormatType::Pad => 0,
             FormatType::Str | FormatType::Pascal => 1,
@@ -217,7 +217,7 @@ impl FormatCode {
         }
     }
 
-    pub fn parse<I>(
+    pub(crate) fn parse<I>(
         chars: &mut Peekable<I>,
         endianness: Endianness,
     ) -> Result<(Vec<Self>, usize, usize), String>
@@ -523,6 +523,7 @@ impl FormatSpec {
     }
 
     #[inline]
+    #[must_use]
     pub const fn size(&self) -> usize {
         self.size
     }

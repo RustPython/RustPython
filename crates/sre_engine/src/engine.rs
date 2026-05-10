@@ -60,6 +60,7 @@ impl Default for Marks {
 }
 
 impl Marks {
+    #[must_use]
     pub fn get(&self, group_index: usize) -> (Optioned<usize>, Optioned<usize>) {
         let marks_index = 2 * group_index;
         if marks_index + 1 < self.marks.len() {
@@ -69,10 +70,12 @@ impl Marks {
         }
     }
 
+    #[must_use]
     pub const fn last_index(&self) -> isize {
         self.last_index
     }
 
+    #[must_use]
     pub fn raw(&self) -> &[Optioned<usize>] {
         self.marks.as_slice()
     }
@@ -191,9 +194,8 @@ impl State {
             if flags.contains(SreInfo::PREFIX) {
                 if flags.contains(SreInfo::LITERAL) {
                     return search_info_literal::<true, S>(&mut req, self, ctx);
-                } else {
-                    return search_info_literal::<false, S>(&mut req, self, ctx);
                 }
+                return search_info_literal::<false, S>(&mut req, self, ctx);
             } else if flags.contains(SreInfo::CHARSET) {
                 return search_info_charset(&mut req, self, ctx);
             }
@@ -432,10 +434,9 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                         if max_count == MAXREPEAT || ctx.count as usize <= max_count {
                             state.cursor = ctx.cursor;
                             break 'context ctx.next_peek_from(1, req, Jump::MinRepeatOne2);
-                        } else {
-                            state.marks.pop_discard();
-                            break 'result false;
                         }
+                        state.marks.pop_discard();
+                        break 'result false;
                     }
                     Jump::MinRepeatOne2 => {
                         if popped_result {
@@ -485,10 +486,9 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                             ctx.count += 1;
                             ctx.jump = Jump::PossessiveRepeat1;
                             continue 'context;
-                        } else {
-                            state.cursor = ctx.cursor;
-                            break 'result false;
                         }
+                        state.cursor = ctx.cursor;
+                        break 'result false;
                     }
                     Jump::PossessiveRepeat3 => {
                         let max_count = ctx.peek_code(req, 3) as usize;

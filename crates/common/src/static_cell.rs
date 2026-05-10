@@ -67,10 +67,12 @@ mod non_threading {
 
     impl<T> StaticCell<T> {
         #[doc(hidden)]
+        #[must_use]
         pub const fn _from_local_key(inner: &'static LocalKey<OnceCell<&'static T>>) -> Self {
             Self { inner }
         }
 
+        #[must_use]
         pub fn get(&'static self) -> Option<&'static T> {
             self.inner.with(|x| x.get().copied())
         }

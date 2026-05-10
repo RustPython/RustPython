@@ -80,7 +80,8 @@ impl FfiResult<isize> for usize {
     const ERR_VALUE: isize = -1;
 
     fn into_output(self, _vm: &VirtualMachine) -> isize {
-        self as isize
+        self.try_into()
+            .expect("Output value is too large to fit into target type")
     }
 }
 
@@ -113,27 +114,8 @@ impl FfiResult<()> for PyResult<Infallible> {
 
     fn into_output(self, vm: &VirtualMachine) {
         match self {
-            Err(err) => vm.push_exception(Some(err)),
+            Err(err) => vm.set_exception(Some(err)),
         }
-    }
-}
-
-impl FfiResult<*mut c_void> for Option<*mut c_void> {
-    const ERR_VALUE: *mut c_void = core::ptr::null_mut();
-
-    fn into_output(self, vm: &VirtualMachine) -> *mut c_void {
-        self.map_or_else(|| Self::ERR_VALUE, |obj| obj.into_output(vm))
-    }
-}
-
-impl<T> FfiResult<*mut PyObject> for Option<T>
-where
-    T: FfiResult<*mut PyObject>,
-{
-    const ERR_VALUE: *mut PyObject = T::ERR_VALUE;
-
-    fn into_output(self, vm: &VirtualMachine) -> *mut PyObject {
-        self.map_or_else(|| Self::ERR_VALUE, |obj| obj.into_output(vm))
     }
 }
 
@@ -146,7 +128,7 @@ where
     fn into_output(self, vm: &VirtualMachine) -> Output {
         self.map_or_else(
             |err| {
-                vm.push_exception(Some(err));
+                vm.set_exception(Some(err));
                 T::ERR_VALUE
             },
             |obj| obj.into_output(vm),

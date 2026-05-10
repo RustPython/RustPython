@@ -15,21 +15,21 @@ use std::path::{Path, PathBuf};
 mod platform {
     use crate::version;
 
-    pub const BUILDDIR_TXT: &str = "pybuilddir.txt";
-    pub const BUILD_LANDMARK: &str = "Modules/Setup.local";
-    pub const VENV_LANDMARK: &str = "pyvenv.cfg";
-    pub const BUILDSTDLIB_LANDMARK: &str = "Lib/os.py";
+    pub(super) const BUILDDIR_TXT: &str = "pybuilddir.txt";
+    pub(super) const BUILD_LANDMARK: &str = "Modules/Setup.local";
+    pub(super) const VENV_LANDMARK: &str = "pyvenv.cfg";
+    pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib/os.py";
 
-    pub fn stdlib_subdir() -> String {
+    pub(super) fn stdlib_subdir() -> String {
         format!("lib/python{}.{}", version::MAJOR, version::MINOR)
     }
 
-    pub fn stdlib_landmarks() -> [String; 2] {
+    pub(super) fn stdlib_landmarks() -> [String; 2] {
         let subdir = stdlib_subdir();
         [format!("{}/os.py", subdir), format!("{}/os.pyc", subdir)]
     }
 
-    pub fn platstdlib_landmark() -> String {
+    pub(super) fn platstdlib_landmark() -> String {
         format!(
             "lib/python{}.{}/lib-dynload",
             version::MAJOR,
@@ -37,7 +37,7 @@ mod platform {
         )
     }
 
-    pub fn zip_landmark() -> String {
+    pub(super) fn zip_landmark() -> String {
         format!("lib/python{}{}.zip", version::MAJOR, version::MINOR)
     }
 }
@@ -46,21 +46,21 @@ mod platform {
 mod platform {
     use crate::version;
 
-    pub const BUILDDIR_TXT: &str = "pybuilddir.txt";
-    pub const BUILD_LANDMARK: &str = "Modules\\Setup.local";
-    pub const VENV_LANDMARK: &str = "pyvenv.cfg";
-    pub const BUILDSTDLIB_LANDMARK: &str = "Lib\\os.py";
-    pub const STDLIB_SUBDIR: &str = "Lib";
+    pub(super) const BUILDDIR_TXT: &str = "pybuilddir.txt";
+    pub(super) const BUILD_LANDMARK: &str = "Modules\\Setup.local";
+    pub(super) const VENV_LANDMARK: &str = "pyvenv.cfg";
+    pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib\\os.py";
+    pub(super) const STDLIB_SUBDIR: &str = "Lib";
 
-    pub fn stdlib_landmarks() -> [String; 2] {
+    pub(super) fn stdlib_landmarks() -> [String; 2] {
         ["Lib\\os.py".into(), "Lib\\os.pyc".into()]
     }
 
-    pub fn platstdlib_landmark() -> String {
+    pub(super) fn platstdlib_landmark() -> String {
         "DLLs".into()
     }
 
-    pub fn zip_landmark() -> String {
+    pub(super) fn zip_landmark() -> String {
         format!("python{}{}.zip", version::MAJOR, version::MINOR)
     }
 }
@@ -133,7 +133,7 @@ pub fn init_path_config(settings: &Settings) -> Paths {
 
     // Step 2: Check for venv (pyvenv.cfg) and get 'home'
     let (venv_prefix, home_dir) = detect_venv(&exe_dir);
-    let search_dir = home_dir.clone().or(exe_dir.clone());
+    let search_dir = home_dir.clone().or(exe_dir);
 
     // Step 3: Check for build directory
     let build_prefix = detect_build_directory(&search_dir);
@@ -307,11 +307,10 @@ fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: &Option<Pat
 /// Calculate stdlib_dir (sys._stdlib_dir)
 /// Returns None if the stdlib directory doesn't exist
 fn calculate_stdlib_dir(prefix: &str) -> Option<String> {
-    #[cfg(not(windows))]
-    let stdlib_dir = PathBuf::from(prefix).join(platform::stdlib_subdir());
-
-    #[cfg(windows)]
-    let stdlib_dir = PathBuf::from(prefix).join(platform::STDLIB_SUBDIR);
+    let stdlib_dir = Path::new(prefix).join(cfg_select! {
+        windows => platform::STDLIB_SUBDIR,
+        _ => platform::stdlib_subdir(),
+    });
 
     if stdlib_dir.is_dir() {
         Some(stdlib_dir.to_string_lossy().into_owned())

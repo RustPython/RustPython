@@ -119,30 +119,12 @@ mod decl {
     // PUTS macro
     #[cfg(any(unix, windows))]
     fn puts(fd: i32, s: &str) {
-        let _ = unsafe {
-            #[cfg(windows)]
-            {
-                libc::write(fd, s.as_ptr() as *const libc::c_void, s.len() as u32)
-            }
-            #[cfg(not(windows))]
-            {
-                libc::write(fd, s.as_ptr() as *const libc::c_void, s.len())
-            }
-        };
+        puts_bytes(fd, s.as_bytes())
     }
 
     #[cfg(any(unix, windows))]
     fn puts_bytes(fd: i32, s: &[u8]) {
-        let _ = unsafe {
-            #[cfg(windows)]
-            {
-                libc::write(fd, s.as_ptr() as *const libc::c_void, s.len() as u32)
-            }
-            #[cfg(not(windows))]
-            {
-                libc::write(fd, s.as_ptr() as *const libc::c_void, s.len())
-            }
-        };
+        let _ = unsafe { libc::write(fd, s.as_ptr().cast::<libc::c_void>(), s.len() as _) };
     }
 
     // _Py_DumpHexadecimal (traceback.c)
@@ -158,16 +140,7 @@ mod decl {
             buf[2 + i] = HEX_CHARS[digit];
         }
 
-        let _ = unsafe {
-            #[cfg(windows)]
-            {
-                libc::write(fd, buf.as_ptr() as *const libc::c_void, (2 + width) as u32)
-            }
-            #[cfg(not(windows))]
-            {
-                libc::write(fd, buf.as_ptr() as *const libc::c_void, 2 + width)
-            }
-        };
+        puts_bytes(fd, &buf[..2 + width]);
     }
 
     // _Py_DumpDecimal (traceback.c)
@@ -188,17 +161,7 @@ mod decl {
             v /= 10;
         }
 
-        let len = buf.len() - i;
-        let _ = unsafe {
-            #[cfg(windows)]
-            {
-                libc::write(fd, buf[i..].as_ptr() as *const libc::c_void, len as u32)
-            }
-            #[cfg(not(windows))]
-            {
-                libc::write(fd, buf[i..].as_ptr() as *const libc::c_void, len)
-            }
-        };
+        puts_bytes(fd, &buf[i..]);
     }
 
     /// Get current thread ID
@@ -857,30 +820,31 @@ mod decl {
             drop(guard); // Release lock before I/O
 
             // Timeout occurred, dump traceback
-            #[cfg(target_arch = "wasm32")]
-            let _ = (exit, fd, &header);
+            cfg_select! {
+                target_arch = "wasm32" => {
+                    let _ = (exit, fd, &header);
+                }
+                _ => {
+                    puts_bytes(fd, header.as_bytes());
 
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                puts_bytes(fd, header.as_bytes());
-
-                // Use thread frame slots when threading is enabled (includes all threads).
-                // Fall back to live frame walking for non-threaded builds.
-                #[cfg(feature = "threading")]
-                {
-                    for (tid, slot) in &thread_frame_slots {
-                        let frames = slot.frames.lock();
-                        dump_traceback_thread_frames(fd, *tid, false, &frames);
+                    // Use thread frame slots when threading is enabled (includes all threads).
+                    // Fall back to live frame walking for non-threaded builds.
+                    cfg_select! {
+                        feature = "threading" => {
+                            for (tid, slot) in &thread_frame_slots {
+                                let frames = slot.frames.lock();
+                                dump_traceback_thread_frames(fd, *tid, false, &frames);
+                            }
+                        }
+                        _ => {
+                            write_thread_id(fd, current_thread_id(), false);
+                            dump_live_frames(fd);
+                        }
                     }
-                }
-                #[cfg(not(feature = "threading"))]
-                {
-                    write_thread_id(fd, current_thread_id(), false);
-                    dump_live_frames(fd);
-                }
 
-                if exit {
-                    rustpython_host_env::os::exit(1);
+                    if exit {
+                        rustpython_host_env::os::exit(1);
+                    }
                 }
             }
 
@@ -987,7 +951,7 @@ mod decl {
         const NSIG: usize = 64;
 
         #[derive(Clone, Copy)]
-        pub struct UserSignal {
+        pub(super) struct UserSignal {
             pub enabled: bool,
             pub fd: i32,
             pub all_threads: bool,
@@ -1010,12 +974,12 @@ mod decl {
 
         static USER_SIGNALS: Mutex<Option<Vec<UserSignal>>> = Mutex::new(None);
 
-        pub fn get_user_signal(signum: usize) -> Option<UserSignal> {
+        pub(super) fn get_user_signal(signum: usize) -> Option<UserSignal> {
             let guard = USER_SIGNALS.lock();
-            guard.as_ref().and_then(|v| v.get(signum).cloned())
+            guard.as_ref().and_then(|v| v.get(signum).copied())
         }
 
-        pub fn set_user_signal(signum: usize, signal: UserSignal) {
+        pub(super) fn set_user_signal(signum: usize, signal: UserSignal) {
             let mut guard = USER_SIGNALS.lock();
             if guard.is_none() {
                 *guard = Some(vec![UserSignal::default(); NSIG]);
@@ -1027,7 +991,7 @@ mod decl {
             }
         }
 
-        pub fn clear_user_signal(signum: usize) -> Option<UserSignal> {
+        pub(super) fn clear_user_signal(signum: usize) -> Option<UserSignal> {
             let mut guard = USER_SIGNALS.lock();
             if let Some(ref mut v) = *guard
                 && signum < v.len()
@@ -1040,7 +1004,7 @@ mod decl {
             None
         }
 
-        pub fn is_enabled(signum: usize) -> bool {
+        pub(super) fn is_enabled(signum: usize) -> bool {
             let guard = USER_SIGNALS.lock();
             guard
                 .as_ref()

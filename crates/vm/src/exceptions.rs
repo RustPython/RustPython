@@ -1283,7 +1283,7 @@ pub(crate) struct OSErrorBuilder {
 
 impl OSErrorBuilder {
     #[must_use]
-    pub fn with_subtype(
+    pub(crate) fn with_subtype(
         exc_type: PyTypeRef,
         errno: Option<i32>,
         strerror: impl ToPyObject,
@@ -1302,7 +1302,7 @@ impl OSErrorBuilder {
     }
 
     #[must_use]
-    pub fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
+    pub(crate) fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
         let exc_type = errno_to_exc_type(errno, vm)
             .unwrap_or(vm.ctx.exceptions.os_error)
             .to_owned();
@@ -1340,7 +1340,7 @@ impl OSErrorBuilder {
         self
     }
 
-    pub fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
+    pub(crate) fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
         use types::PyOSError;
 
         let OSErrorBuilder {
@@ -1354,10 +1354,10 @@ impl OSErrorBuilder {
         } = self;
 
         let args = if let Some(errno) = errno {
-            #[cfg(windows)]
-            let winerror = winerror.to_pyobject(vm);
-            #[cfg(not(windows))]
-            let winerror = vm.ctx.none();
+            let winerror = cfg_select! {
+                windows => winerror.to_pyobject(vm),
+                _ => vm.ctx.none(),
+            };
 
             vec![
                 errno.to_pyobject(vm),
@@ -1613,7 +1613,7 @@ pub(super) mod types {
             }
 
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            let base_args = FuncArgs::new(args.args, KwArgs::default());
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set attributes
@@ -1754,7 +1754,7 @@ pub(super) mod types {
             }
 
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            let base_args = FuncArgs::new(args.args, KwArgs::default());
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set name attribute if provided
@@ -1960,7 +1960,11 @@ pub(super) mod types {
 
             // args are truncated to 2 for compatibility (only when 2-5 args and filename is not None)
             // truncation happens inside "if (filename && filename != Py_None)" block
-            let has_filename = exc.filename.to_owned().filter(|f| !vm.is_none(f)).is_some();
+            let has_filename = exc
+                .filename
+                .to_owned()
+                .as_ref()
+                .is_some_and(|f| !vm.is_none(f));
             if (3..=5).contains(&len) && has_filename {
                 new_args.args.truncate(2);
             }
@@ -2085,21 +2089,19 @@ pub(super) mod types {
                             .get_attr("filename2", vm)
                             .ok()
                             .filter(|f| !vm.is_none(f));
-                        #[cfg(windows)]
-                        let winerror = obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w));
+
+                        let winerror: Option<PyObjectRef> = cfg_select! {
+                            windows => obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w)),
+                            _ => None,
+                        };
 
                         if let Some(filename2) = filename2 {
-                            #[cfg(windows)]
-                            {
-                                args_reduced.push(winerror.unwrap_or_else(|| vm.ctx.none()));
-                            }
-                            #[cfg(not(windows))]
-                            args_reduced.push(vm.ctx.none());
-                            args_reduced.push(filename2);
+                            #[allow(clippy::unnecessary_literal_unwrap)]
+                            let winerror = winerror.unwrap_or_else(|| vm.ctx.none());
+                            args_reduced.extend([winerror, filename2]);
                         } else {
                             // Diverges from CPython: include winerror even without
                             // filename2 so it survives pickle round-trips.
-                            #[cfg(windows)]
                             if let Some(winerror) = winerror {
                                 args_reduced.push(winerror);
                             }

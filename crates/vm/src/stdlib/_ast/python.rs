@@ -38,7 +38,7 @@ pub(crate) mod _ast {
             let empty_tuple = ctx.empty_tuple.clone();
             class.set_str_attr("_fields", empty_tuple.clone(), ctx);
             class.set_str_attr("_attributes", empty_tuple.clone(), ctx);
-            class.set_str_attr("__match_args__", empty_tuple.clone(), ctx);
+            class.set_str_attr("__match_args__", empty_tuple, ctx);
 
             const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
                 "__reduce__",
@@ -217,7 +217,7 @@ pub(crate) mod _ast {
 
         let payload = vm.ctx.new_dict();
         if let Some(dict) = dict {
-            if let Some(fields) = fields.clone() {
+            if let Some(fields) = fields {
                 let fields: Vec<PyStrRef> = fields.try_to_value(vm)?;
                 for field in fields {
                     if let Some(value) = dict.get_item_opt::<Wtf8>(field.as_wtf8(), vm)? {
@@ -225,7 +225,7 @@ pub(crate) mod _ast {
                     }
                 }
             }
-            if let Some(attributes) = attributes.clone() {
+            if let Some(attributes) = attributes {
                 let attributes: Vec<PyStrRef> = attributes.try_to_value(vm)?;
                 for attr in attributes {
                     if let Some(value) = dict.get_item_opt::<Wtf8>(attr.as_wtf8(), vm)? {
@@ -512,7 +512,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
         let empty_tuple = ctx.empty_tuple.clone();
         ast_type.set_str_attr("_fields", empty_tuple.clone(), ctx);
         ast_type.set_str_attr("_attributes", empty_tuple.clone(), ctx);
-        ast_type.set_str_attr("__match_args__", empty_tuple.clone(), ctx);
+        ast_type.set_str_attr("__match_args__", empty_tuple, ctx);
 
         const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
             "__reduce__",

@@ -1,4 +1,4 @@
-use crate::{PyObject, with_vm};
+use crate::{PyObject, pystate::with_vm};
 use core::ffi::{CStr, c_char};
 use rustpython_vm::builtins::PyStr;
 

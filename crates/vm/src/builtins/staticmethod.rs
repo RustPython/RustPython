@@ -62,6 +62,7 @@ impl Constructor for PyStaticMethod {
 }
 
 impl PyStaticMethod {
+    #[must_use]
     pub fn new(callable: PyObjectRef) -> Self {
         Self {
             callable: PyMutex::new(callable),
@@ -196,6 +197,6 @@ impl Representable for PyStaticMethod {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyStaticMethod::extend_class(context, context.types.staticmethod_type);
 }

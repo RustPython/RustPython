@@ -6,7 +6,7 @@
 pub(crate) use _hashlib::module_def;
 
 #[pymodule]
-pub mod _hashlib {
+pub(crate) mod _hashlib {
     use crate::common::lock::PyRwLock;
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -51,7 +51,7 @@ pub mod _hashlib {
     #[pyexception(name = "UnsupportedDigestmodError", base = PyValueError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct UnsupportedDigestmodError(PyValueError);
+    pub(crate) struct UnsupportedDigestmodError(PyValueError);
 
     #[pyattr]
     fn openssl_md_meth_names(vm: &VirtualMachine) -> PyObjectRef {
@@ -89,7 +89,7 @@ pub mod _hashlib {
 
     #[derive(FromArgs)]
     #[allow(unused)]
-    pub struct BlakeHashArgs {
+    pub(crate) struct BlakeHashArgs {
         #[pyarg(any, optional)]
         pub data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
@@ -110,7 +110,7 @@ pub mod _hashlib {
 
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
-    pub struct HashArgs {
+    pub(crate) struct HashArgs {
         #[pyarg(any, optional)]
         pub data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
@@ -288,7 +288,7 @@ pub mod _hashlib {
     #[pyattr]
     #[pyclass(module = "_hashlib", name = "HMAC")]
     #[derive(PyPayload)]
-    pub struct PyHmac {
+    pub(crate) struct PyHmac {
         algo_name: String,
         digest_size: usize,
         block_size: usize,
@@ -361,7 +361,7 @@ pub mod _hashlib {
     #[pyattr]
     #[pyclass(module = "_hashlib", name = "HASH")]
     #[derive(PyPayload)]
-    pub struct PyHasher {
+    pub(crate) struct PyHasher {
         pub name: String,
         pub ctx: PyRwLock<HashWrapper>,
     }
@@ -460,7 +460,7 @@ pub mod _hashlib {
     #[pyattr]
     #[pyclass(module = "_hashlib", name = "HASHXOF")]
     #[derive(PyPayload)]
-    pub struct PyHasherXof {
+    pub(crate) struct PyHasherXof {
         name: String,
         ctx: PyRwLock<HashXofWrapper>,
     }
@@ -605,43 +605,43 @@ pub mod _hashlib {
     }
 
     #[pyfunction(name = "openssl_md5")]
-    pub fn local_md5(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_md5(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new("md5", HashWrapper::new::<Md5>(data)))
     }
 
     #[pyfunction(name = "openssl_sha1")]
-    pub fn local_sha1(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_sha1(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new("sha1", HashWrapper::new::<Sha1>(data)))
     }
 
     #[pyfunction(name = "openssl_sha224")]
-    pub fn local_sha224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_sha224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new("sha224", HashWrapper::new::<Sha224>(data)))
     }
 
     #[pyfunction(name = "openssl_sha256")]
-    pub fn local_sha256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_sha256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new("sha256", HashWrapper::new::<Sha256>(data)))
     }
 
     #[pyfunction(name = "openssl_sha384")]
-    pub fn local_sha384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_sha384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new("sha384", HashWrapper::new::<Sha384>(data)))
     }
 
     #[pyfunction(name = "openssl_sha512")]
-    pub fn local_sha512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_sha512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new("sha512", HashWrapper::new::<Sha512>(data)))
     }
 
     #[pyfunction(name = "openssl_sha3_224")]
-    pub fn local_sha3_224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_sha3_224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new(
             "sha3_224",
@@ -650,7 +650,7 @@ pub mod _hashlib {
     }
 
     #[pyfunction(name = "openssl_sha3_256")]
-    pub fn local_sha3_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_sha3_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new(
             "sha3_256",
@@ -659,7 +659,7 @@ pub mod _hashlib {
     }
 
     #[pyfunction(name = "openssl_sha3_384")]
-    pub fn local_sha3_384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_sha3_384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new(
             "sha3_384",
@@ -668,7 +668,7 @@ pub mod _hashlib {
     }
 
     #[pyfunction(name = "openssl_sha3_512")]
-    pub fn local_sha3_512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_sha3_512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new(
             "sha3_512",
@@ -677,7 +677,7 @@ pub mod _hashlib {
     }
 
     #[pyfunction(name = "openssl_shake_128")]
-    pub fn local_shake_128(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
+    pub(crate) fn local_shake_128(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasherXof::new(
             "shake_128",
@@ -686,7 +686,7 @@ pub mod _hashlib {
     }
 
     #[pyfunction(name = "openssl_shake_256")]
-    pub fn local_shake_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
+    pub(crate) fn local_shake_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasherXof::new(
             "shake_256",
@@ -695,7 +695,7 @@ pub mod _hashlib {
     }
 
     #[pyfunction(name = "openssl_blake2b")]
-    pub fn local_blake2b(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_blake2b(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new(
             "blake2b",
@@ -704,7 +704,7 @@ pub mod _hashlib {
     }
 
     #[pyfunction(name = "openssl_blake2s")]
-    pub fn local_blake2s(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+    pub(crate) fn local_blake2s(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
         Ok(PyHasher::new(
             "blake2s",
@@ -746,7 +746,7 @@ pub mod _hashlib {
 
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
-    pub struct NewHMACHashArgs {
+    pub(crate) struct NewHMACHashArgs {
         #[pyarg(positional)]
         key: ArgBytesLike,
         #[pyarg(any, optional)]
@@ -885,13 +885,13 @@ pub mod _hashlib {
     clone_trait_object!(ThreadSafeDynDigest);
 
     #[derive(Clone)]
-    pub struct HashWrapper {
+    pub(crate) struct HashWrapper {
         block_size: usize,
         inner: Box<dyn ThreadSafeDynDigest>,
     }
 
     impl HashWrapper {
-        pub fn new<D>(data: OptionalArg<ArgBytesLike>) -> Self
+        pub(crate) fn new<D>(data: OptionalArg<ArgBytesLike>) -> Self
         where
             D: ThreadSafeDynDigest + BlockSizeUser + Default + 'static,
         {
@@ -924,13 +924,13 @@ pub mod _hashlib {
     }
 
     #[derive(Clone)]
-    pub enum HashXofWrapper {
+    pub(crate) enum HashXofWrapper {
         Shake128(Shake128),
         Shake256(Shake256),
     }
 
     impl HashXofWrapper {
-        pub fn new_shake_128(data: OptionalArg<ArgBytesLike>) -> Self {
+        pub(crate) fn new_shake_128(data: OptionalArg<ArgBytesLike>) -> Self {
             let mut h = Self::Shake128(Shake128::default());
             if let OptionalArg::Present(d) = data {
                 d.with_ref(|bytes| h.update(bytes));
@@ -938,7 +938,7 @@ pub mod _hashlib {
             h
         }
 
-        pub fn new_shake_256(data: OptionalArg<ArgBytesLike>) -> Self {
+        pub(crate) fn new_shake_256(data: OptionalArg<ArgBytesLike>) -> Self {
             let mut h = Self::Shake256(Shake256::default());
             if let OptionalArg::Present(d) = data {
                 d.with_ref(|bytes| h.update(bytes));

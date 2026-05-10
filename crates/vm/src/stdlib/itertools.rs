@@ -1648,7 +1648,7 @@ mod decl {
             }
             let n = n
                 .to_usize()
-                .ok_or(vm.new_overflow_error("Python int too large to convert to usize"))?;
+                .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to usize"))?;
             let iterable = iterable_ref.get_iter(vm)?;
 
             Ok(Self {

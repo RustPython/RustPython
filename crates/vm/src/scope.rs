@@ -16,6 +16,7 @@ impl fmt::Debug for Scope {
 
 impl Scope {
     #[inline]
+    #[must_use]
     pub fn new(locals: Option<ArgMapping>, globals: PyDictRef) -> Self {
         Self { locals, globals }
     }

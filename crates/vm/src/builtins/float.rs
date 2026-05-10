@@ -29,6 +29,7 @@ pub struct PyFloat {
 }
 
 impl PyFloat {
+    #[must_use]
     pub const fn to_f64(&self) -> f64 {
         self.value
     }
@@ -131,10 +132,9 @@ pub fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
         Some(int) => Ok(int),
         None => {
             if value.is_infinite() {
-                Err(vm
-                    .new_overflow_error("OverflowError: cannot convert float infinity to integer"))
+                Err(vm.new_overflow_error("cannot convert float infinity to integer"))
             } else if value.is_nan() {
-                Err(vm.new_value_error("ValueError: cannot convert float NaN to integer"))
+                Err(vm.new_value_error("cannot convert float NaN to integer"))
             } else {
                 // unreachable unless BigInt has a bug
                 unreachable!(
@@ -154,7 +154,7 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
     float_ops::divmod(v1, v2).ok_or_else(|| vm.new_zero_division_error("division by zero"))
 }
 
-pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     if v1.is_zero() && v2.is_sign_negative() {
         let msg = "zero to a negative power";
         Err(vm.new_zero_division_error(msg.to_owned()))
@@ -543,7 +543,7 @@ fn vectorcall_float(
 }
 
 #[rustfmt::skip] // to avoid line splitting
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyFloat::extend_class(context, context.types.float_type);
     context.types.float_type.slots.vectorcall.store(Some(vectorcall_float));
 }

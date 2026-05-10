@@ -95,8 +95,8 @@ mod _csv {
         #[pygetset]
         fn lineterminator(&self, vm: &VirtualMachine) -> PyRef<PyStr> {
             match self.lineterminator {
-                Terminator::CRLF => vm.ctx.new_str("\r\n".to_string()).to_owned(),
-                Terminator::Any(t) => vm.ctx.new_str(format!("{}", t as char)).to_owned(),
+                Terminator::CRLF => vm.ctx.new_str("\r\n".to_string()),
+                Terminator::Any(t) => vm.ctx.new_str(format!("{}", t as char)),
                 _ => unreachable!(),
             }
         }
@@ -195,7 +195,7 @@ mod _csv {
                     r#""escapechar" must be a unicode character or None, not {}"#,
                     attr.class()
                 );
-                Err(vm.new_type_error(msg.to_owned()))
+                Err(vm.new_type_error(msg))
             }
         })
     }
@@ -231,7 +231,7 @@ mod _csv {
             }
             attr => {
                 let msg = format!(r#""quoting" must be string or None, not {}"#, attr.class());
-                Err(vm.new_type_error(msg.to_owned()))
+                Err(vm.new_type_error(msg))
             }
         })
     }
@@ -1025,10 +1025,9 @@ mod _csv {
                     // Rustpython TODO!
                     // Incomplete implementation
                     if let QuoteStyle::Nonnumeric = zelf.dialect.quoting {
-                        if let Ok(t) =
-                            String::from_utf8(trim_spaces(&buffer[range.clone()]).to_vec())
-                                .unwrap()
-                                .parse::<i64>()
+                        if let Ok(t) = String::from_utf8(trim_spaces(&buffer[range]).to_vec())
+                            .unwrap()
+                            .parse::<i64>()
                         {
                             Ok(vm.ctx.new_int(t).into())
                         } else {

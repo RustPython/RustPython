@@ -10,7 +10,7 @@ use alloc::borrow::ToOwned;
 use core::{borrow::Borrow, ops::Deref};
 
 #[derive(Debug)]
-pub struct StringPool {
+pub(crate) struct StringPool {
     inner: PyRwLock<std::collections::HashSet<CachedPyStrRef, ahash::RandomState>>,
 }
 
@@ -36,13 +36,13 @@ impl StringPool {
     /// # Safety
     /// Must only be called after fork() in the child process when no other
     /// threads exist.
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
     pub(crate) unsafe fn reinit_after_fork(&self) {
         unsafe { crate::common::lock::reinit_rwlock_after_fork(&self.inner) };
     }
 
     #[inline]
-    pub unsafe fn intern<S: InternableString>(
+    pub(crate) unsafe fn intern<S: InternableString>(
         &self,
         s: S,
         typ: PyTypeRef,
@@ -74,7 +74,7 @@ impl StringPool {
     }
 
     #[inline]
-    pub fn interned<S: MaybeInternedString + ?Sized>(
+    pub(crate) fn interned<S: MaybeInternedString + ?Sized>(
         &self,
         s: &S,
     ) -> Option<&'static PyStrInterned> {
@@ -90,7 +90,7 @@ impl StringPool {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct CachedPyStrRef {
+pub(crate) struct CachedPyStrRef {
     inner: PyRefExact<PyStr>,
 }
 

@@ -1,5 +1,5 @@
 use crate::object::define_py_check;
-use crate::{PyObject, with_vm};
+use crate::{PyObject, pystate::with_vm};
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use core::slice;

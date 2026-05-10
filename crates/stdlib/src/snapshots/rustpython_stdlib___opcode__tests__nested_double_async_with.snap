@@ -1,0 +1,183 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\"#)"
+---
+  0           RESUME                   0
+
+  1           LOAD_CONST               0 (<code object test at 0xdeadbeef file "<?>", line 1>)
+              MAKE_FUNCTION
+              STORE_NAME               0 (test)
+              LOAD_CONST               1 (None)
+              RETURN_VALUE
+
+Disassembly of <code object test at 0xdeadbeef file "<?>", line 1>:
+   1            RETURN_GENERATOR
+                POP_TOP
+                RESUME                   0
+
+   2    L1:     LOAD_GLOBAL              1 (StopIteration + NULL)
+                LOAD_CONST               0 ('spam')
+                CALL                     1
+                LOAD_GLOBAL              3 (StopAsyncIteration + NULL)
+                LOAD_CONST               1 ('ham')
+                CALL                     1
+                BUILD_TUPLE              2
+                GET_ITER
+        L2:     FOR_ITER                71 (to L11)
+                STORE_FAST               0 (stop_exc)
+
+   3            LOAD_GLOBAL              4 (self)
+                LOAD_ATTR                7 (subTest + NULL|self)
+                LOAD_GLOBAL              9 (type + NULL)
+                LOAD_FAST_BORROW         0 (stop_exc)
+                CALL                     1
+                LOAD_CONST               2 (('type',))
+                CALL_KW                  1
+                COPY                     1
+                LOAD_SPECIAL             1 (__exit__)
+                SWAP                     2
+                SWAP                     3
+                LOAD_SPECIAL             0 (__enter__)
+                CALL                     0
+        L3:     POP_TOP
+
+   4    L4:     NOP
+
+   5    L5:     LOAD_GLOBAL             11 (egg + NULL)
+                CALL                     0
+                COPY                     1
+                LOAD_SPECIAL             3 (__aexit__)
+                SWAP                     2
+                SWAP                     3
+                LOAD_SPECIAL             2 (__aenter__)
+                CALL                     0
+                GET_AWAITABLE            1
+                LOAD_CONST               3 (None)
+        L6:     SEND                     3 (to L9)
+        L7:     YIELD_VALUE              1
+        L8:     RESUME                   3
+                JUMP_BACKWARD_NO_INTERRUPT 5 (to L6)
+        L9:     END_SEND
+       L10:     POP_TOP
+
+   6            LOAD_FAST_BORROW         0 (stop_exc)
+                RAISE_VARARGS            1
+
+   2   L11:     END_FOR
+                POP_ITER
+                LOAD_CONST               3 (None)
+                RETURN_VALUE
+
+   5   L12:     CLEANUP_THROW
+       L13:     JUMP_BACKWARD_NO_INTERRUPT 10 (to L9)
+       L14:     PUSH_EXC_INFO
+                WITH_EXCEPT_START
+                GET_AWAITABLE            2
+                LOAD_CONST               3 (None)
+       L15:     SEND                     4 (to L19)
+       L16:     YIELD_VALUE              1
+       L17:     RESUME                   3
+                JUMP_BACKWARD_NO_INTERRUPT 5 (to L15)
+       L18:     CLEANUP_THROW
+       L19:     END_SEND
+                TO_BOOL
+                POP_JUMP_IF_TRUE         2 (to L20)
+                NOT_TAKEN
+                RERAISE                  2
+       L20:     POP_TOP
+       L21:     POP_EXCEPT
+                POP_TOP
+                POP_TOP
+                POP_TOP
+                JUMP_FORWARD             3 (to L23)
+       L22:     COPY                     3
+                POP_EXCEPT
+                RERAISE                  1
+       L23:     NOP
+
+  10   L24:     LOAD_GLOBAL              4 (self)
+                LOAD_ATTR               13 (fail + NULL|self)
+                LOAD_FAST                0 (stop_exc)
+                FORMAT_SIMPLE
+                LOAD_CONST               4 (' was suppressed')
+                BUILD_STRING             2
+                CALL                     1
+                POP_TOP
+                JUMP_FORWARD            45 (to L31)
+
+  --   L25:     PUSH_EXC_INFO
+
+   7            LOAD_GLOBAL             14 (Exception)
+                CHECK_EXC_MATCH
+                POP_JUMP_IF_FALSE       32 (to L29)
+                NOT_TAKEN
+                STORE_FAST               1 (ex)
+
+   8   L26:     LOAD_GLOBAL              4 (self)
+                LOAD_ATTR               17 (assertIs + NULL|self)
+                LOAD_FAST_LOAD_FAST     16 (ex, stop_exc)
+                CALL                     2
+                POP_TOP
+       L27:     POP_EXCEPT
+                LOAD_CONST               3 (None)
+                STORE_FAST               1 (ex)
+                DELETE_FAST              1 (ex)
+                JUMP_FORWARD             8 (to L31)
+
+  --   L28:     LOAD_CONST               3 (None)
+                STORE_FAST               1 (ex)
+                DELETE_FAST              1 (ex)
+                RERAISE                  1
+
+   7   L29:     RERAISE                  0
+
+  --   L30:     COPY                     3
+                POP_EXCEPT
+                RERAISE                  1
+
+   3   L31:     LOAD_CONST               3 (None)
+                LOAD_CONST               3 (None)
+                LOAD_CONST               3 (None)
+                CALL                     3
+                POP_TOP
+                JUMP_BACKWARD          188 (to L2)
+       L32:     PUSH_EXC_INFO
+                WITH_EXCEPT_START
+                TO_BOOL
+                POP_JUMP_IF_TRUE         2 (to L33)
+                NOT_TAKEN
+                RERAISE                  2
+       L33:     POP_TOP
+       L34:     POP_EXCEPT
+                POP_TOP
+                POP_TOP
+                POP_TOP
+                JUMP_BACKWARD          205 (to L2)
+       L35:     COPY                     3
+                POP_EXCEPT
+                RERAISE                  1
+
+  --   L36:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+                RERAISE                  1
+ExceptionTable:
+  L1 to L3 -> L36 [0] lasti
+  L3 to L4 -> L32 [3] lasti
+  L5 to L7 -> L25 [3]
+  L7 to L8 -> L12 [7]
+  L8 to L10 -> L25 [3]
+  L10 to L11 -> L14 [5] lasti
+  L11 to L12 -> L36 [0] lasti
+  L12 to L13 -> L25 [3]
+  L14 to L16 -> L22 [7] lasti
+  L16 to L17 -> L18 [10]
+  L17 to L21 -> L22 [7] lasti
+  L21 to L23 -> L25 [3]
+  L24 to L25 -> L32 [3] lasti
+  L25 to L26 -> L30 [4] lasti
+  L26 to L27 -> L28 [4] lasti
+  L27 to L28 -> L32 [3] lasti
+  L28 to L30 -> L30 [4] lasti
+  L30 to L31 -> L32 [3] lasti
+  L31 to L32 -> L36 [0] lasti
+  L32 to L34 -> L35 [5] lasti
+  L34 to L36 -> L36 [0] lasti

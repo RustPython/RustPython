@@ -50,7 +50,7 @@ mod _posixsubprocess {
             .as_ref()
             .map(|l| Vec::<Gid>::try_from_borrowed_object(vm, l.as_object()))
             .transpose()?;
-        let argv = CharPtrVec::from_iter(args.args.iter());
+        let argv = args.args.iter().collect::<CharPtrVec<'_>>();
         let envp = args.env_list.as_ref().map(CharPtrVec::from_iter);
         let procargs = ProcArgs {
             argv: &argv,

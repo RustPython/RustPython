@@ -32,7 +32,7 @@ use rustpython_common::{
     hash,
 };
 
-pub type SetContentType = dict_inner::Dict<()>;
+pub(crate) type SetContentType = dict_inner::Dict<()>;
 
 #[pyclass(module = false, name = "set", unhashable = true, traverse)]
 #[derive(Default)]
@@ -46,6 +46,7 @@ impl PySet {
         Self::default().into_ref(ctx)
     }
 
+    #[must_use]
     pub fn elements(&self) -> Vec<PyObjectRef> {
         self.inner.elements()
     }
@@ -514,6 +515,7 @@ fn reduce_set(
 ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
         zelf.class().to_owned(),
+        #[expect(clippy::or_fun_call, reason = "changing this won't compile")]
         vm.new_tuple((extract_set(zelf)
             .unwrap_or(&PySetInner::default())
             .elements(),)),
@@ -834,11 +836,7 @@ impl AsNumber for PySet {
                 } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
                     // When called via __rsub__, a might be PyFrozenSet
                     a.__sub__(b.to_owned(), vm)
-                        .map(|r| {
-                            r.map(|s| PySet {
-                                inner: s.inner.clone(),
-                            })
-                        })
+                        .map(|r| r.map(|s| PySet { inner: s.inner }))
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -852,11 +850,7 @@ impl AsNumber for PySet {
                     a.__and__(b.to_owned(), vm).to_pyresult(vm)
                 } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
                     a.__and__(b.to_owned(), vm)
-                        .map(|r| {
-                            r.map(|s| PySet {
-                                inner: s.inner.clone(),
-                            })
-                        })
+                        .map(|r| r.map(|s| PySet { inner: s.inner }))
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -870,11 +864,7 @@ impl AsNumber for PySet {
                     a.__xor__(b.to_owned(), vm).to_pyresult(vm)
                 } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
                     a.__xor__(b.to_owned(), vm)
-                        .map(|r| {
-                            r.map(|s| PySet {
-                                inner: s.inner.clone(),
-                            })
-                        })
+                        .map(|r| r.map(|s| PySet { inner: s.inner }))
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -888,11 +878,7 @@ impl AsNumber for PySet {
                     a.__or__(b.to_owned(), vm).to_pyresult(vm)
                 } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
                     a.__or__(b.to_owned(), vm)
-                        .map(|r| {
-                            r.map(|s| PySet {
-                                inner: s.inner.clone(),
-                            })
-                        })
+                        .map(|r| r.map(|s| PySet { inner: s.inner }))
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -1447,7 +1433,7 @@ fn vectorcall_frozenset(
     (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PySet::extend_class(context, context.types.set_type);
     context
         .types

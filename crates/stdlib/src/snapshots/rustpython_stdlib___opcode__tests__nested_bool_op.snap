@@ -1,0 +1,24 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: x = Test() and False or False
+---
+  0           RESUME                   0
+
+  1           LOAD_NAME                0 (Test)
+              PUSH_NULL
+              CALL                     0
+              COPY                     1
+              TO_BOOL
+              POP_JUMP_IF_FALSE       11 (to L1)
+              NOT_TAKEN
+              POP_TOP
+              LOAD_CONST               0 (False)
+              COPY                     1
+              TO_BOOL
+              POP_JUMP_IF_TRUE         3 (to L2)
+              NOT_TAKEN
+      L1:     POP_TOP
+              LOAD_CONST               0 (False)
+      L2:     STORE_NAME               1 (x)
+              LOAD_CONST               1 (None)
+              RETURN_VALUE

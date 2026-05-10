@@ -157,10 +157,12 @@ pybuilddir
 pycore
 pyinner
 pydecimal
+pyerrors
 Pyfunc
 pylifecycle
 pymain
 pyrepl
+pystate
 PYTHONTRACEMALLOC
 PYTHONUTF8
 pythonw

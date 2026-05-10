@@ -1,47 +1,25 @@
-use crate::log_stub;
+use crate::get_main_interpreter;
 use crate::pyerrors::init_exception_statics;
-use crate::pystate::attach_vm_to_thread;
+use crate::pystate::ensure_thread_has_vm_attached;
 use core::ffi::{c_char, c_int};
 use rustpython_vm::version::get_version;
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
 use rustpython_vm::{Context, Interpreter};
-use std::sync::{LazyLock, Once, OnceLock, mpsc};
+use std::sync::{LazyLock, Mutex};
 
-static VM_REQUEST_TX: OnceLock<mpsc::Sender<mpsc::SyncSender<ThreadedVirtualMachine>>> =
-    OnceLock::new();
-pub(crate) static INITIALIZED: Once = Once::new();
+pub(crate) static MAIN_INTERP: Mutex<Option<Interpreter>> = Mutex::new(None);
 
-/// Request a vm from the main interpreter
+/// Request a thread local vm from the main interpreter
 pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
-    let tx = VM_REQUEST_TX
-        .get()
-        .expect("VM request channel not initialized");
-    let (response_tx, response_rx) = mpsc::sync_channel(1);
-    tx.send(response_tx).expect("Failed to send VM request");
-    response_rx.recv().expect("Failed to receive VM response")
-}
-
-/// Initialize the static type pointers. This should be called once during interpreter initialization,
-/// and before any of the static type pointers are used.
-///
-/// Panics:
-/// Panics when the interpreter is already initialized.
-#[allow(static_mut_refs)]
-pub(crate) fn init_static_type_pointers() {
-    assert!(
-        !INITIALIZED.is_completed(),
-        "Python already initialized, we should not touch the static type pointers"
-    );
-    let context = Context::genesis();
-
-    unsafe {
-        init_exception_statics(&context.exceptions);
-    };
+    get_main_interpreter()
+        .as_ref()
+        .expect("Interpreter not initialized")
+        .enter(|vm| vm.new_thread())
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_IsInitialized() -> c_int {
-    INITIALIZED.is_completed() as _
+    get_main_interpreter().is_some() as c_int
 }
 
 #[unsafe(no_mangle)]
@@ -51,31 +29,14 @@ pub extern "C" fn Py_Initialize() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
-    if INITIALIZED.is_completed() {
-        panic!("Initialize called multiple times");
+    let mut interp = get_main_interpreter();
+    if interp.is_none() {
+        // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
+        unsafe { init_exception_statics(&Context::genesis().exceptions) };
+        *interp = Interpreter::with_init(Default::default(), |_vm| {}).into();
+        drop(interp);
+        ensure_thread_has_vm_attached();
     }
-
-    INITIALIZED.call_once(|| {
-        init_static_type_pointers();
-
-        let (tx, rx) = mpsc::channel();
-        VM_REQUEST_TX
-            .set(tx)
-            .expect("VM request channel was already initialized");
-
-        std::thread::spawn(move || {
-            let interp = Interpreter::with_init(Default::default(), |_vm| {});
-            interp.enter(|vm| {
-                while let Ok(request) = rx.recv() {
-                    request
-                        .send(vm.new_thread())
-                        .expect("Failed to send VM response");
-                }
-            })
-        });
-    });
-
-    attach_vm_to_thread();
 }
 
 #[unsafe(no_mangle)]
@@ -85,7 +46,6 @@ pub extern "C" fn Py_Finalize() {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_FinalizeEx() -> c_int {
-    log_stub("Py_FinalizeEx");
     0
 }
 

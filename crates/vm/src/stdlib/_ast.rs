@@ -126,7 +126,7 @@ struct PySourceRange {
     end: PySourceLocation,
 }
 
-pub struct PySourceLocation {
+pub(crate) struct PySourceLocation {
     row: Row,
     column: Column,
 }
@@ -815,18 +815,18 @@ pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> P
 }
 
 // Used by builtins::compile()
-pub const PY_CF_ONLY_AST: i32 = 0x0400;
+pub(crate) const PY_CF_ONLY_AST: i32 = 0x0400;
 
 // The following flags match the values from Include/cpython/compile.h
 // Caveat emptor: These flags are undocumented on purpose and depending
 // on their effect outside the standard library is **unsupported**.
-pub const PY_CF_SOURCE_IS_UTF8: i32 = 0x0100;
-pub const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
-pub const PY_CF_IGNORE_COOKIE: i32 = 0x0800;
-pub const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
-pub const PY_CF_OPTIMIZED_AST: i32 = 0x8000 | PY_CF_ONLY_AST;
-pub const PY_CF_TYPE_COMMENTS: i32 = 0x1000;
-pub const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = 0x2000;
+pub(crate) const PY_CF_SOURCE_IS_UTF8: i32 = 0x0100;
+pub(crate) const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
+pub(crate) const PY_CF_IGNORE_COOKIE: i32 = 0x0800;
+pub(crate) const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
+pub(crate) const PY_CF_OPTIMIZED_AST: i32 = 0x8000 | PY_CF_ONLY_AST;
+pub(crate) const PY_CF_TYPE_COMMENTS: i32 = 0x1000;
+pub(crate) const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = 0x2000;
 
 // __future__ flags - sync with Lib/__future__.py
 // TODO: These flags aren't being used in rust code
@@ -845,7 +845,7 @@ const CO_FUTURE_GENERATOR_STOP: i32 = 0x800000;
 const CO_FUTURE_ANNOTATIONS: i32 = 0x1000000;
 
 // Used by builtins::compile() - the summary of all flags
-pub const PY_COMPILE_FLAGS_MASK: i32 = PY_CF_ONLY_AST
+pub(crate) const PY_COMPILE_FLAGS_MASK: i32 = PY_CF_ONLY_AST
     | PY_CF_SOURCE_IS_UTF8
     | PY_CF_DONT_IMPLY_DEDENT
     | PY_CF_IGNORE_COOKIE

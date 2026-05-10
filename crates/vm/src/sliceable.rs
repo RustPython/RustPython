@@ -369,6 +369,7 @@ impl SaturatedSlice {
     // Equivalent to PySlice_AdjustIndices
     /// Convert for usage in indexing the underlying rust collections. Called *after*
     /// __index__ has been called on the Slice which might mutate the collection.
+    #[must_use]
     pub fn adjust_indices(&self, len: usize) -> (Range<usize>, isize, usize) {
         if len == 0 {
             return (0..0, self.step, 0);
@@ -398,6 +399,7 @@ impl SaturatedSlice {
         (range, self.step, slice_len)
     }
 
+    #[must_use]
     pub fn iter(&self, len: usize) -> SaturatedSliceIter {
         SaturatedSliceIter::new(self, len)
     }
@@ -410,11 +412,13 @@ pub struct SaturatedSliceIter {
 }
 
 impl SaturatedSliceIter {
+    #[must_use]
     pub fn new(slice: &SaturatedSlice, seq_len: usize) -> Self {
         let (range, step, len) = slice.adjust_indices(seq_len);
         Self::from_adjust_indices(range, step, len)
     }
 
+    #[must_use]
     pub const fn from_adjust_indices(range: Range<usize>, step: isize, len: usize) -> Self {
         let index = if step.is_negative() {
             range.end as isize - 1
@@ -424,6 +428,7 @@ impl SaturatedSliceIter {
         Self { index, step, len }
     }
 
+    #[must_use]
     pub const fn positive_order(mut self) -> Self {
         if self.step.is_negative() {
             self.index += self.step * self.len.saturating_sub(1) as isize;

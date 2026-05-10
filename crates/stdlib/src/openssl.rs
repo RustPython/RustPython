@@ -1307,15 +1307,13 @@ mod _ssl {
         #[pygetset]
         fn num_tickets(&self, _vm: &VirtualMachine) -> PyResult<usize> {
             // Only supported for TLS 1.3
-            #[cfg(ossl110)]
-            {
-                let ctx = self.ctx();
-                let num = unsafe { sys::SSL_CTX_get_num_tickets(ctx.as_ptr()) };
-                Ok(num)
-            }
-            #[cfg(not(ossl110))]
-            {
-                Ok(0)
+            cfg_select! {
+                ossl111 => {
+                    let ctx = self.ctx();
+                    let num = unsafe { sys::SSL_CTX_get_num_tickets(ctx.as_ptr()) };
+                    Ok(num)
+                }
+                _ => Ok(0),
             }
         }
         #[pygetset(setter)]
@@ -1330,19 +1328,19 @@ mod _ssl {
                 return Err(vm.new_value_error("SSLContext is not a server context."));
             }
 
-            #[cfg(ossl110)]
-            {
-                let ctx = self.builder();
-                let result = unsafe { sys::SSL_CTX_set_num_tickets(ctx.as_ptr(), value as usize) };
-                if result != 1 {
-                    return Err(vm.new_value_error("failed to set num tickets."));
+            cfg_select! {
+                ossl110 => {
+                    let ctx = self.builder();
+                    let result = unsafe { sys::SSL_CTX_set_num_tickets(ctx.as_ptr(), value as usize) };
+                    if result != 1 {
+                        return Err(vm.new_value_error("failed to set num tickets."));
+                    }
+                    Ok(())
                 }
-                Ok(())
-            }
-            #[cfg(not(ossl110))]
-            {
-                let _ = (value, vm);
-                Ok(())
+                _ => {
+                    let _ = (value, vm);
+                    Ok(())
+                }
             }
         }
 
@@ -1564,10 +1562,10 @@ mod _ssl {
         ) -> PyResult<Vec<PyObjectRef>> {
             let binary_form = args.binary_form.unwrap_or(false);
             let ctx = self.ctx();
-            #[cfg(ossl300)]
-            let certs = ctx.cert_store().all_certificates();
-            #[cfg(not(ossl300))]
-            let certs = ctx.cert_store().objects().iter().filter_map(|x| x.x509());
+            let certs = cfg_select! {
+                ossl300 => ctx.cert_store().all_certificates(),
+                _ => ctx.cert_store().objects().iter().filter_map(|x| x.x509()),
+            };
 
             // Filter to only include CA certificates (Basic Constraints: CA=TRUE)
             let certs = certs
@@ -2792,21 +2790,21 @@ mod _ssl {
 
         #[pymethod]
         fn verify_client_post_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
-            #[cfg(ossl111)]
-            {
-                let stream = self.connection.read();
-                let result = unsafe { SSL_verify_client_post_handshake(stream.ssl().as_ptr()) };
-                if result == 0 {
-                    Err(convert_openssl_error(vm, openssl::error::ErrorStack::get()))
-                } else {
-                    Ok(())
+            cfg_select! {
+                ossl111 => {
+                    let stream = self.connection.read();
+                    let result = unsafe { SSL_verify_client_post_handshake(stream.ssl().as_ptr()) };
+                    if result == 0 {
+                        Err(convert_openssl_error(vm, openssl::error::ErrorStack::get()))
+                    } else {
+                        Ok(())
+                    }
                 }
-            }
-            #[cfg(not(ossl111))]
-            {
-                Err(vm.new_not_implemented_error(
-                    "Post-handshake auth is not supported by your OpenSSL version.",
-                ))
+                _ => {
+                    Err(vm.new_not_implemented_error(
+                        "Post-handshake auth is not supported by your OpenSSL version.",
+                    ))
+                }
             }
         }
 
@@ -3681,15 +3679,9 @@ mod _ssl {
     impl PySslSession {
         #[pygetset]
         fn time(&self) -> i64 {
-            unsafe {
-                #[cfg(ossl330)]
-                {
-                    sys::SSL_SESSION_get_time(self.session) as i64
-                }
-                #[cfg(not(ossl330))]
-                {
-                    sys::SSL_SESSION_get_time(self.session) as i64
-                }
+            cfg_select! {
+                ossl330 => unsafe { sys::SSL_SESSION_get_time(self.session) as i64 },
+                _ => unsafe { sys::SSL_SESSION_get_time(self.session) as i64 },
             }
         }
 
@@ -3701,14 +3693,10 @@ mod _ssl {
         #[pygetset]
         fn ticket_lifetime_hint(&self) -> u64 {
             // SSL_SESSION_get_ticket_lifetime_hint available in OpenSSL 1.1.0+
-            #[cfg(ossl110)]
-            {
-                unsafe { SSL_SESSION_get_ticket_lifetime_hint(self.session) as u64 }
-            }
-            #[cfg(not(ossl110))]
-            {
+            cfg_select! {
+                ossl110 => unsafe { SSL_SESSION_get_ticket_lifetime_hint(self.session) as u64 },
                 // Not available in older OpenSSL versions
-                0
+                _ => 0,
             }
         }
 
@@ -3725,14 +3713,10 @@ mod _ssl {
         #[pygetset]
         fn has_ticket(&self) -> bool {
             // SSL_SESSION_has_ticket available in OpenSSL 1.1.0+
-            #[cfg(ossl110)]
-            {
-                unsafe { SSL_SESSION_has_ticket(self.session) != 0 }
-            }
-            #[cfg(not(ossl110))]
-            {
+            cfg_select! {
+                ossl110 => unsafe { SSL_SESSION_has_ticket(self.session) != 0 },
                 // Not available in older OpenSSL versions
-                false
+                _ => false,
             }
         }
     }

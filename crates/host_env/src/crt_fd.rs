@@ -26,15 +26,15 @@ mod c {
 
 // this is basically what CPython has for Py_off_t; windows uses long long
 // for offsets, other platforms just use off_t
-#[cfg(not(windows))]
-pub type Offset = c::off_t;
-#[cfg(windows)]
-pub type Offset = c::c_longlong;
+pub type Offset = cfg_select! {
+    windows => c::c_longlong,
+    _ => c::off_t,
+};
 
-#[cfg(not(windows))]
-pub type Raw = RawFd;
-#[cfg(windows)]
-pub type Raw = i32;
+pub type Raw = cfg_select! {
+    windows => i32,
+    _ => RawFd,
+};
 
 #[inline]
 fn cvt<I: num_traits::PrimInt>(ret: I) -> io::Result<I> {
@@ -72,15 +72,17 @@ mod win {
 
     impl OwnedInner {
         #[inline]
-        pub unsafe fn from_raw_fd(fd: Raw) -> Self {
+        pub(super) unsafe fn from_raw_fd(fd: Raw) -> Self {
             Self(fd)
         }
+
         #[inline]
-        pub fn as_raw_fd(&self) -> Raw {
+        pub(super) fn as_raw_fd(&self) -> Raw {
             self.0
         }
+
         #[inline]
-        pub fn into_raw_fd(self) -> Raw {
+        pub(super) fn into_raw_fd(self) -> Raw {
             let me = ManuallyDrop::new(self);
             me.0
         }
@@ -102,14 +104,15 @@ mod win {
 
     impl BorrowedInner<'_> {
         #[inline]
-        pub const unsafe fn borrow_raw(fd: Raw) -> Self {
+        pub(super) const unsafe fn borrow_raw(fd: Raw) -> Self {
             Self {
                 fd,
                 _marker: PhantomData,
             }
         }
+
         #[inline]
-        pub fn as_raw_fd(&self) -> Raw {
+        pub(super) fn as_raw_fd(&self) -> Raw {
             self.fd
         }
     }
@@ -159,6 +162,7 @@ impl Owned {
     ///
     /// `fd` must be a valid file descriptor.
     #[inline]
+    #[must_use]
     pub unsafe fn from_raw(fd: Raw) -> Self {
         let inner = unsafe { OwnedInner::from_raw_fd(fd) };
         Self { inner }
@@ -181,20 +185,24 @@ impl Owned {
     }
 
     #[inline]
+    #[must_use]
     pub fn borrow(&self) -> Borrowed<'_> {
         unsafe { Borrowed::borrow_raw(self.as_raw()) }
     }
 
     #[inline]
+    #[must_use]
     pub fn as_raw(&self) -> Raw {
         self.inner.as_raw_fd()
     }
 
     #[inline]
+    #[must_use]
     pub fn into_raw(self) -> Raw {
         self.inner.into_raw_fd()
     }
 
+    #[must_use]
     pub fn leak<'fd>(self) -> Borrowed<'fd> {
         unsafe { Borrowed::borrow_raw(self.into_raw()) }
     }
@@ -249,6 +257,7 @@ impl<'fd> Borrowed<'fd> {
     ///
     /// `fd` must be a valid file descriptor.
     #[inline]
+    #[must_use]
     pub const unsafe fn borrow_raw(fd: Raw) -> Self {
         let inner = unsafe { BorrowedInner::borrow_raw(fd) };
         Self { inner }
@@ -271,6 +280,7 @@ impl<'fd> Borrowed<'fd> {
     }
 
     #[inline]
+    #[must_use]
     pub fn as_raw(self) -> Raw {
         self.inner.as_raw_fd()
     }
@@ -341,18 +351,16 @@ pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
     let ret = unsafe { suppress_iph!(c::ftruncate(fd.as_raw(), len)) };
     // On Windows, _chsize_s returns 0 on success, or a positive error code (errno value) on failure.
     // On other platforms, ftruncate returns 0 on success, or -1 on failure with errno set.
-    #[cfg(windows)]
-    {
-        if ret != 0 {
-            // _chsize_s returns errno directly, convert to Windows error code
-            let winerror = crate::os::errno_to_winerror(ret);
-            return Err(io::Error::from_raw_os_error(winerror));
+    cfg_select! {
+        windows => {
+            if ret != 0 {
+                // _chsize_s returns errno directly, convert to Windows error code
+                let winerror = crate::os::errno_to_winerror(ret);
+                return Err(io::Error::from_raw_os_error(winerror));
+            }
         }
-    }
-    #[cfg(not(windows))]
-    {
-        cvt(ret)?;
-    }
+        _ => cvt(ret)?,
+    };
     Ok(())
 }
 

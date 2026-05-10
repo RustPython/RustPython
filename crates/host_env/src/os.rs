@@ -14,6 +14,7 @@ use std::{
 ///
 /// On Windows, this supports the full u32 range including STATUS_CONTROL_C_EXIT (0xC000013A).
 /// On other platforms, only the lower 8 bits are used.
+#[must_use]
 pub fn exit_code(code: u32) -> ExitCode {
     #[cfg(windows)]
     {
@@ -32,6 +33,7 @@ pub fn current_dir() -> io::Result<PathBuf> {
     env::current_dir()
 }
 
+#[must_use]
 pub fn temp_dir() -> PathBuf {
     env::temp_dir()
 }
@@ -44,10 +46,12 @@ pub fn var_os(key: impl AsRef<OsStr>) -> Option<OsString> {
     env::var_os(key)
 }
 
+#[must_use]
 pub fn vars_os() -> env::VarsOs {
     env::vars_os()
 }
 
+#[must_use]
 pub fn vars() -> env::Vars {
     env::vars()
 }
@@ -70,6 +74,7 @@ pub fn set_current_dir(path: impl AsRef<std::path::Path>) -> io::Result<()> {
     env::set_current_dir(path)
 }
 
+#[must_use]
 pub fn process_id() -> u32 {
     std::process::id()
 }
@@ -97,6 +102,7 @@ impl ErrorExt for io::Error {
 /// Get the last error from C runtime library functions (like _dup, _dup2, _fstat, etc.)
 /// CRT functions set errno, not GetLastError(), so we need to read errno directly.
 #[cfg(windows)]
+#[must_use]
 pub fn errno_io_error() -> io::Error {
     let errno: i32 = get_errno();
     let winerror = errno_to_winerror(errno);
@@ -104,6 +110,7 @@ pub fn errno_io_error() -> io::Error {
 }
 
 #[cfg(not(windows))]
+#[must_use]
 pub fn errno_io_error() -> io::Error {
     std::io::Error::last_os_error()
 }
@@ -119,6 +126,7 @@ pub fn get_errno() -> i32 {
 }
 
 #[cfg(not(windows))]
+#[must_use]
 pub fn get_errno() -> i32 {
     std::io::Error::last_os_error().posix_errno()
 }
@@ -206,6 +214,7 @@ pub mod ffi {
 }
 
 #[cfg(windows)]
+#[must_use]
 pub fn errno_to_winerror(errno: i32) -> i32 {
     use libc::*;
     use windows_sys::Win32::Foundation::*;
@@ -235,6 +244,7 @@ pub fn errno_to_winerror(errno: i32) -> i32 {
 // winerror: https://learn.microsoft.com/windows/win32/debug/system-error-codes--0-499-
 // errno: https://learn.microsoft.com/cpp/c-runtime-library/errno-constants?view=msvc-170
 #[cfg(windows)]
+#[must_use]
 pub fn winerror_to_errno(winerror: i32) -> i32 {
     use libc::*;
     use windows_sys::Win32::{

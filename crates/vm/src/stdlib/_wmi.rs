@@ -8,28 +8,28 @@ mod wmi_ffi {
     #![allow(unsafe_op_in_unsafe_fn)]
     use core::ffi::c_void;
 
-    pub type HRESULT = i32;
+    pub(super) type HRESULT = i32;
 
     #[repr(C)]
-    pub struct GUID {
-        pub data1: u32,
-        pub data2: u16,
-        pub data3: u16,
-        pub data4: [u8; 8],
+    pub(super) struct GUID {
+        pub(super) data1: u32,
+        pub(super) data2: u16,
+        pub(super) data3: u16,
+        pub(super) data4: [u8; 8],
     }
 
     // Opaque VARIANT type (24 bytes covers both 32-bit and 64-bit)
     #[repr(C, align(8))]
-    pub struct VARIANT([u64; 3]);
+    pub(super) struct VARIANT([u64; 3]);
 
     impl VARIANT {
-        pub fn zeroed() -> Self {
+        pub(super) fn zeroed() -> Self {
             VARIANT([0u64; 3])
         }
     }
 
     // CLSID_WbemLocator = {4590F811-1D3A-11D0-891F-00AA004B2E24}
-    pub const CLSID_WBEM_LOCATOR: GUID = GUID {
+    pub(super) const CLSID_WBEM_LOCATOR: GUID = GUID {
         data1: 0x4590F811,
         data2: 0x1D3A,
         data3: 0x11D0,
@@ -37,7 +37,7 @@ mod wmi_ffi {
     };
 
     // IID_IWbemLocator = {DC12A687-737F-11CF-884D-00AA004B2E24}
-    pub const IID_IWBEM_LOCATOR: GUID = GUID {
+    pub(super) const IID_IWBEM_LOCATOR: GUID = GUID {
         data1: 0xDC12A687,
         data2: 0x737F,
         data3: 0x11CF,
@@ -45,30 +45,32 @@ mod wmi_ffi {
     };
 
     // COM constants
-    pub const COINIT_APARTMENTTHREADED: u32 = 0x2;
-    pub const CLSCTX_INPROC_SERVER: u32 = 0x1;
-    pub const RPC_C_AUTHN_LEVEL_DEFAULT: u32 = 0;
-    pub const RPC_C_IMP_LEVEL_IMPERSONATE: u32 = 3;
-    pub const RPC_C_AUTHN_LEVEL_CALL: u32 = 3;
-    pub const RPC_C_AUTHN_WINNT: u32 = 10;
-    pub const RPC_C_AUTHZ_NONE: u32 = 0;
-    pub const EOAC_NONE: u32 = 0;
-    pub const RPC_E_TOO_LATE: HRESULT = 0x80010119_u32 as i32;
+    pub(super) const COINIT_APARTMENTTHREADED: u32 = 0x2;
+    pub(super) const CLSCTX_INPROC_SERVER: u32 = 0x1;
+    pub(super) const RPC_C_AUTHN_LEVEL_DEFAULT: u32 = 0;
+    pub(super) const RPC_C_IMP_LEVEL_IMPERSONATE: u32 = 3;
+    pub(super) const RPC_C_AUTHN_LEVEL_CALL: u32 = 3;
+    pub(super) const RPC_C_AUTHN_WINNT: u32 = 10;
+    pub(super) const RPC_C_AUTHZ_NONE: u32 = 0;
+    pub(super) const EOAC_NONE: u32 = 0;
+    pub(super) const RPC_E_TOO_LATE: HRESULT = 0x80010119_u32 as i32;
 
     // WMI constants
-    pub const WBEM_FLAG_FORWARD_ONLY: i32 = 0x20;
-    pub const WBEM_FLAG_RETURN_IMMEDIATELY: i32 = 0x10;
-    pub const WBEM_S_FALSE: HRESULT = 1;
-    pub const WBEM_S_NO_MORE_DATA: HRESULT = 0x40005;
-    pub const WBEM_INFINITE: i32 = -1;
-    pub const WBEM_FLAVOR_MASK_ORIGIN: i32 = 0x60;
-    pub const WBEM_FLAVOR_ORIGIN_SYSTEM: i32 = 0x40;
+    pub(super) const WBEM_FLAG_FORWARD_ONLY: i32 = 0x20;
+    pub(super) const WBEM_FLAG_RETURN_IMMEDIATELY: i32 = 0x10;
+    pub(super) const WBEM_S_FALSE: HRESULT = 1;
+    pub(super) const WBEM_S_NO_MORE_DATA: HRESULT = 0x40005;
+    pub(super) const WBEM_INFINITE: i32 = -1;
+    pub(super) const WBEM_FLAVOR_MASK_ORIGIN: i32 = 0x60;
+    pub(super) const WBEM_FLAVOR_ORIGIN_SYSTEM: i32 = 0x40;
 
     #[link(name = "ole32")]
     unsafe extern "system" {
-        pub fn CoInitializeEx(pvReserved: *mut c_void, dwCoInit: u32) -> HRESULT;
-        pub fn CoUninitialize();
-        pub fn CoInitializeSecurity(
+        pub(super) fn CoInitializeEx(pvReserved: *mut c_void, dwCoInit: u32) -> HRESULT;
+
+        pub(super) fn CoUninitialize();
+
+        pub(super) fn CoInitializeSecurity(
             pSecDesc: *const c_void,
             cAuthSvc: i32,
             asAuthSvc: *const c_void,
@@ -79,14 +81,16 @@ mod wmi_ffi {
             dwCapabilities: u32,
             pReserved3: *const c_void,
         ) -> HRESULT;
-        pub fn CoCreateInstance(
+
+        pub(super) fn CoCreateInstance(
             rclsid: *const GUID,
             pUnkOuter: *mut c_void,
             dwClsContext: u32,
             riid: *const GUID,
             ppv: *mut *mut c_void,
         ) -> HRESULT;
-        pub fn CoSetProxyBlanket(
+
+        pub(super) fn CoSetProxyBlanket(
             pProxy: *mut c_void,
             dwAuthnSvc: u32,
             dwAuthzSvc: u32,
@@ -100,18 +104,22 @@ mod wmi_ffi {
 
     #[link(name = "oleaut32")]
     unsafe extern "system" {
-        pub fn SysAllocString(psz: *const u16) -> *mut u16;
-        pub fn SysFreeString(bstrString: *mut u16);
-        pub fn VariantClear(pvarg: *mut VARIANT) -> HRESULT;
+        pub(super) fn SysAllocString(psz: *const u16) -> *mut u16;
+        pub(super) fn SysFreeString(bstrString: *mut u16);
+        pub(super) fn VariantClear(pvarg: *mut VARIANT) -> HRESULT;
     }
 
     #[link(name = "propsys")]
     unsafe extern "system" {
-        pub fn VariantToString(varIn: *const VARIANT, pszBuf: *mut u16, cchBuf: u32) -> HRESULT;
+        pub(super) fn VariantToString(
+            varIn: *const VARIANT,
+            pszBuf: *mut u16,
+            cchBuf: u32,
+        ) -> HRESULT;
     }
 
     /// Release a COM object (IUnknown::Release, vtable index 2)
-    pub unsafe fn com_release(this: *mut c_void) {
+    pub(super) unsafe fn com_release(this: *mut c_void) {
         if !this.is_null() {
             let vtable = *(this as *const *const usize);
             let release: unsafe extern "system" fn(*mut c_void) -> u32 =
@@ -122,7 +130,7 @@ mod wmi_ffi {
 
     /// IWbemLocator::ConnectServer (vtable index 3)
     #[allow(clippy::too_many_arguments)]
-    pub unsafe fn locator_connect_server(
+    pub(super) unsafe fn locator_connect_server(
         this: *mut c_void,
         network_resource: *const u16,
         user: *const u16,
@@ -159,7 +167,7 @@ mod wmi_ffi {
     }
 
     /// IWbemServices::ExecQuery (vtable index 20)
-    pub unsafe fn services_exec_query(
+    pub(super) unsafe fn services_exec_query(
         this: *mut c_void,
         query_language: *const u16,
         query: *const u16,
@@ -180,7 +188,7 @@ mod wmi_ffi {
     }
 
     /// IEnumWbemClassObject::Next (vtable index 4)
-    pub unsafe fn enum_next(
+    pub(super) unsafe fn enum_next(
         this: *mut c_void,
         timeout: i32,
         count: u32,
@@ -199,7 +207,7 @@ mod wmi_ffi {
     }
 
     /// IWbemClassObject::BeginEnumeration (vtable index 8)
-    pub unsafe fn object_begin_enumeration(this: *mut c_void, enum_flags: i32) -> HRESULT {
+    pub(super) unsafe fn object_begin_enumeration(this: *mut c_void, enum_flags: i32) -> HRESULT {
         let vtable = *(this as *const *const usize);
         let method: unsafe extern "system" fn(*mut c_void, i32) -> HRESULT =
             core::mem::transmute(*vtable.add(8));
@@ -207,7 +215,7 @@ mod wmi_ffi {
     }
 
     /// IWbemClassObject::Next (vtable index 9)
-    pub unsafe fn object_next(
+    pub(super) unsafe fn object_next(
         this: *mut c_void,
         flags: i32,
         name: *mut *mut u16,
@@ -228,7 +236,7 @@ mod wmi_ffi {
     }
 
     /// IWbemClassObject::EndEnumeration (vtable index 10)
-    pub unsafe fn object_end_enumeration(this: *mut c_void) -> HRESULT {
+    pub(super) unsafe fn object_end_enumeration(this: *mut c_void) -> HRESULT {
         let vtable = *(this as *const *const usize);
         let method: unsafe extern "system" fn(*mut c_void) -> HRESULT =
             core::mem::transmute(*vtable.add(10));

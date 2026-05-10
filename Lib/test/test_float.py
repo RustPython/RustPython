@@ -965,7 +965,6 @@ class RoundTestCase(unittest.TestCase, FloatsAreIdenticalMixin):
         self.assertRaises(OverflowError, round, 1.6e308, -308)
         self.assertRaises(OverflowError, round, -1.7e308, -308)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 56294995342131.51 != 56294995342131.5
     @unittest.skipUnless(getattr(sys, 'float_repr_style', '') == 'short',
                          "applies only when using short float repr style")
     def test_previous_round_bugs(self):
@@ -984,7 +983,6 @@ class RoundTestCase(unittest.TestCase, FloatsAreIdenticalMixin):
         self.assertEqual(round(85.0, -1), 80.0)
         self.assertEqual(round(95.0, -1), 100.0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0.01 != 0.0
     @unittest.skipUnless(getattr(sys, 'float_repr_style', '') == 'short',
                          "applies only when using short float repr style")
     def test_matches_float_format(self):

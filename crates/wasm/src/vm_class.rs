@@ -108,6 +108,7 @@ pub struct VMStore;
 
 #[wasm_bindgen(js_class = vmStore)]
 impl VMStore {
+    #[must_use]
     pub fn init(id: String, inject_browser_module: Option<bool>) -> WASMVirtualMachine {
         STORED_VMS.with_borrow_mut(|vms| {
             if !vms.contains_key(&id) {
@@ -123,6 +124,7 @@ impl VMStore {
         STORED_VMS.with_borrow(|vms| vms.contains_key(&id).then_some(WASMVirtualMachine { id }))
     }
 
+    #[must_use]
     pub fn get(id: String) -> JsValue {
         match Self::_get(id) {
             Some(wasm_vm) => wasm_vm.into(),
@@ -142,6 +144,7 @@ impl VMStore {
         });
     }
 
+    #[must_use]
     pub fn ids() -> Vec<JsValue> {
         STORED_VMS.with_borrow(|vms| vms.keys().map(|k| k.into()).collect())
     }
@@ -178,6 +181,7 @@ impl WASMVirtualMachine {
         self.with(|stored| stored.interp.enter(|vm| f(vm, stored)))
     }
 
+    #[must_use]
     pub fn valid(&self) -> bool {
         STORED_VMS.with_borrow(|vms| vms.contains_key(&self.id))
     }

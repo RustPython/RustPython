@@ -1760,7 +1760,7 @@ mod _ssl {
                 // Set filename attribute
                 let _ = exc
                     .as_object()
-                    .set_attr("filename", vm.ctx.new_str(path_str.clone()), vm);
+                    .set_attr("filename", vm.ctx.new_str(path_str), vm);
                 return Err(exc.upcast());
             }
 
@@ -2690,7 +2690,7 @@ mod _ssl {
                 .clone()
                 .ok_or_else(|| vm.new_value_error("SNI callback not set"))?;
 
-            let ssl_sock = self.owner.read().clone().unwrap_or(vm.ctx.none());
+            let ssl_sock = self.owner.read().clone().unwrap_or_else(|| vm.ctx.none());
             let server_name_py: PyObjectRef = match sni_name {
                 Some(name) => vm.ctx.new_str(name.to_string()).into(),
                 None => vm.ctx.none(),
@@ -2732,7 +2732,7 @@ mod _ssl {
                         "servername callback must return None or an integer, not '{}'",
                         result.class().name()
                     ));
-                    vm.run_unraisable(type_error, None, result.clone());
+                    vm.run_unraisable(type_error, None, result);
 
                     // Return SSL error with reason set to TLSV1_ALERT_INTERNAL_ERROR
                     //
@@ -4832,30 +4832,19 @@ mod _ssl {
 
         // Common default paths for different platforms
         // These match the first candidates that rustls-native-certs/openssl-probe checks
-        #[cfg(target_os = "macos")]
-        let (default_cafile, default_capath) = {
+        let (default_cafile, default_capath): (Option<&str>, Option<&str>) = cfg_select! {
             // macOS primarily uses Keychain API, but provides fallback paths
             // for compatibility and when Keychain access fails
-            (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs"))
-        };
-
-        #[cfg(target_os = "linux")]
-        let (default_cafile, default_capath) = {
+            target_os = "macos" => (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs")),
             // Linux: matches openssl-probe's first candidate (/etc/ssl/cert.pem)
             // openssl-probe checks multiple locations at runtime, but we return
             // OpenSSL's compile-time default
-            (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs"))
-        };
-
-        #[cfg(windows)]
-        let (default_cafile, default_capath) = {
+            target_os = "linux" => (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs")),
             // Windows uses certificate store, not file paths
             // Return empty strings to avoid None being passed to os.path.isfile()
-            (Some(""), Some(""))
+            windows => (Some(""), Some("")),
+            _ => (None, None),
         };
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-        let (default_cafile, default_capath): (Option<&str>, Option<&str>) = (None, None);
 
         let tuple = vm.ctx.new_tuple(vec![
             vm.ctx.new_str("SSL_CERT_FILE").into(), // openssl_cafile_env
@@ -5079,7 +5068,7 @@ mod _ssl {
     #[pyattr]
     #[pyclass(module = "_ssl", name = "Certificate")]
     #[derive(Debug, PyPayload)]
-    pub struct PySSLCertificate {
+    pub(super) struct PySSLCertificate {
         // Store the raw DER bytes
         der_bytes: Vec<u8>,
     }

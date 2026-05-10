@@ -68,13 +68,13 @@ mod _pyexpat {
     type MutableObject = PyRwLock<PyObjectRef>;
 
     #[pyattr(name = "version_info")]
-    pub const VERSION_INFO: (u32, u32, u32) = (2, 7, 1);
+    pub(super) const VERSION_INFO: (u32, u32, u32) = (2, 7, 1);
 
     #[pyattr]
     #[pyattr(name = "XMLParserType")]
     #[pyclass(name = "xmlparser", module = false, traverse)]
     #[derive(Debug, PyPayload)]
-    pub struct PyExpatLikeXmlParser {
+    pub(super) struct PyExpatLikeXmlParser {
         #[pytraverse(skip)]
         namespace_separator: Option<String>,
         start_element: MutableObject,
@@ -426,7 +426,7 @@ mod _pyexpat {
     #[pyexception(name = "ExpatError", base = PyException)]
     #[derive(Debug)]
     #[repr(transparent)]
-    pub struct PyExpatError(PyException);
+    pub(super) struct PyExpatError(PyException);
 
     #[pyexception]
     impl PyExpatError {}

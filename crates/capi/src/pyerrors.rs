@@ -1,26 +1,26 @@
 use crate::object::define_py_check;
-use crate::{PyObject, with_vm};
+use crate::{PyObject, pystate::with_vm};
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_int};
-use core::mem::MaybeUninit;
-use rustpython_vm::builtins::{PyTuple, PyType};
+use core::ptr::NonNull;
+use rustpython_vm::builtins::{PyBaseException, PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::exceptions::ExceptionZoo;
-use rustpython_vm::{AsObject, PyResult};
+use rustpython_vm::{AsObject, PyObjectRef, PyResult};
 
 macro_rules! define_exception_statics {
-    ($( $(#[$meta:meta])* $export:ident => $zoo:ident ),* $(,)?) => {
+    ($( $(#[$meta:meta])* $export:ident => $exc:ident ),* $(,)?) => {
         $(
             $(#[$meta])*
             #[unsafe(no_mangle)]
-            pub static mut $export: MaybeUninit<*mut PyObject> = MaybeUninit::uninit();
+            pub static mut $export: *mut PyObject = core::ptr::null_mut();
         )*
 
         #[allow(static_mut_refs)]
-        pub(crate) unsafe fn init_exception_statics(exc: &ExceptionZoo) {
+        pub(crate) unsafe fn init_exception_statics(zoo: &'static ExceptionZoo) {
             unsafe {
                 $(
-                    $export.write(exc.$zoo.as_object().as_raw().cast_mut());
+                    $export = zoo.$exc.as_object().as_raw().cast_mut();
                 )*
             }
         }
@@ -99,38 +99,54 @@ define_exception_statics! {
 define_py_check!(PyExceptionInstance_Check, exceptions.base_exception_type);
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyErr_Occurred() -> *mut PyObject {
+    with_vm(|vm| {
+        vm.current_exception()
+            .map(|exc| exc.class().as_object().as_raw())
+            .unwrap_or_default()
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
-    with_vm(|vm| vm.take_raised_exception())
+    with_vm(|vm| {
+        vm.take_raised_exception()
+            .map(|exc| exc.into_object().into_raw().as_ptr())
+            .unwrap_or_default()
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
-    with_vm::<PyResult<Infallible>, _>(|_vm| {
-        let exception = unsafe { (&*exc).to_owned().downcast_unchecked() };
-        Err(exception)
-    });
+pub unsafe extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
+    with_vm(|vm| {
+        if let Some(exc) = NonNull::new(exc) {
+            let exception = unsafe { PyObjectRef::from_raw(exc).downcast_unchecked() };
+            vm.set_exception(Some(exception));
+        } else {
+            vm.set_exception(None);
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject) {
+pub unsafe extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject) {
     with_vm::<PyResult<Infallible>, _>(|vm| {
         let exc_type = unsafe { (&*exception).to_owned() };
         let exc_val = unsafe { (&*value).to_owned() };
 
         let normalized = vm.normalize_exception(exc_type, exc_val, vm.ctx.none())?;
-
         Err(normalized)
-    });
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_char) {
+pub unsafe extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_char) {
     with_vm::<PyResult<Infallible>, _>(|vm| {
         let exc_type = unsafe { &*exception }.try_downcast_ref::<PyType>(vm)?;
 
-        let message = unsafe { CStr::from_ptr(message) }
-            .to_str()
-            .expect("Exception message is not valid UTF-8");
+        let Ok(message) = unsafe { CStr::from_ptr(message) }.to_str() else {
+            return Err(vm.new_type_error("Exception message is not valid UTF-8"));
+        };
 
         let exc = vm.invoke_exception(
             exc_type.to_owned(),
@@ -138,7 +154,7 @@ pub extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_ch
         )?;
 
         Err(exc)
-    });
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -153,7 +169,19 @@ pub extern "C" fn PyErr_PrintEx(_set_sys_last_vars: c_int) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
+pub unsafe extern "C" fn PyErr_DisplayException(exc: *mut PyObject) {
+    with_vm(|vm| {
+        let exception = unsafe { &*exc }
+            .downcast_ref::<PyBaseException>()
+            .expect("PyErr_DisplayException exc must be an exception instance")
+            .to_owned();
+
+        vm.print_exception(exception);
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
     with_vm(|vm| {
         let exception = vm
             .take_raised_exception()
@@ -176,7 +204,7 @@ pub extern "C" fn PyExceptionClass_Check(obj: *mut PyObject) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyErr_NewException(
+pub unsafe extern "C" fn PyErr_NewException(
     name: *const c_char,
     base: *mut PyObject,
     dict: *mut PyObject,
@@ -214,13 +242,13 @@ pub extern "C" fn PyErr_NewException(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyErr_NewExceptionWithDoc(
+pub unsafe extern "C" fn PyErr_NewExceptionWithDoc(
     name: *const c_char,
     _doc: *const c_char,
     base: *mut PyObject,
     dict: *mut PyObject,
 ) -> *mut PyObject {
-    PyErr_NewException(name, base, dict)
+    unsafe { PyErr_NewException(name, base, dict) }
 }
 
 #[unsafe(no_mangle)]
@@ -250,20 +278,15 @@ pub extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyErr_GivenExceptionMatches(given: *mut PyObject, exc: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyErr_GivenExceptionMatches(
+    given: *mut PyObject,
+    exc: *mut PyObject,
+) -> c_int {
     with_vm(|vm| {
         let given = unsafe { &*given };
         let exc = unsafe { &*exc };
 
-        if let Some(exc_type) = exc.downcast_ref::<PyType>() {
-            given.is_subclass(exc_type.as_ref(), vm)
-        } else if let Some(exc_tuple) = exc.downcast_ref::<PyTuple>() {
-            Ok(exc_tuple
-                .iter()
-                .any(|ty| given.is_subclass(ty, vm).unwrap_or_default()))
-        } else {
-            Ok(false)
-        }
+        given.is_subclass(exc, vm)
     })
 }
 
@@ -277,8 +300,18 @@ mod tests {
     #[test]
     fn test_raised_exception() {
         Python::attach(|py| {
-            PyTypeError::new_err("This is a type error").restore(py);
+            PyTypeError::new_err(py.None()).restore(py);
+            assert!(PyErr::occurred(py));
             assert!(PyErr::take(py).is_some());
+            assert!(!PyErr::occurred(py));
+        })
+    }
+
+    #[test]
+    fn test_error_is_instance() {
+        Python::attach(|py| {
+            let err = PyTypeError::new_err(py.None());
+            assert!(err.is_instance_of::<PyTypeError>(py));
         })
     }
 
