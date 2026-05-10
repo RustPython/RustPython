@@ -2820,4 +2820,10 @@ mod posix_sched {
             Ok(ret)
         }
     }
+
+    #[pyfunction]
+    fn _is_inputhook_installed() -> bool {
+        // TODO: Implement the actual logic here
+        false
+    }
 }
