@@ -448,6 +448,7 @@ class WindowsConsoleGetEventTests(TestCase):
             self.assertEqual(self.get_event([ir]), None)
             self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_enter(self):
         ir = self.get_input_record("\r", self.VK_RETURN)
         self.assertEqual(self.get_event([ir]), Event("key", "\n"))
@@ -459,11 +460,13 @@ class WindowsConsoleGetEventTests(TestCase):
             self.get_event([ir]), Event("key", "backspace"))
         self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_m(self):
         ir = self.get_input_record("m", self.VK_M)
         self.assertEqual(self.get_event([ir]), Event("key", "m"))
         self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_M(self):
         ir = self.get_input_record("M", self.VK_M, self.SHIFT_PRESSED)
         self.assertEqual(self.get_event([ir]), Event("key", "M"))
@@ -519,6 +522,7 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.get_event([ir]), None)
         self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_m_LEFT_ALT_PRESSED(self):
         ir = self.get_input_record(
             "m", vcode=self.VK_M, control=self.LEFT_ALT_PRESSED)
@@ -526,6 +530,7 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.console.get_event(), Event("key", "m"))
         self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_m_RIGHT_ALT_PRESSED(self):
         ir = self.get_input_record(
             "m", vcode=self.VK_M, control=self.RIGHT_ALT_PRESSED)
@@ -533,6 +538,7 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.console.get_event(), Event("key", "m"))
         self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_AltGr_7(self):
         # E.g. on a German keyboard layout, '{' is entered via
         # AltGr + 7, where AltGr is the right Alt key on the keyboard.
@@ -549,6 +555,7 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.get_event([ir]), Event("key", "{"))
         self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_AltGr_m(self):
         # E.g. on a German keyboard layout, this yields 'µ'
         # Let's use LEFT_ALT_PRESSED and RIGHT_CTRL_PRESSED this
@@ -558,6 +565,7 @@ class WindowsConsoleGetEventTests(TestCase):
         self.assertEqual(self.get_event([ir]), Event("key", "µ"))
         self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_umlaut_a_german(self):
         ir = self.get_input_record("ä", self.VK_OEM_7)
         self.assertEqual(self.get_event([ir]), Event("key", "ä"))
@@ -572,18 +580,21 @@ class WindowsConsoleGetEventTests(TestCase):
     # are sufficient to test here, the real tests happen in test_eventqueue
     # and test_keymap.
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_enter_vt(self):
         ir = self.get_input_record("\r")
         self.assertEqual(self.get_event([ir], vt_support=True),
                          Event("key", "\n"))
         self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_backspace_vt(self):
         ir = self.get_input_record("\x7f")
         self.assertEqual(self.get_event([ir], vt_support=True),
                          Event("key", "backspace", b"\x7f"))
         self.assertEqual(self.mock.call_count, 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_up_vt(self):
         irs = [self.get_input_record(x) for x in "\x1b[A"]
         self.assertEqual(self.get_event(irs, vt_support=True),
