@@ -130,14 +130,10 @@ mod openssl;
     not(target_arch = "wasm32"),
     feature = "__ssl-rustls"
 ))]
-mod ssl;
+pub mod ssl;
 
-#[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls", not(clippy)))]
-compile_error!(r#"features "ssl-openssl" and "ssl-rustls" are mutually exclusive"#);
-#[cfg(all(feature = "ssl-rustls-aws-lc-rs", feature = "ssl-rustls-ring"))]
-compile_error!(
-    "features \"ssl-rustls-aws-lc-rs\" (also enabled transitively by \"ssl-rustls-fips\") and \"ssl-rustls-ring\" are mutually exclusive; pick exactly one rustls crypto backend"
-);
+#[cfg(all(feature = "ssl-openssl", feature = "__ssl-rustls", not(clippy)))]
+compile_error!(r#"features "ssl-openssl" and "ssl-rustls-*" are mutually exclusive"#);
 
 #[cfg(all(
     feature = "host_env",

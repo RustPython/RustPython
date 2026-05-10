@@ -11,7 +11,7 @@ license.workspace = true
 
 [features]
 capi = ["dep:rustpython-capi", "threading"]
-default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls", "host_env"]
+default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env"]
 host_env = ["rustpython-vm/host_env", "rustpython-stdlib?/host_env"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
@@ -23,7 +23,8 @@ jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = []
-ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
+ssl-rustls-aws-lc = ["ssl", "rustpython-stdlib/ssl-rustls-aws-lc"]
+ssl-rustls-no-provider = ["ssl", "rustpython-stdlib/ssl-rustls-no-provider"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
@@ -45,6 +46,9 @@ lexopt = "0.3"
 dirs = "6"
 env_logger = "0.11"
 flamescope = { version = "0.1.2", optional = true }
+
+rustls = { workspace = true, optional = true }
+rustls-graviola = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 libc = { workspace = true }
@@ -69,6 +73,17 @@ harness = false
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
+
+[[example]]
+name = "custom_tls_providers"
+path = "examples/custom_tls_providers.rs"
+required-features = [
+    "rustls-graviola",
+    "rustls/ring",
+    "rustpython-pylib/freeze-stdlib",
+    "rustpython-stdlib/ssl-rustls-no-provider",
+    "rustpython-vm/freeze-stdlib",
+]
 
 [profile.dev.package."*"]
 opt-level = 3
@@ -263,6 +278,7 @@ rapidhash = "4.4.1"
 result-like = "0.5.0"
 rustix = { version = "1.1", features = ["event", "param", "system"] }
 rustls = { version = "0.23.39", default-features = false }
+rustls-graviola = "0.3"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
 rustls-platform-verifier = "0.7"

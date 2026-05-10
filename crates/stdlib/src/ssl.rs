@@ -25,6 +25,9 @@ mod compat;
 // SSL exception types (shared with openssl backend)
 mod error;
 
+// Utilities for setting a Rustls cryptography provider.
+pub mod providers;
+
 pub(crate) use _ssl::module_def;
 
 #[allow(non_snake_case)]
@@ -85,9 +88,6 @@ mod _ssl {
     };
     use sha2::{Digest, Sha256};
 
-    #[cfg(feature = "ssl-rustls")]
-    use rustls::crypto::aws_lc_rs::{ALL_CIPHER_SUITES, Ticketer, sign};
-
     // Import certificate operations module
     use super::cert;
 
@@ -100,6 +100,8 @@ mod _ssl {
         create_client_config, create_server_config, curve_name_to_kx_group, extract_cipher_info,
         get_cipher_encryption_desc, is_blocking_io_error, normalize_cipher_name, ssl_do_handshake,
     };
+
+    use super::providers::CryptoExt;
 
     // Type aliases for better readability
     // Additional type alias for certificate/key pairs (SessionCache and SniCertName defined below)
@@ -638,7 +640,7 @@ mod _ssl {
             return Err("No cipher can be selected".to_string());
         }
 
-        let all_suites = ALL_CIPHER_SUITES;
+        let all_suites = CryptoExt::get_ext().all_ciphers_or_default();
         let mut selected = Vec::new();
 
         for part in cipher_str.split(':') {
@@ -1061,6 +1063,8 @@ mod _ssl {
 
         #[pymethod]
         fn load_cert_chain(&self, args: LoadCertChainArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let crypto_ext = CryptoExt::get_ext();
+
             // Parse certfile argument (str or bytes) to path
             let cert_path = Self::parse_path_arg(&args.certfile, vm)?;
 
@@ -1203,7 +1207,7 @@ mod _ssl {
             }
 
             // Additional validation: Create CertifiedKey to ensure rustls accepts it
-            let signing_key = sign::any_supported_type(&key).map_err(|_| {
+            let signing_key = crypto_ext.any_supported_key(&key).map_err(|_| {
                 vm.new_os_subtype_error(
                     PySSLError::class(&vm.ctx).to_owned(),
                     None,
@@ -1525,7 +1529,8 @@ mod _ssl {
             // Dynamically generate cipher list from rustls ALL_CIPHER_SUITES
             // This automatically includes all cipher suites supported by the current rustls version
 
-            let cipher_list = ALL_CIPHER_SUITES
+            let cipher_list = CryptoExt::get_ext()
+                .all_ciphers_or_default()
                 .iter()
                 .map(|suite| {
                     // Extract cipher information using unified helper
@@ -2219,6 +2224,8 @@ mod _ssl {
             (protocol,): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let crypto_ext = CryptoExt::get_ext();
+
             // Validate protocol
             match protocol {
                 PROTOCOL_TLS | PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER | PROTOCOL_TLSv1_2
@@ -2311,7 +2318,7 @@ mod _ssl {
                 rustls_server_session_store: rustls::server::ServerSessionMemoryCache::new(
                     SSL_SESSION_CACHE_SIZE,
                 ),
-                server_ticketer: Ticketer::new()
+                server_ticketer: (crypto_ext.ticketer)()
                     .expect("Failed to create shared ticketer for TLS 1.2 session resumption"),
                 accept_count: AtomicUsize::new(0),
                 session_hits: AtomicUsize::new(0),
@@ -4877,10 +4884,6 @@ mod _ssl {
 
     #[pyfunction]
     fn RAND_bytes(n: i64, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        compat::ensure_default_provider();
-        let default_provider =
-            CryptoProvider::get_default().expect("A CryptoProvider should have been set earlier");
-
         // Validate n is not negative
         if n < 0 {
             return Err(vm.new_value_error("num must be positive"));
@@ -4888,7 +4891,7 @@ mod _ssl {
 
         let n_usize = n as usize;
         let mut buf = vec![0u8; n_usize];
-        default_provider
+        CryptoExt::get_provider()
             .secure_random
             .fill(&mut buf)
             .map_err(|_| vm.new_os_error("Failed to generate random bytes"))?;

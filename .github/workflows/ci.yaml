@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls,host_env
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env
   CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
