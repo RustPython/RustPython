@@ -107,6 +107,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
             ${{ runner.os }}-stable--
+        # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
+        continue-on-error: true
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
@@ -325,6 +327,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
             ${{ runner.os }}-stable--
+        # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
+        continue-on-error: true
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
 
@@ -469,6 +473,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
             ${{ runner.os }}-stable--
+        # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
+        continue-on-error: true
 
       - name: Clippy
         run: cargo clippy --keep-going ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
