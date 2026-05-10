@@ -1,5 +1,5 @@
 use crate::methodobject::{PyMethodDef, build_method_def};
-use crate::{PyObject, with_vm};
+use crate::{PyObject, pystate::with_vm};
 use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
@@ -7,15 +7,6 @@ use rustpython_vm::convert::IntoObject;
 use rustpython_vm::function::FuncArgs;
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
 use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine};
-
-const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
-const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
-const PY_TPFLAGS_TUPLE_SUBCLASS: c_ulong = 1 << 26;
-const PY_TPFLAGS_BYTES_SUBCLASS: c_ulong = 1 << 27;
-const PY_TPFLAGS_UNICODE_SUBCLASS: c_ulong = 1 << 28;
-const PY_TPFLAGS_DICT_SUBCLASS: c_ulong = 1 << 29;
-const PY_TPFLAGS_BASE_EXC_SUBCLASS: c_ulong = 1 << 30;
-const PY_TPFLAGS_TYPE_SUBCLASS: c_ulong = 1 << 31;
 
 pub type PyTypeObject = Py<PyType>;
 
@@ -50,13 +41,12 @@ define_py_check!(PyType_Check, types.type_type);
 define_py_check!(exact PyType_CheckExact, types.type_type);
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
-    // SAFETY: The caller must guarantee that `op` is a valid pointer to a `PyObject`.
+pub unsafe extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
     unsafe { (*op).class() }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) -> c_int {
+pub unsafe extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) -> c_int {
     with_vm(|_vm| {
         let obj = unsafe { &*op };
         let ty = unsafe { &*ty };
@@ -65,42 +55,9 @@ pub extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) -> c_int 
 }
 
 #[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
-    let ctx = Context::genesis();
-    let zoo = &ctx.types;
-    let exp_zoo = &ctx.exceptions;
-
-    // SAFETY: The caller must guarantee that `ptr` is a valid pointer to a `PyType` object.
+pub unsafe extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
     let ty = unsafe { &*ptr };
-    let mut flags = ty.slots.flags.bits();
-
-    if ty.is_subtype(zoo.int_type) {
-        flags |= PY_TPFLAGS_LONG_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.list_type) {
-        flags |= PY_TPFLAGS_LIST_SUBCLASS
-    }
-    if ty.is_subtype(zoo.tuple_type) {
-        flags |= PY_TPFLAGS_TUPLE_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.bytes_type) {
-        flags |= PY_TPFLAGS_BYTES_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.str_type) {
-        flags |= PY_TPFLAGS_UNICODE_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.dict_type) {
-        flags |= PY_TPFLAGS_DICT_SUBCLASS;
-    }
-    if ty.is_subtype(exp_zoo.base_exception_type) {
-        flags |= PY_TPFLAGS_BASE_EXC_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.type_type) {
-        flags |= PY_TPFLAGS_TYPE_SUBCLASS;
-    }
-
-    flags
+    ty.slots.flags.bits() as u32 as c_ulong
 }
 
 #[unsafe(no_mangle)]
@@ -141,7 +98,7 @@ pub extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObjec
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
-    with_vm(|_vm| -> Option<*mut c_void> {
+    with_vm(|_vm| {
         let ty = unsafe { &*ty };
         let slot: u8 = slot
             .try_into()
@@ -200,6 +157,7 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
                 todo!("Slot {slot_accessor:?} for {ty:?} is not yet implemented in PyType_GetSlot")
             }
         }
+        .unwrap_or_default()
     })
 }
 
@@ -389,6 +347,27 @@ pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
+    with_vm(|vm| {
+        let ctx = &vm.ctx;
+        let constant = match constant_id {
+            0 => ctx.none.as_object(),
+            1 => ctx.false_value.as_object(),
+            2 => ctx.true_value.as_object(),
+            3 => ctx.ellipsis.as_object(),
+            4 => ctx.not_implemented.as_object(),
+            _ => {
+                return Err(
+                    vm.new_system_error("Invalid constant ID passed to Py_GetConstantBorrowed")
+                );
+            }
+        }
+        .as_raw();
+        Ok(constant)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyObject_GetAttr(obj: *mut PyObject, name: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
@@ -462,22 +441,6 @@ pub extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
         };
 
         unsafe { obj.as_ref() }.str(vm)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
-    with_vm(|vm| {
-        let ctx = &vm.ctx;
-        match constant_id {
-            0 => ctx.none.as_object(),
-            1 => ctx.false_value.as_object(),
-            2 => ctx.true_value.as_object(),
-            3 => ctx.ellipsis.as_object(),
-            4 => ctx.not_implemented.as_object(),
-            _ => panic!("Invalid constant_id passed to Py_GetConstantBorrowed"),
-        }
-        .as_raw()
     })
 }
 

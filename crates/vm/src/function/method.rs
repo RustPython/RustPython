@@ -118,6 +118,7 @@ impl PyMethodDef {
         }
     }
 
+    #[must_use]
     pub const fn to_function(&'static self) -> PyNativeFunction {
         PyNativeFunction {
             zelf: None,
@@ -226,6 +227,7 @@ impl PyMethodDef {
     }
 
     #[doc(hidden)]
+    #[must_use]
     pub const fn __const_concat_arrays<const SUM_LEN: usize>(
         method_groups: &[&[Self]],
     ) -> [Self; SUM_LEN] {
@@ -286,6 +288,7 @@ pub struct HeapMethodDef {
 }
 
 impl HeapMethodDef {
+    #[must_use]
     pub const fn new(method: PyMethodDef) -> Self {
         Self { method }
     }

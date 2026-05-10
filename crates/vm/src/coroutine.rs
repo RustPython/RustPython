@@ -313,7 +313,7 @@ impl Coro {
     }
 }
 
-pub fn is_gen_exit(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
+pub(crate) fn is_gen_exit(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
     exc.fast_isinstance(vm.ctx.exceptions.generator_exit)
 }
 
@@ -321,7 +321,7 @@ pub fn is_gen_exit(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
 ///
 /// Returns the object itself if it's a coroutine or iterable coroutine (generator with
 /// CO_ITERABLE_COROUTINE flag). Otherwise calls `__await__()` and validates the result.
-pub fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     use crate::builtins::{PyCoroutine, PyGenerator};
     use crate::protocol::PyIter;
 
@@ -364,7 +364,7 @@ pub fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 /// Emit DeprecationWarning for the deprecated 3-argument throw() signature.
-pub fn warn_deprecated_throw_signature(
+pub(crate) fn warn_deprecated_throw_signature(
     exc_val: &OptionalArg,
     exc_tb: &OptionalArg,
     vm: &VirtualMachine,

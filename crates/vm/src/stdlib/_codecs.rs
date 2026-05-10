@@ -1019,7 +1019,7 @@ mod _codecs_windows {
                     let rch = rcp.to_u32();
                     if rch > 127 {
                         return Err(vm.new_unicode_encode_error_real(
-                            encoding_str.clone(),
+                            encoding_str,
                             s.clone(),
                             pos,
                             pos + 1,

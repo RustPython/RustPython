@@ -38,7 +38,7 @@ pub(crate) struct ItemNursery(Vec<NurseryItem>);
 pub(crate) struct ValidatedItemNursery(ItemNursery);
 
 impl ItemNursery {
-    pub fn add_item(
+    pub(crate) fn add_item(
         &mut self,
         attr_name: Ident,
         py_names: Vec<String>,
@@ -56,7 +56,7 @@ impl ItemNursery {
         Ok(())
     }
 
-    pub fn validate(self) -> Result<ValidatedItemNursery> {
+    pub(crate) fn validate(self) -> Result<ValidatedItemNursery> {
         let mut by_name: HashSet<(String, Vec<Attribute>)> = HashSet::new();
         for item in &self.0 {
             for py_name in &item.py_names {
@@ -118,7 +118,7 @@ pub(crate) struct ItemMetaInner {
 }
 
 impl ItemMetaInner {
-    pub fn from_nested<I>(
+    pub(crate) fn from_nested<I>(
         item_ident: Ident,
         meta_ident: Ident,
         nested: I,
@@ -154,15 +154,15 @@ impl ItemMetaInner {
         })
     }
 
-    pub fn item_name(&self) -> String {
+    pub(crate) fn item_name(&self) -> String {
         self.item_ident.to_string()
     }
 
-    pub fn meta_name(&self) -> String {
+    pub(crate) fn meta_name(&self) -> String {
         self.meta_ident.to_string()
     }
 
-    pub fn _optional_str(&self, key: &str) -> Result<Option<String>> {
+    pub(crate) fn _optional_str(&self, key: &str) -> Result<Option<String>> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             let Meta::NameValue(syn::MetaNameValue {
                 value:
@@ -187,7 +187,7 @@ impl ItemMetaInner {
         Ok(value)
     }
 
-    pub fn _optional_path(&self, key: &str) -> Result<Option<syn::Path>> {
+    pub(crate) fn _optional_path(&self, key: &str) -> Result<Option<syn::Path>> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             let Meta::NameValue(syn::MetaNameValue { value, .. }) = meta else {
                 bail_span!(
@@ -216,11 +216,11 @@ impl ItemMetaInner {
         Ok(value)
     }
 
-    pub fn _has_key(&self, key: &str) -> Result<bool> {
+    pub(crate) fn _has_key(&self, key: &str) -> Result<bool> {
         Ok(matches!(self.meta_map.get(key), Some((_, _))))
     }
 
-    pub fn _bool(&self, key: &str) -> Result<bool> {
+    pub(crate) fn _bool(&self, key: &str) -> Result<bool> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
@@ -240,7 +240,7 @@ impl ItemMetaInner {
         Ok(value)
     }
 
-    pub fn _optional_list(
+    pub(crate) fn _optional_list(
         &self,
         key: &str,
     ) -> Result<Option<impl core::iter::Iterator<Item = &'_ NestedMeta>>> {
@@ -327,7 +327,7 @@ impl ItemMeta for ModuleItemMeta {
 }
 
 impl ModuleItemMeta {
-    pub fn sub(&self) -> Result<bool> {
+    pub(crate) fn sub(&self) -> Result<bool> {
         self.inner()._bool("sub")
     }
 }
@@ -371,7 +371,7 @@ impl ItemMeta for ClassItemMeta {
 }
 
 impl ClassItemMeta {
-    pub fn class_name(&self) -> Result<String> {
+    pub(crate) fn class_name(&self) -> Result<String> {
         const KEY: &str = "name";
         let inner = self.inner();
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
@@ -396,23 +396,23 @@ impl ClassItemMeta {
         )
     }
 
-    pub fn ctx_name(&self) -> Result<Option<String>> {
+    pub(crate) fn ctx_name(&self) -> Result<Option<String>> {
         self.inner()._optional_str("ctx")
     }
 
-    pub fn base(&self) -> Result<Option<syn::Path>> {
+    pub(crate) fn base(&self) -> Result<Option<syn::Path>> {
         self.inner()._optional_path("base")
     }
 
-    pub fn unhashable(&self) -> Result<bool> {
+    pub(crate) fn unhashable(&self) -> Result<bool> {
         self.inner()._bool("unhashable")
     }
 
-    pub fn metaclass(&self) -> Result<Option<String>> {
+    pub(crate) fn metaclass(&self) -> Result<Option<String>> {
         self.inner()._optional_str("metaclass")
     }
 
-    pub fn module(&self) -> Result<Option<String>> {
+    pub(crate) fn module(&self) -> Result<Option<String>> {
         const KEY: &str = "module";
         let inner = self.inner();
         let value = if let Some((_, meta)) = inner.meta_map.get(KEY) {
@@ -443,7 +443,7 @@ impl ClassItemMeta {
         Ok(value)
     }
 
-    pub fn impl_attrs(&self) -> Result<Option<String>> {
+    pub(crate) fn impl_attrs(&self) -> Result<Option<String>> {
         self.inner()._optional_str("impl")
     }
 
@@ -475,7 +475,7 @@ impl ItemMeta for ExceptionItemMeta {
 }
 
 impl ExceptionItemMeta {
-    pub fn class_name(&self) -> Result<String> {
+    pub(crate) fn class_name(&self) -> Result<String> {
         const KEY: &str = "name";
         let inner = self.inner();
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
@@ -511,7 +511,7 @@ impl ExceptionItemMeta {
         )
     }
 
-    pub fn has_impl(&self) -> Result<bool> {
+    pub(crate) fn has_impl(&self) -> Result<bool> {
         self.inner()._bool("impl")
     }
 }

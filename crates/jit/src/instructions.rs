@@ -65,7 +65,7 @@ struct DDValue {
     lo: Value,
 }
 
-pub struct FunctionCompiler<'a, 'b> {
+pub(crate) struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     stack: Vec<JitValue>,
     variables: Box<[Option<Local>]>,
@@ -74,7 +74,7 @@ pub struct FunctionCompiler<'a, 'b> {
 }
 
 impl<'a, 'b> FunctionCompiler<'a, 'b> {
-    pub fn new(
+    pub(crate) fn new(
         builder: &'a mut FunctionBuilder<'b>,
         num_variables: usize,
         arg_types: &[JitType],
@@ -204,7 +204,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok(target)
     }
 
-    pub fn compile<C: bytecode::Constant>(
+    pub(crate) fn compile<C: bytecode::Constant>(
         &mut self,
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
@@ -350,7 +350,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok(())
     }
 
-    pub fn add_instruction<C: bytecode::Constant>(
+    pub(crate) fn add_instruction<C: bytecode::Constant>(
         &mut self,
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
@@ -580,10 +580,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let b_type: Option<JitType> = b.to_jit_type();
 
                 match (a, b) {
-                    (JitValue::Int(a), JitValue::Int(b))
-                    | (JitValue::Bool(a), JitValue::Bool(b))
-                    | (JitValue::Bool(a), JitValue::Int(b))
-                    | (JitValue::Int(a), JitValue::Bool(b)) => {
+                    (
+                        JitValue::Int(a) | JitValue::Bool(a),
+                        JitValue::Int(b) | JitValue::Bool(b),
+                    ) => {
                         let operand_one = match a_type.unwrap() {
                             JitType::Bool => self.builder.ins().uextend(types::I64, a),
                             _ => a,

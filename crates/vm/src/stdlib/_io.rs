@@ -2,7 +2,7 @@
  * I/O core tools.
  */
 pub(crate) use _io::module_def;
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) use _io::reinit_std_streams_after_fork;
 
 cfg_select! {
@@ -152,7 +152,7 @@ mod _io {
             any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux") => {
                 x || matches!(whence, libc::SEEK_DATA | libc::SEEK_HOLE)
             }
-            _ => x
+            _ => x,
         }
     }
 
@@ -193,7 +193,10 @@ mod _io {
         result.map(Some)
     }
 
-    pub fn new_unsupported_operation(vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
+    pub(super) fn new_unsupported_operation(
+        vm: &VirtualMachine,
+        msg: String,
+    ) -> PyBaseExceptionRef {
         vm.new_os_subtype_error(unsupported_operation().to_owned(), None, msg)
             .upcast()
     }
@@ -215,11 +218,11 @@ mod _io {
 
     impl OptionalSize {
         #[allow(clippy::wrong_self_convention)]
-        pub fn to_usize(self) -> Option<usize> {
+        pub(super) fn to_usize(self) -> Option<usize> {
             self.size?.to_usize()
         }
 
-        pub fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        pub(super) fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             self.size
                 .map(|v| {
                     let v = *v;
@@ -406,7 +409,7 @@ mod _io {
     #[pyattr]
     #[pyclass(name = "_IOBase")]
     #[derive(Debug, Default, PyPayload)]
-    pub struct _IOBase;
+    pub(super) struct _IOBase;
 
     #[pyclass(
         with(IterNext, Iterable, Destructor),
@@ -1348,7 +1351,7 @@ mod _io {
                 return Ok(None);
             }
             // Try to convert to int; if it fails, treat as -1 and chain the TypeError
-            let (n, type_error) = match isize::try_from_object(vm, res.clone()) {
+            let (n, type_error) = match isize::try_from_object(vm, res) {
                 Ok(n) => (n, None),
                 Err(e) => (-1, Some(e)),
             };
@@ -1526,7 +1529,7 @@ mod _io {
         }
     }
 
-    pub fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
+    pub(super) fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
         let int = obj.try_index(vm)?;
         int.as_bigint().try_into().map_err(|_| {
             vm.new_value_error(format!(
@@ -1536,7 +1539,10 @@ mod _io {
         })
     }
 
-    pub fn repr_file_obj_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
+    pub(super) fn repr_file_obj_name(
+        obj: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyStrRef>> {
         let name = match obj.get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
@@ -1587,7 +1593,10 @@ mod _io {
                     let str_repr = e
                         .__str__(vm)
                         .as_ref()
-                        .map_or("<error getting exception str>".as_ref(), |s| s.as_wtf8())
+                        .map_or_else(
+                            |_| "<error getting exception str>".as_ref(),
+                            |s| s.as_wtf8(),
+                        )
                         .to_owned();
                     let msg = format!("{}() {}", Self::CLASS_NAME, str_repr);
                     vm.new_exception_msg(e.class().to_owned(), msg.into())
@@ -4994,8 +5003,8 @@ mod _io {
     ///
     /// Must only be called from the single-threaded child process immediately
     /// after `fork()`, before any other thread is created.
-    #[cfg(all(unix, feature = "threading"))]
-    pub unsafe fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
+    pub(crate) unsafe fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
         for name in ["stdin", "stdout", "stderr"] {
             let Ok(stream) = vm.sys_module.get_attr(name, vm) else {
                 continue;
@@ -5004,7 +5013,7 @@ mod _io {
         }
     }
 
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
     fn reinit_io_locks(obj: &PyObject) {
         use crate::common::lock::reinit_thread_mutex_after_fork;
 
@@ -5087,23 +5096,23 @@ mod _io {
         // Construct a RawIO (subclass of RawIOBase)
         // On Windows, use _WindowsConsoleIO for console handles.
         // This is subsequently consumed by a Buffered Class.
-        #[cfg(all(feature = "host_env", windows))]
-        let is_console = super::winconsoleio::pyio_get_console_type(&file, vm) != '\0';
-        #[cfg(not(all(feature = "host_env", windows)))]
-        let is_console = false;
-
-        let file_io_class: &Py<PyType> = {
-            cfg_select! {
-                all(feature = "host_env", windows) =>  {
-                    if is_console {
-                        Some(super::winconsoleio::WindowsConsoleIO::static_type())
-                    } else {
-                        Some(super::fileio::FileIO::static_type())
-                    }
-                }
-                feature = "host_env" => Some(super::fileio::FileIO::static_type()),
-                _ => None,
+        let is_console = cfg_select! {
+            all(feature = "host_env", windows) => {
+                super::winconsoleio::pyio_get_console_type(&file, vm) != '\0'
             }
+            _ => false,
+        };
+
+        let file_io_class: &Py<PyType> = cfg_select! {
+            all(feature = "host_env", windows) => {
+                if is_console {
+                    Some(super::winconsoleio::WindowsConsoleIO::static_type())
+                } else {
+                    Some(super::fileio::FileIO::static_type())
+                }
+            }
+            feature = "host_env" => Some(super::fileio::FileIO::static_type()),
+            _ => None,
         }
         .ok_or_else(|| {
             new_unsupported_operation(
@@ -5219,7 +5228,7 @@ mod _io {
         .unwrap()
     }
 
-    pub fn unsupported_operation() -> &'static Py<PyType> {
+    pub(super) fn unsupported_operation() -> &'static Py<PyType> {
         rustpython_common::static_cell! {
             static CELL: PyTypeRef;
         }
@@ -5456,7 +5465,7 @@ mod fileio {
     }
 
     #[derive(FromArgs)]
-    pub struct FileIOArgs {
+    pub(super) struct FileIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
         #[pyarg(any, default)]
@@ -6172,7 +6181,7 @@ mod winconsoleio {
     impl DefaultConstructor for WindowsConsoleIO {}
 
     #[derive(FromArgs)]
-    pub struct WindowsConsoleIOArgs {
+    pub(super) struct WindowsConsoleIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
         #[pyarg(any, default)]

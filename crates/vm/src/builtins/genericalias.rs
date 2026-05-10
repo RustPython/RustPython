@@ -446,7 +446,7 @@ fn unpack_args(item: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
 }
 
 // _Py_subs_parameters
-pub fn subs_parameters(
+pub(crate) fn subs_parameters(
     alias: PyObjectRef, // = self
     args: PyTupleRef,
     parameters: PyTupleRef,
@@ -670,7 +670,7 @@ impl Iterable for PyGenericAlias {
 // gaiterobject - yields one starred GenericAlias then exhausts
 #[pyclass(module = "types", name = "generic_alias_iterator")]
 #[derive(Debug, PyPayload)]
-pub struct PyGenericAliasIterator {
+pub(crate) struct PyGenericAliasIterator {
     obj: crate::common::lock::PyMutex<Option<PyObjectRef>>,
 }
 
@@ -724,7 +724,7 @@ impl crate::types::IterNext for PyGenericAliasIterator {
 /// Creates a GenericAlias from type parameters, equivalent to _Py_subscript_generic.
 /// This is used for PEP 695 classes to create Generic[T] from type parameters.
 // _Py_subscript_generic
-pub fn subscript_generic(type_params: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn subscript_generic(type_params: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let typing_module = vm.import("typing", 0)?;
     let generic_type = typing_module.get_attr("Generic", vm)?;
     let generic_alias_class = typing_module.get_attr("_GenericAlias", vm)?;
@@ -740,7 +740,7 @@ pub fn subscript_generic(type_params: PyObjectRef, vm: &VirtualMachine) -> PyRes
     generic_alias_class.call((generic_type, args.to_pyobject(vm)), vm)
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyGenericAlias::extend_class(context, context.types.generic_alias_type);
     PyGenericAliasIterator::extend_class(context, context.types.generic_alias_iterator_type);
 }

@@ -10,7 +10,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub enum PyMethod {
+pub(crate) enum PyMethod {
     Function {
         target: PyObjectRef,
         func: PyObjectRef,
@@ -19,7 +19,7 @@ pub enum PyMethod {
 }
 
 impl PyMethod {
-    pub fn get(obj: PyObjectRef, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Self> {
+    pub(crate) fn get(obj: PyObjectRef, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Self> {
         let cls = obj.class();
         let getattro = cls.slots.getattro.load().unwrap();
         if getattro as usize != PyBaseObject::getattro as *const () as usize {
@@ -124,7 +124,7 @@ impl PyMethod {
         Ok(Some(meth))
     }
 
-    pub fn invoke(self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn invoke(self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let (func, args) = match self {
             Self::Function { target, func } => (func, args.into_method_args(target, vm)),
             Self::Attribute(func) => (func, args.into_args(vm)),
@@ -133,7 +133,7 @@ impl PyMethod {
     }
 
     #[allow(dead_code)]
-    pub fn invoke_ref(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn invoke_ref(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let (func, args) = match self {
             Self::Function { target, func } => (func, args.into_method_args(target.clone(), vm)),
             Self::Attribute(func) => (func, args.into_args(vm)),

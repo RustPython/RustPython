@@ -31,7 +31,7 @@ mod sys_jit {
 }
 
 #[pymodule]
-mod sys {
+pub mod sys {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
@@ -660,7 +660,7 @@ mod sys {
         vm.new_tuple((
             ascii!("RustPython"),
             version::get_git_identifier(),
-            version::get_git_revision(),
+            version::GIT_REVISION,
         ))
     }
 
@@ -668,14 +668,14 @@ mod sys {
     fn implementation(vm: &VirtualMachine) -> PyRef<PyNamespace> {
         const NAME: &str = "rustpython";
 
-        let cache_tag = format!("{NAME}-{}{}", version::MAJOR, version::MINOR);
+        let cache_tag = format!("{NAME}-{}_{}", version::MAJOR_IMPL, version::MINOR_IMPL);
         let ctx = &vm.ctx;
         py_namespace!(vm, {
             "name" => ctx.new_str(NAME),
             "cache_tag" => ctx.new_str(cache_tag),
             "_multiarch" => ctx.new_str(multiarch()),
-            "version" => version_info(vm),
-            "hexversion" => ctx.new_int(version::VERSION_HEX),
+            "version" => PyVersionInfo::from_data(VersionInfoData::IMPLEMENTATION, vm),
+            "hexversion" => ctx.new_int(version::VERSION_HEX_IMPL),
             "supports_isolated_interpreters" => ctx.new_bool(false),
         })
     }
@@ -834,7 +834,7 @@ mod sys {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stderr = super::get_stderr(vm)?;
-        match vm.normalize_exception(exc_type.clone(), exc_val.clone(), exc_tb) {
+        match vm.normalize_exception(exc_type, exc_val.clone(), exc_tb) {
             Ok(exc) => {
                 // PyErr_Display: try traceback._print_exception_bltin first
                 if let Ok(tb_mod) = vm.import("traceback", 0)
@@ -1757,6 +1757,14 @@ mod sys {
             micro: version::MICRO,
             releaselevel: version::RELEASELEVEL,
             serial: version::SERIAL,
+        };
+
+        pub const IMPLEMENTATION: Self = Self {
+            major: version::MAJOR_IMPL,
+            minor: version::MINOR_IMPL,
+            micro: version::MICRO_IMPL,
+            releaselevel: version::RELEASELEVEL_IMPL,
+            serial: version::SERIAL_IMPL,
         };
     }
 

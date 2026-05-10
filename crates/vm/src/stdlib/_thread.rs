@@ -1,5 +1,5 @@
 //! Implementation of the _thread module
-#[cfg(unix)]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) use _thread::after_fork_child;
 pub use _thread::get_ident;
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
@@ -31,7 +31,7 @@ pub(crate) mod _thread {
     use std::thread;
 
     // PYTHREAD_NAME: show current thread name
-    pub const PYTHREAD_NAME: Option<&str> = cfg_select! {
+    pub(crate) const PYTHREAD_NAME: Option<&str> = cfg_select! {
         windows => Some("nt"),
         unix => Some("pthread"),
         any(target_os = "solaris", target_os = "illumos") => Some("solaris"),
@@ -170,7 +170,7 @@ pub(crate) mod _thread {
         }
     }
 
-    pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
+    pub(crate) type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
     #[pyattr]
     #[pyclass(module = "_thread", name = "RLock")]
     #[derive(PyPayload)]
@@ -315,6 +315,7 @@ pub(crate) mod _thread {
 
     /// Get thread identity - uses pthread_self() on Unix for fork compatibility
     #[pyfunction]
+    #[must_use]
     pub fn get_ident() -> u64 {
         current_thread_id()
     }
@@ -456,6 +457,7 @@ pub(crate) mod _thread {
     /// Get thread ID for a given thread handle (used by start_new_thread)
     fn thread_to_id(handle: &thread::JoinHandle<()>) -> u64 {
         #[cfg(unix)]
+        #[allow(clippy::unnecessary_cast)]
         {
             // On Unix, use pthread ID from the handle
             use std::os::unix::thread::JoinHandleExt;
@@ -642,7 +644,7 @@ pub(crate) mod _thread {
     }
 
     // Registry for non-daemon threads that need to be joined at shutdown
-    pub type ShutdownEntry = (
+    pub(crate) type ShutdownEntry = (
         Weak<parking_lot::Mutex<ThreadHandleInner>>,
         Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     );
@@ -672,7 +674,7 @@ pub(crate) mod _thread {
                         let done_event = done_event_weak.upgrade()?;
                         let guard = inner.lock();
                         if guard.state != ThreadHandleState::Done && guard.ident != current_ident {
-                            Some((inner.clone(), done_event.clone()))
+                            Some((inner.clone(), done_event))
                         } else {
                             None
                         }
@@ -749,7 +751,7 @@ pub(crate) mod _thread {
     }
 
     /// Initialize the main thread ident. Should be called once at interpreter startup.
-    pub fn init_main_thread_ident(vm: &VirtualMachine) {
+    pub(crate) fn init_main_thread_ident(vm: &VirtualMachine) {
         let ident = get_ident();
         vm.state.main_thread_ident.store(ident);
     }
@@ -1026,16 +1028,16 @@ pub(crate) mod _thread {
 
     // Registry of all ThreadHandles for fork cleanup
     // Stores weak references so handles can be garbage collected normally
-    pub type HandleEntry = (
+    pub(crate) type HandleEntry = (
         Weak<parking_lot::Mutex<ThreadHandleInner>>,
         Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     );
 
     // Re-export type from vm::thread for PyGlobalState
-    pub use crate::vm::thread::CurrentFrameSlot;
+    pub(crate) use crate::vm::thread::CurrentFrameSlot;
 
     /// Get all threads' current (top) frames. Used by sys._current_frames().
-    pub fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
+    pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
         let registry = vm.state.thread_frames.lock();
         registry
             .iter()
@@ -1055,8 +1057,8 @@ pub(crate) mod _thread {
     ///
     /// Precondition: `reinit_locks_after_fork()` has already been called, so all
     /// parking_lot-based locks in VmState are in unlocked state.
-    #[cfg(unix)]
-    pub fn after_fork_child(vm: &VirtualMachine) {
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
+    pub(crate) fn after_fork_child(vm: &VirtualMachine) {
         let current_ident = get_ident();
 
         // Update main thread ident - after fork, the current thread becomes the main thread
@@ -1139,7 +1141,7 @@ pub(crate) mod _thread {
     }
 
     /// Reset a parking_lot::Mutex to unlocked state after fork.
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "host_env"))]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
         unsafe { rustpython_common::lock::zero_reinit_after_fork(mutex.raw()) };
     }

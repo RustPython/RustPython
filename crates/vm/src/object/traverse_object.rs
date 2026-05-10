@@ -23,7 +23,7 @@ pub(in crate::object) struct PyObjVTable {
 }
 
 impl PyObjVTable {
-    pub const fn of<T: PyObjectPayload>() -> &'static Self {
+    pub(super) const fn of<T: PyObjectPayload>() -> &'static Self {
         &Self {
             typeid: T::PAYLOAD_TYPE_ID,
             dealloc: default_dealloc::<T>,

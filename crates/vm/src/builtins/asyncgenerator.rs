@@ -49,6 +49,7 @@ impl PyAsyncGen {
         &self.inner
     }
 
+    #[must_use]
     pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             inner: Coro::new(frame, name, qualname),
@@ -620,7 +621,7 @@ impl IterNext for PyAsyncGenAThrow {
 /// When StopAsyncIteration is raised, it converts it to StopIteration(default).
 #[pyclass(module = false, name = "anext_awaitable", traverse = "manual")]
 #[derive(Debug)]
-pub struct PyAnextAwaitable {
+pub(crate) struct PyAnextAwaitable {
     wrapped: PyObjectRef,
     default_value: PyObjectRef,
     state: AtomicCell<AwaitableState>,
@@ -642,7 +643,7 @@ impl PyPayload for PyAnextAwaitable {
 
 #[pyclass(with(IterNext, Iterable))]
 impl PyAnextAwaitable {
-    pub fn new(wrapped: PyObjectRef, default_value: PyObjectRef) -> Self {
+    pub(crate) fn new(wrapped: PyObjectRef, default_value: PyObjectRef) -> Self {
         Self {
             wrapped,
             default_value,
@@ -813,7 +814,7 @@ impl Drop for PyAsyncGen {
     }
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyAsyncGen::extend_class(ctx, ctx.types.async_generator);
     PyAsyncGenASend::extend_class(ctx, ctx.types.async_generator_asend);
     PyAsyncGenAThrow::extend_class(ctx, ctx.types.async_generator_athrow);

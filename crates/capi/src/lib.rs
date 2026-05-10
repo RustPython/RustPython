@@ -1,34 +1,51 @@
 #![cfg_attr(feature = "nightly", feature(c_variadic))]
-use crate::pystate::with_vm;
+#![allow(clippy::missing_safety_doc)]
+
+use crate::pyerrors::init_exception_statics;
+use crate::pylifecycle::MAIN_INTERP;
 pub use rustpython_vm::PyObject;
+use rustpython_vm::{Context, Interpreter};
+use std::sync::MutexGuard;
 
 extern crate alloc;
 
-pub(crate) mod abstract_;
-pub(crate) mod boolobject;
-pub(crate) mod bytesobject;
-pub(crate) mod capsule;
-pub(crate) mod ceval;
-pub(crate) mod complexobject;
-pub(crate) mod dictobject;
-pub(crate) mod floatobject;
-pub(crate) mod import;
-pub(crate) mod listobject;
-pub(crate) mod longobject;
-pub(crate) mod methodobject;
-pub(crate) mod moduleobject;
-pub(crate) mod object;
-pub(crate) mod objimpl;
-pub(crate) mod pyerrors;
-pub(crate) mod pylifecycle;
-pub(crate) mod pystate;
-pub(crate) mod refcount;
-pub(crate) mod traceback;
-pub(crate) mod tupleobject;
-pub(crate) mod unicodeobject;
-pub(crate) mod util;
+pub mod abstract_;
+pub mod boolobject;
+pub mod bytesobject;
+pub mod capsule;
+pub mod ceval;
+pub mod complexobject;
+pub mod dictobject;
+pub mod floatobject;
+pub mod import;
+pub mod listobject;
+pub mod longobject;
+pub mod methodobject;
+pub mod moduleobject;
+pub mod object;
+pub mod objimpl;
+pub mod pyerrors;
+pub mod pylifecycle;
+pub mod pystate;
+pub mod refcount;
+pub mod traceback;
+pub mod tupleobject;
+pub mod unicodeobject;
+mod util;
 
-#[inline]
-pub(crate) fn log_stub(name: &str) {
-    eprintln!("[rustpython-capi stub] {name} called");
+/// Get main interpreter of this process. Will be None if it has not been initialized yet.
+pub fn get_main_interpreter() -> MutexGuard<'static, Option<Interpreter>> {
+    MAIN_INTERP
+        .lock()
+        .expect("Failed to lock interpreter mutex")
+}
+
+/// Set the main interpreter of this process. This method will panic when there is already an
+/// interpreter set.
+pub fn set_main_interpreter(interpreter: Interpreter) {
+    let mut interp = get_main_interpreter();
+    assert!(interp.is_none(), "Main interpreter is already set");
+    // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
+    unsafe { init_exception_statics(&Context::genesis().exceptions) };
+    *interp = Some(interpreter);
 }

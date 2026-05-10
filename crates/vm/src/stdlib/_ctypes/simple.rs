@@ -18,12 +18,12 @@ use core::fmt::Debug;
 use num_traits::ToPrimitive;
 
 /// Valid type codes for ctypes simple types
-#[cfg(windows)]
-// spell-checker: disable-next-line
-pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPXOv?g";
-#[cfg(not(windows))]
-// spell-checker: disable-next-line
-pub(super) const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfuzZqQPOv?g";
+pub(super) const SIMPLE_TYPE_CHARS: &str = cfg_select! {
+    // spell-checker: disable-next-line
+    windows => "cbBhHiIlLdfuzZqQPXOv?g",
+    // spell-checker: disable-next-line
+    _ => "cbBhHiIlLdfuzZqQPOv?g",
+};
 
 /// Convert ctypes type code to PEP 3118 format code.
 /// Some ctypes codes need to be mapped to standard-size codes based on platform.
@@ -235,7 +235,7 @@ fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResul
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = PyType)]
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct PyCSimpleType(PyType);
+pub(crate) struct PyCSimpleType(PyType);
 
 #[pyclass(flags(BASETYPE), with(AsNumber, Initializer))]
 impl PyCSimpleType {
@@ -253,9 +253,7 @@ impl PyCSimpleType {
     #[pymethod]
     fn new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
         Ok(PyObjectRef::from(
-            new_simple_type(Either::B(&cls), vm)?
-                .into_ref_with_type(vm, cls)?
-                .clone(),
+            new_simple_type(Either::B(&cls), vm)?.into_ref_with_type(vm, cls)?,
         ))
     }
 
@@ -275,7 +273,7 @@ impl PyCSimpleType {
         let type_code = cls.type_code(vm);
 
         // 3. Handle None for pointer types (c_char_p, c_wchar_p, c_void_p)
-        if vm.is_none(&value) && matches!(type_code.as_deref(), Some("z") | Some("Z") | Some("P")) {
+        if vm.is_none(&value) && matches!(type_code.as_deref(), Some("z" | "Z" | "P")) {
             return Ok(value);
         }
 
@@ -449,7 +447,7 @@ impl PyCSimpleType {
                 // 7. c_char_p or c_wchar_p instance → extract pointer value
                 if let Some(simple) = value.downcast_ref::<PyCSimple>() {
                     let value_type_code = value.class().type_code(vm);
-                    if matches!(value_type_code.as_deref(), Some("z") | Some("Z")) {
+                    if matches!(value_type_code.as_deref(), Some("z" | "Z")) {
                         let ptr_val = {
                             let buffer = simple.0.buffer.read();
                             buffer
@@ -715,7 +713,7 @@ fn create_swapped_types(
     metaclass = "PyCSimpleType"
 )]
 #[repr(transparent)]
-pub struct PyCSimple(pub PyCData);
+pub(crate) struct PyCSimple(pub PyCData);
 
 impl Debug for PyCSimple {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -1142,7 +1140,7 @@ impl PyCSimple {
     }
 
     #[pygetset]
-    pub fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    pub(crate) fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let zelf: &Py<Self> = instance
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("cannot get value of instance"))?;
@@ -1365,7 +1363,7 @@ impl PyCSimple {
 impl PyCSimple {
     /// Extract the value from this ctypes object as an owned FfiArgValue.
     /// The value must be kept alive until after the FFI call completes.
-    pub fn to_ffi_value(
+    pub(crate) fn to_ffi_value(
         &self,
         ty: libffi::middle::Type,
         _vm: &VirtualMachine,

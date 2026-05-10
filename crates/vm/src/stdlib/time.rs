@@ -24,7 +24,7 @@ unsafe extern "C" {
 }
 
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
-mod decl {
+pub mod decl {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
@@ -97,7 +97,7 @@ mod decl {
 
     #[pyfunction]
     fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let seconds_type_name = seconds.clone().class().name().to_owned();
+        let seconds_type_name = seconds.class().name().to_owned();
         let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.value_error)
                 && let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok())
@@ -491,24 +491,23 @@ mod decl {
         secs: OptionalArg<Option<Either<f64, i64>>>,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        #[cfg(any(unix, windows))]
-        {
-            let ts = match secs {
-                OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
-            };
-            gmtime_from_timestamp(ts, vm)
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        {
-            let instant = match secs {
-                OptionalArg::Present(Some(secs)) => pyobj_to_date_time(secs, vm)?.naive_utc(),
-                OptionalArg::Present(None) | OptionalArg::Missing => {
-                    chrono::offset::Utc::now().naive_utc()
-                }
-            };
-            Ok(StructTimeData::new_utc(vm, instant))
+        cfg_select! {
+            any(unix, windows) => {
+                let ts = match secs {
+                    OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
+                    OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                };
+                gmtime_from_timestamp(ts, vm)
+            }
+            _ => {
+                let instant = match secs {
+                    OptionalArg::Present(Some(secs)) => pyobj_to_date_time(secs, vm)?.naive_utc(),
+                    OptionalArg::Present(None) | OptionalArg::Missing => {
+                        chrono::offset::Utc::now().naive_utc()
+                    }
+                };
+                Ok(StructTimeData::new_utc(vm, instant))
+            }
         }
     }
 
@@ -517,20 +516,18 @@ mod decl {
         secs: OptionalArg<Option<Either<f64, i64>>>,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        #[cfg(any(unix, windows))]
-        {
-            let ts = match secs {
-                OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
-            };
-            localtime_from_timestamp(ts, vm)
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        let instant = secs.naive_or_local(vm)?;
-        #[cfg(not(any(unix, windows)))]
-        {
-            Ok(StructTimeData::new_local(vm, instant, 0))
+        cfg_select! {
+            any(unix, windows) => {
+                let ts = match secs {
+                    OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
+                    OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                };
+                localtime_from_timestamp(ts, vm)
+            }
+            _ => {
+                let instant = secs.naive_or_local(vm)?;
+                Ok(StructTimeData::new_local(vm, instant, 0))
+            }
         }
     }
 

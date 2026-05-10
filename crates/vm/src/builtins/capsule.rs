@@ -60,6 +60,6 @@ impl Destructor for PyCapsule {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyCapsule::extend_class(context, context.types.capsule_type);
 }

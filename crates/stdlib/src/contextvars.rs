@@ -206,7 +206,7 @@ mod _contextvars {
         ) -> PyResult<Option<PyObjectRef>> {
             let found = self.get_inner(&key);
             let result = if let Some(found) = found {
-                Some(found.to_owned())
+                Some(found)
             } else {
                 default.into_option()
             };
@@ -254,7 +254,7 @@ mod _contextvars {
                     let needle = needle.try_to_value(vm)?;
                     let found = PyContext::mapping_downcast(mapping).get_inner(needle);
                     if let Some(found) = found {
-                        Ok(found.to_owned())
+                        Ok(found)
                     } else {
                         Err(vm.new_key_error(needle.to_owned().into()))
                     }
@@ -424,7 +424,7 @@ mod _contextvars {
 
             let old_value = ctx.borrow_vars().get(zelf).map(|v| v.to_owned());
             let token = ContextToken {
-                ctx: ctx.to_owned(),
+                ctx,
                 var: zelf.to_owned(),
                 old_value,
                 used: false.into(),
@@ -483,10 +483,8 @@ mod _contextvars {
     #[derive(FromArgs)]
     struct ContextVarOptions {
         #[pyarg(positional)]
-        #[allow(dead_code)] // TODO: RUSTPYTHON
         name: PyStrRef,
         #[pyarg(any, optional)]
-        #[allow(dead_code)] // TODO: RUSTPYTHON
         default: OptionalArg<PyObjectRef>,
     }
 
@@ -533,15 +531,15 @@ mod _contextvars {
     impl Representable for ContextVar {
         #[inline]
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            // unimplemented!("<ContextVar name={{}} default={{}} at {{}}")
-            Ok(format!(
-                "<ContextVar name={} default={:?} at {:#x}>",
-                zelf.name.as_str(),
-                zelf.default
-                    .as_ref()
-                    .and_then(|default| default.str(vm).ok()),
-                zelf.get_id()
-            ))
+            let name = zelf.name.as_str();
+            let id = zelf.get_id();
+
+            Ok(if let Some(arg) = zelf.default.as_ref() {
+                let default = arg.str(vm).ok();
+                format!("<ContextVar name='{name}' default={default:?} at {id:#x}>",)
+            } else {
+                format!("<ContextVar name='{name}' at {id:#x}>")
+            })
         }
     }
 

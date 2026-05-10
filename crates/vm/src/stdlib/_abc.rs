@@ -271,7 +271,7 @@ mod _abc {
         }
 
         // Call __subclasscheck__ on subclass
-        let result = vm.call_method(&cls, "__subclasscheck__", (subclass.clone(),))?;
+        let result = vm.call_method(&cls, "__subclasscheck__", (subclass,))?;
 
         match result.clone().try_to_bool(vm) {
             Ok(true) => Ok(result),

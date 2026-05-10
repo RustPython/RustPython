@@ -1,0 +1,8 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "if True and False and False:\n  pass"
+---
+  0           RESUME                   0
+
+  1           LOAD_CONST               1 (None)
+              RETURN_VALUE

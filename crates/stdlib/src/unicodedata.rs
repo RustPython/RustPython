@@ -89,7 +89,7 @@ mod unicodedata {
     }
 
     impl Ucd {
-        pub const fn new(unic_version: UnicodeVersion) -> Self {
+        pub(super) const fn new(unic_version: UnicodeVersion) -> Self {
             Self { unic_version }
         }
 
@@ -302,7 +302,7 @@ mod unicodedata {
             if let Some(ch) = ch
                 && matches!(
                     ch.numeric_type(),
-                    Some(NumericType::Decimal) | Some(NumericType::Digit)
+                    Some(NumericType::Decimal | NumericType::Digit)
                 )
                 && let Some(Number::Integer(n)) = ch.numeric_value()
             {

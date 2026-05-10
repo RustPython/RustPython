@@ -392,7 +392,7 @@ def show_deps(
     """Show all dependency information for modules."""
     # Expand "all" to all module names
     expanded_names = []
-    for name in names:
+    for name in set(names):
         if name == "all":
             expanded_names.extend(get_all_modules(cpython_prefix))
         else:
@@ -445,6 +445,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+
+    # When user does `./update_lib/ deps "foo bar" "baz"`
+    # We still want to get a list of
+    # ["foo", "bar", "baz"], not ["foo bar", "baz"]
+    args.names = [name for names in args.names for name in names.split()]
 
     try:
         show_deps(args.names, args.cpython, args.lib, args.depth)

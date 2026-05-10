@@ -115,6 +115,7 @@ pub struct FramePtr(NonNull<Py<Frame>>);
 impl FramePtr {
     /// # Safety
     /// The pointed-to frame must still be alive.
+    #[must_use]
     pub unsafe fn as_ref(&self) -> &Py<Frame> {
         unsafe { self.0.as_ref() }
     }
@@ -201,6 +202,7 @@ impl Default for StopTheWorldState {
 
 #[cfg(all(unix, feature = "threading"))]
 impl StopTheWorldState {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             requested: AtomicBool::new(false),
@@ -697,13 +699,11 @@ impl VirtualMachine {
     /// Mirrors `_Py_ThreadCanHandleSignals`.
     #[allow(dead_code)]
     pub(crate) fn is_main_thread(&self) -> bool {
-        #[cfg(feature = "threading")]
-        {
-            crate::stdlib::_thread::get_ident() == self.state.main_thread_ident.load()
-        }
-        #[cfg(not(feature = "threading"))]
-        {
-            true
+        cfg_select! {
+            feature = "threading" => {
+                crate::stdlib::_thread::get_ident() == self.state.main_thread_ident.load()
+            }
+            _ => true,
         }
     }
 
@@ -944,13 +944,18 @@ impl VirtualMachine {
                     let errors = if fd == 2 {
                         Some("backslashreplace")
                     } else {
-                        self.state.config.settings.stdio_errors.as_deref().or(
-                            if self.state.config.settings.stdio_encoding.is_some() {
-                                Some("strict")
-                            } else {
-                                Some("surrogateescape")
-                            },
-                        )
+                        self.state
+                            .config
+                            .settings
+                            .stdio_errors
+                            .as_deref()
+                            .or_else(|| {
+                                Some(if self.state.config.settings.stdio_encoding.is_some() {
+                                    "strict"
+                                } else {
+                                    "surrogateescape"
+                                })
+                            })
                     };
 
                     let stdio = self.call_method(
@@ -1177,7 +1182,7 @@ impl VirtualMachine {
         let repr_result = object.repr(self);
         let repr_wtf8 = repr_result
             .as_ref()
-            .map_or("<object repr failed>".as_ref(), |s| s.as_wtf8());
+            .map_or_else(|_| "<object repr failed>".as_ref(), |s| s.as_wtf8());
         write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
 
         // Write exception type and message
@@ -2030,13 +2035,9 @@ impl VirtualMachine {
         thread::suspend_if_needed(&self.state.stop_the_world);
 
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::signal::check_signals(self)
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            Ok(())
-        }
+        crate::signal::check_signals(self)?;
+
+        Ok(())
     }
 
     /// Push a new exc_info slot (for generator/coroutine resume).
@@ -2059,12 +2060,12 @@ impl VirtualMachine {
         exc
     }
 
-    pub(crate) fn current_exception(&self) -> Option<PyBaseExceptionRef> {
+    pub fn current_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow().stack.last().cloned().flatten()
     }
 
     /// Set the current exc_info slot value (PUSH_EXC_INFO / POP_EXCEPT).
-    pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
+    pub fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
         // don't be holding the RefCell guard while __del__ is called
         let mut excs = self.exceptions.borrow_mut();
         debug_assert!(
@@ -2164,11 +2165,9 @@ impl VirtualMachine {
             }
             1
         } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            #[allow(clippy::if_same_then_else)]
-            {
-                self.print_exception(exc);
-                #[cfg(unix)]
-                {
+            self.print_exception(exc);
+            cfg_select! {
+                unix => {
                     let action = SigAction::new(
                         nix::sys::signal::SigHandler::SigDfl,
                         SaFlags::SA_ONSTACK,
@@ -2182,15 +2181,9 @@ impl VirtualMachine {
 
                     (libc::SIGINT as u32) + 128
                 }
-                #[cfg(windows)]
-                {
-                    // STATUS_CONTROL_C_EXIT - same as CPython
-                    0xC000013A
-                }
-                #[cfg(not(any(unix, windows)))]
-                {
-                    1
-                }
+                // STATUS_CONTROL_C_EXIT - same as CPython
+                windows => 0xC000013A,
+                _ => 1,
             }
         } else {
             self.print_exception(exc);
@@ -2281,6 +2274,7 @@ impl AsRef<Context> for VirtualMachine {
 
 /// Resolve frozen module alias to its original name.
 /// Returns the original module name if an alias exists, otherwise returns the input name.
+#[must_use]
 pub fn resolve_frozen_alias(name: &str) -> &str {
     match name {
         "_frozen_importlib" => "importlib._bootstrap",

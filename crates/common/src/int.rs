@@ -3,6 +3,7 @@ use malachite_bigint::{BigInt, BigUint, Sign};
 use malachite_q::Rational;
 use num_traits::{One, ToPrimitive, Zero};
 
+#[must_use]
 pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
     let rational = Rational::from_integers_ref(numerator.into(), denominator.into());
     match rational.rounding_into(RoundingMode::Nearest) {
@@ -14,6 +15,7 @@ pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
     }
 }
 
+#[must_use]
 pub fn float_to_ratio(value: f64) -> Option<(BigInt, BigInt)> {
     let sign = match core::cmp::PartialOrd::partial_cmp(&value, &0.0)? {
         core::cmp::Ordering::Less => Sign::Minus,
@@ -146,6 +148,7 @@ pub fn bytes_to_int(
 
 // num-bigint now returns Some(inf) for to_f64() in some cases, so just keep that the same for now
 #[inline(always)]
+#[must_use]
 pub fn bigint_to_finite_float(int: &BigInt) -> Option<f64> {
     int.to_f64().filter(|f| f.is_finite())
 }

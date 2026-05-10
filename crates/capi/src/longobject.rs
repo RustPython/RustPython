@@ -1,5 +1,5 @@
 use crate::object::define_py_check;
-use crate::{PyObject, with_vm};
+use crate::{PyObject, pystate::with_vm};
 use core::ffi::{c_long, c_longlong, c_ulong, c_ulonglong};
 use rustpython_vm::PyResult;
 use rustpython_vm::builtins::PyInt;

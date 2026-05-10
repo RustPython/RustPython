@@ -31,6 +31,7 @@ pub struct PyConfig {
 }
 
 impl PyConfig {
+    #[must_use]
     pub fn new(settings: Settings, paths: Paths) -> Self {
         Self { settings, paths }
     }
@@ -171,6 +172,7 @@ pub enum CheckHashPycsMode {
 }
 
 impl Settings {
+    #[must_use]
     pub fn with_path(mut self, path: String) -> Self {
         self.path_list.push(path);
         self

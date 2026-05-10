@@ -23,9 +23,9 @@ pub struct PyModuleDef {
     // free: free_func
 }
 
-pub type ModuleCreate =
+pub(crate) type ModuleCreate =
     fn(&VirtualMachine, &PyObject, &'static PyModuleDef) -> PyResult<PyRef<PyModule>>;
-pub type ModuleExec = fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>;
+pub(crate) type ModuleExec = fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>;
 
 #[derive(Default)]
 pub struct PyModuleSlots {
@@ -113,6 +113,7 @@ pub struct ModuleInitArgs {
 
 impl PyModule {
     #[allow(clippy::new_without_default)]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             def: None,
@@ -120,6 +121,7 @@ impl PyModule {
         }
     }
 
+    #[must_use]
     pub const fn from_def(def: &'static PyModuleDef) -> Self {
         Self {
             def: Some(def),

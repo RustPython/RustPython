@@ -165,6 +165,6 @@ impl Representable for PyWeak {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyWeak::extend_class(context, context.types.weakref_type);
 }

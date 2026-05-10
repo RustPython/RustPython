@@ -381,7 +381,7 @@ pub(crate) mod module {
             .to_str()
             .ok_or_else(|| vm.new_unicode_decode_error("filename contains invalid UTF-8"))?;
 
-        Ok(vm.ctx.new_str(filename_str).to_owned())
+        Ok(vm.ctx.new_str(filename_str))
     }
 
     #[derive(FromArgs)]
@@ -1292,7 +1292,7 @@ pub(crate) mod module {
         };
         if ret == 0 {
             let err = io::Error::last_os_error();
-            return Err(OSErrorBuilder::with_filename(&err, path.clone(), vm));
+            return Err(OSErrorBuilder::with_filename(&err, path, vm));
         }
         if ret as usize > buffer.len() {
             buffer.resize(ret as usize, 0);
@@ -1306,7 +1306,7 @@ pub(crate) mod module {
             };
             if ret == 0 {
                 let err = io::Error::last_os_error();
-                return Err(OSErrorBuilder::with_filename(&err, path.clone(), vm));
+                return Err(OSErrorBuilder::with_filename(&err, path, vm));
             }
         }
         let buffer = widestring::WideCString::from_vec_truncate(buffer);
@@ -2125,7 +2125,7 @@ pub(crate) mod module {
         if handle == INVALID_HANDLE_VALUE {
             return Err(OSErrorBuilder::with_filename(
                 &io::Error::last_os_error(),
-                path.clone(),
+                path,
                 vm,
             ));
         }
@@ -2153,7 +2153,7 @@ pub(crate) mod module {
         if result == 0 {
             return Err(OSErrorBuilder::with_filename(
                 &io::Error::last_os_error(),
-                path.clone(),
+                path,
                 vm,
             ));
         }

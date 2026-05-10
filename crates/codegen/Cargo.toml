@@ -33,7 +33,6 @@ unicode_names2 = { workspace = true }
 
 [dev-dependencies]
 ruff_python_parser = { workspace = true }
-insta = { workspace = true }
 
 [lints]
 workspace = true

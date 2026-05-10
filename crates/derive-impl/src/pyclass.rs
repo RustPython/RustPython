@@ -1951,11 +1951,9 @@ where
 {
     use AttrName::*;
     Ok(match attr_name {
-        attr_name @ Method | attr_name @ ClassMethod | attr_name @ StaticMethod => {
-            Box::new(MethodItem {
-                inner: ContentItemInner { index, attr_name },
-            })
-        }
+        attr_name @ (Method | ClassMethod | StaticMethod) => Box::new(MethodItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
         GetSet => Box::new(GetSetItem {
             inner: ContentItemInner { index, attr_name },
         }),
@@ -2016,9 +2014,8 @@ where
             Err(wrong_name) => {
                 if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
                     bail_span!(attr, "#[pyclass] doesn't accept #[{}]", wrong_name)
-                } else {
-                    continue;
                 }
+                continue;
             }
         };
 

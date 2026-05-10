@@ -102,6 +102,7 @@ pub enum CFormatType {
 }
 
 impl CFormatType {
+    #[must_use]
     pub const fn to_char(self) -> char {
         match self {
             Self::Number(x) => x as u8 as char,
@@ -137,6 +138,7 @@ bitflags! {
 
 impl CConversionFlags {
     #[inline]
+    #[must_use]
     pub const fn sign_string(&self) -> &'static str {
         if self.contains(Self::SIGN_CHAR) {
             "+"
@@ -408,6 +410,7 @@ impl CFormatSpec {
         )
     }
 
+    #[must_use]
     pub fn format_bytes(&self, bytes: &[u8]) -> Vec<u8> {
         let bytes = if let Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(precision))) =
             self.precision
@@ -432,6 +435,7 @@ impl CFormatSpec {
         }
     }
 
+    #[must_use]
     pub fn format_number(&self, num: &BigInt) -> String {
         use CNumberType::*;
         let CFormatType::Number(format_type) = self.format_type else {
@@ -492,6 +496,7 @@ impl CFormatSpec {
         }
     }
 
+    #[must_use]
     pub fn format_float(&self, num: f64) -> String {
         let sign_string = if num.is_sign_negative() && !num.is_nan() {
             "-"
@@ -740,6 +745,7 @@ pub struct CFormatStrOrBytes<S> {
 }
 
 impl<S> CFormatStrOrBytes<S> {
+    #[must_use]
     pub fn check_specifiers(&self) -> Option<(usize, bool)> {
         let mut count = 0;
         let mut mapping_required = false;
@@ -828,7 +834,7 @@ pub type CFormatBytes = CFormatStrOrBytes<Vec<u8>>;
 
 impl CFormatBytes {
     pub fn parse_from_bytes(bytes: &[u8]) -> Result<Self, CFormatError> {
-        let mut iter = bytes.iter().cloned().enumerate().peekable();
+        let mut iter = bytes.iter().copied().enumerate().peekable();
         Self::parse(&mut iter)
     }
 }

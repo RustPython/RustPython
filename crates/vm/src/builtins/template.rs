@@ -34,6 +34,7 @@ impl PyPayload for PyTemplate {
 }
 
 impl PyTemplate {
+    #[must_use]
     pub fn new(strings: PyTupleRef, interpolations: PyTupleRef) -> Self {
         Self {
             strings,
@@ -329,7 +330,7 @@ impl IterNext for PyTemplateIter {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyTemplate::extend_class(context, context.types.template_type);
     PyTemplateIter::extend_class(context, context.types.template_iter_type);
 }

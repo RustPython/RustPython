@@ -38,7 +38,7 @@ impl ExpandTabsArgs {
 }
 
 #[derive(FromArgs)]
-pub struct StartsEndsWithArgs {
+pub(crate) struct StartsEndsWithArgs {
     #[pyarg(positional)]
     affix: PyObjectRef,
     #[pyarg(positional, default)]
@@ -48,7 +48,7 @@ pub struct StartsEndsWithArgs {
 }
 
 impl StartsEndsWithArgs {
-    pub fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
+    pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
         let range = if self.start.is_some() || self.end.is_some() {
             Some(adjust_indices(self.start, self.end, len))
         } else {
@@ -58,7 +58,7 @@ impl StartsEndsWithArgs {
     }
 
     #[inline]
-    pub fn prepare<S, F>(self, s: &S, len: usize, substr: F) -> Option<(PyObjectRef, &S)>
+    pub(crate) fn prepare<S, F>(self, s: &S, len: usize, substr: F) -> Option<(PyObjectRef, &S)>
     where
         S: ?Sized + AnyStr,
         F: Fn(&S, Range<usize>) -> &S,
@@ -88,7 +88,11 @@ fn saturate_to_isize(py_int: PyIntRef) -> isize {
 }
 
 // help get optional string indices
-pub fn adjust_indices(start: Option<PyIntRef>, end: Option<PyIntRef>, len: usize) -> Range<usize> {
+pub(crate) fn adjust_indices(
+    start: Option<PyIntRef>,
+    end: Option<PyIntRef>,
+    len: usize,
+) -> Range<usize> {
     let mut start = start.map_or(0, saturate_to_isize);
     let mut end = end.map_or(len as isize, saturate_to_isize);
     if end > len as isize {
@@ -108,7 +112,7 @@ pub fn adjust_indices(start: Option<PyIntRef>, end: Option<PyIntRef>, len: usize
     start as usize..end as usize
 }
 
-pub trait StringRange {
+pub(crate) trait StringRange {
     fn is_normal(&self) -> bool;
 }
 
@@ -118,12 +122,12 @@ impl StringRange for Range<usize> {
     }
 }
 
-pub trait AnyStrWrapper<S: AnyStr + ?Sized> {
+pub(crate) trait AnyStrWrapper<S: AnyStr + ?Sized> {
     fn as_ref(&self) -> Option<&S>;
     fn is_empty(&self) -> bool;
 }
 
-pub trait AnyStrContainer<S>
+pub(crate) trait AnyStrContainer<S>
 where
     S: ?Sized,
 {
@@ -132,11 +136,11 @@ where
     fn push_str(&mut self, s: &S);
 }
 
-pub trait AnyChar: Copy {
+pub(crate) trait AnyChar: Copy {
     fn bytes_len(self) -> usize;
 }
 
-pub trait AnyStr {
+pub(crate) trait AnyStr {
     type Char: AnyChar;
     type Container: AnyStrContainer<Self> + Extend<Self::Char>;
 
@@ -469,7 +473,7 @@ pub trait AnyStr {
 /// test that any of the values contained within the tuples satisfies the predicate. Type parameter
 /// T specifies the type that is expected, if the input value is not of that type or a tuple of
 /// values of that type, then a TypeError is raised.
-pub fn single_or_tuple_any<'a, T, F, M>(
+pub(crate) fn single_or_tuple_any<'a, T, F, M>(
     obj: &'a PyObject,
     predicate: &F,
     message: &M,

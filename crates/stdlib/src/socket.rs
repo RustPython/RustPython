@@ -48,14 +48,18 @@ mod _socket {
 
     #[cfg(unix)]
     use libc as c;
+
     #[cfg(windows)]
     mod c {
-        pub use windows_sys::Win32::NetworkManagement::IpHelper::{if_indextoname, if_nametoindex};
-        pub use windows_sys::Win32::Networking::WinSock::{
+        pub(super) use windows_sys::Win32::NetworkManagement::IpHelper::{
+            if_indextoname, if_nametoindex,
+        };
+
+        pub(super) use windows_sys::Win32::Networking::WinSock::{
             INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
         };
 
-        pub use windows_sys::Win32::Networking::WinSock::{
+        pub(super) use windows_sys::Win32::Networking::WinSock::{
             AF_APPLETALK, AF_DECnet, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
             AI_NUMERICSERV, AI_V4MAPPED, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL,
             IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_OPTIONS, IP_RECVDSTADDR,
@@ -76,34 +80,40 @@ mod _socket {
             SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SOMAXCONN, TCP_NODELAY, WSAEBADF,
             WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK,
         };
-        pub use windows_sys::Win32::Networking::WinSock::{
+
+        pub(super) use windows_sys::Win32::Networking::WinSock::{
             INVALID_SOCKET, SOCKET_ERROR, WSA_FLAG_OVERLAPPED, WSADuplicateSocketW,
             WSAGetLastError, WSAIoctl, WSAPROTOCOL_INFOW, WSASocketW,
         };
-        pub use windows_sys::Win32::Networking::WinSock::{
+
+        pub(super) use windows_sys::Win32::Networking::WinSock::{
             SO_REUSEADDR as SO_EXCLUSIVEADDRUSE, getprotobyname, getservbyname, getservbyport,
             getsockopt, setsockopt,
         };
-        pub use windows_sys::Win32::Networking::WinSock::{
+
+        pub(super) use windows_sys::Win32::Networking::WinSock::{
             WSA_NOT_ENOUGH_MEMORY as EAI_MEMORY, WSAEAFNOSUPPORT as EAI_FAMILY,
             WSAEINVAL as EAI_BADFLAGS, WSAESOCKTNOSUPPORT as EAI_SOCKTYPE,
             WSAHOST_NOT_FOUND as EAI_NODATA, WSAHOST_NOT_FOUND as EAI_NONAME,
             WSANO_RECOVERY as EAI_FAIL, WSATRY_AGAIN as EAI_AGAIN,
             WSATYPE_NOT_FOUND as EAI_SERVICE,
         };
-        pub const IF_NAMESIZE: usize =
+
+        pub(super) const IF_NAMESIZE: usize =
             windows_sys::Win32::NetworkManagement::Ndis::IF_MAX_STRING_SIZE as _;
-        pub const AF_UNSPEC: i32 = windows_sys::Win32::Networking::WinSock::AF_UNSPEC as _;
-        pub const AF_INET: i32 = windows_sys::Win32::Networking::WinSock::AF_INET as _;
-        pub const AF_INET6: i32 = windows_sys::Win32::Networking::WinSock::AF_INET6 as _;
-        pub const AI_PASSIVE: i32 = windows_sys::Win32::Networking::WinSock::AI_PASSIVE as _;
-        pub const AI_NUMERICHOST: i32 =
+        pub(super) const AF_UNSPEC: i32 = windows_sys::Win32::Networking::WinSock::AF_UNSPEC as _;
+        pub(super) const AF_INET: i32 = windows_sys::Win32::Networking::WinSock::AF_INET as _;
+        pub(super) const AF_INET6: i32 = windows_sys::Win32::Networking::WinSock::AF_INET6 as _;
+        pub(super) const AI_PASSIVE: i32 = windows_sys::Win32::Networking::WinSock::AI_PASSIVE as _;
+        pub(super) const AI_NUMERICHOST: i32 =
             windows_sys::Win32::Networking::WinSock::AI_NUMERICHOST as _;
-        pub const FROM_PROTOCOL_INFO: i32 = -1;
+        pub(super) const FROM_PROTOCOL_INFO: i32 = -1;
     }
+
     // constants
     #[pyattr(name = "has_ipv6")]
     const HAS_IPV6: bool = true;
+
     #[pyattr]
     // put IPPROTO_MAX later
     use c::{
@@ -893,6 +903,7 @@ mod _socket {
             c::$e
         };
     }
+
     #[cfg(windows)]
     macro_rules! errcode {
     ($e:ident) => {
@@ -1528,7 +1539,7 @@ mod _socket {
                         if family == -1
                             || matches!(
                                 e.raw_os_error(),
-                                Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
+                                Some(errcode!(ENOTSOCK) | errcode!(EBADF))
                             ) =>
                     {
                         core::mem::forget(sock);
@@ -1555,10 +1566,7 @@ mod _socket {
                     Ok(addr) if family == -1 => family = addr.family() as i32,
                     Err(e)
                         if family == -1
-                            || matches!(
-                                e.raw_os_error(),
-                                Some(errcode!(ENOTSOCK)) | Some(errcode!(EBADF))
-                            ) =>
+                            || matches!(e.raw_os_error(), Some(c::ENOTSOCK | c::EBADF)) =>
                     {
                         core::mem::forget(sock);
                         return Err(e.into());
@@ -2582,7 +2590,8 @@ mod _socket {
                 return vm.ctx.new_bytes([b"\0", abstractpath].concat()).into();
             }
             // necessary on macos
-            let path = ffi::OsStr::as_bytes(addr.as_pathname().unwrap_or("".as_ref()).as_ref());
+            let path =
+                ffi::OsStr::as_bytes(addr.as_pathname().unwrap_or_else(|| "".as_ref()).as_ref());
             let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
             let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
             return vm.fsdecode(path).into();
@@ -3264,7 +3273,7 @@ mod _socket {
     fn sock_from_raw(fileno: RawSocket, vm: &VirtualMachine) -> PyResult<Socket> {
         let invalid = cfg_select! {
             windows => fileno == INVALID_SOCKET,
-            _ => fileno < 0
+            _ => fileno < 0,
         };
         if invalid {
             return Err(vm.new_value_error("negative file descriptor"));

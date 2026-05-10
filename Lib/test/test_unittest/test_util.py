@@ -1,9 +1,5 @@
 import unittest
-from unittest.util import (
-    safe_repr,
-    sorted_list_difference,
-    unorderable_list_difference,
-)
+from unittest.util import safe_repr, sorted_list_difference, unorderable_list_difference
 
 
 class TestUtil(unittest.TestCase):

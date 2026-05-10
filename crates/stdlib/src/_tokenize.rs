@@ -31,7 +31,7 @@ mod _tokenize {
     #[pyattr]
     #[pyclass(name = "TokenizerIter")]
     #[derive(PyPayload)]
-    pub struct PyTokenizerIter {
+    pub(super) struct PyTokenizerIter {
         readline: ArgCallable,
         extra_tokens: bool,
         encoding: Option<String>,
@@ -611,7 +611,7 @@ mod _tokenize {
     }
 
     #[derive(FromArgs)]
-    pub struct PyTokenizerIterArgs {
+    pub(super) struct PyTokenizerIterArgs {
         #[pyarg(positional)]
         readline: ArgCallable,
         #[pyarg(named)]
