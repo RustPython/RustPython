@@ -6,6 +6,7 @@ pub(crate) use resource::module_def;
 mod resource {
     use crate::vm::{
         PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        builtins::PyIntRef,
         convert::{ToPyException, ToPyObject},
         types::PyStructSequence,
     };
@@ -135,6 +136,7 @@ mod resource {
     }
 
     struct Limits(libc::rlimit);
+
     impl<'a> TryFromBorrowedObject<'a> for Limits {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
             let seq: Vec<libc::rlim_t> = obj.try_to_value(vm)?;
@@ -147,18 +149,32 @@ mod resource {
             }
         }
     }
+
     impl ToPyObject for Limits {
         fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
             (self.0.rlim_cur, self.0.rlim_max).to_pyobject(vm)
         }
     }
 
+    fn py2rlim(obj: PyIntRef, vm: &VirtualMachine) -> PyResult<libc::rlim_t> {
+        let value = obj.try_to_primitive::<isize>(vm)?;
+
+        if value.is_negative() {
+            return Err(vm.new_value_error("Cannot convert negative int"));
+        }
+
+        libc::rlim_t::try_from(value)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))
+    }
+
     #[pyfunction]
-    fn getrlimit(resource: i32, vm: &VirtualMachine) -> PyResult<Limits> {
-        #[allow(clippy::unnecessary_cast)]
-        if resource < 0 || resource >= RLIM_NLIMITS as i32 {
+    fn getrlimit(resource: PyIntRef, vm: &VirtualMachine) -> PyResult<Limits> {
+        let resource = py2rlim(resource, vm)?;
+
+        if resource >= RLIM_NLIMITS as libc::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));
         }
+
         let rlimit = unsafe {
             let mut rlimit = mem::MaybeUninit::<libc::rlimit>::uninit();
             if libc::getrlimit(resource as _, rlimit.as_mut_ptr()) == -1 {
@@ -170,11 +186,13 @@ mod resource {
     }
 
     #[pyfunction]
-    fn setrlimit(resource: i32, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
-        #[allow(clippy::unnecessary_cast)]
-        if resource < 0 || resource >= RLIM_NLIMITS as i32 {
+    fn setrlimit(resource: PyIntRef, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
+        let resource = py2rlim(resource, vm)?;
+
+        if resource >= RLIM_NLIMITS as libc::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));
         }
+
         let res = unsafe {
             if libc::setrlimit(resource as _, &limits.0) == -1 {
                 Err(io::Error::last_os_error())
@@ -182,6 +200,7 @@ mod resource {
                 Ok(())
             }
         };
+
         res.map_err(|e| match e.kind() {
             io::ErrorKind::InvalidInput => {
                 vm.new_value_error("current limit exceeds maximum limit")
