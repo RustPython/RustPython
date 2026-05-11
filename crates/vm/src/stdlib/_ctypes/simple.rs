@@ -466,6 +466,17 @@ impl PyCSimpleType {
                     }
                 }
             }
+            // py_object: pass any Python object as PyObject*
+            Some("O") => {
+                return Ok(CArgObject {
+                    tag: b'O',
+                    value: FfiArgValue::Pointer(value.get_id()),
+                    obj: value,
+                    size: 0,
+                    offset: 0,
+                }
+                .to_pyobject(vm));
+            }
             // c_bool
             Some("?") => {
                 let bool_val = value.is_true(vm)?;
