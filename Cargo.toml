@@ -344,4 +344,6 @@ unnested_or_patterns = "warn"
 
 # pedantic lints to enforce gradually
 cloned_instead_of_copied = "warn"
+collapsible_else_if = "warn"
+comparison_chain = "warn"
 must_use_candidate = "warn"
