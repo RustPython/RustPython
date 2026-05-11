@@ -299,7 +299,11 @@ impl Py<HeapMethodDef> {
         unsafe { &*(&self.method as *const _) }
     }
 
-    pub fn build_function(&self, vm: &VirtualMachine, zelf: Option<PyObjectRef>) -> PyRef<PyNativeFunction> {
+    pub fn build_function(
+        &self,
+        vm: &VirtualMachine,
+        zelf: Option<PyObjectRef>,
+    ) -> PyRef<PyNativeFunction> {
         let mut function = unsafe { self.method() }.to_function();
         function._method_def_owner = Some(self.to_owned().into());
         function.zelf = zelf;

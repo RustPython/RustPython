@@ -2,9 +2,9 @@
 //!
 //! This module provides a centralized array of all slot definitions,
 
-use num_enum::TryFromPrimitive;
 use super::{PyComparisonOp, PyTypeSlots};
 use crate::builtins::descriptor::SlotFunc;
+use num_enum::TryFromPrimitive;
 
 /// Slot operation type
 ///
