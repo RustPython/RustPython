@@ -191,9 +191,7 @@ impl PyFunction {
         let doc = if code.code.flags.contains(bytecode::CodeFlags::HAS_DOCSTRING) {
             code.code
                 .constants
-                .first()
-                .map(|c| c.as_object().to_owned())
-                .unwrap_or_else(|| vm.ctx.none())
+                .first().map_or_else(|| vm.ctx.none(), |c| c.as_object().to_owned())
         } else {
             vm.ctx.none()
         };

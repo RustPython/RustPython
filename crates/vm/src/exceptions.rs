@@ -2033,15 +2033,11 @@ pub(super) mod types {
                 let errno_str = errno_field
                     .as_ref()
                     .map(|e| e.str(vm))
-                    .transpose()?
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "None".to_owned());
+                    .transpose()?.map_or_else(|| "None".to_owned(), |s| s.to_string());
                 let msg = strerror
                     .as_ref()
                     .map(|s| s.str(vm))
-                    .transpose()?
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "None".to_owned());
+                    .transpose()?.map_or_else(|| "None".to_owned(), |s| s.to_string());
                 if let Some(ref f2) = filename2 {
                     return Ok(vm.ctx.new_str(format!(
                         "[Errno {}] {}: {} -> {}",

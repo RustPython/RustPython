@@ -560,8 +560,7 @@ mod math {
                 f.to_f64()
             } else if start_is_float && let OptionalArg::Present(s) = &start {
                 s.downcast_ref::<PyFloat>()
-                    .map(|f| f.to_f64())
-                    .unwrap_or(1.0)
+                    .map_or(1.0, |f| f.to_f64())
             } else {
                 1.0
             };

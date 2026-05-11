@@ -967,8 +967,7 @@ mod _csv {
                 let trimmed_end = input
                     .iter()
                     .rposition(|&x| x != b' ')
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
+                    .map_or(0, |i| i + 1);
                 &input[trimmed_start..trimmed_end]
             }
             let input = if *skipinitialspace {

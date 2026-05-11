@@ -62,8 +62,7 @@ mod _codecs {
             let encoding = self
                 .encoding
                 .as_deref()
-                .map(|s| s.as_str())
-                .unwrap_or(codecs::DEFAULT_ENCODING);
+                .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
             f(
                 &vm.state.codec_registry,
                 self.obj,

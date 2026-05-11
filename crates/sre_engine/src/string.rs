@@ -341,27 +341,23 @@ const fn is_py_ascii_whitespace(b: u8) -> bool {
 pub(crate) fn is_word(ch: u32) -> bool {
     ch == '_' as u32
         || u8::try_from(ch)
-            .map(|x| x.is_ascii_alphanumeric())
-            .unwrap_or(false)
+            .is_ok_and(|x| x.is_ascii_alphanumeric())
 }
 #[inline]
 pub(crate) fn is_space(ch: u32) -> bool {
     u8::try_from(ch)
-        .map(is_py_ascii_whitespace)
-        .unwrap_or(false)
+        .is_ok_and(is_py_ascii_whitespace)
 }
 #[inline]
 pub(crate) fn is_digit(ch: u32) -> bool {
     u8::try_from(ch)
-        .map(|x| x.is_ascii_digit())
-        .unwrap_or(false)
+        .is_ok_and(|x| x.is_ascii_digit())
 }
 #[inline]
 pub(crate) fn is_loc_alnum(ch: u32) -> bool {
     // FIXME: Ignore the locales
     u8::try_from(ch)
-        .map(|x| x.is_ascii_alphanumeric())
-        .unwrap_or(false)
+        .is_ok_and(|x| x.is_ascii_alphanumeric())
 }
 #[inline]
 pub(crate) fn is_loc_word(ch: u32) -> bool {
@@ -375,8 +371,7 @@ pub(crate) const fn is_linebreak(ch: u32) -> bool {
 #[must_use]
 pub fn lower_ascii(ch: u32) -> u32 {
     u8::try_from(ch)
-        .map(|x| x.to_ascii_lowercase() as u32)
-        .unwrap_or(ch)
+        .map_or(ch, |x| x.to_ascii_lowercase() as u32)
 }
 #[inline]
 pub(crate) fn lower_locate(ch: u32) -> u32 {
@@ -387,15 +382,13 @@ pub(crate) fn lower_locate(ch: u32) -> u32 {
 pub(crate) fn upper_locate(ch: u32) -> u32 {
     // FIXME: Ignore the locales
     u8::try_from(ch)
-        .map(|x| x.to_ascii_uppercase() as u32)
-        .unwrap_or(ch)
+        .map_or(ch, |x| x.to_ascii_uppercase() as u32)
 }
 #[inline]
 pub(crate) fn is_uni_digit(ch: u32) -> bool {
     // TODO: check with cpython
     char::try_from(ch)
-        .map(|x| x.is_ascii_digit())
-        .unwrap_or(false)
+        .is_ok_and(|x| x.is_ascii_digit())
 }
 #[inline]
 pub(crate) fn is_uni_space(ch: u32) -> bool {
@@ -445,12 +438,11 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
     // TODO: check with cpython
     char::try_from(ch)
-        .map(|c| {
+        .is_ok_and(|c| {
             GeneralCategoryGroup::Letter
                 .union(GeneralCategoryGroup::Number)
                 .contains(GeneralCategory::for_char(c))
         })
-        .unwrap_or(false)
 }
 #[inline]
 pub(crate) fn is_uni_word(ch: u32) -> bool {
@@ -461,14 +453,12 @@ pub(crate) fn is_uni_word(ch: u32) -> bool {
 pub fn lower_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
     char::try_from(ch)
-        .map(|x| x.to_lowercase().next().unwrap() as u32)
-        .unwrap_or(ch)
+        .map_or(ch, |x| x.to_lowercase().next().unwrap() as u32)
 }
 #[inline]
 #[must_use]
 pub fn upper_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
     char::try_from(ch)
-        .map(|x| x.to_uppercase().next().unwrap() as u32)
-        .unwrap_or(ch)
+        .map_or(ch, |x| x.to_uppercase().next().unwrap() as u32)
 }

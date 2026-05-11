@@ -722,9 +722,7 @@ mod _sre {
                         self.get_index(x, vm)
                             .ok_or_else(|| vm.new_index_error("no such group"))
                             .map(|index| {
-                                self.get_slice(index, str_drive, vm)
-                                    .map(|x| x.to_pyobject(vm))
-                                    .unwrap_or_else(|| vm.ctx.none())
+                                self.get_slice(index, str_drive, vm).map_or_else(|| vm.ctx.none(), |x| x.to_pyobject(vm))
                             })
                     })
                     .try_collect()?;
@@ -760,9 +758,7 @@ mod _sre {
             with_sre_str!(self.pattern, &self.string, vm, |str_drive| {
                 let v: Vec<PyObjectRef> = (1..self.regs.len())
                     .map(|i| {
-                        self.get_slice(i, str_drive, vm)
-                            .map(|s| s.to_pyobject(vm))
-                            .unwrap_or_else(|| default.clone())
+                        self.get_slice(i, str_drive, vm).map_or_else(|| default.clone(), |s| s.to_pyobject(vm))
                     })
                     .collect();
                 Ok(PyTuple::new_ref(v, &vm.ctx))
@@ -783,9 +779,7 @@ mod _sre {
                 for (key, index) in self.pattern.groupindex.clone() {
                     let value = self
                         .get_index(index, vm)
-                        .and_then(|x| self.get_slice(x, str_drive, vm))
-                        .map(|x| x.to_pyobject(vm))
-                        .unwrap_or_else(|| default.clone());
+                        .and_then(|x| self.get_slice(x, str_drive, vm)).map_or_else(|| default.clone(), |x| x.to_pyobject(vm));
                     dict.set_item(&*key, value, vm)?;
                 }
                 Ok(dict)

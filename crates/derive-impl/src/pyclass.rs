@@ -330,9 +330,7 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<Toke
     // Get the base type name for error messages
     let base_name = base_path
         .segments
-        .last()
-        .map(|s| s.ident.to_string())
-        .unwrap_or_else(|| quote!(#base_path).to_string());
+        .last().map_or_else(|| quote!(#base_path).to_string(), |s| s.ident.to_string());
 
     match &item_struct.fields {
         syn::Fields::Named(fields) => {

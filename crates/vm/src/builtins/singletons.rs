@@ -84,8 +84,7 @@ impl Comparable for PyNone {
     ) -> PyResult<PyComparisonValue> {
         Ok(op
             .identical_optimization(zelf, other)
-            .map(PyComparisonValue::Implemented)
-            .unwrap_or(PyComparisonValue::NotImplemented))
+            .map_or(PyComparisonValue::NotImplemented, PyComparisonValue::Implemented))
     }
 }
 
