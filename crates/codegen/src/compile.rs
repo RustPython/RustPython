@@ -5412,6 +5412,7 @@ impl Compiler {
         self.prepare_decorators(decorator_list)?;
 
         let is_generic = type_params.is_some();
+        #[expect(clippy::map_unwrap_or, reason = "Chaning this will not compile")]
         let firstlineno = decorator_list
             .first()
             .map(|decorator| {
