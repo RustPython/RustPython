@@ -7,8 +7,6 @@ from ctypes import (pythonapi, POINTER, create_string_buffer, sizeof,
 
 
 class PythonAPITestCase(unittest.TestCase):
-    # TODO: RUSTPYTHON - requires pythonapi (Python C API)
-    @unittest.expectedFailure
     def test_PyBytes_FromStringAndSize(self):
         PyBytes_FromStringAndSize = pythonapi.PyBytes_FromStringAndSize
 
