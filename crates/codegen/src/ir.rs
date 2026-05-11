@@ -9470,7 +9470,8 @@ impl CodeInfo {
                 block.preserve_lasti,
                 block.disable_load_fast_borrow,
                 block
-                    .start_depth.map_or_else(|| String::from("None"), |depth| depth.to_string()),
+                    .start_depth
+                    .map_or_else(|| String::from("None"), |depth| depth.to_string()),
             );
             for info in &block.instructions {
                 let lineno = instruction_lineno(info);
@@ -10205,10 +10206,9 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
             block.cold
                 && block.next != BlockIdx::NULL
                 && !blocks[block.next.idx()].cold
-                && block
-                    .instructions
-                    .last()
-                    .is_none_or(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
+                && block.instructions.last().is_none_or(|ins| {
+                    !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump()
+                })
         })
         .map(|(idx, block)| (idx, block.next))
         .collect();
