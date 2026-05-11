@@ -61,17 +61,13 @@ pub unsafe extern "C" fn PyObject_CallMethodObjArgs(
     mut args: ...
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let mut arguments: Vec<PyObjectRef> = vec![];
-        loop {
-            if let Some(arg) = core::ptr::NonNull::new(unsafe { args.arg::<*mut PyObject>() }) {
-                arguments.push(unsafe { arg.as_ref() }.to_owned());
-            } else {
-                break;
-            }
-        }
-
         let method_name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
         let callable = unsafe { (&*receiver).get_attr(method_name, vm)? };
+        let arguments = core::iter::from_fn(|| unsafe {
+            core::ptr::NonNull::new(args.next_arg::<*mut PyObject>())
+                .map(|obj| obj.as_ref().to_owned())
+        })
+        .collect::<Vec<_>>();
         callable.call(arguments, vm)
     })
 }

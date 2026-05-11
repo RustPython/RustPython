@@ -34,12 +34,10 @@ pub extern "C" fn PyTuple_FromArray(array: *const *mut PyObject, size: isize) ->
 #[cfg(feature = "nightly")]
 pub unsafe extern "C" fn PyTuple_Pack(len: isize, mut args: ...) -> *mut PyObject {
     with_vm(|vm| {
-        let mut items = vec![];
-
-        for _ in 0..len {
-            let item = unsafe { &*args.arg::<*mut PyObject>() };
-            items.push(item.to_owned());
-        }
+        let items =
+            core::iter::repeat_with(|| unsafe { (&*args.next_arg::<*mut PyObject>()).to_owned() })
+                .take(len as usize)
+                .collect::<Vec<_>>();
 
         vm.new_tuple(items)
     })
