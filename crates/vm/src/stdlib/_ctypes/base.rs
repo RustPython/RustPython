@@ -2342,6 +2342,20 @@ pub(super) fn bytes_to_pyobject(
                 }
                 Ok(vm.ctx.new_int(val).into())
             }
+            "O" => {
+                // py_object: return Python object from pointer
+                let ptr = read_ptr_from_buffer(bytes);
+                if ptr == 0 {
+                    return Err(vm.new_value_error("PyObject is NULL"));
+                }
+                let raw_ptr = ptr as *mut crate::object::PyObject;
+                unsafe {
+                    let obj =
+                        crate::PyObjectRef::from_raw(core::ptr::NonNull::new_unchecked(raw_ptr));
+                    let obj = core::mem::ManuallyDrop::new(obj);
+                    Ok((*obj).clone())
+                }
+            }
             "u" => {
                 let val = if bytes.len() >= mem::size_of::<WideChar>() {
                     let wc = if mem::size_of::<WideChar>() == 2 {
