@@ -145,10 +145,10 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     // Step 5: Set prefix and base_prefix
     if venv_prefix.is_some() {
         // In venv: prefix = venv directory, base_prefix = original Python's prefix
-        paths.prefix = venv_prefix
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| calculated_prefix.clone());
+        paths.prefix = venv_prefix.as_ref().map_or_else(
+            || calculated_prefix.clone(),
+            |p| p.to_string_lossy().into_owned(),
+        );
         paths.base_prefix = calculated_prefix;
     } else {
         // Not in venv: prefix == base_prefix

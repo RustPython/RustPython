@@ -964,11 +964,7 @@ mod _csv {
             #[inline]
             fn trim_spaces(input: &[u8]) -> &[u8] {
                 let trimmed_start = input.iter().position(|&x| x != b' ').unwrap_or(input.len());
-                let trimmed_end = input
-                    .iter()
-                    .rposition(|&x| x != b' ')
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
+                let trimmed_end = input.iter().rposition(|&x| x != b' ').map_or(0, |i| i + 1);
                 &input[trimmed_start..trimmed_end]
             }
             let input = if *skipinitialspace {

@@ -26,8 +26,7 @@ fn get_size_from_format(fmt: &str) -> usize {
         .chars()
         .next()
         .map(|c| c.to_string());
-    code.map(|c| type_info(&c).map(|t| t.size).unwrap_or(1))
-        .unwrap_or(1)
+    code.map_or(1, |c| type_info(&c).map_or(1, |t| t.size))
 }
 
 /// Creates array type for (element_type, length)
@@ -770,12 +769,7 @@ impl PyCArray {
             }
             Some("u") => {
                 if let Some(s) = value.downcast_ref::<PyStr>() {
-                    let code = s
-                        .as_wtf8()
-                        .code_points()
-                        .next()
-                        .map(|c| c.to_u32())
-                        .unwrap_or(0);
+                    let code = s.as_wtf8().code_points().next().map_or(0, |c| c.to_u32());
                     if offset + WCHAR_SIZE <= buffer.len() {
                         wchar_to_bytes(code, &mut buffer[offset..]);
                     }

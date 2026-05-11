@@ -860,21 +860,17 @@ impl PyType {
         if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
             slots.new.store(None)
         } else if slots.new.load().is_none() {
-            slots.new.store(
-                base.as_ref()
-                    .map(|base| base.slots.new.load())
-                    .unwrap_or(None),
-            )
+            slots
+                .new
+                .store(base.as_ref().and_then(|base| base.slots.new.load()))
         }
     }
 
     fn set_alloc(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
         if slots.alloc.load().is_none() {
-            slots.alloc.store(
-                base.as_ref()
-                    .map(|base| base.slots.alloc.load())
-                    .unwrap_or(None),
-            );
+            slots
+                .alloc
+                .store(base.as_ref().and_then(|base| base.slots.alloc.load()));
         }
     }
 
@@ -2072,7 +2068,7 @@ impl Constructor for PyType {
             .map(|base| base.slots.member_count)
             .max()
             .unwrap();
-        let heaptype_member_count = heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
+        let heaptype_member_count = heaptype_slots.as_ref().map_or(0, |x| x.len());
         let member_count: usize = base_member_count + heaptype_member_count;
 
         let mut flags = PyTypeFlags::heap_type_flags();

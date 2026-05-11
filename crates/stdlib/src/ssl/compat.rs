@@ -1754,8 +1754,7 @@ pub(super) fn ssl_read(
                 let bytes_read = data
                     .clone()
                     .try_into_value::<rustpython_vm::builtins::PyBytes>(vm)
-                    .map(|b| b.as_bytes().len())
-                    .unwrap_or(0);
+                    .map_or(0, |b| b.as_bytes().len());
 
                 if bytes_read == 0 {
                     // No more data available - check if this is clean shutdown or unexpected EOF
@@ -2177,8 +2176,7 @@ fn ssl_ensure_data_available(
         let bytes_read = data
             .clone()
             .try_into_value::<rustpython_vm::builtins::PyBytes>(vm)
-            .map(|b| b.as_bytes().len())
-            .unwrap_or(0);
+            .map_or(0, |b| b.as_bytes().len());
 
         // Check if BIO has EOF set (incoming BIO closed)
         let is_eof = if is_bio {

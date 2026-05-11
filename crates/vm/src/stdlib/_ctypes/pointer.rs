@@ -845,8 +845,7 @@ impl AsBuffer for PyCPointer {
         let format = stg_info
             .format
             .clone()
-            .map(Cow::Owned)
-            .unwrap_or(Cow::Borrowed("&B"));
+            .map_or(Cow::Borrowed("&B"), Cow::Owned);
         let itemsize = stg_info.size;
         // Pointer types are scalars with ndim=0, shape=()
         let desc = BufferDescriptor {

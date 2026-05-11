@@ -2098,7 +2098,7 @@ impl FfiArgValue {
 pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue {
     match type_code {
         "c" | "b" => {
-            let v = buffer.first().map(|&b| b as i8).unwrap_or(0);
+            let v = buffer.first().map_or(0, |&b| b as i8);
             FfiArgValue::I8(v)
         }
         "B" => {
@@ -2157,7 +2157,7 @@ pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue
         }
         "z" | "Z" | "P" | "O" => FfiArgValue::Pointer(read_ptr_from_buffer(buffer)),
         "?" => {
-            let v = buffer.first().map(|&b| b != 0).unwrap_or(false);
+            let v = buffer.first().is_some_and(|&b| b != 0);
             FfiArgValue::U8(if v { 1 } else { 0 })
         }
         "u" => {

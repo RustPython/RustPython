@@ -620,7 +620,7 @@ where
     let (index, c) = iter.next().ok_or_else(|| {
         (
             CFormatErrorType::IncompleteFormat,
-            iter.peek().map(|x| x.0).unwrap_or(0),
+            iter.peek().map_or(0, |x| x.0),
         )
     })?;
     let format_type = match c.to_char_lossy() {

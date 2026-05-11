@@ -218,13 +218,13 @@ mod decl {
         let funcname = frame.code.obj_name.as_str();
         let lasti = frame.lasti();
         let lineno = if lasti == 0 {
-            frame.code.first_line_number.map(|n| n.get()).unwrap_or(1) as u32
+            frame.code.first_line_number.map_or(1, |n| n.get()) as u32
         } else {
             let idx = (lasti as usize).saturating_sub(1);
             if idx < frame.code.locations.len() {
                 frame.code.locations[idx].0.line.get() as u32
             } else {
-                frame.code.first_line_number.map(|n| n.get()).unwrap_or(0) as u32
+                frame.code.first_line_number.map_or(0, |n| n.get()) as u32
             }
         };
 
@@ -292,7 +292,7 @@ mod decl {
         let funcname = frame.code.obj_name.as_str();
         let filename = frame.code.source_path().as_str();
         let lineno = if frame.lasti() == 0 {
-            frame.code.first_line_number.map(|n| n.get()).unwrap_or(1) as u32
+            frame.code.first_line_number.map_or(1, |n| n.get()) as u32
         } else {
             frame.current_location().line.get() as u32
         };
@@ -1112,8 +1112,7 @@ mod decl {
         } else {
             // Already registered, keep previous handler
             user_signals::get_user_signal(signum)
-                .map(|u| u.previous)
-                .unwrap_or(unsafe { core::mem::zeroed() })
+                .map_or(unsafe { core::mem::zeroed() }, |u| u.previous)
         };
 
         user_signals::set_user_signal(

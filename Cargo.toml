@@ -338,10 +338,11 @@ inefficient_to_string = "warn"
 redundant_clone = "warn"
 debug_assert_with_mut_call = "warn"
 unused_peekable = "warn"
-manual_is_variant_and = "warn"
 or_fun_call = "warn"
 unnested_or_patterns = "warn"
 
 # pedantic lints to enforce gradually
 cloned_instead_of_copied = "warn"
+manual_is_variant_and = "warn"
+map_unwrap_or = "warn"
 must_use_candidate = "warn"
