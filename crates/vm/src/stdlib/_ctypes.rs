@@ -882,7 +882,7 @@ pub(crate) mod _ctypes {
             && let Ok(fields) = fields_attr.try_to_value::<Vec<PyObjectRef>>(vm)
         {
             let mut max_align = 1usize;
-            for field in fields.iter() {
+            for field in &fields {
                 if let Some(tuple) = field.downcast_ref::<crate::builtins::PyTuple>()
                     && let Some(field_type) = tuple.get(1)
                 {

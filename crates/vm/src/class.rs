@@ -16,7 +16,7 @@ use rustpython_common::static_cell;
 /// 1. Has a function set in the type's slots
 /// 2. Doesn't already have an attribute in the type's dict
 pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
-    for def in SLOT_DEFS.iter() {
+    for def in SLOT_DEFS {
         // Skip __new__ - it has special handling
         if def.name == "__new__" {
             continue;

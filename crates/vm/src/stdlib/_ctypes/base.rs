@@ -2528,7 +2528,7 @@ fn make_fields(
         return Err(vm.new_type_error("_fields_ must be a sequence"));
     };
 
-    for pair in fieldlist.iter() {
+    for pair in &fieldlist {
         let field_tuple = pair
             .downcast_ref::<PyTuple>()
             .ok_or_else(|| vm.new_type_error("_fields_ must contain tuples"))?;
@@ -2587,7 +2587,7 @@ pub(super) fn make_anon_fields(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResul
         return Err(vm.new_type_error("_anonymous_ must be a sequence"));
     };
 
-    for fname_obj in anon_names.iter() {
+    for fname_obj in &anon_names {
         let fname = fname_obj
             .downcast_ref::<PyStr>()
             .ok_or_else(|| vm.new_type_error("_anonymous_ items must be strings"))?;

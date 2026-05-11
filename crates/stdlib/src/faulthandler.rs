@@ -632,7 +632,7 @@ mod decl {
         }
 
         unsafe {
-            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+            for handler in &mut FAULTHANDLER_HANDLERS {
                 if handler.enabled {
                     continue;
                 }
@@ -700,7 +700,7 @@ mod decl {
         }
 
         unsafe {
-            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+            for handler in &mut FAULTHANDLER_HANDLERS {
                 faulthandler_disable_fatal_handler(handler);
             }
         }
