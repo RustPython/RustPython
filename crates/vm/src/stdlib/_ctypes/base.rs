@@ -2348,12 +2348,10 @@ pub(super) fn bytes_to_pyobject(
                 if ptr == 0 {
                     return Err(vm.new_value_error("PyObject is NULL"));
                 }
-                let raw_ptr = ptr as *mut crate::object::PyObject;
                 unsafe {
                     let obj =
-                        crate::PyObjectRef::from_raw(core::ptr::NonNull::new_unchecked(raw_ptr));
-                    let obj = core::mem::ManuallyDrop::new(obj);
-                    Ok((*obj).clone())
+                        PyObjectRef::from_raw(core::ptr::NonNull::new_unchecked(ptr as *mut _));
+                    Ok(obj)
                 }
             }
             "u" => {
