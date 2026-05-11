@@ -6229,8 +6229,7 @@ mod winconsoleio {
             let mode_str: &str = args
                 .mode
                 .as_ref()
-                .map(|s: &PyUtf8StrRef| s.as_str())
-                .unwrap_or("r");
+                .map_or("r", |s: &PyUtf8StrRef| s.as_str());
 
             let mut rwa = false;
             let mut readable = false;
@@ -6520,8 +6519,8 @@ mod winconsoleio {
             if zelf.fd.load() >= 0 && zelf.closefd.load() {
                 let repr = source
                     .repr(vm)
-                    .map(|s| s.as_wtf8().to_owned())
-                    .unwrap_or_else(|_| Wtf8Buf::from("<file>"));
+                    .map_or_else(|_| Wtf8Buf::from("<file>"), |s| s.as_wtf8().to_owned());
+
                 if let Err(e) = crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed file {repr}"),
