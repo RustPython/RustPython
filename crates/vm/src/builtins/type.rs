@@ -860,19 +860,17 @@ impl PyType {
         if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
             slots.new.store(None)
         } else if slots.new.load().is_none() {
-            slots.new.store(
-                base.as_ref()
-                    .and_then(|base| base.slots.new.load()),
-            )
+            slots
+                .new
+                .store(base.as_ref().and_then(|base| base.slots.new.load()))
         }
     }
 
     fn set_alloc(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
         if slots.alloc.load().is_none() {
-            slots.alloc.store(
-                base.as_ref()
-                    .and_then(|base| base.slots.alloc.load()),
-            );
+            slots
+                .alloc
+                .store(base.as_ref().and_then(|base| base.slots.alloc.load()));
         }
     }
 

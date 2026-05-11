@@ -180,7 +180,8 @@ mod _collections {
             } else {
                 Err(vm.new_value_error(
                     needle
-                        .repr(vm).map_or_else(|_| String::new(), |repr| format!("{repr} is not in deque")),
+                        .repr(vm)
+                        .map_or_else(|_| String::new(), |repr| format!("{repr} is not in deque")),
                 ))
             }
         }
@@ -566,7 +567,8 @@ mod _collections {
             let class = zelf.class();
             let class_name = class.name();
             let closing_part = zelf
-                .maxlen.map_or_else(|| "]".to_owned(), |maxlen| format!("], maxlen={maxlen}"));
+                .maxlen
+                .map_or_else(|| "]".to_owned(), |maxlen| format!("], maxlen={maxlen}"));
 
             if zelf.__len__() == 0 {
                 return Ok(vm.ctx.new_str(format!("{class_name}([{closing_part})")));

@@ -549,7 +549,8 @@ impl PyStr {
     }
 
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
-        self.to_str().map_or_else(|| self.as_wtf8().to_string_lossy(), Cow::Borrowed)
+        self.to_str()
+            .map_or_else(|| self.as_wtf8().to_string_lossy(), Cow::Borrowed)
     }
 
     pub const fn kind(&self) -> StrKind {

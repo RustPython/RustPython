@@ -191,7 +191,10 @@ impl Node for ast::StmtFunctionDef {
         dict.set_item("type_comment", vm.ctx.none(), vm).unwrap();
         dict.set_item(
             "type_params",
-            type_params.map_or_else(|| vm.ctx.new_list(vec![]).into(), |tp| tp.ast_to_object(vm, source_file)),
+            type_params.map_or_else(
+                || vm.ctx.new_list(vec![]).into(),
+                |tp| tp.ast_to_object(vm, source_file),
+            ),
             vm,
         )
         .unwrap();
@@ -271,13 +274,19 @@ impl Node for ast::StmtClassDef {
             .unwrap();
         dict.set_item(
             "bases",
-            bases.map_or_else(|| _vm.ctx.new_list(vec![]).into(), |b| b.ast_to_object(_vm, source_file)),
+            bases.map_or_else(
+                || _vm.ctx.new_list(vec![]).into(),
+                |b| b.ast_to_object(_vm, source_file),
+            ),
             _vm,
         )
         .unwrap();
         dict.set_item(
             "keywords",
-            keywords.map_or_else(|| _vm.ctx.new_list(vec![]).into(), |k| k.ast_to_object(_vm, source_file)),
+            keywords.map_or_else(
+                || _vm.ctx.new_list(vec![]).into(),
+                |k| k.ast_to_object(_vm, source_file),
+            ),
             _vm,
         )
         .unwrap();
@@ -291,7 +300,10 @@ impl Node for ast::StmtClassDef {
         .unwrap();
         dict.set_item(
             "type_params",
-            type_params.map_or_else(|| _vm.ctx.new_list(vec![]).into(), |tp| tp.ast_to_object(_vm, source_file)),
+            type_params.map_or_else(
+                || _vm.ctx.new_list(vec![]).into(),
+                |tp| tp.ast_to_object(_vm, source_file),
+            ),
             _vm,
         )
         .unwrap();
@@ -472,7 +484,10 @@ impl Node for ast::StmtTypeAlias {
             .unwrap();
         dict.set_item(
             "type_params",
-            type_params.map_or_else(|| _vm.ctx.new_list(Vec::new()).into(), |tp| tp.ast_to_object(_vm, source_file)),
+            type_params.map_or_else(
+                || _vm.ctx.new_list(Vec::new()).into(),
+                |tp| tp.ast_to_object(_vm, source_file),
+            ),
             _vm,
         )
         .unwrap();

@@ -34,24 +34,22 @@ mod _opcode {
 
     #[pyfunction]
     fn stack_effect(args: StackEffectArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let oparg = args
-            .oparg
-            .map_or(Ok(0), |v| {
-                if !v.fast_isinstance(vm.ctx.types.int_type) {
-                    return Err(vm.new_type_error(format!(
+        let oparg = args.oparg.map_or(Ok(0), |v| {
+            if !v.fast_isinstance(vm.ctx.types.int_type) {
+                return Err(vm.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    v.class().name()
+                )));
+            }
+            v.downcast_ref::<PyInt>()
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
                         v.class().name()
-                    )));
-                }
-                v.downcast_ref::<PyInt>()
-                    .ok_or_else(|| {
-                        vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            v.class().name()
-                        ))
-                    })?
-                    .try_to_primitive::<u32>(vm)
-            })?;
+                    ))
+                })?
+                .try_to_primitive::<u32>(vm)
+        })?;
 
         let jump: Option<bool> = match args.jump {
             Some(v) => {
@@ -103,38 +101,32 @@ mod _opcode {
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        try_from_i32(opcode)
-            .is_ok_and(|op| op.has_const())
+        try_from_i32(opcode).is_ok_and(|op| op.has_const())
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        try_from_i32(opcode)
-            .is_ok_and(|op| op.has_name())
+        try_from_i32(opcode).is_ok_and(|op| op.has_name())
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        try_from_i32(opcode)
-            .is_ok_and(|op| op.has_jump())
+        try_from_i32(opcode).is_ok_and(|op| op.has_jump())
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        try_from_i32(opcode)
-            .is_ok_and(|op| op.has_free())
+        try_from_i32(opcode).is_ok_and(|op| op.has_free())
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        try_from_i32(opcode)
-            .is_ok_and(|op| op.has_local())
+        try_from_i32(opcode).is_ok_and(|op| op.has_local())
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        try_from_i32(opcode)
-            .is_ok_and(|op| op.is_block_push())
+        try_from_i32(opcode).is_ok_and(|op| op.is_block_push())
     }
 
     #[pyfunction]

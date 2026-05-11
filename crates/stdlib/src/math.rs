@@ -559,8 +559,7 @@ mod math {
             let mut flt_result: f64 = if let Some(ref f) = obj_float {
                 f.to_f64()
             } else if start_is_float && let OptionalArg::Present(s) = &start {
-                s.downcast_ref::<PyFloat>()
-                    .map_or(1.0, |f| f.to_f64())
+                s.downcast_ref::<PyFloat>().map_or(1.0, |f| f.to_f64())
             } else {
                 1.0
             };

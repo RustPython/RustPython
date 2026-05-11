@@ -498,7 +498,8 @@ fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
         .ok_or_else(|| vm.new_type_error("__hash__ method should return an integer"))?;
     let big_int = py_int.as_bigint();
     let hash = big_int
-        .to_i64().map_or_else(|| hash_bigint(big_int), fix_sentinel);
+        .to_i64()
+        .map_or_else(|| hash_bigint(big_int), fix_sentinel);
     Ok(hash)
 }
 

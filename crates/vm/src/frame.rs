@@ -1503,7 +1503,8 @@ impl ExecutingFrame<'_> {
             let exc_type: PyObjectRef = exc.class().to_owned().into();
             let exc_value: PyObjectRef = exc.clone().into();
             let exc_tb: PyObjectRef = exc
-                .__traceback__().map_or_else(|| vm.ctx.none(), |tb| -> PyObjectRef { tb.into() });
+                .__traceback__()
+                .map_or_else(|| vm.ctx.none(), |tb| -> PyObjectRef { tb.into() });
             let tuple = vm.ctx.new_tuple(vec![exc_type, exc_value, exc_tb]).into();
             vm.trace_event(crate::protocol::TraceEvent::Exception, Some(tuple))?;
         }
@@ -3423,7 +3424,8 @@ impl ExecutingFrame<'_> {
                 // Stack: [exc] -> [prev_exc, exc]
                 let exc = self.pop_value();
                 let prev_exc = vm
-                    .current_exception().map_or_else(|| vm.ctx.none(), |e| e.into());
+                    .current_exception()
+                    .map_or_else(|| vm.ctx.none(), |e| e.into());
 
                 // Set exc as the current exception
                 if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
@@ -6088,9 +6090,7 @@ impl ExecutingFrame<'_> {
                     let line_op = data.as_ref().map_or(0, |d| d.line_opcodes[idx]);
                     if line_op == u8::from(Instruction::InstrumentedInstruction) {
                         // LINE wraps INSTRUCTION: resolve the INSTRUCTION side-table too
-                        let inst_op = data
-                            .as_ref()
-                            .map_or(0, |d| d.per_instruction_opcodes[idx]);
+                        let inst_op = data.as_ref().map_or(0, |d| d.per_instruction_opcodes[idx]);
                         (inst_op, true)
                     } else {
                         (line_op, false)
@@ -6138,8 +6138,7 @@ impl ExecutingFrame<'_> {
                 // Get original opcode from side-table
                 let original_op_byte = {
                     let data = self.code.monitoring_data.lock();
-                    data.as_ref()
-                        .map_or(0, |d| d.per_instruction_opcodes[idx])
+                    data.as_ref().map_or(0, |d| d.per_instruction_opcodes[idx])
                 };
                 debug_assert!(
                     original_op_byte != 0,

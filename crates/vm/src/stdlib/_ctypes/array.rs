@@ -769,11 +769,7 @@ impl PyCArray {
             }
             Some("u") => {
                 if let Some(s) = value.downcast_ref::<PyStr>() {
-                    let code = s
-                        .as_wtf8()
-                        .code_points()
-                        .next()
-                        .map_or(0, |c| c.to_u32());
+                    let code = s.as_wtf8().code_points().next().map_or(0, |c| c.to_u32());
                     if offset + WCHAR_SIZE <= buffer.len() {
                         wchar_to_bytes(code, &mut buffer[offset..]);
                     }

@@ -899,7 +899,8 @@ pub(crate) mod _asyncio {
             vm.get_attribute_opt(future.to_owned(), vm.ctx.intern_str("_state"))
         {
             let s = state
-                .str(vm).map_or_else(|_| Wtf8Buf::from("unknown"), |s| s.as_wtf8().to_lowercase());
+                .str(vm)
+                .map_or_else(|_| Wtf8Buf::from("unknown"), |s| s.as_wtf8().to_lowercase());
             return Ok(s);
         }
         Ok(Wtf8Buf::from("state=unknown"))

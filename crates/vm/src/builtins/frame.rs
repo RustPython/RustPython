@@ -496,10 +496,7 @@ impl Frame {
             }
         };
 
-        let first_line = self
-            .code
-            .first_line_number
-            .map_or(1, |n| n.get() as i32);
+        let first_line = self.code.first_line_number.map_or(1, |n| n.get() as i32);
 
         if l_new_lineno < first_line {
             return Err(vm.new_value_error(format!(

@@ -4775,11 +4775,7 @@ mod _ssl {
 
         // If name=False (default), only accept OID strings
         // If name=True, accept both names and OID strings
-        let entry = if txt
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_digit())
-        {
+        let entry = if txt.chars().next().is_some_and(|c| c.is_ascii_digit()) {
             // Looks like an OID string (starts with digit)
             oid::find_by_oid_string(txt)
         } else if name {
@@ -4847,7 +4843,7 @@ mod _ssl {
         let tuple = vm.ctx.new_tuple(vec![
             vm.ctx.new_str("SSL_CERT_FILE").into(), // openssl_cafile_env
             default_cafile.map_or_else(|| vm.ctx.none(), |s| vm.ctx.new_str(s).into()), // openssl_cafile
-            vm.ctx.new_str("SSL_CERT_DIR").into(),  // openssl_capath_env
+            vm.ctx.new_str("SSL_CERT_DIR").into(), // openssl_capath_env
             default_capath.map_or_else(|| vm.ctx.none(), |s| vm.ctx.new_str(s).into()), // openssl_capath
         ]);
         Ok(tuple.into())
