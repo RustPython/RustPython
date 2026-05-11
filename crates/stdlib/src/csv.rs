@@ -587,13 +587,17 @@ mod _csv {
 
     impl FromArgs for FormatOptions {
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            let mut res = Self::default();
-            res.dialect = if let Some(dialect) = args.kwargs.swap_remove("dialect") {
+            let dialect = if let Some(dialect) = args.kwargs.swap_remove("dialect") {
                 prase_dialect_item_from_arg(vm, dialect)?
             } else if let Some(dialect) = args.args.first() {
                 prase_dialect_item_from_arg(vm, dialect.clone())?
             } else {
                 DialectItem::None
+            };
+
+            let mut res = Self {
+                dialect,
+                ..Default::default()
             };
 
             if let Some(delimiter) = args.kwargs.swap_remove("delimiter") {
