@@ -1088,14 +1088,13 @@ impl SymbolTableBuilder {
         let is_nested = self
             .tables
             .last()
-            .map(|table| {
+            .is_some_and(|table| {
                 table.is_nested
                     || matches!(
                         table.typ,
                         CompilerScope::Function | CompilerScope::AsyncFunction
                     )
-            })
-            .unwrap_or(false);
+            });
         // Inherit mangled_names from parent for non-class scopes
         let inherited_mangled_names = self
             .tables

@@ -6885,8 +6885,7 @@ impl Compiler {
                 // star wildcard check
                 star_wildcard = pattern
                     .as_match_star()
-                    .map(|m| m.name.is_none())
-                    .unwrap_or(false);
+                    .is_some_and(|m| m.name.is_none());
                 only_wildcard &= star_wildcard;
                 star = Some(i);
                 continue;
@@ -6894,8 +6893,7 @@ impl Compiler {
             // wildcard check
             only_wildcard &= pattern
                 .as_match_as()
-                .map(|m| m.name.is_none())
-                .unwrap_or(false);
+                .is_some_and(|m| m.name.is_none());
         }
 
         // Keep the subject on top during the sequence and length checks.
