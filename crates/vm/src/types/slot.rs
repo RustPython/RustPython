@@ -579,7 +579,8 @@ fn bool_wrapper(num: PyNumber<'_>, vm: &VirtualMachine) -> PyResult<bool> {
     Ok(crate::builtins::bool_::get_value(&result))
 }
 
-// PyObject_SelfIter in CPython
+/// PyObject_SelfIter in CPython
+#[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
 const fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
     Ok(zelf)
 }
