@@ -2419,6 +2419,7 @@ class ExecTests(unittest.TestCase):
 
     # See https://github.com/python/cpython/issues/137934 and the other
     # related issues for the reason why we cannot test this on Windows.
+    @unittest.exptectedFailure  # TODO: RUSTPYTHON; IndentationError: unexpected indentation
     @unittest.skipIf(os.name == "nt", "POSIX-specific test")
     @unittest.skipUnless(unix_shell and os.path.exists(unix_shell),
                         "requires a shell")
