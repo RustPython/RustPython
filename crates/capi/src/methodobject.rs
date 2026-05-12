@@ -112,11 +112,19 @@ pub(crate) fn build_method_def(
         },
         PyMethodFlags::O => {
             let f = unsafe { method.PyCFunction };
-            let callable = move |zelf: PyObjectRef, arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
-                let ret_ptr = unsafe { f(zelf.as_raw().cast_mut(), arg.as_raw().cast_mut()) };
-                ret_ptr_to_pyresult(vm, ret_ptr)
-            };
-            vm.ctx.new_method_def(name, callable, flags, doc)
+            if has_self {
+                let callable = move |zelf: PyObjectRef, arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
+                    let ret_ptr = unsafe { f(zelf.as_raw().cast_mut(), arg.as_raw().cast_mut()) };
+                    ret_ptr_to_pyresult(vm, ret_ptr)
+                };
+                vm.ctx.new_method_def(name, callable, flags, doc)
+            } else {
+                let callable = move |arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
+                    let ret_ptr = unsafe { f(std::ptr::null_mut(), arg.as_raw().cast_mut()) };
+                    ret_ptr_to_pyresult(vm, ret_ptr)
+                };
+                vm.ctx.new_method_def(name, callable, flags, doc)
+            }
         },
         _ => {
             todo!("function {name} has unsupported or invalid calling-convention flags: {flags:?}")
@@ -231,10 +239,10 @@ fn ret_ptr_to_pyresult(vm: &VirtualMachine, ret_ptr: *mut PyObject) -> PyResult 
 }
 
 fn take_self_arg(args: &mut FuncArgs, flags: PyMethodFlags) -> Option<PyObjectRef> {
-    if flags.contains(PyMethodFlags::STATIC) | args.args.is_empty() {
+    if flags.contains(PyMethodFlags::STATIC) {
         None
     } else {
-        Some(args.args.remove(0))
+        args.take_positional()
     }
 }
 
