@@ -70,94 +70,27 @@ pub(crate) fn build_method_def(vm: &VirtualMachine, ml: &PyMethodDef) -> PyRef<H
 
     bitflags::bitflags_match!(call_flags, {
         PyMethodFlags::NOARGS => {
-            let f = unsafe { method.PyCFunction };
-            let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-                let slf = take_self_arg(&mut args, flags);
-                let slf_ptr = slf
-                    .as_ref()
-                    .map(|obj| obj.as_object().as_raw().cast_mut())
-                    .unwrap_or_default();
-                let arg_tuple = vm.ctx.new_tuple(args.args);
-                debug_assert!(arg_tuple.is_empty(), "Expected no arguments, but got some");
-                let ret_ptr = unsafe { f(slf_ptr, arg_tuple.as_object().as_raw().cast_mut()) };
-                ret_ptr_to_pyresult(vm, ret_ptr)
+            let callable = move |args: FuncArgs, vm: &VirtualMachine| unsafe {
+                debug_assert!(args.args.len() <= 1 && args.kwargs.is_empty(), "Expected no arguments, but got some");
+                call_function(vm, method, flags, args)
             };
             vm.ctx.new_method_def(name, callable, flags, doc)
         },
         PyMethodFlags::VARARGS => {
-            let f = unsafe { method.PyCFunction };
-            let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-                let slf = take_self_arg(&mut args, flags);
-                let slf_ptr = slf
-                    .as_ref()
-                    .map(|obj| obj.as_object().as_raw().cast_mut())
-                    .unwrap_or_default();
-                let arg_tuple = vm.ctx.new_tuple(args.args);
-                let ret_ptr = unsafe { f(slf_ptr, arg_tuple.as_object().as_raw().cast_mut()) };
-                ret_ptr_to_pyresult(vm, ret_ptr)
+            let callable = move |args: FuncArgs, vm: &VirtualMachine| unsafe {
+                call_function(vm, method, flags, args)
             };
             vm.ctx.new_method_def(name, callable, flags, doc)
         },
         PyMethodFlags::VARARGS | PyMethodFlags::KEYWORDS => {
-            let f = unsafe { method.PyCFunctionWithKeywords };
-            let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-                let slf = take_self_arg(&mut args, flags);
-                let slf_ptr = slf
-                    .as_ref()
-                    .map(|obj| obj.as_object().as_raw().cast_mut())
-                    .unwrap_or_default();
-                let arg_tuple = vm.ctx.new_tuple(args.args);
-                let kwargs = vm.ctx.new_dict();
-                for (k, v) in args.kwargs {
-                    kwargs.set_item(&*k, v, vm)?;
-                }
-                let ret_ptr = unsafe {
-                    f(
-                        slf_ptr,
-                        arg_tuple.as_object().as_raw().cast_mut(),
-                        kwargs.as_object().as_raw().cast_mut(),
-                    )
-                };
-                ret_ptr_to_pyresult(vm, ret_ptr)
+            let callable = move | args: FuncArgs, vm: &VirtualMachine| unsafe {
+                call_function_with_keywords(vm, method, flags, args)
             };
             vm.ctx.new_method_def(name, callable, flags, doc)
         },
         PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS => {
-            let f = unsafe { method.PyCFunctionFastWithKeywords };
-            let callable = move |mut args: FuncArgs, vm: &VirtualMachine| {
-                let slf = take_self_arg(&mut args, flags);
-                let slf_ptr = slf
-                    .as_ref()
-                    .map(|obj| obj.as_object().as_raw().cast_mut())
-                    .unwrap_or_default();
-                let nargs = args.args.len();
-                let mut fastcall_args = args.args;
-                let mut kwnames_tuple = None;
-                if !args.kwargs.is_empty() {
-                    let mut kwnames = Vec::with_capacity(args.kwargs.len());
-                    for (k, v) in args.kwargs {
-                        kwnames.push(vm.ctx.new_str(k).into());
-                        fastcall_args.push(v);
-                    }
-                    kwnames_tuple = Some(vm.ctx.new_tuple(kwnames));
-                }
-                let fastcall_arg_ptrs = fastcall_args
-                    .iter()
-                    .map(|obj| obj.as_object().as_raw().cast_mut())
-                    .collect::<Vec<_>>();
-                let kwnames_ptr = kwnames_tuple
-                    .as_ref()
-                    .map(|tuple| tuple.as_object().as_raw().cast_mut())
-                    .unwrap_or(core::ptr::null_mut());
-                let ret_ptr = unsafe {
-                    f(
-                        slf_ptr,
-                        fastcall_arg_ptrs.as_ptr(),
-                        nargs as isize,
-                        kwnames_ptr,
-                    )
-                };
-                ret_ptr_to_pyresult(vm, ret_ptr)
+            let callable = move |args: FuncArgs, vm: &VirtualMachine| unsafe {
+                call_fast_function_with_keywords(vm, method, flags, args)
             };
             vm.ctx.new_method_def(name, callable, flags, doc)
         },
@@ -176,9 +109,95 @@ pub(crate) fn build_method_def(vm: &VirtualMachine, ml: &PyMethodDef) -> PyRef<H
             vm.ctx.new_method_def(name, callable, flags, doc)
         },
         _ => {
-            todo!("unsupported or invalid calling-convention flags")
+            todo!("function {name} has unsupported or invalid calling-convention flags: {flags:?}")
         },
     })
+}
+
+unsafe fn call_function(
+    vm: &VirtualMachine,
+    method: PyMethodPointer,
+    flags: PyMethodFlags,
+    mut args: FuncArgs,
+) -> PyResult {
+    let f = unsafe { method.PyCFunction };
+    let slf = take_self_arg(&mut args, flags);
+    let slf_ptr = slf
+        .as_ref()
+        .map(|obj| obj.as_object().as_raw().cast_mut())
+        .unwrap_or_default();
+    let arg_tuple = vm.ctx.new_tuple(args.args);
+    let ret_ptr = unsafe { f(slf_ptr, arg_tuple.as_object().as_raw().cast_mut()) };
+    ret_ptr_to_pyresult(vm, ret_ptr)
+}
+
+unsafe fn call_function_with_keywords(
+    vm: &VirtualMachine,
+    method: PyMethodPointer,
+    flags: PyMethodFlags,
+    mut args: FuncArgs,
+) -> PyResult {
+    let f = unsafe { method.PyCFunctionWithKeywords };
+    let slf = take_self_arg(&mut args, flags);
+    let slf_ptr = slf
+        .as_ref()
+        .map(|obj| obj.as_object().as_raw().cast_mut())
+        .unwrap_or_default();
+    let arg_tuple = vm.ctx.new_tuple(args.args);
+    let kwargs = vm.ctx.new_dict();
+    for (k, v) in args.kwargs {
+        kwargs.set_item(&*k, v, vm)?;
+    }
+    let ret_ptr = unsafe {
+        f(
+            slf_ptr,
+            arg_tuple.as_object().as_raw().cast_mut(),
+            kwargs.as_object().as_raw().cast_mut(),
+        )
+    };
+    ret_ptr_to_pyresult(vm, ret_ptr)
+}
+
+unsafe fn call_fast_function_with_keywords(
+    vm: &VirtualMachine,
+    method: PyMethodPointer,
+    flags: PyMethodFlags,
+    mut args: FuncArgs,
+) -> PyResult {
+    let f = unsafe { method.PyCFunctionFastWithKeywords };
+    let slf = take_self_arg(&mut args, flags);
+    let slf_ptr = slf
+        .as_ref()
+        .map(|obj| obj.as_object().as_raw().cast_mut())
+        .unwrap_or_default();
+    let nargs = args.args.len();
+    let mut fastcall_args = args.args;
+    let mut kwnames_tuple = None;
+    if !args.kwargs.is_empty() {
+        let mut kwnames = Vec::with_capacity(args.kwargs.len());
+        for (k, v) in args.kwargs {
+            kwnames.push(vm.ctx.new_str(k).into());
+            fastcall_args.push(v);
+        }
+        kwnames_tuple = Some(vm.ctx.new_tuple(kwnames));
+    }
+    let fastcall_arg_ptrs = fastcall_args
+        .iter()
+        .map(|obj| obj.as_object().as_raw().cast_mut())
+        .collect::<Vec<_>>();
+    let kwnames_ptr = kwnames_tuple
+        .as_ref()
+        .map(|tuple| tuple.as_object().as_raw().cast_mut())
+        .unwrap_or(core::ptr::null_mut());
+    let ret_ptr = unsafe {
+        f(
+            slf_ptr,
+            fastcall_arg_ptrs.as_ptr(),
+            nargs as isize,
+            kwnames_ptr,
+        )
+    };
+    ret_ptr_to_pyresult(vm, ret_ptr)
 }
 
 fn ret_ptr_to_pyresult(vm: &VirtualMachine, ret_ptr: *mut PyObject) -> PyResult {
