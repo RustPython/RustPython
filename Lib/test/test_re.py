@@ -66,7 +66,7 @@ class ReTests(unittest.TestCase):
     def test_error_is_PatternError_alias(self):
         assert re.error is re.PatternError
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keep_buffer(self):
         # See bug 14212
         b = bytearray(b'x')
@@ -726,7 +726,7 @@ class ReTests(unittest.TestCase):
                                   'first second').groupdict(),
                          {'first':'first', 'second':'second'})
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expand(self):
         self.assertEqual(re.match("(?P<first>first) (?P<second>second)",
                                   "first second")
@@ -773,7 +773,7 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'x{2,1}',
                                'min repeat greater than max repeat', 2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_getattr(self):
         self.assertEqual(re.compile("(?i)(a)(b)").pattern, "(?i)(a)(b)")
         self.assertEqual(re.compile("(?i)(a)(b)").flags, re.I | re.U)
@@ -891,8 +891,7 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(br'\N{LESS-THAN SIGN}', r'bad escape \N', 0)
         self.checkPatternError(br'[\N{LESS-THAN SIGN}]', r'bad escape \N', 1)
 
-    # TODO: RUSTPYTHON; re.search(r"\B", "") now returns a match in CPython 3.14
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; re.search(r"\B", "") now returns a match in CPython 3.14
     def test_word_boundaries(self):
         # See http://bugs.python.org/issue10713
         self.assertEqual(re.search(r"\b(abc)\b", "abc").group(1), "abc")
@@ -1427,7 +1426,7 @@ class ReTests(unittest.TestCase):
         # current pickle expects the _compile() reconstructor in re module
         from re import _compile  # noqa: F401
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_copying(self):
         import copy
         p = re.compile(r'(?P<int>\d+)(?:\.(?P<frac>\d*))?')
@@ -1735,7 +1734,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(next(iter).span(), (4, 4))
         self.assertRaises(StopIteration, next, iter)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bug_6561(self):
         # '\d' should match characters in Unicode category 'Nd'
         # (Number, Decimal Digit), but not those in 'Nl' (Number,
@@ -1757,7 +1756,7 @@ class ReTests(unittest.TestCase):
         for x in not_decimal_digits:
             self.assertIsNone(re.match(r'^\d$', x))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; a = array.array(typecode)\n ValueError: bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; a = array.array(typecode)\n ValueError: bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)
     @warnings_helper.ignore_warnings(category=DeprecationWarning)  # gh-80480 array('u')
     def test_empty_array(self):
         # SF buf 1647541
@@ -2185,7 +2184,7 @@ class ReTests(unittest.TestCase):
         # with ignore case.
         self.assertEqual(re.fullmatch('[a-c]+', 'ABC', re.I).span(), (0, 3))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertTrue(re.match(b'\xc5', b'\xe5', re.L|re.I))\n AssertionError: None is not true
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; self.assertTrue(re.match(b'\xc5', b'\xe5', re.L|re.I))\n AssertionError: None is not true
     @unittest.skipIf(linked_to_musl(), "musl libc issue, bpo-46390")
     @unittest.skipIf(sys.platform.startswith("sunos"),
                      "test doesn't work on Solaris, gh-91214")
@@ -2482,7 +2481,7 @@ class ReTests(unittest.TestCase):
 
     # gh-117594: The test is not slow by itself, but it relies on
     # the absolute computation time and can fail on very slow computers.
-    @unittest.skip('TODO: RUSTPYTHON; flaky, improve perf')
+    @unittest.skip("TODO: RUSTPYTHON; flaky, improve perf")
     @requires_resource('cpu')
     def test_search_anchor_at_beginning(self):
         s = 'x'*10**7
@@ -2497,7 +2496,7 @@ class ReTests(unittest.TestCase):
         # With optimization -- 0.0003 seconds.
         self.assertLess(stopwatch.seconds, 0.1)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_possessive_quantifiers(self):
         """Test Possessive Quantifiers
         Test quantifiers of the form @+ for some repetition operator @,
@@ -2651,7 +2650,7 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match("(?>(?:ab?c){1,3})", "aca").span(), (0, 2))
         self.assertEqual(re.match("(?:ab?c){1,3}+", "aca").span(), (0, 2))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; self.assertEqual(re.match('((x)|y|z){3}+', 'xyz').groups(), ('z', 'x'))\n AssertionError: Tuples differ: ('x', 'x') != ('z', 'x')
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; self.assertEqual(re.match('((x)|y|z){3}+', 'xyz').groups(), ('z', 'x'))\n AssertionError: Tuples differ: ('x', 'x') != ('z', 'x')
     def test_bug_gh101955(self):
         # Possessive quantifier with nested alternative with capture groups
         self.assertEqual(re.match('((x)|y|z)*+', 'xyz').groups(), ('z', 'x'))
@@ -2722,7 +2721,7 @@ class ReTests(unittest.TestCase):
         self.check_interrupt(r'([^:]){2,4}?:', 'abc:', 100)
         self.check_interrupt(r'([^:]){2,4}+:', 'abc:', 100)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_template_function_and_flag_is_deprecated(self):
         return super().test_template_function_and_flag_is_deprecated()
 
@@ -2860,7 +2859,7 @@ class PatternReprTests(unittest.TestCase):
         self.check('(?i)pattern',
                    "re.compile('(?i)pattern', re.IGNORECASE)")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unknown_flags(self):
         self.check_flags('random pattern', 0x123000,
                          "re.compile('random pattern', 0x123000)")
@@ -2948,7 +2947,7 @@ class ImplementationTest(unittest.TestCase):
         pat = re.compile("")
         check_disallow_instantiation(self, type(pat.scanner("")))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_deprecated_modules(self):
         deprecated = {
             'sre_compile': ['compile', 'error',

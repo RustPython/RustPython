@@ -824,7 +824,7 @@ impl PyType {
     pub(crate) fn init_slots(&self, ctx: &Context) {
         // Inherit slots from MRO (mro[0] is self, so skip it)
         let mro: Vec<_> = self.mro.read()[1..].to_vec();
-        for base in mro.iter() {
+        for base in &mro {
             self.inherit_slots(base);
         }
 
@@ -833,7 +833,7 @@ impl PyType {
         let mut slot_name_set = std::collections::HashSet::new();
 
         // mro[0] is self, so skip it; self.attributes is checked separately below
-        for cls in self.mro.read()[1..].iter() {
+        for cls in &self.mro.read()[1..] {
             for &name in cls.attributes.read().keys() {
                 if name.as_bytes().starts_with(b"__") && name.as_bytes().ends_with(b"__") {
                     slot_name_set.insert(name);

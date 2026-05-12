@@ -164,7 +164,7 @@ pub(crate) mod decl {
     fn typing_type_repr_value(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Ok(tuple) = value.try_to_ref::<PyTuple>(vm) {
             let mut parts = Vec::with_capacity(tuple.len());
-            for item in tuple.iter() {
+            for item in tuple {
                 parts.push(typing_type_repr(item, vm)?);
             }
             let inner = if parts.len() == 1 {

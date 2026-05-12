@@ -405,7 +405,7 @@ pub(super) mod types {
         // If it's a tuple of types
         if let Some(tuple) = condition.downcast_ref::<PyTuple>() {
             let mut types = Vec::new();
-            for item in tuple.iter() {
+            for item in tuple {
                 let typ: PyTypeRef = item.clone().try_into_value(vm).map_err(|_| {
                     vm.new_type_error(
                         "expected a function, exception type or tuple of exception types",

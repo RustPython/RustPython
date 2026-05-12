@@ -928,13 +928,13 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     let total_lp_count = code.varnames.len() + cell_only_names.len() + code.freevars.len();
     buf.write_u8(Type::Tuple as u8);
     write_len(buf, total_lp_count);
-    for n in code.varnames.iter() {
+    for n in &code.varnames {
         write_marshal_str(buf, n.as_ref());
     }
     for &n in &cell_only_names {
         write_marshal_str(buf, n);
     }
-    for n in code.freevars.iter() {
+    for n in &code.freevars {
         write_marshal_str(buf, n.as_ref());
     }
     // 10: co_localspluskinds — use the stored kinds directly

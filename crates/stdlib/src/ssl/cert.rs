@@ -473,7 +473,7 @@ pub(super) fn cert_der_to_dict_helper(
         if let Some(ext) = ext_map.get(&OID_X509_EXT_CRL_DISTRIBUTION_POINTS)
             && let ParsedExtension::CRLDistributionPoints(cdp) = &ext.parsed_extension()
         {
-            for dp in cdp.points.iter() {
+            for dp in &cdp.points {
                 if let Some(dist_point) = &dp.distribution_point {
                     use x509_parser::extensions::DistributionPointName;
                     if let DistributionPointName::FullName(names) = dist_point {
@@ -583,7 +583,7 @@ pub(super) fn build_verified_chain(
         let issuer_name = last_cert.issuer();
         let mut found_issuer = false;
 
-        for ca_der in ca_certs_der.iter() {
+        for ca_der in ca_certs_der {
             let (_, ca_cert) = match X509Certificate::from_der(ca_der) {
                 Ok(parsed) => parsed,
                 Err(_) => continue,
