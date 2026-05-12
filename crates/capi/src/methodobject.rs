@@ -226,12 +226,26 @@ pub extern "C" fn PyCMethod_New(
     with_vm(|vm| -> PyResult {
         assert!(
             _cls.is_null(),
-            "PyCMethod_New does not support METH_METHOD yet"
+            "PyCMethod_New does not support METH_METHOD on abi3"
         );
         let ml = unsafe { &*ml };
         let zelf = unsafe { slf.as_ref().map(|obj| obj.to_owned()) };
         Ok(build_method_def(vm, ml).build_function(vm, zelf).into())
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyCFunction_New(ml: *mut PyMethodDef, slf: *mut PyObject) -> *mut PyObject {
+    PyCMethod_New(ml, slf, core::ptr::null_mut(), core::ptr::null_mut())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyCFunction_NewEx(
+    ml: *mut PyMethodDef,
+    slf: *mut PyObject,
+    module: *mut PyObject,
+) -> *mut PyObject {
+    PyCMethod_New(ml, slf, module, core::ptr::null_mut())
 }
 
 #[cfg(test)]
