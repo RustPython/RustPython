@@ -18,7 +18,7 @@ def load_tests(loader, tests, pattern):
     finally:
         # XXX: import_fresh_module() is supposed to leave sys.module cache untouched,
         # XXX: but it does not, so we have to cleanup ourselves.
-        for modname in ['datetime', '_datetime', '_strptime']:
+        for modname in ['datetime', '_datetime', '_pydatetime', '_strptime']:
             sys.modules.pop(modname, None)
 
     test_modules = [
@@ -29,11 +29,14 @@ def load_tests(loader, tests, pattern):
         "_Pure",
         # "_Fast"  # XXX: RUSTPYTHON; not supported yet
     ]
+
     # XXX(gb) First run all the _Pure tests, then all the _Fast tests.  You might
     # not believe this, but in spite of all the sys.modules trickery running a _Pure
     # test last will leave a mix of pure and native datetime stuff lying around.
     for module, suffix in zip(test_modules, test_suffixes):
         test_classes = []
+        if module is None:
+            continue
         for name, cls in module.__dict__.items():
             if not isinstance(cls, type):
                 continue
@@ -54,8 +57,8 @@ def load_tests(loader, tests, pattern):
                     cls_._save_sys_modules = sys.modules.copy()
                     sys.modules[TESTS] = module
                     sys.modules['datetime'] = module.datetime_module
-                    if hasattr(module, '_pydatetime'):
-                        sys.modules['_pydatetime'] = module._pydatetime
+                    sys.modules['_pydatetime'] = module._pydatetime
+                    sys.modules['_datetime'] = module._datetime
                     sys.modules['_strptime'] = module._strptime
                     super().setUpClass()
 

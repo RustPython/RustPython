@@ -153,9 +153,7 @@ fn attribute_data_to_stat(
 
     let mut st_mode = attributes_to_mode(info.dwFileAttributes);
     let st_size = ((info.nFileSizeHigh as u64) << 32) | (info.nFileSizeLow as u64);
-    let st_dev = id_info
-        .map(|id| id.VolumeSerialNumber as u32)
-        .unwrap_or(info.dwVolumeSerialNumber);
+    let st_dev = id_info.map_or(info.dwVolumeSerialNumber, |id| id.VolumeSerialNumber as u32);
     let st_nlink = info.nNumberOfLinks as i32;
 
     // Convert FILETIME/LARGE_INTEGER to (time_t, nsec)

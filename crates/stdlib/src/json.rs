@@ -616,8 +616,7 @@ mod _json {
                                 let end_byte_idx = wtf8
                                     .code_point_indices()
                                     .nth(end_char_idx as usize)
-                                    .map(|(i, _)| i)
-                                    .unwrap_or(wtf8.len());
+                                    .map_or(wtf8.len(), |(i, _)| i);
                                 Ok((value, end_char_idx as usize, end_byte_idx))
                             }
                             Err(err) if err.fast_isinstance(vm.ctx.exceptions.stop_iteration) => {

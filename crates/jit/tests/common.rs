@@ -116,10 +116,12 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
                             // Value can be a name (type ref) or a const string (forward ref)
                             let type_name = if val_is_const {
                                 match code.constants.get(val_idx) {
-                                    Some(ConstantData::Str { value }) => value
-                                        .as_str()
-                                        .map(|s| s.to_owned())
-                                        .unwrap_or_else(|_| value.to_string_lossy().into_owned()),
+                                    Some(ConstantData::Str { value }) => {
+                                        value.as_str().map_or_else(
+                                            |_| value.to_string_lossy().into_owned(),
+                                            |s| s.to_owned(),
+                                        )
+                                    }
                                     Some(other) => panic!(
                                         "Unsupported annotation const for '{:?}' at idx {}: {:?}",
                                         param_name, val_idx, other

@@ -62,8 +62,7 @@ mod _codecs {
             let encoding = self
                 .encoding
                 .as_deref()
-                .map(|s| s.as_str())
-                .unwrap_or(codecs::DEFAULT_ENCODING);
+                .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
             f(
                 &vm.state.codec_registry,
                 self.obj,
@@ -392,7 +391,7 @@ mod _codecs_windows {
             CP_ACP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
         };
 
-        let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+        let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let s = match args.s.to_str() {
             Some(s) => s,
             None => {
@@ -482,7 +481,7 @@ mod _codecs_windows {
             CP_ACP, MB_ERR_INVALID_CHARS, MultiByteToWideChar,
         };
 
-        let _errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+        let _errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let data = args.data.borrow_buf();
         let len = data.len();
 
@@ -578,7 +577,7 @@ mod _codecs_windows {
             CP_OEMCP, WC_NO_BEST_FIT_CHARS, WideCharToMultiByte,
         };
 
-        let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+        let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let s = match args.s.to_str() {
             Some(s) => s,
             None => {
@@ -668,7 +667,7 @@ mod _codecs_windows {
             CP_OEMCP, MB_ERR_INVALID_CHARS, MultiByteToWideChar,
         };
 
-        let _errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+        let _errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let data = args.data.borrow_buf();
         let len = data.len();
 
@@ -1054,7 +1053,8 @@ mod _codecs_windows {
         if args.code_page < 0 {
             return Err(vm.new_value_error("invalid code page number"));
         }
-        let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+
+        let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let code_page = args.code_page as u32;
         let char_len = args.s.char_len();
 
@@ -1367,7 +1367,8 @@ mod _codecs_windows {
         if args.code_page < 0 {
             return Err(vm.new_value_error("invalid code page number"));
         }
-        let errors = args.errors.as_ref().map(|s| s.as_str()).unwrap_or("strict");
+
+        let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let code_page = args.code_page as u32;
         let data = args.data.borrow_buf();
         let is_final = args.r#final;

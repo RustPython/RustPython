@@ -20,10 +20,8 @@ use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
-    instruction::{
-        AnyInstruction, AnyOpcode, Arg, Instruction, InstructionMetadata, Opcode,
-        PseudoInstruction, PseudoOpcode, StackEffect,
-    },
+    instruction::{AnyInstruction, AnyOpcode, Arg, StackEffect},
+    instructions::{Instruction, Opcode, PseudoInstruction, PseudoOpcode},
     oparg::{
         BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,
         IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr, LoadSuperAttr,
@@ -33,6 +31,7 @@ pub use crate::bytecode::{
 };
 
 mod instruction;
+mod instructions;
 pub mod oparg;
 
 /// Exception table entry for zero-cost exception handling

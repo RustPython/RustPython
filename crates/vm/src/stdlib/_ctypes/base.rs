@@ -2098,7 +2098,7 @@ impl FfiArgValue {
 pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue {
     match type_code {
         "c" | "b" => {
-            let v = buffer.first().map(|&b| b as i8).unwrap_or(0);
+            let v = buffer.first().map_or(0, |&b| b as i8);
             FfiArgValue::I8(v)
         }
         "B" => {
@@ -2157,7 +2157,7 @@ pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue
         }
         "z" | "Z" | "P" | "O" => FfiArgValue::Pointer(read_ptr_from_buffer(buffer)),
         "?" => {
-            let v = buffer.first().map(|&b| b != 0).unwrap_or(false);
+            let v = buffer.first().is_some_and(|&b| b != 0);
             FfiArgValue::U8(if v { 1 } else { 0 })
         }
         "u" => {
@@ -2341,6 +2341,18 @@ pub(super) fn bytes_to_pyobject(
                     return Ok(vm.ctx.none());
                 }
                 Ok(vm.ctx.new_int(val).into())
+            }
+            "O" => {
+                // py_object: return Python object from pointer
+                let ptr = read_ptr_from_buffer(bytes);
+                if ptr == 0 {
+                    return Err(vm.new_value_error("PyObject is NULL"));
+                }
+                unsafe {
+                    let obj =
+                        PyObjectRef::from_raw(core::ptr::NonNull::new_unchecked(ptr as *mut _));
+                    Ok(obj)
+                }
             }
             "u" => {
                 let val = if bytes.len() >= mem::size_of::<WideChar>() {

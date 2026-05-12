@@ -756,9 +756,8 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Use copyreg.__newobj_ex__
         let newobj = copyreg.get_attr("__newobj_ex__", vm)?;
         let args_tuple: PyObjectRef = args.into();
-        let kwargs_dict: PyObjectRef = kwargs
-            .map(|k| k.into())
-            .unwrap_or_else(|| vm.ctx.new_dict().into());
+        let kwargs_dict: PyObjectRef =
+            kwargs.map_or_else(|| vm.ctx.new_dict().into(), |k| k.into());
 
         let newargs = vm
             .ctx

@@ -452,7 +452,7 @@ impl Constructor for PyStr {
                             input.class().name()
                         )));
                     }
-                    let enc_str = encoding.as_ref().map(|e| e.as_str()).unwrap_or("utf-8");
+                    let enc_str = encoding.as_ref().map_or("utf-8", |e| e.as_str());
                     let s = vm
                         .state
                         .codec_registry
@@ -550,8 +550,7 @@ impl PyStr {
 
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         self.to_str()
-            .map(Cow::Borrowed)
-            .unwrap_or_else(|| self.as_wtf8().to_string_lossy())
+            .map_or_else(|| self.as_wtf8().to_string_lossy(), Cow::Borrowed)
     }
 
     pub const fn kind(&self) -> StrKind {

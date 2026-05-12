@@ -196,8 +196,7 @@ fn already_warned(
 
     let version_matches = version_obj.as_ref().is_some_and(|v| {
         v.try_int(vm)
-            .map(|i| i.as_u32_mask() as usize == current_version)
-            .unwrap_or(false)
+            .is_ok_and(|i| i.as_u32_mask() as usize == current_version)
     });
 
     if version_matches {

@@ -346,9 +346,7 @@ impl<T: PyPayload> PyAtomicRef<T> {
 
 impl<T: PyPayload> From<Option<PyRef<T>>> for PyAtomicRef<Option<T>> {
     fn from(opt_ref: Option<PyRef<T>>) -> Self {
-        let val = opt_ref
-            .map(|x| PyRef::leak(x) as *const Py<T> as *mut _)
-            .unwrap_or(null_mut());
+        let val = opt_ref.map_or(null_mut(), |x| PyRef::leak(x) as *const Py<T> as *mut _);
         Self {
             inner: Radium::new(val),
             _phantom: Default::default(),
@@ -378,9 +376,7 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
     /// until no more reference can be used via PyAtomicRef::deref()
     #[must_use]
     pub unsafe fn swap(&self, opt_ref: Option<PyRef<T>>) -> Option<PyRef<T>> {
-        let val = opt_ref
-            .map(|x| PyRef::leak(x) as *const Py<T> as *mut _)
-            .unwrap_or(null_mut());
+        let val = opt_ref.map_or(null_mut(), |x| PyRef::leak(x) as *const Py<T> as *mut _);
         let old = Radium::swap(&self.inner, val, Ordering::AcqRel);
         unsafe { old.cast::<Py<T>>().as_ref().map(|x| PyRef::from_raw(x)) }
     }
@@ -440,9 +436,7 @@ impl PyAtomicRef<PyObject> {
 
 impl From<Option<PyObjectRef>> for PyAtomicRef<Option<PyObject>> {
     fn from(obj: Option<PyObjectRef>) -> Self {
-        let val = obj
-            .map(|x| x.into_raw().as_ptr().cast())
-            .unwrap_or(null_mut());
+        let val = obj.map_or(null_mut(), |x| x.into_raw().as_ptr().cast());
         Self {
             inner: Radium::new(val),
             _phantom: Default::default(),
@@ -472,9 +466,7 @@ impl PyAtomicRef<Option<PyObject>> {
     /// until no more reference can be used via PyAtomicRef::deref()
     #[must_use]
     pub unsafe fn swap(&self, obj: Option<PyObjectRef>) -> Option<PyObjectRef> {
-        let val = obj
-            .map(|x| x.into_raw().as_ptr().cast())
-            .unwrap_or(null_mut());
+        let val = obj.map_or(null_mut(), |x| x.into_raw().as_ptr().cast());
         let old = Radium::swap(&self.inner, val, Ordering::AcqRel);
         unsafe { NonNull::new(old.cast::<PyObject>()).map(|x| PyObjectRef::from_raw(x)) }
     }

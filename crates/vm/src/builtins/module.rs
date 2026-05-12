@@ -185,8 +185,7 @@ impl Py<PyModule> {
 
         let is_possibly_shadowing = origin
             .as_ref()
-            .map(|o| is_possibly_shadowing_path(o, vm))
-            .unwrap_or(false);
+            .is_some_and(|o| is_possibly_shadowing_path(o, vm));
         // Use the ORIGINAL __name__ object for stdlib check (may raise TypeError
         // if __name__ is an unhashable str subclass)
         let is_possibly_shadowing_stdlib = if is_possibly_shadowing {
