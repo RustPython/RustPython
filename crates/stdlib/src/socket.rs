@@ -24,6 +24,7 @@ mod _socket {
     };
     use rustpython_host_env::os::ErrorExt;
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         #[cfg(windows)]
         crate::vm::windows::init_winsock();
@@ -31,6 +32,7 @@ mod _socket {
         __module_exec(vm, module);
         Ok(())
     }
+
     use core::{
         mem::MaybeUninit,
         net::{Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -2067,7 +2069,7 @@ mod _socket {
             };
 
             // Build ancdata list
-            let ancdata = Self::parse_ancillary_data(&msg, vm)?;
+            let ancdata = Self::parse_ancillary_data(&msg, vm);
 
             // Build address tuple
             let address = if msg.msg_namelen > 0 {
@@ -2089,7 +2091,7 @@ mod _socket {
 
         /// Parse ancillary data from a received message header
         #[cfg(all(unix, not(target_os = "redox")))]
-        fn parse_ancillary_data(msg: &libc::msghdr, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn parse_ancillary_data(msg: &libc::msghdr, vm: &VirtualMachine) -> PyObjectRef {
             let mut result = Vec::new();
 
             // Calculate buffer end for truncation handling
@@ -2120,7 +2122,7 @@ mod _socket {
                 cmsg = unsafe { libc::CMSG_NXTHDR(msg, cmsg) };
             }
 
-            Ok(vm.ctx.new_list(result).into())
+            vm.ctx.new_list(result).into()
         }
 
         // based on nix's implementation
