@@ -99,12 +99,15 @@ mod _locale {
         vm.ctx.new_list(group_vec)
     }
 
-    unsafe fn pystr_from_raw_cstr(vm: &VirtualMachine, raw_ptr: *const libc::c_char) -> PyResult {
+    unsafe fn pystr_from_raw_cstr(
+        vm: &VirtualMachine,
+        raw_ptr: *const libc::c_char,
+    ) -> PyObjectRef {
         let slice = unsafe { CStr::from_ptr(raw_ptr) };
 
         // Fast path: ASCII/UTF-8
         if let Ok(s) = slice.to_str() {
-            return Ok(vm.new_pyobj(s));
+            return vm.new_pyobj(s);
         }
 
         // On Windows, locale strings use the ANSI code page encoding
@@ -131,12 +134,12 @@ mod _locale {
                         wide.as_mut_ptr(),
                         len,
                     );
-                    return Ok(vm.new_pyobj(String::from_utf16_lossy(&wide)));
+                    return vm.new_pyobj(String::from_utf16_lossy(&wide));
                 }
             }
         }
 
-        Ok(vm.new_pyobj(String::from_utf8_lossy(slice.to_bytes()).into_owned()))
+        vm.new_pyobj(String::from_utf8_lossy(slice.to_bytes()).into_owned())
     }
 
     #[pyattr(name = "Error", once)]
@@ -179,7 +182,7 @@ mod _locale {
                 ($lc:expr, $field:ident) => {{
                     result.set_item(
                         stringify!($field),
-                        pystr_from_raw_cstr(vm, (*$lc).$field)?,
+                        pystr_from_raw_cstr(vm, (*$lc).$field),
                         vm,
                     )?
                 }};
@@ -264,6 +267,7 @@ mod _locale {
         if cfg!(windows) && (args.category < LC_ALL || args.category > LC_TIME) {
             return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
         }
+
         unsafe {
             let result = match args.locale.flatten() {
                 None => libc::setlocale(args.category, ptr::null()),
@@ -288,10 +292,12 @@ mod _locale {
                     libc::setlocale(args.category, c_locale.as_ptr())
                 }
             };
+
             if result.is_null() {
                 return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
             }
-            pystr_from_raw_cstr(vm, result)
+
+            Ok(pystr_from_raw_cstr(vm, result))
         }
     }
 
