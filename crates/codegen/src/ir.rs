@@ -15996,16 +15996,28 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
 
     fn has_other_conditional_predecessor_to(
         blocks: &[Block],
+        conditional_target_counts: &[usize],
         target: BlockIdx,
         current: BlockIdx,
     ) -> bool {
-        blocks.iter().enumerate().any(|(idx, block)| {
-            BlockIdx::new(idx as u32) != current
-                && block
-                    .instructions
-                    .iter()
-                    .any(|info| info.target == target && is_conditional_jump(&info.instr))
-        })
+        let current_targets = blocks[current.idx()]
+            .instructions
+            .iter()
+            .filter(|info| info.target == target && is_conditional_jump(&info.instr))
+            .count();
+        conditional_target_counts[target.idx()] > current_targets
+    }
+
+    let has_exceptional_lineno_sources = blocks
+        .iter()
+        .any(|block| block.cold || block_is_exceptional(block) || block_is_protected(block));
+    let mut conditional_target_counts = vec![0usize; blocks.len()];
+    for block in blocks.iter() {
+        for info in &block.instructions {
+            if info.target != BlockIdx::NULL && is_conditional_jump(&info.instr) {
+                conditional_target_counts[info.target.idx()] += 1;
+            }
+        }
     }
 
     let mut current = BlockIdx(0);
@@ -16083,14 +16095,20 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             current = next;
             continue;
         }
-        if is_generic_false_path_reorder
+        if has_exceptional_lineno_sources
+            && is_generic_false_path_reorder
             && has_exceptional_duplicate_lineno(blocks, current, instruction_lineno(&last))
         {
             current = next;
             continue;
         }
         if is_generic_false_path_reorder
-            && has_other_conditional_predecessor_to(blocks, chain_start, current)
+            && has_other_conditional_predecessor_to(
+                blocks,
+                &conditional_target_counts,
+                chain_start,
+                current,
+            )
         {
             current = next;
             continue;
@@ -16235,8 +16253,13 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
         cloned_jump.start_depth = None;
         let cloned_idx = BlockIdx::new(blocks.len() as u32);
         blocks.push(cloned_jump);
+        conditional_target_counts.push(0);
         blocks[idx].next = cloned_idx;
         let cond_mut = &mut blocks[idx].instructions[cond_idx];
+        if cond_mut.target != BlockIdx::NULL {
+            conditional_target_counts[cond_mut.target.idx()] -= 1;
+        }
+        conditional_target_counts[chain_start.idx()] += 1;
         cond_mut.instr = reversed;
         cond_mut.target = chain_start;
 
@@ -17865,24 +17888,36 @@ fn has_unique_fallthrough_origin(
         return false;
     }
 
-    let mut allowed = vec![false; blocks.len()];
-    allowed[source.idx()] = true;
-
-    let mut current = blocks[source.idx()].next;
-    while current != BlockIdx::NULL && current != target {
+    let chain_start = blocks[source.idx()].next;
+    let mut current = chain_start;
+    while current != target {
+        if current == BlockIdx::NULL {
+            return false;
+        }
         if !blocks[current.idx()].instructions.is_empty() {
             return false;
         }
-        allowed[current.idx()] = true;
         current = blocks[current.idx()].next;
     }
-    if current != target {
-        return false;
+
+    fn empty_chain_contains(
+        blocks: &[Block],
+        mut current: BlockIdx,
+        target: BlockIdx,
+        needle: BlockIdx,
+    ) -> bool {
+        while current != target {
+            if current == needle {
+                return true;
+            }
+            current = blocks[current.idx()].next;
+        }
+        false
     }
 
-    incoming_origins[target.idx()]
-        .iter()
-        .all(|origin| allowed[origin.idx()])
+    incoming_origins[target.idx()].iter().all(|&origin| {
+        origin == source || empty_chain_contains(blocks, chain_start, target, origin)
+    })
 }
 
 fn has_unique_jump_origin(

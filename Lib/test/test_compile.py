@@ -1043,7 +1043,6 @@ class TestSpecifics(unittest.TestCase):
     # bpo-31113: Stack overflow when compile a long sequence of
     # complex statements.
     @support.requires_resource('cpu')
-    @unittest.skip("TODO: RUSTPYTHON; CFG cleanup is too slow for 200k statements")
     def test_stack_overflow(self):
         # Android test devices have less memory.
         size = 100_000 if sys.platform == "android" else 200_000
