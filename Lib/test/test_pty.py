@@ -1,14 +1,13 @@
 import unittest
 from test.support import (
-    is_android, is_apple_mobile, is_emscripten, is_wasi, reap_children, verbose
+    is_android, is_apple_mobile, is_wasm32, reap_children, verbose
 )
 from test.support.import_helper import import_module
-from test.support.os_helper import TESTFN, unlink
 
 # Skip these tests if termios is not available
 import_module('termios')
 
-if is_android or is_apple_mobile or is_emscripten or is_wasi:
+if is_android or is_apple_mobile or is_wasm32:
     raise unittest.SkipTest("pty is not available on this platform")
 
 import errno
@@ -109,8 +108,8 @@ class PtyTest(unittest.TestCase):
     def handle_sighup(signum, frame):
         pass
 
+    @unittest.skip("TODO: RUSTPYTHON; \"Not runnable. tty.tcgetwinsize\" is required to setUp")
     @expectedFailureIfStdinIsTTY
-    @unittest.skip('TODO: RUSTPYTHON; "Not runnable. tty.tcgetwinsize" is required to setUp')
     def test_openpty(self):
         try:
             mode = tty.tcgetattr(pty.STDIN_FILENO)
@@ -196,7 +195,7 @@ class PtyTest(unittest.TestCase):
         s2 = _readline(master_fd)
         self.assertEqual(b'For my pet fish, Eric.\n', normalize_output(s2))
 
-    @unittest.skip('TODO: RUSTPYTHON; "Not runnable. tty.tcgetwinsize" is required to setUp')
+    @unittest.skip("TODO: RUSTPYTHON; \"Not runnable. tty.tcgetwinsize\" is required to setUp")
     def test_fork(self):
         debug("calling pty.fork()")
         pid, master_fd = pty.fork()
@@ -279,7 +278,7 @@ class PtyTest(unittest.TestCase):
             ##else:
             ##    raise TestFailed("Read from master_fd did not raise exception")
 
-    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "tty" has no attribute "tcgetwinsize"')
+    @unittest.skip("TODO: RUSTPYTHON; AttributeError: module \"tty\" has no attribute \"tcgetwinsize\"")
     def test_master_read(self):
         # XXX(nnorwitz):  this test leaks fds when there is an error.
         debug("Calling pty.openpty()")
@@ -299,28 +298,29 @@ class PtyTest(unittest.TestCase):
 
         self.assertEqual(data, b"")
 
-    @unittest.skip('TODO: RUSTPYTHON; AttributeError: module "tty" has no attribute "tcgetwinsize"')
+    @unittest.skip("TODO: RUSTPYTHON; AttributeError: module \"tty\" has no attribute \"tcgetwinsize\"")
     def test_spawn_doesnt_hang(self):
-        self.addCleanup(unlink, TESTFN)
-        with open(TESTFN, 'wb') as f:
-            STDOUT_FILENO = 1
-            dup_stdout = os.dup(STDOUT_FILENO)
-            os.dup2(f.fileno(), STDOUT_FILENO)
-            buf = b''
-            def master_read(fd):
-                nonlocal buf
-                data = os.read(fd, 1024)
-                buf += data
-                return data
+        # gh-140482: Do the test in a pty.fork() child to avoid messing
+        # with the interactive test runner's terminal settings.
+        pid, fd = pty.fork()
+        if pid == pty.CHILD:
+            pty.spawn([sys.executable, '-c', 'print("hi there")'])
+            os._exit(0)
+
+        try:
+            buf = bytearray()
             try:
-                pty.spawn([sys.executable, '-c', 'print("hi there")'],
-                          master_read)
-            finally:
-                os.dup2(dup_stdout, STDOUT_FILENO)
-                os.close(dup_stdout)
-        self.assertEqual(buf, b'hi there\r\n')
-        with open(TESTFN, 'rb') as f:
-            self.assertEqual(f.read(), b'hi there\r\n')
+                while (data := os.read(fd, 1024)) != b'':
+                    buf.extend(data)
+            except OSError as e:
+                if e.errno != errno.EIO:
+                    raise
+
+            (pid, status) = os.waitpid(pid, 0)
+            self.assertEqual(status, 0)
+            self.assertEqual(bytes(buf), b"hi there\r\n")
+        finally:
+            os.close(fd)
 
 class SmallPtyTests(unittest.TestCase):
     """These tests don't spawn children or hang."""

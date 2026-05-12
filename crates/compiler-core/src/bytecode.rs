@@ -652,7 +652,7 @@ impl CodeUnits {
     /// Disable adaptive specialization by setting all counters to unreachable.
     /// Used for CPython-compiled bytecode where specialization may not be safe.
     pub fn disable_specialization(&self) {
-        for counter in self.adaptive_counters.iter() {
+        for counter in &self.adaptive_counters {
             counter.store(UNREACHABLE_BACKOFF, Ordering::Relaxed);
         }
     }

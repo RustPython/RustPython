@@ -152,6 +152,13 @@ class TypeParamsInvalidTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r"\(MRO\) for bases object, Generic"):
             class My[X](object): ...
 
+    def test_compile_error_in_type_param_bound(self):
+        # This should not crash, see gh-145187
+        check_syntax_error(
+            self,
+            "if True:\n class h[l:{7for*()in 0}]:2"
+        )
+
 
 class TypeParamsNonlocalTest(unittest.TestCase):
     def test_nonlocal_disallowed_01(self):
@@ -713,7 +720,6 @@ class TypeParamsClassScopeTest(unittest.TestCase):
         self.assertEqual(cls.bound, "nonlocal")
         self.assertEqual(cls.meth.__annotations__["arg"], "nonlocal")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + global
     def test_explicit_global(self):
         ns = run_code("""
             x = "global"
@@ -741,7 +747,6 @@ class TypeParamsClassScopeTest(unittest.TestCase):
         cls = ns["outer"]()
         self.assertEqual(cls.Alias.__value__, "global")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + global from class
     def test_explicit_global_with_assignment(self):
         ns = run_code("""
             x = "global"

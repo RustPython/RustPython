@@ -14,6 +14,7 @@ type IndexSet<T> = indexmap::IndexSet<T, ahash::RandomState>;
 pub mod compile;
 pub mod error;
 pub mod ir;
+mod preprocess;
 mod string_parser;
 pub mod symboltable;
 mod unparse;
