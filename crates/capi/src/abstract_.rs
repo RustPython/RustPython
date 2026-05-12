@@ -159,6 +159,24 @@ pub extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject) -> c_
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyObject_IsSubclass(derived: *mut PyObject, cls: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let derived = unsafe { &*derived };
+        let cls = unsafe { &*cls };
+        derived.is_subclass(cls, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyObject_IsInstance(inst: *mut PyObject, cls: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let inst = unsafe { &*inst };
+        let cls = unsafe { &*cls };
+        inst.is_instance(cls, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };

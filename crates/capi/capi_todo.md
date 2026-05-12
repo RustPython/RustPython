@@ -19,8 +19,6 @@ RustPython C API target: `crates/capi/src/abstract_.rs`
 - `PyNumber_Rshift`
 - `PyNumber_Subtract`
 - `PyObject_GetIter`
-- `PyObject_IsInstance`
-- `PyObject_IsSubclass`
 - `PyObject_Size`
 - `PySequence_Check`
 - `PySequence_Concat`
