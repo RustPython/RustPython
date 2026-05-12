@@ -168,8 +168,10 @@ pub(crate) fn build_method_def(vm: &VirtualMachine, ml: &PyMethodDef) -> PyRef<H
             vm.ctx.new_method_def(name, callable, flags, doc)
         },
         PyMethodFlags::O => {
-            let callable = move |_args: FuncArgs, _vm: &VirtualMachine| -> PyResult {
-                todo!("METH_O is not supported yet")
+            let f = unsafe { method.PyCFunction };
+            let callable = move |zelf: PyObjectRef, arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
+                let ret_ptr = unsafe { f(zelf.as_raw().cast_mut(), arg.as_raw().cast_mut()) };
+                ret_ptr_to_pyresult(vm, ret_ptr)
             };
             vm.ctx.new_method_def(name, callable, flags, doc)
         },
