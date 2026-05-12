@@ -596,7 +596,7 @@ mod tests {
 
             #[classmethod]
             fn cls_method(cls: &Bound<'_, PyType>) -> PyResult<i32> {
-                // assert!(cls.is_subclass_of::<MyClass>()?);
+                assert!(cls.is_subclass_of::<MyClass>()?);
                 Ok(10)
             }
         }
