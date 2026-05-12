@@ -2558,8 +2558,7 @@ mod _ssl {
                 .connection
                 .lock()
                 .as_ref()
-                .map(|conn| conn.is_session_resumed())
-                .unwrap_or(false);
+                .is_some_and(|conn| conn.is_session_resumed());
 
             *self.session_was_reused.lock() = was_resumed;
 
@@ -2835,7 +2834,7 @@ mod _ssl {
             }
 
             let socket_timeout = self.get_socket_timeout(vm)?;
-            let is_non_blocking = socket_timeout.map(|t| t.is_zero()).unwrap_or(false);
+            let is_non_blocking = socket_timeout.is_some_and(|t| t.is_zero());
 
             let mut sent_total = 0;
 
@@ -2918,7 +2917,7 @@ mod _ssl {
             }
 
             let timeout = self.get_socket_timeout(vm)?;
-            let is_non_blocking = timeout.map(|t| t.is_zero()).unwrap_or(false);
+            let is_non_blocking = timeout.is_some_and(|t| t.is_zero());
 
             let mut sent_total = 0;
             while sent_total < buf.len() {
@@ -2976,7 +2975,7 @@ mod _ssl {
         pub(crate) fn blocking_flush_all_pending(&self, vm: &VirtualMachine) -> PyResult<()> {
             // Get socket timeout to respect during flush
             let timeout = self.get_socket_timeout(vm)?;
-            if timeout.map(|t| t.is_zero()).unwrap_or(false) {
+            if timeout.is_some_and(|t| t.is_zero()) {
                 return self.flush_pending_tls_output(vm, None);
             }
 
@@ -3581,7 +3580,7 @@ mod _ssl {
                         };
 
                         let mut reader = conn.reader();
-                        reader.fill_buf().map(|buf| buf.len()).unwrap_or(0)
+                        reader.fill_buf().map_or(0, |buf| buf.len())
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
@@ -3610,7 +3609,7 @@ mod _ssl {
                         };
 
                         let mut reader = conn.reader();
-                        reader.fill_buf().map(|buf| buf.len()).unwrap_or(0)
+                        reader.fill_buf().map_or(0, |buf| buf.len())
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
@@ -4776,12 +4775,7 @@ mod _ssl {
 
         // If name=False (default), only accept OID strings
         // If name=True, accept both names and OID strings
-        let entry = if txt
-            .chars()
-            .next()
-            .map(|c| c.is_ascii_digit())
-            .unwrap_or(false)
-        {
+        let entry = if txt.chars().next().is_some_and(|c| c.is_ascii_digit()) {
             // Looks like an OID string (starts with digit)
             oid::find_by_oid_string(txt)
         } else if name {
@@ -4848,13 +4842,9 @@ mod _ssl {
 
         let tuple = vm.ctx.new_tuple(vec![
             vm.ctx.new_str("SSL_CERT_FILE").into(), // openssl_cafile_env
-            default_cafile
-                .map(|s| vm.ctx.new_str(s).into())
-                .unwrap_or_else(|| vm.ctx.none()), // openssl_cafile
-            vm.ctx.new_str("SSL_CERT_DIR").into(),  // openssl_capath_env
-            default_capath
-                .map(|s| vm.ctx.new_str(s).into())
-                .unwrap_or_else(|| vm.ctx.none()), // openssl_capath
+            default_cafile.map_or_else(|| vm.ctx.none(), |s| vm.ctx.new_str(s).into()), // openssl_cafile
+            vm.ctx.new_str("SSL_CERT_DIR").into(), // openssl_capath_env
+            default_capath.map_or_else(|| vm.ctx.none(), |s| vm.ctx.new_str(s).into()), // openssl_capath
         ]);
         Ok(tuple.into())
     }

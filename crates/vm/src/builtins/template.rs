@@ -116,8 +116,7 @@ impl PyTemplate {
             .map(|interp| {
                 interp
                     .downcast_ref::<PyInterpolation>()
-                    .map(|i| i.value.clone())
-                    .unwrap_or_else(|| interp.clone())
+                    .map_or_else(|| interp.clone(), |i| i.value.clone())
             })
             .collect();
         vm.ctx.new_tuple(values)

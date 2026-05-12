@@ -1225,21 +1225,21 @@ mod builtins {
         };
 
         // Use downcast_exact to keep ref to old object on error.
-        let metaclass = kwargs
-            .pop_kwarg("metaclass")
-            .map(|metaclass| {
-                metaclass
-                    .downcast_exact::<PyType>(vm)
-                    .map(|m| m.into_pyref())
-            })
-            .unwrap_or_else(|| {
+        let metaclass = kwargs.pop_kwarg("metaclass").map_or_else(
+            || {
                 // if there are no bases, use type; else get the type of the first base
                 Ok(if bases.is_empty() {
                     vm.ctx.types.type_type.to_owned()
                 } else {
                     bases.first().unwrap().class().to_owned()
                 })
-            });
+            },
+            |metaclass| {
+                metaclass
+                    .downcast_exact::<PyType>(vm)
+                    .map(|m| m.into_pyref())
+            },
+        );
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {

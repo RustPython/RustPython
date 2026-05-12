@@ -327,8 +327,7 @@ pub(crate) mod decl {
                         "Expected a type param, got {}",
                         param
                             .repr(vm)
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|_| "?".to_owned())
+                            .map_or_else(|_| "?".to_owned(), |s| s.to_string())
                     ))
                 })?;
                 let is_no_default = dflt.is(no_default);

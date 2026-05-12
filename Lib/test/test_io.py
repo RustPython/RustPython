@@ -4109,11 +4109,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
     io = io
     shutdown_error = "LookupError: unknown encoding: ascii"
 
-    @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
-    @unittest.expectedFailure
-    def test_read_non_blocking(self):
-        return super().test_read_non_blocking()
-
     def test_initialization(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -4240,19 +4235,13 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
     io = pyio
     shutdown_error = "LookupError: unknown encoding: ascii"
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; os.set_blocking not available on Windows")
-    def test_read_non_blocking(self):
-        return super().test_read_non_blocking()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc_jis_2004
     def test_seek_with_encoder_state(self):
         return super().test_seek_with_encoder_state()
 
-    if sys.platform == "win32":
-        @unittest.skipUnless(hasattr(os, "pipe"), "requires os.pipe()")
-        @unittest.expectedFailure
-        def test_read_non_blocking(self):
-            return super().test_read_non_blocking()
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; os.set_blocking not available on Windows")
+    def test_read_non_blocking(self):
+        return super().test_read_non_blocking()
 
 
 class IncrementalNewlineDecoderTest(unittest.TestCase):

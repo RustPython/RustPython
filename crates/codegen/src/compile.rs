@@ -5412,6 +5412,7 @@ impl Compiler {
         self.prepare_decorators(decorator_list)?;
 
         let is_generic = type_params.is_some();
+        #[expect(clippy::map_unwrap_or, reason = "Changing this will not compile")]
         let firstlineno = decorator_list
             .first()
             .map(|decorator| {
@@ -6882,19 +6883,13 @@ impl Compiler {
                     return Err(self.error(CodegenErrorType::MultipleStarArgs));
                 }
                 // star wildcard check
-                star_wildcard = pattern
-                    .as_match_star()
-                    .map(|m| m.name.is_none())
-                    .unwrap_or(false);
+                star_wildcard = pattern.as_match_star().is_some_and(|m| m.name.is_none());
                 only_wildcard &= star_wildcard;
                 star = Some(i);
                 continue;
             }
             // wildcard check
-            only_wildcard &= pattern
-                .as_match_as()
-                .map(|m| m.name.is_none())
-                .unwrap_or(false);
+            only_wildcard &= pattern.as_match_as().is_some_and(|m| m.name.is_none());
         }
 
         // Keep the subject on top during the sequence and length checks.
