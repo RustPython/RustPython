@@ -40,6 +40,7 @@ mod decl {
         stdlib::time,
     };
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         #[cfg(windows)]
         crate::vm::windows::init_winsock();
@@ -275,17 +276,12 @@ mod decl {
         #[pyclass]
         impl PyPoll {
             #[pymethod]
-            fn register(
-                &self,
-                Fildes(fd): Fildes,
-                eventmask: OptionalArg<EventMask>,
-            ) -> PyResult<()> {
+            fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<EventMask>) {
                 let mask = match eventmask {
                     OptionalArg::Present(event_mask) => event_mask.0,
                     OptionalArg::Missing => DEFAULT_EVENTS,
                 };
                 insert_fd(&mut self.fds.lock(), fd, mask);
-                Ok(())
             }
 
             #[pymethod]
