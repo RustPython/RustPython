@@ -609,7 +609,7 @@ mod decl {
         // Disable SIGSEGV handler for access violations to avoid double output
         if code == 0xC0000005 {
             unsafe {
-                for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+                for handler in &mut FAULTHANDLER_HANDLERS {
                     if handler.signum == libc::SIGSEGV {
                         faulthandler_disable_fatal_handler(handler);
                         break;
@@ -632,7 +632,7 @@ mod decl {
         }
 
         unsafe {
-            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+            for handler in &mut FAULTHANDLER_HANDLERS {
                 if handler.enabled {
                     continue;
                 }
@@ -661,7 +661,7 @@ mod decl {
         }
 
         unsafe {
-            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+            for handler in &mut FAULTHANDLER_HANDLERS {
                 if handler.enabled {
                     continue;
                 }
@@ -700,7 +700,7 @@ mod decl {
         }
 
         unsafe {
-            for handler in FAULTHANDLER_HANDLERS.iter_mut() {
+            for handler in &mut FAULTHANDLER_HANDLERS {
                 faulthandler_disable_fatal_handler(handler);
             }
         }

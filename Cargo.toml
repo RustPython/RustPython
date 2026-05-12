@@ -343,6 +343,13 @@ unnested_or_patterns = "warn"
 
 # pedantic lints to enforce gradually
 cloned_instead_of_copied = "warn"
+collapsible_else_if = "warn"
+comparison_chain = "warn"
+explicit_into_iter_loop = "warn"
+explicit_iter_loop = "warn"
+filter_map_next = "warn"
+flat_map_option = "warn"
+inconsistent_struct_constructor = "warn"
 manual_is_variant_and = "warn"
 map_unwrap_or = "warn"
 must_use_candidate = "warn"

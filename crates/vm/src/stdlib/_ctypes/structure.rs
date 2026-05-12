@@ -16,7 +16,7 @@ pub(super) fn calculate_struct_size(cls: &Py<PyType>, vm: &VirtualMachine) -> Py
         let fields: Vec<PyObjectRef> = fields_attr.try_to_value(vm)?;
         let mut total_size = 0usize;
 
-        for field in fields.iter() {
+        for field in &fields {
             if let Some(tuple) = field.downcast_ref::<PyTuple>()
                 && let Some(field_type) = tuple.get(1)
             {
@@ -738,7 +738,7 @@ impl PyCStructure {
         if let Some(fields_attr) = type_obj.get_direct_attr(vm.ctx.intern_str("_fields_")) {
             let fields: Vec<PyObjectRef> = fields_attr.try_to_value(vm)?;
 
-            for field in fields.iter() {
+            for field in &fields {
                 if current_index >= args.len() {
                     break;
                 }
@@ -786,7 +786,7 @@ impl Initializer for PyCStructure {
         }
 
         // 2. Process keyword arguments
-        for (key, value) in args.kwargs.iter() {
+        for (key, value) in &args.kwargs {
             zelf.as_object()
                 .set_attr(vm.ctx.intern_str(key.as_str()), value.clone(), vm)?;
         }

@@ -978,7 +978,7 @@ impl Frame {
                 // Non-merged cell: find the name by skipping merged cellvars
                 let mut found_name = None;
                 let mut skip = nonmerged_cell_idx;
-                for cv in code.cellvars.iter() {
+                for cv in &code.cellvars {
                     let is_merged = code.varnames.contains(cv);
                     if !is_merged {
                         if skip == 0 {

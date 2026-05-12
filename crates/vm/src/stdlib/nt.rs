@@ -1074,7 +1074,7 @@ pub(crate) mod module {
 
         // Build environment strings as "KEY=VALUE\0" wide strings
         let mut env_strings: Vec<widestring::WideCString> = Vec::new();
-        for (key, value) in env.into_iter() {
+        for (key, value) in env {
             let key = FsPath::try_from_path_like(key, true, vm)?;
             let value = FsPath::try_from_path_like(value, true, vm)?;
             let key_str = key.to_string_lossy();
@@ -1192,7 +1192,7 @@ pub(crate) mod module {
         let env = crate::stdlib::os::envobj_to_dict(env, vm)?;
         // Build environment strings as "KEY=VALUE\0" wide strings
         let mut env_strings: Vec<widestring::WideCString> = Vec::new();
-        for (key, value) in env.into_iter() {
+        for (key, value) in env {
             let key = PyStrRef::try_from_object(vm, key)?;
             let value = PyStrRef::try_from_object(vm, value)?;
             let key_str = key.expect_str();

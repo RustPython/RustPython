@@ -529,7 +529,7 @@ impl CodeInfo {
 
         // Final DCE: truncate instructions after terminal ops in linearized blocks.
         // This catches dead code created by normalize_jumps after the initial DCE.
-        for block in blocks.iter_mut() {
+        for block in &mut blocks {
             if let Some(pos) = block
                 .instructions
                 .iter()
@@ -540,7 +540,7 @@ impl CodeInfo {
         }
 
         // Pre-compute cache_entries for real (non-pseudo) instructions
-        for block in blocks.iter_mut() {
+        for block in &mut blocks {
             for instr in &mut block.instructions {
                 if let AnyInstruction::Real(op) = instr.instr {
                     instr.cache_entries = op.cache_entries() as u32;
@@ -9430,7 +9430,7 @@ impl CodeInfo {
 
         // Fix up handler stack_depth in ExceptHandlerInfo using start_depths
         // computed above: depth = start_depth - 1 - preserve_lasti
-        for block in self.blocks.iter_mut() {
+        for block in &mut self.blocks {
             for ins in &mut block.instructions {
                 if let Some(ref mut handler) = ins.except_handler {
                     let h_start = start_depths[handler.handler_block.idx()];

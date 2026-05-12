@@ -69,7 +69,7 @@ mod atexit {
     pub fn _run_exitfuncs(vm: &VirtualMachine) {
         let funcs: Vec<_> = core::mem::take(&mut *vm.state.atexit_funcs.lock());
         // Callbacks stored in LIFO order, iterate forward
-        for entry in funcs.into_iter() {
+        for entry in funcs {
             let (func, args) = *entry;
             if let Err(e) = func.call(args, vm) {
                 let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);

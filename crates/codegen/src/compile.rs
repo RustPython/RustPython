@@ -823,7 +823,7 @@ impl Compiler {
             }
         }
 
-        for elt in elts.iter() {
+        for elt in elts {
             if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = elt {
                 // When we hit first star, build sequence with elements so far
                 if !sequence_built {
@@ -11509,7 +11509,7 @@ impl Compiler {
         let mut current_string = Wtf8Buf::new();
         let mut interp_count: u32 = 0;
 
-        for tstring in tstring_value.iter() {
+        for tstring in tstring_value {
             self.collect_tstring_strings(
                 tstring,
                 &mut all_strings,
@@ -11534,7 +11534,7 @@ impl Compiler {
             }
         );
 
-        for tstring in tstring_value.iter() {
+        for tstring in tstring_value {
             self.compile_tstring_interpolations(tstring)?;
         }
 
