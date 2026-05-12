@@ -1903,14 +1903,13 @@ impl PyCFuncPtr {
     }
 
     #[pygetset(name = "argtypes", setter)]
-    fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_argtypes(&self, value: PyObjectRef, vm: &VirtualMachine) {
         if vm.is_none(&value) {
             *self.argtypes.write() = None;
         } else {
             // Store the argtypes object directly as it is
             *self.argtypes.write() = Some(value);
         }
-        Ok(())
     }
 
     // errcheck getter/setter

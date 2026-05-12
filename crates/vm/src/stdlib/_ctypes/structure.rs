@@ -331,7 +331,7 @@ impl PyCStructType {
             }
 
             // Get size and alignment of the field type
-            let size = super::base::get_field_size(&field_type, vm)?;
+            let size = super::base::get_field_size(&field_type, vm);
             let field_align = super::base::get_field_align(&field_type, vm);
 
             // Calculate effective alignment (PyCField_FromDesc)

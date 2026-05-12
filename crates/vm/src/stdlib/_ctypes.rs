@@ -585,13 +585,9 @@ pub(crate) mod _ctypes {
                 if handle.is_null() {
                     let err = unsafe { libc::dlerror() };
                     let msg = if err.is_null() {
-                        "dlopen() error".to_string()
+                        "dlopen() error"
                     } else {
-                        unsafe {
-                            core::ffi::CStr::from_ptr(err)
-                                .to_string_lossy()
-                                .into_owned()
-                        }
+                        unsafe { &core::ffi::CStr::from_ptr(err).to_string_lossy() }
                     };
                     return Err(vm.new_os_error(msg));
                 }
@@ -605,22 +601,20 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction(name = "FreeLibrary")]
-    fn free_library(handle: usize) -> PyResult<()> {
+    fn free_library(handle: usize) {
         let cache = library::libcache();
         let mut cache_write = cache.write();
         cache_write.drop_lib(handle);
-        Ok(())
     }
 
     #[cfg(not(windows))]
     #[pyfunction]
-    fn dlclose(handle: usize, _vm: &VirtualMachine) -> PyResult<()> {
+    fn dlclose(handle: usize, _vm: &VirtualMachine) {
         // Remove from cache, which triggers SharedLibrary drop.
         // libloading::Library calls dlclose automatically on Drop.
         let cache = library::libcache();
         let mut cache_write = cache.write();
         cache_write.drop_lib(handle);
-        Ok(())
     }
 
     #[cfg(not(windows))]
@@ -1295,6 +1289,7 @@ pub(crate) mod _ctypes {
         Ok(S_OK)
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(
         vm: &VirtualMachine,
         module: &Py<crate::builtins::PyModule>,

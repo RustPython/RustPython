@@ -418,7 +418,12 @@ impl PyCPointer {
             && let Ok(type_str) = type_attr.str(vm)
         {
             let type_code = type_str.to_string();
-            return Self::read_value_at_address(addr, element_size, Some(&type_code), vm);
+            return Ok(Self::read_value_at_address(
+                addr,
+                element_size,
+                Some(&type_code),
+                vm,
+            ));
         }
 
         // Complex type: create instance that references the memory directly (not a copy)
@@ -658,55 +663,55 @@ impl PyCPointer {
         size: usize,
         type_code: Option<&str>,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyObjectRef {
         unsafe {
             let ptr = addr as *const u8;
             match type_code {
                 // Single-byte types don't need read_unaligned
-                Some("c") => Ok(vm.ctx.new_bytes(vec![*ptr]).into()),
-                Some("b") => Ok(vm.ctx.new_int(*ptr as i8 as i32).into()),
-                Some("B") => Ok(vm.ctx.new_int(*ptr as i32).into()),
+                Some("c") => vm.ctx.new_bytes(vec![*ptr]).into(),
+                Some("b") => vm.ctx.new_int(*ptr as i8 as i32).into(),
+                Some("B") => vm.ctx.new_int(*ptr as i32).into(),
                 // Multi-byte types need read_unaligned for safety on strict-alignment architectures
-                Some("h") => Ok(vm
+                Some("h") => vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const i16) as i32)
-                    .into()),
-                Some("H") => Ok(vm
+                    .into(),
+                Some("H") => vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const u16) as i32)
-                    .into()),
-                Some("i" | "l") => Ok(vm
+                    .into(),
+                Some("i" | "l") => vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const i32))
-                    .into()),
-                Some("I" | "L") => Ok(vm
+                    .into(),
+                Some("I" | "L") => vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const u32))
-                    .into()),
-                Some("q") => Ok(vm
+                    .into(),
+                Some("q") => vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const i64))
-                    .into()),
-                Some("Q") => Ok(vm
+                    .into(),
+                Some("Q") => vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const u64))
-                    .into()),
-                Some("f") => Ok(vm
+                    .into(),
+                Some("f") => vm
                     .ctx
                     .new_float(core::ptr::read_unaligned(ptr as *const f32) as f64)
-                    .into()),
-                Some("d" | "g") => Ok(vm
+                    .into(),
+                Some("d" | "g") => vm
                     .ctx
                     .new_float(core::ptr::read_unaligned(ptr as *const f64))
-                    .into()),
-                Some("P" | "z" | "Z") => Ok(vm
+                    .into(),
+                Some("P" | "z" | "Z") => vm
                     .ctx
                     .new_int(core::ptr::read_unaligned(ptr as *const usize))
-                    .into()),
+                    .into(),
                 _ => {
                     // Default: read as bytes
                     let bytes = core::slice::from_raw_parts(ptr, size).to_vec();
-                    Ok(vm.ctx.new_bytes(bytes).into())
+                    vm.ctx.new_bytes(bytes).into()
                 }
             }
         }
