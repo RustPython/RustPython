@@ -224,7 +224,7 @@ libloading = "0.9"
 liblzma = "0.4"
 liblzma-sys = "0.4"
 libsqlite3-sys = "0.37"
-libz-rs-sys = "0.5"
+libz-rs-sys = "0.6"
 lock_api = "0.4"
 log = "0.4.29"
 nix = { version = "0.31", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
