@@ -1345,8 +1345,8 @@ mod mmap {
         }
 
         #[pymethod]
-        fn tell(&self) -> PyResult<usize> {
-            Ok(self.pos())
+        fn tell(&self) -> usize {
+            self.pos()
         }
 
         #[pymethod]
