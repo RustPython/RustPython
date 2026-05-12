@@ -703,6 +703,7 @@ pub(crate) mod _signal {
         WAKEUP.store(INVALID_WAKEUP, Ordering::Relaxed);
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(
         vm: &VirtualMachine,
         module: &Py<crate::builtins::PyModule>,
