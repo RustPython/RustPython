@@ -31,6 +31,8 @@ cellvar
 cellvars
 ceval
 cfield
+cfws
+CFWS
 CLASSDEREF
 classdict
 cmpop
@@ -118,6 +120,7 @@ loadfast
 localsplus
 localspluskinds
 Lshift
+lslpp
 lsprof
 MAXBLOCKS
 maxdepth
@@ -137,6 +140,7 @@ nfrees
 nkwargs
 nkwelts
 nlocalsplus
+nointerrupt
 Nondescriptor
 noninteger
 nops
@@ -159,6 +163,7 @@ platstdlib
 posonlyarg
 posonlyargs
 prec
+preds
 preinitialized
 pybuilddir
 pycore

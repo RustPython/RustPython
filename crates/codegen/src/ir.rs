@@ -18568,15 +18568,13 @@ fn duplicate_named_except_cleanup_returns(blocks: &mut Vec<Block>, metadata: &Co
         let target_lineno = blocks[target.idx()]
             .instructions
             .first()
-            .map(instruction_lineno)
-            .unwrap_or(-1);
+            .map_or(-1, instruction_lineno);
         let layout_pred_lineno = blocks[layout_pred.idx()]
             .instructions
             .iter()
             .rev()
             .find(|info| info.instr.real().is_some())
-            .map(instruction_lineno)
-            .unwrap_or(-1);
+            .map_or(-1, instruction_lineno);
         if target_lineno > 0 && layout_pred_lineno > 0 && target_lineno != layout_pred_lineno {
             continue;
         }
