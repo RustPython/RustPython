@@ -12,28 +12,28 @@ define_py_check!(exact PyCFunction_CheckExact, types.builtin_function_or_method_
 
 #[repr(C)]
 pub struct PyMethodDef {
-    pub(crate) ml_name: *const c_char,
-    pub(crate) ml_meth: PyMethodPointer,
-    pub(crate) ml_flags: c_int,
-    pub(crate) ml_doc: *const c_char,
+    pub ml_name: *const c_char,
+    pub ml_meth: PyMethodPointer,
+    pub ml_flags: c_int,
+    pub ml_doc: *const c_char,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
 #[allow(non_snake_case)]
 pub union PyMethodPointer {
-    PyCFunction: unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject,
-    PyCFunctionWithKeywords: unsafe extern "C" fn(
+    pub PyCFunction: unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject,
+    pub PyCFunctionWithKeywords: unsafe extern "C" fn(
         slf: *mut PyObject,
         args: *mut PyObject,
         kwargs: *mut PyObject,
     ) -> *mut PyObject,
-    PyCFunctionFast: unsafe extern "C" fn(
+    pub PyCFunctionFast: unsafe extern "C" fn(
         slf: *mut PyObject,
         args: *mut *mut PyObject,
         nargs: isize,
     ) -> *mut PyObject,
-    PyCFunctionFastWithKeywords: unsafe extern "C" fn(
+    pub PyCFunctionFastWithKeywords: unsafe extern "C" fn(
         slf: *mut PyObject,
         args: *const *mut PyObject,
         nargs: isize,
