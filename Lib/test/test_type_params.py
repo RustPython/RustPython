@@ -720,7 +720,6 @@ class TypeParamsClassScopeTest(unittest.TestCase):
         self.assertEqual(cls.bound, "nonlocal")
         self.assertEqual(cls.meth.__annotations__["arg"], "nonlocal")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + global
     def test_explicit_global(self):
         ns = run_code("""
             x = "global"
@@ -748,7 +747,6 @@ class TypeParamsClassScopeTest(unittest.TestCase):
         cls = ns["outer"]()
         self.assertEqual(cls.Alias.__value__, "global")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + global from class
     def test_explicit_global_with_assignment(self):
         ns = run_code("""
             x = "global"
