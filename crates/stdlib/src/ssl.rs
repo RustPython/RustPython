@@ -1517,7 +1517,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ciphers(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        fn get_ciphers(&self, vm: &VirtualMachine) -> PyListRef {
             // Dynamically generate cipher list from rustls ALL_CIPHER_SUITES
             // This automatically includes all cipher suites supported by the current rustls version
 
@@ -1575,7 +1575,7 @@ mod _ssl {
                 })
                 .collect::<Vec<_>>();
 
-            Ok(PyListRef::from(vm.ctx.new_list(cipher_list)))
+            PyListRef::from(vm.ctx.new_list(cipher_list))
         }
 
         #[pymethod]
@@ -2427,10 +2427,10 @@ mod _ssl {
         }
 
         // Create and store a session object after successful handshake
-        fn create_session_after_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn create_session_after_handshake(&self, vm: &VirtualMachine) {
             // Only create session for client-side connections
             if self.server_side {
-                return Ok(());
+                return;
             }
 
             // Check if session already exists
@@ -2438,7 +2438,7 @@ mod _ssl {
             if let Some(ref s) = session_opt {
                 if vm.is_none(s) {
                 } else {
-                    return Ok(());
+                    return;
                 }
             }
 
@@ -2489,8 +2489,6 @@ mod _ssl {
             let py_session = session.into_pyobject(vm);
 
             *self.session.write() = Some(py_session);
-
-            Ok(())
         }
 
         // Complete handshake and create session
@@ -2550,7 +2548,7 @@ mod _ssl {
             Ok(())
         }
 
-        fn complete_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn complete_handshake(&self, vm: &VirtualMachine) {
             *self.handshake_done.lock() = true;
 
             // Check if session was resumed - get value and release lock immediately
@@ -2580,8 +2578,7 @@ mod _ssl {
                 let _ = self.track_used_ca_from_capath();
             }
 
-            self.create_session_after_handshake(vm)?;
-            Ok(())
+            self.create_session_after_handshake(vm);
         }
 
         // Internal implementation with timeout control
@@ -3435,7 +3432,7 @@ mod _ssl {
             if is_client {
                 // CLIENT is simple - no SNI callback handling needed
                 handshake_result.map_err(|e| e.into_py_err(vm))?;
-                self.complete_handshake(vm)?;
+                self.complete_handshake(vm);
                 Ok(())
             } else {
                 // Use OpenSSL-compatible handshake for server
@@ -3443,7 +3440,7 @@ mod _ssl {
                 match handshake_result {
                     Ok(()) => {
                         // Handshake completed successfully
-                        self.complete_handshake(vm)?;
+                        self.complete_handshake(vm);
                         Ok(())
                     }
                     Err(SslError::SniCallbackRestart) => {
@@ -3662,13 +3659,13 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn pending(&self) -> PyResult<usize> {
+        fn pending(&self) -> usize {
             // Returns the number of already decrypted bytes available for read
             // This is critical for asyncore's readable() method which checks socket.pending() > 0
             let mut conn_guard = self.connection.lock();
             let conn = match conn_guard.as_mut() {
                 Some(c) => c,
-                None => return Ok(0), // No connection established yet
+                None => return 0, // No connection established yet
             };
 
             // Use rustls Reader's fill_buf() to check buffered plaintext
@@ -3676,11 +3673,11 @@ mod _ssl {
             // This matches OpenSSL's SSL_pending() behavior
             let mut reader = conn.reader();
             match reader.fill_buf() {
-                Ok(buf) => Ok(buf.len()),
+                Ok(buf) => buf.len(),
                 Err(_) => {
                     // WouldBlock or other errors mean no data available
                     // Return 0 like OpenSSL does when buffer is empty
-                    Ok(0)
+                    0
                 }
             }
         }
@@ -3857,9 +3854,8 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_owner(&self, owner: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
+        fn set_owner(&self, owner: PyObjectRef, _vm: &VirtualMachine) {
             *self.owner.write() = Some(owner);
-            Ok(())
         }
 
         #[pygetset]
@@ -3873,7 +3869,7 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_context(&self, value: PyRef<PySSLContext>, _vm: &VirtualMachine) -> PyResult<()> {
+        fn set_context(&self, value: PyRef<PySSLContext>, _vm: &VirtualMachine) {
             // Update context reference immediately
             // SSL_set_SSL_CTX allows context changes at any time,
             // even after handshake completion
@@ -3881,8 +3877,6 @@ mod _ssl {
 
             // Clear pending context as we've applied the change
             *self.pending_context.write() = None;
-
-            Ok(())
         }
 
         #[pygetset]
@@ -3916,14 +3910,10 @@ mod _ssl {
         }
 
         #[pygetset]
-        fn session(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn session(&self, vm: &VirtualMachine) -> PyObjectRef {
             // Return the stored session object if any
             let sess = self.session.read().clone();
-            if let Some(s) = sess {
-                Ok(s)
-            } else {
-                Ok(vm.ctx.none())
-            }
+            sess.unwrap_or_else(|| vm.ctx.none())
         }
 
         #[pygetset(setter)]
@@ -3999,18 +3989,12 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_verified_chain(&self, vm: &VirtualMachine) -> PyResult<Option<PyListRef>> {
+        fn get_verified_chain(&self, vm: &VirtualMachine) -> Option<PyListRef> {
             // Get peer certificates (what peer sent during handshake)
             let conn_guard = self.connection.lock();
-            let Some(ref conn) = *conn_guard else {
-                return Ok(None);
-            };
-
+            let conn = (*conn_guard).as_ref()?;
             let peer_certs = conn.peer_certificates();
-
-            let Some(peer_certs_slice) = peer_certs else {
-                return Ok(None);
-            };
+            let peer_certs_slice = peer_certs?;
 
             // Build the verified chain using cert module
             let ctx_guard = self.context.read();
@@ -4024,7 +4008,7 @@ mod _ssl {
                 .map(|der_bytes| PySSLCertificate { der_bytes }.into_ref(&vm.ctx).into())
                 .collect();
 
-            Ok(Some(vm.ctx.new_list(cert_list)))
+            Some(vm.ctx.new_list(cert_list))
         }
 
         #[pymethod]
@@ -4655,9 +4639,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write_eof(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn write_eof(&self, _vm: &VirtualMachine) {
             *self.eof.write() = true;
-            Ok(())
         }
 
         #[pygetset]
@@ -4816,7 +4799,7 @@ mod _ssl {
     }
 
     #[pyfunction]
-    fn get_default_verify_paths(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn get_default_verify_paths(vm: &VirtualMachine) -> PyObjectRef {
         // Return default certificate paths as a tuple
         // Lib/ssl.py expects: (openssl_cafile_env, openssl_cafile, openssl_capath_env, openssl_capath)
         // parts[0] = environment variable name for cafile
@@ -4846,7 +4829,8 @@ mod _ssl {
             vm.ctx.new_str("SSL_CERT_DIR").into(), // openssl_capath_env
             default_capath.map_or_else(|| vm.ctx.none(), |s| vm.ctx.new_str(s).into()), // openssl_capath
         ]);
-        Ok(tuple.into())
+
+        tuple.into()
     }
 
     #[pyfunction]
