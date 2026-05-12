@@ -164,8 +164,7 @@ mod _functools {
         fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
             zelf.as_object()
                 .instance_dict()
-                .map(|d| d.get_or_insert(vm))
-                .unwrap_or_else(|| vm.ctx.new_dict())
+                .map_or_else(|| vm.ctx.new_dict(), |d| d.get_or_insert(vm))
         }
 
         #[pygetset(setter)]
@@ -492,8 +491,10 @@ mod _functools {
                 let qualname = zelf.class().__qualname__(vm);
                 let qualname_wtf8 = qualname
                     .downcast_ref::<crate::builtins::PyStr>()
-                    .map(|s| s.as_wtf8().to_owned())
-                    .unwrap_or_else(|| Wtf8Buf::from(zelf.class().name().to_owned()));
+                    .map_or_else(
+                        || Wtf8Buf::from(zelf.class().name().to_owned()),
+                        |s| s.as_wtf8().to_owned(),
+                    );
                 let module = zelf.class().__module__(vm);
 
                 let mut result = Wtf8Buf::new();

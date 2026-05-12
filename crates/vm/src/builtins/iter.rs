@@ -188,9 +188,10 @@ impl PySequenceIterator {
         let internal = self.internal.lock();
         if let IterStatus::Active(obj) = &internal.status {
             let seq = obj.sequence_unchecked();
-            seq.length(vm)
-                .map(|x| PyInt::from(x).into_pyobject(vm))
-                .unwrap_or_else(|_| vm.ctx.not_implemented())
+            seq.length(vm).map_or_else(
+                |_| vm.ctx.not_implemented(),
+                |x| PyInt::from(x).into_pyobject(vm),
+            )
         } else {
             PyInt::from(0).into_pyobject(vm)
         }

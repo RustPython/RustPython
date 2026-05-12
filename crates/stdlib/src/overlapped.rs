@@ -1949,10 +1949,7 @@ mod _overlapped {
 
         let name_wide: Option<Vec<u16>> =
             name.map(|n| n.encode_utf16().chain(core::iter::once(0)).collect());
-        let name_ptr = name_wide
-            .as_ref()
-            .map(|n| n.as_ptr())
-            .unwrap_or(core::ptr::null());
+        let name_ptr = name_wide.as_ref().map_or(core::ptr::null(), |n| n.as_ptr());
 
         let event = unsafe {
             windows_sys::Win32::System::Threading::CreateEventW(

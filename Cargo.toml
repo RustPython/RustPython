@@ -225,7 +225,7 @@ libloading = "0.9"
 liblzma = "0.4"
 liblzma-sys = "0.4"
 libsqlite3-sys = "0.37"
-libz-sys = { package = "libz-rs-sys", version = "0.5" }
+libz-rs-sys = "0.5"
 lock_api = "0.4"
 log = "0.4.29"
 nix = { version = "0.31", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
@@ -289,11 +289,12 @@ termios = "0.3.3"
 thiserror = "2.0"
 timsort = "0.1.2"
 tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
+icu_casemap = "2"
+icu_locale = "2"
 icu_properties = "2"
 icu_normalizer = "2"
 uuid = "1.23.1"
 ucd = "0.1.1"
-unicode-casing = "0.1.1"
 unic-ucd-age = "0.9.0"
 unicode_names2 = "2.0.0"
 widestring = "1.2.0"
@@ -304,6 +305,7 @@ which = "8"
 x509-cert = "0.2.5"
 x509-parser = "0.18"
 xml = "1.2"
+writeable = "0.6"
 
 # Lints
 
@@ -337,10 +339,11 @@ inefficient_to_string = "warn"
 redundant_clone = "warn"
 debug_assert_with_mut_call = "warn"
 unused_peekable = "warn"
-manual_is_variant_and = "warn"
 or_fun_call = "warn"
 unnested_or_patterns = "warn"
 
 # pedantic lints to enforce gradually
 cloned_instead_of_copied = "warn"
+manual_is_variant_and = "warn"
+map_unwrap_or = "warn"
 must_use_candidate = "warn"

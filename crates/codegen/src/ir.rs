@@ -12,9 +12,8 @@ use rustpython_compiler_core::{
     bytecode::{
         AnyInstruction, AnyOpcode, Arg, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
         CodeFlags, CodeObject, CodeUnit, CodeUnits, ConstantData, ExceptionTableEntry,
-        InstrDisplayContext, Instruction, InstructionMetadata, IntrinsicFunction1, Label, OpArg,
-        Opcode, PseudoInstruction, PseudoOpcode, PyCodeLocationInfoKind, encode_exception_table,
-        oparg,
+        InstrDisplayContext, Instruction, IntrinsicFunction1, Label, OpArg, Opcode,
+        PseudoInstruction, PseudoOpcode, PyCodeLocationInfoKind, encode_exception_table, oparg,
     },
     varint::{write_signed_varint, write_varint},
 };
@@ -3227,7 +3226,7 @@ impl CodeInfo {
                     }
                     AnyInstruction::Real(
                         Instruction::FormatSimple
-                        | Instruction::GetANext
+                        | Instruction::GetAnext
                         | Instruction::GetLen
                         | Instruction::GetYieldFromIter
                         | Instruction::ImportFrom { .. }
@@ -6896,7 +6895,7 @@ impl CodeInfo {
             block
                 .instructions
                 .iter()
-                .any(|info| matches!(info.instr.real(), Some(Instruction::GetANext)))
+                .any(|info| matches!(info.instr.real(), Some(Instruction::GetAnext)))
         }
 
         fn block_has_return(block: &Block) -> bool {
@@ -8908,8 +8907,7 @@ impl CodeInfo {
                 if let DeoptKind::ReturnIter { tail_start_idx } = deopt_kind {
                     let tail_instr_idx = real_instrs
                         .get(tail_start_idx)
-                        .map(|(instr_idx, _)| *instr_idx)
-                        .unwrap_or(block_instr_len);
+                        .map_or(block_instr_len, |(instr_idx, _)| *instr_idx);
                     if !tail_returns_without_store(
                         &self.blocks,
                         &is_pre_handler,
@@ -9473,8 +9471,7 @@ impl CodeInfo {
                 block.disable_load_fast_borrow,
                 block
                     .start_depth
-                    .map(|depth| depth.to_string())
-                    .unwrap_or_else(|| String::from("None")),
+                    .map_or_else(|| String::from("None"), |depth| depth.to_string()),
             );
             for info in &block.instructions {
                 let lineno = instruction_lineno(info);
@@ -10170,8 +10167,7 @@ fn mark_cold(blocks: &mut [Block]) {
         let has_fallthrough = block
             .instructions
             .last()
-            .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
-            .unwrap_or(true);
+            .is_none_or(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump());
         if has_fallthrough && block.next != BlockIdx::NULL {
             let next_idx = block.next.idx();
             if !blocks[next_idx].except_handler && !warm[next_idx] {
@@ -10210,11 +10206,9 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) {
             block.cold
                 && block.next != BlockIdx::NULL
                 && !blocks[block.next.idx()].cold
-                && block
-                    .instructions
-                    .last()
-                    .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
-                    .unwrap_or(true)
+                && block.instructions.last().is_none_or(|ins| {
+                    !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump()
+                })
         })
         .map(|(idx, block)| (idx, block.next))
         .collect();
@@ -11624,7 +11618,7 @@ fn block_contains_suspension_point(block: &Block) -> bool {
                 instr,
                 Instruction::YieldValue { .. }
                     | Instruction::GetAwaitable { .. }
-                    | Instruction::GetANext
+                    | Instruction::GetAnext
                     | Instruction::EndAsyncFor
             )
         })
@@ -13344,8 +13338,7 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
         if current != last_block && !block.cold {
             let last_ins = block.instructions.last();
             let has_fallthrough = last_ins
-                .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
-                .unwrap_or(true);
+                .is_none_or(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump());
             // Don't duplicate if block already ends with the same return pattern
             let already_has_return = block.instructions.len() >= 2 && {
                 let n = block.instructions.len();
@@ -13519,8 +13512,7 @@ fn duplicate_named_except_cleanup_returns(blocks: &mut Vec<Block>, metadata: &Co
         let fallthroughs_into_target = blocks[layout_pred.idx()]
             .instructions
             .last()
-            .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
-            .unwrap_or(true);
+            .is_none_or(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump());
         if !fallthroughs_into_target || predecessors[target.idx()] < 2 {
             continue;
         }
@@ -13766,8 +13758,7 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
             let has_fallthrough = blocks[bi]
                 .instructions
                 .last()
-                .map(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
-                .unwrap_or(true); // Empty block falls through
+                .is_none_or(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump()); // Empty block falls through
             if has_fallthrough {
                 visited[next.idx()] = true;
                 block_stacks[next.idx()] = Some(stack);

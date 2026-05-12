@@ -2590,8 +2590,7 @@ pub mod module {
         let headers = _extract_vec_bytes(args.headers, vm)?;
         let count = headers
             .as_ref()
-            .map(|v| v.iter().map(|s| s.len()).sum())
-            .unwrap_or(0) as i64
+            .map_or(0, |v| v.iter().map(|s| s.len()).sum()) as i64
             + args.count;
 
         let headers = headers

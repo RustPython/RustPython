@@ -1856,7 +1856,7 @@ mod _io {
         fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Option<PyBytesRef>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
-            let n = size.size.map(|s| *s).unwrap_or(-1);
+            let n = size.size.map_or(-1, |s| *s);
             if n < -1 {
                 return Err(vm.new_value_error("read length must be non-negative or -1"));
             }
@@ -5968,8 +5968,7 @@ mod fileio {
             if zelf.fd.load() >= 0 && zelf.closefd.load() {
                 let repr = source
                     .repr(vm)
-                    .map(|s| s.as_wtf8().to_owned())
-                    .unwrap_or_else(|_| Wtf8Buf::from("<file>"));
+                    .map_or_else(|_| Wtf8Buf::from("<file>"), |s| s.as_wtf8().to_owned());
                 if let Err(e) = crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed file {repr}"),
@@ -6230,8 +6229,7 @@ mod winconsoleio {
             let mode_str: &str = args
                 .mode
                 .as_ref()
-                .map(|s: &PyUtf8StrRef| s.as_str())
-                .unwrap_or("r");
+                .map_or("r", |s: &PyUtf8StrRef| s.as_str());
 
             let mut rwa = false;
             let mut readable = false;
@@ -6521,8 +6519,8 @@ mod winconsoleio {
             if zelf.fd.load() >= 0 && zelf.closefd.load() {
                 let repr = source
                     .repr(vm)
-                    .map(|s| s.as_wtf8().to_owned())
-                    .unwrap_or_else(|_| Wtf8Buf::from("<file>"));
+                    .map_or_else(|_| Wtf8Buf::from("<file>"), |s| s.as_wtf8().to_owned());
+
                 if let Err(e) = crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.resource_warning,
                     format!("unclosed file {repr}"),
