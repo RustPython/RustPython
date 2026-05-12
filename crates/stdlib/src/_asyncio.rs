@@ -900,8 +900,7 @@ pub(crate) mod _asyncio {
         {
             let s = state
                 .str(vm)
-                .map(|s| s.as_wtf8().to_lowercase())
-                .unwrap_or_else(|_| Wtf8Buf::from("unknown"));
+                .map_or_else(|_| Wtf8Buf::from("unknown"), |s| s.as_wtf8().to_lowercase());
             return Ok(s);
         }
         Ok(Wtf8Buf::from("state=unknown"))

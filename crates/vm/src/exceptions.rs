@@ -2002,8 +2002,8 @@ pub(super) mod types {
                         .as_ref()
                         .map(|s| s.str(vm))
                         .transpose()?
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "None".to_owned());
+                        .map_or_else(|| "None".to_owned(), |s| s.to_string());
+
                     if let Some(ref f2) = filename2 {
                         return Ok(vm.ctx.new_str(format!(
                             "[WinError {}] {}: {} -> {}",
@@ -2034,14 +2034,12 @@ pub(super) mod types {
                     .as_ref()
                     .map(|e| e.str(vm))
                     .transpose()?
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "None".to_owned());
+                    .map_or_else(|| "None".to_owned(), |s| s.to_string());
                 let msg = strerror
                     .as_ref()
                     .map(|s| s.str(vm))
                     .transpose()?
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "None".to_owned());
+                    .map_or_else(|| "None".to_owned(), |s| s.to_string());
                 if let Some(ref f2) = filename2 {
                     return Ok(vm.ctx.new_str(format!(
                         "[Errno {}] {}: {} -> {}",

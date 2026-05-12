@@ -1760,7 +1760,7 @@ fn build_result(
 
     // Handle OUT parameter return values
     if out_buffers.is_empty() {
-        return result.map(Ok).unwrap_or_else(|| Ok(vm.ctx.none()));
+        return result.map_or_else(|| Ok(vm.ctx.none()), Ok);
     }
 
     let out_values = extract_out_values(out_buffers, vm);
@@ -1851,8 +1851,7 @@ impl AsBuffer for PyCFuncPtr {
                 stg_info
                     .format
                     .clone()
-                    .map(Cow::Owned)
-                    .unwrap_or(Cow::Borrowed("X{}")),
+                    .map_or(Cow::Borrowed("X{}"), Cow::Owned),
                 stg_info.size,
             )
         } else {
@@ -1946,8 +1945,7 @@ impl PyCFuncPtr {
         // Fallback to StgInfo for native types
         zelf.class()
             .stg_info_opt()
-            .map(|stg| stg.flags.bits())
-            .unwrap_or(StgInfoFlags::empty().bits())
+            .map_or(StgInfoFlags::empty().bits(), |stg| stg.flags.bits())
     }
 }
 
@@ -2184,8 +2182,7 @@ unsafe extern "C" fn thunk_callback(
             let repr = userdata
                 .callable
                 .repr(vm)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|_| "<unknown>".to_string());
+                .map_or_else(|_| "<unknown>".to_string(), |s| s.to_string());
             let msg = format!(
                 "Exception ignored while calling ctypes callback function {}",
                 repr

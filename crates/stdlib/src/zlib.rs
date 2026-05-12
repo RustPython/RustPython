@@ -25,7 +25,7 @@ mod zlib {
     use std::io::Write;
 
     #[pyattr]
-    use libz_sys::{
+    use libz_rs_sys::{
         Z_BEST_COMPRESSION, Z_BEST_SPEED, Z_BLOCK, Z_DEFAULT_COMPRESSION, Z_DEFAULT_STRATEGY,
         Z_DEFLATED as DEFLATED, Z_FILTERED, Z_FINISH, Z_FIXED, Z_FULL_FLUSH, Z_HUFFMAN_ONLY,
         Z_NO_COMPRESSION, Z_NO_FLUSH, Z_PARTIAL_FLUSH, Z_RLE, Z_SYNC_FLUSH, Z_TREES,
@@ -39,7 +39,7 @@ mod zlib {
     #[pyattr(name = "ZLIB_RUNTIME_VERSION")]
     #[pyattr]
     const ZLIB_VERSION: &str = unsafe {
-        match core::ffi::CStr::from_ptr(libz_sys::zlibVersion()).to_str() {
+        match core::ffi::CStr::from_ptr(libz_rs_sys::zlibVersion()).to_str() {
             Ok(s) => s,
             Err(_) => unreachable!(),
         }

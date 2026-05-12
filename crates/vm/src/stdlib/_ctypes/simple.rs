@@ -1435,8 +1435,7 @@ impl AsBuffer for PyCSimple {
         let format = stg_info
             .format
             .clone()
-            .map(Cow::Owned)
-            .unwrap_or(Cow::Borrowed("B"));
+            .map_or(Cow::Borrowed("B"), Cow::Owned);
         let itemsize = stg_info.size;
         // Simple types are scalars with ndim=0, shape=()
         let desc = BufferDescriptor {

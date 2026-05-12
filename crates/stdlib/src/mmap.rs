@@ -959,12 +959,8 @@ mod mmap {
             let size = self.__len__();
             let start = options
                 .start
-                .map(|start| start.saturated_at(size))
-                .unwrap_or_else(|| self.pos());
-            let end = options
-                .end
-                .map(|end| end.saturated_at(size))
-                .unwrap_or(size);
+                .map_or_else(|| self.pos(), |start| start.saturated_at(size));
+            let end = options.end.map_or(size, |end| end.saturated_at(size));
             (start, end)
         }
 
@@ -1121,8 +1117,7 @@ mod mmap {
             let remaining = self.__len__().saturating_sub(pos);
             let num_bytes = num_bytes
                 .filter(|&n| n >= 0 && (n as usize) <= remaining)
-                .map(|n| n as usize)
-                .unwrap_or(remaining);
+                .map_or(remaining, |n| n as usize);
 
             let end_pos = pos + num_bytes;
             let bytes = mmap.deref().as_ref().unwrap().as_slice()[pos..end_pos].to_vec();

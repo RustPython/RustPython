@@ -290,7 +290,7 @@ def check_enableusersite():
 
 # Copy of sysconfig._get_implementation()
 def _get_implementation():
-    return 'RustPython' # XXX: RustPython; for site-packages
+    return 'RustPython' # XXX: RUSTPYTHON; for site-packages
 
 # Copy of sysconfig._getuserbase()
 def _getuserbase():

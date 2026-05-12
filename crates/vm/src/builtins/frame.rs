@@ -11,9 +11,7 @@ use crate::{
     types::Representable,
 };
 use num_traits::Zero;
-use rustpython_compiler_core::bytecode::{
-    self, Constant, Instruction, InstructionMetadata, StackEffect,
-};
+use rustpython_compiler_core::bytecode::{self, Constant, Instruction, StackEffect};
 use stack_analysis::*;
 
 /// Stack state analysis for safe line-number jumps.
@@ -237,7 +235,7 @@ pub(crate) mod stack_analysis {
                             }
                         }
                     }
-                    Instruction::GetIter | Instruction::GetAIter => {
+                    Instruction::GetIter | Instruction::GetAiter => {
                         next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
@@ -476,7 +474,7 @@ impl Frame {
         // If lasti is 0, execution hasn't started yet - use first line number
         // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
         if self.lasti() == 0 {
-            self.code.first_line_number.map(|n| n.get()).unwrap_or(1)
+            self.code.first_line_number.map_or(1, |n| n.get())
         } else {
             self.current_location().line.get()
         }
@@ -498,11 +496,7 @@ impl Frame {
             }
         };
 
-        let first_line = self
-            .code
-            .first_line_number
-            .map(|n| n.get() as i32)
-            .unwrap_or(1);
+        let first_line = self.code.first_line_number.map_or(1, |n| n.get() as i32);
 
         if l_new_lineno < first_line {
             return Err(vm.new_value_error(format!(
