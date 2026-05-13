@@ -23,8 +23,8 @@ mod _codecs {
     }
 
     #[pyfunction]
-    fn unregister(search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        vm.state.codec_registry.unregister(search_function)
+    fn unregister(search_function: PyObjectRef, vm: &VirtualMachine) {
+        vm.state.codec_registry.unregister(search_function);
     }
 
     #[pyfunction]
