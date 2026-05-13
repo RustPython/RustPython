@@ -4,7 +4,7 @@ use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
-use rustpython_vm::function::FuncArgs;
+use rustpython_vm::function::{FuncArgs, PyMethodFlags};
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
 use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine};
 
@@ -330,7 +330,9 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     .to_str()
                     .expect("method name must be valid UTF-8")
             };
-            let method = build_method_def(vm, method, true).build_method(class_static, vm);
+            let is_static = PyMethodFlags::from_bits_retain(method.ml_flags as _)
+                .contains(PyMethodFlags::STATIC);
+            let method = build_method_def(vm, method, !is_static).build_method(class_static, vm);
             class
                 .attributes
                 .write()
@@ -589,9 +591,18 @@ mod tests {
                 Ok(self.num + 10)
             }
 
+            fn method2(&self, a: i32) -> PyResult<i32> {
+                Ok(self.num + a)
+            }
+
             #[staticmethod]
-            fn static_method(a: i32, b: i32) -> PyResult<i32> {
+            fn static_method1(a: i32, b: i32) -> PyResult<i32> {
                 Ok(a + b)
+            }
+
+            #[staticmethod]
+            fn static_method2() -> PyResult<i32> {
+                Ok(0)
             }
 
             #[classmethod]
@@ -618,11 +629,27 @@ mod tests {
             );
 
             assert_eq!(
-                obj.call_method1("static_method", (5, 8))
+                obj.call_method1("method2", (5,))
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                8
+            );
+
+            assert_eq!(
+                obj.call_method1("static_method1", (5, 8))
                     .unwrap()
                     .extract::<i32>()
                     .unwrap(),
                 13
+            );
+
+            assert_eq!(
+                obj.call_method1("static_method2", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                0
             );
 
             assert_eq!(
