@@ -26,6 +26,7 @@ mod _window {
     use super::{js_module, wasm_builtins};
     use rustpython_vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
         extend_module!(vm, module, {
