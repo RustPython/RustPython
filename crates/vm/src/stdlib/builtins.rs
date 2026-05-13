@@ -928,7 +928,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyResult {
+    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyObjectRef {
         let number = number.into_int_ref();
         let n = number.as_bigint();
         let s = if n.is_negative() {
@@ -937,7 +937,7 @@ mod builtins {
             format!("0o{n:o}")
         };
 
-        Ok(vm.ctx.new_str(s).into())
+        vm.ctx.new_str(s).into()
     }
 
     #[pyfunction]

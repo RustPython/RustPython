@@ -644,8 +644,8 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     // 1. no `clear`: HAS_CLEAR = HAS_TRAVERSE (default: same as traverse)
     // 2. `clear` or `clear = true`: HAS_CLEAR = true, try_clear calls Traverse::clear
     // 3. `clear = false`: HAS_CLEAR = false (rare: traverse without clear)
-    let has_traverse = class_meta.inner()._has_key("traverse")?;
-    let has_clear = if class_meta.inner()._has_key("clear")? {
+    let has_traverse = class_meta.inner()._has_key("traverse");
+    let has_clear = if class_meta.inner()._has_key("clear") {
         // If clear attribute is present, use its value
         class_meta.inner()._bool("clear")?
     } else {
@@ -804,9 +804,9 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     Ok(ret)
 }
 
-pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     let Item::Impl(imp) = item else {
-        return Ok(item.into_token_stream());
+        return item.into_token_stream();
     };
 
     // Check if with(Constructor) is specified. If Constructor trait is used, don't generate slot_new
@@ -878,7 +878,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
         quote!(, #(#extra_attrs),*)
     };
 
-    Ok(quote! {
+    quote! {
         #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*) #extra_attrs_tokens)]
         impl #generics #self_ty {
             #(#items)*
@@ -886,7 +886,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
 
         #slot_new
         #slot_init
-    })
+    }
 }
 
 macro_rules! define_content_item {
@@ -1189,7 +1189,7 @@ where
             args.cfgs.to_vec(),
             tokens,
             2,
-        )?;
+        );
 
         Ok(())
     }
@@ -1235,7 +1235,7 @@ where
 
         args.context
             .attribute_items
-            .add_item(ident.clone(), vec![py_name], cfgs, tokens, 1)?;
+            .add_item(ident.clone(), vec![py_name], cfgs, tokens, 1);
 
         Ok(())
     }
@@ -1944,12 +1944,12 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
 fn impl_item_new<Item>(
     index: usize,
     attr_name: AttrName,
-) -> Result<Box<dyn ImplItem<Item, AttrName = AttrName>>>
+) -> Box<dyn ImplItem<Item, AttrName = AttrName>>
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
     use AttrName::*;
-    Ok(match attr_name {
+    match attr_name {
         attr_name @ (Method | ClassMethod | StaticMethod) => Box::new(MethodItem {
             inner: ContentItemInner { index, attr_name },
         }),
@@ -1968,7 +1968,7 @@ where
         Member => Box::new(MemberItem {
             inner: ContentItemInner { index, attr_name },
         }),
-    })
+    }
 }
 
 fn attrs_to_content_items<F, R>(
@@ -1976,7 +1976,7 @@ fn attrs_to_content_items<F, R>(
     item_new: F,
 ) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(usize, AttrName) -> Result<R>,
+    F: Fn(usize, AttrName) -> R,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -2018,7 +2018,7 @@ where
             }
         };
 
-        result.push(item_new(i, attr_name)?);
+        result.push(item_new(i, attr_name));
     }
     Ok((result, cfgs))
 }

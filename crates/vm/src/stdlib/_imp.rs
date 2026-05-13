@@ -183,8 +183,8 @@ mod _imp {
     use version::PYC_MAGIC_NUMBER_TOKEN;
 
     #[pyfunction]
-    const fn extension_suffixes() -> PyResult<Vec<PyObjectRef>> {
-        Ok(Vec::new())
+    const fn extension_suffixes() -> Vec<PyObjectRef> {
+        Vec::new()
     }
 
     #[pyfunction]
@@ -297,14 +297,12 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn _frozen_module_names(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let names = vm
-            .state
+    fn _frozen_module_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vm.state
             .frozen
             .keys()
             .map(|&name| vm.ctx.new_utf8_str(name).into())
-            .collect();
-        Ok(names)
+            .collect()
     }
 
     #[allow(clippy::type_complexity)]

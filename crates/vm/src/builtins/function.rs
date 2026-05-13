@@ -867,6 +867,7 @@ impl PyFunction {
         *self.name.lock() = name;
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember]
     fn __doc__(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
         // When accessed from instance, obj is the PyFunction instance
@@ -879,6 +880,7 @@ impl PyFunction {
         }
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(setter)]
     fn set___doc__(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
         let zelf: PyRef<Self> = zelf.downcast().unwrap_or_else(|_| unreachable!());

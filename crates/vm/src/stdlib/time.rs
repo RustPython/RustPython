@@ -1002,6 +1002,7 @@ pub mod decl {
     #[allow(unused_imports)]
     use super::platform::*;
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(
         vm: &VirtualMachine,
         module: &Py<crate::builtins::PyModule>,

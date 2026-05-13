@@ -414,7 +414,7 @@ pub(crate) fn parse(
     };
     let obj = top.ast_to_object(vm, &source_file);
     if type_comments && obj.class().is(pyast::NodeModModule::static_type()) {
-        let type_ignores = type_ignores_from_source(vm, source)?;
+        let type_ignores = type_ignores_from_source(vm, source);
         let dict = obj.as_object().dict().unwrap();
         dict.set_item("type_ignores", vm.ctx.new_list(type_ignores).into(), vm)
             .unwrap();
@@ -512,10 +512,7 @@ pub(crate) fn parse_func_type(
     Ok(func_type.ast_to_object(vm, &source_file))
 }
 
-fn type_ignores_from_source(
-    vm: &VirtualMachine,
-    source: &str,
-) -> Result<Vec<PyObjectRef>, CompileError> {
+fn type_ignores_from_source(vm: &VirtualMachine, source: &str) -> Vec<PyObjectRef> {
     let mut ignores = Vec::new();
     for (idx, line) in source.lines().enumerate() {
         let Some(pos) = line.find("#") else {
@@ -542,7 +539,7 @@ fn type_ignores_from_source(
             .unwrap();
         ignores.push(node.into());
     }
-    Ok(ignores)
+    ignores
 }
 
 #[cfg(feature = "parser")]

@@ -127,13 +127,13 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    pub(super) fn _supports_virtual_terminal() -> PyResult<bool> {
+    pub(super) fn _supports_virtual_terminal() -> bool {
         let mut mode = 0;
         let handle = unsafe { Console::GetStdHandle(Console::STD_ERROR_HANDLE) };
         if unsafe { Console::GetConsoleMode(handle, &mut mode) } == 0 {
-            return Ok(false);
+            return false;
         }
-        Ok(mode & Console::ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0)
+        mode & Console::ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0
     }
 
     #[derive(FromArgs)]

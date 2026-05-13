@@ -195,15 +195,15 @@ mod winreg {
         }
 
         #[pymethod]
-        fn Detach(&self) -> PyResult<usize> {
+        fn Detach(&self) -> usize {
             // Atomically swap the handle with null and return the old value
             let old_hkey = self.hkey.swap(core::ptr::null_mut());
-            Ok(old_hkey as usize)
+            old_hkey as usize
         }
 
         #[pymethod]
-        fn __enter__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            Ok(zelf)
+        fn __enter__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+            zelf
         }
 
         #[pymethod]
@@ -216,8 +216,8 @@ mod winreg {
         }
 
         #[pymethod]
-        fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-            Ok(vm.ctx.new_str(format!("<PyHkey:{:p}>", zelf.hkey.load())))
+        fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyStr> {
+            vm.ctx.new_str(format!("<PyHkey:{:p}>", zelf.hkey.load()))
         }
     }
 

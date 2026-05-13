@@ -595,6 +595,7 @@ impl Frame {
         *storage = value.unwrap_or_none(vm);
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
@@ -626,6 +627,7 @@ impl Frame {
         }
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());

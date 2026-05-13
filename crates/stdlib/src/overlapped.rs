@@ -1867,7 +1867,7 @@ mod _overlapped {
     }
 
     #[pyfunction]
-    fn FormatMessage(error_code: u32, _vm: &VirtualMachine) -> PyResult<String> {
+    fn FormatMessage(error_code: u32, _vm: &VirtualMachine) -> String {
         use windows_sys::Win32::Foundation::LocalFree;
         use windows_sys::Win32::System::Diagnostics::Debug::{
             FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
@@ -1898,7 +1898,7 @@ mod _overlapped {
             if !buffer.is_null() {
                 unsafe { LocalFree(buffer as *mut _) };
             }
-            return Ok(format!("unknown error code {}", error_code));
+            return format!("unknown error code {error_code}");
         }
 
         // Convert to Rust string, trimming trailing whitespace
@@ -1907,7 +1907,7 @@ mod _overlapped {
 
         unsafe { LocalFree(buffer as *mut _) };
 
-        Ok(msg)
+        msg
     }
 
     #[pyfunction]

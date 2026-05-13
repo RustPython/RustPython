@@ -104,6 +104,7 @@ impl Constructor for PyBaseObject {
     }
 }
 
+#[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
 pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine) -> PyResult {
     // Only create dict if the class has HAS_DICT flag (i.e., __slots__ was not defined
     // or __dict__ is in __slots__)
@@ -542,6 +543,7 @@ impl PyBaseObject {
         common_reduce(obj, proto, vm)
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pyslot]
     fn slot_hash(zelf: &PyObject, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)

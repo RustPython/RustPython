@@ -509,18 +509,15 @@ fn extract_set(obj: &PyObject) -> Option<&PySetInner> {
     })
 }
 
-fn reduce_set(
-    zelf: &PyObject,
-    vm: &VirtualMachine,
-) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
-    Ok((
+fn reduce_set(zelf: &PyObject, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+    (
         zelf.class().to_owned(),
         #[expect(clippy::or_fun_call, reason = "changing this won't compile")]
         vm.new_tuple((extract_set(zelf)
             .unwrap_or(&PySetInner::default())
             .elements(),)),
         zelf.dict(),
-    ))
+    )
 }
 
 #[pyclass(
@@ -766,7 +763,7 @@ impl PySet {
     fn __reduce__(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         reduce_set(zelf.as_ref(), vm)
     }
 
@@ -1140,7 +1137,7 @@ impl PyFrozenSet {
     fn __reduce__(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         reduce_set(zelf.as_ref(), vm)
     }
 
@@ -1362,12 +1359,9 @@ impl PySetIterator {
     }
 
     #[pymethod]
-    fn __reduce__(
-        zelf: PyRef<Self>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
+    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyObjectRef, (PyObjectRef,)) {
         let internal = zelf.internal.lock();
-        Ok((
+        (
             builtins_iter(vm),
             (vm.ctx
                 .new_list(match &internal.status {
@@ -1377,7 +1371,7 @@ impl PySetIterator {
                     }
                 })
                 .into(),),
-        ))
+        )
     }
 }
 

@@ -47,7 +47,7 @@ impl Constructor for PyZip {
 #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyZip {
     #[pymethod]
-    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
         let cls = zelf.class().to_owned();
         let iterators = zelf
             .iterators
@@ -55,23 +55,23 @@ impl PyZip {
             .map(|obj| obj.clone().into())
             .collect::<Vec<_>>();
         let tuple_iter = vm.ctx.new_tuple(iterators);
-        Ok(if zelf.strict.load(atomic::Ordering::Acquire) {
+        if zelf.strict.load(atomic::Ordering::Acquire) {
             vm.new_tuple((cls, tuple_iter, true))
         } else {
             vm.new_tuple((cls, tuple_iter))
-        })
+        }
     }
 
     #[pymethod]
-    fn __setstate__(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) {
         if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
             zelf.strict.store(obj.into(), atomic::Ordering::Release);
         }
-        Ok(())
     }
 }
 
 impl SelfIter for PyZip {}
+
 impl IterNext for PyZip {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if zelf.iterators.is_empty() {

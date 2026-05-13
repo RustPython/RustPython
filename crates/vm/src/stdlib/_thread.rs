@@ -140,11 +140,10 @@ pub(crate) mod _thread {
 
         #[cfg(unix)]
         #[pymethod]
-        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) {
             // Overwrite lock state to unlocked. Do NOT call unlock() here —
             // after fork(), unlock_slow() would try to unpark stale waiters.
             unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
-            Ok(())
         }
 
         #[pymethod]
@@ -235,12 +234,11 @@ pub(crate) mod _thread {
 
         #[cfg(unix)]
         #[pymethod]
-        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) {
             // Overwrite lock state to unlocked. Do NOT call unlock() here —
             // after fork(), unlock_slow() would try to unpark stale waiters.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
             unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
-            Ok(())
         }
 
         #[pymethod]

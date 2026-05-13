@@ -84,7 +84,7 @@ mod grp {
     }
 
     #[pyfunction]
-    fn getgrall(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn getgrall(vm: &VirtualMachine) -> Vec<PyObjectRef> {
         // setgrent, getgrent, etc are not thread safe. Could use fgetgrent_r, but this is easier
         static GETGRALL: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
         let _guard = GETGRALL.lock();
@@ -98,6 +98,6 @@ mod grp {
         }
         unsafe { libc::endgrent() };
 
-        Ok(list)
+        list
     }
 }

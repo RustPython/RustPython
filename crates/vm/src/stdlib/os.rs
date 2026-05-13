@@ -637,13 +637,13 @@ pub(super) mod _os {
     #[pyclass(flags(DISALLOW_INSTANTIATION), with(Representable))]
     impl DirEntry {
         #[pygetset]
-        fn name(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(self.mode.process_path(&self.file_name, vm))
+        fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.mode.process_path(&self.file_name, vm)
         }
 
         #[pygetset]
-        fn path(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(self.mode.process_path(&self.pathval, vm))
+        fn path(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.mode.process_path(&self.pathval, vm)
         }
 
         /// Build the DirFd to use for stat calls.
@@ -837,30 +837,30 @@ pub(super) mod _os {
 
         #[cfg(unix)]
         #[pymethod]
-        fn inode(&self, _vm: &VirtualMachine) -> PyResult<u64> {
-            Ok(self.ino.load())
+        fn inode(&self, _vm: &VirtualMachine) -> u64 {
+            self.ino.load()
         }
 
         #[cfg(not(any(unix, windows)))]
         #[pymethod]
-        fn inode(&self, _vm: &VirtualMachine) -> PyResult<Option<u64>> {
-            Ok(self.ino.load())
+        fn inode(&self, _vm: &VirtualMachine) -> Option<u64> {
+            self.ino.load()
         }
 
         #[cfg(not(windows))]
         #[pymethod]
-        const fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
-            Ok(false)
+        const fn is_junction(&self, _vm: &VirtualMachine) -> bool {
+            false
         }
 
         #[cfg(windows)]
         #[pymethod]
-        fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
-            Ok(junction::exists(self.pathval.clone()).unwrap_or(false))
+        fn is_junction(&self, _vm: &VirtualMachine) -> bool {
+            junction::exists(self.pathval.clone()).unwrap_or(false)
         }
 
         #[pymethod]
-        fn __fspath__(&self, vm: &VirtualMachine) -> PyResult {
+        fn __fspath__(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.path(vm)
         }
 
@@ -941,6 +941,7 @@ pub(super) mod _os {
             Err(vm.new_type_error("cannot pickle 'ScandirIterator' object"))
         }
     }
+
     impl Destructor for ScandirIterator {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Emit ResourceWarning if the iterator is not yet exhausted/closed
@@ -956,7 +957,9 @@ pub(super) mod _os {
             Ok(())
         }
     }
+
     impl SelfIter for ScandirIterator {}
+
     impl IterNext for ScandirIterator {
         fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let entryref: &mut Option<fs::ReadDir> = &mut zelf.entries.write();
@@ -1904,6 +1907,10 @@ pub(super) mod _os {
     #[pyclass(with(PyStructSequence))]
     impl PyTimesResult {}
 
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "Can return an error on some platforms"
+    )]
     #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyfunction]
     fn times(vm: &VirtualMachine) -> PyResult {
@@ -2107,14 +2114,14 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn device_encoding(fd: i32, _vm: &VirtualMachine) -> PyResult<Option<String>> {
+    fn device_encoding(fd: i32, _vm: &VirtualMachine) -> Option<String> {
         if !isatty(fd) {
-            return Ok(None);
+            return None;
         }
 
         cfg_select! {
             any(target_os = "android", target_os = "redox") => {
-                Ok(Some("UTF-8".to_owned()))
+                Some("UTF-8".to_owned())
             }
             windows => {
                 use windows_sys::Win32::System::Console;
@@ -2124,19 +2131,17 @@ pub(super) mod _os {
                     _ => 0,
                 };
 
-                Ok(Some(format!("cp{cp}")))
+                Some(format!("cp{cp}"))
             }
             _ => {
-                let encoding = unsafe {
+                Some(unsafe {
                     let encoding = libc::nl_langinfo(libc::CODESET);
                     if encoding.is_null() || encoding.read() == b'\0' as libc::c_char {
                         "UTF-8".to_owned()
                     } else {
                         core::ffi::CStr::from_ptr(encoding).to_string_lossy().into_owned()
                     }
-                };
-
-                Ok(Some(encoding))
+                })
             }
         }
     }

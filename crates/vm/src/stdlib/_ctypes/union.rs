@@ -229,7 +229,7 @@ impl PyCUnionType {
                 super::base::check_other_endian_support(&field_type, vm)?;
             }
 
-            let size = super::base::get_field_size(&field_type, vm)?;
+            let size = super::base::get_field_size(&field_type, vm);
             let field_align = super::base::get_field_align(&field_type, vm);
 
             // Calculate effective alignment

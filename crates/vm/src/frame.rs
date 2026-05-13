@@ -2194,7 +2194,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(set.into());
                 Ok(None)
             }
-            Instruction::BuildSlice { argc } => self.execute_build_slice(vm, argc.get(arg)),
+            Instruction::BuildSlice { argc } => Ok(self.execute_build_slice(vm, argc.get(arg))),
             /*
              Instruction::ToBool => {
                  dbg!("Shouldn't be called outside of match statements for now")
@@ -6471,7 +6471,7 @@ impl ExecutingFrame<'_> {
         &mut self,
         vm: &VirtualMachine,
         argc: bytecode::BuildSliceArgCount,
-    ) -> FrameResult {
+    ) -> Option<ExecutionResult> {
         let step = match argc {
             bytecode::BuildSliceArgCount::Two => None,
             bytecode::BuildSliceArgCount::Three => Some(self.pop_value()),
@@ -6486,7 +6486,7 @@ impl ExecutingFrame<'_> {
         }
         .into_ref(&vm.ctx);
         self.push_value(obj.into());
-        Ok(None)
+        None
     }
 
     fn collect_positional_args(&mut self, nargs: u32) -> FuncArgs {

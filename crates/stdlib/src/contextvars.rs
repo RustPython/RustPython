@@ -140,9 +140,9 @@ mod _contextvars {
             })
         }
 
-        fn contains(&self, needle: &Py<ContextVar>) -> PyResult<bool> {
+        fn contains(&self, needle: &Py<ContextVar>) -> bool {
             let vars = self.borrow_vars();
-            Ok(vars.get(needle).is_some())
+            vars.get(needle).is_some()
         }
 
         fn get_inner(&self, needle: &Py<ContextVar>) -> Option<PyObjectRef> {
@@ -202,13 +202,13 @@ mod _contextvars {
             &self,
             key: PyRef<ContextVar>,
             default: OptionalArg<PyObjectRef>,
-        ) -> PyResult<Option<PyObjectRef>> {
+        ) -> Option<PyObjectRef> {
             let found = self.get_inner(&key);
-            Ok(if found.is_some() {
+            if found.is_some() {
                 found
             } else {
                 default.into_option()
-            })
+            }
         }
 
         // TODO: wrong return type
@@ -265,7 +265,7 @@ mod _contextvars {
             static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
                 contains: atomic_func!(|seq, target, vm| {
                     let target = target.try_to_value(vm)?;
-                    PyContext::sequence_downcast(seq).contains(target)
+                    Ok(PyContext::sequence_downcast(seq).contains(target))
                 }),
                 ..PySequenceMethods::NOT_IMPLEMENTED
             });
@@ -335,7 +335,7 @@ mod _contextvars {
         }
 
         // contextvar_set in CPython
-        fn set_inner(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_inner(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) {
             let ctx = PyContext::current(vm);
 
             let mut vars = ctx.borrow_vars_mut();
@@ -348,8 +348,6 @@ mod _contextvars {
                 idx: ctx.inner.idx.get(),
             };
             zelf.cached.store(Some(cache));
-
-            Ok(())
         }
 
         fn generate_hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyHash {
@@ -408,11 +406,7 @@ mod _contextvars {
         }
 
         #[pymethod]
-        fn set(
-            zelf: &Py<Self>,
-            value: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyRef<ContextToken>> {
+        fn set(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyRef<ContextToken> {
             let ctx = PyContext::current(vm);
 
             let old_value = ctx.borrow_vars().get(zelf).map(|v| v.to_owned());
@@ -424,9 +418,9 @@ mod _contextvars {
             };
 
             // ctx.vars borrow must be released
-            Self::set_inner(zelf, value, vm)?;
+            Self::set_inner(zelf, value, vm);
 
-            Ok(token.into_ref(&vm.ctx))
+            token.into_ref(&vm.ctx)
         }
 
         #[pymethod]
@@ -456,7 +450,7 @@ mod _contextvars {
             token.used.set(true);
 
             if let Some(old_value) = &token.old_value {
-                Self::set_inner(zelf, old_value.clone(), vm)?;
+                Self::set_inner(zelf, old_value.clone(), vm);
             } else {
                 Self::delete(zelf, vm)?;
             }

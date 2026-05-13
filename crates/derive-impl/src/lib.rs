@@ -53,7 +53,7 @@ pub fn pyclass(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
 #[must_use]
 pub fn pyexception(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     if matches!(item, syn::Item::Impl(_)) {
-        result_to_tokens(pyclass::impl_pyexception_impl(attr, item))
+        pyclass::impl_pyexception_impl(attr, item)
     } else {
         result_to_tokens(pyclass::impl_pyexception(attr, item))
     }
@@ -84,7 +84,7 @@ pub fn py_freeze(input: TokenStream, compiler: &dyn Compiler) -> TokenStream {
 
 #[must_use]
 pub fn pypayload(input: DeriveInput) -> TokenStream {
-    result_to_tokens(pypayload::impl_pypayload(input))
+    pypayload::impl_pypayload(input)
 }
 
 #[must_use]

@@ -392,15 +392,6 @@ fn print_source_line<W: Write>(
     Ok(())
 }
 
-#[cfg(not(feature = "host_env"))]
-fn print_source_line<W: Write>(
-    _output: &mut W,
-    _filename: &str,
-    _lineno: usize,
-) -> Result<(), W::Error> {
-    Ok(())
-}
-
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(
     output: &mut W,
@@ -414,6 +405,8 @@ fn write_traceback_entry<W: Write>(
         tb_entry.lineno,
         tb_entry.frame.code.obj_name
     )?;
+
+    #[cfg(feature = "host_env")]
     print_source_line(output, filename, tb_entry.lineno.get())?;
 
     Ok(())
@@ -674,22 +667,22 @@ impl PyBaseException {
 #[pyclass]
 impl Py<PyBaseException> {
     #[pymethod]
-    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = vm.exception_args_as_string(self.args(), true);
-        Ok(match str_args.into_iter().exactly_one() {
+        match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => vm.ctx.empty_str.to_owned(),
             Ok(s) => s,
             Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(&vm.ctx),
-        })
+        }
     }
 }
 
 #[pyclass]
 impl PyRef<PyBaseException> {
     #[pymethod]
-    fn with_traceback(self, tb: Option<PyTracebackRef>) -> PyResult<Self> {
+    fn with_traceback(self, tb: Option<PyTracebackRef>) -> Self {
         *self.traceback.write() = tb;
-        Ok(self)
+        self
     }
 
     #[pymethod]
@@ -1092,11 +1085,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObject
     move |exc| exc.get_arg(idx)
 }
 
-fn syntax_error_set_msg(
-    exc: PyBaseExceptionRef,
-    value: PySetterValue,
-    vm: &VirtualMachine,
-) -> PyResult<()> {
+fn syntax_error_set_msg(exc: PyBaseExceptionRef, value: PySetterValue, vm: &VirtualMachine) {
     let mut args = exc.args.write();
     let mut new_args = args.as_slice().to_vec();
     // Ensure the message slot at index 0 always exists for SyntaxError.args.
@@ -1108,7 +1097,6 @@ fn syntax_error_set_msg(
         PySetterValue::Delete => new_args[0] = vm.ctx.none(),
     }
     *args = PyTuple::new_ref(new_args, &vm.ctx);
-    Ok(())
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
@@ -1117,11 +1105,11 @@ fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
     // - size == 1: code is args[0]
     // - size > 1: code is args (the whole tuple)
     let args = exc.args.read();
-    match args.len() {
-        0 => None,
-        1 => Some(args.first().unwrap().clone()),
-        _ => Some(args.as_object().to_owned()),
-    }
+    Some(match args.len() {
+        0 => return None,
+        1 => args.first().unwrap().clone(),
+        _ => args.as_object().to_owned(),
+    })
 }
 
 #[cfg(feature = "serde")]
@@ -1712,16 +1700,16 @@ pub(super) mod types {
     #[pyexception]
     impl PyKeyError {
         #[pymethod]
-        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
             let args = zelf.args();
-            Ok(if args.len() == 1 {
+            if args.len() == 1 {
                 vm.exception_args_as_string(args, false)
                     .into_iter()
                     .exactly_one()
                     .unwrap()
             } else {
-                zelf.__str__(vm)?
-            })
+                zelf.__str__(vm)
+            }
         }
     }
 
@@ -2065,7 +2053,7 @@ pub(super) mod types {
             }
 
             // fallback to BaseException.__str__
-            zelf.__str__(vm)
+            Ok(zelf.__str__(vm))
         }
 
         #[pymethod]
@@ -2334,7 +2322,7 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PySyntaxError {
         #[pymethod]
-        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
             fn basename(filename: &Wtf8) -> &Wtf8 {
                 let bytes = filename.as_bytes();
                 let pos = if cfg!(windows) {
@@ -2387,7 +2375,7 @@ pub(super) mod types {
                 (None, None) => msg.as_wtf8().to_owned(),
             };
 
-            Ok(vm.ctx.new_str(msg_with_location_info))
+            vm.ctx.new_str(msg_with_location_info)
         }
     }
 

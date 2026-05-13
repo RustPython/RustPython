@@ -1072,7 +1072,7 @@ impl PyCData {
         let (mut bytes, converted_value) = if let Some(type_code) = &field_type_code {
             PyCField::value_to_bytes_for_type(type_code, &value, size, vm)?
         } else {
-            (PyCField::value_to_bytes(&value, size, vm)?, None)
+            (PyCField::value_to_bytes(&value, size, vm), None)
         };
 
         // Swap bytes for opposite endianness
@@ -1479,11 +1479,10 @@ impl Constructor for PyCField {
             .try_to_value(vm)?;
 
         // Validate byte_size matches the type
-        let type_size = super::base::get_field_size(field_type.as_object(), vm)? as isize;
+        let type_size = super::base::get_field_size(field_type.as_object(), vm) as isize;
         if byte_size != type_size {
             return Err(vm.new_value_error(format!(
-                "byte_size {} does not match type size {}",
-                byte_size, type_size
+                "byte_size {byte_size} does not match type size {type_size}"
             )));
         }
 
@@ -1588,14 +1587,14 @@ impl GetDescriptor for PyCField {
 
 impl PyCField {
     /// Convert a Python value to bytes
-    fn value_to_bytes(value: &PyObject, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn value_to_bytes(value: &PyObject, size: usize, vm: &VirtualMachine) -> Vec<u8> {
         // 1. Handle bytes objects
         if let Some(bytes) = value.downcast_ref::<PyBytes>() {
             let src = bytes.as_bytes();
             let mut result = vec![0u8; size];
             let len = core::cmp::min(src.len(), size);
             result[..len].copy_from_slice(&src[..len]);
-            Ok(result)
+            result
         }
         // 2. Handle ctypes array instances (copy their buffer)
         else if let Some(cdata) = value.downcast_ref::<super::PyCData>() {
@@ -1603,7 +1602,7 @@ impl PyCField {
             let mut result = vec![0u8; size];
             let len = core::cmp::min(buffer.len(), size);
             result[..len].copy_from_slice(&buffer[..len]);
-            Ok(result)
+            result
         }
         // 4. Handle float values (check before int, since float.try_int would truncate)
         else if let Some(float_val) = value.downcast_ref::<crate::builtins::PyFloat>() {
@@ -1611,9 +1610,9 @@ impl PyCField {
             match size {
                 4 => {
                     let val = f as f32;
-                    Ok(val.to_ne_bytes().to_vec())
+                    val.to_ne_bytes().to_vec()
                 }
-                8 => Ok(f.to_ne_bytes().to_vec()),
+                8 => f.to_ne_bytes().to_vec(),
                 _ => unreachable!("wrong payload size"),
             }
         }
@@ -1623,24 +1622,24 @@ impl PyCField {
             match size {
                 1 => {
                     let val = i.to_i8().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
+                    val.to_ne_bytes().to_vec()
                 }
                 2 => {
                     let val = i.to_i16().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
+                    val.to_ne_bytes().to_vec()
                 }
                 4 => {
                     let val = i.to_i32().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
+                    val.to_ne_bytes().to_vec()
                 }
                 8 => {
                     let val = i.to_i64().unwrap_or(0);
-                    Ok(val.to_ne_bytes().to_vec())
+                    val.to_ne_bytes().to_vec()
                 }
-                _ => Ok(vec![0u8; size]),
+                _ => vec![0u8; size],
             }
         } else {
-            Ok(vec![0u8; size])
+            vec![0u8; size]
         }
     }
 
@@ -1712,7 +1711,7 @@ impl PyCField {
                 if vm.is_none(value) {
                     return Ok((vec![0u8; size], None));
                 }
-                Ok((PyCField::value_to_bytes(value, size, vm)?, None))
+                Ok((PyCField::value_to_bytes(value, size, vm), None))
             }
             "Z" => {
                 // c_wchar_p: store pointer to null-terminated wchar_t buffer
@@ -1737,7 +1736,7 @@ impl PyCField {
                 if vm.is_none(value) {
                     return Ok((vec![0u8; size], None));
                 }
-                Ok((PyCField::value_to_bytes(value, size, vm)?, None))
+                Ok((PyCField::value_to_bytes(value, size, vm), None))
             }
             "P" => {
                 // c_void_p: store integer as pointer
@@ -1753,9 +1752,9 @@ impl PyCField {
                 if vm.is_none(value) {
                     return Ok((vec![0u8; size], None));
                 }
-                Ok((PyCField::value_to_bytes(value, size, vm)?, None))
+                Ok((PyCField::value_to_bytes(value, size, vm), None))
             }
-            _ => Ok((PyCField::value_to_bytes(value, size, vm)?, None)),
+            _ => Ok((PyCField::value_to_bytes(value, size, vm), None)),
         }
     }
 
@@ -1947,7 +1946,7 @@ pub(super) fn call_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CA
         ParamFunc::Simple => simple_paramfunc(obj, vm),
         ParamFunc::Array => array_paramfunc(obj, vm),
         ParamFunc::Pointer => pointer_paramfunc(obj, vm),
-        ParamFunc::Structure | ParamFunc::Union => struct_union_paramfunc(obj, &stg_info, vm),
+        ParamFunc::Structure | ParamFunc::Union => Ok(struct_union_paramfunc(obj, &stg_info, vm)),
         ParamFunc::None => Err(vm.new_type_error("no paramfunc")),
     }
 }
@@ -2022,36 +2021,32 @@ fn pointer_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject
 }
 
 /// StructUnionType_paramfunc (for both Structure and Union)
-fn struct_union_paramfunc(
-    obj: &PyObject,
-    stg_info: &StgInfo,
-    _vm: &VirtualMachine,
-) -> PyResult<CArgObject> {
+fn struct_union_paramfunc(obj: &PyObject, stg_info: &StgInfo, _vm: &VirtualMachine) -> CArgObject {
     // Get buffer pointer
     // For large structs (> sizeof(void*)), we'd need to allocate and copy.
     // For now, just point to buffer directly and keep obj reference for memory safety.
     let buffer = if let Some(cdata) = obj.downcast_ref::<PyCData>() {
         cdata.buffer.read()
     } else {
-        return Ok(CArgObject {
+        return CArgObject {
             tag: b'V',
             value: FfiArgValue::Pointer(0),
             obj: obj.to_owned(),
             size: stg_info.size,
             offset: 0,
-        });
+        };
     };
 
     let ptr_val = buffer.as_ptr() as usize;
     let size = buffer.len();
 
-    Ok(CArgObject {
+    CArgObject {
         tag: b'V',
         value: FfiArgValue::Pointer(ptr_val),
         obj: obj.to_owned(),
         size,
         offset: 0,
-    })
+    }
 }
 
 // FfiArgValue - Owned FFI argument value
@@ -2467,11 +2462,11 @@ pub(super) fn check_other_endian_support(
 }
 
 /// Get the size of a ctypes field type
-pub(super) fn get_field_size(field_type: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
+pub(super) fn get_field_size(field_type: &PyObject, vm: &VirtualMachine) -> usize {
     if let Some(type_obj) = field_type.downcast_ref::<PyType>()
         && let Some(stg_info) = type_obj.stg_info_opt()
     {
-        return Ok(stg_info.size);
+        return stg_info.size;
     }
 
     if let Some(size) = field_type
@@ -2483,7 +2478,7 @@ pub(super) fn get_field_size(field_type: &PyObject, vm: &VirtualMachine) -> PyRe
             (s.len() == 1).then(|| super::get_size(&s))
         })
     {
-        return Ok(size);
+        return size;
     }
 
     if let Some(s) = field_type
@@ -2493,10 +2488,10 @@ pub(super) fn get_field_size(field_type: &PyObject, vm: &VirtualMachine) -> PyRe
         .and_then(|size| size.try_int(vm).ok())
         .and_then(|n| n.as_bigint().to_usize())
     {
-        return Ok(s);
+        return s;
     }
 
-    Ok(core::mem::size_of::<usize>())
+    core::mem::size_of::<usize>()
 }
 
 /// Get the alignment of a ctypes field type

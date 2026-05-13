@@ -44,13 +44,13 @@ pub(crate) mod decl {
     }
 
     #[pyfunction(name = "override")]
-    pub(crate) fn r#override(func: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn r#override(func: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         // Set __override__ attribute to True
         // Skip the attribute silently if it is not writable.
         // AttributeError happens if the object has __slots__ or a
         // read-only property, TypeError if it's a builtin class.
         let _ = func.set_attr("__override__", vm.ctx.true_value.clone(), vm);
-        Ok(func)
+        func
     }
 
     #[pyclass(no_attr, name = "NoDefaultType", module = "typing")]
@@ -302,11 +302,11 @@ pub(crate) mod decl {
         }
 
         #[pygetset]
-        fn evaluate_value(&self, vm: &VirtualMachine) -> PyResult {
+        fn evaluate_value(&self, vm: &VirtualMachine) -> PyObjectRef {
             if self.is_lazy {
-                return Ok(self.compute_value.clone());
+                return self.compute_value.clone();
             }
-            Ok(const_evaluator_alloc(self.compute_value.clone(), vm))
+            const_evaluator_alloc(self.compute_value.clone(), vm)
         }
 
         /// Check type_params ordering: non-default params must precede default params.
@@ -492,6 +492,7 @@ pub(crate) mod decl {
         Ok(PyTuple::new_ref(new_params, &vm.ctx))
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(
         vm: &VirtualMachine,
         module: &Py<crate::builtins::PyModule>,

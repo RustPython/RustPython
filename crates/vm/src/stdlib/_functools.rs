@@ -177,7 +177,7 @@ mod _functools {
         }
 
         #[pymethod]
-        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let inner = zelf.inner.read();
             let partial_type = zelf.class();
 
@@ -193,14 +193,13 @@ mod _functools {
                 inner.keywords.clone().into(),
                 dict_obj,
             ]);
-            Ok(vm
-                .ctx
+            vm.ctx
                 .new_tuple(vec![
                     partial_type.to_owned().into(),
                     vm.ctx.new_tuple(vec![inner.func.clone()]).into(),
                     state.into(),
                 ])
-                .into())
+                .into()
         }
 
         #[pymethod]

@@ -1559,13 +1559,13 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
         if zelf.class().is(vm.ctx.types.str_type) {
             // Already exact str, just return a reference
-            Ok(zelf.to_owned())
+            zelf.to_owned()
         } else {
             // Subclass, create a new exact str
-            Ok(PyStr::from(zelf.data.clone()).into_ref(&vm.ctx))
+            PyStr::from(zelf.data.clone()).into_ref(&vm.ctx)
         }
     }
 }

@@ -402,7 +402,7 @@ fn subs_tvars(
 }
 
 // CPython's _unpack_args equivalent
-fn unpack_args(item: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+fn unpack_args(item: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut new_args = Vec::new();
 
     let arg_items = if let Ok(tuple) = item.try_to_ref::<PyTuple>(vm) {
@@ -442,7 +442,7 @@ fn unpack_args(item: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         new_args.push(item);
     }
 
-    Ok(PyTuple::new_ref(new_args, &vm.ctx))
+    PyTuple::new_ref(new_args, &vm.ctx)
 }
 
 // _Py_subs_parameters
@@ -459,7 +459,7 @@ pub(crate) fn subs_parameters(
     }
 
     // Step 1: Unpack args
-    let mut item: PyObjectRef = unpack_args(item, vm)?.into();
+    let mut item: PyObjectRef = unpack_args(item, vm).into();
 
     // Step 2: Call __typing_prepare_subst__ on each parameter
     for param in parameters.iter() {

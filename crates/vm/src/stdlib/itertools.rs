@@ -956,12 +956,12 @@ mod decl {
     }
 
     impl PyItertoolsTeeData {
-        fn new(iterable: PyIter, _vm: &VirtualMachine) -> PyResult<PyRc<Self>> {
-            Ok(PyRc::new(Self {
+        fn new(iterable: PyIter, _vm: &VirtualMachine) -> PyRc<Self> {
+            PyRc::new(Self {
                 iterable,
                 values: PyMutex::new(vec![]),
                 running: AtomicBool::new(false),
-            }))
+            })
         }
 
         fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult<PyIterReturn> {
@@ -1043,7 +1043,7 @@ mod decl {
                 return vm.call_special_method(&iterator, identifier!(vm, __copy__), ());
             }
             Ok(Self {
-                tee_data: PyItertoolsTeeData::new(iterator, vm)?,
+                tee_data: PyItertoolsTeeData::new(iterator, vm),
                 index: AtomicCell::new(0),
             }
             .into_ref_with_type(vm, class.to_owned())?

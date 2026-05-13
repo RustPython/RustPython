@@ -2211,12 +2211,11 @@ mod _sqlite3 {
     )]
     impl Row {
         #[pymethod]
-        fn keys(&self, _vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            Ok(self
-                .description
+        fn keys(&self, _vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            self.description
                 .iter()
                 .map(|x| x.downcast_ref::<PyTuple>().unwrap().as_slice()[0].clone())
-                .collect())
+                .collect()
         }
 
         fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {

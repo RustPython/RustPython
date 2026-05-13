@@ -1591,14 +1591,7 @@ mod _io {
             let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
             let (raw, BufferSize { buffer_size }): (PyObjectRef, _) =
                 args.bind(vm).map_err(|e| {
-                    let str_repr = e
-                        .__str__(vm)
-                        .as_ref()
-                        .map_or_else(
-                            |_| "<error getting exception str>".as_ref(),
-                            |s| s.as_wtf8(),
-                        )
-                        .to_owned();
+                    let str_repr = e.__str__(vm).as_wtf8().to_owned();
                     let msg = format!("{}() {}", Self::CLASS_NAME, str_repr);
                     vm.new_exception_msg(e.class().to_owned(), msg.into())
                 })?;
@@ -5310,6 +5303,10 @@ mod _io {
         }
     }
 
+    #[cfg_attr(
+        not(feature = "host_env"),
+        expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")
+    )]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         // Call auto-generated initialization first
         __module_exec(vm, module);
@@ -5953,13 +5950,8 @@ mod fileio {
 
         /// fileio_dealloc_warn in Modules/_io/fileio.c
         #[pymethod(name = "_dealloc_warn")]
-        fn _dealloc_warn_method(
-            zelf: &Py<Self>,
-            source: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn _dealloc_warn_method(zelf: &Py<Self>, source: PyObjectRef, vm: &VirtualMachine) {
             Self::dealloc_warn(zelf, source, vm);
-            Ok(())
         }
     }
 

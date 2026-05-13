@@ -85,16 +85,15 @@ pub mod sys {
     #[pyclass]
     impl BootstrapStderr {
         #[pymethod]
-        fn write(&self, s: PyStrRef) -> PyResult<usize> {
+        fn write(&self, s: PyStrRef) -> usize {
             let bytes = s.as_bytes();
             let _ = std::io::stderr().write_all(bytes);
-            Ok(bytes.len())
+            bytes.len()
         }
 
         #[pymethod]
-        fn flush(&self) -> PyResult<()> {
+        fn flush(&self) {
             let _ = std::io::stderr().flush();
-            Ok(())
         }
     }
 
@@ -997,14 +996,14 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframemodulename(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult {
+    fn _getframemodulename(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyObjectRef {
         let depth = depth.into_option().unwrap_or(0);
 
         // Get the frame at the specified depth
         let func_obj = {
             let frames = vm.frames.borrow();
             if depth >= frames.len() {
-                return Ok(vm.ctx.none());
+                return vm.ctx.none();
             }
             let idx = frames.len() - depth - 1;
             // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
@@ -1014,15 +1013,14 @@ pub mod sys {
 
         // If the frame has a function object, return its __module__ attribute
         if let Some(func_obj) = func_obj {
-            match func_obj.get_attr(identifier!(vm, __module__), vm) {
-                Ok(module) => Ok(module),
-                Err(_) => {
+            func_obj
+                .get_attr(identifier!(vm, __module__), vm)
+                .unwrap_or_else(
                     // CPython clears the error and returns None
-                    Ok(vm.ctx.none())
-                }
-            }
+                    |_| vm.ctx.none(),
+                )
         } else {
-            Ok(vm.ctx.none())
+            vm.ctx.none()
         }
     }
 
@@ -1075,8 +1073,8 @@ pub mod sys {
     /// Stub for non-threading builds - returns empty dict
     #[cfg(not(feature = "threading"))]
     #[pyfunction]
-    fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        Ok(vm.ctx.new_dict())
+    fn _current_frames(vm: &VirtualMachine) -> PyDictRef {
+        vm.ctx.new_dict()
     }
 
     #[pyfunction]

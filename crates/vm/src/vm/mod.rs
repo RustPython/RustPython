@@ -846,7 +846,7 @@ impl VirtualMachine {
         let codec_info = getregentry.call((), self)?;
         self.state
             .codec_registry
-            .register_manual("ascii", codec_info.try_into_value(self)?)?;
+            .register_manual("ascii", codec_info.try_into_value(self)?);
 
         // Register utf-8 encoding (also as "utf8" alias since normalize_encoding_name
         // maps "utf-8" → "utf_8" but leaves "utf8" as-is)
@@ -857,10 +857,10 @@ impl VirtualMachine {
         let utf8_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
         self.state
             .codec_registry
-            .register_manual("utf-8", utf8_codec.clone())?;
+            .register_manual("utf-8", utf8_codec.clone());
         self.state
             .codec_registry
-            .register_manual("utf8", utf8_codec)?;
+            .register_manual("utf8", utf8_codec);
 
         // Register latin-1 / iso8859-1 aliases needed very early for stdio
         // bootstrap (e.g. PYTHONIOENCODING=latin-1).
@@ -873,7 +873,7 @@ impl VirtualMachine {
             for name in ["latin-1", "latin_1", "latin1", "iso8859-1", "iso8859_1"] {
                 self.state
                     .codec_registry
-                    .register_manual(name, latin1_codec.clone())?;
+                    .register_manual(name, latin1_codec.clone());
             }
         }
         Ok(())

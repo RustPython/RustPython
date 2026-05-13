@@ -1231,37 +1231,37 @@ impl Compiler {
 
     /// Get the cell-relative index of a free variable.
     /// Returns ncells + freevar_idx. Fixed up to localsplus index during finalize.
-    fn get_free_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
+    fn get_free_var_index(&mut self, name: &str) -> oparg::VarNum {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .freevars
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.freevars.insert_full(name.to_owned()).0);
-        Ok((idx + info.metadata.cellvars.len()).to_u32().into())
+        (idx + info.metadata.cellvars.len()).to_u32().into()
     }
 
     /// Get the cell-relative index of a cell variable.
     /// Returns cellvar_idx. Fixed up to localsplus index during finalize.
-    fn get_cell_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
+    fn get_cell_var_index(&mut self, name: &str) -> oparg::VarNum {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .cellvars
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.cellvars.insert_full(name.to_owned()).0);
-        Ok(idx.to_u32().into())
+        idx.to_u32().into()
     }
 
     /// Get the index of a local variable.
-    fn get_local_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
+    fn get_local_var_index(&mut self, name: &str) -> oparg::VarNum {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .varnames
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.varnames.insert_full(name.to_owned()).0);
-        Ok(idx.to_u32().into())
+        idx.to_u32().into()
     }
 
     /// Get the index of a global name.
@@ -1479,8 +1479,8 @@ impl Compiler {
                 // Load __class__ from cell/free variable
                 let scope = self.get_ref_type("__class__").map_err(|e| self.error(e))?;
                 let idx = match scope {
-                    SymbolScope::Cell => self.get_cell_var_index("__class__")?,
-                    SymbolScope::Free => self.get_free_var_index("__class__")?,
+                    SymbolScope::Cell => self.get_cell_var_index("__class__"),
+                    SymbolScope::Free => self.get_free_var_index("__class__"),
                     _ => {
                         return Err(self.error(CodegenErrorType::SyntaxError(
                             "super(): __class__ cell not found".to_owned(),
@@ -1929,14 +1929,14 @@ impl Compiler {
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
         // VALUE_WITH_FAKE_GLOBALS = 2 (from annotationlib.Format)
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         Ok(Some(saved_ctx))
     }
 
     /// Emit format parameter validation for annotation scope
     /// if format > VALUE_WITH_FAKE_GLOBALS (2): raise NotImplementedError
-    fn emit_format_validation(&mut self) -> CompileResult<()> {
+    fn emit_format_validation(&mut self) {
         // Load format parameter (first local variable, index 0)
         emit!(
             self,
@@ -1976,8 +1976,6 @@ impl Compiler {
 
         // Body label - continue with annotation evaluation
         self.switch_to_block(body_block);
-
-        Ok(())
     }
 
     /// Push a new fblock
@@ -2228,11 +2226,9 @@ impl Compiler {
         self._name_inner(name, |i| &mut i.metadata.names)
     }
 
-    fn varname(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
-        // Note: __debug__ checks are now handled in symboltable phase
-        Ok(oparg::VarNum::from_u32(
-            self._name_inner(name, |i| &mut i.metadata.varnames),
-        ))
+    fn varname(&mut self, name: &str) -> oparg::VarNum {
+        // NOTE: __debug__ checks are now handled in symboltable phase
+        oparg::VarNum::from_u32(self._name_inner(name, |i| &mut i.metadata.varnames))
     }
 
     fn _name_inner(
@@ -2784,8 +2780,8 @@ impl Compiler {
         match op_type {
             NameOp::Deref => {
                 let i = match actual_scope {
-                    SymbolScope::Free => self.get_free_var_index(&name)?,
-                    SymbolScope::Cell => self.get_cell_var_index(&name)?,
+                    SymbolScope::Free => self.get_free_var_index(&name),
+                    SymbolScope::Cell => self.get_cell_var_index(&name),
                     _ => unreachable!("Invalid scope for Deref operation"),
                 };
 
@@ -2800,7 +2796,7 @@ impl Compiler {
                             emit!(self, Instruction::LoadFromDictOrDeref { i });
                         // can_see_class_scope: LOAD_DEREF(__classdict__) first
                         } else if can_see_class_scope {
-                            let classdict_idx = self.get_free_var_index("__classdict__")?;
+                            let classdict_idx = self.get_free_var_index("__classdict__");
                             emit!(self, Instruction::LoadDeref { i: classdict_idx });
                             emit!(self, Instruction::LoadFromDictOrDeref { i });
                         } else {
@@ -2812,7 +2808,7 @@ impl Compiler {
                 };
             }
             NameOp::Fast => {
-                let var_num = self.get_local_var_index(&name)?;
+                let var_num = self.get_local_var_index(&name);
                 match usage {
                     NameUsage::Load => emit!(self, Instruction::LoadFast { var_num }),
                     NameUsage::Store => emit!(self, Instruction::StoreFast { var_num }),
@@ -2852,7 +2848,7 @@ impl Compiler {
                 match usage {
                     NameUsage::Load => {
                         // Load __classdict__ first (it's a free variable in annotation scope)
-                        let classdict_idx = self.get_free_var_index("__classdict__")?;
+                        let classdict_idx = self.get_free_var_index("__classdict__");
                         emit!(self, Instruction::LoadDeref { i: classdict_idx });
                         emit!(self, Instruction::LoadFromDictOrGlobals { i: idx });
                     }
@@ -3414,16 +3410,16 @@ impl Compiler {
             .chain(kw_without_defaults)
             .chain(kw_with_defaults.into_iter().map(|(arg, _)| arg));
         for name in args_iter {
-            self.varname(name.name.as_str())?;
+            self.varname(name.name.as_str());
         }
 
         if let Some(name) = parameters.vararg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::VARARGS;
-            self.varname(name.name.as_str())?;
+            self.varname(name.name.as_str());
         }
         if let Some(name) = parameters.kwarg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::VARKEYWORDS;
-            self.varname(name.name.as_str())?;
+            self.varname(name.name.as_str());
         }
 
         Ok(())
@@ -3472,7 +3468,7 @@ impl Compiler {
             .varnames
             .insert(".format".to_owned());
 
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         // TypeParams scope is function-like
         let prev_ctx = self.ctx;
@@ -3525,7 +3521,7 @@ impl Compiler {
             .metadata
             .varnames
             .insert(".format".to_owned());
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         let prev_ctx = self.ctx;
         self.ctx = CompileContext {
@@ -5108,7 +5104,7 @@ impl Compiler {
             .insert("format".to_owned());
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         emit!(self, Instruction::BuildMap { count: 0 });
 
@@ -5147,7 +5143,7 @@ impl Compiler {
                     value: simple_idx.into(),
                 });
                 if parent_scope_type == CompilerScope::Class {
-                    let idx = self.get_free_var_index("__conditional_annotations__")?;
+                    let idx = self.get_free_var_index("__conditional_annotations__");
                     emit!(self, Instruction::LoadDeref { i: idx });
                 } else {
                     let cond_annotations_name = self.name("__conditional_annotations__");
@@ -5681,7 +5677,7 @@ impl Compiler {
         // setup so nested generic classes match CPython's prologue order.
         if self.current_symbol_table().needs_classdict {
             emit!(self, Instruction::LoadLocals);
-            let classdict_idx = self.get_cell_var_index("__classdict__")?;
+            let classdict_idx = self.get_cell_var_index("__classdict__");
             emit!(self, Instruction::StoreDeref { i: classdict_idx });
         }
 
@@ -5751,7 +5747,7 @@ impl Compiler {
 
         // Store __classdictcell__ if __classdict__ is a cell variable
         if self.current_symbol_table().needs_classdict {
-            let classdict_idx = u32::from(self.get_cell_var_index("__classdict__")?);
+            let classdict_idx = u32::from(self.get_cell_var_index("__classdict__"));
             emit!(self, PseudoInstruction::LoadClosure { i: classdict_idx });
             self.set_no_location();
             let classdictcell = self.name("__classdictcell__");
@@ -6596,24 +6592,23 @@ impl Compiler {
 
     /// Ensures that `pc.fail_pop` has at least `n + 1` entries.
     /// If not, new labels are generated and pushed until the required size is reached.
-    fn ensure_fail_pop(&mut self, pc: &mut PatternContext, n: usize) -> CompileResult<()> {
+    fn ensure_fail_pop(&mut self, pc: &mut PatternContext, n: usize) {
         let required_size = n + 1;
         if required_size <= pc.fail_pop.len() {
-            return Ok(());
+            return;
         }
         while pc.fail_pop.len() < required_size {
             let new_block = self.new_block();
             pc.fail_pop.push(new_block);
         }
-        Ok(())
     }
 
-    fn jump_to_fail_pop(&mut self, pc: &mut PatternContext, op: JumpOp) -> CompileResult<()> {
+    fn jump_to_fail_pop(&mut self, pc: &mut PatternContext, op: JumpOp) {
         // Compute the total number of items to pop:
         // items on top plus the captured objects.
         let pops = pc.on_top + pc.stores.len();
         // Ensure that the fail_pop vector has at least `pops + 1` elements.
-        self.ensure_fail_pop(pc, pops)?;
+        self.ensure_fail_pop(pc, pops);
         // Emit a jump using the jump target stored at index `pops`.
         match op {
             JumpOp::Jump => {
@@ -6622,7 +6617,7 @@ impl Compiler {
                     PseudoInstruction::Jump {
                         delta: pc.fail_pop[pops]
                     }
-                );
+                )
             }
             JumpOp::PopJumpIfFalse => {
                 emit!(
@@ -6630,19 +6625,18 @@ impl Compiler {
                     Instruction::PopJumpIfFalse {
                         delta: pc.fail_pop[pops]
                     }
-                );
+                )
             }
-        }
-        Ok(())
+        };
     }
 
     /// Emits the necessary POP instructions for all failure targets in the pattern context,
     /// then resets the fail_pop vector.
-    fn emit_and_reset_fail_pop(&mut self, pc: &mut PatternContext) -> CompileResult<()> {
+    fn emit_and_reset_fail_pop(&mut self, pc: &mut PatternContext) {
         // If the fail_pop vector is empty, nothing needs to be done.
         if pc.fail_pop.is_empty() {
             debug_assert!(pc.fail_pop.is_empty());
-            return Ok(());
+            return;
         }
         // Iterate over the fail_pop vector in reverse order, skipping the first label.
         for &label in pc.fail_pop.iter().skip(1).rev() {
@@ -6655,11 +6649,10 @@ impl Compiler {
         pc.fail_pop.clear();
         // Free the memory used by the vector.
         pc.fail_pop.shrink_to_fit();
-        Ok(())
     }
 
     /// Duplicate the effect of Python 3.10's ROT_* instructions using SWAPs.
-    fn pattern_helper_rotate(&mut self, mut count: usize) -> CompileResult<()> {
+    fn pattern_helper_rotate(&mut self, mut count: usize) {
         // Rotate TOS (top of stack) to position `count` down
         // This is done by a series of swaps
         // For count=1, no rotation needed (already at top)
@@ -6675,7 +6668,6 @@ impl Compiler {
             );
             count -= 1;
         }
-        Ok(())
     }
 
     /// Helper to store a captured name for a star pattern.
@@ -6711,7 +6703,7 @@ impl Compiler {
 
                 // Calculate how many items to rotate:
                 let rotations = pc.on_top + pc.stores.len() + 1;
-                self.pattern_helper_rotate(rotations)?;
+                self.pattern_helper_rotate(rotations);
 
                 // Append the name to the captured stores.
                 pc.stores.push(name.to_string());
@@ -6993,7 +6985,7 @@ impl Compiler {
 
         // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
 
         // Unpack the tuple into (nargs + n_attrs) items.
         let total = nargs + n_attrs;
@@ -7065,7 +7057,7 @@ impl Compiler {
         emit!(self, Instruction::MatchMapping);
         // Stack: [subject, is_mapping]
 
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         // Stack: [subject]
 
         // Special case: empty pattern {} with no rest
@@ -7088,7 +7080,7 @@ impl Compiler {
                     opname: ComparisonOperator::GreaterOrEqual
                 }
             );
-            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
             // Stack: [subject]
         }
 
@@ -7163,7 +7155,7 @@ impl Compiler {
         );
 
         // Stack: [subject, keys_tuple, values_tuple, bool]
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         // Stack: [subject, keys_tuple, values_tuple]
 
         // Unpack values (the original values_tuple)
@@ -7302,7 +7294,7 @@ impl Compiler {
                             // Also perform the same rotation on the evaluation stack.
                             self.set_source_range(alt.range());
                             for _ in 0..=i_stores {
-                                self.pattern_helper_rotate(i_control + 1)?;
+                                self.pattern_helper_rotate(i_control + 1);
                             }
                         }
                     }
@@ -7312,7 +7304,7 @@ impl Compiler {
             self.set_source_range(alt.range());
             emit!(self, PseudoInstruction::Jump { delta: end });
             self.set_source_range(alt.range());
-            self.emit_and_reset_fail_pop(pc)?;
+            self.emit_and_reset_fail_pop(pc);
         }
 
         // Restore the original pattern context.
@@ -7325,7 +7317,7 @@ impl Compiler {
         // No alternative matched: pop the subject and fail.
         self.set_source_range(p.range());
         emit!(self, Instruction::PopTop);
-        self.jump_to_fail_pop(pc, JumpOp::Jump)?;
+        self.jump_to_fail_pop(pc, JumpOp::Jump);
 
         // Use the label "end".
         self.switch_to_block(end);
@@ -7336,7 +7328,7 @@ impl Compiler {
         for i in 0..n_stores {
             // Rotate the capture to its proper place.
             self.set_source_range(p.range());
-            self.pattern_helper_rotate(n_rots)?;
+            self.pattern_helper_rotate(n_rots);
             let name = &control.as_ref().unwrap()[i];
             // Check for duplicate binding.
             if pc.stores.contains(name) {
@@ -7384,7 +7376,7 @@ impl Compiler {
         // Keep the subject on top during the sequence and length checks.
         pc.on_top += 1;
         emit!(self, Instruction::MatchSequence);
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
 
         if star.is_none() {
             // No star: len(subject) == size
@@ -7396,7 +7388,7 @@ impl Compiler {
                     opname: ComparisonOperator::Equal
                 }
             );
-            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         } else if size > 1 {
             // Star exists: len(subject) >= size - 1
             emit!(self, Instruction::GetLen);
@@ -7409,7 +7401,7 @@ impl Compiler {
                     opname: ComparisonOperator::GreaterOrEqual
                 }
             );
-            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         }
 
         // Whatever comes next should consume the subject.
@@ -7441,7 +7433,7 @@ impl Compiler {
             }
         );
         emit!(self, Instruction::ToBool);
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         Ok(())
     }
 
@@ -7449,7 +7441,7 @@ impl Compiler {
         &mut self,
         p: &ast::PatternMatchSingleton,
         pc: &mut PatternContext,
-    ) -> CompileResult<()> {
+    ) {
         // Load the singleton constant value.
         self.emit_load_const(match p.value {
             ast::Singleton::None => ConstantData::None,
@@ -7459,8 +7451,7 @@ impl Compiler {
         // Compare using the "Is" operator.
         emit!(self, Instruction::IsOp { invert: Invert::No });
         // Jump to the failure label if the comparison is false.
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
-        Ok(())
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
     }
 
     fn compile_pattern(
@@ -7475,7 +7466,8 @@ impl Compiler {
                 self.compile_pattern_value(pattern_type, pattern_context)
             }
             ast::Pattern::MatchSingleton(pattern_type) => {
-                self.compile_pattern_singleton(pattern_type, pattern_context)
+                self.compile_pattern_singleton(pattern_type, pattern_context);
+                Ok(())
             }
             ast::Pattern::MatchSequence(pattern_type) => {
                 self.compile_pattern_sequence(pattern_type, pattern_context)
@@ -7544,7 +7536,7 @@ impl Compiler {
             }
 
             if let Some(ref guard) = m.guard {
-                self.ensure_fail_pop(pattern_context, 0)?;
+                self.ensure_fail_pop(pattern_context, 0);
                 self.compile_jump_if_inner(
                     guard,
                     false,
@@ -7573,7 +7565,7 @@ impl Compiler {
                 last.match_success_jump = true;
             }
             self.set_source_range(m.pattern.range());
-            self.emit_and_reset_fail_pop(pattern_context)?;
+            self.emit_and_reset_fail_pop(pattern_context);
         }
 
         if has_default {
@@ -9834,7 +9826,7 @@ impl Compiler {
         // Set qualname for comprehension
         self.set_qualname();
 
-        let arg0 = self.varname(".0")?;
+        let arg0 = self.varname(".0");
 
         let return_none = init_collection.is_none();
 
@@ -10184,7 +10176,7 @@ impl Compiler {
             self.set_source_range(comprehension_range);
             let mut total_stack_items: usize = 0;
             for name in &pushed_locals {
-                let var_num = self.varname(name)?;
+                let var_num = self.varname(name);
                 emit!(self, Instruction::LoadFastAndClear { var_num });
                 total_stack_items += 1;
                 // If the comp symbol is CELL, emit MAKE_CELL to create fresh cell
@@ -10197,9 +10189,9 @@ impl Compiler {
                         .get(name)
                         .is_some_and(|s| s.scope == SymbolScope::Free)
                     {
-                        self.get_free_var_index(name)?
+                        self.get_free_var_index(name)
                     } else {
-                        self.get_cell_var_index(name)?
+                        self.get_cell_var_index(name)
                     };
                     emit!(self, Instruction::MakeCell { i });
                 }
@@ -10375,7 +10367,7 @@ impl Compiler {
                     }
                 );
                 for name in pushed_locals.iter().rev() {
-                    let var_num = self.varname(name)?.as_u32();
+                    let var_num = self.varname(name).as_u32();
                     emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
                 }
                 // Re-raise the exception
@@ -10397,7 +10389,7 @@ impl Compiler {
 
             // Restore saved locals (StoreFast restores the saved cell object for merged cells)
             for name in pushed_locals.iter().rev() {
-                let var_num = self.varname(name)?.as_u32();
+                let var_num = self.varname(name).as_u32();
                 emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
             }
             self.set_source_range(saved_source_range);
@@ -11481,7 +11473,8 @@ impl Compiler {
             )?;
         }
         self.set_source_range(fstring_range);
-        self.finish_fstring(pending_literal, pending_literal_no_location, element_count)
+        self.finish_fstring(pending_literal, pending_literal_no_location, element_count);
+        Ok(())
     }
 
     fn compile_fstring_parts_joined(&mut self, fstring: &[ast::FStringPart]) -> CompileResult<()> {
@@ -11545,7 +11538,7 @@ impl Compiler {
         mut pending_literal: Option<Wtf8Buf>,
         mut pending_literal_no_location: bool,
         mut element_count: u32,
-    ) -> CompileResult<()> {
+    ) {
         let keep_empty = element_count == 0;
         self.emit_pending_fstring_literal(
             &mut pending_literal,
@@ -11567,8 +11560,6 @@ impl Compiler {
                 }
             );
         }
-
-        Ok(())
     }
 
     fn finish_fstring_join(
@@ -11690,7 +11681,8 @@ impl Compiler {
             &mut element_count,
             false,
         )?;
-        self.finish_fstring(pending_literal, pending_literal_no_location, element_count)
+        self.finish_fstring(pending_literal, pending_literal_no_location, element_count);
+        Ok(())
     }
 
     fn compile_fstring_elements_joined(

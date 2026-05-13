@@ -165,12 +165,9 @@ mod _opcode {
     }
 
     #[pyfunction]
-    fn get_executor(
-        _code: PyObjectRef,
-        _offset: i32,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        Ok(vm.ctx.none())
+    fn get_executor(_code: PyObjectRef, _offset: i32, vm: &VirtualMachine) -> PyObjectRef {
+        // TODO
+        vm.ctx.none()
     }
 
     #[pyfunction]

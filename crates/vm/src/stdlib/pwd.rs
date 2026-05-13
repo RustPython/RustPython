@@ -98,7 +98,7 @@ mod pwd {
     // TODO: maybe merge this functionality into nix?
     #[cfg(not(target_os = "android"))]
     #[pyfunction]
-    fn getpwall(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn getpwall(vm: &VirtualMachine) -> Vec<PyObjectRef> {
         // setpwent, getpwent, etc are not thread safe. Could use fgetpwent_r, but this is easier
         static GETPWALL: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
         let _guard = GETPWALL.lock();
@@ -112,6 +112,6 @@ mod pwd {
         }
         unsafe { libc::endpwent() };
 
-        Ok(list)
+        list
     }
 }
