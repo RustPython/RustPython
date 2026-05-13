@@ -547,13 +547,13 @@ pub(crate) mod _ctypes {
         name: String,
         _load_flags: OptionalArg<i32>,
         vm: &VirtualMachine,
-    ) -> PyResult<usize> {
+    ) -> usize {
         // TODO: audit functions first
         // TODO: load_flags
         let cache = library::libcache();
         let mut cache_write = cache.write();
         let (id, _) = cache_write.get_or_insert_lib(&name, vm).unwrap();
-        Ok(id)
+        id
     }
 
     #[cfg(not(windows))]
@@ -741,13 +741,13 @@ pub(crate) mod _ctypes {
 
     #[cfg(target_os = "windows")]
     #[pyfunction(name = "_check_HRESULT")]
-    fn check_hresult(_self: PyObjectRef, hr: i32, _vm: &VirtualMachine) -> PyResult<i32> {
+    fn check_hresult(_self: PyObjectRef, hr: i32, _vm: &VirtualMachine) -> i32 {
         // TODO: fixme
         if hr < 0 {
             // vm.ctx.new_windows_error(hr)
             todo!();
         } else {
-            Ok(hr)
+            hr
         }
     }
 
@@ -957,8 +957,8 @@ pub(crate) mod _ctypes {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn get_last_error() -> PyResult<u32> {
-        Ok(super::function::get_last_error_value())
+    fn get_last_error() -> Pu32 {
+        super::function::get_last_error_value()
     }
 
     #[cfg(windows)]
@@ -1189,7 +1189,7 @@ pub(crate) mod _ctypes {
 
     #[cfg(windows)]
     #[pyfunction(name = "FormatError")]
-    fn format_error_func(code: OptionalArg<u32>, _vm: &VirtualMachine) -> PyResult<String> {
+    fn format_error_func(code: OptionalArg<u32>, _vm: &VirtualMachine) -> String {
         use windows_sys::Win32::Foundation::{GetLastError, LocalFree};
         use windows_sys::Win32::System::Diagnostics::Debug::{
             FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
@@ -1214,22 +1214,20 @@ pub(crate) mod _ctypes {
         };
 
         if len == 0 || buffer.is_null() {
-            return Ok("<no description>".to_string());
+            return "<no description>".to_string();
         }
 
-        let message = unsafe {
+        unsafe {
             let slice = core::slice::from_raw_parts(buffer, len as usize);
             let msg = String::from_utf16_lossy(slice).trim_end().to_string();
             LocalFree(buffer as *mut _);
             msg
-        };
-
-        Ok(message)
+        }
     }
 
     #[cfg(windows)]
     #[pyfunction(name = "CopyComPointer")]
-    fn copy_com_pointer(src: PyObjectRef, dst: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
+    fn copy_com_pointer(src: PyObjectRef, dst: PyObjectRef, vm: &VirtualMachine) -> i32 {
         use windows_sys::Win32::Foundation::{E_POINTER, S_OK};
 
         // 1. Extract pointer-to-pointer address from dst (byref() result)
@@ -1238,15 +1236,15 @@ pub(crate) mod _ctypes {
             let base = if let Some(cdata) = carg.obj.downcast_ref::<PyCData>() {
                 cdata.buffer.read().as_ptr() as usize
             } else {
-                return Ok(E_POINTER);
+                return E_POINTER;
             };
             (base as isize + carg.offset) as usize
         } else {
-            return Ok(E_POINTER);
+            return E_POINTER;
         };
 
         if pdst == 0 {
-            return Ok(E_POINTER);
+            return E_POINTER;
         }
 
         // 2. Extract COM pointer value from src
@@ -1265,7 +1263,7 @@ pub(crate) mod _ctypes {
                 0
             }
         } else {
-            return Ok(E_POINTER);
+            return E_POINTER;
         };
 
         // 3. Call IUnknown::AddRef if src is non-NULL
@@ -1286,7 +1284,7 @@ pub(crate) mod _ctypes {
             *(pdst as *mut usize) = src_ptr;
         }
 
-        Ok(S_OK)
+        S_OK
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
