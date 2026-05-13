@@ -68,7 +68,7 @@ impl StringParser {
         self.source[self.cursor..].as_bytes().first().copied()
     }
 
-    fn parse_unicode_literal(&mut self, literal_number: usize) -> Result<CodePoint, LexicalError> {
+    fn parse_unicode_literal(&mut self, literal_number: usize) -> CodePoint {
         let mut p: u32 = 0u32;
         for i in 1..=literal_number {
             match self.next_char() {
@@ -79,7 +79,7 @@ impl StringParser {
                 None => unreachable!(),
             }
         }
-        Ok(CodePoint::from_u32(p).unwrap())
+        CodePoint::from_u32(p).unwrap()
     }
 
     fn parse_octet(&mut self, o: u8) -> char {
@@ -134,9 +134,9 @@ impl StringParser {
             't' => '\t'.into(),
             'v' => '\x0b'.into(),
             o @ '0'..='7' => self.parse_octet(o as u8).into(),
-            'x' => self.parse_unicode_literal(2)?,
-            'u' if !self.flags.is_byte_string() => self.parse_unicode_literal(4)?,
-            'U' if !self.flags.is_byte_string() => self.parse_unicode_literal(8)?,
+            'x' => self.parse_unicode_literal(2),
+            'u' if !self.flags.is_byte_string() => self.parse_unicode_literal(4),
+            'U' if !self.flags.is_byte_string() => self.parse_unicode_literal(8),
             'N' if !self.flags.is_byte_string() => self.parse_unicode_name()?.into(),
             // Special cases where the escape sequence is not a single character
             '\n' => return Ok(None),
