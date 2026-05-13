@@ -816,7 +816,7 @@ impl ModuleItem for ClassItem {
                 #set_attr
             },
             0,
-        )?;
+        );
         Ok(())
     }
 }
@@ -910,7 +910,7 @@ impl ModuleItem for StructSequenceItem {
                 #set_attr
             },
             0,
-        )?;
+        );
         Ok(())
     }
 }
@@ -995,9 +995,9 @@ impl ModuleItem for AttributeItem {
                         cfgs.clone(),
                         tokens,
                         1,
-                    )?;
+                    );
                     Ok(())
-                })?;
+                });
                 return Ok(());
             }
             other => {
@@ -1053,7 +1053,7 @@ impl ModuleItem for AttributeItem {
 
         args.context
             .attribute_items
-            .add_item(ident, py_names, cfgs, tokens, 1)?;
+            .add_item(ident, py_names, cfgs, tokens, 1);
 
         Ok(())
     }

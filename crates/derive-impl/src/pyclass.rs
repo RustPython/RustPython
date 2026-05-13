@@ -644,8 +644,8 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     // 1. no `clear`: HAS_CLEAR = HAS_TRAVERSE (default: same as traverse)
     // 2. `clear` or `clear = true`: HAS_CLEAR = true, try_clear calls Traverse::clear
     // 3. `clear = false`: HAS_CLEAR = false (rare: traverse without clear)
-    let has_traverse = class_meta.inner()._has_key("traverse")?;
-    let has_clear = if class_meta.inner()._has_key("clear")? {
+    let has_traverse = class_meta.inner()._has_key("traverse");
+    let has_clear = if class_meta.inner()._has_key("clear") {
         // If clear attribute is present, use its value
         class_meta.inner()._bool("clear")?
     } else {
@@ -1189,7 +1189,7 @@ where
             args.cfgs.to_vec(),
             tokens,
             2,
-        )?;
+        );
 
         Ok(())
     }
@@ -1235,7 +1235,7 @@ where
 
         args.context
             .attribute_items
-            .add_item(ident.clone(), vec![py_name], cfgs, tokens, 1)?;
+            .add_item(ident.clone(), vec![py_name], cfgs, tokens, 1);
 
         Ok(())
     }
