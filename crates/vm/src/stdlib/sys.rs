@@ -1073,8 +1073,8 @@ pub mod sys {
     /// Stub for non-threading builds - returns empty dict
     #[cfg(not(feature = "threading"))]
     #[pyfunction]
-    fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        Ok(vm.ctx.new_dict())
+    fn _current_frames(vm: &VirtualMachine) -> PyDictRef {
+        vm.ctx.new_dict()
     }
 
     #[pyfunction]
