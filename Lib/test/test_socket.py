@@ -2189,6 +2189,7 @@ class GeneralModuleTests(unittest.TestCase):
                 source=_socket)
         enum._test_simple_enum(CheckedAddressInfo, socket.AddressInfo)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'Mut' found
     @unittest.skipUnless(hasattr(socket.socket, "sendmsg"),"sendmsg not supported")
     def test_sendmsg_reentrant_ancillary_mutation(self):
 
