@@ -2667,10 +2667,10 @@ fn subtype_set_dict(obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine)
 }
 
 // subtype_get_weakref
-fn subtype_get_weakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn subtype_get_weakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
     // Return the first weakref in the weakref list, or None
     let weakref = obj.get_weakrefs();
-    Ok(weakref.unwrap_or_else(|| vm.ctx.none()))
+    weakref.unwrap_or_else(|| vm.ctx.none())
 }
 
 // subtype_set_weakref: __weakref__ is read-only
