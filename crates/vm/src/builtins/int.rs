@@ -446,7 +446,7 @@ impl PyInt {
         zelf: PyRef<Self>,
         ndigits: OptionalOption<PyIntRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+    ) -> PyRef<Self> {
         if let Some(ndigits) = ndigits.flatten() {
             let ndigits = ndigits.as_bigint();
             // round(12345, -2) == 12300
@@ -477,10 +477,10 @@ impl PyInt {
                         BigInt::from(0)
                     };
                 let rounded = (rounded + correction) * sign;
-                return Ok(vm.ctx.new_int(rounded));
+                return vm.ctx.new_int(rounded);
             }
         }
-        Ok(zelf)
+        zelf
     }
 
     #[pymethod]
