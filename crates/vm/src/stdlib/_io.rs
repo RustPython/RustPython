@@ -5303,6 +5303,10 @@ mod _io {
         }
     }
 
+    #[cfg_attr(
+        not(feature = "host_env"),
+        expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")
+    )]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         // Call auto-generated initialization first
         __module_exec(vm, module);
