@@ -1907,6 +1907,10 @@ pub(super) mod _os {
     #[pyclass(with(PyStructSequence))]
     impl PyTimesResult {}
 
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "Can return an error on some platforms"
+    )]
     #[cfg(all(any(unix, windows), not(target_os = "redox")))]
     #[pyfunction]
     fn times(vm: &VirtualMachine) -> PyResult {
