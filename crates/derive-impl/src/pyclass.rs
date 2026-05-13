@@ -804,9 +804,9 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     Ok(ret)
 }
 
-pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     let Item::Impl(imp) = item else {
-        return Ok(item.into_token_stream());
+        return item.into_token_stream();
     };
 
     // Check if with(Constructor) is specified. If Constructor trait is used, don't generate slot_new
@@ -878,7 +878,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
         quote!(, #(#extra_attrs),*)
     };
 
-    Ok(quote! {
+    quote! {
         #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*) #extra_attrs_tokens)]
         impl #generics #self_ty {
             #(#items)*
@@ -886,7 +886,7 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
 
         #slot_new
         #slot_init
-    })
+    }
 }
 
 macro_rules! define_content_item {
@@ -1944,12 +1944,12 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
 fn impl_item_new<Item>(
     index: usize,
     attr_name: AttrName,
-) -> Result<Box<dyn ImplItem<Item, AttrName = AttrName>>>
+) -> Box<dyn ImplItem<Item, AttrName = AttrName>>
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
     use AttrName::*;
-    Ok(match attr_name {
+    match attr_name {
         attr_name @ (Method | ClassMethod | StaticMethod) => Box::new(MethodItem {
             inner: ContentItemInner { index, attr_name },
         }),
@@ -1968,7 +1968,7 @@ where
         Member => Box::new(MemberItem {
             inner: ContentItemInner { index, attr_name },
         }),
-    })
+    }
 }
 
 fn attrs_to_content_items<F, R>(
@@ -1976,7 +1976,7 @@ fn attrs_to_content_items<F, R>(
     item_new: F,
 ) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(usize, AttrName) -> Result<R>,
+    F: Fn(usize, AttrName) -> R,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -2018,7 +2018,7 @@ where
             }
         };
 
-        result.push(item_new(i, attr_name)?);
+        result.push(item_new(i, attr_name));
     }
     Ok((result, cfgs))
 }
