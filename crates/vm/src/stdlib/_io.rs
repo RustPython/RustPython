@@ -1591,14 +1591,7 @@ mod _io {
             let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
             let (raw, BufferSize { buffer_size }): (PyObjectRef, _) =
                 args.bind(vm).map_err(|e| {
-                    let str_repr = e
-                        .__str__(vm)
-                        .as_ref()
-                        .map_or_else(
-                            |_| "<error getting exception str>".as_ref(),
-                            |s| s.as_wtf8(),
-                        )
-                        .to_owned();
+                    let str_repr = e.__str__(vm).as_wtf8().to_owned();
                     let msg = format!("{}() {}", Self::CLASS_NAME, str_repr);
                     vm.new_exception_msg(e.class().to_owned(), msg.into())
                 })?;
