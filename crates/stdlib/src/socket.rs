@@ -2652,7 +2652,7 @@ mod _socket {
             .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
     }
 
-    #[cfg(all(unix, not(target_os = "redox")))]
+    #[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
     #[pyfunction]
     fn sethostname(hostname: PyUtf8StrRef) -> nix::Result<()> {
         nix::unistd::sethostname(hostname.as_str())
