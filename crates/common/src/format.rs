@@ -580,7 +580,13 @@ impl FormatSpec {
             },
         };
 
-        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), sign_str, FormatAlign::Right)
+        Ok(
+            self.format_sign_and_align(
+                &AsciiStr::new(&magnitude_str),
+                sign_str,
+                FormatAlign::Right,
+            ),
+        )
     }
 
     /// Format a float with locale-aware 'n' format.
@@ -620,7 +626,13 @@ impl FormatSpec {
             }
         };
 
-        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), sign_str, FormatAlign::Right)
+        Ok(
+            self.format_sign_and_align(
+                &AsciiStr::new(&magnitude_str),
+                sign_str,
+                FormatAlign::Right,
+            ),
+        )
     }
 
     /// Format a complex number with locale-aware 'n' format.
@@ -672,7 +684,7 @@ impl FormatSpec {
         // No parentheses for 'n' format (CPython: add_parens=0)
         let magnitude_str = format!("{grouped_re}{grouped_im}");
 
-        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right)
+        Ok(self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right))
     }
 
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
@@ -789,7 +801,13 @@ impl FormatSpec {
             }
         };
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, sign_str);
-        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), sign_str, FormatAlign::Right)
+        Ok(
+            self.format_sign_and_align(
+                &AsciiStr::new(&magnitude_str),
+                sign_str,
+                FormatAlign::Right,
+            ),
+        )
     }
 
     #[inline]
@@ -863,11 +881,11 @@ impl FormatSpec {
         };
         let sign_prefix = format!("{sign_str}{prefix}");
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str, &sign_prefix);
-        self.format_sign_and_align(
+        Ok(self.format_sign_and_align(
             &AsciiStr::new(&magnitude_str),
             &sign_prefix,
             FormatAlign::Right,
-        )
+        ))
     }
 
     pub fn format_string<T>(&self, s: &T) -> Result<String, FormatSpecError>
@@ -883,7 +901,7 @@ impl FormatSpec {
                     Some(p) => s.deref().chars().take(p).collect(),
                     None => s.deref().to_owned(),
                 };
-                self.format_sign_and_align(&truncated, "", FormatAlign::Left)
+                Ok(self.format_sign_and_align(&truncated, "", FormatAlign::Left))
             }
             _ => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
@@ -905,7 +923,11 @@ impl FormatSpec {
         }
         match &self.fill.unwrap_or_else(|| ' '.into()).to_char() {
             Some('0') => Err(FormatSpecError::ZeroPadding),
-            _ => self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right),
+            _ => Ok(self.format_sign_and_align(
+                &AsciiStr::new(&magnitude_str),
+                "",
+                FormatAlign::Right,
+            )),
         }
     }
 
@@ -1017,7 +1039,7 @@ impl FormatSpec {
         magnitude_str: &T,
         sign_str: &str,
         default_align: FormatAlign,
-    ) -> Result<String, FormatSpecError>
+    ) -> String
     where
         T: CharLen + Deref<Target = str>,
     {
@@ -1030,7 +1052,7 @@ impl FormatSpec {
         });
 
         let magnitude_str = magnitude_str.deref();
-        Ok(match align {
+        match align {
             FormatAlign::Left => format!(
                 "{}{}{}",
                 sign_str,
@@ -1057,7 +1079,7 @@ impl FormatSpec {
                     Self::compute_fill_string(fill_char, right_fill_chars_needed);
                 format!("{left_fill_string}{sign_str}{magnitude_str}{right_fill_string}")
             }
-        })
+        }
     }
 }
 
