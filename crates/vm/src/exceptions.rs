@@ -392,15 +392,6 @@ fn print_source_line<W: Write>(
     Ok(())
 }
 
-#[cfg(not(feature = "host_env"))]
-fn print_source_line<W: Write>(
-    _output: &mut W,
-    _filename: &str,
-    _lineno: usize,
-) -> Result<(), W::Error> {
-    Ok(())
-}
-
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(
     output: &mut W,
@@ -414,6 +405,8 @@ fn write_traceback_entry<W: Write>(
         tb_entry.lineno,
         tb_entry.frame.code.obj_name
     )?;
+
+    #[cfg(feature = "host_env")]
     print_source_line(output, filename, tb_entry.lineno.get())?;
 
     Ok(())
