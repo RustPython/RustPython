@@ -957,7 +957,7 @@ pub(crate) mod _ctypes {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn get_last_error() -> Pu32 {
+    fn get_last_error() -> u32 {
         super::function::get_last_error_value()
     }
 
