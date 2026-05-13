@@ -1,9 +1,15 @@
 use crate::pylifecycle::request_vm_from_interpreter;
+use crate::util::FfiResult;
 use core::ffi::c_int;
 use core::ptr;
+use rustpython_vm::VirtualMachine;
 use rustpython_vm::vm::thread::{
-    CurrentVmAttachState, attach_current_thread, release_current_thread,
+    CurrentVmAttachState, attach_current_thread, release_current_thread, with_current_vm,
 };
+
+pub(crate) fn with_vm<R: FfiResult<O>, O>(f: impl FnOnce(&VirtualMachine) -> R) -> O {
+    with_current_vm(|vm| f(vm).into_output(vm))
+}
 
 #[allow(non_camel_case_types)]
 type PyGILState_STATE = c_int;
@@ -40,6 +46,9 @@ pub extern "C" fn PyGILState_Release(state: PyGILState_STATE) {
 pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
     ptr::null_mut()
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyEval_RestoreThread(_state: *mut PyThreadState) {}
 
 #[cfg(test)]
 mod tests {
