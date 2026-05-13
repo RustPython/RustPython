@@ -5953,13 +5953,8 @@ mod fileio {
 
         /// fileio_dealloc_warn in Modules/_io/fileio.c
         #[pymethod(name = "_dealloc_warn")]
-        fn _dealloc_warn_method(
-            zelf: &Py<Self>,
-            source: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn _dealloc_warn_method(zelf: &Py<Self>, source: PyObjectRef, vm: &VirtualMachine) {
             Self::dealloc_warn(zelf, source, vm);
-            Ok(())
         }
     }
 
