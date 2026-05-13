@@ -84,7 +84,7 @@ pub fn py_freeze(input: TokenStream, compiler: &dyn Compiler) -> TokenStream {
 
 #[must_use]
 pub fn pypayload(input: DeriveInput) -> TokenStream {
-    result_to_tokens(pypayload::impl_pypayload(input))
+    pypayload::impl_pypayload(input)
 }
 
 #[must_use]
