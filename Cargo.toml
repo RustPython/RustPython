@@ -334,17 +334,16 @@ if_not_else = "allow" # Not always more readable
 single_match_else = "allow"
 similar_names = "allow"
 
+# restriction lints
 alloc_instead_of_core = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
-format_collect = "warn"
-from_iter_instead_of_collect = "warn"
-inefficient_to_string = "warn"
-redundant_clone = "warn"
+
+# nursery lints to enforce gradually
 debug_assert_with_mut_call = "warn"
-unused_peekable = "warn"
 or_fun_call = "warn"
-unnested_or_patterns = "warn"
+redundant_clone = "warn"
+unused_peekable = "warn"
 
 # pedantic lints to enforce gradually
 cloned_instead_of_copied = "warn"
@@ -354,8 +353,12 @@ explicit_into_iter_loop = "warn"
 explicit_iter_loop = "warn"
 filter_map_next = "warn"
 flat_map_option = "warn"
+format_collect = "warn"
+from_iter_instead_of_collect = "warn"
 inconsistent_struct_constructor = "warn"
+inefficient_to_string = "warn"
 manual_is_variant_and = "warn"
 map_unwrap_or = "warn"
 must_use_candidate = "warn"
 unnecessary_wraps = "warn"
+unnested_or_patterns = "warn"
