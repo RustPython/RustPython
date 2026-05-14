@@ -1555,13 +1555,11 @@ mod _overlapped {
                     ERROR_SUCCESS | ERROR_NOT_FOUND | ERROR_OPERATION_ABORTED => {}
                     _ => {
                         let msg = format!(
-                            "{:?} still has pending operation at deallocation, the process may crash",
-                            zelf
+                            "{zelf:?} still has pending operation at deallocation, the process may crash"
                         );
                         let exc = vm.new_runtime_error(msg);
                         let err_msg = Some(format!(
-                            "Exception ignored while deallocating overlapped operation {:?}",
-                            zelf
+                            "Exception ignored while deallocating overlapped operation {zelf:?}"
                         ));
                         let obj: PyObjectRef = zelf.to_owned().into();
                         vm.run_unraisable(exc, err_msg, obj);
@@ -1656,9 +1654,8 @@ mod _overlapped {
         if overlapped.is_null() {
             if err == Foundation::WAIT_TIMEOUT {
                 return Ok(vm.ctx.none());
-            } else {
-                return Err(set_from_windows_err(err, vm));
             }
+            return Err(set_from_windows_err(err, vm));
         }
 
         let value = vm.ctx.new_tuple(vec![

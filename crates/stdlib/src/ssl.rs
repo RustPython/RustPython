@@ -4947,8 +4947,7 @@ mod _ssl {
         // If no stores could be opened, raise OSError
         if stores.is_empty() {
             return Err(vm.new_os_error(format!(
-                "failed to open certificate store {:?}",
-                store_name_str
+                "failed to open certificate store {store_name_str:?}"
             )));
         }
 
@@ -5000,8 +4999,7 @@ mod _ssl {
 
         if store.is_null() {
             return Err(vm.new_os_error(format!(
-                "failed to open certificate store {:?}",
-                store_name_str
+                "failed to open certificate store {store_name_str:?}"
             )));
         }
 

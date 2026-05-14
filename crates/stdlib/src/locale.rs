@@ -308,7 +308,7 @@ mod _locale {
         {
             // On Windows, use GetACP() to get the ANSI code page
             let acp = unsafe { GetACP() };
-            format!("cp{}", acp)
+            format!("cp{acp}")
         }
         #[cfg(not(windows))]
         {
