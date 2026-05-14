@@ -228,7 +228,7 @@ pub(crate) mod _signal {
                 libc::SIGABRT,
             ];
             if !VALID_SIGNALS.contains(&signalnum) {
-                return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
+                return Err(vm.new_value_error(format!("signal number {signalnum} out of range")));
             }
         }
         if !vm.is_main_thread() {
@@ -536,7 +536,7 @@ pub(crate) mod _signal {
     #[pyfunction]
     fn strsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<Option<String>> {
         if signalnum < 1 || signalnum >= signal::NSIG as i32 {
-            return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
+            return Err(vm.new_value_error(format!("signal number {signalnum} out of range")));
         }
         // Windows doesn't have strsignal(), provide our own mapping
         let name = match signalnum {

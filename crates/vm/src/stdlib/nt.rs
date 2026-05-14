@@ -1087,7 +1087,7 @@ pub(crate) mod module {
                 return Err(vm.new_value_error("illegal environment variable name"));
             }
 
-            let env_str = format!("{}={}", key_str, value_str);
+            let env_str = format!("{key_str}={value_str}");
             env_strings.push(
                 widestring::WideCString::from_os_str(&*std::ffi::OsString::from(env_str))
                     .map_err(|err| err.to_pyexception(vm))?,
@@ -1209,7 +1209,7 @@ pub(crate) mod module {
                 return Err(vm.new_value_error("illegal environment variable name"));
             }
 
-            let env_str = format!("{}={}", key_str, value_str);
+            let env_str = format!("{key_str}={value_str}");
             env_strings.push(make_widestring(&env_str)?);
         }
 

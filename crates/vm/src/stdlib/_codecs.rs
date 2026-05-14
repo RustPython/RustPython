@@ -426,7 +426,7 @@ mod _codecs_windows {
 
         if size == 0 {
             let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("mbcs_encode failed: {}", err)));
+            return Err(vm.new_os_error(format!("mbcs_encode failed: {err}")));
         }
 
         let mut buffer = vec![0u8; size as usize];
@@ -515,7 +515,7 @@ mod _codecs_windows {
             };
             if size == 0 {
                 let err = std::io::Error::last_os_error();
-                return Err(vm.new_os_error(format!("mbcs_decode failed: {}", err)));
+                return Err(vm.new_os_error(format!("mbcs_decode failed: {err}")));
             }
 
             let mut buffer = vec![0u16; size as usize];
@@ -531,11 +531,11 @@ mod _codecs_windows {
             };
             if result == 0 {
                 let err = std::io::Error::last_os_error();
-                return Err(vm.new_os_error(format!("mbcs_decode failed: {}", err)));
+                return Err(vm.new_os_error(format!("mbcs_decode failed: {err}")));
             }
             buffer.truncate(result as usize);
             let s = String::from_utf16(&buffer)
-                .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {}", e)))?;
+                .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {e}")))?;
             return Ok((s, len));
         }
 
@@ -553,11 +553,11 @@ mod _codecs_windows {
         };
         if result == 0 {
             let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("mbcs_decode failed: {}", err)));
+            return Err(vm.new_os_error(format!("mbcs_decode failed: {err}")));
         }
         buffer.truncate(result as usize);
         let s = String::from_utf16(&buffer)
-            .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {}", e)))?;
+            .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {e}")))?;
 
         Ok((s, len))
     }
@@ -612,7 +612,7 @@ mod _codecs_windows {
 
         if size == 0 {
             let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("oem_encode failed: {}", err)));
+            return Err(vm.new_os_error(format!("oem_encode failed: {err}")));
         }
 
         let mut buffer = vec![0u8; size as usize];
@@ -701,7 +701,7 @@ mod _codecs_windows {
             };
             if size == 0 {
                 let err = std::io::Error::last_os_error();
-                return Err(vm.new_os_error(format!("oem_decode failed: {}", err)));
+                return Err(vm.new_os_error(format!("oem_decode failed: {err}")));
             }
 
             let mut buffer = vec![0u16; size as usize];
@@ -717,11 +717,11 @@ mod _codecs_windows {
             };
             if result == 0 {
                 let err = std::io::Error::last_os_error();
-                return Err(vm.new_os_error(format!("oem_decode failed: {}", err)));
+                return Err(vm.new_os_error(format!("oem_decode failed: {err}")));
             }
             buffer.truncate(result as usize);
             let s = String::from_utf16(&buffer)
-                .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {}", e)))?;
+                .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {e}")))?;
             return Ok((s, len));
         }
 
@@ -739,11 +739,11 @@ mod _codecs_windows {
         };
         if result == 0 {
             let err = std::io::Error::last_os_error();
-            return Err(vm.new_os_error(format!("oem_decode failed: {}", err)));
+            return Err(vm.new_os_error(format!("oem_decode failed: {err}")));
         }
         buffer.truncate(result as usize);
         let s = String::from_utf16(&buffer)
-            .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {}", e)))?;
+            .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {e}")))?;
 
         Ok((s, len))
     }
