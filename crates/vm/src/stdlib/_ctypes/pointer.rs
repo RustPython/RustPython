@@ -65,7 +65,7 @@ impl Initializer for PyCPointerType {
             } else {
                 String::new()
             };
-            stg_info.format = Some(format!("&{}{}", shape_str, current_format));
+            stg_info.format = Some(format!("&{shape_str}{current_format}"));
         }
 
         let _ = new_type.init_type_data(stg_info);
@@ -204,7 +204,7 @@ impl PyCPointerType {
             } else {
                 String::new()
             };
-            stg_info.format = Some(format!("&{}{}", shape_str, current_format));
+            stg_info.format = Some(format!("&{shape_str}{current_format}"));
         }
 
         // 4. Set _type_ attribute on the pointer type

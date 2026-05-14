@@ -507,7 +507,7 @@ pub(crate) mod _signal {
 
         let res = unsafe { libc::raise(signalnum) };
         if res != 0 {
-            return Err(vm.new_os_error(format!("raise_signal failed for signal {}", signalnum)));
+            return Err(vm.new_os_error(format!("raise_signal failed for signal {signalnum}")));
         }
 
         // Check if a signal was triggered and handle it
@@ -521,7 +521,7 @@ pub(crate) mod _signal {
     #[pyfunction]
     fn strsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<Option<String>> {
         if signalnum < 1 || signalnum >= signal::NSIG as i32 {
-            return Err(vm.new_value_error(format!("signal number {} out of range", signalnum)));
+            return Err(vm.new_value_error(format!("signal number {signalnum} out of range")));
         }
         let s = unsafe { libc::strsignal(signalnum) };
         if s.is_null() {

@@ -1168,7 +1168,7 @@ impl VirtualMachine {
             if let Some(stderr) = stderr {
                 let _ = vm.call_method(stderr, "write", (s.to_owned(),));
             } else {
-                eprint!("{}", s);
+                eprint!("{s}");
             }
         };
 
@@ -1191,7 +1191,7 @@ impl VirtualMachine {
             Ok(exc_str) if !exc_str.as_wtf8().is_empty() => {
                 format!("{}: {}\n", exc_type_name, exc_str.as_wtf8())
             }
-            _ => format!("{}\n", exc_type_name),
+            _ => format!("{exc_type_name}\n"),
         };
         write_to_stderr(&msg, &stderr, self);
 

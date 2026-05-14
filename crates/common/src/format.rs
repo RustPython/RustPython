@@ -763,7 +763,7 @@ impl FormatSpec {
                         Ok("inf%".to_owned())
                     } else {
                         let capped = float::clamp_fmt_precision(precision);
-                        let mut result = format!("{:.*}", capped, scaled);
+                        let mut result = format!("{scaled:.capped$}");
                         // Pad with '0's up to the requested precision to match
                         // CPython byte-identically past the internal cap.
                         let missing = precision.saturating_sub(capped);

@@ -56,7 +56,7 @@ fn ctypes_code_to_pep3118(code: char) -> char {
 fn alloc_format_string_for_type(code: char, big_endian: bool) -> String {
     let prefix = if big_endian { ">" } else { "<" };
     let pep_code = ctypes_code_to_pep3118(code);
-    format!("{}{}", prefix, pep_code)
+    format!("{prefix}{pep_code}")
 }
 
 /// Create a new simple type instance from a class
@@ -574,8 +574,7 @@ impl Initializer for PyCSimpleType {
         // Validate _type_ is a valid type character
         if !SIMPLE_TYPE_CHARS.contains(type_str.as_str()) {
             return Err(vm.new_attribute_error(format!(
-                "class must define a '_type_' attribute which must be a single character string containing one of '{}', currently it is '{}'.",
-                SIMPLE_TYPE_CHARS, type_str
+                "class must define a '_type_' attribute which must be a single character string containing one of '{SIMPLE_TYPE_CHARS}', currently it is '{type_str}'."
             )));
         }
 
@@ -1131,11 +1130,11 @@ impl Representable for PyCSimple {
             // Direct SimpleCData: "typename(repr(value))"
             let value = PyCSimple::value(zelf.to_owned().into(), vm)?;
             let value_repr = value.repr(vm)?.to_string();
-            Ok(format!("{}({})", type_name, value_repr))
+            Ok(format!("{type_name}({value_repr})"))
         } else {
             // Subclass: "<typename object at addr>"
             let addr = zelf.get_id();
-            Ok(format!("<{} object at {:#x}>", type_name, addr))
+            Ok(format!("<{type_name} object at {addr:#x}>"))
         }
     }
 }

@@ -163,7 +163,7 @@ mod gc {
         if let Some(g) = generation_opt
             && !(0..=2).contains(&g)
         {
-            return Err(vm.new_value_error(format!("generation must be in range(0, 3), not {}", g)));
+            return Err(vm.new_value_error(format!("generation must be in range(0, 3), not {g}")));
         }
         let objects = gc_state::gc_state().get_objects(generation_opt);
         Ok(vm.ctx.new_list(objects))

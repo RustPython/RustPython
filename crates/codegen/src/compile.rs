@@ -1287,8 +1287,7 @@ impl Compiler {
             let name = current_table.name.clone();
             let typ = current_table.typ;
             return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                "no symbol table available in {} (type: {:?})",
-                name, typ
+                "no symbol table available in {name} (type: {typ:?})"
             ))));
         }
 
@@ -9696,8 +9695,7 @@ impl Compiler {
                 let name = current_table.name.clone();
                 let typ = current_table.typ;
                 Err(self.error(CodegenErrorType::SyntaxError(format!(
-                    "no symbol table available in {} (type: {:?})",
-                    name, typ
+                    "no symbol table available in {name} (type: {typ:?})"
                 ))))
             }
         })();

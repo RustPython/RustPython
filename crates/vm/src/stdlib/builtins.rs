@@ -1336,15 +1336,13 @@ mod builtins {
         {
             let cell_value = classcell.get().ok_or_else(|| {
                 vm.new_runtime_error(format!(
-                    "__class__ not set defining {:?} as {:?}. Was __classcell__ propagated to type.__new__?",
-                    name, class
+                    "__class__ not set defining {name:?} as {class:?}. Was __classcell__ propagated to type.__new__?"
                 ))
             })?;
 
             if !cell_value.is(&class) {
                 return Err(vm.new_type_error(format!(
-                    "__class__ set to {:?} defining {:?} as {:?}",
-                    cell_value, name, class
+                    "__class__ set to {cell_value:?} defining {name:?} as {class:?}"
                 )));
             }
         }

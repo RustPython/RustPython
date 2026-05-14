@@ -555,7 +555,7 @@ impl core::fmt::Debug for SlotFunc {
             SlotFunc::GetAttro(_) => write!(f, "SlotFunc::GetAttro(...)"),
             SlotFunc::SetAttro(_) => write!(f, "SlotFunc::SetAttro(...)"),
             SlotFunc::DelAttro(_) => write!(f, "SlotFunc::DelAttro(...)"),
-            SlotFunc::RichCompare(_, op) => write!(f, "SlotFunc::RichCompare(..., {:?})", op),
+            SlotFunc::RichCompare(_, op) => write!(f, "SlotFunc::RichCompare(..., {op:?})"),
             SlotFunc::DescrGet(_) => write!(f, "SlotFunc::DescrGet(...)"),
             SlotFunc::DescrSet(_) => write!(f, "SlotFunc::DescrSet(...)"),
             SlotFunc::DescrDel(_) => write!(f, "SlotFunc::DescrDel(...)"),

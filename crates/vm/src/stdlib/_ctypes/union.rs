@@ -621,8 +621,7 @@ impl PyCUnion {
                     // Check for duplicate in kwargs
                     if kwargs.contains_key(&field_name) {
                         return Err(vm.new_type_error(format!(
-                            "duplicate values for field {:?}",
-                            field_name
+                            "duplicate values for field {field_name:?}"
                         )));
                     }
                     self_obj.as_object().set_attr(

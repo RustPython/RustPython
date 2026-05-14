@@ -4878,8 +4878,7 @@ mod _ssl {
         let path_str = path.as_str();
         let cert_data = rustpython_host_env::fs::read(path_str).map_err(|e| {
             vm.new_os_error(format!(
-                "Failed to read certificate file {}: {}",
-                path_str, e
+                "Failed to read certificate file {path_str}: {e}"
             ))
         })?;
 

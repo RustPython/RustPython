@@ -906,8 +906,7 @@ pub mod module {
         if num_threads > 1 {
             let pid = unsafe { libc::getpid() };
             let msg = format!(
-                "This process (pid={}) is multi-threaded, use of {}() may lead to deadlocks in the child.",
-                pid, name
+                "This process (pid={pid}) is multi-threaded, use of {name}() may lead to deadlocks in the child."
             );
 
             // Match PyErr_WarnFormat(..., stacklevel=1) in CPython.

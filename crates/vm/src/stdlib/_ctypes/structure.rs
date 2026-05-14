@@ -405,7 +405,7 @@ impl PyCStructType {
                     .map(|d| d.to_string())
                     .collect::<Vec<_>>()
                     .join(",");
-                format.push_str(&std::format!("({}){}", shape_str, field_format));
+                format.push_str(&std::format!("({shape_str}){field_format}"));
             } else {
                 format.push_str(&field_format);
             }
@@ -750,8 +750,7 @@ impl PyCStructure {
                     // Check for duplicate in kwargs
                     if kwargs.contains_key(&field_name) {
                         return Err(vm.new_type_error(format!(
-                            "duplicate values for field {:?}",
-                            field_name
+                            "duplicate values for field {field_name:?}"
                         )));
                     }
                     self_obj.as_object().set_attr(
