@@ -26,11 +26,6 @@ PRIORITY_OPMAP = {
 }
 
 
-def to_snake_case(s: str) -> str:
-    res = re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", s)
-    return re.sub(r"(\D)(\d+)$", r"\1_\2", res).upper()
-
-
 class Opcode(typing.NamedTuple):
     rust_name: str
     id: int
@@ -62,67 +57,6 @@ class Opcode(typing.NamedTuple):
             opcode.cpython_name not in PRIORITY_OPMAP for opcode in (self, other)
         )
         return (sprio, self.id) < (oprio, other.id)
-
-
-def extract_enum_body(text: str, name: str) -> str:
-    # Find the start of the enum block
-    start_match = re.search(rf"enum\s+{name}\s*\{{", text)
-    if not start_match:
-        return None
-
-    # Manually track brace depth from that point
-    depth = 0
-    start = start_match.end() - 1  # position of opening '{'
-    for i, ch in enumerate(text[start:], start):
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                # Return only the inner content (excluding outer braces)
-                return text[start + 1 : i]
-
-
-def build_deopts(text: str) -> dict[str, list[str]]:
-    raw_body = re.search(r"fn deopt\(self\)(.*)", text, re.DOTALL).group(1)
-    match_start = raw_body.find("match self")
-    if match_start == -1:
-        raise ValueError("Could not detect a match statement in deopt method")
-
-    brace_depth = 0
-    block_start = None
-    block_end = None
-
-    for i, ch in enumerate(raw_body[match_start:], match_start):
-        if ch == "{":
-            brace_depth += 1
-            if block_start is None:
-                block_start = i + 1
-        elif ch == "}":
-            brace_depth -= 1
-            if brace_depth == 0:
-                block_end = i
-                break
-
-    match_body = raw_body[block_start:block_end]
-
-    arm_pattern = re.compile(
-        r"((?:Self::\w+\s*\|\s*)*Self::\w+)\s*=>\s*(?:\{\s*)?Self::(\w+)", re.DOTALL
-    )
-    variants_pattern = re.compile(r"Self::(\w+)")
-
-    deopts = {}
-    for hit in arm_pattern.finditer(match_body):
-        raw_variants = hit.group(1)
-        opcode = hit.group(2)
-
-        variants = variants_pattern.findall(raw_variants)
-
-        key = to_snake_case(opcode)
-        value = [to_snake_case(variant) for variant in variants]
-        deopts[key] = value
-
-    return deopts
 
 
 contents = BYTECODE_FILE.read_text(encoding="utf-8")
