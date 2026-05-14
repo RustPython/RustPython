@@ -648,9 +648,8 @@ impl PyCPointer {
                     *(addr as *mut usize) = ptr_val;
                 }
                 return zelf.0.keep_ref(index as usize, holder, vm);
-            } else {
-                Self::write_value_at_address(addr, element_size, &value, type_code.as_deref(), vm)?;
             }
+            Self::write_value_at_address(addr, element_size, &value, type_code.as_deref(), vm)?;
         }
 
         // KeepRef: store reference to keep value alive using actual index

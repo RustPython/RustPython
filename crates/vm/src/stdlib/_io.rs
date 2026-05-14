@@ -1153,41 +1153,41 @@ mod _io {
                         }
                         vm.check_signals()?;
                     }
-                    None => {
+                    None if remaining > self.buffer.len() => {
                         // raw file is non-blocking
-                        if remaining > self.buffer.len() {
-                            // can't buffer everything, buffer what we can and error
-                            let buf = buffer.as_contiguous().unwrap();
-                            let buffer_len = self.buffer.len();
-                            self.buffer.copy_from_slice(&buf[written..][..buffer_len]);
-                            self.raw_pos = 0;
-                            let buffer_size = self.buffer.len() as _;
-                            self.adjust_position(buffer_size);
-                            self.write_end = buffer_size;
-                            // BlockingIOError(errno, msg, characters_written)
-                            let chars_written = written + buffer_len;
-                            return Err(vm.invoke_exception(
-                                vm.ctx.exceptions.blocking_io_error.to_owned(),
-                                vec![
-                                    vm.new_pyobj(EAGAIN),
-                                    vm.new_pyobj("write could not complete without blocking"),
-                                    vm.new_pyobj(chars_written),
-                                ],
-                            )?);
-                        } else {
-                            break;
-                        }
+                        // can't buffer everything, buffer what we can and error
+                        let buf = buffer.as_contiguous().unwrap();
+                        let buffer_len = self.buffer.len();
+                        self.buffer.copy_from_slice(&buf[written..][..buffer_len]);
+                        self.raw_pos = 0;
+                        let buffer_size = self.buffer.len() as _;
+                        self.adjust_position(buffer_size);
+                        self.write_end = buffer_size;
+                        // BlockingIOError(errno, msg, characters_written)
+                        let chars_written = written + buffer_len;
+                        return Err(vm.invoke_exception(
+                            vm.ctx.exceptions.blocking_io_error.to_owned(),
+                            vec![
+                                vm.new_pyobj(EAGAIN),
+                                vm.new_pyobj("write could not complete without blocking"),
+                                vm.new_pyobj(chars_written),
+                            ],
+                        )?);
                     }
+                    None => break,
                 }
             }
+
             if self.readable() {
                 self.reset_read();
             }
+
             if remaining > 0 {
                 let buf = buffer.as_contiguous().unwrap();
                 self.buffer[..remaining].copy_from_slice(&buf[written..][..remaining]);
                 written += remaining;
             }
+
             self.write_pos = 0;
             self.write_end = remaining as _;
             self.adjust_position(remaining as _);
@@ -2340,11 +2340,10 @@ mod _io {
                                     let pos_after = p + 2;
                                     if ch_after_cr == b'\n' {
                                         break Ok(searched + pos_after);
-                                    } else {
-                                        searched += pos_after;
-                                        remaining = &remaining[pos_after..];
-                                        continue;
                                     }
+                                    searched += pos_after;
+                                    remaining = &remaining[pos_after..];
+                                    continue;
                                 }
                                 None => break Err(searched + p),
                             },
@@ -3247,12 +3246,11 @@ mod _io {
                             reset_encoder(encoder, start_of_stream)?;
                         }
                         return Ok(res);
-                    } else {
-                        return Err(new_unsupported_operation(
-                            vm,
-                            "can't do nonzero end-relative seeks".to_owned(),
-                        ));
                     }
+                    return Err(new_unsupported_operation(
+                        vm,
+                        "can't do nonzero end-relative seeks".to_owned(),
+                    ));
                 }
                 _ => {
                     return Err(

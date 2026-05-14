@@ -962,9 +962,8 @@ impl PyCData {
                 self.write_bytes_at_offset(offset, &to_copy[..copy_len]);
                 self.keep_ref(index, value, vm)?;
                 return Ok(());
-            } else {
-                return Err(vm.new_type_error("bytes expected instead of str instance"));
             }
+            return Err(vm.new_type_error("bytes expected instead of str instance"));
         }
 
         // For c_wchar arrays with str input, convert to wchar_t

@@ -7955,21 +7955,20 @@ impl Compiler {
                         if let ast::Expr::Starred(_) = &element {
                             if seen_star {
                                 return Err(self.error(CodegenErrorType::MultipleStarArgs));
-                            } else {
-                                seen_star = true;
-                                let before = i;
-                                let after = elts.len() - i - 1;
-                                let (before, after) = (|| Some((before.to_u8()?, after.to_u8()?)))(
-                                )
+                            }
+
+                            seen_star = true;
+                            let before = i;
+                            let after = elts.len() - i - 1;
+                            let (before, after) = (|| Some((before.to_u8()?, after.to_u8()?)))()
                                 .ok_or_else(|| {
                                     self.error_ranged(
                                         CodegenErrorType::TooManyStarUnpack,
                                         target.range(),
                                     )
                                 })?;
-                                let counts = bytecode::UnpackExArgs { before, after };
-                                emit!(self, Instruction::UnpackEx { counts });
-                            }
+                            let counts = bytecode::UnpackExArgs { before, after };
+                            emit!(self, Instruction::UnpackEx { counts });
                         }
                     }
 

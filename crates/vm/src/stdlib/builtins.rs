@@ -1121,6 +1121,10 @@ mod builtins {
         start: OptionalArg<PyObjectRef>,
     }
 
+    #[expect(
+        clippy::redundant_else,
+        reason = "match_class! macro expansion arms has a `return` inside"
+    )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
@@ -1130,17 +1134,13 @@ mod builtins {
 
         match_class!(match sum {
             PyStr =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum strings [use ''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]")),
             PyBytes =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytes [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]")),
             PyByteArray =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(
+                    vm.new_type_error("sum() can't sum bytearray [use b''.join(seq) instead]")
+                ),
             _ => (),
         });
 

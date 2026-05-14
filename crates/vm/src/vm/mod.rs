@@ -1886,9 +1886,9 @@ impl VirtualMachine {
                         if i >= elements.len() {
                             results.shrink_to_fit();
                             return Ok(Ok(results));
-                        } else {
-                            elements[i].clone()
                         }
+                        elements[i].clone()
+
                         // free the lock
                     };
                     match f(elem) {
@@ -2149,9 +2149,8 @@ impl VirtualMachine {
                     arg => {
                         if self.is_none(arg) {
                             return 0;
-                        } else {
-                            arg.str(self).ok()
                         }
+                        arg.str(self).ok()
                     }
                 }),
                 _ => args.as_object().repr(self).ok(),
