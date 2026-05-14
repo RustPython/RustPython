@@ -177,7 +177,7 @@ pub enum SymbolScope {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SymbolFlags: u16 {
         const REFERENCED = 0x001;  // USE
         const ASSIGNED = 0x002;    // DEF_LOCAL

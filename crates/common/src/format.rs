@@ -31,7 +31,7 @@ trait FormatParse {
         Self: Sized;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum FormatConversion {
     Str = b's',
@@ -74,7 +74,7 @@ impl FormatConversion {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FormatAlign {
     Left,
     Right,
@@ -105,7 +105,7 @@ impl FormatParse for FormatAlign {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FormatSign {
     Plus,
     Minus,
@@ -124,7 +124,7 @@ impl FormatParse for FormatSign {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatGrouping {
     Comma,
     Underscore,
@@ -150,7 +150,7 @@ impl From<&FormatGrouping> for char {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatType {
     String,
     Binary,
@@ -216,7 +216,7 @@ impl FormatParse for FormatType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FormatSpec {
     conversion: Option<FormatConversion>,
     fill: Option<CodePoint>,
@@ -1118,7 +1118,7 @@ impl Deref for AsciiStr<'_> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatSpecError {
     DecimalDigitsTooMany,
     PrecisionTooBig,
@@ -1135,7 +1135,7 @@ pub enum FormatSpecError {
     NotImplemented(char, &'static str),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatParseError {
     UnmatchedBracket,
     MissingStartBracket,
@@ -1155,7 +1155,7 @@ impl FromStr for FormatSpec {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FieldNamePart {
     Attribute(Wtf8Buf),
     Index(usize),
@@ -1202,14 +1202,14 @@ impl FieldNamePart {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FieldType {
     Auto,
     Index(usize),
     Keyword(Wtf8Buf),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FieldName {
     pub field_type: FieldType,
     pub parts: Vec<FieldNamePart>,
@@ -1255,7 +1255,7 @@ impl FieldName {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FormatPart {
     Field {
         field_name: Wtf8Buf,
@@ -1265,7 +1265,7 @@ pub enum FormatPart {
     Literal(Wtf8Buf),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FormatString {
     pub format_parts: Vec<FormatPart>,
 }

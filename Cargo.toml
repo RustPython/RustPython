@@ -341,6 +341,7 @@ std_instead_of_core = "warn"
 
 # nursery lints to enforce gradually
 debug_assert_with_mut_call = "warn"
+derive_partial_eq_without_eq = "warn"
 imprecise_flops = "warn"
 or_fun_call = "warn"
 redundant_clone = "warn"
