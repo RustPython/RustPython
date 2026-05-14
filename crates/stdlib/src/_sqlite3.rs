@@ -1736,8 +1736,7 @@ mod _sqlite3 {
                 st.bind_parameters(&parameters, vm)?;
             } else if params_needed > 0 {
                 let msg = format!(
-                    "Incorrect number of bindings supplied. The current statement uses {}, and 0 were supplied.",
-                    params_needed
+                    "Incorrect number of bindings supplied. The current statement uses {params_needed}, and 0 were supplied."
                 );
                 return Err(new_programming_error(vm, msg));
             }
@@ -3175,8 +3174,7 @@ mod _sqlite3 {
                 return Err(new_programming_error(
                     vm,
                     format!(
-                        "Incorrect number of bindings supplied. The current statement uses {}, and {} were supplied.",
-                        num_needed, num_supplied
+                        "Incorrect number of bindings supplied. The current statement uses {num_needed}, and {num_supplied} were supplied."
                     ),
                 ));
             }
