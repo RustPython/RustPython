@@ -254,7 +254,7 @@ impl FormatChar for u8 {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CFormatSpec {
     pub flags: CConversionFlags,
     pub min_field_width: Option<CFormatQuantity>,
@@ -263,7 +263,7 @@ pub struct CFormatSpec {
     // chars_consumed: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CFormatSpecKeyed<T> {
     pub mapping_key: Option<T>,
     pub spec: CFormatSpec,
@@ -718,7 +718,7 @@ where
     Some(contained_text)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum CFormatPart<T> {
     Literal(T),
     Spec(CFormatSpecKeyed<T>),
@@ -739,7 +739,7 @@ impl<T> CFormatPart<T> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CFormatStrOrBytes<S> {
     parts: Vec<(usize, CFormatPart<S>)>,
 }
