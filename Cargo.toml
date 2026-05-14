@@ -345,6 +345,8 @@ derive_partial_eq_without_eq = "warn"
 imprecise_flops = "warn"
 or_fun_call = "warn"
 redundant_clone = "warn"
+search_is_some = "warn"
+single_option_map = "warn"
 unused_peekable = "warn"
 
 # pedantic lints to enforce gradually
