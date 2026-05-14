@@ -2182,9 +2182,7 @@ unsafe extern "C" fn thunk_callback(
                 .callable
                 .repr(vm)
                 .map_or_else(|_| "<unknown>".to_string(), |s| s.to_string());
-            let msg = format!(
-                "Exception ignored while calling ctypes callback function {repr}"
-            );
+            let msg = format!("Exception ignored while calling ctypes callback function {repr}");
             vm.run_unraisable(exc.clone(), Some(msg), vm.ctx.none());
         }
 
