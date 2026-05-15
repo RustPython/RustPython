@@ -88,7 +88,7 @@ impl Constructor for PyInterpolation {
             .format_spec
             .unwrap_or_else(|| vm.ctx.empty_str.to_owned());
 
-        Ok(PyInterpolation {
+        Ok(Self {
             value: args.value,
             expression,
             conversion,

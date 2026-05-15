@@ -1331,7 +1331,7 @@ impl OSErrorBuilder {
     pub(crate) fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
         use types::PyOSError;
 
-        let OSErrorBuilder {
+        let Self {
             exc_type,
             errno,
             strerror,
@@ -1889,7 +1889,7 @@ pub(super) mod types {
             // SAFETY: All OSError subclasses (FileNotFoundError, etc.) are
             // #[repr(transparent)] wrappers around PyOSError with identical memory layout
             #[allow(deprecated)]
-            let exc: &Py<PyOSError> = zelf.downcast_ref::<PyOSError>().unwrap();
+            let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
 
             // Check if this is BlockingIOError - need to handle characters_written
             let is_blocking_io_error =

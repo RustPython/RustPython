@@ -569,9 +569,9 @@ mod _multiprocessing {
                 unsafe {
                     libc::sem_unlink(cname.as_ptr());
                 }
-                Ok((SemHandle { raw }, None))
+                Ok((Self { raw }, None))
             } else {
-                Ok((SemHandle { raw }, Some(name.to_owned())))
+                Ok((Self { raw }, Some(name.to_owned())))
             }
         }
 
@@ -582,7 +582,7 @@ mod _multiprocessing {
                 let err = Errno::last();
                 return Err(os_error(vm, err));
             }
-            Ok(SemHandle { raw })
+            Ok(Self { raw })
         }
 
         #[inline]
@@ -928,7 +928,7 @@ mod _multiprocessing {
             };
             let handle = SemHandle::open_existing(name_str, vm)?;
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
-            let zelf = SemLock {
+            let zelf = Self {
                 handle,
                 kind,
                 maxvalue,
@@ -1060,7 +1060,7 @@ mod _multiprocessing {
             let (handle, name) = SemHandle::create(&args.name, value, args.unlink, vm)?;
 
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
-            Ok(SemLock {
+            Ok(Self {
                 handle,
                 kind: args.kind,
                 maxvalue: args.maxvalue,

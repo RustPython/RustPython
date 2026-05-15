@@ -1164,7 +1164,7 @@ impl VirtualMachine {
         // Get stderr once and reuse it
         let stderr = crate::stdlib::sys::get_stderr(self).ok();
 
-        let write_to_stderr = |s: &str, stderr: &Option<PyObjectRef>, vm: &VirtualMachine| {
+        let write_to_stderr = |s: &str, stderr: &Option<PyObjectRef>, vm: &Self| {
             if let Some(stderr) = stderr {
                 let _ = vm.call_method(stderr, "write", (s.to_owned(),));
             } else {
@@ -1398,7 +1398,7 @@ impl VirtualMachine {
     /// 2-pass module dict clearing (_PyModule_ClearDict algorithm).
     /// Pass 1: Set names starting with '_' (except __builtins__) to None.
     /// Pass 2: Set all remaining names (except __builtins__) to None.
-    pub(crate) fn module_clear_dict(dict: &Py<PyDict>, vm: &VirtualMachine) {
+    pub(crate) fn module_clear_dict(dict: &Py<PyDict>, vm: &Self) {
         let none = vm.ctx.none();
 
         // Pass 1: names starting with '_' (except __builtins__)

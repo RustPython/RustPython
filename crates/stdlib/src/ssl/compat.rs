@@ -274,64 +274,64 @@ impl TlsConnection {
     /// Check if handshake is in progress
     pub(super) fn is_handshaking(&self) -> bool {
         match self {
-            TlsConnection::Client(conn) => conn.is_handshaking(),
-            TlsConnection::Server(conn) => conn.is_handshaking(),
+            Self::Client(conn) => conn.is_handshaking(),
+            Self::Server(conn) => conn.is_handshaking(),
         }
     }
 
     /// Check if connection wants to read data
     pub(super) fn wants_read(&self) -> bool {
         match self {
-            TlsConnection::Client(conn) => conn.wants_read(),
-            TlsConnection::Server(conn) => conn.wants_read(),
+            Self::Client(conn) => conn.wants_read(),
+            Self::Server(conn) => conn.wants_read(),
         }
     }
 
     /// Check if connection wants to write data
     pub(super) fn wants_write(&self) -> bool {
         match self {
-            TlsConnection::Client(conn) => conn.wants_write(),
-            TlsConnection::Server(conn) => conn.wants_write(),
+            Self::Client(conn) => conn.wants_write(),
+            Self::Server(conn) => conn.wants_write(),
         }
     }
 
     /// Read TLS data from socket
     pub(super) fn read_tls(&mut self, reader: &mut dyn std::io::Read) -> std::io::Result<usize> {
         match self {
-            TlsConnection::Client(conn) => conn.read_tls(reader),
-            TlsConnection::Server(conn) => conn.read_tls(reader),
+            Self::Client(conn) => conn.read_tls(reader),
+            Self::Server(conn) => conn.read_tls(reader),
         }
     }
 
     /// Write TLS data to socket
     pub(super) fn write_tls(&mut self, writer: &mut dyn std::io::Write) -> std::io::Result<usize> {
         match self {
-            TlsConnection::Client(conn) => conn.write_tls(writer),
-            TlsConnection::Server(conn) => conn.write_tls(writer),
+            Self::Client(conn) => conn.write_tls(writer),
+            Self::Server(conn) => conn.write_tls(writer),
         }
     }
 
     /// Process new TLS packets
     pub(super) fn process_new_packets(&mut self) -> Result<rustls::IoState, rustls::Error> {
         match self {
-            TlsConnection::Client(conn) => conn.process_new_packets(),
-            TlsConnection::Server(conn) => conn.process_new_packets(),
+            Self::Client(conn) => conn.process_new_packets(),
+            Self::Server(conn) => conn.process_new_packets(),
         }
     }
 
     /// Get reader for plaintext data (rustls native type)
     pub(super) fn reader(&mut self) -> rustls::Reader<'_> {
         match self {
-            TlsConnection::Client(conn) => conn.reader(),
-            TlsConnection::Server(conn) => conn.reader(),
+            Self::Client(conn) => conn.reader(),
+            Self::Server(conn) => conn.reader(),
         }
     }
 
     /// Get writer for plaintext data (rustls native type)
     pub(super) fn writer(&mut self) -> rustls::Writer<'_> {
         match self {
-            TlsConnection::Client(conn) => conn.writer(),
-            TlsConnection::Server(conn) => conn.writer(),
+            Self::Client(conn) => conn.writer(),
+            Self::Server(conn) => conn.writer(),
         }
     }
 
@@ -339,10 +339,10 @@ impl TlsConnection {
     pub(super) fn is_session_resumed(&self) -> bool {
         use rustls::HandshakeKind;
         match self {
-            TlsConnection::Client(conn) => {
+            Self::Client(conn) => {
                 matches!(conn.handshake_kind(), Some(HandshakeKind::Resumed))
             }
-            TlsConnection::Server(conn) => {
+            Self::Server(conn) => {
                 matches!(conn.handshake_kind(), Some(HandshakeKind::Resumed))
             }
         }
@@ -351,24 +351,24 @@ impl TlsConnection {
     /// Send close_notify alert
     pub(super) fn send_close_notify(&mut self) {
         match self {
-            TlsConnection::Client(conn) => conn.send_close_notify(),
-            TlsConnection::Server(conn) => conn.send_close_notify(),
+            Self::Client(conn) => conn.send_close_notify(),
+            Self::Server(conn) => conn.send_close_notify(),
         }
     }
 
     /// Get negotiated ALPN protocol
     pub(super) fn alpn_protocol(&self) -> Option<&[u8]> {
         match self {
-            TlsConnection::Client(conn) => conn.alpn_protocol(),
-            TlsConnection::Server(conn) => conn.alpn_protocol(),
+            Self::Client(conn) => conn.alpn_protocol(),
+            Self::Server(conn) => conn.alpn_protocol(),
         }
     }
 
     /// Get negotiated cipher suite
     pub(super) fn negotiated_cipher_suite(&self) -> Option<rustls::SupportedCipherSuite> {
         match self {
-            TlsConnection::Client(conn) => conn.negotiated_cipher_suite(),
-            TlsConnection::Server(conn) => conn.negotiated_cipher_suite(),
+            Self::Client(conn) => conn.negotiated_cipher_suite(),
+            Self::Server(conn) => conn.negotiated_cipher_suite(),
         }
     }
 
@@ -377,8 +377,8 @@ impl TlsConnection {
         &self,
     ) -> Option<&[rustls::pki_types::CertificateDer<'static>]> {
         match self {
-            TlsConnection::Client(conn) => conn.peer_certificates(),
-            TlsConnection::Server(conn) => conn.peer_certificates(),
+            Self::Client(conn) => conn.peer_certificates(),
+            Self::Server(conn) => conn.peer_certificates(),
         }
     }
 }
@@ -427,19 +427,19 @@ impl SslError {
     /// Convert rustls error to SslError
     pub(super) fn from_rustls(err: rustls::Error) -> Self {
         match err {
-            rustls::Error::InvalidCertificate(cert_err) => SslError::CertVerification(cert_err),
+            rustls::Error::InvalidCertificate(cert_err) => Self::CertVerification(cert_err),
             rustls::Error::AlertReceived(alert_desc) => {
                 // Map TLS alerts to OpenSSL-compatible error codes
                 // lib = 20 (ERR_LIB_SSL), reason = 1000 + alert_code
                 match alert_desc {
                     rustls::AlertDescription::CloseNotify => {
                         // Special case: close_notify is handled as ZeroReturn
-                        SslError::ZeroReturn
+                        Self::ZeroReturn
                     }
                     _ => {
                         // All other alerts: convert to OpenSSL error code
                         // This includes InternalError (80 -> reason 1080)
-                        SslError::AlertReceived {
+                        Self::AlertReceived {
                             lib: ERR_LIB_SSL,
                             reason: Self::alert_to_openssl_reason(alert_desc),
                         }
@@ -452,7 +452,7 @@ impl SslError {
             rustls::Error::InvalidMessage(_) => {
                 // UnexpectedMessage, CorruptMessage, etc. → SSLEOFError
                 // Matches CPython's "EOF occurred in violation of protocol"
-                SslError::Eof
+                Self::Eof
             }
             rustls::Error::PeerIncompatible(peer_err) => {
                 // Check for specific incompatibility types
@@ -460,15 +460,15 @@ impl SslError {
                 match peer_err {
                     PeerIncompatible::NoCipherSuitesInCommon => {
                         // Maps to OpenSSL SSL_R_NO_SHARED_CIPHER (lib=20, reason=193)
-                        SslError::NoCipherSuites
+                        Self::NoCipherSuites
                     }
                     _ => {
                         // Other protocol incompatibilities → SSLEOFError
-                        SslError::Eof
+                        Self::Eof
                     }
                 }
             }
-            _ => SslError::Ssl(format!("{err}")),
+            _ => Self::Ssl(format!("{err}")),
         }
     }
 
@@ -555,23 +555,23 @@ impl SslError {
     /// Convert to Python exception
     pub(super) fn into_py_err(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
-            SslError::WantRead => create_ssl_want_read_error(vm).upcast(),
-            SslError::WantWrite => create_ssl_want_write_error(vm).upcast(),
-            SslError::Timeout(msg) => timeout_error_msg(vm, msg).upcast(),
-            SslError::Syscall(msg) => {
+            Self::WantRead => create_ssl_want_read_error(vm).upcast(),
+            Self::WantWrite => create_ssl_want_write_error(vm).upcast(),
+            Self::Timeout(msg) => timeout_error_msg(vm, msg).upcast(),
+            Self::Syscall(msg) => {
                 // SSLSyscallError with errno=SSL_ERROR_SYSCALL (5)
                 create_ssl_syscall_error(vm, msg).upcast()
             }
-            SslError::Ssl(msg) => vm
+            Self::Ssl(msg) => vm
                 .new_os_subtype_error(
                     PySSLError::class(&vm.ctx).to_owned(),
                     None,
                     format!("SSL error: {msg}"),
                 )
                 .upcast(),
-            SslError::ZeroReturn => create_ssl_zero_return_error(vm).upcast(),
-            SslError::Eof => create_ssl_eof_error(vm).upcast(),
-            SslError::PreauthData => {
+            Self::ZeroReturn => create_ssl_zero_return_error(vm).upcast(),
+            Self::Eof => create_ssl_eof_error(vm).upcast(),
+            Self::PreauthData => {
                 // Non-TLS data received before handshake
                 Self::create_ssl_error_with_reason(
                     vm,
@@ -580,20 +580,20 @@ impl SslError {
                     "before TLS handshake with data",
                 )
             }
-            SslError::CertVerification(cert_err) => {
+            Self::CertVerification(cert_err) => {
                 // Use the proper cert verification error creator
                 create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")
             }
-            SslError::Io(err) => err.into_pyexception(vm),
-            SslError::SniCallbackRestart => {
+            Self::Io(err) => err.into_pyexception(vm),
+            Self::SniCallbackRestart => {
                 // This should be handled at PySSLSocket level
                 unreachable!("SniCallbackRestart should not reach Python layer")
             }
-            SslError::Py(exc) => exc,
-            SslError::AlertReceived { lib, reason } => {
+            Self::Py(exc) => exc,
+            Self::AlertReceived { lib, reason } => {
                 Self::create_ssl_error_from_codes(vm, lib, reason)
             }
-            SslError::NoCipherSuites => {
+            Self::NoCipherSuites => {
                 // OpenSSL error: lib=20 (ERR_LIB_SSL), reason=193 (SSL_R_NO_SHARED_CIPHER)
                 Self::create_ssl_error_from_codes(vm, ERR_LIB_SSL, SSL_R_NO_SHARED_CIPHER)
             }

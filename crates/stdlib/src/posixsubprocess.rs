@@ -185,9 +185,9 @@ impl TryFromObject for MaybeFd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let fd = i32::try_from_object(vm, obj)?;
         Ok(if fd == -1 {
-            MaybeFd::Invalid
+            Self::Invalid
         } else {
-            MaybeFd::Valid(Fd(unsafe { BorrowedFd::borrow_raw(fd) }))
+            Self::Valid(Fd(unsafe { BorrowedFd::borrow_raw(fd) }))
         })
     }
 }
@@ -195,8 +195,8 @@ impl TryFromObject for MaybeFd {
 impl AsRawFd for MaybeFd {
     fn as_raw_fd(&self) -> RawFd {
         match self {
-            MaybeFd::Valid(fd) => fd.as_raw_fd(),
-            MaybeFd::Invalid => -1,
+            Self::Valid(fd) => fd.as_raw_fd(),
+            Self::Invalid => -1,
         }
     }
 }

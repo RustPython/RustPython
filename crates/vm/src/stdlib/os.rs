@@ -127,7 +127,7 @@ impl TryFromObject for crt_fd::Owned {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         warn_if_bool_fd(&obj, vm)?;
         let fd = crt_fd::Raw::try_from_object(vm, obj)?;
-        unsafe { crt_fd::Owned::try_from_raw(fd) }.map_err(|e| e.into_pyexception(vm))
+        unsafe { Self::try_from_raw(fd) }.map_err(|e| e.into_pyexception(vm))
     }
 }
 

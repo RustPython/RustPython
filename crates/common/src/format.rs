@@ -644,7 +644,7 @@ impl FormatSpec {
         // Reuse format_complex_re_im with 'g' type to get the base formatted parts,
         // then apply locale grouping. This matches CPython's format_complex_internal:
         // 'n' → 'g', add_parens=0, skip_re=0.
-        let locale_spec = FormatSpec {
+        let locale_spec = Self {
             format_type: Some(FormatType::GeneralFormat(Case::Lower)),
             ..*self
         };

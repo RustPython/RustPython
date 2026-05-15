@@ -45,11 +45,11 @@ pub(crate) mod stack_analysis {
     impl Kind {
         fn from_i64(v: i64) -> Option<Self> {
             match v {
-                1 => Some(Kind::Iterator),
-                2 => Some(Kind::Except),
-                3 => Some(Kind::Object),
-                4 => Some(Kind::Null),
-                5 => Some(Kind::Lasti),
+                1 => Some(Self::Iterator),
+                2 => Some(Self::Except),
+                3 => Some(Self::Object),
+                4 => Some(Self::Null),
+                5 => Some(Self::Lasti),
                 _ => None,
             }
         }
@@ -722,7 +722,7 @@ impl Py<Frame> {
             .iter()
             .find(|fp| {
                 // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
-                let py: &crate::Py<Frame> = unsafe { fp.as_ref() };
+                let py: &Self = unsafe { fp.as_ref() };
                 let ptr: *const Frame = &**py;
                 core::ptr::eq(ptr, previous)
             })

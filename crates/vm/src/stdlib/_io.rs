@@ -1988,7 +1988,7 @@ mod _io {
 
     impl Destructor for BufferedReader {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            if let Some(buf) = zelf.downcast_ref::<BufferedReader>() {
+            if let Some(buf) = zelf.downcast_ref::<Self>() {
                 buf.finalizing.store(true, Ordering::Relaxed);
             }
             iobase_finalize(zelf, vm);
@@ -2092,7 +2092,7 @@ mod _io {
 
     impl Destructor for BufferedWriter {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            if let Some(buf) = zelf.downcast_ref::<BufferedWriter>() {
+            if let Some(buf) = zelf.downcast_ref::<Self>() {
                 buf.finalizing.store(true, Ordering::Relaxed);
             }
             iobase_finalize(zelf, vm);
@@ -2166,7 +2166,7 @@ mod _io {
 
     impl Destructor for BufferedRandom {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            if let Some(buf) = zelf.downcast_ref::<BufferedRandom>() {
+            if let Some(buf) = zelf.downcast_ref::<Self>() {
                 buf.finalizing.store(true, Ordering::Relaxed);
             }
             iobase_finalize(zelf, vm);
@@ -3825,7 +3825,7 @@ mod _io {
 
         #[pymethod]
         fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
-            if zelf.class().is(TextIOWrapper::static_type()) {
+            if zelf.class().is(Self::static_type()) {
                 return Err(
                     vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name()))
                 );
@@ -3990,7 +3990,7 @@ mod _io {
 
     impl Destructor for TextIOWrapper {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            if let Some(wrapper) = zelf.downcast_ref::<TextIOWrapper>() {
+            if let Some(wrapper) = zelf.downcast_ref::<Self>() {
                 wrapper.finalizing.store(true, Ordering::Relaxed);
             }
             iobase_finalize(zelf, vm);
@@ -4070,8 +4070,8 @@ mod _io {
     impl IterNext for TextIOWrapper {
         fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // Set telling = false during iteration (matches CPython behavior)
-            let textio_ref: PyRef<TextIOWrapper> =
-                zelf.downcast_ref::<TextIOWrapper>().unwrap().to_owned();
+            let textio_ref: PyRef<Self> =
+                zelf.downcast_ref::<Self>().unwrap().to_owned();
             {
                 let mut textio = textio_ref.lock(vm)?;
                 textio.telling = false;
@@ -5976,7 +5976,7 @@ mod fileio {
 
     impl Destructor for FileIO {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            if let Some(fileio) = zelf.downcast_ref::<FileIO>() {
+            if let Some(fileio) = zelf.downcast_ref::<Self>() {
                 fileio.finalizing.store(true);
             }
             iobase_finalize(zelf, vm);

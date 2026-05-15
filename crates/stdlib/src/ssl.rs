@@ -2265,7 +2265,7 @@ mod _ssl {
                 session_cache: shared_session_cache.clone(),
             });
 
-            Ok(PySSLContext {
+            Ok(Self {
                 protocol,
                 check_hostname: PyRwLock::new(protocol == PROTOCOL_TLS_CLIENT),
                 verify_mode: PyRwLock::new(default_verify_mode),
@@ -4667,7 +4667,7 @@ mod _ssl {
         type Args = ();
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(PyMemoryBIO {
+            Ok(Self {
                 buffer: PyMutex::new(Vec::new()),
                 eof: PyRwLock::new(false),
             })

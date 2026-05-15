@@ -866,7 +866,7 @@ impl CodeUnits {
 #[derive(Debug, Clone)]
 pub enum ConstantData {
     Tuple {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     Integer {
         value: BigInt,
@@ -891,10 +891,10 @@ pub enum ConstantData {
     },
     /// Constant slice(start, stop, step)
     Slice {
-        elements: Box<[ConstantData; 3]>,
+        elements: Box<[Self; 3]>,
     },
     Frozenset {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     None,
     Ellipsis,

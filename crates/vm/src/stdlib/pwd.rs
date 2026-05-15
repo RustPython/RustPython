@@ -46,7 +46,7 @@ mod pwd {
                     .into_string()
                     .unwrap_or_else(|s| s.to_string_lossy().into_owned())
             };
-            PasswdData {
+            Self {
                 pw_name: user.name,
                 pw_passwd: cstr_lossy(user.passwd),
                 pw_uid: user.uid.as_raw(),

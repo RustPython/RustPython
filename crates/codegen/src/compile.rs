@@ -51,18 +51,18 @@ impl ExprExt for ast::Expr {
     fn is_constant(&self) -> bool {
         matches!(
             self,
-            ast::Expr::NumberLiteral(_)
-                | ast::Expr::StringLiteral(_)
-                | ast::Expr::BytesLiteral(_)
-                | ast::Expr::NoneLiteral(_)
-                | ast::Expr::BooleanLiteral(_)
-                | ast::Expr::EllipsisLiteral(_)
+            Self::NumberLiteral(_)
+                | Self::StringLiteral(_)
+                | Self::BytesLiteral(_)
+                | Self::NoneLiteral(_)
+                | Self::BooleanLiteral(_)
+                | Self::EllipsisLiteral(_)
         )
     }
 
     fn is_constant_slice(&self) -> bool {
         match self {
-            ast::Expr::Slice(s) => {
+            Self::Slice(s) => {
                 let lower_const =
                     s.lower.is_none() || s.lower.as_deref().is_some_and(|e| e.is_constant());
                 let upper_const =
@@ -76,7 +76,7 @@ impl ExprExt for ast::Expr {
     }
 
     fn should_use_slice_optimization(&self) -> bool {
-        !self.is_constant_slice() && matches!(self, ast::Expr::Slice(s) if s.step.is_none())
+        !self.is_constant_slice() && matches!(self, Self::Slice(s) if s.step.is_none())
     }
 }
 
