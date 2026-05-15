@@ -71,7 +71,7 @@ mod _multiprocessing {
             if handle == 0 as HANDLE {
                 return Err(vm.new_last_os_error());
             }
-            Ok(SemHandle { raw: handle })
+            Ok(Self { raw: handle })
         }
 
         #[inline]
@@ -272,7 +272,7 @@ mod _multiprocessing {
             vm: &VirtualMachine,
         ) -> PyResult {
             // On Windows, _rebuild receives the handle directly (no sem_open)
-            let zelf = SemLock {
+            let zelf = Self {
                 handle: SemHandle {
                     raw: handle as HANDLE,
                 },
@@ -349,7 +349,7 @@ mod _multiprocessing {
             let handle = SemHandle::create(args.value, args.maxvalue, vm)?;
             let name = if args.unlink { None } else { Some(args.name) };
 
-            Ok(SemLock {
+            Ok(Self {
                 handle,
                 kind: args.kind,
                 maxvalue: args.maxvalue,

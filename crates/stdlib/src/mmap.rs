@@ -256,7 +256,7 @@ mod mmap {
                 Self::Read(mmap) => &mmap[..],
                 Self::Write(mmap) => &mmap[..],
                 #[cfg(windows)]
-                MmapObj::Named(named) => unsafe {
+                Self::Named(named) => unsafe {
                     core::slice::from_raw_parts(named.view_ptr, named.len)
                 },
             }
