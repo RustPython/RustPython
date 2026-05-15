@@ -6258,8 +6258,6 @@ mod winconsoleio {
             zelf.readable.store(readable);
             zelf.writable.store(writable);
 
-            let mut _name_wide: Option<Vec<u16>> = None;
-
             if fd < 0 {
                 // Get console type from name
                 console_type = pyio_get_console_type(&nameobj, vm);
@@ -6278,11 +6276,11 @@ mod winconsoleio {
                 }
 
                 let name_str = nameobj.str(vm)?;
-                let wide: Vec<u16> = name_str
+                let wide = name_str
                     .as_wtf8()
                     .encode_wide()
                     .chain(core::iter::once(0))
-                    .collect();
+                    .collect::<Vec<u16>>();
 
                 let access = if writable {
                     GENERIC_WRITE
@@ -6333,8 +6331,6 @@ mod winconsoleio {
                     }
                     return Err(std::io::Error::last_os_error().to_pyexception(vm));
                 }
-
-                _name_wide = Some(wide);
             } else {
                 // When opened by fd, never close the fd (user owns it)
                 zelf.closefd.store(false);
@@ -7020,7 +7016,7 @@ mod winconsoleio {
 
     impl Destructor for WindowsConsoleIO {
         fn slot_del(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            if let Some(cio) = zelf.downcast_ref::<WindowsConsoleIO>() {
+            if let Some(cio) = zelf.downcast_ref::<Self>() {
                 cio.finalizing.store(true);
             }
             iobase_finalize(zelf, vm);

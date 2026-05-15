@@ -912,7 +912,7 @@ mod _winapi {
                 unsafe { core::mem::zeroed() };
             overlapped.hEvent = event;
 
-            Overlapped {
+            Self {
                 inner: PyMutex::new(OverlappedInner {
                     overlapped: Box::new(overlapped),
                     handle,
@@ -1022,7 +1022,7 @@ mod _winapi {
             _args: Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            Ok(Overlapped::new_with_handle(null_mut()))
+            Ok(Self::new_with_handle(null_mut()))
         }
     }
 

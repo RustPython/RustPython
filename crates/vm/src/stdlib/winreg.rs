@@ -52,11 +52,11 @@ mod winreg {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             // Try PyHkey first
             if let Some(hkey_obj) = obj.downcast_ref::<PyHkey>() {
-                return Ok(HKEYArg(hkey_obj.hkey.load()));
+                return Ok(Self(hkey_obj.hkey.load()));
             }
             // Then try int
             let handle = usize::try_from_object(vm, obj)?;
-            Ok(HKEYArg(handle as Registry::HKEY))
+            Ok(Self(handle as Registry::HKEY))
         }
     }
 

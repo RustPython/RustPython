@@ -24,7 +24,7 @@ mod wmi_ffi {
 
     impl VARIANT {
         pub(super) fn zeroed() -> Self {
-            VARIANT([0u64; 3])
+            Self([0u64; 3])
         }
     }
 
