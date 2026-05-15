@@ -16611,6 +16611,23 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
             };
             let after_jump_continues_conditional_chain = after_jump != BlockIdx::NULL
                 && block_is_pure_conditional_test(&blocks[after_jump.idx()]);
+            // Allow reorder when all three blocks share the same except handler
+            // (or none have one). Reordering within a shared protection region
+            // matches CPython, which reorders regardless of try/except context.
+            let cond_handler = blocks[idx]
+                .instructions
+                .first()
+                .and_then(|info| info.except_handler);
+            let jump_handler = blocks[jump_block.idx()]
+                .instructions
+                .first()
+                .and_then(|info| info.except_handler);
+            let exit_handler = blocks[exit_block.idx()]
+                .instructions
+                .first()
+                .and_then(|info| info.except_handler);
+            let mismatched_protection = !(cond_handler == jump_handler
+                && jump_handler == exit_handler);
             if exit_start == BlockIdx::NULL
                 || exit_block == BlockIdx::NULL
                 || jump_start == BlockIdx::NULL
@@ -16620,9 +16637,7 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
                 || block_is_exceptional(&blocks[idx])
                 || block_is_exceptional(&blocks[jump_block.idx()])
                 || block_is_exceptional(&blocks[exit_block.idx()])
-                || block_is_protected(&blocks[idx])
-                || block_is_protected(&blocks[jump_block.idx()])
-                || block_is_protected(&blocks[exit_block.idx()])
+                || mismatched_protection
                 || !is_scope_exit_block(&blocks[exit_block.idx()])
                 || !is_jump_back_only_block(blocks, jump_block)
                 || (!allow_for_iter_jump_targets
