@@ -37,7 +37,7 @@ mod _window {
 }
 
 impl StoredVirtualMachine {
-    fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
+    fn new(id: String, inject_browser_module: bool) -> Self {
         let mut settings = Settings::default();
         settings.allow_external_library = false;
 
@@ -71,7 +71,7 @@ impl StoredVirtualMachine {
 
         let scope = interp.enter(|vm| vm.new_scope_with_builtins());
 
-        StoredVirtualMachine {
+        Self {
             interp,
             scope,
             held_objects: RefCell::new(Vec::new()),
