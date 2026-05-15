@@ -579,7 +579,7 @@ mod mmap {
                 let handle = unsafe { suppress_iph!(libc::get_osfhandle(fileno)) };
                 // Check for invalid handle value (-1 on Windows)
                 if handle == -1 || handle == INVALID_HANDLE_VALUE as isize {
-                    return Err(vm.new_os_error(format!("Invalid file descriptor: {}", fileno)));
+                    return Err(vm.new_os_error(format!("Invalid file descriptor: {fileno}")));
                 }
                 Some(handle as HANDLE)
             } else {

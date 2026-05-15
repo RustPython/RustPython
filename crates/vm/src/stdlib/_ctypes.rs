@@ -286,7 +286,7 @@ pub(crate) mod _ctypes {
                         FfiArgValue::I64(v) => v,
                         _ => 0,
                     };
-                    Ok(format!("<cparam '{}' ({})>", tag_char, n))
+                    Ok(format!("<cparam '{tag_char}' ({n})>"))
                 }
                 b'B' | b'H' | b'I' | b'L' | b'Q' => {
                     // Unsigned integers
@@ -297,14 +297,14 @@ pub(crate) mod _ctypes {
                         FfiArgValue::U64(v) => v,
                         _ => 0,
                     };
-                    Ok(format!("<cparam '{}' ({})>", tag_char, n))
+                    Ok(format!("<cparam '{tag_char}' ({n})>"))
                 }
                 b'f' => {
                     let v = match zelf.value {
                         FfiArgValue::F32(v) => v as f64,
                         _ => 0.0,
                     };
-                    Ok(format!("<cparam '{}' ({})>", tag_char, v))
+                    Ok(format!("<cparam '{tag_char}' ({v})>"))
                 }
                 b'd' | b'g' => {
                     let v = match zelf.value {
@@ -312,7 +312,7 @@ pub(crate) mod _ctypes {
                         FfiArgValue::F32(v) => v as f64,
                         _ => 0.0,
                     };
-                    Ok(format!("<cparam '{}' ({})>", tag_char, v))
+                    Ok(format!("<cparam '{tag_char}' ({v})>"))
                 }
                 b'c' => {
                     // c_char - single byte
@@ -324,7 +324,7 @@ pub(crate) mod _ctypes {
                     if is_literal_char(byte) {
                         Ok(format!("<cparam '{}' ('{}')>", tag_char, byte as char))
                     } else {
-                        Ok(format!("<cparam '{}' ('\\x{:02x}')>", tag_char, byte))
+                        Ok(format!("<cparam '{tag_char}' ('\\x{byte:02x}')>"))
                     }
                 }
                 b'z' | b'Z' | b'P' | b'V' => {
@@ -334,16 +334,16 @@ pub(crate) mod _ctypes {
                         _ => 0,
                     };
                     if ptr == 0 {
-                        Ok(format!("<cparam '{}' (nil)>", tag_char))
+                        Ok(format!("<cparam '{tag_char}' (nil)>"))
                     } else {
-                        Ok(format!("<cparam '{}' ({:#x})>", tag_char, ptr))
+                        Ok(format!("<cparam '{tag_char}' ({ptr:#x})>"))
                     }
                 }
                 _ => {
                     // Default fallback
                     let addr = zelf.get_id();
                     if is_literal_char(zelf.tag) {
-                        Ok(format!("<cparam '{}' at {:#x}>", tag_char, addr))
+                        Ok(format!("<cparam '{tag_char}' at {addr:#x}>"))
                     } else {
                         Ok(format!("<cparam {:#04x} at {:#x}>", zelf.tag, addr))
                     }
@@ -575,7 +575,7 @@ pub(crate) mod _ctypes {
                     .get_or_insert_lib_with_mode(&*os_str, mode, vm)
                     .map_err(|e| {
                         let name_str = os_str.to_string_lossy();
-                        vm.new_os_error(format!("{}: {}", name_str, e))
+                        vm.new_os_error(format!("{name_str}: {e}"))
                     })?;
                 Ok(id)
             }

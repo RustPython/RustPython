@@ -748,7 +748,7 @@ impl Constructor for PyCode {
         // Parse and validate bytecode from bytes
         let bytecode_bytes = args.co_code.as_bytes();
         let instructions = CodeUnits::try_from(bytecode_bytes)
-            .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?;
+            .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?;
 
         // Convert constants
         let constants = args
@@ -1342,7 +1342,7 @@ impl PyCode {
             OptionalArg::Present(code_bytes) => {
                 // Parse and validate bytecode from bytes
                 CodeUnits::try_from(code_bytes.as_bytes())
-                    .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?
+                    .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?
             }
             OptionalArg::Missing => self.code.instructions.clone(),
         };

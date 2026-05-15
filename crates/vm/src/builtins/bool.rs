@@ -73,7 +73,7 @@ pub struct PyBool(pub PyInt);
 impl Debug for PyBool {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         let value = !self.0.as_bigint().is_zero();
-        write!(f, "PyBool({})", value)
+        write!(f, "PyBool({value})")
     }
 }
 

@@ -26,7 +26,7 @@ mod platform {
 
     pub(super) fn stdlib_landmarks() -> [String; 2] {
         let subdir = stdlib_subdir();
-        [format!("{}/os.py", subdir), format!("{}/os.pyc", subdir)]
+        [format!("{subdir}/os.py"), format!("{subdir}/os.pyc")]
     }
 
     pub(super) fn platstdlib_landmark() -> String {

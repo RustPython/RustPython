@@ -239,22 +239,19 @@ fn range_from_object(
 
     if start_row_val > end_row_val {
         return Err(vm.new_value_error(format!(
-            "AST node line range ({}, {}) is not valid",
-            start_row_val, end_row_val
+            "AST node line range ({start_row_val}, {end_row_val}) is not valid"
         )));
     }
     if (start_row_val < 0 && end_row_val != start_row_val)
         || (start_col_val < 0 && end_col_val != start_col_val)
     {
         return Err(vm.new_value_error(format!(
-            "AST node column range ({}, {}) for line range ({}, {}) is not valid",
-            start_col_val, end_col_val, start_row_val, end_row_val
+            "AST node column range ({start_col_val}, {end_col_val}) for line range ({start_row_val}, {end_row_val}) is not valid"
         )));
     }
     if start_row_val == end_row_val && start_col_val > end_col_val {
         return Err(vm.new_value_error(format!(
-            "line {}, column {}-{} is not a valid range",
-            start_row_val, start_col_val, end_col_val
+            "line {start_row_val}, column {start_col_val}-{end_col_val} is not a valid range"
         )));
     }
 

@@ -1250,7 +1250,7 @@ pub mod sys {
         if let Ok(module_str) = module_name.downcast::<PyStr>() {
             let module = module_str.as_wtf8();
             if module != "builtins" && module != "__main__" {
-                write!(stderr, "{}.", module);
+                write!(stderr, "{module}.");
             }
         } else {
             write!(stderr, "<unknown>.");

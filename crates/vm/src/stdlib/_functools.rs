@@ -333,8 +333,7 @@ mod _functools {
                 if is_placeholder(value) {
                     return Err(vm.new_type_error(format!(
                         "Placeholder cannot be passed as a keyword argument to partial(). \
-                         Did you mean partial(..., {}=Placeholder, ...)(value)?",
-                        key
+                         Did you mean partial(..., {key}=Placeholder, ...)(value)?"
                     )));
                 }
             }

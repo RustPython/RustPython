@@ -52,7 +52,7 @@ pub trait Compiler {
         &self,
         source: &str,
         mode: Mode,
-        module_name: String,
+        module_name: &str,
     ) -> Result<CodeObject, Box<dyn core::error::Error>>;
 }
 
@@ -61,7 +61,7 @@ impl CompilationSource {
         &self,
         source: &str,
         mode: Mode,
-        module_name: String,
+        module_name: &str,
         compiler: &dyn Compiler,
         origin: F,
     ) -> Result<CodeObject, Diagnostic> {
@@ -76,15 +76,15 @@ impl CompilationSource {
     fn compile(
         &self,
         mode: Mode,
-        module_name: String,
+        module_name: &str,
         compiler: &dyn Compiler,
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
         match &self.kind {
             CompilationSourceKind::Dir { base, rel_path } => {
-                self.compile_dir(base, &base.join(rel_path), String::new(), mode, compiler)
+                self.compile_dir(base, &base.join(rel_path), "", mode, compiler)
             }
             _ => Ok(hashmap! {
-                module_name.clone() => CompiledModule {
+                module_name.to_string() => CompiledModule {
                     code: self.compile_single(mode, module_name, compiler)?,
                     package: false,
                 },
@@ -95,7 +95,7 @@ impl CompilationSource {
     fn compile_single(
         &self,
         mode: Mode,
-        module_name: String,
+        module_name: &str,
         compiler: &dyn Compiler,
     ) -> Result<CodeObject, Diagnostic> {
         match &self.kind {
@@ -126,7 +126,7 @@ impl CompilationSource {
         &self,
         base: &Path,
         path: &Path,
-        parent: String,
+        parent: &str,
         mode: Mode,
         compiler: &dyn Compiler,
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
@@ -152,26 +152,21 @@ impl CompilationSource {
                 Diagnostic::spans_error(self.span, format!("Invalid UTF-8 in file name {path:?}"))
             })?;
             if path.is_dir() {
-                code_map.extend(self.compile_dir(
-                    base,
-                    &path,
-                    if parent.is_empty() {
-                        file_name.to_string()
-                    } else {
-                        format!("{parent}.{file_name}")
-                    },
-                    mode,
-                    compiler,
-                )?);
+                let nparent = if parent.is_empty() {
+                    file_name.to_string()
+                } else {
+                    format!("{parent}.{file_name}")
+                };
+                code_map.extend(self.compile_dir(base, &path, &nparent, mode, compiler)?);
             } else if file_name.ends_with(".py") {
                 let stem = path.file_stem().unwrap().to_str().unwrap();
                 let is_init = stem == "__init__";
                 let module_name = if is_init {
-                    parent.clone()
+                    parent
                 } else if parent.is_empty() {
-                    stem.to_owned()
+                    stem
                 } else {
-                    format!("{parent}.{stem}")
+                    &format!("{parent}.{stem}")
                 };
 
                 let compile_path = |src_path: &Path| {
@@ -181,7 +176,7 @@ impl CompilationSource {
                             format!("Error reading file {path:?}: {err}"),
                         )
                     })?;
-                    self.compile_string(&source, mode, module_name.clone(), compiler, || {
+                    self.compile_string(&source, mode, module_name, compiler, || {
                         path.strip_prefix(base).ok().unwrap_or(&path).display()
                     })
                 };
@@ -211,7 +206,7 @@ impl CompilationSource {
                 };
 
                 code_map.insert(
-                    module_name,
+                    module_name.to_string(),
                     CompiledModule {
                         code,
                         package: is_init,
@@ -343,7 +338,7 @@ pub(crate) fn impl_py_compile(
     let crate_name = args.crate_name;
     let code = args
         .source
-        .compile_single(args.mode, args.module_name, compiler)?;
+        .compile_single(args.mode, &args.module_name, compiler)?;
 
     let frozen = frozen::FrozenCodeObject::encode(&code);
     let bytes = LitByteStr::new(&frozen.bytes, Span::call_site());
@@ -362,7 +357,9 @@ pub(crate) fn impl_py_freeze(
     let args = PyCompileArgs::parse(input, true)?;
 
     let crate_name = args.crate_name;
-    let code_map = args.source.compile(args.mode, args.module_name, compiler)?;
+    let code_map = args
+        .source
+        .compile(args.mode, &args.module_name, compiler)?;
 
     let data = frozen::FrozenLib::encode(code_map.iter().map(|(k, v)| {
         let v = frozen::FrozenModule {

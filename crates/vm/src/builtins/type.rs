@@ -2949,7 +2949,7 @@ fn mangle_name(class_name: &str, name: &str) -> String {
     }
     // Strip leading underscores from class name
     let class_name = class_name.trim_start_matches('_');
-    format!("_{}{}", class_name, name)
+    format!("_{class_name}{name}")
 }
 
 #[cfg(test)]

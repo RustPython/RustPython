@@ -788,21 +788,23 @@ impl<S> CFormatStrOrBytes<S> {
                         iter.next().unwrap();
                         literal.extend([second]);
                         continue;
-                    } else {
-                        if !literal.is_empty() {
-                            parts.push((
-                                part_index,
-                                CFormatPart::Literal(core::mem::take(&mut literal)),
-                            ));
-                        }
-                        let spec = CFormatSpecKeyed::parse(iter).map_err(|err| CFormatError {
-                            typ: err.0,
-                            index: err.1,
-                        })?;
-                        parts.push((index, CFormatPart::Spec(spec)));
-                        if let Some(&(index, _)) = iter.peek() {
-                            part_index = index;
-                        }
+                    }
+
+                    if !literal.is_empty() {
+                        parts.push((
+                            part_index,
+                            CFormatPart::Literal(core::mem::take(&mut literal)),
+                        ));
+                    }
+
+                    let spec = CFormatSpecKeyed::parse(iter).map_err(|err| CFormatError {
+                        typ: err.0,
+                        index: err.1,
+                    })?;
+
+                    parts.push((index, CFormatPart::Spec(spec)));
+                    if let Some(&(index, _)) = iter.peek() {
+                        part_index = index;
                     }
                 } else {
                     return Err(CFormatError {

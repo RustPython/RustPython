@@ -1599,8 +1599,7 @@ mod _winapi {
         let max_total_objects = (MAXIMUM_WAIT_OBJECTS - 1) * (MAXIMUM_WAIT_OBJECTS - 1);
         if nhandles > max_total_objects {
             return Err(vm.new_value_error(format!(
-                "need at most {} handles, got a sequence of length {}",
-                max_total_objects, nhandles
+                "need at most {max_total_objects} handles, got a sequence of length {nhandles}"
             )));
         }
 

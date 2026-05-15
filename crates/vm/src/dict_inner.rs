@@ -299,6 +299,10 @@ impl<T: Clone> Dict<T> {
                         // but still possible
                         continue;
                     };
+                    #[expect(
+                        clippy::redundant_else,
+                        reason = "Keeping the empty `else` block here for documentation"
+                    )]
                     if entry.index == index_index {
                         let removed = core::mem::replace(&mut entry.value, value);
                         self.bump_version();
@@ -400,11 +404,11 @@ impl<T: Clone> Dict<T> {
             if let Some(index) = entry.index() {
                 let inner = self.read();
                 if let Some(entry) = inner.get_entry_checked(index, index_index) {
+                    // The dict was not changed since we did lookup
                     break Some(entry.value.clone());
-                } else {
-                    // The dict was changed since we did lookup. Let's try again.
-                    continue;
                 }
+
+                // The dict was changed since we did lookup. Let's try again.
             } else {
                 break None;
             }
@@ -511,15 +515,15 @@ impl<T: Clone> Dict<T> {
                     ControlFlow::Break(Some(entry)) => break Some(entry),
                     _ => continue,
                 }
-            } else {
-                let mut inner = self.write();
-                if inner.indices.get(index_index) != Some(&entry) {
-                    continue;
-                }
-                inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
-                self.bump_version();
-                break None;
             }
+
+            let mut inner = self.write();
+            if inner.indices.get(index_index) != Some(&entry) {
+                continue;
+            }
+            inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
+            self.bump_version();
+            break None;
         };
         Ok(())
     }
@@ -718,6 +722,11 @@ impl<T: Clone> Dict<T> {
                                 inner.entries.get_unchecked(i).as_ref().unwrap_unchecked()
                             };
                             let ret = (idx, index_index);
+
+                            #[expect(
+                                clippy::redundant_else,
+                                reason = "Keeping the empty `else` block here for documentation"
+                            )]
                             if key.key_is(&entry.key) {
                                 break 'outer ret;
                             } else if entry.hash == hash_value {
@@ -730,6 +739,11 @@ impl<T: Clone> Dict<T> {
                     // warn!("Perturb value: {}", i);
                 }
             };
+
+            #[expect(
+                clippy::redundant_else,
+                reason = "Keeping the empty `else` block here for documentation"
+            )]
             // This comparison needs to be done outside the lock.
             if key.key_eq(vm, &entry_key)? {
                 break 'outer ret;

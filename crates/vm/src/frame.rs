@@ -3104,8 +3104,7 @@ impl ExecutingFrame<'_> {
                                         .unwrap_or_else(|| String::from("?"));
                                     let match_args_type_name = match_args.class().__name__(vm);
                                     return Err(vm.new_type_error(format!(
-                                        "{}.__match_args__ must be a tuple (got {})",
-                                        type_name, match_args_type_name
+                                        "{type_name}.__match_args__ must be a tuple (got {match_args_type_name})"
                                     )));
                                 }
                             };
@@ -3569,9 +3568,7 @@ impl ExecutingFrame<'_> {
                 // This means swap TOS with the element at index (len - n)
                 debug_assert!(
                     index_val <= len,
-                    "SWAP index {} exceeds stack size {}",
-                    index_val,
-                    len
+                    "SWAP index {index_val} exceeds stack size {len}"
                 );
                 let j = len - index_val;
                 self.localsplus.stack_swap(i, j);

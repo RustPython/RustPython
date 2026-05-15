@@ -55,7 +55,7 @@ pub fn pyexception(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     if matches!(item, syn::Item::Impl(_)) {
         pyclass::impl_pyexception_impl(attr, item)
     } else {
-        result_to_tokens(pyclass::impl_pyexception(attr, item))
+        result_to_tokens(pyclass::impl_pyexception(attr, &item))
     }
 }
 

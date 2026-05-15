@@ -289,8 +289,7 @@ pub(super) mod types {
             for (i, exc) in exceptions.iter().enumerate() {
                 if !exc.fast_isinstance(vm.ctx.exceptions.base_exception_type) {
                     return Err(vm.new_value_error(format!(
-                        "Item {} of second argument (exceptions) is not an exception",
-                        i
+                        "Item {i} of second argument (exceptions) is not an exception"
                     )));
                 }
                 // Check if any exception is not an Exception subclass

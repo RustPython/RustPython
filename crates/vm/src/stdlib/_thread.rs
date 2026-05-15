@@ -863,11 +863,7 @@ pub(crate) mod _thread {
         };
         let name = thread_name.unwrap_or_else(|| Wtf8Buf::from(format!("{}", get_ident())));
 
-        let _ = vm.call_method(
-            &file,
-            "write",
-            (format!("Exception in thread {}:\n", name),),
-        );
+        let _ = vm.call_method(&file, "write", (format!("Exception in thread {name}:\n"),));
 
         // Display the traceback
         if let Ok(traceback_mod) = vm.import("traceback", 0)

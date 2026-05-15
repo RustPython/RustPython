@@ -1492,8 +1492,7 @@ mod _socket {
                     if bytes_data.len() != expected_size {
                         return Err(vm
                             .new_value_error(format!(
-                                "socket descriptor string has wrong size, should be {} bytes",
-                                expected_size
+                                "socket descriptor string has wrong size, should be {expected_size} bytes"
                             ))
                             .into());
                     }
@@ -2393,7 +2392,7 @@ mod _socket {
             let cmd_val = cmd_int.as_bigint();
             let cmd: u32 = cmd_val
                 .to_u32()
-                .ok_or_else(|| vm.new_value_error(format!("invalid ioctl command {}", cmd_val)))?;
+                .ok_or_else(|| vm.new_value_error(format!("invalid ioctl command {cmd_val}")))?;
 
             match cmd {
                 c::SIO_RCVALL | c::SIO_LOOPBACK_FAST_PATH => {
@@ -2466,7 +2465,7 @@ mod _socket {
                     Ok(recv)
                 }
                 _ => Err(vm
-                    .new_value_error(format!("invalid ioctl command {}", cmd))
+                    .new_value_error(format!("invalid ioctl command {cmd}"))
                     .into()),
             }
         }

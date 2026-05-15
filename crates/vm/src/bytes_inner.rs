@@ -797,9 +797,8 @@ impl PyBytesInner {
             new[offset..offset + len].clone_from_slice(to.elements.as_slice());
             if max_count == Some(1) {
                 return new;
-            } else {
-                new
             }
+            new
         } else {
             return self.elements.clone();
         };

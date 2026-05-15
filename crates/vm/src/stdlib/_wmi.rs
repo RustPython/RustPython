@@ -688,10 +688,9 @@ mod _wmi {
         }
 
         if err == ERROR_MORE_DATA {
-            return Err(vm.new_os_error(format!(
-                "Query returns more than {} characters",
-                BUFFER_SIZE,
-            )));
+            return Err(
+                vm.new_os_error(format!("Query returns more than {BUFFER_SIZE} characters"))
+            );
         } else if err != 0 {
             return Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm));
         }

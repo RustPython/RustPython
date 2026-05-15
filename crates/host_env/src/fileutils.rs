@@ -454,7 +454,7 @@ pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::F
     if mode != "rb" {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("unsupported mode: {}", mode),
+            format!("unsupported mode: {mode}"),
         ));
     }
 

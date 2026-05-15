@@ -123,8 +123,7 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
                                         )
                                     }
                                     Some(other) => panic!(
-                                        "Unsupported annotation const for '{:?}' at idx {}: {:?}",
-                                        param_name, val_idx, other
+                                        "Unsupported annotation const for '{param_name:?}' at idx {val_idx}: {other:?}"
                                     ),
                                     None => panic!(
                                         "Annotation const idx out of bounds for '{:?}': {} (len={})",

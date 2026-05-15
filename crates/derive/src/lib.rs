@@ -273,10 +273,10 @@ impl derive_impl::Compiler for Compiler {
         &self,
         source: &str,
         mode: rustpython_compiler::Mode,
-        module_name: String,
+        module_name: &str,
     ) -> Result<rustpython_compiler::CodeObject, Box<dyn core::error::Error>> {
         use rustpython_compiler::{CompileOpts, compile};
-        Ok(compile(source, mode, &module_name, CompileOpts::default())?)
+        Ok(compile(source, mode, module_name, CompileOpts::default())?)
     }
 }
 

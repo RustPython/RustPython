@@ -268,7 +268,7 @@ impl PyFunction {
                     .map_or(0, |d| d.len());
                 let n_required = n_expected_args - n_defaults;
                 let takes_msg = if n_defaults > 0 {
-                    format!("from {} to {}", n_required, n_expected_args)
+                    format!("from {n_required} to {n_expected_args}")
                 } else {
                     n_expected_args.to_string()
                 };

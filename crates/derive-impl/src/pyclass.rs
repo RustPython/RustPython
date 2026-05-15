@@ -13,7 +13,7 @@ use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::*;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum AttrName {
     Method,
     ClassMethod,
@@ -780,8 +780,8 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
 /// But, inside `macro_rules` we don't have an opportunity
 /// to add non-literal attributes to `pyclass`.
 /// That's why we have to use this proxy.
-pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result<TokenStream> {
-    let (ident, _attrs) = pyexception_ident_and_attrs(&item)?;
+pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Result<TokenStream> {
+    let (ident, _attrs) = pyexception_ident_and_attrs(item)?;
     let fake_ident = Ident::new("pyclass", item.span());
     let class_meta = ExceptionItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
     let class_name = class_meta.class_name()?;
@@ -1131,7 +1131,7 @@ where
 
         args.context
             .getset_items
-            .add_item(py_name, args.cfgs.to_vec(), kind, ident.clone())?;
+            .add_item(&py_name, args.cfgs.to_vec(), kind, ident.clone())?;
         Ok(())
     }
 }
@@ -1298,7 +1298,7 @@ where
         }
 
         args.context.member_items.add_item(
-            py_name,
+            &py_name,
             member_item_kind,
             member_kind,
             ident.clone(),
@@ -1402,6 +1402,7 @@ struct GetSetNursery {
     validated: bool,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum GetSetItemKind {
     Get,
     Set,
@@ -1410,7 +1411,7 @@ enum GetSetItemKind {
 impl GetSetNursery {
     fn add_item(
         &mut self,
-        name: String,
+        name: &str,
         cfgs: Vec<Attribute>,
         kind: GetSetItemKind,
         item_ident: Ident,
@@ -1418,7 +1419,7 @@ impl GetSetNursery {
         assert!(!self.validated, "new item is not allowed after validation");
         // Note: Both getter and setter can have #[cfg], but they must have matching cfgs
         // since the map key is (name, cfgs). This ensures getter and setter are paired correctly.
-        let entry = self.map.entry((name.clone(), cfgs)).or_default();
+        let entry = self.map.entry((name.to_string(), cfgs)).or_default();
         let func = match kind {
             GetSetItemKind::Get => &mut entry.0,
             GetSetItemKind::Set => &mut entry.1,
@@ -1492,6 +1493,7 @@ struct MemberNurseryEntry {
     setter: Option<Ident>,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum MemberItemKind {
     Get,
     Set,
@@ -1500,7 +1502,7 @@ enum MemberItemKind {
 impl MemberNursery {
     fn add_item(
         &mut self,
-        name: String,
+        name: &str,
         kind: MemberItemKind,
         member_kind: MemberKindStr,
         item_ident: Ident,
@@ -1508,7 +1510,7 @@ impl MemberNursery {
         assert!(!self.validated, "new item is not allowed after validation");
         let entry = self
             .map
-            .entry(name.clone())
+            .entry(name.to_string())
             .or_insert_with(|| MemberNurseryEntry {
                 kind: member_kind,
                 getter: None,
