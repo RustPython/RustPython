@@ -100,9 +100,9 @@ mod _js {
     #[pyclass(with(Representable))]
     impl PyJsValue {
         #[inline]
-        pub(crate) fn new(value: impl Into<JsValue>) -> PyJsValue {
+        pub(crate) fn new(value: impl Into<JsValue>) -> Self {
             let value = value.into();
-            PyJsValue { value }
+            Self { value }
         }
 
         #[pymethod]
@@ -191,7 +191,7 @@ mod _js {
                 .value
                 .dyn_ref::<js_sys::Function>()
                 .ok_or_else(|| vm.new_type_error("JS value is not callable"))?;
-            let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
+            let js_args = args.iter().map(|x| -> &Self { x }).collect::<Array>();
             let res = match opts.this {
                 Some(this) => Reflect::apply(func, &this.value, &js_args),
                 None => call_func(func, &js_args),
@@ -206,7 +206,7 @@ mod _js {
             args: PosArgs<PyJsValueRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
+            let js_args = args.iter().map(|x| -> &Self { x }).collect::<Array>();
             call_method(&self.value, &name.into_js_value(), &js_args)
                 .map(Self::new)
                 .map_err(|err| new_js_error(vm, err))
@@ -227,7 +227,7 @@ mod _js {
                 .prototype
                 .as_ref()
                 .and_then(|proto| proto.value.dyn_ref::<js_sys::Function>());
-            let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
+            let js_args = args.iter().map(|x| -> &Self { x }).collect::<Array>();
             let constructed_result = if let Some(proto) = proto {
                 Reflect::construct_with_new_target(ctor, &js_args, proto)
             } else {
@@ -522,7 +522,7 @@ mod _js {
                         }
                     };
 
-                    Ok(PyPromise::from_future(ret_future))
+                    Ok(Self::from_future(ret_future))
                 }
                 PromiseKind::PyProm { then } => Self::cast_result(
                     then.call(
