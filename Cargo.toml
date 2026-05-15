@@ -349,7 +349,9 @@ search_is_some = "warn"
 single_option_map = "warn"
 trait_duplication_in_bounds = "warn"
 unused_peekable = "warn"
+unused_rounding = "warn"
 use_self = "warn"
+useless_let_if_seq = "warn"
 
 # pedantic lints to enforce gradually
 cloned_instead_of_copied = "warn"
