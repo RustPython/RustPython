@@ -48,9 +48,10 @@ where
 {
     fn from_wides_until_nul(wide: &[u16]) -> Self;
 }
+
 impl FromWideString for OsString {
-    fn from_wides_until_nul(wide: &[u16]) -> OsString {
+    fn from_wides_until_nul(wide: &[u16]) -> Self {
         let len = wide.iter().take_while(|&&c| c != 0).count();
-        OsString::from_wide(&wide[..len])
+        Self::from_wide(&wide[..len])
     }
 }

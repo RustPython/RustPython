@@ -14,7 +14,7 @@ use rustpython_literal::{float, format::Case};
 
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CFormatErrorType {
     UnmatchedKeyParentheses,
     MissingModuloSign,
@@ -27,7 +27,7 @@ pub enum CFormatErrorType {
 // also contains how many chars the parsing function consumed
 pub type ParsingError = (CFormatErrorType, usize);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CFormatError {
     pub typ: CFormatErrorType, // FIXME
     pub index: usize,
@@ -54,7 +54,7 @@ impl fmt::Display for CFormatError {
 
 pub type CFormatConversion = super::format::FormatConversion;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CNumberType {
     DecimalD = b'd',
@@ -65,7 +65,7 @@ pub enum CNumberType {
     HexUpper = b'X',
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CFloatType {
     ExponentLower = b'e',
@@ -87,13 +87,13 @@ impl CFloatType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CCharacterType {
     Character = b'c',
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CFormatType {
     Number(CNumberType),
     Float(CFloatType),
@@ -113,7 +113,7 @@ impl CFormatType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CFormatPrecision {
     Quantity(CFormatQuantity),
     Dot,
@@ -126,7 +126,7 @@ impl From<CFormatQuantity> for CFormatPrecision {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct CConversionFlags: u32 {
         const ALTERNATE_FORM = 0b0000_0001;
         const ZERO_PAD = 0b0000_0010;
@@ -150,7 +150,7 @@ impl CConversionFlags {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CFormatQuantity {
     Amount(usize),
     FromValuesTuple,
@@ -254,7 +254,7 @@ impl FormatChar for u8 {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CFormatSpec {
     pub flags: CConversionFlags,
     pub min_field_width: Option<CFormatQuantity>,
@@ -263,7 +263,7 @@ pub struct CFormatSpec {
     // chars_consumed: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CFormatSpecKeyed<T> {
     pub mapping_key: Option<T>,
     pub spec: CFormatSpec,
@@ -718,7 +718,7 @@ where
     Some(contained_text)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum CFormatPart<T> {
     Literal(T),
     Spec(CFormatSpecKeyed<T>),
@@ -739,7 +739,7 @@ impl<T> CFormatPart<T> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CFormatStrOrBytes<S> {
     parts: Vec<(usize, CFormatPart<S>)>,
 }

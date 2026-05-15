@@ -155,7 +155,7 @@ impl PyCPointerType {
 
         // 5. Check for _as_parameter_ attribute
         if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
-            return PyCPointerType::from_param(cls.as_object().to_owned(), as_parameter, vm);
+            return Self::from_param(cls.as_object().to_owned(), as_parameter, vm);
         }
 
         Err(vm.new_type_error(format!(
@@ -266,9 +266,7 @@ impl Constructor for PyCPointer {
         let cdata = PyCData::from_bytes(vec![0u8; core::mem::size_of::<usize>()], None);
         // pointer instance has b_length set to 2 (for index 0 and 1)
         cdata.length.store(2);
-        PyCPointer(cdata)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        Self(cdata).into_ref_with_type(vm, cls).map(Into::into)
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {

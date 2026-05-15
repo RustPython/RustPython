@@ -905,7 +905,7 @@ impl Constructor for PyCFuncPtr {
         let ptr_size = core::mem::size_of::<usize>();
 
         if args.args.is_empty() {
-            return PyCFuncPtr {
+            return Self {
                 _base: PyCData::from_bytes(vec![0u8; ptr_size], None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
@@ -952,7 +952,7 @@ impl Constructor for PyCFuncPtr {
             // args[2] is paramflags (tuple or None)
             let paramflags = args.args.get(2).filter(|arg| !vm.is_none(arg)).cloned();
 
-            return PyCFuncPtr {
+            return Self {
                 _base: PyCData::from_bytes(vec![0u8; ptr_size], None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
@@ -974,7 +974,7 @@ impl Constructor for PyCFuncPtr {
         // Check if first argument is an integer (function address)
         if let Ok(addr) = first_arg.try_int(vm) {
             let ptr_val = addr.as_bigint().to_usize().unwrap_or(0);
-            return PyCFuncPtr {
+            return Self {
                 _base: PyCData::from_bytes(Self::make_ptr_buffer(ptr_val), None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
@@ -1045,7 +1045,7 @@ impl Constructor for PyCFuncPtr {
                 0
             };
 
-            return PyCFuncPtr {
+            return Self {
                 _base: PyCData::from_bytes(Self::make_ptr_buffer(ptr_val), None),
                 thunk: PyRwLock::new(None),
                 callable: PyRwLock::new(None),
@@ -1088,7 +1088,7 @@ impl Constructor for PyCFuncPtr {
             // Store the thunk as a Python object to keep it alive
             let thunk_ref: PyRef<PyCThunk> = thunk.into_ref(&vm.ctx);
 
-            return PyCFuncPtr {
+            return Self {
                 _base: PyCData::from_bytes(Self::make_ptr_buffer(ptr_val), None),
                 thunk: PyRwLock::new(Some(thunk_ref)),
                 callable: PyRwLock::new(Some(first_arg.clone())),
@@ -1805,7 +1805,7 @@ impl Callable for PyCFuncPtr {
         };
 
         // 7. Get flags to check for use_last_error/use_errno
-        let flags = PyCFuncPtr::_flags_(zelf, vm);
+        let flags = Self::_flags_(zelf, vm);
 
         // 8. Call the function (with use_last_error/use_errno handling)
         #[cfg(not(windows))]

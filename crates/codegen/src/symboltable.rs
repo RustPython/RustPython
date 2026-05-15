@@ -37,7 +37,7 @@ pub struct SymbolTable {
 
     /// A list of sub-scopes in the order as found in the
     /// AST nodes.
-    pub sub_tables: Vec<SymbolTable>,
+    pub sub_tables: Vec<Self>,
 
     /// Cursor pointing to the next sub-table to consume during compilation.
     pub next_sub_table: usize,
@@ -63,7 +63,7 @@ pub struct SymbolTable {
 
     /// PEP 649: Reference to annotation scope for this block
     /// Annotations are compiled as a separate `__annotate__` function
-    pub annotation_block: Option<Box<SymbolTable>>,
+    pub annotation_block: Option<Box<Self>>,
 
     /// True only for deferred function/class/module annotation scopes that
     /// should resolve outer names as if they were siblings of the owning
@@ -177,7 +177,7 @@ pub enum SymbolScope {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SymbolFlags: u16 {
         const REFERENCED = 0x001;  // USE
         const ASSIGNED = 0x002;    // DEF_LOCAL

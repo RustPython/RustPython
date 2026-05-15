@@ -134,7 +134,7 @@ impl core::fmt::Debug for StgInfo {
 
 impl Default for StgInfo {
     fn default() -> Self {
-        StgInfo {
+        Self {
             initialized: false,
             size: 0,
             align: 1,
@@ -155,7 +155,7 @@ impl Default for StgInfo {
 
 impl StgInfo {
     pub(crate) fn new(size: usize, align: usize) -> Self {
-        StgInfo {
+        Self {
             initialized: true,
             size,
             align,
@@ -207,7 +207,7 @@ impl StgInfo {
             StgInfoFlags::empty()
         };
 
-        StgInfo {
+        Self {
             initialized: true,
             size,
             align,
@@ -476,7 +476,7 @@ pub(crate) struct PyCData {
 impl PyCData {
     /// Create from StgInfo (PyCData_MallocBuffer pattern)
     pub(crate) fn from_stg_info(stg_info: &StgInfo) -> Self {
-        PyCData {
+        Self {
             buffer: PyRwLock::new(Cow::Owned(vec![0u8; stg_info.size])),
             base: PyRwLock::new(None),
             base_offset: AtomicCell::new(0),
@@ -489,7 +489,7 @@ impl PyCData {
 
     /// Create from existing bytes (copies data)
     pub(crate) fn from_bytes(data: Vec<u8>, objects: Option<PyObjectRef>) -> Self {
-        PyCData {
+        Self {
             buffer: PyRwLock::new(Cow::Owned(data)),
             base: PyRwLock::new(None),
             base_offset: AtomicCell::new(0),
@@ -506,7 +506,7 @@ impl PyCData {
         objects: Option<PyObjectRef>,
         length: usize,
     ) -> Self {
-        PyCData {
+        Self {
             buffer: PyRwLock::new(Cow::Owned(data)),
             base: PyRwLock::new(None),
             base_offset: AtomicCell::new(0),
@@ -527,7 +527,7 @@ impl PyCData {
         // = PyCData_AtAddress
         // SAFETY: Caller must ensure ptr is valid for the lifetime of returned PyCData
         let slice: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, size) };
-        PyCData {
+        Self {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(None),
             base_offset: AtomicCell::new(0),
@@ -550,7 +550,7 @@ impl PyCData {
         length: usize,
         data: Vec<u8>,
     ) -> Self {
-        PyCData {
+        Self {
             buffer: PyRwLock::new(Cow::Owned(data)), // Has its own buffer copy
             base: PyRwLock::new(Some(base_obj)),     // But still tracks base
             base_offset: AtomicCell::new(offset),    // And offset for writes
@@ -577,7 +577,7 @@ impl PyCData {
         // = PyCData_FromBaseObj
         // SAFETY: ptr points into base_obj's buffer, kept alive via base reference
         let slice: &'static [u8] = unsafe { core::slice::from_raw_parts(ptr, size) };
-        PyCData {
+        Self {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(Some(base_obj)),
             base_offset: AtomicCell::new(0),
@@ -612,7 +612,7 @@ impl PyCData {
             .set_item("-1", source, vm)
             .expect("Failed to store buffer reference");
 
-        PyCData {
+        Self {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(None),
             base_offset: AtomicCell::new(0),
@@ -854,7 +854,7 @@ impl PyCData {
         let key = self.unique_key(index);
         if let Some(base_obj) = self.base.read().clone() {
             let root = Self::find_root_object(&base_obj);
-            if let Some(cdata) = root.downcast_ref::<PyCData>() {
+            if let Some(cdata) = root.downcast_ref::<Self>() {
                 cdata.kept_refs.write().insert(key, obj);
                 return;
             }
@@ -865,7 +865,7 @@ impl PyCData {
     /// Find the root object (one without a base) by walking up the base chain
     fn find_root_object(obj: &PyObject) -> PyObjectRef {
         // Try to get base from different ctypes types
-        let base = if let Some(cdata) = obj.downcast_ref::<PyCData>() {
+        let base = if let Some(cdata) = obj.downcast_ref::<Self>() {
             cdata.base.read().clone()
         } else {
             None
@@ -887,7 +887,7 @@ impl PyCData {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Get the objects dict from the object
-        let objects_lock = if let Some(cdata) = obj.downcast_ref::<PyCData>() {
+        let objects_lock = if let Some(cdata) = obj.downcast_ref::<Self>() {
             &cdata.objects
         } else {
             return Ok(()); // Unknown type, skip
@@ -925,7 +925,7 @@ impl PyCData {
     /// Returns the _objects of the CData, or an empty dict if None.
     pub(crate) fn get_kept_objects(value: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
         value
-            .downcast_ref::<PyCData>()
+            .downcast_ref::<Self>()
             .and_then(|cdata| cdata.objects.read().clone())
             .unwrap_or_else(|| vm.ctx.new_dict().into())
     }
@@ -933,7 +933,7 @@ impl PyCData {
     /// Check if a value should be stored in _objects
     /// Returns true for ctypes objects and bytes (for c_char_p)
     pub(crate) fn should_keep_ref(value: &PyObject) -> bool {
-        value.downcast_ref::<PyCData>().is_some() || value.downcast_ref::<PyBytes>().is_some()
+        value.downcast_ref::<Self>().is_some() || value.downcast_ref::<PyBytes>().is_some()
     }
 
     /// PyCData_set
@@ -1405,11 +1405,7 @@ impl PyCField {
 
     /// Create a new CField from an existing field with adjusted offset and index
     /// Used by MakeFields to promote anonymous fields
-    pub(crate) fn new_from_field(
-        fdescr: &PyCField,
-        index_offset: usize,
-        offset_delta: isize,
-    ) -> Self {
+    pub(crate) fn new_from_field(fdescr: &Self, index_offset: usize, offset_delta: isize) -> Self {
         Self {
             name: fdescr.name.clone(),
             offset: fdescr.offset + offset_delta,
@@ -1556,7 +1552,7 @@ impl GetDescriptor for PyCField {
         vm: &VirtualMachine,
     ) -> PyResult {
         let zelf = zelf
-            .downcast::<PyCField>()
+            .downcast::<Self>()
             .map_err(|_| vm.new_type_error("expected CField"))?;
 
         // If obj is None, return the descriptor itself (class attribute access)
@@ -1569,7 +1565,7 @@ impl GetDescriptor for PyCField {
         let size = zelf.get_byte_size();
 
         // Get PyCData from obj (works for both Structure and Union)
-        let cdata = PyCField::get_cdata_from_obj(&obj, vm)?;
+        let cdata = Self::get_cdata_from_obj(&obj, vm)?;
 
         // PyCData_get
         cdata.get_field(
@@ -1709,7 +1705,7 @@ impl PyCField {
                 if vm.is_none(value) {
                     return Ok((vec![0u8; size], None));
                 }
-                Ok((PyCField::value_to_bytes(value, size, vm), None))
+                Ok((Self::value_to_bytes(value, size, vm), None))
             }
             "Z" => {
                 // c_wchar_p: store pointer to null-terminated wchar_t buffer
@@ -1734,7 +1730,7 @@ impl PyCField {
                 if vm.is_none(value) {
                     return Ok((vec![0u8; size], None));
                 }
-                Ok((PyCField::value_to_bytes(value, size, vm), None))
+                Ok((Self::value_to_bytes(value, size, vm), None))
             }
             "P" => {
                 // c_void_p: store integer as pointer
@@ -1750,9 +1746,9 @@ impl PyCField {
                 if vm.is_none(value) {
                     return Ok((vec![0u8; size], None));
                 }
-                Ok((PyCField::value_to_bytes(value, size, vm), None))
+                Ok((Self::value_to_bytes(value, size, vm), None))
             }
-            _ => Ok((PyCField::value_to_bytes(value, size, vm), None)),
+            _ => Ok((Self::value_to_bytes(value, size, vm), None)),
         }
     }
 
@@ -1827,7 +1823,7 @@ impl PyCField {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let zelf = zelf
-            .downcast_ref::<PyCField>()
+            .downcast_ref::<Self>()
             .ok_or_else(|| vm.new_type_error("expected CField"))?;
 
         let offset = zelf.offset as usize;
@@ -2071,18 +2067,18 @@ impl FfiArgValue {
     /// Create an Arg reference to this owned value
     pub(crate) fn as_arg(&self) -> libffi::middle::Arg<'_> {
         match self {
-            FfiArgValue::U8(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::I8(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::U16(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::I16(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::U32(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::I32(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::U64(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::I64(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::F32(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::F64(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::Pointer(v) => libffi::middle::Arg::new(v),
-            FfiArgValue::OwnedPointer(v, _) => libffi::middle::Arg::new(v),
+            Self::U8(v) => libffi::middle::Arg::new(v),
+            Self::I8(v) => libffi::middle::Arg::new(v),
+            Self::U16(v) => libffi::middle::Arg::new(v),
+            Self::I16(v) => libffi::middle::Arg::new(v),
+            Self::U32(v) => libffi::middle::Arg::new(v),
+            Self::I32(v) => libffi::middle::Arg::new(v),
+            Self::U64(v) => libffi::middle::Arg::new(v),
+            Self::I64(v) => libffi::middle::Arg::new(v),
+            Self::F32(v) => libffi::middle::Arg::new(v),
+            Self::F64(v) => libffi::middle::Arg::new(v),
+            Self::Pointer(v) => libffi::middle::Arg::new(v),
+            Self::OwnedPointer(v, _) => libffi::middle::Arg::new(v),
         }
     }
 }

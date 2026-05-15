@@ -1250,15 +1250,16 @@ impl Node for ast::StmtPass {
         let start_row = location.start.row.get();
         let start_col = location.start.column.get();
         let mut end_row = location.end.row.get();
-        let mut end_col = location.end.column.get();
 
         // Align with CPython: when docstring optimization replaces a lone
         // docstring with `pass`, the end position is on the same line even if
         // it extends past the physical line length.
-        if end_row != start_row && _range.len() == TextSize::from(4) {
+        let end_col = if end_row != start_row && _range.len() == TextSize::from(4) {
             end_row = start_row;
-            end_col = start_col + 4;
-        }
+            start_col + 4
+        } else {
+            location.end.column.get()
+        };
 
         dict.set_item("lineno", _vm.ctx.new_int(start_row).into(), _vm)
             .unwrap();

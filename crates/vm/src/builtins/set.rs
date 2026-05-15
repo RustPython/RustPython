@@ -947,7 +947,7 @@ impl Constructor for PyFrozenSet {
         if cls.is(vm.ctx.types.frozenset_type) {
             // Return exact frozenset as-is
             if let OptionalArg::Present(ref input) = iterable
-                && let Ok(fs) = input.clone().downcast_exact::<PyFrozenSet>(vm)
+                && let Ok(fs) = input.clone().downcast_exact::<Self>(vm)
             {
                 return Ok(fs.into_pyref().into());
             }

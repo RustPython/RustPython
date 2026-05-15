@@ -31,7 +31,7 @@ trait FormatParse {
         Self: Sized;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum FormatConversion {
     Str = b's',
@@ -74,7 +74,7 @@ impl FormatConversion {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FormatAlign {
     Left,
     Right,
@@ -105,7 +105,7 @@ impl FormatParse for FormatAlign {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FormatSign {
     Plus,
     Minus,
@@ -124,7 +124,7 @@ impl FormatParse for FormatSign {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatGrouping {
     Comma,
     Underscore,
@@ -150,7 +150,7 @@ impl From<&FormatGrouping> for char {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatType {
     String,
     Binary,
@@ -216,7 +216,7 @@ impl FormatParse for FormatType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FormatSpec {
     conversion: Option<FormatConversion>,
     fill: Option<CodePoint>,
@@ -644,7 +644,7 @@ impl FormatSpec {
         // Reuse format_complex_re_im with 'g' type to get the base formatted parts,
         // then apply locale grouping. This matches CPython's format_complex_internal:
         // 'n' → 'g', add_parens=0, skip_re=0.
-        let locale_spec = FormatSpec {
+        let locale_spec = Self {
             format_type: Some(FormatType::GeneralFormat(Case::Lower)),
             ..*self
         };
@@ -933,20 +933,23 @@ impl FormatSpec {
 
     fn format_complex_re_im(&self, num: &Complex64) -> Result<(String, String), FormatSpecError> {
         // Format real part
-        let mut formatted_re = String::new();
-        if num.re != 0.0 || num.re.is_negative_zero() || self.format_type.is_some() {
-            let sign_re = if num.re.is_sign_negative() && !num.is_nan() {
-                "-"
+        let formatted_re =
+            if num.re != 0.0 || num.re.is_negative_zero() || self.format_type.is_some() {
+                let sign_re = if num.re.is_sign_negative() && !num.is_nan() {
+                    "-"
+                } else {
+                    match self.sign.unwrap_or(FormatSign::Minus) {
+                        FormatSign::Plus => "+",
+                        FormatSign::Minus => "",
+                        FormatSign::MinusOrSpace => " ",
+                    }
+                };
+                let re = self.format_complex_float(num.re)?;
+                format!("{sign_re}{re}")
             } else {
-                match self.sign.unwrap_or(FormatSign::Minus) {
-                    FormatSign::Plus => "+",
-                    FormatSign::Minus => "",
-                    FormatSign::MinusOrSpace => " ",
-                }
+                String::new()
             };
-            let re = self.format_complex_float(num.re)?;
-            formatted_re = format!("{sign_re}{re}");
-        }
+
         // Format imaginary part
         let sign_im = if num.im.is_sign_negative() && !num.im.is_nan() {
             "-"
@@ -1118,7 +1121,7 @@ impl Deref for AsciiStr<'_> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatSpecError {
     DecimalDigitsTooMany,
     PrecisionTooBig,
@@ -1135,7 +1138,7 @@ pub enum FormatSpecError {
     NotImplemented(char, &'static str),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatParseError {
     UnmatchedBracket,
     MissingStartBracket,
@@ -1155,7 +1158,7 @@ impl FromStr for FormatSpec {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FieldNamePart {
     Attribute(Wtf8Buf),
     Index(usize),
@@ -1202,14 +1205,14 @@ impl FieldNamePart {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FieldType {
     Auto,
     Index(usize),
     Keyword(Wtf8Buf),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FieldName {
     pub field_type: FieldType,
     pub parts: Vec<FieldNamePart>,
@@ -1255,7 +1258,7 @@ impl FieldName {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FormatPart {
     Field {
         field_name: Wtf8Buf,
@@ -1265,7 +1268,7 @@ pub enum FormatPart {
     Literal(Wtf8Buf),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FormatString {
     pub format_parts: Vec<FormatPart>,
 }

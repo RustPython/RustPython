@@ -10,7 +10,7 @@ use crate::{
 
 bitflags::bitflags! {
     // METH_XXX flags in CPython
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct PyMethodFlags: u32 {
         const VARARGS = 0x0001;
         const KEYWORDS = 0x0002;

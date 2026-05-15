@@ -379,18 +379,16 @@ impl PyUnion {
             needle,
             vm,
         )?;
-        let res;
-        if new_args.is_empty() {
-            res = make_union(&new_args, vm)?;
+
+        Ok(if new_args.is_empty() {
+            make_union(&new_args, vm)?
         } else {
             let mut tmp = new_args[0].to_owned();
             for arg in new_args.iter().skip(1) {
                 tmp = vm._or(&tmp, arg)?;
             }
-            res = tmp;
-        }
-
-        Ok(res)
+            tmp
+        })
     }
 }
 

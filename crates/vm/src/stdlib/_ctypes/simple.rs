@@ -488,7 +488,7 @@ impl PyCSimpleType {
 
         // 5. Check for _as_parameter_ attribute
         if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
-            return PyCSimpleType::from_param(cls.as_object().to_owned(), as_parameter, vm);
+            return Self::from_param(cls.as_object().to_owned(), as_parameter, vm);
         }
 
         // 6. Type-specific error messages
@@ -1052,7 +1052,7 @@ impl Constructor for PyCSimple {
                     let buffer = ptr.to_ne_bytes().to_vec();
                     let cdata = PyCData::from_bytes(buffer, Some(v.clone()));
                     *cdata.base.write() = Some(kept_alive);
-                    return PyCSimple(cdata).into_ref_with_type(vm, cls).map(Into::into);
+                    return Self(cdata).into_ref_with_type(vm, cls).map(Into::into);
                 }
             } else if _type_ == "Z"
                 && let Some(s) = v.downcast_ref::<PyStr>()
@@ -1060,7 +1060,7 @@ impl Constructor for PyCSimple {
                 let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                 let buffer = ptr.to_ne_bytes().to_vec();
                 let cdata = PyCData::from_bytes(buffer, Some(holder));
-                return PyCSimple(cdata).into_ref_with_type(vm, cls).map(Into::into);
+                return Self(cdata).into_ref_with_type(vm, cls).map(Into::into);
             }
         }
 
@@ -1091,7 +1091,7 @@ impl Constructor for PyCSimple {
             None
         };
 
-        PyCSimple(PyCData::from_bytes(buffer, objects))
+        Self(PyCData::from_bytes(buffer, objects))
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }
@@ -1107,7 +1107,7 @@ impl Initializer for PyCSimple {
     fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // If an argument is provided, update the value
         if let Some(value) = args.0.into_option() {
-            PyCSimple::set_value(zelf.into(), value, vm)?;
+            Self::set_value(zelf.into(), value, vm)?;
         }
         Ok(())
     }
@@ -1128,7 +1128,7 @@ impl Representable for PyCSimple {
 
         if is_direct_simple {
             // Direct SimpleCData: "typename(repr(value))"
-            let value = PyCSimple::value(zelf.to_owned().into(), vm)?;
+            let value = Self::value(zelf.to_owned().into(), vm)?;
             let value_repr = value.repr(vm)?.to_string();
             Ok(format!("{type_name}({value_repr})"))
         } else {
@@ -1365,7 +1365,7 @@ impl PyCSimple {
             Ok(zelf.into())
         } else {
             // Direct simple type (e.g., c_int): return value
-            PyCSimple::value(zelf.into(), vm)
+            Self::value(zelf.into(), vm)
         }
     }
 }

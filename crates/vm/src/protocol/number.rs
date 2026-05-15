@@ -268,8 +268,8 @@ impl PyNumberTernaryOp {
         vm: &VirtualMachine,
     ) -> Option<&'static crate::builtins::PyStrInterned> {
         Some(match self {
-            PyNumberTernaryOp::Power => identifier!(vm, __rpow__),
-            PyNumberTernaryOp::InplacePower => return None,
+            Self::Power => identifier!(vm, __rpow__),
+            Self::InplacePower => return None,
         })
     }
 }

@@ -1456,9 +1456,7 @@ pub(crate) mod _thread {
 
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            ThreadHandle::new(vm)
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            Self::new(vm).into_ref_with_type(vm, cls).map(Into::into)
         }
     }
 

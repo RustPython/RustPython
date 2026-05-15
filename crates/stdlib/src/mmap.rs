@@ -253,10 +253,10 @@ mod mmap {
     impl MmapObj {
         fn as_slice(&self) -> &[u8] {
             match self {
-                MmapObj::Read(mmap) => &mmap[..],
-                MmapObj::Write(mmap) => &mmap[..],
+                Self::Read(mmap) => &mmap[..],
+                Self::Write(mmap) => &mmap[..],
                 #[cfg(windows)]
-                MmapObj::Named(named) => unsafe {
+                Self::Named(named) => unsafe {
                     core::slice::from_raw_parts(named.view_ptr, named.len)
                 },
             }

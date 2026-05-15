@@ -103,9 +103,9 @@ pub(crate) mod _asyncio {
     impl FutureState {
         fn as_str(&self) -> &'static str {
             match self {
-                FutureState::Pending => "PENDING",
-                FutureState::Cancelled => "CANCELLED",
-                FutureState::Finished => "FINISHED",
+                Self::Pending => "PENDING",
+                Self::Cancelled => "CANCELLED",
+                Self::Finished => "FINISHED",
             }
         }
     }
@@ -140,7 +140,7 @@ pub(crate) mod _asyncio {
         type Args = FuncArgs;
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(PyFuture::new_empty())
+            Ok(Self::new_empty())
         }
     }
 
@@ -154,7 +154,7 @@ pub(crate) mod _asyncio {
             }
             // Extract only 'loop' keyword argument
             let loop_ = args.kwargs.get("loop").cloned();
-            PyFuture::py_init(&zelf, loop_, vm)
+            Self::py_init(&zelf, loop_, vm)
         }
     }
 
@@ -1148,7 +1148,7 @@ pub(crate) mod _asyncio {
         type Args = TaskInitArgs;
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            PyTask::py_init(&zelf, args, vm)
+            Self::py_init(&zelf, args, vm)
         }
     }
 

@@ -1515,7 +1515,7 @@ mod _overlapped {
                 error: 0,
                 data: OverlappedData::None,
             };
-            Ok(Overlapped {
+            Ok(Self {
                 inner: PyMutex::new(inner),
             })
         }

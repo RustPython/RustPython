@@ -944,7 +944,7 @@ pub(crate) mod typevar {
         ) -> PyResult<PyComparisonValue> {
             op.eq_only(|| {
                 if other.class().is(zelf.class())
-                    && let Some(other_args) = other.downcast_ref::<ParamSpecArgs>()
+                    && let Some(other_args) = other.downcast_ref::<Self>()
                 {
                     let eq = zelf.__origin__.rich_compare_bool(
                         &other_args.__origin__,
@@ -1007,7 +1007,7 @@ pub(crate) mod typevar {
         ) -> PyResult<PyComparisonValue> {
             op.eq_only(|| {
                 if other.class().is(zelf.class())
-                    && let Some(other_kwargs) = other.downcast_ref::<ParamSpecKwargs>()
+                    && let Some(other_kwargs) = other.downcast_ref::<Self>()
                 {
                     let eq = zelf.__origin__.rich_compare_bool(
                         &other_kwargs.__origin__,

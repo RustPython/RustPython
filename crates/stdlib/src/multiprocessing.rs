@@ -71,7 +71,7 @@ mod _multiprocessing {
             if handle == 0 as HANDLE {
                 return Err(vm.new_last_os_error());
             }
-            Ok(SemHandle { raw: handle })
+            Ok(Self { raw: handle })
         }
 
         #[inline]
@@ -272,7 +272,7 @@ mod _multiprocessing {
             vm: &VirtualMachine,
         ) -> PyResult {
             // On Windows, _rebuild receives the handle directly (no sem_open)
-            let zelf = SemLock {
+            let zelf = Self {
                 handle: SemHandle {
                     raw: handle as HANDLE,
                 },
@@ -349,7 +349,7 @@ mod _multiprocessing {
             let handle = SemHandle::create(args.value, args.maxvalue, vm)?;
             let name = if args.unlink { None } else { Some(args.name) };
 
-            Ok(SemLock {
+            Ok(Self {
                 handle,
                 kind: args.kind,
                 maxvalue: args.maxvalue,
@@ -569,9 +569,9 @@ mod _multiprocessing {
                 unsafe {
                     libc::sem_unlink(cname.as_ptr());
                 }
-                Ok((SemHandle { raw }, None))
+                Ok((Self { raw }, None))
             } else {
-                Ok((SemHandle { raw }, Some(name.to_owned())))
+                Ok((Self { raw }, Some(name.to_owned())))
             }
         }
 
@@ -582,7 +582,7 @@ mod _multiprocessing {
                 let err = Errno::last();
                 return Err(os_error(vm, err));
             }
-            Ok(SemHandle { raw })
+            Ok(Self { raw })
         }
 
         #[inline]
@@ -928,7 +928,7 @@ mod _multiprocessing {
             };
             let handle = SemHandle::open_existing(name_str, vm)?;
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
-            let zelf = SemLock {
+            let zelf = Self {
                 handle,
                 kind,
                 maxvalue,
@@ -1060,7 +1060,7 @@ mod _multiprocessing {
             let (handle, name) = SemHandle::create(&args.name, value, args.unlink, vm)?;
 
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
-            Ok(SemLock {
+            Ok(Self {
                 handle,
                 kind: args.kind,
                 maxvalue: args.maxvalue,

@@ -403,7 +403,7 @@ impl PyCUnionType {
 
         // 3. Check for _as_parameter_ attribute
         if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
-            return PyCUnionType::from_param(cls.as_object().to_owned(), as_parameter, vm);
+            return Self::from_param(cls.as_object().to_owned(), as_parameter, vm);
         }
 
         Err(vm.new_type_error(format!(
@@ -495,7 +495,7 @@ impl SetAttr for PyCUnionType {
                 if attr_name.as_bytes() == b"_fields_"
                     && let PySetterValue::Assign(fields_value) = value
                 {
-                    PyCUnionType::process_fields(pytype, fields_value, vm)?;
+                    Self::process_fields(pytype, fields_value, vm)?;
                 }
                 return Ok(());
             }
@@ -506,7 +506,7 @@ impl SetAttr for PyCUnionType {
         if attr_name.as_bytes() == b"_fields_"
             && let PySetterValue::Assign(ref fields_value) = value
         {
-            PyCUnionType::process_fields(pytype, fields_value.clone(), vm)?;
+            Self::process_fields(pytype, fields_value.clone(), vm)?;
         }
 
         // Store in type's attributes dict
@@ -564,7 +564,7 @@ impl Constructor for PyCUnion {
         // Initialize buffer with zeros using computed size
         let mut new_stg_info = StgInfo::new(total_size, total_align);
         new_stg_info.length = length;
-        PyCUnion(PyCData::from_stg_info(&new_stg_info))
+        Self(PyCData::from_stg_info(&new_stg_info))
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }
@@ -647,7 +647,7 @@ impl Initializer for PyCUnion {
 
         // 1. Process positional arguments recursively through inheritance chain
         if !args.args.is_empty() {
-            let consumed = PyCUnion::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
+            let consumed = Self::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
 
             if consumed < args.args.len() {
                 return Err(vm.new_type_error("too many initializers"));

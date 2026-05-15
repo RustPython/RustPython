@@ -433,9 +433,9 @@ pub(super) mod types {
     impl ConditionMatcher {
         fn check(&self, exc: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
             match self {
-                ConditionMatcher::Type(typ) => Ok(exc.fast_isinstance(typ)),
-                ConditionMatcher::Types(types) => Ok(types.iter().any(|t| exc.fast_isinstance(t))),
-                ConditionMatcher::Callable(func) => {
+                Self::Type(typ) => Ok(exc.fast_isinstance(typ)),
+                Self::Types(types) => Ok(types.iter().any(|t| exc.fast_isinstance(t))),
+                Self::Callable(func) => {
                     let result = func.call((exc.to_owned(),), vm)?;
                     result.try_to_bool(vm)
                 }

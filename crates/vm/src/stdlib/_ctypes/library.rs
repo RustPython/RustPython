@@ -41,7 +41,7 @@ impl SharedLibrary {
     /// Create a SharedLibrary from a raw dlopen handle (for pythonapi / dlopen(NULL))
     #[cfg(unix)]
     pub(super) fn from_raw_handle(handle: *mut libc::c_void) -> Self {
-        SharedLibrary {
+        Self {
             lib: PyMutex::new(Some(unsafe { UnixLibrary::from_raw(handle).into() })),
         }
     }

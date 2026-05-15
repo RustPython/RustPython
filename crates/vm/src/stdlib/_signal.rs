@@ -38,9 +38,9 @@ pub(crate) mod _signal {
 
                     let fd: &crate::Py<crate::builtins::PyInt> = obj.try_to_value(vm)?;
                     match fd.try_to_primitive::<usize>(vm) {
-                        Ok(fd) => Ok(WakeupFd(fd as _)),
+                        Ok(fd) => Ok(Self(fd as _)),
                         Err(e) => if (-fd.as_bigint()).is_one() {
-                            Ok(WakeupFd(INVALID_WAKEUP))
+                            Ok(Self(INVALID_WAKEUP))
                         } else {
                             Err(e)
                         },

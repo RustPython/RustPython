@@ -835,7 +835,7 @@ impl Frame {
     }
 
     /// Get the previous frame pointer for signal-safe traceback walking.
-    pub fn previous_frame(&self) -> *const Frame {
+    pub fn previous_frame(&self) -> *const Self {
         self.previous.load(atomic::Ordering::Relaxed)
     }
 

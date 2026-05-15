@@ -1057,10 +1057,10 @@ impl PyStr {
 
     #[pymethod]
     fn __format__(
-        zelf: PyRef<PyStr>,
+        zelf: PyRef<Self>,
         spec: PyUtf8StrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyStr>> {
+    ) -> PyResult<PyRef<Self>> {
         if spec.is_empty() {
             return if zelf.class().is(vm.ctx.types.str_type) {
                 Ok(zelf)
@@ -1577,7 +1577,7 @@ impl PyStr {
             zelf.to_owned()
         } else {
             // Subclass, create a new exact str
-            PyStr::from(zelf.data.clone()).into_ref(&vm.ctx)
+            Self::from(zelf.data.clone()).into_ref(&vm.ctx)
         }
     }
 }

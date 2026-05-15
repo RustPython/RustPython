@@ -332,7 +332,7 @@ impl PyCArrayType {
 
         // 3. Check for _as_parameter_ attribute
         if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
-            return PyCArrayType::from_param(cls.as_object().to_owned(), as_parameter, vm);
+            return Self::from_param(cls.as_object().to_owned(), as_parameter, vm);
         }
 
         Err(vm.new_type_error(format!(
@@ -424,12 +424,12 @@ impl Constructor for PyCArray {
 
         // Create array with zero-initialized buffer
         let buffer = vec![0u8; total_size];
-        let instance = PyCArray(PyCData::from_bytes_with_length(buffer, None, length))
+        let instance = Self(PyCData::from_bytes_with_length(buffer, None, length))
             .into_ref_with_type(vm, cls)?;
 
         // Initialize elements using setitem_by_index (Array_init pattern)
         for (i, value) in args.args.iter().enumerate() {
-            PyCArray::setitem_by_index(&instance, i as isize, value.clone(), vm)?;
+            Self::setitem_by_index(&instance, i as isize, value.clone(), vm)?;
         }
 
         Ok(instance.into())
@@ -446,7 +446,7 @@ impl Initializer for PyCArray {
     fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Re-initialize array elements when __init__ is called
         for (i, value) in args.args.iter().enumerate() {
-            PyCArray::setitem_by_index(&zelf, i as isize, value.clone(), vm)?;
+            Self::setitem_by_index(&zelf, i as isize, value.clone(), vm)?;
         }
         Ok(())
     }
@@ -589,7 +589,7 @@ impl PyCArray {
         }
     }
 
-    fn getitem_by_index(zelf: &Py<PyCArray>, i: isize, vm: &VirtualMachine) -> PyResult {
+    fn getitem_by_index(zelf: &Py<Self>, i: isize, vm: &VirtualMachine) -> PyResult {
         let stg = zelf.class().stg_info_opt();
         let length = stg.as_ref().map_or(0, |i| i.length) as isize;
         let index = if i < 0 { length + i } else { i };
@@ -756,7 +756,7 @@ impl PyCArray {
         element_size: usize,
         type_code: Option<&str>,
         value: &PyObject,
-        zelf: &Py<PyCArray>,
+        zelf: &Py<Self>,
         index: usize,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -885,7 +885,7 @@ impl PyCArray {
     }
 
     fn setitem_by_index(
-        zelf: &Py<PyCArray>,
+        zelf: &Py<Self>,
         i: isize,
         value: PyObjectRef,
         vm: &VirtualMachine,

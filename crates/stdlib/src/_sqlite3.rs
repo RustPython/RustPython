@@ -897,11 +897,11 @@ mod _sqlite3 {
 
             // For non-subclassed Connection, initialize in __new__
             // For subclassed Connection, leave db as None and require __init__ to be called
-            let is_base_class = cls.is(Connection::class(&vm.ctx));
+            let is_base_class = cls.is(Self::class(&vm.ctx));
 
             let db = if is_base_class {
                 // Initialize immediately for base class
-                Some(Connection::initialize_db(&args, vm)?)
+                Some(Self::initialize_db(&args, vm)?)
             } else {
                 // For subclasses, require __init__ to be called
                 None
@@ -1903,7 +1903,7 @@ mod _sqlite3 {
             let mut list = vec![];
             let mut remaining = max_rows;
             while remaining > 0 {
-                match Cursor::next(zelf, vm)? {
+                match Self::next(zelf, vm)? {
                     PyIterReturn::Return(row) => {
                         list.push(row);
                         remaining -= 1;
@@ -1945,6 +1945,7 @@ mod _sqlite3 {
 
         #[pymethod]
         fn setinputsizes(&self, _sizes: PyObjectRef) {}
+
         #[pymethod]
         fn setoutputsize(&self, _size: PyObjectRef, _column: OptionalArg<PyObjectRef>) {}
 
@@ -3033,7 +3034,7 @@ mod _sqlite3 {
 
     impl From<*mut sqlite3_stmt> for SqliteStatementRaw {
         fn from(st: *mut sqlite3_stmt) -> Self {
-            SqliteStatementRaw { st }
+            Self { st }
         }
     }
 

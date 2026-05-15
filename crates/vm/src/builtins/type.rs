@@ -506,14 +506,14 @@ impl PyType {
         let subclasses = self.subclasses.read();
         for weak_ref in subclasses.iter() {
             if let Some(sub) = weak_ref.upgrade() {
-                sub.downcast_ref::<PyType>().unwrap().modified();
+                sub.downcast_ref::<Self>().unwrap().modified();
             }
         }
     }
 
     pub fn new_simple_heap(
         name: &str,
-        base: &Py<PyType>,
+        base: &Py<Self>,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
         Self::new_heap(

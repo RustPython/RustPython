@@ -73,7 +73,7 @@ type HandleInt = isize;
 impl TryFromObject for WinHandle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let handle = HandleInt::try_from_object(vm, obj)?;
-        Ok(WinHandle(handle as HANDLE))
+        Ok(Self(handle as HANDLE))
     }
 }
 

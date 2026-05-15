@@ -155,7 +155,7 @@ impl PyCStructType {
 
         // 2. Check for _as_parameter_ attribute
         if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
-            return PyCStructType::from_param(cls.as_object().to_owned(), as_parameter, vm);
+            return Self::from_param(cls.as_object().to_owned(), as_parameter, vm);
         }
 
         Err(vm.new_type_error(format!(
@@ -622,7 +622,7 @@ impl SetAttr for PyCStructType {
                 return Err(vm.new_attribute_error("cannot delete _fields_"));
             };
             // Process fields (this will also set DICTFLAG_FINAL)
-            PyCStructType::process_fields(pytype, fields_value.clone(), vm)?;
+            Self::process_fields(pytype, fields_value.clone(), vm)?;
             // Set the _fields_ attribute on the type
             pytype
                 .attributes
@@ -695,7 +695,7 @@ impl Constructor for PyCStructure {
         // Initialize buffer with zeros using computed size
         let mut new_stg_info = StgInfo::new(total_size, total_align);
         new_stg_info.length = length;
-        PyCStructure(PyCData::from_stg_info(&new_stg_info))
+        Self(PyCData::from_stg_info(&new_stg_info))
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }
@@ -776,8 +776,7 @@ impl Initializer for PyCStructure {
 
         // 1. Process positional arguments recursively through inheritance chain
         if !args.args.is_empty() {
-            let consumed =
-                PyCStructure::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
+            let consumed = Self::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
 
             if consumed < args.args.len() {
                 return Err(vm.new_type_error("too many initializers"));

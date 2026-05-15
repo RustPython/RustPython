@@ -310,7 +310,7 @@ impl PyComplex {
         RCF: FnOnce(f64, Complex64) -> R,
         R: ToPyResult,
     {
-        let value = match (a.downcast_ref::<PyComplex>(), b.downcast_ref::<PyComplex>()) {
+        let value = match (a.downcast_ref::<Self>(), b.downcast_ref::<Self>()) {
             // complex + complex
             (Some(a_complex), Some(b_complex)) => cc_op(a_complex.value, b_complex.value),
             (Some(a_complex), None) => {

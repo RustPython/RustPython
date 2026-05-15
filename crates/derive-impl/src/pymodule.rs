@@ -32,7 +32,7 @@ impl syn::parse::Parse for WithItem {
             }
         }
         let path = input.parse()?;
-        Ok(WithItem { cfg_attrs, path })
+        Ok(Self { cfg_attrs, path })
     }
 }
 
@@ -75,7 +75,7 @@ impl syn::parse::Parse for PyModuleArgs {
             input.parse::<syn::Token![,]>()?;
         }
 
-        Ok(PyModuleArgs { metas, with_items })
+        Ok(Self { metas, with_items })
     }
 }
 
