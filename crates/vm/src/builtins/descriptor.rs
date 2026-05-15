@@ -544,41 +544,41 @@ pub enum SlotFunc {
 impl core::fmt::Debug for SlotFunc {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SlotFunc::Init(_) => write!(f, "SlotFunc::Init(...)"),
-            SlotFunc::Hash(_) => write!(f, "SlotFunc::Hash(...)"),
-            SlotFunc::Str(_) => write!(f, "SlotFunc::Str(...)"),
-            SlotFunc::Repr(_) => write!(f, "SlotFunc::Repr(...)"),
-            SlotFunc::Iter(_) => write!(f, "SlotFunc::Iter(...)"),
-            SlotFunc::IterNext(_) => write!(f, "SlotFunc::IterNext(...)"),
-            SlotFunc::Call(_) => write!(f, "SlotFunc::Call(...)"),
-            SlotFunc::Del(_) => write!(f, "SlotFunc::Del(...)"),
-            SlotFunc::GetAttro(_) => write!(f, "SlotFunc::GetAttro(...)"),
-            SlotFunc::SetAttro(_) => write!(f, "SlotFunc::SetAttro(...)"),
-            SlotFunc::DelAttro(_) => write!(f, "SlotFunc::DelAttro(...)"),
-            SlotFunc::RichCompare(_, op) => write!(f, "SlotFunc::RichCompare(..., {op:?})"),
-            SlotFunc::DescrGet(_) => write!(f, "SlotFunc::DescrGet(...)"),
-            SlotFunc::DescrSet(_) => write!(f, "SlotFunc::DescrSet(...)"),
-            SlotFunc::DescrDel(_) => write!(f, "SlotFunc::DescrDel(...)"),
+            Self::Init(_) => write!(f, "SlotFunc::Init(...)"),
+            Self::Hash(_) => write!(f, "SlotFunc::Hash(...)"),
+            Self::Str(_) => write!(f, "SlotFunc::Str(...)"),
+            Self::Repr(_) => write!(f, "SlotFunc::Repr(...)"),
+            Self::Iter(_) => write!(f, "SlotFunc::Iter(...)"),
+            Self::IterNext(_) => write!(f, "SlotFunc::IterNext(...)"),
+            Self::Call(_) => write!(f, "SlotFunc::Call(...)"),
+            Self::Del(_) => write!(f, "SlotFunc::Del(...)"),
+            Self::GetAttro(_) => write!(f, "SlotFunc::GetAttro(...)"),
+            Self::SetAttro(_) => write!(f, "SlotFunc::SetAttro(...)"),
+            Self::DelAttro(_) => write!(f, "SlotFunc::DelAttro(...)"),
+            Self::RichCompare(_, op) => write!(f, "SlotFunc::RichCompare(..., {op:?})"),
+            Self::DescrGet(_) => write!(f, "SlotFunc::DescrGet(...)"),
+            Self::DescrSet(_) => write!(f, "SlotFunc::DescrSet(...)"),
+            Self::DescrDel(_) => write!(f, "SlotFunc::DescrDel(...)"),
             // Sequence sub-slots
-            SlotFunc::SeqLength(_) => write!(f, "SlotFunc::SeqLength(...)"),
-            SlotFunc::SeqConcat(_) => write!(f, "SlotFunc::SeqConcat(...)"),
-            SlotFunc::SeqRepeat(_) => write!(f, "SlotFunc::SeqRepeat(...)"),
-            SlotFunc::SeqItem(_) => write!(f, "SlotFunc::SeqItem(...)"),
-            SlotFunc::SeqSetItem(_) => write!(f, "SlotFunc::SeqSetItem(...)"),
-            SlotFunc::SeqDelItem(_) => write!(f, "SlotFunc::SeqDelItem(...)"),
-            SlotFunc::SeqContains(_) => write!(f, "SlotFunc::SeqContains(...)"),
+            Self::SeqLength(_) => write!(f, "SlotFunc::SeqLength(...)"),
+            Self::SeqConcat(_) => write!(f, "SlotFunc::SeqConcat(...)"),
+            Self::SeqRepeat(_) => write!(f, "SlotFunc::SeqRepeat(...)"),
+            Self::SeqItem(_) => write!(f, "SlotFunc::SeqItem(...)"),
+            Self::SeqSetItem(_) => write!(f, "SlotFunc::SeqSetItem(...)"),
+            Self::SeqDelItem(_) => write!(f, "SlotFunc::SeqDelItem(...)"),
+            Self::SeqContains(_) => write!(f, "SlotFunc::SeqContains(...)"),
             // Mapping sub-slots
-            SlotFunc::MapLength(_) => write!(f, "SlotFunc::MapLength(...)"),
-            SlotFunc::MapSubscript(_) => write!(f, "SlotFunc::MapSubscript(...)"),
-            SlotFunc::MapSetSubscript(_) => write!(f, "SlotFunc::MapSetSubscript(...)"),
-            SlotFunc::MapDelSubscript(_) => write!(f, "SlotFunc::MapDelSubscript(...)"),
+            Self::MapLength(_) => write!(f, "SlotFunc::MapLength(...)"),
+            Self::MapSubscript(_) => write!(f, "SlotFunc::MapSubscript(...)"),
+            Self::MapSetSubscript(_) => write!(f, "SlotFunc::MapSetSubscript(...)"),
+            Self::MapDelSubscript(_) => write!(f, "SlotFunc::MapDelSubscript(...)"),
             // Number sub-slots
-            SlotFunc::NumBoolean(_) => write!(f, "SlotFunc::NumBoolean(...)"),
-            SlotFunc::NumUnary(_) => write!(f, "SlotFunc::NumUnary(...)"),
-            SlotFunc::NumBinary(_) => write!(f, "SlotFunc::NumBinary(...)"),
-            SlotFunc::NumBinaryRight(_) => write!(f, "SlotFunc::NumBinaryRight(...)"),
-            SlotFunc::NumTernary(_) => write!(f, "SlotFunc::NumTernary(...)"),
-            SlotFunc::NumTernaryRight(_) => write!(f, "SlotFunc::NumTernaryRight(...)"),
+            Self::NumBoolean(_) => write!(f, "SlotFunc::NumBoolean(...)"),
+            Self::NumUnary(_) => write!(f, "SlotFunc::NumUnary(...)"),
+            Self::NumBinary(_) => write!(f, "SlotFunc::NumBinary(...)"),
+            Self::NumBinaryRight(_) => write!(f, "SlotFunc::NumBinaryRight(...)"),
+            Self::NumTernary(_) => write!(f, "SlotFunc::NumTernary(...)"),
+            Self::NumTernaryRight(_) => write!(f, "SlotFunc::NumTernaryRight(...)"),
         }
     }
 }
@@ -587,22 +587,22 @@ impl SlotFunc {
     /// Call the wrapped slot function with proper type handling
     pub fn call(&self, obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         match self {
-            SlotFunc::Init(func) => {
+            Self::Init(func) => {
                 func(obj, args, vm)?;
                 Ok(vm.ctx.none())
             }
-            SlotFunc::Hash(func) => {
+            Self::Hash(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
                     return Err(vm.new_type_error("__hash__() takes no arguments (1 given)"));
                 }
                 let hash = func(&obj, vm)?;
                 Ok(vm.ctx.new_int(hash).into())
             }
-            SlotFunc::Repr(func) | SlotFunc::Str(func) => {
+            Self::Repr(func) | Self::Str(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
                     let name = match self {
-                        SlotFunc::Repr(_) => "__repr__",
-                        SlotFunc::Str(_) => "__str__",
+                        Self::Repr(_) => "__repr__",
+                        Self::Str(_) => "__str__",
                         _ => unreachable!(),
                     };
                     return Err(vm.new_type_error(format!("{name}() takes no arguments (1 given)")));
@@ -610,48 +610,48 @@ impl SlotFunc {
                 let s = func(&obj, vm)?;
                 Ok(s.into())
             }
-            SlotFunc::Iter(func) => {
+            Self::Iter(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
                     return Err(vm.new_type_error("__iter__() takes no arguments (1 given)"));
                 }
                 func(obj, vm)
             }
-            SlotFunc::IterNext(func) => {
+            Self::IterNext(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
                     return Err(vm.new_type_error("__next__() takes no arguments (1 given)"));
                 }
                 func(&obj, vm).to_pyresult(vm)
             }
-            SlotFunc::Call(func) => func(&obj, args, vm),
-            SlotFunc::Del(func) => {
+            Self::Call(func) => func(&obj, args, vm),
+            Self::Del(func) => {
                 if !args.args.is_empty() || !args.kwargs.is_empty() {
                     return Err(vm.new_type_error("__del__() takes no arguments (1 given)"));
                 }
                 func(&obj, vm)?;
                 Ok(vm.ctx.none())
             }
-            SlotFunc::GetAttro(func) => {
+            Self::GetAttro(func) => {
                 let (name,): (PyRef<PyStr>,) = args.bind(vm)?;
                 func(&obj, &name, vm)
             }
-            SlotFunc::SetAttro(func) => {
+            Self::SetAttro(func) => {
                 let (name, value): (PyRef<PyStr>, PyObjectRef) = args.bind(vm)?;
                 func(&obj, &name, PySetterValue::Assign(value), vm)?;
                 Ok(vm.ctx.none())
             }
-            SlotFunc::DelAttro(func) => {
+            Self::DelAttro(func) => {
                 let (name,): (PyRef<PyStr>,) = args.bind(vm)?;
                 func(&obj, &name, PySetterValue::Delete, vm)?;
                 Ok(vm.ctx.none())
             }
-            SlotFunc::RichCompare(func, op) => {
+            Self::RichCompare(func, op) => {
                 let (other,): (PyObjectRef,) = args.bind(vm)?;
                 func(&obj, &other, *op, vm).map(|r| match r {
                     crate::function::Either::A(obj) => obj,
                     crate::function::Either::B(cmp_val) => cmp_val.to_pyobject(vm),
                 })
             }
-            SlotFunc::DescrGet(func) => {
+            Self::DescrGet(func) => {
                 let (instance, owner): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
                     args.bind(vm)?;
                 let owner = owner.into_option();
@@ -662,94 +662,94 @@ impl SlotFunc {
                 };
                 func(obj, instance_opt, owner, vm)
             }
-            SlotFunc::DescrSet(func) => {
+            Self::DescrSet(func) => {
                 let (instance, value): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
                 func(&obj, instance, PySetterValue::Assign(value), vm)?;
                 Ok(vm.ctx.none())
             }
-            SlotFunc::DescrDel(func) => {
+            Self::DescrDel(func) => {
                 let (instance,): (PyObjectRef,) = args.bind(vm)?;
                 func(&obj, instance, PySetterValue::Delete, vm)?;
                 Ok(vm.ctx.none())
             }
             // Sequence sub-slots
-            SlotFunc::SeqLength(func) => {
+            Self::SeqLength(func) => {
                 args.bind::<()>(vm)?;
                 let len = func(obj.sequence_unchecked(), vm)?;
                 Ok(vm.ctx.new_int(len).into())
             }
-            SlotFunc::SeqConcat(func) => {
+            Self::SeqConcat(func) => {
                 let (other,): (PyObjectRef,) = args.bind(vm)?;
                 func(obj.sequence_unchecked(), &other, vm)
             }
-            SlotFunc::SeqRepeat(func) => {
+            Self::SeqRepeat(func) => {
                 let (n,): (ArgSize,) = args.bind(vm)?;
                 func(obj.sequence_unchecked(), n.into(), vm)
             }
-            SlotFunc::SeqItem(func) => {
+            Self::SeqItem(func) => {
                 let (index,): (isize,) = args.bind(vm)?;
                 func(obj.sequence_unchecked(), index, vm)
             }
-            SlotFunc::SeqSetItem(func) => {
+            Self::SeqSetItem(func) => {
                 let (index, value): (isize, PyObjectRef) = args.bind(vm)?;
                 func(obj.sequence_unchecked(), index, Some(value), vm)?;
                 Ok(vm.ctx.none())
             }
-            SlotFunc::SeqDelItem(func) => {
+            Self::SeqDelItem(func) => {
                 let (index,): (isize,) = args.bind(vm)?;
                 func(obj.sequence_unchecked(), index, None, vm)?;
                 Ok(vm.ctx.none())
             }
-            SlotFunc::SeqContains(func) => {
+            Self::SeqContains(func) => {
                 let (item,): (PyObjectRef,) = args.bind(vm)?;
                 let result = func(obj.sequence_unchecked(), &item, vm)?;
                 Ok(vm.ctx.new_bool(result).into())
             }
             // Mapping sub-slots
-            SlotFunc::MapLength(func) => {
+            Self::MapLength(func) => {
                 args.bind::<()>(vm)?;
                 let len = func(obj.mapping_unchecked(), vm)?;
                 Ok(vm.ctx.new_int(len).into())
             }
-            SlotFunc::MapSubscript(func) => {
+            Self::MapSubscript(func) => {
                 let (key,): (PyObjectRef,) = args.bind(vm)?;
                 func(obj.mapping_unchecked(), &key, vm)
             }
-            SlotFunc::MapSetSubscript(func) => {
+            Self::MapSetSubscript(func) => {
                 let (key, value): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
                 func(obj.mapping_unchecked(), &key, Some(value), vm)?;
                 Ok(vm.ctx.none())
             }
-            SlotFunc::MapDelSubscript(func) => {
+            Self::MapDelSubscript(func) => {
                 let (key,): (PyObjectRef,) = args.bind(vm)?;
                 func(obj.mapping_unchecked(), &key, None, vm)?;
                 Ok(vm.ctx.none())
             }
             // Number sub-slots
-            SlotFunc::NumBoolean(func) => {
+            Self::NumBoolean(func) => {
                 args.bind::<()>(vm)?;
                 let result = func(obj.number(), vm)?;
                 Ok(vm.ctx.new_bool(result).into())
             }
-            SlotFunc::NumUnary(func) => {
+            Self::NumUnary(func) => {
                 args.bind::<()>(vm)?;
                 func(obj.number(), vm)
             }
-            SlotFunc::NumBinary(func) => {
+            Self::NumBinary(func) => {
                 let (other,): (PyObjectRef,) = args.bind(vm)?;
                 func(&obj, &other, vm)
             }
-            SlotFunc::NumBinaryRight(func) => {
+            Self::NumBinaryRight(func) => {
                 let (other,): (PyObjectRef,) = args.bind(vm)?;
                 func(&other, &obj, vm) // Swapped: other op obj
             }
-            SlotFunc::NumTernary(func) => {
+            Self::NumTernary(func) => {
                 let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
                     args.bind(vm)?;
                 let z = z.unwrap_or_else(|| vm.ctx.none());
                 func(&obj, &y, &z, vm)
             }
-            SlotFunc::NumTernaryRight(func) => {
+            Self::NumTernaryRight(func) => {
                 let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
                     args.bind(vm)?;
                 let z = z.unwrap_or_else(|| vm.ctx.none());

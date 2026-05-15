@@ -266,9 +266,7 @@ impl Constructor for PyCPointer {
         let cdata = PyCData::from_bytes(vec![0u8; core::mem::size_of::<usize>()], None);
         // pointer instance has b_length set to 2 (for index 0 and 1)
         cdata.length.store(2);
-        Self(cdata)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+        Self(cdata).into_ref_with_type(vm, cls).map(Into::into)
     }
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {

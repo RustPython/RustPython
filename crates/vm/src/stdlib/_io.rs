@@ -4068,8 +4068,7 @@ mod _io {
     impl IterNext for TextIOWrapper {
         fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // Set telling = false during iteration (matches CPython behavior)
-            let textio_ref: PyRef<Self> =
-                zelf.downcast_ref::<Self>().unwrap().to_owned();
+            let textio_ref: PyRef<Self> = zelf.downcast_ref::<Self>().unwrap().to_owned();
             {
                 let mut textio = textio_ref.lock(vm)?;
                 textio.telling = false;

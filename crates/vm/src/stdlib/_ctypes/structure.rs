@@ -776,8 +776,7 @@ impl Initializer for PyCStructure {
 
         // 1. Process positional arguments recursively through inheritance chain
         if !args.args.is_empty() {
-            let consumed =
-                Self::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
+            let consumed = Self::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
 
             if consumed < args.args.len() {
                 return Err(vm.new_type_error("too many initializers"));

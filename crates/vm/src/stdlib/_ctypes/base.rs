@@ -1405,11 +1405,7 @@ impl PyCField {
 
     /// Create a new CField from an existing field with adjusted offset and index
     /// Used by MakeFields to promote anonymous fields
-    pub(crate) fn new_from_field(
-        fdescr: &Self,
-        index_offset: usize,
-        offset_delta: isize,
-    ) -> Self {
+    pub(crate) fn new_from_field(fdescr: &Self, index_offset: usize, offset_delta: isize) -> Self {
         Self {
             name: fdescr.name.clone(),
             offset: fdescr.offset + offset_delta,
