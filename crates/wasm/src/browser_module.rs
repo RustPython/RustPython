@@ -26,7 +26,7 @@ mod _browser {
             Ok(match s {
                 "json" => Self::Json,
                 "text" => Self::Text,
-                "array_buffer" => Ok(Self::ArrayBuffer),
+                "array_buffer" => Self::ArrayBuffer,
                 _ => return Err(vm.new_type_error("Unknown fetch response_format")),
             })
         }
@@ -178,12 +178,12 @@ mod _browser {
     }
 
     #[pyattr]
-    fn document(_vm: &VirtualMachine) -> PyRef<Self> {
+    fn document(_vm: &VirtualMachine) -> PyRef<Document> {
         PyRef::new_ref(
-            Self {
+            Document {
                 doc: window().document().expect("Document missing from window"),
             },
-            Self::make_static_type(),
+            Document::make_static_type(),
             None,
         )
     }

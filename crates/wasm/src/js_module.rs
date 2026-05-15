@@ -106,13 +106,13 @@ mod _js {
         }
 
         #[pymethod]
-        fn null(&self) -> PyJsValue {
-            Self::new(Self::NULL)
+        fn null(&self) -> Self {
+            Self::new(JsValue::NULL)
         }
 
         #[pymethod]
-        fn undefined(&self) -> PyJsValue {
-            Self::new(Self::UNDEFINED)
+        fn undefined(&self) -> Self {
+            Self::new(JsValue::UNDEFINED)
         }
 
         #[pymethod]
