@@ -933,20 +933,23 @@ impl FormatSpec {
 
     fn format_complex_re_im(&self, num: &Complex64) -> Result<(String, String), FormatSpecError> {
         // Format real part
-        let mut formatted_re = String::new();
-        if num.re != 0.0 || num.re.is_negative_zero() || self.format_type.is_some() {
-            let sign_re = if num.re.is_sign_negative() && !num.is_nan() {
-                "-"
+        let formatted_re =
+            if num.re != 0.0 || num.re.is_negative_zero() || self.format_type.is_some() {
+                let sign_re = if num.re.is_sign_negative() && !num.is_nan() {
+                    "-"
+                } else {
+                    match self.sign.unwrap_or(FormatSign::Minus) {
+                        FormatSign::Plus => "+",
+                        FormatSign::Minus => "",
+                        FormatSign::MinusOrSpace => " ",
+                    }
+                };
+                let re = self.format_complex_float(num.re)?;
+                format!("{sign_re}{re}")
             } else {
-                match self.sign.unwrap_or(FormatSign::Minus) {
-                    FormatSign::Plus => "+",
-                    FormatSign::Minus => "",
-                    FormatSign::MinusOrSpace => " ",
-                }
+                String::new()
             };
-            let re = self.format_complex_float(num.re)?;
-            formatted_re = format!("{sign_re}{re}");
-        }
+
         // Format imaginary part
         let sign_im = if num.im.is_sign_negative() && !num.im.is_nan() {
             "-"

@@ -1231,6 +1231,7 @@ impl CodeInfo {
         op: oparg::BinaryOperator,
     ) -> Option<ConstantData> {
         use oparg::BinaryOperator as BinOp;
+
         fn repeat_wtf8(value: &Wtf8Buf, n: usize) -> Wtf8Buf {
             let mut result = Wtf8Buf::with_capacity(value.len().saturating_mul(n));
             for _ in 0..n {
@@ -1238,6 +1239,7 @@ impl CodeInfo {
             }
             result
         }
+
         fn checked_repeat_count(n: &BigInt, item_size: usize) -> Option<usize> {
             let n = n.to_isize()?;
             if item_size != 0 && (n < 0 || n as usize > MAX_STR_SIZE / item_size) {
@@ -1245,6 +1247,7 @@ impl CodeInfo {
             }
             Some(n.max(0) as usize)
         }
+
         fn eval_complex_binop(
             left: Complex<f64>,
             right: Complex<f64>,
@@ -1259,17 +1262,18 @@ impl CodeInfo {
                 BinOp::Add => left + right,
                 BinOp::Subtract => {
                     let re = left.re - right.re;
-                    let mut im = left.im - right.im;
                     // Preserve CPython's signed-zero behavior for real-zero
                     // minus zero-complex expressions such as `0 - 0j`.
-                    if left.re == 0.0
+                    let im = if left.re == 0.0
                         && left.im == 0.0
                         && right.re == 0.0
                         && right.im == 0.0
                         && !right.im.is_sign_negative()
                     {
-                        im = -0.0;
-                    }
+                        -0.0
+                    } else {
+                        left.im - right.im
+                    };
                     Complex::new(re, im)
                 }
                 BinOp::Multiply => left * right,
@@ -1284,12 +1288,14 @@ impl CodeInfo {
                         if right.im != 0.0 || right.re < 0.0 {
                             return None;
                         }
+
                         return complex_const(if right.re == 0.0 {
                             Complex::new(1.0, 0.0)
                         } else {
                             Complex::new(0.0, 0.0)
                         });
                     }
+
                     if right.im == 0.0
                         && right.re.fract() == 0.0
                         && right.re >= f64::from(i32::MIN)
@@ -1304,6 +1310,7 @@ impl CodeInfo {
             };
             complex_const(value)
         }
+
         fn float_div_mod(left: f64, right: f64) -> Option<(f64, f64)> {
             if right == 0.0 {
                 return None;
@@ -1330,6 +1337,7 @@ impl CodeInfo {
 
             Some((floordiv, modulo))
         }
+
         fn constant_as_index(value: &ConstantData) -> Option<i64> {
             match value {
                 ConstantData::Integer { value } => value.to_i64().or_else(|| {
@@ -1343,12 +1351,14 @@ impl CodeInfo {
                 _ => None,
             }
         }
+
         fn slice_bound(value: &ConstantData) -> Option<Option<i64>> {
             match value {
                 ConstantData::None => Some(None),
                 _ => constant_as_index(value).map(Some),
             }
         }
+
         fn adjusted_slice_indices(len: usize, slice: &[ConstantData; 3]) -> Option<Vec<usize>> {
             let len = i64::try_from(len).ok()?;
             let start = slice_bound(&slice[0])?;
@@ -1393,6 +1403,7 @@ impl CodeInfo {
             }
             Some(indices)
         }
+
         fn adjusted_const_index(len: usize, index: &ConstantData) -> Option<usize> {
             let len = i64::try_from(len).ok()?;
             let index = constant_as_index(index)?;
@@ -1406,6 +1417,7 @@ impl CodeInfo {
             }
             usize::try_from(index).ok()
         }
+
         fn eval_const_subscript(
             container: &ConstantData,
             index: &ConstantData,
@@ -1472,9 +1484,11 @@ impl CodeInfo {
                 _ => None,
             }
         }
+
         if matches!(op, BinOp::Subscr) {
             return eval_const_subscript(left, right);
         }
+
         match (left, right) {
             (ConstantData::Integer { value: l }, ConstantData::Integer { value: r }) => {
                 let result = match op {
