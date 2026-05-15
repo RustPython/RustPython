@@ -80,7 +80,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         arg_types: &[JitType],
         ret_type: Option<JitType>,
         entry_block: Block,
-    ) -> Self<'a, 'b> {
+    ) -> Self {
         let mut compiler = Self {
             builder,
             stack: Vec::new(),
