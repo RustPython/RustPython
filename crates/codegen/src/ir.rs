@@ -298,7 +298,14 @@ impl CodeInfo {
         opts: &crate::compile::CompileOpts,
     ) -> crate::InternalResult<CodeObject> {
         self.splice_annotations_blocks();
-        // Constant folding passes
+        // CPython-style per-block forward walk that interleaves tuple, list,
+        // set, unary, and binop folding. Matches optimize_basic_block() in
+        // flowgraph.c so co_consts get the same insertion order CPython
+        // produces (e.g. negated literals like -1 land in co_consts at their
+        // source position, not before every tuple folded by a separate pass).
+        self.fold_constants_per_block();
+        // Legacy global passes still run after the walker so any cascade the
+        // single per-block iteration missed gets picked up.
         self.fold_binop_constants();
         self.fold_unary_constants();
         self.fold_binop_constants(); // re-run after unary folding: -1 + 2 → 1
@@ -322,6 +329,10 @@ impl CodeInfo {
         self.apply_static_swaps();
         // Peephole optimizer handles constant and compare folding.
         self.peephole_optimize();
+        // Per-block walker first to preserve CPython-style instruction-order
+        // const registration after peephole transformations exposed new
+        // foldable patterns.
+        self.fold_constants_per_block();
         self.fold_tuple_constants();
         self.fold_binop_constants();
         self.fold_list_constants();
@@ -995,63 +1006,72 @@ impl CodeInfo {
         }
     }
 
+    /// Try to fold a single unary instruction at position `i` in `block`.
+    /// Returns true if folded. Mirrors CPython fold_const_unaryop().
+    fn fold_unary_constant_at(
+        metadata: &mut CodeUnitMetadata,
+        block: &mut Block,
+        i: usize,
+    ) -> bool {
+        let instr = &block.instructions[i];
+        let (op, intrinsic) = match instr.instr.real() {
+            Some(Instruction::UnaryNegative) => (Instruction::UnaryNegative, None),
+            Some(Instruction::UnaryInvert) => (Instruction::UnaryInvert, None),
+            Some(Instruction::CallIntrinsic1 { func })
+                if matches!(
+                    func.get(instr.arg),
+                    oparg::IntrinsicFunction1::UnaryPositive
+                ) =>
+            {
+                (
+                    Instruction::CallIntrinsic1 {
+                        func: Arg::marker(),
+                    },
+                    Some(func.get(instr.arg)),
+                )
+            }
+            _ => return false,
+        };
+        let Some(operand_index) = i
+            .checked_sub(1)
+            .and_then(|start| Self::get_const_loading_instr_indices(block, start, 1))
+            .and_then(|indices| indices.into_iter().next())
+        else {
+            return false;
+        };
+        let operand = Self::get_const_value_from(metadata, &block.instructions[operand_index]);
+        let Some(operand) = operand else {
+            return false;
+        };
+        let Some(folded_const) = Self::eval_unary_constant(&operand, op, intrinsic) else {
+            return false;
+        };
+        let (const_idx, _) = metadata.consts.insert_full(folded_const);
+        nop_out_no_location(&mut block.instructions[operand_index]);
+        let mut prev = operand_index;
+        while let Some(idx) = prev.checked_sub(1) {
+            if !matches!(block.instructions[idx].instr.real(), Some(Instruction::Nop)) {
+                break;
+            }
+            block.instructions[idx].location = block.instructions[i].location;
+            block.instructions[idx].end_location = block.instructions[i].end_location;
+            prev = idx;
+        }
+        block.instructions[i].instr = Instruction::LoadConst {
+            consti: Arg::marker(),
+        }
+        .into();
+        block.instructions[i].arg = OpArg::new(const_idx as u32);
+        block.instructions[i].folded_from_nonliteral_expr = false;
+        true
+    }
+
     /// Fold constant unary operations following CPython fold_const_unaryop().
     fn fold_unary_constants(&mut self) {
         for block in &mut self.blocks {
             let mut i = 0;
             while i < block.instructions.len() {
-                let instr = &block.instructions[i];
-                let (op, intrinsic) = match instr.instr.real() {
-                    Some(Instruction::UnaryNegative) => (Instruction::UnaryNegative, None),
-                    Some(Instruction::UnaryInvert) => (Instruction::UnaryInvert, None),
-                    Some(Instruction::CallIntrinsic1 { func })
-                        if matches!(
-                            func.get(instr.arg),
-                            oparg::IntrinsicFunction1::UnaryPositive
-                        ) =>
-                    {
-                        (
-                            Instruction::CallIntrinsic1 {
-                                func: Arg::marker(),
-                            },
-                            Some(func.get(instr.arg)),
-                        )
-                    }
-                    _ => {
-                        i += 1;
-                        continue;
-                    }
-                };
-                let Some(operand_index) = i
-                    .checked_sub(1)
-                    .and_then(|start| Self::get_const_loading_instr_indices(block, start, 1))
-                    .and_then(|indices| indices.into_iter().next())
-                else {
-                    i += 1;
-                    continue;
-                };
-                let operand =
-                    Self::get_const_value_from(&self.metadata, &block.instructions[operand_index]);
-                if let Some(operand) = operand
-                    && let Some(folded_const) = Self::eval_unary_constant(&operand, op, intrinsic)
-                {
-                    let (const_idx, _) = self.metadata.consts.insert_full(folded_const);
-                    nop_out_no_location(&mut block.instructions[operand_index]);
-                    let mut prev = operand_index;
-                    while let Some(idx) = prev.checked_sub(1) {
-                        if !matches!(block.instructions[idx].instr.real(), Some(Instruction::Nop)) {
-                            break;
-                        }
-                        block.instructions[idx].location = block.instructions[i].location;
-                        block.instructions[idx].end_location = block.instructions[i].end_location;
-                        prev = idx;
-                    }
-                    block.instructions[i].instr = Instruction::LoadConst {
-                        consti: Arg::marker(),
-                    }
-                    .into();
-                    block.instructions[i].arg = OpArg::new(const_idx as u32);
-                    block.instructions[i].folded_from_nonliteral_expr = false;
+                if Self::fold_unary_constant_at(&mut self.metadata, block, i) {
                     i = i.saturating_sub(1);
                 } else {
                     i += 1;
@@ -1120,67 +1140,92 @@ impl CodeInfo {
         None
     }
 
+    /// Try to fold a single BINARY_OP instruction at position `i` in `block`.
+    /// Returns true if folded. Mirrors CPython fold_const_binop().
+    fn fold_binop_constant_at(
+        metadata: &mut CodeUnitMetadata,
+        block: &mut Block,
+        i: usize,
+    ) -> bool {
+        use oparg::BinaryOperator as BinOp;
+
+        let Some(Instruction::BinaryOp { .. }) = block.instructions[i].instr.real() else {
+            return false;
+        };
+        let Some(operand_indices) = i
+            .checked_sub(1)
+            .and_then(|start| Self::get_const_loading_instr_indices(block, start, 2))
+        else {
+            return false;
+        };
+        let op_raw = u32::from(block.instructions[i].arg);
+        let Ok(op) = BinOp::try_from(op_raw) else {
+            return false;
+        };
+        let left = Self::get_const_value_from(metadata, &block.instructions[operand_indices[0]]);
+        let right = Self::get_const_value_from(metadata, &block.instructions[operand_indices[1]]);
+        let (Some(left_val), Some(right_val)) = (left, right) else {
+            return false;
+        };
+        let Some(result_const) = Self::eval_binop(&left_val, &right_val, op) else {
+            return false;
+        };
+        let (const_idx, _) = metadata.consts.insert_full(result_const);
+        let folded_from_nonliteral_expr = operand_indices
+            .iter()
+            .any(|&idx| block.instructions[idx].folded_from_nonliteral_expr);
+        for &idx in &operand_indices {
+            nop_out_no_location(&mut block.instructions[idx]);
+        }
+        block.instructions[i].instr = Instruction::LoadConst {
+            consti: Arg::marker(),
+        }
+        .into();
+        block.instructions[i].arg = OpArg::new(const_idx as u32);
+        block.instructions[i].folded_from_nonliteral_expr = folded_from_nonliteral_expr;
+        true
+    }
+
     /// Constant folding: fold LOAD_CONST/LOAD_SMALL_INT + LOAD_CONST/LOAD_SMALL_INT + BINARY_OP
     /// into a single LOAD_CONST when the result is computable at compile time.
     /// = fold_binops_on_constants in CPython flowgraph.c
     fn fold_binop_constants(&mut self) {
-        use oparg::BinaryOperator as BinOp;
-
         for block in &mut self.blocks {
             let mut i = 0;
             while i < block.instructions.len() {
-                let Some(Instruction::BinaryOp { .. }) = block.instructions[i].instr.real() else {
-                    i += 1;
-                    continue;
-                };
-
-                let Some(operand_indices) = i
-                    .checked_sub(1)
-                    .and_then(|start| Self::get_const_loading_instr_indices(block, start, 2))
-                else {
-                    i += 1;
-                    continue;
-                };
-
-                let op_raw = u32::from(block.instructions[i].arg);
-                let Ok(op) = BinOp::try_from(op_raw) else {
-                    i += 1;
-                    continue;
-                };
-
-                let left = Self::get_const_value_from(
-                    &self.metadata,
-                    &block.instructions[operand_indices[0]],
-                );
-                let right = Self::get_const_value_from(
-                    &self.metadata,
-                    &block.instructions[operand_indices[1]],
-                );
-
-                let (Some(left_val), Some(right_val)) = (left, right) else {
-                    i += 1;
-                    continue;
-                };
-
-                let result = Self::eval_binop(&left_val, &right_val, op);
-
-                if let Some(result_const) = result {
-                    let (const_idx, _) = self.metadata.consts.insert_full(result_const);
-                    let folded_from_nonliteral_expr = operand_indices
-                        .iter()
-                        .any(|&idx| block.instructions[idx].folded_from_nonliteral_expr);
-                    for &idx in &operand_indices {
-                        nop_out_no_location(&mut block.instructions[idx]);
-                    }
-                    block.instructions[i].instr = Instruction::LoadConst {
-                        consti: Arg::marker(),
-                    }
-                    .into();
-                    block.instructions[i].arg = OpArg::new(const_idx as u32);
-                    block.instructions[i].folded_from_nonliteral_expr = folded_from_nonliteral_expr;
-                    i = i.saturating_sub(1); // re-check with previous instruction
+                if Self::fold_binop_constant_at(&mut self.metadata, block, i) {
+                    i = i.saturating_sub(1);
                 } else {
                     i += 1;
+                }
+            }
+        }
+    }
+
+    /// CPython-style per-block forward walk that interleaves tuple, list, set,
+    /// unary, and binop constant folding. Mirrors optimize_basic_block() in
+    /// flowgraph.c so constants are registered in co_consts in instruction
+    /// order rather than in the order separate global passes would discover
+    /// them. Iterates per block to a fixed point so an inner fold can enable
+    /// a surrounding outer fold within the same block.
+    fn fold_constants_per_block(&mut self) {
+        for block in &mut self.blocks {
+            loop {
+                let mut changed = false;
+                let mut i = 0;
+                while i < block.instructions.len() {
+                    let folded = Self::fold_tuple_constant_at(&mut self.metadata, block, i)
+                        || Self::fold_list_constant_at(&mut self.metadata, block, i)
+                        || Self::fold_set_constant_at(&mut self.metadata, block, i)
+                        || Self::fold_unary_constant_at(&mut self.metadata, block, i)
+                        || Self::fold_binop_constant_at(&mut self.metadata, block, i);
+                    if folded {
+                        changed = true;
+                    }
+                    i += 1;
+                }
+                if !changed {
+                    break;
                 }
             }
         }
