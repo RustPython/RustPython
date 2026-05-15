@@ -57,7 +57,9 @@ dictoffset
 distpoint
 dynload
 elts
+eooh
 eofs
+EOOH
 evalloop
 excepthandler
 exceptiontable
@@ -101,6 +103,7 @@ INCREF
 inlinedepth
 inplace
 inpos
+isbytecode
 ismine
 ISPOINTER
 isoctal

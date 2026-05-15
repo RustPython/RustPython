@@ -67,6 +67,7 @@ fillchar
 fillvalue
 finallyhandler
 firstiter
+fobj
 firstlineno
 fnctl
 frombytes
@@ -111,12 +112,14 @@ idfunc
 idiv
 idxs
 impls
+infd
 indexgroup
 infj
 inittab
 Inittab
 instancecheck
 instanceof
+instrs
 interpchannels
 interpqueues
 irepeat
@@ -175,6 +178,7 @@ Nonprintable
 onceregistry
 origname
 ospath
+outfd
 pendingcr
 phello
 platlibdir
