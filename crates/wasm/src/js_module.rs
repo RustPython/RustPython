@@ -107,21 +107,21 @@ mod _js {
 
         #[pymethod]
         fn null(&self) -> PyJsValue {
-            Self::new(JsValue::NULL)
+            Self::new(Self::NULL)
         }
 
         #[pymethod]
         fn undefined(&self) -> PyJsValue {
-            Self::new(JsValue::UNDEFINED)
+            Self::new(Self::UNDEFINED)
         }
 
         #[pymethod]
-        fn new_from_str(&self, s: PyStrRef) -> PyJsValue {
+        fn new_from_str(&self, s: PyStrRef) -> Self {
             Self::new(s.expect_str())
         }
 
         #[pymethod]
-        fn new_from_float(&self, n: PyRef<PyFloat>) -> PyJsValue {
+        fn new_from_float(&self, n: PyRef<PyFloat>) -> Self {
             Self::new(n.to_f64())
         }
 

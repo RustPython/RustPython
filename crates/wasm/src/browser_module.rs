@@ -23,18 +23,19 @@ mod _browser {
 
     impl FetchResponseFormat {
         fn from_str(vm: &VirtualMachine, s: &str) -> PyResult<Self> {
-            match s {
-                "json" => Ok(FetchResponseFormat::Json),
-                "text" => Ok(FetchResponseFormat::Text),
-                "array_buffer" => Ok(FetchResponseFormat::ArrayBuffer),
-                _ => Err(vm.new_type_error("Unknown fetch response_format")),
-            }
+            Ok(match s {
+                "json" => Self::Json,
+                "text" => Self::Text,
+                "array_buffer" => Ok(Self::ArrayBuffer),
+                _ => return Err(vm.new_type_error("Unknown fetch response_format")),
+            })
         }
+
         fn get_response(&self, response: &web_sys::Response) -> Result<Promise, JsValue> {
             match self {
-                FetchResponseFormat::Json => response.json(),
-                FetchResponseFormat::Text => response.text(),
-                FetchResponseFormat::ArrayBuffer => response.array_buffer(),
+                Self::Json => response.json(),
+                Self::Text => response.text(),
+                Self::ArrayBuffer => response.array_buffer(),
             }
         }
     }
@@ -177,12 +178,12 @@ mod _browser {
     }
 
     #[pyattr]
-    fn document(_vm: &VirtualMachine) -> PyRef<Document> {
+    fn document(_vm: &VirtualMachine) -> PyRef<Self> {
         PyRef::new_ref(
-            Document {
+            Self {
                 doc: window().document().expect("Document missing from window"),
             },
-            Document::make_static_type(),
+            Self::make_static_type(),
             None,
         )
     }
