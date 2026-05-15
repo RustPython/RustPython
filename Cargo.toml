@@ -229,6 +229,7 @@ libsqlite3-sys = "0.37"
 libz-rs-sys = "0.6"
 lock_api = "0.4"
 log = "0.4.29"
+lz4_flex = "0.13"
 nix = { version = "0.31", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
 mac_address = "1.1.3"
 malachite-bigint = "0.9.1"
