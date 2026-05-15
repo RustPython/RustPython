@@ -86,17 +86,17 @@ impl FfiResult<isize> for usize {
 }
 
 impl FfiResult for c_long {
-    const ERR_VALUE: c_long = -1;
+    const ERR_VALUE: Self = -1;
 
-    fn into_output(self, _vm: &VirtualMachine) -> c_long {
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
         self
     }
 }
 
 impl FfiResult for c_double {
-    const ERR_VALUE: c_double = -1.0;
+    const ERR_VALUE: Self = -1.0;
 
-    fn into_output(self, _vm: &VirtualMachine) -> c_double {
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
         self
     }
 }
