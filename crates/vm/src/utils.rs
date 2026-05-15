@@ -87,3 +87,43 @@ impl fmt::Write for VecFmtWriter {
         Ok(())
     }
 }
+
+/// Wrapper around a bytes slice that implements [`fmt::Write`].
+///
+/// # Errors
+/// [`fmt::Error`] is returned if the string doesn't fit into the internal buffer. This
+/// implementation writes as many bytes as can fit before returning an error.
+/// Check [`Self::remainder`] if the amount of bytes that can be written is important.
+pub(crate) struct SliceFmtWriter<'slice> {
+    buf: &'slice mut [u8],
+    written: usize,
+}
+
+impl<'slice> SliceFmtWriter<'slice> {
+    pub(crate) const fn new(buf: &'slice mut [u8]) -> Self {
+        Self { buf, written: 0 }
+    }
+
+    /// Amount of space left in the internal buffer.
+    pub(crate) const fn remainder(&self) -> usize {
+        self.buf.len() - self.written
+    }
+
+    /// Amount of bytes written to the internal buffer.
+    pub(crate) const fn written(&self) -> usize {
+        self.written
+    }
+}
+
+impl fmt::Write for SliceFmtWriter<'_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let to_copy = self.remainder().min(s.len());
+        self.buf[self.written..self.written + to_copy].copy_from_slice(&s.as_bytes()[..to_copy]);
+        self.written += to_copy;
+        if to_copy == s.len() {
+            Ok(())
+        } else {
+            Err(fmt::Error)
+        }
+    }
+}

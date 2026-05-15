@@ -306,6 +306,7 @@ thiserror = "2.0"
 timsort = "0.1.2"
 tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 icu_casemap = "2"
+icu_decimal = "2"
 icu_locale = "2"
 icu_properties = "2"
 icu_normalizer = "2"

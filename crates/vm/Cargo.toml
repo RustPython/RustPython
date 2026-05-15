@@ -81,6 +81,7 @@ timsort = { workspace = true }
 
 ## unicode stuff
 icu_casemap = { workspace = true }
+icu_decimal = { workspace = true }
 icu_locale = { workspace = true }
 icu_properties = { workspace = true }
 writeable = { workspace = true }

@@ -14,13 +14,16 @@ use crate::{
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
+    utils::SliceFmtWriter,
 };
 use core::cell::Cell;
 use core::ptr::NonNull;
+use icu_decimal::input::Decimal;
 use malachite_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_traits::{Signed, ToPrimitive, Zero};
 use rustpython_common::int::float_to_ratio;
+use writeable::Writeable;
 
 #[pyclass(module = false, name = "float")]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -206,26 +209,28 @@ impl Constructor for PyFloat {
 }
 
 fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    let (bytearray, buffer, buffer_lock, mapped_string);
+    let (bytearray, buffer, buffer_lock);
+    let mut mapped_str_buf = [0u8; 1024];
     let b = if let Some(s) = val.downcast_ref::<PyStr>() {
         use crate::common::str::PyKindStr;
         match s.as_str_kind() {
             PyKindStr::Ascii(s) => s.trim().as_bytes(),
             PyKindStr::Utf8(s) => {
-                mapped_string = s
-                    .trim()
-                    .chars()
-                    .map(|c| {
-                        if let Some(n) = rustpython_common::str::char_to_decimal(c) {
-                            char::from_digit(n.into(), 10).unwrap()
-                        } else if c.is_whitespace() {
-                            ' '
+                match Decimal::try_from_str(s.trim()) {
+                    Ok(decimal) => {
+                        let mut writer = SliceFmtWriter::new(&mut mapped_str_buf);
+                        if decimal.write_to(&mut writer).is_err() {
+                            s.as_bytes()
                         } else {
-                            c
+                            let written = writer.written();
+                            &mapped_str_buf[..written]
                         }
-                    })
-                    .collect::<String>();
-                mapped_string.as_bytes()
+                    }
+                    Err(_) => {
+                        // Let the string fail parsing below
+                        s.as_bytes()
+                    }
+                }
             }
             // if there are surrogates, it's not gonna parse anyway,
             // so we can just choose a known bad value
