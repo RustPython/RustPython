@@ -34,7 +34,7 @@ mod grp {
                 s.into_string()
                     .unwrap_or_else(|e| e.into_cstring().to_string_lossy().into_owned())
             };
-            GroupData {
+            Self {
                 gr_name: group.name,
                 gr_passwd: cstr_lossy(group.passwd),
                 gr_gid: group.gid.as_raw(),
