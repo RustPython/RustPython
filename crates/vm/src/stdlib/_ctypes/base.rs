@@ -358,7 +358,7 @@ pub(super) fn get_field_format(
         // For simple types, replace existing endian prefix with the correct one
         let base_fmt = fmt.trim_start_matches(['<', '>', '@', '=', '!']);
         if !base_fmt.is_empty() {
-            return format!("{}{}", endian_prefix, base_fmt);
+            return format!("{endian_prefix}{base_fmt}");
         }
         return fmt.clone();
     }
@@ -370,7 +370,7 @@ pub(super) fn get_field_format(
         let s = type_str
             .to_str()
             .expect("_type_ is validated as ASCII at type creation");
-        return format!("{}{}", endian_prefix, s);
+        return format!("{endian_prefix}{s}");
     }
 
     // Default: single byte
@@ -962,9 +962,8 @@ impl PyCData {
                 self.write_bytes_at_offset(offset, &to_copy[..copy_len]);
                 self.keep_ref(index, value, vm)?;
                 return Ok(());
-            } else {
-                return Err(vm.new_type_error("bytes expected instead of str instance"));
             }
+            return Err(vm.new_type_error("bytes expected instead of str instance"));
         }
 
         // For c_wchar arrays with str input, convert to wchar_t
@@ -1509,8 +1508,7 @@ impl Constructor for PyCField {
             let type_bits = byte_size * 8;
             if bo + bs > type_bits {
                 return Err(vm.new_value_error(format!(
-                    "bit field '{}' overflows its type ({} + {} > {})",
-                    name, bo, bs, type_bits
+                    "bit field '{name}' overflows its type ({bo} + {bs} > {type_bits})"
                 )));
             }
             Ok(Self::new_bitfield(

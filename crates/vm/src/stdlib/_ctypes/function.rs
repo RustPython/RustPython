@@ -1038,7 +1038,7 @@ impl Constructor for PyCFuncPtr {
                 // dlsym can return NULL for symbols that resolve to NULL (e.g., GNU IFUNC)
                 // Treat NULL addresses as errors
                 if addr == 0 {
-                    return Err(vm.new_attribute_error(format!("function '{}' not found", name)));
+                    return Err(vm.new_attribute_error(format!("function '{name}' not found")));
                 }
                 addr
             } else {
@@ -1479,7 +1479,7 @@ fn build_callargs_with_paramflags(
             } else if let Some(def) = default {
                 def.clone()
             } else {
-                return Err(vm.new_type_error(format!("required argument {} missing", param_idx)));
+                return Err(vm.new_type_error(format!("required argument {param_idx} missing")));
             };
 
             if is_out {
@@ -1837,7 +1837,7 @@ impl Representable for PyCFuncPtr {
         let type_name = zelf.class().name();
         // Use object id, not function pointer address
         let addr = zelf.get_id();
-        Ok(format!("<{} object at {:#x}>", type_name, addr))
+        Ok(format!("<{type_name} object at {addr:#x}>"))
     }
 }
 
@@ -2182,10 +2182,7 @@ unsafe extern "C" fn thunk_callback(
                 .callable
                 .repr(vm)
                 .map_or_else(|_| "<unknown>".to_string(), |s| s.to_string());
-            let msg = format!(
-                "Exception ignored while calling ctypes callback function {}",
-                repr
-            );
+            let msg = format!("Exception ignored while calling ctypes callback function {repr}");
             vm.run_unraisable(exc.clone(), Some(msg), vm.ctx.none());
         }
 

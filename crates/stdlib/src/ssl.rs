@@ -4877,10 +4877,7 @@ mod _ssl {
         // Read certificate file
         let path_str = path.as_str();
         let cert_data = rustpython_host_env::fs::read(path_str).map_err(|e| {
-            vm.new_os_error(format!(
-                "Failed to read certificate file {}: {}",
-                path_str, e
-            ))
+            vm.new_os_error(format!("Failed to read certificate file {path_str}: {e}"))
         })?;
 
         // Auto-detect PEM vs DER format
@@ -4950,8 +4947,7 @@ mod _ssl {
         // If no stores could be opened, raise OSError
         if stores.is_empty() {
             return Err(vm.new_os_error(format!(
-                "failed to open certificate store {:?}",
-                store_name_str
+                "failed to open certificate store {store_name_str:?}"
             )));
         }
 
@@ -5003,8 +4999,7 @@ mod _ssl {
 
         if store.is_null() {
             return Err(vm.new_os_error(format!(
-                "failed to open certificate store {:?}",
-                store_name_str
+                "failed to open certificate store {store_name_str:?}"
             )));
         }
 

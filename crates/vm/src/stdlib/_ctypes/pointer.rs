@@ -65,7 +65,7 @@ impl Initializer for PyCPointerType {
             } else {
                 String::new()
             };
-            stg_info.format = Some(format!("&{}{}", shape_str, current_format));
+            stg_info.format = Some(format!("&{shape_str}{current_format}"));
         }
 
         let _ = new_type.init_type_data(stg_info);
@@ -204,7 +204,7 @@ impl PyCPointerType {
             } else {
                 String::new()
             };
-            stg_info.format = Some(format!("&{}{}", shape_str, current_format));
+            stg_info.format = Some(format!("&{shape_str}{current_format}"));
         }
 
         // 4. Set _type_ attribute on the pointer type
@@ -648,9 +648,8 @@ impl PyCPointer {
                     *(addr as *mut usize) = ptr_val;
                 }
                 return zelf.0.keep_ref(index as usize, holder, vm);
-            } else {
-                Self::write_value_at_address(addr, element_size, &value, type_code.as_deref(), vm)?;
             }
+            Self::write_value_at_address(addr, element_size, &value, type_code.as_deref(), vm)?;
         }
 
         // KeepRef: store reference to keep value alive using actual index

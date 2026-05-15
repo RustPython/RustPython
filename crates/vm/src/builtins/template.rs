@@ -314,17 +314,15 @@ impl IterNext for PyTemplateIter {
                         continue;
                     }
                     return Ok(PyIterReturn::Return(item.clone()));
-                } else {
-                    return Ok(PyIterReturn::StopIteration(None));
                 }
+                return Ok(PyIterReturn::StopIteration(None));
             } else if index < zelf.template.interpolations.len() {
                 let item = zelf.template.interpolations.get(index).unwrap();
                 zelf.index.fetch_add(1, Ordering::SeqCst);
                 zelf.from_strings.store(true, Ordering::SeqCst);
                 return Ok(PyIterReturn::Return(item.clone()));
-            } else {
-                return Ok(PyIterReturn::StopIteration(None));
             }
+            return Ok(PyIterReturn::StopIteration(None));
         }
     }
 }

@@ -515,7 +515,7 @@ pub(super) mod _os {
         {
             return Err(vm.new_value_error("illegal environment variable name"));
         }
-        let env_str = format!("{}={}", key_str, value_str);
+        let env_str = format!("{key_str}={value_str}");
         let wide = env_str.to_wide_with_nul();
         check_env_var_len(wide.len(), vm)?;
 
@@ -562,7 +562,7 @@ pub(super) mod _os {
             return Err(vm.new_value_error("illegal environment variable name"));
         }
         // "key=" to unset (empty value removes the variable)
-        let env_str = format!("{}=", key_str);
+        let env_str = format!("{key_str}=");
         let wide = env_str.to_wide_with_nul();
         check_env_var_len(wide.len(), vm)?;
 

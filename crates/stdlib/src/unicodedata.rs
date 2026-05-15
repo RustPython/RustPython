@@ -10,6 +10,7 @@ use crate::vm::{
     PyObject, PyResult, VirtualMachine, builtins::PyStr, convert::TryFromBorrowedObject,
 };
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum NormalizeForm {
     Nfc,
     Nfkc,

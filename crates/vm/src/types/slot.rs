@@ -1664,8 +1664,7 @@ pub trait Initializer: PyPayload {
                             == 2;
                         if double_appearance {
                             panic!(
-                                "This type `{}` doesn't seem to support `init`. Override `slot_init` instead: {}",
-                                class_name_for_debug, msg
+                                "This type `{class_name_for_debug}` doesn't seem to support `init`. Override `slot_init` instead: {msg}"
                             );
                         }
                     }

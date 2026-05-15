@@ -1247,9 +1247,8 @@ impl PyStr {
                 let first = first?;
                 if first.as_object().class().is(vm.ctx.types.str_type) {
                     return Ok(first);
-                } else {
-                    first.as_wtf8().to_owned()
                 }
+                first.as_wtf8().to_owned()
             }
             Err(iter) => zelf.as_wtf8().py_join(iter)?,
         };

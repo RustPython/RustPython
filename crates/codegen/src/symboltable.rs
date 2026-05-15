@@ -2418,7 +2418,7 @@ impl SymbolTableBuilder {
             };
             if !seen_names.insert(name) {
                 return Err(SymbolTableError {
-                    error: format!("duplicate type parameter '{}'", name),
+                    error: format!("duplicate type parameter '{name}'"),
                     location: Some(
                         self.source_file
                             .to_source_code()
@@ -2431,8 +2431,7 @@ impl SymbolTableBuilder {
             } else if default_seen {
                 return Err(SymbolTableError {
                     error: format!(
-                        "non-default type parameter '{}' follows default type parameter",
-                        name
+                        "non-default type parameter '{name}' follows default type parameter"
                     ),
                     location: Some(
                         self.source_file
@@ -2743,8 +2742,7 @@ impl SymbolTableBuilder {
                 {
                     return Err(SymbolTableError {
                         error: format!(
-                            "assignment expression cannot rebind comprehension iteration variable '{}'",
-                            mangled
+                            "assignment expression cannot rebind comprehension iteration variable '{mangled}'"
                         ),
                         location,
                     });
@@ -2868,8 +2866,7 @@ impl SymbolTableBuilder {
             {
                 return Err(SymbolTableError {
                     error: format!(
-                        "comprehension inner loop cannot rebind assignment expression target '{}'",
-                        name
+                        "comprehension inner loop cannot rebind assignment expression target '{name}'"
                     ),
                     location,
                 });

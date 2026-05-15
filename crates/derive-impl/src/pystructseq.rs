@@ -550,7 +550,7 @@ pub(crate) fn impl_pystruct_sequence(
     };
 
     let module_class_name = if let Some(ref m) = module_name {
-        format!("{}.{}", m, class_name)
+        format!("{m}.{class_name}")
     } else {
         class_name.clone()
     };

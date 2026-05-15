@@ -289,7 +289,7 @@ pub fn compile_program(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_program(ast, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -304,7 +304,7 @@ pub fn compile_program_single(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_program_single(&ast.body, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -318,7 +318,7 @@ pub fn compile_block_expression(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_block_expr(&ast.body, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -332,7 +332,7 @@ pub fn compile_expression(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_expr(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_eval(ast, symbol_table)?;
     let code = compiler.exit_scope();
     Ok(code)
@@ -447,13 +447,14 @@ impl PatternContext {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum JumpOp {
     Jump,
     PopJumpIfFalse,
 }
 
 /// Type of collection to build in starunpack_helper
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CollectionType {
     Tuple,
     List,
@@ -541,7 +542,7 @@ impl Compiler {
         }
     }
 
-    fn new(opts: CompileOpts, source_file: SourceFile, code_name: String) -> Self {
+    fn new(opts: CompileOpts, source_file: SourceFile, code_name: &str) -> Self {
         let module_code = ir::CodeInfo {
             // CPython convention: top-level module / interactive /
             // expression code does not carry CO_NEWLOCALS or CO_OPTIMIZED.
@@ -558,8 +559,8 @@ impl Compiler {
             current_block: BlockIdx::new(0),
             annotations_blocks: None,
             metadata: ir::CodeUnitMetadata {
-                name: code_name.clone(),
-                qualname: Some(code_name),
+                name: code_name.to_string(),
+                qualname: Some(code_name.to_string()),
                 consts: IndexSet::default(),
                 names: IndexSet::default(),
                 varnames: IndexSet::default(),
@@ -1287,8 +1288,7 @@ impl Compiler {
             let name = current_table.name.clone();
             let typ = current_table.typ;
             return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                "no symbol table available in {} (type: {:?})",
-                name, typ
+                "no symbol table available in {name} (type: {typ:?})"
             ))));
         }
 
@@ -1829,7 +1829,7 @@ impl Compiler {
         posonlyarg_count: u32,
         arg_count: u32,
         kwonlyarg_count: u32,
-        obj_name: String,
+        obj_name: &str,
     ) -> CompileResult<()> {
         // First push the symbol table
         let table = self.push_symbol_table()?;
@@ -1842,7 +1842,7 @@ impl Compiler {
         let lineno = self.get_source_line_number().get();
 
         // Call enter_scope which does most of the work
-        self.enter_scope(&obj_name, scope_type, key, lineno.to_u32())?;
+        self.enter_scope(obj_name, scope_type, key, lineno.to_u32())?;
 
         // Override the values that push_output sets explicitly
         // enter_scope sets default values based on scope_type, but push_output
@@ -3400,7 +3400,7 @@ impl Compiler {
             parameters.posonlyargs.len().to_u32(),
             (parameters.posonlyargs.len() + parameters.args.len()).to_u32(),
             parameters.kwonlyargs.len().to_u32(),
-            name.to_owned(),
+            name,
         )?;
 
         let args_iter = core::iter::empty()
@@ -5258,7 +5258,7 @@ impl Compiler {
                 0,
                 num_typeparam_args as u32,
                 0,
-                type_params_name,
+                &type_params_name,
             )?;
 
             // TypeParams scope is function-like
@@ -5820,7 +5820,7 @@ impl Compiler {
                 0,
                 0,
                 0,
-                type_params_name,
+                &type_params_name,
             )?;
 
             // Set private name for name mangling
@@ -7956,21 +7956,20 @@ impl Compiler {
                         if let ast::Expr::Starred(_) = &element {
                             if seen_star {
                                 return Err(self.error(CodegenErrorType::MultipleStarArgs));
-                            } else {
-                                seen_star = true;
-                                let before = i;
-                                let after = elts.len() - i - 1;
-                                let (before, after) = (|| Some((before.to_u8()?, after.to_u8()?)))(
-                                )
+                            }
+
+                            seen_star = true;
+                            let before = i;
+                            let after = elts.len() - i - 1;
+                            let (before, after) = (|| Some((before.to_u8()?, after.to_u8()?)))()
                                 .ok_or_else(|| {
                                     self.error_ranged(
                                         CodegenErrorType::TooManyStarUnpack,
                                         target.range(),
                                     )
                                 })?;
-                                let counts = bytecode::UnpackExArgs { before, after };
-                                emit!(self, Instruction::UnpackEx { counts });
-                            }
+                            let counts = bytecode::UnpackExArgs { before, after };
+                            emit!(self, Instruction::UnpackEx { counts });
                         }
                     }
 
@@ -9696,8 +9695,7 @@ impl Compiler {
                 let name = current_table.name.clone();
                 let typ = current_table.typ;
                 Err(self.error(CodegenErrorType::SyntaxError(format!(
-                    "no symbol table available in {} (type: {:?})",
-                    name, typ
+                    "no symbol table available in {name} (type: {typ:?})"
                 ))))
             }
         })();
@@ -9715,14 +9713,14 @@ impl Compiler {
         posonlyarg_count: u32,
         arg_count: u32,
         kwonlyarg_count: u32,
-        obj_name: String,
+        obj_name: &str,
     ) -> CompileResult<()> {
         let scope_type = table.typ;
         self.symbol_table_stack.push(table);
 
         let key = self.symbol_table_stack.len() - 1;
         let lineno = self.get_source_line_number().get();
-        self.enter_scope(&obj_name, scope_type, key, lineno.to_u32())?;
+        self.enter_scope(obj_name, scope_type, key, lineno.to_u32())?;
 
         if let Some(info) = self.code_stack.last_mut() {
             info.flags = flags | (info.flags & bytecode::CodeFlags::NESTED);
@@ -9786,7 +9784,7 @@ impl Compiler {
             // and relies on the inlined path itself to handle GET_AITER /
             // async-comprehension cleanup.
             return self.compile_inlined_comprehension(
-                comp_table,
+                &comp_table,
                 init_collection,
                 generators,
                 compile_element,
@@ -9821,7 +9819,7 @@ impl Compiler {
         // scope itself. Peek past those nested scopes so we can enter the
         // correct comprehension table here, then let the real outermost
         // iterator compile consume its nested scopes later in parent scope.
-        self.push_output_with_symbol_table(comp_table, flags, 1, 1, 0, name.to_owned())?;
+        self.push_output_with_symbol_table(comp_table, flags, 1, 1, 0, name)?;
 
         // Set qualname for comprehension
         self.set_qualname();
@@ -10028,7 +10026,7 @@ impl Compiler {
     /// This generates bytecode inline without creating a new code object
     fn compile_inlined_comprehension(
         &mut self,
-        comp_table: SymbolTable,
+        comp_table: &SymbolTable,
         init_collection: Option<AnyInstruction>,
         generators: &[ast::Comprehension],
         compile_element: &dyn Fn(&mut Self, usize) -> CompileResult<()>,
@@ -12380,7 +12378,7 @@ mod tests {
         let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
             .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
             .unwrap();
-        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>");
         compiler.compile_program(&ast, symbol_table).unwrap();
         compiler.exit_scope()
     }
@@ -12418,7 +12416,7 @@ mod tests {
         let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
             .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
             .unwrap();
-        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>");
         compiler.compile_program(&ast, symbol_table).unwrap();
         let _table = compiler.pop_symbol_table();
         let stack_top = compiler.code_stack.pop().unwrap();
@@ -12459,7 +12457,7 @@ mod tests {
         let is_async = function.is_async;
         let range = function.range();
 
-        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>");
         compiler.future_annotations = symbol_table.future_annotations;
         compiler.symbol_table_stack.push(symbol_table);
         compiler.set_source_range(range);

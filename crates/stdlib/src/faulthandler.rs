@@ -753,9 +753,9 @@ mod decl {
 
         // Match Python's timedelta str format: H:MM:SS.ffffff (no leading zero for hours)
         if us != 0 {
-            format!("Timeout ({}:{:02}:{:02}.{:06})!\n", hour, min, sec, us)
+            format!("Timeout ({hour}:{min:02}:{sec:02}.{us:06})!\n")
         } else {
-            format!("Timeout ({}:{:02}:{:02})!\n", hour, min, sec)
+            format!("Timeout ({hour}:{min:02}:{sec:02})!\n")
         }
     }
 
@@ -1051,8 +1051,7 @@ mod decl {
         let is_fatal = unsafe { FAULTHANDLER_HANDLERS.iter().any(|h| h.signum == signum) };
         if is_fatal {
             return Err(vm.new_runtime_error(format!(
-                "signal {} cannot be registered, use enable() instead",
-                signum
+                "signal {signum} cannot be registered, use enable() instead"
             )));
         }
 

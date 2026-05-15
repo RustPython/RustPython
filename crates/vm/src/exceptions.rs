@@ -2404,8 +2404,7 @@ pub(super) mod types {
                     }
                     _ => {
                         return Err(vm.new_type_error(format!(
-                            "function takes exactly 4 or 6 arguments ({} given)",
-                            location_tup_len
+                            "function takes exactly 4 or 6 arguments ({location_tup_len} given)"
                         )));
                     }
                 }

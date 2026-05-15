@@ -172,7 +172,7 @@ pub(crate) mod decl {
             } else {
                 parts.join(", ")
             };
-            Ok(vm.ctx.new_str(format!("({})", inner)).into())
+            Ok(vm.ctx.new_str(format!("({inner})")).into())
         } else {
             Ok(vm.ctx.new_str(typing_type_repr(value, vm)?).into())
         }
@@ -181,7 +181,7 @@ pub(crate) mod decl {
     impl Representable for ConstEvaluator {
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let value_repr = zelf.value.repr(vm)?;
-            Ok(format!("<constevaluator {}>", value_repr))
+            Ok(format!("<constevaluator {value_repr}>"))
         }
     }
 

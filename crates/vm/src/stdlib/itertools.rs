@@ -1249,26 +1249,26 @@ mod decl {
                 if idx < 0 {
                     zelf.exhausted.store(true);
                     return Ok(PyIterReturn::StopIteration(None));
-                } else {
-                    // Increment the current index which we know is not at its
-                    // maximum.  Then move back to the right setting each index
-                    // to its lowest possible value (one higher than the index
-                    // to its left -- this maintains the sort order invariant).
-                    indices[idx as usize] += 1;
-                    for j in idx as usize + 1..r {
-                        indices[j] = indices[j - 1] + 1;
-                    }
-
-                    // Update the result tuple for the new indices
-                    // starting with i, the leftmost index that changed
-                    for i in idx as usize..r {
-                        let index = indices[i];
-                        let elem = &zelf.pool[index];
-                        elem.clone_into(&mut result[i]);
-                    }
-
-                    result.to_vec()
                 }
+
+                // Increment the current index which we know is not at its
+                // maximum.  Then move back to the right setting each index
+                // to its lowest possible value (one higher than the index
+                // to its left -- this maintains the sort order invariant).
+                indices[idx as usize] += 1;
+                for j in idx as usize + 1..r {
+                    indices[j] = indices[j - 1] + 1;
+                }
+
+                // Update the result tuple for the new indices
+                // starting with i, the leftmost index that changed
+                for i in idx as usize..r {
+                    let index = indices[i];
+                    let elem = &zelf.pool[index];
+                    elem.clone_into(&mut result[i]);
+                }
+
+                result.to_vec()
             } else {
                 let res = zelf.pool[0..r].to_vec();
                 *result_lock = Some(res.clone());

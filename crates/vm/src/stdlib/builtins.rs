@@ -1121,6 +1121,10 @@ mod builtins {
         start: OptionalArg<PyObjectRef>,
     }
 
+    #[expect(
+        clippy::redundant_else,
+        reason = "match_class! macro expansion arms has a `return` inside"
+    )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
@@ -1130,17 +1134,13 @@ mod builtins {
 
         match_class!(match sum {
             PyStr =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum strings [use ''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]")),
             PyBytes =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytes [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]")),
             PyByteArray =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(
+                    vm.new_type_error("sum() can't sum bytearray [use b''.join(seq) instead]")
+                ),
             _ => (),
         });
 
@@ -1336,15 +1336,13 @@ mod builtins {
         {
             let cell_value = classcell.get().ok_or_else(|| {
                 vm.new_runtime_error(format!(
-                    "__class__ not set defining {:?} as {:?}. Was __classcell__ propagated to type.__new__?",
-                    name, class
+                    "__class__ not set defining {name:?} as {class:?}. Was __classcell__ propagated to type.__new__?"
                 ))
             })?;
 
             if !cell_value.is(&class) {
                 return Err(vm.new_type_error(format!(
-                    "__class__ set to {:?} defining {:?} as {:?}",
-                    cell_value, name, class
+                    "__class__ set to {cell_value:?} defining {name:?} as {class:?}"
                 )));
             }
         }
