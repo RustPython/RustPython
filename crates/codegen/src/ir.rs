@@ -18645,37 +18645,6 @@ fn inline_small_fast_return_blocks(blocks: &mut [Block]) {
                 continue;
             };
             if !last.instr.is_unconditional_jump() || last.target == BlockIdx::NULL {
-                if block_has_fallthrough(&blocks[current.idx()])
-                    && !blocks[current.idx()].instructions.is_empty()
-                {
-                    let next = blocks[current.idx()].next;
-                    let target = next_nonempty_block(blocks, next);
-                    if target != BlockIdx::NULL
-                        && target != current
-                        && next != target
-                        && block_is_small_fast_return(&blocks[target.idx()])
-                        && !matches!(
-                            blocks[current.idx()]
-                                .instructions
-                                .last()
-                                .and_then(|info| info.instr.real()),
-                            Some(Instruction::ReturnValue)
-                        )
-                    {
-                        let propagated_location = blocks[current.idx()]
-                            .instructions
-                            .last()
-                            .map(|instr| (instr.location, instr.end_location));
-                        let mut cloned = blocks[target.idx()].instructions.clone();
-                        if let Some((location, end_location)) = propagated_location {
-                            for instr in &mut cloned {
-                                overwrite_location(instr, location, end_location);
-                            }
-                        }
-                        blocks[current.idx()].instructions.extend(cloned);
-                        changed = true;
-                    }
-                }
                 current = next;
                 continue;
             }
