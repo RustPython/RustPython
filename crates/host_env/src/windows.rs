@@ -116,6 +116,29 @@ impl CheckWin32Sentinel for u32 {}
 impl CheckWin32Sentinel for i32 {}
 impl CheckWin32Sentinel for u64 {}
 
+use std::os::windows::io::FromRawHandle;
+pub use std::os::windows::io::{BorrowedHandle, OwnedHandle};
+
+/// Conversion of raw Win32 `HANDLE` into an [`OwnedHandle`] (RAII auto-close).
+pub trait HandleToOwned: Sized {
+    /// Wraps the handle in an [`OwnedHandle`] that calls `CloseHandle` on drop.
+    /// Returns `None` if the handle is NULL or `INVALID_HANDLE_VALUE`.
+    fn into_owned(self) -> Option<OwnedHandle>;
+}
+
+impl HandleToOwned for windows_sys::Win32::Foundation::HANDLE {
+    #[inline]
+    fn into_owned(self) -> Option<OwnedHandle> {
+        if self.is_null() || self == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+            None
+        } else {
+            // SAFETY: caller is asserting via the public `Create*`/`Open*` paths
+            // that this handle is owned and unaliased.
+            Some(unsafe { OwnedHandle::from_raw_handle(self.cast()) })
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct WindowsVersionInfo {
     pub major: u32,

@@ -6,10 +6,12 @@
 use std::io;
 
 #[cfg(windows)]
-use crate::windows::{CheckWin32Bool, CheckWin32Handle};
+use crate::windows::{CheckWin32Bool, CheckWin32Handle, HandleToOwned};
 #[cfg(unix)]
 use crate::{crt_fd, fileutils, posix};
 use memmap2::{Mmap, MmapMut, MmapOptions};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, IntoRawHandle};
 #[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::{
@@ -244,18 +246,27 @@ pub fn create_named_mapping(
             tag_wide.as_ptr(),
         )
     }
-    .check_nonnull()?;
+    .into_owned()
+    .ok_or_else(io::Error::last_os_error)?;
 
     let off_hi = (offset as u64 >> 32) as u32;
     let off_lo = offset as u32;
-    let view = unsafe { MapViewOfFile(map_handle, desired_access, off_hi, off_lo, map_size) };
+    let view = unsafe {
+        MapViewOfFile(
+            map_handle.as_raw_handle() as Handle,
+            desired_access,
+            off_hi,
+            off_lo,
+            map_size,
+        )
+    };
     if view.Value.is_null() {
-        unsafe { CloseHandle(map_handle) };
+        // `map_handle` is closed automatically when dropped on this error path.
         return Err(io::Error::last_os_error());
     }
 
     Ok(NamedMmap {
-        map_handle,
+        map_handle: map_handle.into_raw_handle() as Handle,
         view_ptr: view.Value as *mut u8,
         len: map_size,
     })
