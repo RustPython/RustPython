@@ -160,7 +160,7 @@ impl<T: Clone> SliceableSequenceMutOp for Vec<T> {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
+#[expect(clippy::len_without_is_empty, reason = "Doesn't match CPython code")]
 pub trait SliceableSequenceOp {
     type Item;
     type Sliced;

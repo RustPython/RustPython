@@ -146,7 +146,6 @@ mod _io {
     use num_traits::ToPrimitive;
     use std::io::{self, Cursor, SeekFrom, prelude::*};
 
-    #[allow(clippy::let_and_return)]
     fn validate_whence(whence: i32) -> bool {
         let x = (0..=2).contains(&whence);
         cfg_select! {
@@ -209,7 +208,7 @@ mod _io {
         ))
     }
 
-    #[derive(FromArgs)]
+    #[derive(Clone, Copy, FromArgs)]
     pub(super) struct OptionalSize {
         // In a few functions, the default value is -1 rather than None.
         // Make sure the default value doesn't affect compatibility.
@@ -218,7 +217,6 @@ mod _io {
     }
 
     impl OptionalSize {
-        #[allow(clippy::wrong_self_convention)]
         pub(super) fn to_usize(self) -> Option<usize> {
             self.size?.to_usize()
         }
@@ -2912,7 +2910,7 @@ mod _io {
             Ok(())
         }
 
-        #[allow(clippy::type_complexity)]
+        #[expect(clippy::type_complexity)]
         fn find_coder(
             buffer: &PyObject,
             encoding: &str,
@@ -5589,10 +5587,6 @@ mod fileio {
                         }
                         // Store st_blksize for _blksize property
                         if status.st_blksize > 1 {
-                            #[allow(
-                                clippy::useless_conversion,
-                                reason = "needed for 32-bit platforms"
-                            )]
                             zelf.blksize.store(i64::from(status.st_blksize));
                         }
                     }

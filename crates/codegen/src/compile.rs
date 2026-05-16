@@ -5209,7 +5209,7 @@ impl Compiler {
     }
 
     // = compiler_function
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
     fn compile_function_def(
         &mut self,
         name: &str,
@@ -7083,13 +7083,11 @@ impl Compiler {
         }
 
         // Check for overflow (INT_MAX < size - 1)
-        if size > (i32::MAX as usize + 1) {
-            return Err(self.error(CodegenErrorType::SyntaxError(
+        let size = u32::try_from(size).map_err(|_| {
+            self.error(CodegenErrorType::SyntaxError(
                 "too many sub-patterns in mapping pattern".to_string(),
-            )));
-        }
-        #[allow(clippy::cast_possible_truncation, reason = "checked right before")]
-        let size = size as u32;
+            ))
+        })?;
 
         // Step 2: If we have keys to match
         if size > 0 {
@@ -9729,7 +9727,7 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
     fn compile_comprehension(
         &mut self,
         name: &str,

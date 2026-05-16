@@ -671,7 +671,10 @@ pub(super) mod _os {
             match self.stat(self.stat_dir_fd(), FollowSymlinks(follow_symlinks), vm) {
                 Ok(stat_obj) => {
                     let st_mode: i32 = stat_obj.get_attr("st_mode", vm)?.try_into_value(vm)?;
-                    #[allow(clippy::unnecessary_cast)]
+                    #[allow(
+                        clippy::unnecessary_cast,
+                        reason = "'st_mode' and 'S_IFMT' are not u32 on all platforms"
+                    )]
                     Ok((st_mode as u32 & libc::S_IFMT as u32) == mode_bits)
                 }
                 Err(e) => {
@@ -1333,6 +1336,7 @@ pub(super) mod _os {
             #[cfg(not(windows))]
             #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
             let st_blksize = i64::from(stat.st_blksize);
+
             #[cfg(not(windows))]
             #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
             let st_blocks = i64::from(stat.st_blocks);
@@ -1996,9 +2000,7 @@ pub(super) mod _os {
     #[cfg(target_os = "linux")]
     #[pyfunction]
     fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
-        #[allow(clippy::unnecessary_option_map_or_else)]
         let p_offset_src = args.offset_src.as_ref().map_or_else(core::ptr::null, |x| x);
-        #[allow(clippy::unnecessary_option_map_or_else)]
         let p_offset_dst = args.offset_dst.as_ref().map_or_else(core::ptr::null, |x| x);
         let count: usize = args
             .count
