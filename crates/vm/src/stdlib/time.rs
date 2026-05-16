@@ -36,7 +36,10 @@ mod decl {
         types::{PyStructSequence, struct_sequence_new},
     };
     #[cfg(any(unix, windows))]
-    use crate::{common::wtf8::Wtf8Buf, convert::ToPyObject};
+    use crate::{
+        common::wtf8::Wtf8Buf,
+        convert::{ToPyException, ToPyObject},
+    };
     #[cfg(not(any(unix, windows)))]
     use chrono::{
         DateTime, Datelike, TimeZone, Timelike,
@@ -411,7 +414,7 @@ mod decl {
                 zone,
                 gmtoff,
             })
-            .map_err(|err| map_checked_tm_error(vm, err))
+            .map_err(|err| err.to_pyexception(vm))
         }
         #[cfg(windows)]
         {
@@ -426,35 +429,7 @@ mod decl {
                 tm_yday,
                 tm_isdst,
             })
-            .map_err(|err| map_checked_tm_error(vm, err))
-        }
-    }
-
-    #[cfg(any(unix, windows))]
-    fn map_checked_tm_error(
-        vm: &VirtualMachine,
-        err: host_time::CheckedTmError,
-    ) -> PyBaseExceptionRef {
-        match err {
-            host_time::CheckedTmError::YearOutOfRange => vm.new_overflow_error("year out of range"),
-            host_time::CheckedTmError::MonthOutOfRange => vm.new_value_error("month out of range"),
-            host_time::CheckedTmError::DayOfMonthOutOfRange => {
-                vm.new_value_error("day of month out of range")
-            }
-            host_time::CheckedTmError::HourOutOfRange => vm.new_value_error("hour out of range"),
-            host_time::CheckedTmError::MinuteOutOfRange => {
-                vm.new_value_error("minute out of range")
-            }
-            host_time::CheckedTmError::SecondsOutOfRange => {
-                vm.new_value_error("seconds out of range")
-            }
-            host_time::CheckedTmError::DayOfWeekOutOfRange => {
-                vm.new_value_error("day of week out of range")
-            }
-            host_time::CheckedTmError::DayOfYearOutOfRange => {
-                vm.new_value_error("day of year out of range")
-            }
-            host_time::CheckedTmError::EmbeddedNul => vm.new_value_error("embedded null character"),
+            .map_err(|err| err.to_pyexception(vm))
         }
     }
 

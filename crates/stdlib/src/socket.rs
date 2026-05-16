@@ -14,7 +14,9 @@ mod _socket {
             PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
             PyUtf8StrRef,
         },
-        convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
+        convert::{
+            IntoPyException, ToPyException, ToPyObject, TryFromBorrowedObject, TryFromObject,
+        },
         function::{
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
             OptionalArg, OptionalOption,
@@ -1947,17 +1949,7 @@ mod _socket {
                 .map(|(lvl, typ, data)| (*lvl, *typ, data.as_slice()))
                 .collect::<Vec<_>>();
 
-            host_socket::pack_ancillary_messages(&data_refs).map_err(|err| match err {
-                host_socket::AncillaryPackError::ItemTooLarge => {
-                    vm.new_os_error("ancillary data item too large".to_owned())
-                }
-                host_socket::AncillaryPackError::TooMuchData => {
-                    vm.new_os_error("too much ancillary data".to_owned())
-                }
-                host_socket::AncillaryPackError::UnexpectedNullHeader => {
-                    vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR/CMSG_NXTHDR")
-                }
-            })
+            host_socket::pack_ancillary_messages(&data_refs).map_err(|err| err.to_pyexception(vm))
         }
 
         #[pymethod]

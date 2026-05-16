@@ -327,14 +327,7 @@ mod _winapi {
             entries.push((k, v));
         }
 
-        host_winapi::build_environment_block(entries).map_err(|err| match err {
-            host_winapi::BuildEnvironmentBlockError::ContainsNul => {
-                crate::exceptions::cstring_error(vm)
-            }
-            host_winapi::BuildEnvironmentBlockError::IllegalName => {
-                vm.new_value_error("illegal environment variable name")
-            }
-        })
+        host_winapi::build_environment_block(entries).map_err(|err| err.to_pyexception(vm))
     }
 
     fn get_handle_list(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Vec<usize>>> {
@@ -951,17 +944,7 @@ mod _winapi {
                         .collect(),
                 )
                 .into()),
-            Err(host_winapi::BatchedWaitError::Timeout) => Err(vm
-                .new_os_subtype_error(
-                    vm.ctx.exceptions.timeout_error.to_owned(),
-                    None,
-                    "timed out",
-                )
-                .upcast()),
-            Err(host_winapi::BatchedWaitError::Interrupted) => Err(vm
-                .new_errno_error(libc::EINTR, "Interrupted system call")
-                .upcast()),
-            Err(host_winapi::BatchedWaitError::Os(err)) => Err(vm.new_os_error(err as i32)),
+            Err(err) => Err(err.to_pyexception(vm)),
         }
     }
 

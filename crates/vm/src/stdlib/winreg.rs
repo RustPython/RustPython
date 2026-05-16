@@ -7,7 +7,7 @@ pub(crate) use winreg::module_def;
 mod winreg {
     use crate::builtins::{PyInt, PyStr, PyTuple, PyTypeRef};
     use crate::common::hash::PyHash;
-    use crate::convert::TryFromObject;
+    use crate::convert::{ToPyException, TryFromObject};
     use crate::function::FuncArgs;
     use crate::host_env::windows::ToWideString;
     use crate::object::AsObject;
@@ -27,7 +27,6 @@ mod winreg {
         vm: &VirtualMachine,
         code: i32,
     ) -> crate::PyRef<crate::builtins::PyBaseException> {
-        use crate::convert::ToPyException;
         std::io::Error::from_raw_os_error(code).to_pyexception(vm)
     }
 
@@ -568,14 +567,7 @@ mod winreg {
         }
 
         host_winreg::query_default_value(hkey, sub_key.as_deref().map(std::ffi::OsStr::new))
-            .map_err(|err| match err {
-                host_winreg::QueryStringError::Code(err) => {
-                    os_error_from_windows_code(vm, err as i32)
-                }
-                host_winreg::QueryStringError::Utf16(e) => {
-                    vm.new_value_error(format!("UTF16 error: {e}"))
-                }
-            })
+            .map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -849,13 +841,7 @@ mod winreg {
 
     #[pyfunction]
     fn ExpandEnvironmentStrings(i: String, vm: &VirtualMachine) -> PyResult<String> {
-        host_winreg::expand_environment_strings(std::ffi::OsStr::new(&i)).map_err(|err| match err {
-            host_winreg::ExpandEnvironmentStringsError::Os => {
-                vm.new_os_error("ExpandEnvironmentStringsW failed".to_string())
-            }
-            host_winreg::ExpandEnvironmentStringsError::Utf16(e) => {
-                vm.new_value_error(format!("UTF16 error: {e}"))
-            }
-        })
+        host_winreg::expand_environment_strings(std::ffi::OsStr::new(&i))
+            .map_err(|err| err.to_pyexception(vm))
     }
 }

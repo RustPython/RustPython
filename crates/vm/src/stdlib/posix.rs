@@ -18,7 +18,7 @@ pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyInt, PyListRef, PyTupleRef, PyUtf8Str},
-        convert::{IntoPyException, ToPyObject, TryFromObject},
+        convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{ArgMapping, Either, KwArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
@@ -380,15 +380,8 @@ pub mod module {
 
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        match rustpython_host_env::posix::check_access(path.as_ref(), mode) {
-            Ok(ok) => Ok(ok),
-            Err(rustpython_host_env::posix::AccessError::InvalidMode) => Err(vm.new_value_error(
-                "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK",
-            )),
-            Err(rustpython_host_env::posix::AccessError::Os(err)) => {
-                Err(io::Error::from_raw_os_error(err).into_pyexception(vm))
-            }
-        }
+        rustpython_host_env::posix::check_access(path.as_ref(), mode)
+            .map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyattr]

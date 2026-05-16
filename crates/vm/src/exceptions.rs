@@ -1440,6 +1440,159 @@ impl IntoPyException for rustix::io::Errno {
     }
 }
 
+#[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+impl ToPyException for rustpython_host_env::fcntl::LockfError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::InvalidCmd => vm.new_value_error("unrecognized lockf argument"),
+            Self::Overflow(e) => vm.new_overflow_error(e.clone()),
+            Self::Io(err) => err.to_pyexception(vm),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl ToPyException for rustpython_host_env::posix::AccessError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::InvalidMode => vm.new_value_error(
+                "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK",
+            ),
+            Self::Os(errno) => std::io::Error::from_raw_os_error(*errno).to_pyexception(vm),
+        }
+    }
+}
+
+impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::ItemTooLarge => vm.new_os_error("ancillary data item too large"),
+            Self::TooMuchData => vm.new_os_error("too much ancillary data"),
+            Self::UnexpectedNullHeader => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR/CMSG_NXTHDR")
+            }
+        }
+    }
+}
+
+impl ToPyException for rustpython_host_env::time::CheckedTmError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::YearOutOfRange => vm.new_overflow_error("year out of range"),
+            Self::MonthOutOfRange => vm.new_value_error("month out of range"),
+            Self::DayOfMonthOutOfRange => vm.new_value_error("day of month out of range"),
+            Self::HourOutOfRange => vm.new_value_error("hour out of range"),
+            Self::MinuteOutOfRange => vm.new_value_error("minute out of range"),
+            Self::SecondsOutOfRange => vm.new_value_error("seconds out of range"),
+            Self::DayOfWeekOutOfRange => vm.new_value_error("day of week out of range"),
+            Self::DayOfYearOutOfRange => vm.new_value_error("day of year out of range"),
+            Self::EmbeddedNul => vm.new_value_error("embedded null character"),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::winapi::BuildEnvironmentBlockError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::ContainsNul => vm.new_value_error("embedded null character"),
+            Self::IllegalName => vm.new_value_error("illegal environment variable name"),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::winapi::BatchedWaitError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Timeout => vm
+                .new_os_subtype_error(
+                    vm.ctx.exceptions.timeout_error.to_owned(),
+                    None,
+                    "timed out",
+                )
+                .upcast(),
+            Self::Interrupted => vm
+                .new_errno_error(libc::EINTR, "Interrupted system call")
+                .upcast(),
+            Self::Os(err) => vm.new_os_error(*err as i32),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::nt::ReadlinkError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Io(err) => err.to_pyexception(vm),
+            Self::NotSymbolicLink => vm.new_value_error("not a symbolic link"),
+            Self::InvalidReparseData => vm.new_os_error("Invalid reparse data"),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::nt::ReadConsoleError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Io(err) => err.to_pyexception(vm),
+            Self::BufferTooSmall {
+                available,
+                required,
+            } => vm.new_system_error(format!(
+                "Buffer had room for {available} bytes but {required} bytes required",
+            )),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::winreg::ExpandEnvironmentStringsError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Os => vm.new_os_error("ExpandEnvironmentStringsW failed"),
+            Self::Utf16(e) => vm.new_value_error(format!("UTF16 error: {e}")),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::winreg::QueryStringError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Code(err) => std::io::Error::from_raw_os_error(*err as i32).to_pyexception(vm),
+            Self::Utf16(e) => vm.new_value_error(format!("UTF16 error: {e}")),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::wmi::ExecQueryError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::MoreData => vm.new_os_error(format!(
+                "Query returns more than {} characters",
+                rustpython_host_env::wmi::BUFFER_SIZE
+            )),
+            Self::Code(err) => std::io::Error::from_raw_os_error(*err as i32).to_pyexception(vm),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl ToPyException for rustpython_host_env::multiprocessing::SemError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let excs = &vm.ctx.exceptions;
+        let exc_type = match self {
+            Self::AlreadyExists => excs.file_exists_error.to_owned(),
+            Self::NotFound => excs.file_not_found_error.to_owned(),
+            _ => excs.os_error.to_owned(),
+        };
+        vm.new_os_subtype_error(exc_type, Some(self.raw_os_error()), self.description())
+            .upcast()
+    }
+}
+
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
     use crate::object::{MaybeTraverse, Traverse, TraverseFn};

@@ -1072,12 +1072,7 @@ pub(crate) mod module {
             Err(host_nt::ReadlinkError::Io(err)) => {
                 Err(OSErrorBuilder::with_filename(&err, path.clone(), vm))
             }
-            Err(host_nt::ReadlinkError::NotSymbolicLink) => {
-                Err(vm.new_value_error("not a symbolic link"))
-            }
-            Err(host_nt::ReadlinkError::InvalidReparseData) => {
-                Err(vm.new_os_error("Invalid reparse data".to_owned()))
-            }
+            Err(err) => Err(err.to_pyexception(vm)),
         }
     }
 

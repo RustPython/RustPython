@@ -10,8 +10,6 @@ mod _wmi {
     use crate::{PyResult, VirtualMachine};
     use rustpython_host_env::wmi as host_wmi;
 
-    const BUFFER_SIZE: usize = 8192;
-
     #[pyfunction]
     fn exec_query(query: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         let query_str = query.expect_str();
@@ -23,14 +21,6 @@ mod _wmi {
             return Err(vm.new_value_error("only SELECT queries are supported"));
         }
 
-        match host_wmi::exec_query(query_str) {
-            Ok(result) => Ok(result),
-            Err(host_wmi::ExecQueryError::MoreData) => {
-                Err(vm.new_os_error(format!("Query returns more than {BUFFER_SIZE} characters")))
-            }
-            Err(host_wmi::ExecQueryError::Code(err)) => {
-                Err(std::io::Error::from_raw_os_error(err as i32).to_pyexception(vm))
-            }
-        }
+        host_wmi::exec_query(query_str).map_err(|err| err.to_pyexception(vm))
     }
 }

@@ -6239,16 +6239,8 @@ mod winconsoleio {
 
             let dest = &mut *buf_ref;
             let mut smallbuf = self.buf.lock();
-            match host_nt::read_console_into(handle, dest, &mut smallbuf) {
-                Ok(read_len) => Ok(read_len),
-                Err(host_nt::ReadConsoleError::BufferTooSmall {
-                    available,
-                    required,
-                }) => Err(vm.new_system_error(format!(
-                    "Buffer had room for {available} bytes but {required} bytes required",
-                ))),
-                Err(host_nt::ReadConsoleError::Io(err)) => Err(err.into_pyexception(vm)),
-            }
+            host_nt::read_console_into(handle, dest, &mut smallbuf)
+                .map_err(|err| err.to_pyexception(vm))
         }
 
         #[pymethod]
@@ -6302,20 +6294,9 @@ mod winconsoleio {
             }
             {
                 let mut ibuf = self.buf.lock();
-                match host_nt::read_console_into(handle, &mut buf[read_len..], &mut ibuf) {
-                    Ok(n) => read_len += n,
-                    Err(host_nt::ReadConsoleError::BufferTooSmall {
-                        available,
-                        required,
-                    }) => {
-                        return Err(vm.new_system_error(format!(
-                            "Buffer had room for {available} bytes but {required} bytes required",
-                        )));
-                    }
-                    Err(host_nt::ReadConsoleError::Io(err)) => {
-                        return Err(err.into_pyexception(vm));
-                    }
-                }
+                let n = host_nt::read_console_into(handle, &mut buf[read_len..], &mut ibuf)
+                    .map_err(|err| err.to_pyexception(vm))?;
+                read_len += n;
             }
 
             buf.truncate(read_len);
