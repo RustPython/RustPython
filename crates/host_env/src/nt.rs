@@ -19,7 +19,7 @@ use crate::{
         StatStruct,
         windows::{FILE_INFO_BY_NAME_CLASS, get_file_information_by_name, stat_basic_info_to_stat},
     },
-    windows::ToWideString,
+    windows::{CheckWin32Bool, CheckWin32Handle, ToWideString},
 };
 use libc::intptr_t;
 use windows_sys::Win32::{
@@ -257,16 +257,12 @@ pub fn remove(path: &Path) -> io::Result<()> {
         }
     }
 
-    let ok = if is_directory && is_link {
+    if is_directory && is_link {
         unsafe { RemoveDirectoryW(wide_path.as_ptr()) }
     } else {
         unsafe { DeleteFileW(wide_path.as_ptr()) }
-    };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
+    .check_win32_bool()
 }
 
 pub fn supports_virtual_terminal() -> bool {
@@ -351,17 +347,15 @@ pub fn symlink(
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn win32_hchmod(handle: HANDLE, mode: u32, write_bit: u32) -> io::Result<()> {
     let mut info: FILE_BASIC_INFO = unsafe { core::mem::zeroed() };
-    let ret = unsafe {
+    unsafe {
         GetFileInformationByHandleEx(
             handle,
             FileBasicInfo,
             (&mut info as *mut FILE_BASIC_INFO).cast(),
             core::mem::size_of::<FILE_BASIC_INFO>() as u32,
         )
-    };
-    if ret == 0 {
-        return Err(io::Error::last_os_error());
     }
+    .check_win32_bool()?;
 
     if mode & write_bit != 0 {
         info.FileAttributes &= !FILE_ATTRIBUTE_READONLY;
@@ -369,19 +363,15 @@ pub fn win32_hchmod(handle: HANDLE, mode: u32, write_bit: u32) -> io::Result<()>
         info.FileAttributes |= FILE_ATTRIBUTE_READONLY;
     }
 
-    let ret = unsafe {
+    unsafe {
         SetFileInformationByHandle(
             handle,
             FileBasicInfo,
             (&info as *const FILE_BASIC_INFO).cast(),
             core::mem::size_of::<FILE_BASIC_INFO>() as u32,
         )
-    };
-    if ret == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
+    .check_win32_bool()
 }
 
 pub fn fchmod(fd: i32, mode: u32, write_bit: u32) -> io::Result<()> {
@@ -401,12 +391,7 @@ pub fn win32_lchmod(path: &OsStr, mode: u32, write_bit: u32) -> io::Result<()> {
     } else {
         attr | FILE_ATTRIBUTE_READONLY
     };
-    let ret = unsafe { SetFileAttributesW(wide.as_ptr(), new_attr) };
-    if ret == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { SetFileAttributesW(wide.as_ptr(), new_attr) }.check_win32_bool()
 }
 
 pub fn chmod_follow(path: &widestring::WideCStr, mode: u32, write_bit: u32) -> io::Result<()> {
