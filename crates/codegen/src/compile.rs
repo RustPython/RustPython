@@ -6084,15 +6084,13 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.enter_conditional_block();
 
-        let while_block = self.new_block();
+        let while_block = self.switch_to_new_or_reuse_empty();
         let after_block = self.new_block();
         let else_block = if orelse.is_empty() {
             after_block
         } else {
             self.new_block()
         };
-
-        self.switch_to_block(while_block);
         self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
         if matches!(self.constant_expr_truthiness(test)?, Some(false)) {
             self.disable_load_fast_borrow_for_block(else_block);
@@ -11343,6 +11341,30 @@ impl Compiler {
     fn current_block(&mut self) -> &mut ir::Block {
         let info = self.current_code_info();
         &mut info.blocks[info.current_block]
+    }
+
+    /// Switch to a fresh block, but reuse the current block when it is empty
+    /// and unlinked, mirroring CPython's USE_LABEL behavior in
+    /// `cfg_builder_maybe_start_new_block` (Python/flowgraph.c): when the
+    /// current block has no instructions and no existing label/next pointer,
+    /// CPython attaches the new label to the current block instead of creating
+    /// a new one. RustPython's plain `switch_to_block(new_block())` always
+    /// creates a fresh block, which leaves a stray empty block in the b_next
+    /// chain (e.g. after compile_try_except's switch_to_block(end_block)).
+    /// That stray empty block then causes optimize_load_fast_borrow to stop
+    /// fall-through propagation at the wrong place. Use this helper for
+    /// "entry to construct" labels (while loop header, for loop header, etc.)
+    /// where reusing the empty current block is semantically safe.
+    fn switch_to_new_or_reuse_empty(&mut self) -> BlockIdx {
+        let cur = self.current_code_info().current_block;
+        let block = &self.current_code_info().blocks[cur.idx()];
+        if block.instructions.is_empty() && block.next == BlockIdx::NULL {
+            cur
+        } else {
+            let b = self.new_block();
+            self.switch_to_block(b);
+            b
+        }
     }
 
     fn new_block(&mut self) -> BlockIdx {
@@ -17507,6 +17529,108 @@ def f():
         assert!(
             !normal_tail.iter().any(|unit| load_out_is(unit, false)),
             "handler assignment resume tail should not force strong out loads, got tail={normal_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_empty_fallthrough_handler_assignment_tail_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(value):
+    obs_local_part = ObsLocalPart()
+    try:
+        token, value = get_word(value)
+    except HeaderParseError:
+        if value[0] not in CFWS_LEADER:
+            raise
+        token, value = get_cfws(value)
+    obs_local_part.append(token)
+    return obs_local_part, value
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_path = &ops[..handler_start];
+        let load_name = |unit: &&CodeUnit, name: &str, borrowed: bool| {
+            let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+            match (unit.op, borrowed) {
+                (Instruction::LoadFastBorrow { var_num }, true)
+                | (Instruction::LoadFast { var_num }, false) => {
+                    f.varnames[usize::from(var_num.get(arg))].as_str() == name
+                }
+                _ => false,
+            }
+        };
+
+        for name in ["obs_local_part", "token"] {
+            assert!(
+                normal_path.iter().any(|unit| load_name(unit, name, true)),
+                "handler assignment tail should keep CPython-style borrowed {name} loads, got path={normal_path:?}"
+            );
+            assert!(
+                !normal_path.iter().any(|unit| load_name(unit, name, false)),
+                "handler assignment tail should not force strong {name}, got path={normal_path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_protected_store_of_preinitialized_local_keeps_return_borrow() {
+        let code = compile_exec(
+            "\
+def f(obj):
+    maybe_routine = obj
+    try:
+        maybe_routine = inspect.unwrap(maybe_routine)
+    except ValueError:
+        pass
+    return inspect.isroutine(maybe_routine)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_path = &ops[..handler_start];
+        let maybe_routine_idx = f
+            .varnames
+            .iter()
+            .position(|name| name == "maybe_routine")
+            .expect("missing maybe_routine local");
+        let loads_maybe_routine = |unit: &&CodeUnit, borrowed: bool| match (unit.op, borrowed) {
+            (Instruction::LoadFastBorrow { var_num }, true)
+            | (Instruction::LoadFast { var_num }, false) => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                usize::from(var_num.get(arg)) == maybe_routine_idx
+            }
+            _ => false,
+        };
+
+        assert!(
+            normal_path
+                .iter()
+                .any(|unit| loads_maybe_routine(unit, true)),
+            "preinitialized protected-store tail should keep CPython-style borrowed local, got path={normal_path:?}"
+        );
+        assert!(
+            !normal_path
+                .iter()
+                .any(|unit| loads_maybe_routine(unit, false)),
+            "preinitialized protected-store tail should not force strong local, got path={normal_path:?}"
         );
     }
 
