@@ -6013,13 +6013,11 @@ mod winconsoleio {
                 }
 
                 let name_str = nameobj.str(vm)?;
-                let wide = name_str
-                    .as_wtf8()
-                    .encode_wide()
-                    .chain(core::iter::once(0))
-                    .collect::<Vec<u16>>();
+                let wide = widestring::WideCString::from_vec_truncate(
+                    name_str.as_wtf8().encode_wide().collect::<Vec<u16>>(),
+                );
 
-                fd = host_nt::open_console_path_fd(wide.as_ptr(), writable)
+                fd = host_nt::open_console_path_fd(&wide, writable)
                     .map_err(|err| err.to_pyexception(vm))?;
             } else {
                 // When opened by fd, never close the fd (user owns it)

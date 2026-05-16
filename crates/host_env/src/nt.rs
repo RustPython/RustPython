@@ -1709,13 +1709,13 @@ pub fn getppid() -> u32 {
     }
 }
 
-pub fn path_skip_root(path: *const u16) -> Option<usize> {
+pub fn path_skip_root(path: &widestring::WideCStr) -> Option<usize> {
     let mut end: *const u16 = core::ptr::null();
-    let hr = unsafe { windows_sys::Win32::UI::Shell::PathCchSkipRoot(path, &mut end) };
+    let hr = unsafe { windows_sys::Win32::UI::Shell::PathCchSkipRoot(path.as_ptr(), &mut end) };
     if hr >= 0 {
         assert!(!end.is_null());
         Some(
-            unsafe { end.offset_from(path) }
+            unsafe { end.offset_from(path.as_ptr()) }
                 .try_into()
                 .expect("len must be non-negative"),
         )
@@ -2150,7 +2150,7 @@ pub fn write_console_utf8(handle: HANDLE, data: &[u8], max_bytes: usize) -> io::
     Ok(len)
 }
 
-pub fn open_console_path_fd(path: *const u16, writable: bool) -> io::Result<i32> {
+pub fn open_console_path_fd(path: &widestring::WideCStr, writable: bool) -> io::Result<i32> {
     use windows_sys::Win32::{
         Foundation::{GENERIC_READ, GENERIC_WRITE},
         Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE},
@@ -2164,7 +2164,7 @@ pub fn open_console_path_fd(path: *const u16, writable: bool) -> io::Result<i32>
 
     let mut handle = unsafe {
         CreateFileW(
-            path,
+            path.as_ptr(),
             GENERIC_READ | GENERIC_WRITE,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             core::ptr::null(),
@@ -2176,7 +2176,7 @@ pub fn open_console_path_fd(path: *const u16, writable: bool) -> io::Result<i32>
     if handle == INVALID_HANDLE_VALUE {
         handle = unsafe {
             CreateFileW(
-                path,
+                path.as_ptr(),
                 access,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 core::ptr::null(),
@@ -2216,8 +2216,22 @@ pub fn cwait(pid: intptr_t, opt: i32) -> io::Result<(intptr_t, i32)> {
 }
 
 #[cfg(target_env = "msvc")]
-pub fn spawnv(mode: i32, path: *const u16, argv: *const *const u16) -> io::Result<intptr_t> {
-    let result = unsafe { crate::suppress_iph!(_wspawnv(mode, path, argv)) };
+fn null_terminated_ptrs(strings: &[&widestring::WideCStr]) -> Vec<*const u16> {
+    strings
+        .iter()
+        .map(|s| s.as_ptr())
+        .chain(core::iter::once(core::ptr::null()))
+        .collect()
+}
+
+#[cfg(target_env = "msvc")]
+pub fn spawnv(
+    mode: i32,
+    path: &widestring::WideCStr,
+    argv: &[&widestring::WideCStr],
+) -> io::Result<intptr_t> {
+    let argv_ptrs = null_terminated_ptrs(argv);
+    let result = unsafe { crate::suppress_iph!(_wspawnv(mode, path.as_ptr(), argv_ptrs.as_ptr())) };
     if result == -1 {
         Err(crate::os::errno_io_error())
     } else {
@@ -2228,11 +2242,20 @@ pub fn spawnv(mode: i32, path: *const u16, argv: *const *const u16) -> io::Resul
 #[cfg(target_env = "msvc")]
 pub fn spawnve(
     mode: i32,
-    path: *const u16,
-    argv: *const *const u16,
-    envp: *const *const u16,
+    path: &widestring::WideCStr,
+    argv: &[&widestring::WideCStr],
+    envp: &[&widestring::WideCStr],
 ) -> io::Result<intptr_t> {
-    let result = unsafe { crate::suppress_iph!(_wspawnve(mode, path, argv, envp)) };
+    let argv_ptrs = null_terminated_ptrs(argv);
+    let envp_ptrs = null_terminated_ptrs(envp);
+    let result = unsafe {
+        crate::suppress_iph!(_wspawnve(
+            mode,
+            path.as_ptr(),
+            argv_ptrs.as_ptr(),
+            envp_ptrs.as_ptr()
+        ))
+    };
     if result == -1 {
         Err(crate::os::errno_io_error())
     } else {
@@ -2241,8 +2264,9 @@ pub fn spawnve(
 }
 
 #[cfg(target_env = "msvc")]
-pub fn execv(path: *const u16, argv: *const *const u16) -> io::Result<()> {
-    let result = unsafe { crate::suppress_iph!(_wexecv(path, argv)) };
+pub fn execv(path: &widestring::WideCStr, argv: &[&widestring::WideCStr]) -> io::Result<()> {
+    let argv_ptrs = null_terminated_ptrs(argv);
+    let result = unsafe { crate::suppress_iph!(_wexecv(path.as_ptr(), argv_ptrs.as_ptr())) };
     if result == -1 {
         Err(crate::os::errno_io_error())
     } else {
@@ -2252,11 +2276,19 @@ pub fn execv(path: *const u16, argv: *const *const u16) -> io::Result<()> {
 
 #[cfg(target_env = "msvc")]
 pub fn execve(
-    path: *const u16,
-    argv: *const *const u16,
-    envp: *const *const u16,
+    path: &widestring::WideCStr,
+    argv: &[&widestring::WideCStr],
+    envp: &[&widestring::WideCStr],
 ) -> io::Result<()> {
-    let result = unsafe { crate::suppress_iph!(_wexecve(path, argv, envp)) };
+    let argv_ptrs = null_terminated_ptrs(argv);
+    let envp_ptrs = null_terminated_ptrs(envp);
+    let result = unsafe {
+        crate::suppress_iph!(_wexecve(
+            path.as_ptr(),
+            argv_ptrs.as_ptr(),
+            envp_ptrs.as_ptr()
+        ))
+    };
     if result == -1 {
         Err(crate::os::errno_io_error())
     } else {

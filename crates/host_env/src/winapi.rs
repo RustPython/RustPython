@@ -798,9 +798,10 @@ pub fn get_version() -> u32 {
     unsafe { windows_sys::Win32::System::SystemInformation::GetVersion() }
 }
 
-pub fn create_job_object_w(name: *const u16) -> io::Result<HANDLE> {
+pub fn create_job_object_w(name: Option<&widestring::WideCStr>) -> io::Result<HANDLE> {
+    let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
     let handle = unsafe {
-        windows_sys::Win32::System::JobObjects::CreateJobObjectW(core::ptr::null(), name)
+        windows_sys::Win32::System::JobObjects::CreateJobObjectW(core::ptr::null(), name_ptr)
     };
     if handle.is_null() {
         Err(io::Error::last_os_error())
@@ -861,14 +862,14 @@ pub fn get_module_file_name(module: HMODULE, buffer: &mut [u16]) -> u32 {
     }
 }
 
-pub fn get_short_path_name_w(path: *const u16) -> io::Result<Vec<u16>> {
+pub fn get_short_path_name_w(path: &widestring::WideCStr) -> io::Result<Vec<u16>> {
     get_path_name_impl(
         path,
         windows_sys::Win32::Storage::FileSystem::GetShortPathNameW,
     )
 }
 
-pub fn get_long_path_name_w(path: *const u16) -> io::Result<Vec<u16>> {
+pub fn get_long_path_name_w(path: &widestring::WideCStr) -> io::Result<Vec<u16>> {
     get_path_name_impl(
         path,
         windows_sys::Win32::Storage::FileSystem::GetLongPathNameW,
@@ -876,16 +877,16 @@ pub fn get_long_path_name_w(path: *const u16) -> io::Result<Vec<u16>> {
 }
 
 fn get_path_name_impl(
-    path: *const u16,
+    path: &widestring::WideCStr,
     api_fn: unsafe extern "system" fn(*const u16, *mut u16, u32) -> u32,
 ) -> io::Result<Vec<u16>> {
-    let size = unsafe { api_fn(path, core::ptr::null_mut(), 0) };
+    let size = unsafe { api_fn(path.as_ptr(), core::ptr::null_mut(), 0) };
     if size == 0 {
         return Err(io::Error::last_os_error());
     }
 
     let mut buffer = vec![0u16; size as usize];
-    let result = unsafe { api_fn(path, buffer.as_mut_ptr(), buffer.len() as u32) };
+    let result = unsafe { api_fn(path.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
     if result == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -1040,13 +1041,19 @@ pub fn virtual_query_size(address: isize) -> io::Result<usize> {
     }
 }
 
-pub fn copy_file2(src: *const u16, dst: *const u16, flags: u32) -> io::Result<()> {
+pub fn copy_file2(
+    src: &widestring::WideCStr,
+    dst: &widestring::WideCStr,
+    flags: u32,
+) -> io::Result<()> {
     let mut params: windows_sys::Win32::Storage::FileSystem::COPYFILE2_EXTENDED_PARAMETERS =
         unsafe { core::mem::zeroed() };
     params.dwSize = core::mem::size_of_val(&params) as u32;
     params.dwCopyFlags = flags;
 
-    let hr = unsafe { windows_sys::Win32::Storage::FileSystem::CopyFile2(src, dst, &params) };
+    let hr = unsafe {
+        windows_sys::Win32::Storage::FileSystem::CopyFile2(src.as_ptr(), dst.as_ptr(), &params)
+    };
     if hr < 0 {
         let err = if (hr as u32 >> 16) == 0x8007 {
             (hr as u32) & 0xFFFF
@@ -1217,8 +1224,8 @@ pub fn connect_named_pipe(handle: HANDLE) -> io::Result<()> {
     Ok(())
 }
 
-pub fn wait_named_pipe_w(name: *const u16, timeout: u32) -> io::Result<()> {
-    let ok = unsafe { windows_sys::Win32::System::Pipes::WaitNamedPipeW(name, timeout) };
+pub fn wait_named_pipe_w(name: &widestring::WideCStr, timeout: u32) -> io::Result<()> {
+    let ok = unsafe { windows_sys::Win32::System::Pipes::WaitNamedPipeW(name.as_ptr(), timeout) };
     if ok == 0 {
         Err(io::Error::last_os_error())
     } else {
@@ -1359,12 +1366,16 @@ pub fn set_named_pipe_handle_state(
     }
 }
 
-pub fn create_mutex_w(initial_owner: bool, name: *const u16) -> io::Result<HANDLE> {
+pub fn create_mutex_w(
+    initial_owner: bool,
+    name: Option<&widestring::WideCStr>,
+) -> io::Result<HANDLE> {
+    let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
     let handle = unsafe {
         windows_sys::Win32::System::Threading::CreateMutexW(
             core::ptr::null(),
             i32::from(initial_owner),
-            name,
+            name_ptr,
         )
     };
     if handle.is_null() {
@@ -1393,8 +1404,9 @@ pub fn open_event_w(
     }
 }
 
-pub fn need_current_directory_for_exe_path_w(exe_name: *const u16) -> bool {
+pub fn need_current_directory_for_exe_path_w(exe_name: &widestring::WideCStr) -> bool {
     unsafe {
-        windows_sys::Win32::System::Environment::NeedCurrentDirectoryForExePathW(exe_name) != 0
+        windows_sys::Win32::System::Environment::NeedCurrentDirectoryForExePathW(exe_name.as_ptr())
+            != 0
     }
 }

@@ -301,8 +301,10 @@ mod _winapi {
 
     #[pyfunction]
     fn NeedCurrentDirectoryForExePath(exe_name: PyStrRef) -> bool {
-        let exe_name = exe_name.as_wtf8().to_wide_with_nul();
-        host_winapi::need_current_directory_for_exe_path_w(exe_name.as_ptr())
+        let exe_name = widestring::WideCString::from_vec_truncate(
+            exe_name.as_wtf8().encode_wide().collect::<Vec<u16>>(),
+        );
+        host_winapi::need_current_directory_for_exe_path_w(&exe_name)
     }
 
     #[pyfunction]
@@ -419,8 +421,12 @@ mod _winapi {
         name: OptionalArg<Option<PyStrRef>>,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
-        let name = name.flatten().map(|name| name.as_wtf8().to_wide_with_nul());
-        host_winapi::create_job_object_w(name.as_ref().map_or(null(), |name| name.as_ptr()))
+        let name = name.flatten().map(|name| {
+            widestring::WideCString::from_vec_truncate(
+                name.as_wtf8().encode_wide().collect::<Vec<u16>>(),
+            )
+        });
+        host_winapi::create_job_object_w(name.as_deref())
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
@@ -672,27 +678,32 @@ mod _winapi {
     /// GetShortPathName - Return the short version of the provided path.
     #[pyfunction]
     fn GetShortPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let path_wide = path.as_wtf8().to_wide_with_nul();
-        let wide = host_winapi::get_short_path_name_w(path_wide.as_ptr())
-            .map_err(|e| e.to_pyexception(vm))?;
+        let path_wide = widestring::WideCString::from_vec_truncate(
+            path.as_wtf8().encode_wide().collect::<Vec<u16>>(),
+        );
+        let wide =
+            host_winapi::get_short_path_name_w(&path_wide).map_err(|e| e.to_pyexception(vm))?;
         Ok(path_name_result_to_pystr(wide, vm))
     }
 
     /// GetLongPathName - Return the long version of the provided path.
     #[pyfunction]
     fn GetLongPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let path_wide = path.as_wtf8().to_wide_with_nul();
-        let wide = host_winapi::get_long_path_name_w(path_wide.as_ptr())
-            .map_err(|e| e.to_pyexception(vm))?;
+        let path_wide = widestring::WideCString::from_vec_truncate(
+            path.as_wtf8().encode_wide().collect::<Vec<u16>>(),
+        );
+        let wide =
+            host_winapi::get_long_path_name_w(&path_wide).map_err(|e| e.to_pyexception(vm))?;
         Ok(path_name_result_to_pystr(wide, vm))
     }
 
     /// WaitNamedPipe - Wait for an instance of a named pipe to become available.
     #[pyfunction]
     fn WaitNamedPipe(name: PyStrRef, timeout: u32, vm: &VirtualMachine) -> PyResult<()> {
-        let name_wide = name.as_wtf8().to_wide_with_nul();
-        host_winapi::wait_named_pipe_w(name_wide.as_ptr(), timeout)
-            .map_err(|e| e.to_pyexception(vm))
+        let name_wide = widestring::WideCString::from_vec_truncate(
+            name.as_wtf8().encode_wide().collect::<Vec<u16>>(),
+        );
+        host_winapi::wait_named_pipe_w(&name_wide, timeout).map_err(|e| e.to_pyexception(vm))
     }
 
     /// PeekNamedPipe - Peek at data in a named pipe without removing it.
@@ -872,9 +883,12 @@ mod _winapi {
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
         let _ = security_attributes;
-        let name_wide = name.map(|n| n.as_wtf8().to_wide_with_nul());
-        let name_ptr = name_wide.as_ref().map_or(null(), |n| n.as_ptr());
-        host_winapi::create_mutex_w(initial_owner, name_ptr)
+        let name_wide = name.map(|n| {
+            widestring::WideCString::from_vec_truncate(
+                n.as_wtf8().encode_wide().collect::<Vec<u16>>(),
+            )
+        });
+        host_winapi::create_mutex_w(initial_owner, name_wide.as_deref())
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
@@ -1073,10 +1087,16 @@ mod _winapi {
         _progress_routine: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let src_wide = existing_file_name.as_wtf8().to_wide_with_nul();
-        let dst_wide = new_file_name.as_wtf8().to_wide_with_nul();
-        host_winapi::copy_file2(src_wide.as_ptr(), dst_wide.as_ptr(), flags)
-            .map_err(|e| e.to_pyexception(vm))
+        let src_wide = widestring::WideCString::from_vec_truncate(
+            existing_file_name
+                .as_wtf8()
+                .encode_wide()
+                .collect::<Vec<u16>>(),
+        );
+        let dst_wide = widestring::WideCString::from_vec_truncate(
+            new_file_name.as_wtf8().encode_wide().collect::<Vec<u16>>(),
+        );
+        host_winapi::copy_file2(&src_wide, &dst_wide, flags).map_err(|e| e.to_pyexception(vm))
     }
 
     /// _mimetypes_read_windows_registry - Read MIME type associations from registry.
