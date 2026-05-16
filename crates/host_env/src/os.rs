@@ -323,22 +323,19 @@ pub fn set_file_times(
     access: Duration,
     modified: Duration,
 ) -> io::Result<()> {
+    use crate::windows::CheckWin32Bool;
     let access = filetime_from_duration(access);
     let modified = filetime_from_duration(modified);
     let file = fs::open_write_with_custom_flags(path, FILE_FLAG_BACKUP_SEMANTICS)?;
-    let ret = unsafe {
+    unsafe {
         SetFileTime(
             file.as_raw_handle() as _,
             core::ptr::null(),
             &access,
             &modified,
         )
-    };
-    if ret == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
+    .check_win32_bool()
 }
 
 pub trait ErrorExt {
