@@ -131,16 +131,15 @@ mod mmap {
     #[pyattr]
     const ACCESS_COPY: u32 = AccessMode::Copy as u32;
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[pyattr(name = "PAGESIZE", once)]
     fn page_size(_vm: &VirtualMachine) -> usize {
-        page_size::get()
+        rustpython_host_env::os::page_size()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr(name = "ALLOCATIONGRANULARITY", once)]
     fn granularity(_vm: &VirtualMachine) -> usize {
-        page_size::get_granularity()
+        rustpython_host_env::os::alloc_granularity()
     }
 
     #[pyattr(name = "error", once)]
