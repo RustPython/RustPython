@@ -1,4 +1,4 @@
-# Copyright (C) 2004-2006 Python Software Foundation
+# Copyright (C) 2004 Python Software Foundation
 # Authors: Baxter, Wouters and Warsaw
 # Contact: email-sig@python.org
 
@@ -30,7 +30,7 @@ from io import StringIO
 
 NLCRE = re.compile(r'\r\n|\r|\n')
 NLCRE_bol = re.compile(r'(\r\n|\r|\n)')
-NLCRE_eol = re.compile(r'(\r\n|\r|\n)\Z')
+NLCRE_eol = re.compile(r'(\r\n|\r|\n)\z')
 NLCRE_crack = re.compile(r'(\r\n|\r|\n)')
 # RFC 5322 section 3.6.8 Optional fields.  ftext is %d33-57 / %d59-126, Any character
 # except controls, SP, and ":".
@@ -504,10 +504,9 @@ class FeedParser:
                     self._input.unreadline(line)
                     return
                 else:
-                    # Weirdly placed unix-from line.  Note this as a defect
-                    # and ignore it.
+                    # Weirdly placed unix-from line.
                     defect = errors.MisplacedEnvelopeHeaderDefect(line)
-                    self._cur.defects.append(defect)
+                    self.policy.handle_defect(self._cur, defect)
                     continue
             # Split the line on the colon separating field name from value.
             # There will always be a colon, because if there wasn't the part of
@@ -519,7 +518,7 @@ class FeedParser:
             # message. Track the error but keep going.
             if i == 0:
                 defect = errors.InvalidHeaderDefect("Missing header name.")
-                self._cur.defects.append(defect)
+                self.policy.handle_defect(self._cur, defect)
                 continue
 
             assert i>0, "_parse_headers fed line with no : and no leading WS"
