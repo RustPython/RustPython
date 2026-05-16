@@ -1109,6 +1109,8 @@ pub fn fd_exists(fd: crate::crt_fd::Borrowed<'_>) -> bool {
 }
 
 pub fn pipe() -> io::Result<(i32, i32)> {
+    use crate::windows::HandleToOwned;
+    use std::os::windows::io::{AsRawHandle, IntoRawHandle};
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
     use windows_sys::Win32::System::Pipes::CreatePipe;
 
@@ -1128,25 +1130,32 @@ pub fn pipe() -> io::Result<(i32, i32)> {
             0,
         )
         .check_win32_bool()?;
-        (read.assume_init(), write.assume_init())
+        (read.assume_init() as HANDLE, write.assume_init() as HANDLE)
     };
+    // RAII wrappers: both handles are auto-closed on any early return below.
+    let read_handle = read_handle
+        .into_owned()
+        .expect("CreatePipe returned valid read handle");
+    let write_handle = write_handle
+        .into_owned()
+        .expect("CreatePipe returned valid write handle");
 
     const O_NOINHERIT: i32 = 0x80;
-    let read_fd = match crate::msvcrt::open_osfhandle(read_handle, O_NOINHERIT) {
-        Ok(fd) => fd,
-        Err(err) => {
-            unsafe {
-                CloseHandle(read_handle as _);
-                CloseHandle(write_handle as _);
-            }
-            return Err(err);
+    let read_fd = crate::msvcrt::open_osfhandle(read_handle.as_raw_handle() as isize, O_NOINHERIT)?;
+    // Ownership of the read handle now belongs to the CRT fd.
+    let _ = read_handle.into_raw_handle();
+
+    let write_fd = match crate::msvcrt::open_osfhandle(
+        write_handle.as_raw_handle() as isize,
+        libc::O_WRONLY | O_NOINHERIT,
+    ) {
+        Ok(fd) => {
+            let _ = write_handle.into_raw_handle();
+            fd
         }
-    };
-    let write_fd = match crate::msvcrt::open_osfhandle(write_handle, libc::O_WRONLY | O_NOINHERIT) {
-        Ok(fd) => fd,
         Err(err) => {
+            // Close the CRT fd we already created; `write_handle` auto-closes via Drop.
             let _ = unsafe { crt_fd::Owned::from_raw(read_fd) };
-            unsafe { CloseHandle(write_handle as _) };
             return Err(err);
         }
     };
