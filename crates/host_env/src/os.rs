@@ -378,6 +378,30 @@ pub fn errno_io_error() -> io::Error {
     std::io::Error::last_os_error()
 }
 
+/// Convert a libc-style return value into an `io::Result`.
+///
+/// Negative values are treated as errors; errno is read via [`errno_io_error`].
+/// Modeled after PyPy's `rposix.handle_posix_error`.
+pub trait CheckLibcResult: Sized {
+    /// Returns `Ok(self)` if non-negative, otherwise `Err` with the current errno.
+    fn check_libc_neg(self) -> io::Result<Self>;
+}
+
+macro_rules! impl_check_libc_result {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl CheckLibcResult for $ty {
+                #[inline]
+                fn check_libc_neg(self) -> io::Result<Self> {
+                    if self < 0 { Err(errno_io_error()) } else { Ok(self) }
+                }
+            }
+        )*
+    };
+}
+
+impl_check_libc_result!(i16, i32, i64, isize);
+
 #[cfg(windows)]
 pub fn get_errno() -> i32 {
     unsafe extern "C" {
