@@ -7574,6 +7574,7 @@ impl Compiler {
 
         if has_default {
             let m = &cases[num_cases - 1];
+            self.set_source_range(m.pattern.range());
             if num_cases == 1 {
                 emit!(self, Instruction::PopTop);
             } else if m.guard.is_none() {
