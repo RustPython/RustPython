@@ -304,12 +304,7 @@ pub fn seek_fd(
     position: crt_fd::Offset,
     how: i32,
 ) -> io::Result<crt_fd::Offset> {
-    let ret = unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
+    unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) }.check_libc_neg()
 }
 
 #[cfg(windows)]
@@ -401,6 +396,28 @@ macro_rules! impl_check_libc_result {
 }
 
 impl_check_libc_result!(i16, i32, i64, isize);
+
+/// libc convention where `0` means success and any non-zero value indicates failure
+/// (with errno set). Used by APIs like `sigemptyset`, `sigaction`, `pthread_*`, etc.
+pub trait CheckLibcZero {
+    /// Returns `Ok(())` if `self == 0`, otherwise the current errno as an `io::Error`.
+    fn check_libc_zero(self) -> io::Result<()>;
+}
+
+macro_rules! impl_check_libc_zero {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl CheckLibcZero for $ty {
+                #[inline]
+                fn check_libc_zero(self) -> io::Result<()> {
+                    if self == 0 { Ok(()) } else { Err(errno_io_error()) }
+                }
+            }
+        )*
+    };
+}
+
+impl_check_libc_zero!(i32, i64, isize);
 
 #[cfg(windows)]
 pub fn get_errno() -> i32 {

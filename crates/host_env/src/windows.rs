@@ -47,6 +47,56 @@ pub fn init_winsock() {
     })
 }
 
+/// Win32 BOOL convention: 0 = failure, nonzero = success.
+/// Reads error via `GetLastError()` through [`io::Error::last_os_error`].
+pub trait CheckWin32Bool {
+    fn check_win32_bool(self) -> io::Result<()>;
+}
+
+impl CheckWin32Bool for i32 {
+    #[inline]
+    fn check_win32_bool(self) -> io::Result<()> {
+        if self == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Convenience checks for Win32 `HANDLE` return values.
+pub trait CheckWin32Handle: Sized {
+    /// Returns `Ok(self)` if the handle is non-NULL, otherwise the last OS error.
+    /// Use for APIs whose failure sentinel is NULL (Create*Event, Create*Mutex,
+    /// CreateFileMapping, GetModuleHandle, etc.).
+    fn check_nonnull(self) -> io::Result<Self>;
+
+    /// Returns `Ok(self)` unless the handle equals `INVALID_HANDLE_VALUE`.
+    /// Use for APIs whose failure sentinel is `INVALID_HANDLE_VALUE`
+    /// (CreateFileW, CreateNamedPipeW, etc.).
+    fn check_valid(self) -> io::Result<Self>;
+}
+
+impl CheckWin32Handle for windows_sys::Win32::Foundation::HANDLE {
+    #[inline]
+    fn check_nonnull(self) -> io::Result<Self> {
+        if self.is_null() {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(self)
+        }
+    }
+
+    #[inline]
+    fn check_valid(self) -> io::Result<Self> {
+        if self == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(self)
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct WindowsVersionInfo {
     pub major: u32,
@@ -63,10 +113,7 @@ pub struct WindowsVersionInfo {
 fn get_kernel32_version() -> io::Result<(u32, u32, u32)> {
     unsafe {
         let module_name: Vec<u16> = OsStr::new("kernel32.dll").to_wide_with_nul();
-        let h_kernel32 = GetModuleHandleW(module_name.as_ptr());
-        if h_kernel32.is_null() {
-            return Err(io::Error::last_os_error());
-        }
+        let h_kernel32 = GetModuleHandleW(module_name.as_ptr()).check_nonnull()?;
 
         let mut kernel32_path = [0u16; MAX_PATH as usize];
         let len = GetModuleFileNameW(
@@ -84,28 +131,26 @@ fn get_kernel32_version() -> io::Result<(u32, u32, u32)> {
         }
 
         let mut ver_block = vec![0u8; ver_block_size as usize];
-        if GetFileVersionInfoW(
+        GetFileVersionInfoW(
             kernel32_path.as_ptr(),
             0,
             ver_block_size,
             ver_block.as_mut_ptr() as *mut _,
-        ) == 0
-        {
-            return Err(io::Error::last_os_error());
-        }
+        )
+        .check_win32_bool()?;
 
         let sub_block: Vec<u16> = OsStr::new("").to_wide_with_nul();
 
         let mut ffi_ptr: *mut VS_FIXEDFILEINFO = core::ptr::null_mut();
         let mut ffi_len: u32 = 0;
-        if VerQueryValueW(
+        VerQueryValueW(
             ver_block.as_ptr() as *const _,
             sub_block.as_ptr(),
             &mut ffi_ptr as *mut *mut VS_FIXEDFILEINFO as *mut *mut _,
             &mut ffi_len as *mut u32,
-        ) == 0
-            || ffi_ptr.is_null()
-        {
+        )
+        .check_win32_bool()?;
+        if ffi_ptr.is_null() {
             return Err(io::Error::last_os_error());
         }
 
@@ -121,14 +166,11 @@ fn get_kernel32_version() -> io::Result<(u32, u32, u32)> {
 pub fn get_windows_version() -> io::Result<WindowsVersionInfo> {
     let mut version: OSVERSIONINFOEXW = unsafe { core::mem::zeroed() };
     version.dwOSVersionInfoSize = core::mem::size_of::<OSVERSIONINFOEXW>() as u32;
-    let result = unsafe {
+    unsafe {
         let os_vi = &mut version as *mut OSVERSIONINFOEXW as *mut OSVERSIONINFOW;
         GetVersionExW(os_vi)
-    };
-
-    if result == 0 {
-        return Err(io::Error::last_os_error());
     }
+    .check_win32_bool()?;
 
     let service_pack = {
         let (last, _) = version

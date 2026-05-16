@@ -5,6 +5,8 @@
 
 use std::io;
 
+#[cfg(windows)]
+use crate::windows::{CheckWin32Bool, CheckWin32Handle};
 #[cfg(unix)]
 use crate::{crt_fd, fileutils, posix};
 use memmap2::{Mmap, MmapMut, MmapOptions};
@@ -131,7 +133,7 @@ impl Drop for NamedMmap {
 #[cfg(windows)]
 pub fn duplicate_handle(handle: Handle) -> io::Result<Handle> {
     let mut new_handle: Handle = INVALID_HANDLE;
-    let result = unsafe {
+    unsafe {
         DuplicateHandle(
             GetCurrentProcess(),
             handle,
@@ -141,12 +143,9 @@ pub fn duplicate_handle(handle: Handle) -> io::Result<Handle> {
             0,
             DUPLICATE_SAME_ACCESS,
         )
-    };
-    if result == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(new_handle)
     }
+    .check_win32_bool()?;
+    Ok(new_handle)
 }
 
 #[cfg(windows)]
@@ -187,13 +186,9 @@ pub fn is_invalid_handle_value(handle: isize) -> bool {
 
 #[cfg(windows)]
 pub fn extend_file(handle: Handle, size: i64) -> io::Result<()> {
-    if unsafe { SetFilePointerEx(handle, size, core::ptr::null_mut(), FILE_BEGIN) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if unsafe { SetEndOfFile(handle) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
+    unsafe { SetFilePointerEx(handle, size, core::ptr::null_mut(), FILE_BEGIN) }
+        .check_win32_bool()?;
+    unsafe { SetEndOfFile(handle) }.check_win32_bool()
 }
 
 #[cfg(unix)]
@@ -210,11 +205,7 @@ pub fn close_handle(handle: Handle) {
 
 #[cfg(windows)]
 pub fn flush_view(ptr: *const core::ffi::c_void, size: usize) -> io::Result<()> {
-    if unsafe { FlushViewOfFile(ptr, size) } == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { FlushViewOfFile(ptr, size) }.check_win32_bool()
 }
 
 #[cfg(windows)]
@@ -252,10 +243,8 @@ pub fn create_named_mapping(
             size_lo,
             tag_wide.as_ptr(),
         )
-    };
-    if map_handle.is_null() {
-        return Err(io::Error::last_os_error());
     }
+    .check_nonnull()?;
 
     let off_hi = (offset as u64 >> 32) as u32;
     let off_lo = offset as u32;
