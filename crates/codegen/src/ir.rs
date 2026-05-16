@@ -14927,48 +14927,10 @@ fn remove_redundant_nops_and_jumps(blocks: &mut [Block]) {
     loop {
         let removed_nops = remove_redundant_nops_in_blocks(blocks);
         let removed_jumps = remove_redundant_jumps_in_blocks(blocks);
-        let removed_jump_target_nops = remove_jump_target_line_nops(blocks);
-        if removed_nops + removed_jumps + removed_jump_target_nops == 0 {
+        if removed_nops + removed_jumps == 0 {
             break;
         }
     }
-}
-
-fn remove_jump_target_line_nops(blocks: &mut [Block]) -> usize {
-    let mut jump_target_lines = vec![Vec::new(); blocks.len()];
-    for block in blocks.iter() {
-        for info in &block.instructions {
-            if info.instr.is_unconditional_jump() && info.target != BlockIdx::NULL {
-                let target = next_nonempty_block(blocks, info.target);
-                if target != BlockIdx::NULL {
-                    jump_target_lines[target.idx()].push(instruction_lineno(info));
-                }
-            }
-        }
-    }
-
-    let mut changes = 0;
-    for (idx, block) in blocks.iter_mut().enumerate() {
-        let Some(first) = block.instructions.first() else {
-            continue;
-        };
-        let lineno = instruction_lineno(first);
-        if lineno <= 0
-            || !matches!(first.instr.real(), Some(Instruction::Nop))
-            || !jump_target_lines[idx].contains(&lineno)
-        {
-            continue;
-        }
-        let next_lineno = block.instructions[1..].iter().find_map(|instr| {
-            let line = instruction_lineno(instr);
-            (!matches!(instr.instr.real(), Some(Instruction::Nop))).then_some(line)
-        });
-        if next_lineno.is_some_and(|next_lineno| next_lineno > lineno) {
-            block.instructions.remove(0);
-            changes += 1;
-        }
-    }
-    changes
 }
 
 fn redirect_empty_block_targets(blocks: &mut [Block]) {
