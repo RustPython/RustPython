@@ -8,7 +8,7 @@ use rustpython_vm::{AsObject, Py};
 pub type PyTypeObject = Py<PyType>;
 
 macro_rules! define_py_check {
-    ($name:ident, $($ctx_path:ident).+) => {
+    (fn $name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(obj: *mut crate::PyObject) -> core::ffi::c_int {
             crate::pystate::with_vm(|vm| unsafe {
@@ -19,7 +19,7 @@ macro_rules! define_py_check {
             })
         }
     };
-    (exact $name:ident, $($ctx_path:ident).+) => {
+    (exact fn $name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(obj: *mut crate::PyObject) -> core::ffi::c_int {
             use rustpython_vm::AsObject;
@@ -33,8 +33,8 @@ macro_rules! define_py_check {
     };
 }
 
-define_py_check!(PyType_Check, types.type_type);
-define_py_check!(exact PyType_CheckExact, types.type_type);
+define_py_check!(fn PyType_Check, types.type_type);
+define_py_check!(exact fn PyType_CheckExact, types.type_type);
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
