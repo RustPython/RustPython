@@ -16626,8 +16626,8 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
                 .instructions
                 .first()
                 .and_then(|info| info.except_handler);
-            let mismatched_protection = !(cond_handler == jump_handler
-                && jump_handler == exit_handler);
+            let mismatched_protection =
+                !(cond_handler == jump_handler && jump_handler == exit_handler);
             if exit_start == BlockIdx::NULL
                 || exit_block == BlockIdx::NULL
                 || jump_start == BlockIdx::NULL
@@ -17781,6 +17781,10 @@ fn reorder_jump_over_exception_cleanup_blocks(blocks: &mut [Block]) {
             || target_exit != target_end
             || !is_scope_exit_block(&blocks[target_exit.idx()])
             || blocks[target_exit.idx()].instructions.len() > MAX_REORDERED_EXIT_BLOCK_SIZE
+            || blocks[target_exit.idx()]
+                .instructions
+                .iter()
+                .any(|info| info.instr.is_block_push())
         {
             current = next;
             continue;

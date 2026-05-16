@@ -19740,18 +19740,6 @@ def f():
         );
     }
 
-    // TODO: After the CPython-aligned mark_cold + is_some_and fix, the
-    // algorithm correctly stops at empty placeholder blocks in the b_next
-    // chain (matching cpython/Python/flowgraph.c optimize_load_fast). Some
-    // legacy tests encode borrow patterns that depended on the previous
-    // implementation propagating through such empty blocks. Resolving them
-    // requires either eliminating the extra empty blocks in RustPython's
-    // codegen (so CPython parity is achieved structurally) or proving the
-    // CPython binary actually produces the asserted borrows under the same
-    // bytecode shape. Tracked alongside the broader 244→208 compare_bytecode
-    // improvement; re-enable once codegen-level empty-block elimination is
-    // complete.
-    #[ignore]
     #[test]
     fn test_try_except_while_body_preserves_while_exit_line_nop() {
         let code = compile_exec(
@@ -20038,8 +20026,6 @@ def f(src, dst, length, exception, bufsize):
         );
     }
 
-    // TODO: See note on test_try_except_while_body_preserves_while_exit_line_nop.
-    #[ignore]
     #[test]
     fn test_named_except_cleanup_keeps_jump_over_cleanup_and_next_try() {
         let code = compile_exec(
@@ -27173,8 +27159,6 @@ def f(value):
         );
     }
 
-    // TODO: See note on test_try_except_while_body_preserves_while_exit_line_nop.
-    #[ignore]
     #[test]
     fn test_multi_handler_resume_before_with_keeps_with_body_borrows() {
         let code = compile_exec(
@@ -32048,8 +32032,6 @@ def f(formatstr, args, output, overflowok):
         );
     }
 
-    // TODO: See note on test_try_except_while_body_preserves_while_exit_line_nop.
-    #[ignore]
     #[test]
     fn test_typed_except_resume_import_warning_tail_keeps_borrows() {
         let code = compile_exec(
