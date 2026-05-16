@@ -814,6 +814,19 @@ impl Compiler {
         }
     }
 
+    fn statements_end_with_while_true_direct_break(
+        &mut self,
+        body: &[ast::Stmt],
+    ) -> CompileResult<bool> {
+        match body.last() {
+            Some(ast::Stmt::While(ast::StmtWhile { test, body, .. })) => {
+                Ok(matches!(self.constant_expr_truthiness(test)?, Some(true))
+                    && Self::statements_contain_direct_break(body))
+            }
+            _ => Ok(false),
+        }
+    }
+
     fn statements_contain_direct_break(body: &[ast::Stmt]) -> bool {
         body.iter().any(Self::statement_contains_direct_break)
     }
@@ -4201,8 +4214,6 @@ impl Compiler {
             }) = handler;
             self.set_source_range(*handler_range);
             let next_handler = self.new_block();
-            let handler_body_exits = Self::statements_end_with_scope_exit(body);
-            let mut exception_handler_was_popped = false;
 
             if let Some(exc_type) = type_ {
                 self.compile_expression(exc_type)?;
@@ -4232,29 +4243,25 @@ impl Compiler {
                 self.compile_statements(body)?;
 
                 self.pop_fblock(FBlockType::HandlerCleanup);
-                if !handler_body_exits {
-                    emit!(self, PseudoInstruction::PopBlock);
-                    self.set_no_location();
-                    emit!(self, PseudoInstruction::PopBlock);
-                    self.set_no_location();
-                    self.pop_fblock(FBlockType::ExceptionHandler);
-                    exception_handler_was_popped = true;
-                    emit!(self, Instruction::PopExcept);
-                    self.set_no_location();
+                emit!(self, PseudoInstruction::PopBlock);
+                self.set_no_location();
+                emit!(self, PseudoInstruction::PopBlock);
+                self.set_no_location();
+                emit!(self, Instruction::PopExcept);
+                self.set_no_location();
 
-                    self.emit_load_const(ConstantData::None);
-                    self.set_no_location();
-                    self.store_name(alias.as_str())?;
-                    self.set_no_location();
-                    self.compile_name(alias.as_str(), NameUsage::Delete)?;
-                    self.set_no_location();
+                self.emit_load_const(ConstantData::None);
+                self.set_no_location();
+                self.store_name(alias.as_str())?;
+                self.set_no_location();
+                self.compile_name(alias.as_str(), NameUsage::Delete)?;
+                self.set_no_location();
 
-                    emit!(
-                        self,
-                        PseudoInstruction::JumpNoInterrupt { delta: end_block }
-                    );
-                    self.set_no_location();
-                }
+                emit!(
+                    self,
+                    PseudoInstruction::JumpNoInterrupt { delta: end_block }
+                );
+                self.set_no_location();
 
                 self.switch_to_block(cleanup_end);
                 self.emit_load_const(ConstantData::None);
@@ -4274,24 +4281,17 @@ impl Compiler {
                 self.compile_statements(body)?;
 
                 self.pop_fblock(FBlockType::HandlerCleanup);
-                if !handler_body_exits {
-                    emit!(self, PseudoInstruction::PopBlock);
-                    self.set_no_location();
-                    self.pop_fblock(FBlockType::ExceptionHandler);
-                    exception_handler_was_popped = true;
-                    emit!(self, Instruction::PopExcept);
-                    self.set_no_location();
-                    emit!(
-                        self,
-                        PseudoInstruction::JumpNoInterrupt { delta: end_block }
-                    );
-                    self.set_no_location();
-                }
+                emit!(self, PseudoInstruction::PopBlock);
+                self.set_no_location();
+                emit!(self, Instruction::PopExcept);
+                self.set_no_location();
+                emit!(
+                    self,
+                    PseudoInstruction::JumpNoInterrupt { delta: end_block }
+                );
+                self.set_no_location();
             }
 
-            if exception_handler_was_popped {
-                self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
-            }
             self.switch_to_block(next_handler);
         }
 
@@ -6278,6 +6278,8 @@ impl Compiler {
                 || Self::statements_end_with_try_except_else_handler_scope_exit(body)
                 || Self::statements_end_with_try_finally(body)
                 || self.statements_end_with_loop_fallthrough(body)?);
+        let remove_while_true_break_cleanup_target_nop =
+            !is_async && self.statements_end_with_while_true_direct_break(body)?;
         let materialize_async_with_outer_cleanup_target_nop = is_async
             && Self::statements_end_with_nested_finalbody_try_finally(body)
             && self
@@ -6297,7 +6299,9 @@ impl Compiler {
             self.set_no_location();
             if preserve_outer_cleanup_target_nop {
                 self.preserve_last_redundant_nop();
-            } else if Self::statements_end_with_try_star_except(body) {
+            } else if remove_while_true_break_cleanup_target_nop
+                || Self::statements_end_with_try_star_except(body)
+            {
                 self.force_remove_last_no_location_nop();
             } else {
                 self.remove_last_no_location_nop();
@@ -11178,6 +11182,7 @@ impl Compiler {
         let prev_source_range = self.current_source_range;
         self.set_source_range(range);
         emit!(self, Instruction::Nop);
+        self.force_remove_last_no_location_nop();
         self.set_source_range(prev_source_range);
 
         // Collect the fblocks we need to unwind through, from top down to (but not including) the loop
@@ -11257,6 +11262,7 @@ impl Compiler {
                     let saved_range = self.current_source_range;
                     self.set_source_range(range);
                     emit!(self, PseudoInstruction::PopBlock);
+                    self.set_no_location();
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
                     self.emit_load_const(ConstantData::None);
@@ -11294,6 +11300,7 @@ impl Compiler {
                 UnwindAction::FinallyTry { body, fblock_idx } => {
                     // codegen_unwind_fblock(FINALLY_TRY)
                     emit!(self, PseudoInstruction::PopBlock);
+                    self.set_no_location();
 
                     // compile finally body inline
                     // Temporarily pop the FinallyTry fblock so nested break/continue
@@ -12518,7 +12525,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "debug helper"]
     fn debug_trace_nested_continue_after_optional_body() {
         let trace = compile_single_function_late_cfg_trace(
             "\
@@ -12555,7 +12561,6 @@ def f(names, show_empty, keywords, args_buffer, args, cls, object, level):
     }
 
     #[test]
-    #[ignore = "debug helper"]
     fn debug_trace_make_dataclass_borrow_tail() {
         let trace = compile_single_function_late_cfg_trace(
             r#"
@@ -12586,7 +12591,6 @@ def f(module, cls, decorator, init, repr, eq, order, unsafe_hash, frozen, match_
     }
 
     #[test]
-    #[ignore = "debug helper"]
     fn debug_trace_protected_attr_subscript_tail() {
         let trace = compile_single_function_late_cfg_trace(
             r#"
@@ -12611,7 +12615,6 @@ def f(f, oldcls, newcls):
     }
 
     #[test]
-    #[ignore = "debug helper"]
     fn debug_trace_dtrace_tail() {
         let trace = compile_single_function_late_cfg_trace(
             r#"
@@ -12641,7 +12644,6 @@ def f(proc, unittest):
     }
 
     #[test]
-    #[ignore = "debug helper"]
     fn debug_trace_colorize_tail() {
         let trace = compile_single_function_late_cfg_trace(
             r#"
@@ -15952,7 +15954,6 @@ def f(self):
     }
 
     #[test]
-    #[ignore = "debug trace for sequence star-wildcard pattern layout"]
     fn test_debug_trace_match_sequence_star_wildcard_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
@@ -15970,7 +15971,6 @@ def f(w):
     }
 
     #[test]
-    #[ignore = "debug trace for loop bool-chain jump-back layout"]
     fn test_debug_trace_loop_break_bool_chain_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
@@ -15994,7 +15994,6 @@ def f(filters, text, category, module, lineno, defaultaction):
     }
 
     #[test]
-    #[ignore = "debug trace for loop conditional body jump-back layout"]
     fn test_debug_trace_loop_conditional_body_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
@@ -16012,7 +16011,6 @@ def f(new, old):
     }
 
     #[test]
-    #[ignore = "debug trace for minimized utf7 encode nested-if layout"]
     fn test_debug_trace_utf7_min_encode_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
@@ -16041,7 +16039,6 @@ def f(s, size, encodeSetO, encodeWhiteSpace):
     }
 
     #[test]
-    #[ignore = "debug trace for with-protected loop bool-chain layout"]
     fn test_debug_trace_with_loop_break_bool_chain_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
