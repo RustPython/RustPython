@@ -123,9 +123,6 @@ jobs:
         run: cargo test
         if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
-      - run: cargo doc --locked
-        if: runner.os == 'Linux'
-
       - name: check compilation without host_env (sandbox mode)
         run: |
           cargo check -p rustpython-vm --no-default-features --features compiler
@@ -765,3 +762,39 @@ jobs:
         run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
       - name: run cpython unittest
         run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+
+  cargo_doc:
+    needs:
+      - determine_changes
+    if: |
+      (
+        !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+        needs.determine_changes.outputs.rust_code == 'true'
+      ) || github.ref == 'refs/heads/main'
+    env:
+      RUST_BACKTRACE: full
+    name: cargo doc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+
+      - name: cargo doc
+        run: cargo doc --locked
