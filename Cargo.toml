@@ -186,7 +186,6 @@ bitflags = "2.11.0"
 bitflagset = "0.0.3"
 bstr = "1"
 bzip2 = "0.6"
-caseless = "0.2.2"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 console_error_panic_hook = "0.1"
 constant_time_eq = "0.4"
