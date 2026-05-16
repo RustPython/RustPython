@@ -9,6 +9,8 @@ use windows_sys::Win32::{
     System::Threading::PROCESS_INFORMATION,
 };
 
+use crate::windows::{CheckWin32Bool, CheckWin32Handle};
+
 pub use windows_sys::Win32::{
     Foundation::{
         DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
@@ -180,11 +182,7 @@ pub fn create_file_w(
             core::ptr::null_mut(),
         )
     };
-    if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
-    }
+    handle.check_valid()
 }
 
 /// # Safety
@@ -199,7 +197,7 @@ unsafe fn create_process_w_raw(
     startup_info: *mut windows_sys::Win32::System::Threading::STARTUPINFOW,
 ) -> io::Result<PROCESS_INFORMATION> {
     let mut procinfo = core::mem::MaybeUninit::<PROCESS_INFORMATION>::uninit();
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::CreateProcessW(
             app_name.map_or(core::ptr::null(), |s| s.as_ptr()),
             command_line.map_or(core::ptr::null_mut(), |s| s.as_mut_ptr()),
@@ -212,12 +210,9 @@ unsafe fn create_process_w_raw(
             startup_info,
             procinfo.as_mut_ptr(),
         )
-    };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(unsafe { procinfo.assume_init() })
     }
+    .check_win32_bool()?;
+    Ok(unsafe { procinfo.assume_init() })
 }
 
 #[allow(
@@ -335,19 +330,17 @@ pub fn create_handle_list_attribute_list(
         handlelist,
         attrlist: vec![0u8; size],
     };
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::InitializeProcThreadAttributeList(
             attrs.attrlist.as_mut_ptr().cast(),
             1,
             0,
             &mut size,
         )
-    };
-    if ok == 0 {
-        return Err(io::Error::last_os_error());
     }
+    .check_win32_bool()?;
 
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::UpdateProcThreadAttribute(
             attrs.attrlist.as_mut_ptr().cast(),
             0,
@@ -357,10 +350,8 @@ pub fn create_handle_list_attribute_list(
             core::ptr::null_mut(),
             core::ptr::null(),
         )
-    };
-    if ok == 0 {
-        return Err(io::Error::last_os_error());
     }
+    .check_win32_bool()?;
 
     Ok(Some(attrs))
 }
@@ -381,36 +372,29 @@ pub fn open_process(
     inherit_handle: bool,
     process_id: u32,
 ) -> io::Result<HANDLE> {
-    let handle = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::OpenProcess(
             desired_access,
             i32::from(inherit_handle),
             process_id,
         )
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_nonnull()
 }
 
 pub fn create_pipe(size: u32) -> io::Result<(HANDLE, HANDLE)> {
-    let (read, write) = unsafe {
+    unsafe {
         let mut read = core::mem::MaybeUninit::<HANDLE>::uninit();
         let mut write = core::mem::MaybeUninit::<HANDLE>::uninit();
-        let ok = windows_sys::Win32::System::Pipes::CreatePipe(
+        windows_sys::Win32::System::Pipes::CreatePipe(
             read.as_mut_ptr(),
             write.as_mut_ptr(),
             core::ptr::null(),
             size,
-        );
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        (read.assume_init(), write.assume_init())
-    };
-    Ok((read, write))
+        )
+        .check_win32_bool()?;
+        Ok((read.assume_init(), write.assume_init()))
+    }
 }
 
 pub fn create_event_w(
@@ -419,37 +403,23 @@ pub fn create_event_w(
     name: Option<&widestring::WideCStr>,
 ) -> io::Result<HANDLE> {
     let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
-    let handle = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::CreateEventW(
             core::ptr::null(),
             i32::from(manual_reset),
             i32::from(initial_state),
             name_ptr,
         )
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_nonnull()
 }
 
 pub fn set_event(handle: HANDLE) -> io::Result<()> {
-    let ok = unsafe { windows_sys::Win32::System::Threading::SetEvent(handle) };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { windows_sys::Win32::System::Threading::SetEvent(handle) }.check_win32_bool()
 }
 
 pub fn reset_event(handle: HANDLE) -> io::Result<()> {
-    let ok = unsafe { windows_sys::Win32::System::Threading::ResetEvent(handle) };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { windows_sys::Win32::System::Threading::ResetEvent(handle) }.check_win32_bool()
 }
 
 pub fn wait_for_single_object(handle: HANDLE, milliseconds: u32) -> io::Result<u32> {
