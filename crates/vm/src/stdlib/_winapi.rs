@@ -77,11 +77,11 @@ mod _winapi {
     }
 
     /// CreateFile - Create or open a file or I/O device.
-    #[pyfunction]
-    #[allow(
+    #[expect(
         clippy::too_many_arguments,
         reason = "matches Win32 CreateFile parameter structure"
     )]
+    #[pyfunction]
     fn CreateFile(
         file_name: PyStrRef,
         desired_access: u32,
