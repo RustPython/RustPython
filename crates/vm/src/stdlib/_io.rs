@@ -6023,8 +6023,6 @@ mod winconsoleio {
 
                 fd = host_nt::open_console_path_fd(wide.as_ptr(), writable)
                     .map_err(|err| err.to_pyexception(vm))?;
-
-                _name_wide = Some(wide);
             } else {
                 // When opened by fd, never close the fd (user owns it)
                 zelf.closefd.store(false);
