@@ -19,7 +19,7 @@ use crate::{
         StatStruct,
         windows::{FILE_INFO_BY_NAME_CLASS, get_file_information_by_name, stat_basic_info_to_stat},
     },
-    windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, ToWideString},
+    windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, HandleToOwned, ToWideString},
 };
 use libc::intptr_t;
 use windows_sys::Win32::{
@@ -408,12 +408,9 @@ pub fn chmod_follow(path: &widestring::WideCStr, mode: u32, write_bit: u32) -> i
             core::ptr::null_mut(),
         )
     };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-    let result = win32_hchmod(handle, mode, write_bit);
-    unsafe { CloseHandle(handle) };
-    result
+    use std::os::windows::io::AsRawHandle;
+    let handle = handle.into_owned().ok_or_else(io::Error::last_os_error)?;
+    win32_hchmod(handle.as_raw_handle() as HANDLE, mode, write_bit)
 }
 
 pub fn find_first_file_name(path: &Path) -> io::Result<OsString> {
@@ -1109,7 +1106,6 @@ pub fn fd_exists(fd: crate::crt_fd::Borrowed<'_>) -> bool {
 }
 
 pub fn pipe() -> io::Result<(i32, i32)> {
-    use crate::windows::HandleToOwned;
     use std::os::windows::io::{AsRawHandle, IntoRawHandle};
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
     use windows_sys::Win32::System::Pipes::CreatePipe;
