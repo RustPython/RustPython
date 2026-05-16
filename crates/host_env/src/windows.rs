@@ -97,6 +97,25 @@ impl CheckWin32Handle for windows_sys::Win32::Foundation::HANDLE {
     }
 }
 
+/// Generic sentinel check for Win32 return values not covered by [`CheckWin32Bool`] or
+/// [`CheckWin32Handle`]. Use for APIs that signal failure with a specific value
+/// (`INVALID_FILE_ATTRIBUTES`, `WAIT_FAILED`, `GetFileVersionInfoSizeW` returning `0`, etc.).
+pub trait CheckWin32Sentinel: Sized + Copy + PartialEq {
+    /// Returns `Ok(self)` if `self != fail`, otherwise the last OS error.
+    #[inline]
+    fn check_ne(self, fail: Self) -> io::Result<Self> {
+        if self == fail {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(self)
+        }
+    }
+}
+
+impl CheckWin32Sentinel for u32 {}
+impl CheckWin32Sentinel for i32 {}
+impl CheckWin32Sentinel for u64 {}
+
 #[derive(Clone, Debug)]
 pub struct WindowsVersionInfo {
     pub major: u32,

@@ -19,7 +19,7 @@ use crate::{
         StatStruct,
         windows::{FILE_INFO_BY_NAME_CLASS, get_file_information_by_name, stat_basic_info_to_stat},
     },
-    windows::{CheckWin32Bool, CheckWin32Handle, ToWideString},
+    windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, ToWideString},
 };
 use libc::intptr_t;
 use windows_sys::Win32::{
@@ -382,10 +382,7 @@ pub fn fchmod(fd: i32, mode: u32, write_bit: u32) -> io::Result<()> {
 
 pub fn win32_lchmod(path: &OsStr, mode: u32, write_bit: u32) -> io::Result<()> {
     let wide = path.to_wide_with_nul();
-    let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
-    if attr == INVALID_FILE_ATTRIBUTES {
-        return Err(io::Error::last_os_error());
-    }
+    let attr = unsafe { GetFileAttributesW(wide.as_ptr()) }.check_ne(INVALID_FILE_ATTRIBUTES)?;
     let new_attr = if mode & write_bit != 0 {
         attr & !FILE_ATTRIBUTE_READONLY
     } else {
@@ -423,10 +420,7 @@ pub fn find_first_file_name(path: &Path) -> io::Result<OsString> {
     let wide_path = path.as_os_str().to_wide_with_nul();
     let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
-    let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
+    let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) }.check_valid()?;
     unsafe { FindClose(handle) };
 
     let len = find_data
@@ -457,11 +451,8 @@ pub fn path_isdevdrive(path: &Path) -> io::Result<bool> {
 
     let wide_path = path.as_os_str().to_wide_with_nul();
     let mut volume = [0u16; MAX_PATH as usize];
-    let ok =
-        unsafe { GetVolumePathNameW(wide_path.as_ptr(), volume.as_mut_ptr(), volume.len() as _) };
-    if ok == 0 {
-        return Err(io::Error::last_os_error());
-    }
+    unsafe { GetVolumePathNameW(wide_path.as_ptr(), volume.as_mut_ptr(), volume.len() as _) }
+        .check_win32_bool()?;
     if unsafe { GetDriveTypeW(volume.as_ptr()) } != DRIVE_FIXED {
         return Ok(false);
     }
@@ -476,10 +467,8 @@ pub fn path_isdevdrive(path: &Path) -> io::Result<bool> {
             FILE_FLAG_BACKUP_SEMANTICS,
             core::ptr::null_mut(),
         )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
     }
+    .check_valid()?;
 
     let mut volume_state = FileFsPersistentVolumeInformation {
         volume_flags: 0,
@@ -630,10 +619,7 @@ fn win32_xstat_attributes_from_dir(
     let wide: Vec<u16> = path.to_wide_with_nul();
     let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
-    let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut find_data) };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
+    let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut find_data) }.check_valid()?;
     unsafe { FindClose(handle) };
 
     let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { core::mem::zeroed() };
@@ -1135,15 +1121,13 @@ pub fn pipe() -> io::Result<(i32, i32)> {
     let (read_handle, write_handle) = unsafe {
         let mut read = core::mem::MaybeUninit::<isize>::uninit();
         let mut write = core::mem::MaybeUninit::<isize>::uninit();
-        let ok = CreatePipe(
+        CreatePipe(
             read.as_mut_ptr() as *mut _,
             write.as_mut_ptr() as *mut _,
             &mut attr as *mut _,
             0,
-        );
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
-        }
+        )
+        .check_win32_bool()?;
         (read.assume_init(), write.assume_init())
     };
 
@@ -1186,17 +1170,15 @@ pub fn mkdir(path: &widestring::WideCStr, mode: i32) -> io::Result<()> {
         let sddl: Vec<u16> = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)\0"
             .encode_utf16()
             .collect();
-        let convert_ok = unsafe {
+        unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
                 sddl.as_ptr(),
                 SDDL_REVISION_1,
                 &mut sec_attr.lpSecurityDescriptor,
                 core::ptr::null_mut(),
             )
-        };
-        if convert_ok == 0 {
-            return Err(io::Error::last_os_error());
         }
+        .check_win32_bool()?;
         let ok = unsafe {
             windows_sys::Win32::Storage::FileSystem::CreateDirectoryW(
                 path.as_ptr(),
@@ -1214,11 +1196,7 @@ pub fn mkdir(path: &widestring::WideCStr, mode: i32) -> io::Result<()> {
         }
     };
 
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    ok.check_win32_bool()
 }
 
 unsafe extern "C" {
@@ -1363,18 +1341,11 @@ pub fn kill(pid: u32, sig: u32) -> io::Result<()> {
             Ok(())
         }
     } else {
-        let handle = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) };
-        if handle.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        let ok = unsafe { Threading::TerminateProcess(handle, sig) };
-        let err = if ok == 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        };
+        let handle = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) }
+            .check_nonnull()?;
+        let result = unsafe { Threading::TerminateProcess(handle, sig) }.check_win32_bool();
         unsafe { CloseHandle(handle) };
-        err
+        result
     }
 }
 
@@ -1392,10 +1363,8 @@ pub fn getfinalpathname(path: &Path) -> io::Result<OsString> {
             FILE_FLAG_BACKUP_SEMANTICS,
             core::ptr::null_mut(),
         )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
     }
+    .check_valid()?;
 
     let mut buffer = vec![0u16; MAX_PATH as usize];
     let result = loop {
@@ -1430,10 +1399,8 @@ pub fn getfullpathname(path: &Path) -> io::Result<OsString> {
             buffer.as_mut_ptr(),
             core::ptr::null_mut(),
         )
-    };
-    if ret == 0 {
-        return Err(io::Error::last_os_error());
     }
+    .check_ne(0)?;
     if ret as usize > buffer.len() {
         buffer.resize(ret as usize, 0);
         ret = unsafe {
@@ -1443,11 +1410,10 @@ pub fn getfullpathname(path: &Path) -> io::Result<OsString> {
                 buffer.as_mut_ptr(),
                 core::ptr::null_mut(),
             )
-        };
-        if ret == 0 {
-            return Err(io::Error::last_os_error());
         }
+        .check_ne(0)?;
     }
+    let _ = ret;
     Ok(widestring::WideCString::from_vec_truncate(buffer).to_os_string())
 }
 
@@ -1455,18 +1421,15 @@ pub fn getvolumepathname(path: &Path) -> io::Result<OsString> {
     let wide = path.as_os_str().to_wide_with_nul();
     let buflen = core::cmp::max(wide.len(), MAX_PATH as usize);
     let mut buffer = vec![0u16; buflen];
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::Storage::FileSystem::GetVolumePathNameW(
             wide.as_ptr(),
             buffer.as_mut_ptr(),
             buflen as u32,
         )
-    };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(widestring::WideCString::from_vec_truncate(buffer).to_os_string())
     }
+    .check_win32_bool()?;
+    Ok(widestring::WideCString::from_vec_truncate(buffer).to_os_string())
 }
 
 pub fn getdiskusage(path: &Path) -> io::Result<(u64, u64)> {
