@@ -8262,7 +8262,10 @@ impl CodeInfo {
                     }
                 }
                 if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
-                    stack.push(next_nonempty_block(blocks, block.next));
+                    let next = next_nonempty_block(blocks, block.next);
+                    if next != BlockIdx::NULL {
+                        stack.push(next);
+                    }
                 }
             }
             false
@@ -8308,7 +8311,10 @@ impl CodeInfo {
                     }
                 }
                 if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
-                    stack.push((next_nonempty_block(blocks, block.next), stores_local));
+                    let next = next_nonempty_block(blocks, block.next);
+                    if next != BlockIdx::NULL {
+                        stack.push((next, stores_local));
+                    }
                 }
             }
             false
@@ -8849,7 +8855,10 @@ impl CodeInfo {
                     }
                 }
                 if block_has_fallthrough(block) && block.next != BlockIdx::NULL {
-                    stack.push(next_nonempty_block(blocks, block.next));
+                    let next = next_nonempty_block(blocks, block.next);
+                    if next != BlockIdx::NULL {
+                        stack.push(next);
+                    }
                 }
             }
             false
