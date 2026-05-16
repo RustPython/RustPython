@@ -2163,7 +2163,7 @@ mod _socket {
 
                     if cmd != c::SIO_KEEPALIVE_VALS {
                         return Err(vm
-                            .new_value_error(format!("invalid ioctl command {}", cmd))
+                            .new_value_error(format!("invalid ioctl command {cmd}"))
                             .into());
                     }
                     host_socket::ioctl_keepalive(fd as _, ka).map_err(Into::into)
