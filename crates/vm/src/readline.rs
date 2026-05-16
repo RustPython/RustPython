@@ -14,7 +14,7 @@ pub enum ReadlineResult {
     Interrupt,
     Io(std::io::Error),
     #[cfg(unix)]
-    OsError(nix::Error),
+    OsError(String),
     Other(OtherError),
 }
 
@@ -163,7 +163,7 @@ pub mod rustyline_readline {
                     Err(ReadlineError::Io(e)) => ReadlineResult::Io(e),
                     Err(ReadlineError::Signal(_)) => continue,
                     #[cfg(unix)]
-                    Err(ReadlineError::Errno(num)) => ReadlineResult::OsError(num),
+                    Err(ReadlineError::Errno(num)) => ReadlineResult::OsError(num.to_string()),
                     Err(e) => ReadlineResult::Other(e.into()),
                 };
             }
