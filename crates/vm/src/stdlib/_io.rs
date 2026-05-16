@@ -5843,6 +5843,7 @@ mod winconsoleio {
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_host_env::io as host_io;
     use rustpython_host_env::nt as host_nt;
+    use rustpython_host_env::windows::ToWideString;
     type HANDLE = host_nt::Handle;
 
     const SMALLBUF: usize = 4;
@@ -6013,9 +6014,7 @@ mod winconsoleio {
                 }
 
                 let name_str = nameobj.str(vm)?;
-                let wide = widestring::WideCString::from_vec_truncate(
-                    name_str.as_wtf8().encode_wide().collect::<Vec<u16>>(),
-                );
+                let wide = name_str.as_wtf8().to_wide_cstring();
 
                 fd = host_nt::open_console_path_fd(&wide, writable)
                     .map_err(|err| err.to_pyexception(vm))?;

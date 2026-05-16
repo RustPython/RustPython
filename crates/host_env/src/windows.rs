@@ -313,6 +313,9 @@ pub fn multi_byte_to_wide(
 pub trait ToWideString {
     fn to_wide(&self) -> Vec<u16>;
     fn to_wide_with_nul(&self) -> Vec<u16>;
+    fn to_wide_cstring(&self) -> widestring::WideCString {
+        widestring::WideCString::from_vec_truncate(self.to_wide())
+    }
 }
 
 impl<T> ToWideString for T

@@ -163,7 +163,7 @@ impl Drop for AttrList {
 }
 
 pub fn create_file_w(
-    file_name: *const u16,
+    file_name: &widestring::WideCStr,
     desired_access: u32,
     share_mode: u32,
     creation_disposition: u32,
@@ -171,7 +171,7 @@ pub fn create_file_w(
 ) -> io::Result<HANDLE> {
     let handle = unsafe {
         windows_sys::Win32::Storage::FileSystem::CreateFileW(
-            file_name,
+            file_name.as_ptr(),
             desired_access,
             share_mode,
             core::ptr::null(),
@@ -188,27 +188,27 @@ pub fn create_file_w(
 }
 
 /// # Safety
-/// The pointer arguments must follow the Win32 `CreateProcessW` contract.
-pub unsafe fn create_process_w(
-    app_name: *const u16,
-    command_line: *mut u16,
+/// `startup_info` must point to a valid `STARTUPINFOW` (or extended).
+unsafe fn create_process_w_raw(
+    app_name: Option<&widestring::WideCStr>,
+    command_line: Option<&mut [u16]>,
     inherit_handles: i32,
     creation_flags: u32,
-    env: *mut u16,
-    current_dir: *mut u16,
+    env: Option<&[u16]>,
+    current_dir: Option<&widestring::WideCStr>,
     startup_info: *mut windows_sys::Win32::System::Threading::STARTUPINFOW,
 ) -> io::Result<PROCESS_INFORMATION> {
     let mut procinfo = core::mem::MaybeUninit::<PROCESS_INFORMATION>::uninit();
     let ok = unsafe {
         windows_sys::Win32::System::Threading::CreateProcessW(
-            app_name,
-            command_line,
+            app_name.map_or(core::ptr::null(), |s| s.as_ptr()),
+            command_line.map_or(core::ptr::null_mut(), |s| s.as_mut_ptr()),
             core::ptr::null(),
             core::ptr::null(),
             inherit_handles,
             creation_flags,
-            env.cast(),
-            current_dir,
+            env.map_or(core::ptr::null(), |s| s.as_ptr().cast()),
+            current_dir.map_or(core::ptr::null(), |s| s.as_ptr()),
             startup_info,
             procinfo.as_mut_ptr(),
         )
@@ -225,12 +225,12 @@ pub unsafe fn create_process_w(
     reason = "This is the semantic host wrapper for Win32 CreateProcess parameters."
 )]
 pub fn create_process(
-    app_name: *const u16,
-    command_line: *mut u16,
+    app_name: Option<&widestring::WideCStr>,
+    command_line: Option<&mut [u16]>,
     inherit_handles: i32,
     creation_flags: u32,
-    env: *mut u16,
-    current_dir: *mut u16,
+    env: Option<&[u16]>,
+    current_dir: Option<&widestring::WideCStr>,
     startup_info: StartupInfoData,
     handle_list: Option<Vec<usize>>,
 ) -> io::Result<ProcessInfo> {
@@ -249,7 +249,7 @@ pub fn create_process(
         .map_or_else(core::ptr::null_mut, |l| l.as_mut_ptr() as _);
 
     let procinfo = unsafe {
-        create_process_w(
+        create_process_w_raw(
             app_name,
             command_line,
             inherit_handles,
@@ -416,14 +416,15 @@ pub fn create_pipe(size: u32) -> io::Result<(HANDLE, HANDLE)> {
 pub fn create_event_w(
     manual_reset: bool,
     initial_state: bool,
-    name: *const u16,
+    name: Option<&widestring::WideCStr>,
 ) -> io::Result<HANDLE> {
+    let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
     let handle = unsafe {
         windows_sys::Win32::System::Threading::CreateEventW(
             core::ptr::null(),
             i32::from(manual_reset),
             i32::from(initial_state),
-            name,
+            name_ptr,
         )
     };
     if handle.is_null() {
@@ -897,13 +898,13 @@ fn get_path_name_impl(
 pub fn open_mutex_w(
     desired_access: u32,
     inherit_handle: bool,
-    name: *const u16,
+    name: &widestring::WideCStr,
 ) -> io::Result<HANDLE> {
     let handle = unsafe {
         windows_sys::Win32::System::Threading::OpenMutexW(
             desired_access,
             i32::from(inherit_handle),
-            name,
+            name.as_ptr(),
         )
     };
     if handle.is_null() {
@@ -918,7 +919,7 @@ pub fn release_mutex(handle: HANDLE) -> i32 {
 }
 
 pub fn create_named_pipe_w(
-    name: *const u16,
+    name: &widestring::WideCStr,
     open_mode: u32,
     pipe_mode: u32,
     max_instances: u32,
@@ -928,7 +929,7 @@ pub fn create_named_pipe_w(
 ) -> io::Result<HANDLE> {
     let handle = unsafe {
         windows_sys::Win32::System::Pipes::CreateNamedPipeW(
-            name,
+            name.as_ptr(),
             open_mode,
             pipe_mode,
             max_instances,
@@ -950,8 +951,9 @@ pub fn create_file_mapping_w(
     protect: u32,
     max_size_high: u32,
     max_size_low: u32,
-    name: *const u16,
+    name: Option<&widestring::WideCStr>,
 ) -> io::Result<HANDLE> {
+    let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
     let handle = unsafe {
         windows_sys::Win32::System::Memory::CreateFileMappingW(
             file_handle,
@@ -959,7 +961,7 @@ pub fn create_file_mapping_w(
             protect,
             max_size_high,
             max_size_low,
-            name,
+            name_ptr,
         )
     };
     if handle.is_null() {
@@ -972,13 +974,13 @@ pub fn create_file_mapping_w(
 pub fn open_file_mapping_w(
     desired_access: u32,
     inherit_handle: bool,
-    name: *const u16,
+    name: &widestring::WideCStr,
 ) -> io::Result<HANDLE> {
     let handle = unsafe {
         windows_sys::Win32::System::Memory::OpenFileMappingW(
             desired_access,
             i32::from(inherit_handle),
-            name,
+            name.as_ptr(),
         )
     };
     if handle.is_null() {
@@ -1168,16 +1170,16 @@ where
 }
 
 pub fn lc_map_string_ex(
-    locale: *const u16,
+    locale: &widestring::WideCStr,
     flags: u32,
-    src: *const u16,
-    src_len: i32,
+    src: &[u16],
 ) -> io::Result<Vec<u16>> {
+    let src_len = src.len() as i32;
     let dest_size = unsafe {
         windows_sys::Win32::Globalization::LCMapStringEx(
-            locale,
+            locale.as_ptr(),
             flags,
-            src,
+            src.as_ptr(),
             src_len,
             core::ptr::null_mut(),
             0,
@@ -1193,9 +1195,9 @@ pub fn lc_map_string_ex(
     let mut dest = vec![0u16; dest_size as usize];
     let nmapped = unsafe {
         windows_sys::Win32::Globalization::LCMapStringEx(
-            locale,
+            locale.as_ptr(),
             flags,
-            src,
+            src.as_ptr(),
             src_len,
             dest.as_mut_ptr(),
             dest_size,
@@ -1388,13 +1390,13 @@ pub fn create_mutex_w(
 pub fn open_event_w(
     desired_access: u32,
     inherit_handle: bool,
-    name: *const u16,
+    name: &widestring::WideCStr,
 ) -> io::Result<HANDLE> {
     let handle = unsafe {
         windows_sys::Win32::System::Threading::OpenEventW(
             desired_access,
             i32::from(inherit_handle),
-            name,
+            name.as_ptr(),
         )
     };
     if handle.is_null() {
