@@ -1984,7 +1984,6 @@ Module(
         exec(code, ns)
         self.assertIn('sleep', ns)
 
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     @skip_if_unlimited_stack_size
     @skip_emscripten_stack_overflow()
     def test_recursion_direct(self):
@@ -1994,7 +1993,6 @@ Module(
             with support.infinite_recursion():
                 compile(ast.Expression(e), "<test>", "eval")
 
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     @skip_if_unlimited_stack_size
     @skip_emscripten_stack_overflow()
     def test_recursion_indirect(self):
@@ -2357,7 +2355,6 @@ class ASTValidatorTests(unittest.TestCase):
         self.expr(ast.Yield(ast.Name("x", ast.Store())), "must have Load")
         self.expr(ast.YieldFrom(ast.Name("x", ast.Store())), "must have Load")
 
-    @unittest.skip("TODO: RUSTPYTHON; thread 'main' panicked")
     def test_compare(self):
         left = ast.Name("x", ast.Load())
         comp = ast.Compare(left, [ast.In()], [])
