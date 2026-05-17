@@ -290,18 +290,21 @@ jobs:
         - os: macos-latest
           extra_test_args:
             - '-u all'
-          env_polluting_tests: []
+          env_polluting_tests:
+            - test_set
           skips: []
           timeout: 50
         - os: ubuntu-latest
           extra_test_args:
             - '-u all'
-          env_polluting_tests: []
+          env_polluting_tests:
+            - test_set
           skips: []
           timeout: 60
         - os: windows-2025
           extra_test_args: [] # TODO: Enable '-u all'
-          env_polluting_tests: []
+          env_polluting_tests:
+            - test_set
           skips:
             - test_rlcompleter
             - test_pathlib # panic by surrogate chars
