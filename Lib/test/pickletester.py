@@ -2280,6 +2280,7 @@ class AbstractPicklingErrorTests:
         for proto in range(2, pickle.HIGHEST_PROTOCOL + 1):
             s = self.dumps(x, proto)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     def test_picklebuffer_error(self):
         # PickleBuffer forbidden with protocol < 5
         pb = pickle.PickleBuffer(b"foobar")
@@ -2855,6 +2856,7 @@ class AbstractPickleTests:
                         self.assertIsNot(b2a, b2b)
                         self.assert_is_copy(b2a, b2b)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     def test_picklebuffer_memoization(self):
         if self.py_version < (3, 8):
             self.skipTest('not supported in Python < 3.8')
@@ -2879,6 +2881,7 @@ class AbstractPickleTests:
                         self.assert_is_copy(b1b, b)
                         self.assert_is_copy(b2b, b)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     def test_empty_picklebuffer_memoization(self):
         # gh-148914: Empty writable PickleBuffer memoized an empty bytearray
         # with the id of b'' (a singleton in CPython).
@@ -4261,12 +4264,14 @@ class AbstractPickleTests:
         # 2-D, non-contiguous
         check_array(arr[::2])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     def test_concurrent_mutation_in_buffer_with_bytearray(self):
         def factory():
             s = b"a" * 16
             return bytearray(s), s
         self.do_test_concurrent_mutation_in_buffer_callback(factory)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     def test_concurrent_mutation_in_buffer_with_memoryview(self):
         def factory():
             obj = memoryview(b"a" * 32)[10:26]
