@@ -54,7 +54,9 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulon
             .try_downcast::<PyInt>(vm)?
             .as_bigint()
             .try_into()
-            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long long"))
+            .map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C unsigned long long")
+            })
     })
 }
 
