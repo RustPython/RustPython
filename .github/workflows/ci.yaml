@@ -43,6 +43,10 @@ jobs:
     outputs:
       # Flag that is raised when any rust code is changed.
       rust_code: ${{ steps.check_rust_code.outputs.changed }}
+      # Flag that is raised when any upstream lib code is changed.
+      upstream_lib: ${{ steps.check_upstream_lib.outputs.changed }}
+      # Flag that is raised when any extra test is changed.
+      extra_test: ${{ steps.check_extra_test.outputs.changed }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -67,6 +71,35 @@ jobs:
             ':.cargo/config.toml' \
             ':crates/**' \
             ':src/**' \
+            ':.github/workflows/ci.yaml' \
+          ; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+
+      - name: Check if there was any upstream lib related change
+        id: check_upstream_lib
+        run: |
+          if git diff --quiet "${MERGE_BASE}...HEAD" -- \
+            ':Lib/**' \
+            ':(exclude)Lib/test/**' \
+            ':.github/workflows/ci.yaml' \
+          ; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+
+      - name: Check if there was any extra test related change
+        id: check_extra_test
+        run: |
+          if git diff --quiet "${MERGE_BASE}...HEAD" -- \
+            ':extra_tests/**' \
             ':.github/workflows/ci.yaml' \
           ; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -123,23 +156,6 @@ jobs:
         run: cargo test
         if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
-      - name: check compilation without host_env (sandbox mode)
-        run: |
-          cargo check -p rustpython-vm --no-default-features --features compiler
-          cargo check -p rustpython-stdlib --no-default-features --features compiler
-          cargo build --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
-        if: runner.os == 'Linux'
-
-      - name: sandbox smoke test
-        run: |
-          target/debug/rustpython extra_tests/snippets/sandbox_smoke.py
-          target/debug/rustpython extra_tests/snippets/stdlib_re.py
-        if: runner.os == 'Linux'
-
-      - name: Test openssl build
-        run: cargo build --no-default-features --features ssl-openssl
-        if: runner.os == 'Linux'
-
       # - name: Install tk-dev for tkinter build
       #   run: sudo apt-get update && sudo apt-get install -y tk-dev
       #   if: runner.os == 'Linux'
@@ -159,6 +175,53 @@ jobs:
         env:
           PYTHONPATH: scripts
         if: runner.os == 'Linux'
+
+  sandbox_test:
+    runs-on: ubuntu-latest
+    needs:
+      - determine_changes
+    if: |
+      (
+        !contains(github.event.pull_request.labels.*.name, 'skip:ci') && (
+          needs.determine_changes.outputs.rust_code == 'true' ||
+          needs.determine_changes.outputs.upstream_lib == 'true' ||
+          needs.determine_changes.outputs.extra_tests == 'true'
+        )
+      ) || github.ref == 'refs/heads/main'
+    name: sandbox tests
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+
+      - name: check compilation without host_env
+        run: |
+          cargo check -p rustpython-vm --no-default-features --features compiler
+          cargo check -p rustpython-stdlib --no-default-features --features compiler
+
+      - name: cargo build
+        run: cargo build --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
+
+      - name: sandbox smoke test
+        run: |
+          target/debug/rustpython extra_tests/snippets/sandbox_smoke.py
+          target/debug/rustpython extra_tests/snippets/stdlib_re.py
 
   cargo_check:
     name: cargo check
