@@ -47,8 +47,8 @@ pub unsafe extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_longlong {
-    with_vm::<PyResult<c_longlong>, _>(|vm| {
+pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulonglong {
+    with_vm::<PyResult<c_ulonglong>, _>(|vm| {
         unsafe { &*obj }
             .to_owned()
             .try_downcast::<PyInt>(vm)?
