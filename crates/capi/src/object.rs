@@ -7,6 +7,35 @@ use rustpython_vm::{AsObject, Py};
 
 pub type PyTypeObject = Py<PyType>;
 
+macro_rules! define_py_check {
+    (fn $name:ident, $($ctx_path:ident).+) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(obj: *mut crate::PyObject) -> core::ffi::c_int {
+            crate::pystate::with_vm(|vm| unsafe {
+                obj
+                .as_ref()
+                .map(|obj| obj.class().is_subtype(vm.ctx.$($ctx_path).+))
+                .unwrap_or_default()
+            })
+        }
+    };
+    (exact fn $name:ident, $($ctx_path:ident).+) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(obj: *mut crate::PyObject) -> core::ffi::c_int {
+            use rustpython_vm::AsObject;
+            crate::pystate::with_vm(|vm| unsafe {
+                obj
+                .as_ref()
+                .map(|obj| obj.class().is(vm.ctx.$($ctx_path).+))
+                .unwrap_or_default()
+            })
+        }
+    };
+}
+
+define_py_check!(fn PyType_Check, types.type_type);
+define_py_check!(exact fn PyType_CheckExact, types.type_type);
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
     unsafe { (*op).class() }
@@ -25,6 +54,15 @@ pub unsafe extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) ->
 pub unsafe extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
     let ty = unsafe { &*ptr };
     ty.slots.flags.bits() as u32 as c_ulong
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObject) -> c_int {
+    with_vm(move |_vm| {
+        let a = unsafe { &*a };
+        let b = unsafe { &*b };
+        Ok(a.is_subtype(b))
+    })
 }
 
 #[unsafe(no_mangle)]
