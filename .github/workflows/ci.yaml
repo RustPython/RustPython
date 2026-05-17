@@ -46,7 +46,7 @@ jobs:
       # Flag that is raised when any upstream lib code is changed.
       upstream_lib: ${{ steps.check_upstream_lib.outputs.changed }}
       # Flag that is raised when any extra test is changed.
-      extra_test: ${{ steps.check_extra_test.outputs.changed }}
+      extra_tests: ${{ steps.check_extra_tests.outputs.changed }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -96,7 +96,7 @@ jobs:
           MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
 
       - name: Check if there was any extra test related change
-        id: check_extra_test
+        id: check_extra_tests
         run: |
           if git diff --quiet "${MERGE_BASE}...HEAD" -- \
             ':extra_tests/**' \
