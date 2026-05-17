@@ -2142,12 +2142,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "maplit"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
-
-[[package]]
 name = "md-5"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3331,7 +3325,6 @@ name = "rustpython-derive-impl"
 version = "0.5.0"
 dependencies = [
  "itertools 0.14.0",
- "maplit",
  "proc-macro2",
  "quote",
  "rustpython-compiler-core",
@@ -3541,7 +3534,6 @@ dependencies = [
  "openssl",
  "openssl-probe",
  "openssl-sys",
- "page_size",
  "parking_lot",
  "paste",
  "pbkdf2",

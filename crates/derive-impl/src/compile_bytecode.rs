@@ -83,12 +83,14 @@ impl CompilationSource {
             CompilationSourceKind::Dir { base, rel_path } => {
                 self.compile_dir(base, &base.join(rel_path), "", mode, compiler)
             }
-            _ => Ok(hashmap! {
-                module_name.to_string() => CompiledModule {
+            _ => Ok(core::iter::once((
+                module_name.to_string(),
+                CompiledModule {
                     code: self.compile_single(mode, module_name, compiler)?,
                     package: false,
                 },
-            }),
+            ))
+            .collect()),
         }
     }
 
