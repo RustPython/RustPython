@@ -282,7 +282,6 @@ class BaseStartTLS(func_tests.FunctionalTestCaseMixin):
             with self.assertRaisesRegex(RuntimeError, 'empty buffer'):
                 protocols._feed_data_to_buffered_proto(proto, b'12345')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_start_tls_client_reg_proto_1(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -349,7 +348,6 @@ class BaseStartTLS(func_tests.FunctionalTestCaseMixin):
         support.gc_collect()
         self.assertIsNone(client_context())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_create_connection_memory_leak(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -668,7 +666,6 @@ class BaseStartTLS(func_tests.FunctionalTestCaseMixin):
 
         self.loop.run_until_complete(main())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_handshake_timeout(self):
         # bpo-29970: Check that a connection is aborted if handshake is not
         # completed in timeout period, instead of remaining open indefinitely

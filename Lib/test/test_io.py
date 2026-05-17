@@ -804,7 +804,6 @@ class IOTest(unittest.TestCase):
             file = self.open(f.fileno(), "r", encoding="utf-8", closefd=False)
             self.assertEqual(file.buffer.raw.closefd, False)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # FileIO objects are collected, and collecting them flushes
@@ -1114,7 +1113,6 @@ class IOTest(unittest.TestCase):
 
 class CIOTest(IOTest):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; cyclic gc
     def test_IOBase_finalize(self):
         # Issue #12149: segmentation fault on _PyIOBase_finalize when both a
         # class which inherits IOBase and an object of this class are caught
@@ -1823,7 +1821,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
         # checking this is not so easy.
         self.assertRaises(OSError, bufio.read, 10)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # C BufferedReader objects are collected.
@@ -2173,7 +2170,6 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest):
         self.assertRaises(ValueError, bufio.__init__, rawio, buffer_size=-1)
         self.assertRaises(ValueError, bufio.write, b"def")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # C BufferedWriter objects are collected, and collecting them flushes
@@ -2674,7 +2670,6 @@ class BufferedRandomTest(BufferedReaderTest, BufferedWriterTest):
 class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     tp = io.BufferedRandom
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         CBufferedReaderTest.test_garbage_collection(self)
@@ -4119,7 +4114,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
         t = self.TextIOWrapper.__new__(self.TextIOWrapper)
         self.assertRaises(Exception, repr, t)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: filter ('', ResourceWarning) did not catch any warning
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # C TextIOWrapper objects are collected, and collecting them flushes

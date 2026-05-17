@@ -1,8 +1,8 @@
 import contextlib
 import logging
 import os
-import shlex
 import subprocess
+import shlex
 import sys
 import sysconfig
 import tempfile
