@@ -223,6 +223,9 @@ jobs:
           target/debug/rustpython extra_tests/snippets/sandbox_smoke.py
           target/debug/rustpython extra_tests/snippets/stdlib_re.py
 
+      - name: Test openssl build # NOTE: not really related to sandbox. but we don't have a better palce to put it
+        run: cargo build --no-default-features --features ssl-openssl
+
   cargo_check:
     name: cargo check
     runs-on: ${{ matrix.os }}
