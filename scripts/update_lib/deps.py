@@ -323,6 +323,7 @@ DEPENDENCIES = {
             "test_pickle.py",
             "test_picklebuffer.py",
             "test_pickletools.py",
+            "picklecommon.py",
         ],
     },
     "re": {
