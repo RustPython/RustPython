@@ -906,6 +906,13 @@ impl CodeInfo {
     fn eliminate_unreachable_blocks(&mut self) {
         let mut reachable = vec![false; self.blocks.len()];
         reachable[0] = true;
+        // Exception handler blocks remain reachable via runtime dispatch even
+        // after convert_pseudo_ops drops SETUP_FINALLY targets from the CFG.
+        for (i, block) in self.blocks.iter().enumerate() {
+            if block.except_handler {
+                reachable[i] = true;
+            }
+        }
 
         // Fixpoint: only mark targets of already-reachable blocks
         let mut changed = true;
