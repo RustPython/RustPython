@@ -14,14 +14,19 @@ pub unsafe extern "C" fn PyBytes_FromStringAndSize(
     len: isize,
 ) -> *mut PyObject {
     with_vm(|vm| {
+        let len = len.try_into().map_err(|_| {
+            vm.new_system_error("Negative size passed to PyBytes_FromStringAndSize")
+        })?;
+
         let data = if bytes.is_null() {
-            let mut data = Vec::with_capacity(len as usize);
-            unsafe { data.set_len(len as usize) };
+            let mut data = Vec::with_capacity(len);
+            unsafe { data.set_len(len) };
             data
         } else {
-            unsafe { core::slice::from_raw_parts(bytes as *const u8, len as usize) }.to_vec()
+            unsafe { core::slice::from_raw_parts(bytes as *const u8, len) }.to_vec()
         };
-        vm.ctx.new_bytes(data)
+
+        Ok(vm.ctx.new_bytes(data))
     })
 }
 

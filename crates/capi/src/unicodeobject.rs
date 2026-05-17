@@ -112,9 +112,13 @@ pub unsafe extern "C" fn PyUnicode_EqualToUTF8AndSize(
     size: isize,
 ) -> c_int {
     with_vm(|vm| {
+        let size = size.try_into().map_err(|_| {
+            vm.new_system_error("Negative size passed to PyUnicode_EqualToUTF8AndSize")
+        })?;
+
         let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
         let result = unsafe {
-            let slice = slice::from_raw_parts(string as _, size as _);
+            let slice = slice::from_raw_parts(string as _, size);
             str::from_utf8(slice)
         }
         .ok()
