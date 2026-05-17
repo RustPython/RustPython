@@ -2989,10 +2989,6 @@ class PyTask_CFutureSubclass_Tests(BaseTaskTests, test_utils.TestCase):
     all_tasks = staticmethod(tasks._py_all_tasks)
     current_task = staticmethod(tasks._py_current_task)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: not called.
-    def test_log_destroyed_pending_task(self):
-        return super().test_log_destroyed_pending_task()
-
 
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
@@ -3008,7 +3004,6 @@ class CTask_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
         return super().test_log_destroyed_pending_task()
 
 
-
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
                      'requires the C _asyncio module')
 class PyTask_CFuture_Tests(BaseTaskTests, test_utils.TestCase):
@@ -3017,10 +3012,6 @@ class PyTask_CFuture_Tests(BaseTaskTests, test_utils.TestCase):
     Future = getattr(futures, '_CFuture', None)
     all_tasks = staticmethod(tasks._py_all_tasks)
     current_task = staticmethod(tasks._py_current_task)
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: not called.
-    def test_log_destroyed_pending_task(self):
-        return super().test_log_destroyed_pending_task()
 
 
 class PyTask_PyFuture_Tests(BaseTaskTests, SetMethodsTest,
@@ -3031,10 +3022,6 @@ class PyTask_PyFuture_Tests(BaseTaskTests, SetMethodsTest,
     all_tasks = staticmethod(tasks._py_all_tasks)
     current_task = staticmethod(tasks._py_current_task)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: not called.
-    def test_log_destroyed_pending_task(self):
-        return super().test_log_destroyed_pending_task()
-
 
 @add_subclass_tests
 class PyTask_PyFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
@@ -3043,9 +3030,6 @@ class PyTask_PyFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
     all_tasks = staticmethod(tasks._py_all_tasks)
     current_task = staticmethod(tasks._py_current_task)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: not called.
-    def test_log_destroyed_pending_task(self):
-        return super().test_log_destroyed_pending_task()
 
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')

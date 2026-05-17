@@ -114,7 +114,6 @@ class AST_Tests(unittest.TestCase):
         with self.assertRaisesRegex(AttributeError, msg):
             ast.AST()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <test.test_ast.test_ast.AST_Tests.test_AST_garbage_collection.<locals>.X object at 0x7e85c3a80> is not None
     def test_AST_garbage_collection(self):
         class X:
             pass

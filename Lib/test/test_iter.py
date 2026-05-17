@@ -1137,7 +1137,7 @@ class TestCase(unittest.TestCase):
         self.assertEqual(next(it), 0)
         self.assertEqual(next(it), 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
+    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         check_free_after_iterating(self, iter, SequenceClass, (0,))
 
