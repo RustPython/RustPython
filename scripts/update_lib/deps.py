@@ -320,10 +320,12 @@ DEPENDENCIES = {
     "pickle": {
         "hard_deps": ["_compat_pickle.py"],
         "test": [
+            "picklecommon.py",
             "test_pickle.py",
             "test_picklebuffer.py",
             "test_pickletools.py",
-            "picklecommon.py",
+            "test_xpickle.py",
+            "xpickle_worker.py",
         ],
     },
     "re": {
