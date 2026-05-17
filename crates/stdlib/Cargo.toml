@@ -102,7 +102,6 @@ uuid = { workspace = true, features = ["v1"] }
 
 # mmap + socket dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-page_size = { workspace = true }
 gethostname = { workspace = true }
 socket2 = { workspace = true, features = ["all"] }
 dns-lookup = { workspace = true }

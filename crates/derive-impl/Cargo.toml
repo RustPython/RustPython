@@ -16,7 +16,6 @@ rustpython-doc = { workspace = true }
 itertools = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits"] }
 
-maplit = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn-ext = { workspace = true, features = ["full"] }

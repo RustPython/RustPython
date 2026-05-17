@@ -19,10 +19,8 @@ paste = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
-uname = "0.1.1"
-
-[target.'cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))'.dependencies]
 rustix = { workspace = true }
+uname = "0.1.1"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.17.0"

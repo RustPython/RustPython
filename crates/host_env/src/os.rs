@@ -25,6 +25,7 @@ use {
         Storage::FileSystem::{
             FILE_FLAG_BACKUP_SEMANTICS, INVALID_SET_FILE_POINTER, SetFilePointer, SetFileTime,
         },
+        System::SystemInformation::{GetSystemInfo, SYSTEM_INFO},
     },
 };
 
@@ -130,6 +131,48 @@ pub fn cpu_count() -> usize {
 #[cfg(not(any(not(target_arch = "wasm32"), target_os = "wasi")))]
 pub fn cpu_count() -> usize {
     1
+}
+
+#[cfg(unix)]
+pub fn page_size() -> usize {
+    rustix::param::page_size()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub const fn page_size() -> usize {
+    // WebAssembly's page size is a constant defined by the spec.
+    1024 * 64
+}
+
+#[cfg(windows)]
+pub fn page_size() -> usize {
+    let mut info = SYSTEM_INFO::default();
+    unsafe {
+        GetSystemInfo(&mut info);
+    }
+    info.dwPageSize as _
+}
+
+#[cfg(unix)]
+pub fn alloc_granularity() -> usize {
+    // On Unix-likes, the page size is the smallest allocation unit rather than a separate concept
+    // of allocation granularity.
+    page_size()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub const fn alloc_granularity() -> usize {
+    // Like Unix, WebAssembly doesn't separate page size and alloc granularity.
+    page_size()
+}
+
+#[cfg(windows)]
+pub fn alloc_granularity() -> usize {
+    let mut info = SYSTEM_INFO::default();
+    unsafe {
+        GetSystemInfo(&mut info);
+    }
+    info.dwAllocationGranularity as _
 }
 
 pub fn device_encoding(_fd: i32) -> Option<String> {
