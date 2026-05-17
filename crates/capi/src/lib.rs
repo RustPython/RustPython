@@ -10,6 +10,7 @@ extern crate alloc;
 
 pub mod abstract_;
 pub mod import;
+pub mod longobject;
 pub mod object;
 pub mod pyerrors;
 pub mod pylifecycle;
