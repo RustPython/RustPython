@@ -87,7 +87,6 @@ icu_properties = { workspace = true }
 writeable = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { workspace = true }
 exitcode = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

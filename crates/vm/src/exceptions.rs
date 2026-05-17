@@ -1433,13 +1433,6 @@ impl IntoPyException for std::io::Error {
     }
 }
 
-#[cfg(unix)]
-impl IntoPyException for rustix::io::Errno {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        std::io::Error::from(self).into_pyexception(vm)
-    }
-}
-
 #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
 impl ToPyException for rustpython_host_env::fcntl::LockfError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -1463,6 +1456,7 @@ impl ToPyException for rustpython_host_env::posix::AccessError {
     }
 }
 
+#[cfg(all(unix, not(target_os = "redox")))]
 impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
@@ -1475,6 +1469,7 @@ impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
     }
 }
 
+#[cfg(any(unix, windows))]
 impl ToPyException for rustpython_host_env::time::CheckedTmError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {

@@ -3619,7 +3619,6 @@ dependencies = [
  "paste",
  "psm",
  "result-like",
- "rustix",
  "rustpython-codegen",
  "rustpython-common",
  "rustpython-compiler",
