@@ -2126,7 +2126,6 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertIs(type(spam2), Spam)
         self.assertEqual(vars(spam2), {'ham': 5, 'eggs': 9})
 
-    @unittest.skip("TODO: RUSTPYTHON; called `Option::unwrap()` on a `None` value")
     def test_replace_invalid_subtype(self):
         # See https://github.com/python/cpython/issues/143636.
         class MyNS(types.SimpleNamespace):

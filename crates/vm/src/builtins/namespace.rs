@@ -54,6 +54,19 @@ impl PyNamespace {
         let cls: PyObjectRef = zelf.class().to_owned().into();
         let result = cls.call((), vm)?;
 
+        if !zelf.class().is(result.class()) {
+            return Err(vm.new_type_error(format!(
+                "expect {} type, but {}() returned '{}' object",
+                Self::class(&vm.ctx).slot_name(),
+                zelf.class()
+                    .__qualname__(vm)
+                    .downcast_ref::<PyStr>()
+                    .map(|n| n.as_wtf8())
+                    .unwrap(),
+                result.class().name(),
+            )));
+        }
+
         // Copy the current namespace dict to the new instance
         let src_dict = zelf.dict().unwrap();
         let dst_dict = result.dict().unwrap();
