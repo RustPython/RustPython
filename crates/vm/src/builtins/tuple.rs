@@ -1,3 +1,5 @@
+// cspell:ignore pyhash
+
 use super::{
     PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
 };
