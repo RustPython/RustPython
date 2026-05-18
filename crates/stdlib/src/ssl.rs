@@ -1825,6 +1825,9 @@ mod _ssl {
             args: WrapSocketArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<PySSLSocket>> {
+            let socket_mod = vm.import("socket", 0)?;
+            let socket_class = socket_mod.get_attr("socket", vm)?;
+
             // Convert server_hostname to Option<String>
             // Handle both missing argument and None value
             let hostname = match args.server_hostname.into_option().flatten() {
@@ -1877,6 +1880,8 @@ mod _ssl {
             // Create _SSLSocket instance
             let ssl_socket = PySSLSocket {
                 sock: args.sock.clone(),
+                sock_send_method: socket_class.get_attr("send", vm)?,
+                sock_recv_method: socket_class.get_attr("recv", vm)?,
                 context: PyRwLock::new(zelf),
                 server_side: args.server_side,
                 server_hostname: PyRwLock::new(hostname),
@@ -1948,7 +1953,11 @@ mod _ssl {
 
             // Create _SSLSocket instance with BIO mode
             let ssl_socket = PySSLSocket {
-                sock: vm.ctx.none(), // No socket in BIO mode
+                // No socket in BIO mode
+                sock: vm.ctx.none(),
+                sock_send_method: vm.ctx.none(),
+                sock_recv_method: vm.ctx.none(),
+
                 context: PyRwLock::new(zelf),
                 server_side,
                 server_hostname: PyRwLock::new(hostname),
@@ -2302,6 +2311,12 @@ mod _ssl {
     pub(crate) struct PySSLSocket {
         // Underlying socket
         sock: PyObjectRef,
+        // Cached socket.socket.send
+        #[pytraverse(skip)]
+        sock_send_method: PyObjectRef,
+        // Cached socket.socket.recv
+        #[pytraverse(skip)]
+        sock_recv_method: PyObjectRef,
         // SSL context
         context: PyRwLock<PyRef<PySSLContext>>,
         // Server-side or client-side
@@ -2771,23 +2786,26 @@ mod _ssl {
                 return read_method.call((vm.ctx.new_int(size),), vm);
             }
 
-            // Normal socket mode
-            let socket_mod = vm.import("socket", 0)?;
-            let socket_class = socket_mod.get_attr("socket", vm)?;
-
-            // Call socket.socket.recv(self.sock, size, flags)
-            let recv_method = socket_class.get_attr("recv", vm)?;
-            recv_method.call((self.sock.clone(), vm.ctx.new_int(size)), vm)
+            self.sock_recv_method
+                .call((self.sock.clone(), vm.ctx.new_int(size)), vm)
         }
 
         /// Peek at socket data without consuming it (MSG_PEEK).
         /// Used during TLS shutdown to avoid consuming post-TLS cleartext data.
         pub(crate) fn sock_peek(&self, size: usize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            let socket_mod = vm.import("socket", 0)?;
-            let socket_class = socket_mod.get_attr("socket", vm)?;
-            let recv_method = socket_class.get_attr("recv", vm)?;
-            let msg_peek = socket_mod.get_attr("MSG_PEEK", vm)?;
-            recv_method.call((self.sock.clone(), vm.ctx.new_int(size), msg_peek), vm)
+            #[cfg(not(windows))]
+            use libc::MSG_PEEK;
+            #[cfg(windows)]
+            use windows_sys::Win32::Networking::WinSock::MSG_PEEK;
+
+            self.sock_recv_method.call(
+                (
+                    self.sock.clone(),
+                    vm.ctx.new_int(size),
+                    vm.new_pyobj(MSG_PEEK),
+                ),
+                vm,
+            )
         }
 
         /// Socket send - just sends data, caller must handle pending flush
@@ -2800,13 +2818,8 @@ mod _ssl {
                 return write_method.call((vm.ctx.new_bytes(data.to_vec()),), vm);
             }
 
-            // Normal socket mode
-            let socket_mod = vm.import("socket", 0)?;
-            let socket_class = socket_mod.get_attr("socket", vm)?;
-
-            // Call socket.socket.send(self.sock, data)
-            let send_method = socket_class.get_attr("send", vm)?;
-            send_method.call((self.sock.clone(), vm.ctx.new_bytes(data.to_vec())), vm)
+            self.sock_send_method
+                .call((self.sock.clone(), vm.ctx.new_bytes(data.to_vec())), vm)
         }
 
         /// Flush any pending TLS output data to the socket
