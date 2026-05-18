@@ -685,7 +685,7 @@ class BasicTest(BaseTest):
         self.assertRaises(ValueError, venv.create, bad_itempath)
         self.assertRaises(ValueError, venv.create, FakePath(bad_itempath))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
     @unittest.skipIf(os.name == 'nt', 'not relevant on Windows')
     @requireVenvCreate
     def test_zippath_from_non_installed_posix(self):
