@@ -120,9 +120,6 @@ class BasicTest(BaseTest):
         self.assertTrue(os.path.isdir(fn))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    # TODO: RUSTPYTHON; venv executable creation not fully functional
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; venv executable creation not fully functional")
     def test_defaults_with_str_path(self):
         """
         Test the create function with default arguments and a str path.
@@ -132,9 +129,6 @@ class BasicTest(BaseTest):
         self._check_output_of_default_create()
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    # TODO: RUSTPYTHON; venv executable creation not fully functional
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; venv executable creation not fully functional")
     def test_defaults_with_pathlike(self):
         """
         Test the create function with default arguments and a path-like path.
@@ -288,7 +282,6 @@ class BasicTest(BaseTest):
                              pathlib.Path(expected), prefix)
 
     @requireVenvCreate
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_sysconfig(self):
         """
         Test that the sysconfig functions work in a virtual environment.
@@ -421,9 +414,6 @@ class BasicTest(BaseTest):
             self.clear_directory(self.env_dir)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    # TODO: RUSTPYTHON; venv upgrade not yet implemented
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; venv upgrade not yet implemented")
     def test_upgrade(self):
         """
         Test upgrading an existing environment directory.
@@ -480,7 +470,6 @@ class BasicTest(BaseTest):
     # point to the venv being used to run the test, and we lose the link
     # to the source build - so Python can't initialise properly.
     @requireVenvCreate
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_executable(self):
         """
         Test that the sys.executable value is as expected.
@@ -562,7 +551,6 @@ class BasicTest(BaseTest):
 
     # gh-124651: test quoted strings on Windows
     @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_special_chars_windows(self):
         """
         Test that the template strings are quoted properly on Windows
@@ -895,7 +883,6 @@ class BasicTest(BaseTest):
     # gh-126084: venvwlauncher should run pythonw, not python
     @requireVenvCreate
     @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_venvwlauncher(self):
         """
         Test that the GUI launcher runs the GUI python.
