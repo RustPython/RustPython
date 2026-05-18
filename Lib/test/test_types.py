@@ -700,8 +700,7 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(exc.__traceback__, types.TracebackType)
         self.assertIsInstance(exc.__traceback__.tb_frame, types.FrameType)
 
-    # XXX: RUSTPYTHON
-    @unittest.skipUnless(_datetime, "requires _datetime module")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'datetime_CAPI'
     def test_capsule_type(self):
         self.assertIsInstance(_datetime.datetime_CAPI, types.CapsuleType)
 
@@ -2126,6 +2125,22 @@ class SimpleNamespaceTests(unittest.TestCase):
 
         self.assertIs(type(spam2), Spam)
         self.assertEqual(vars(spam2), {'ham': 5, 'eggs': 9})
+
+    @unittest.skip("TODO: RUSTPYTHON; called `Option::unwrap()` on a `None` value")
+    def test_replace_invalid_subtype(self):
+        # See https://github.com/python/cpython/issues/143636.
+        class MyNS(types.SimpleNamespace):
+            def __new__(cls, *args, **kwargs):
+                if created:
+                    return 12345
+                return super().__new__(cls)
+
+        created = False
+        ns = MyNS()
+        created = True
+        err = (r"^expect types\.SimpleNamespace type, "
+               r"but .+\.MyNS\(\) returned 'int' object")
+        self.assertRaisesRegex(TypeError, err, copy.replace, ns)
 
     def test_fake_namespace_compare(self):
         # Issue #24257: Incorrect use of PyObject_IsInstance() caused
