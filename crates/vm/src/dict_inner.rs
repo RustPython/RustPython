@@ -37,7 +37,7 @@ type IndexIndex = usize;
 /// index into dict.entries
 type EntryIndex = usize;
 
-pub struct Dict<T = PyObjectRef> {
+pub(crate) struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
     version: AtomicU64,
 }
@@ -263,7 +263,7 @@ type PopInnerResult<T> = ControlFlow<Option<DictEntry<T>>>;
 
 impl<T: Clone> Dict<T> {
     /// Monotonically increasing version counter for mutation tracking.
-    pub fn version(&self) -> u64 {
+    pub(crate) fn version(&self) -> u64 {
         self.version.load(Acquire)
     }
 
@@ -281,7 +281,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Store a key
-    pub fn insert<K>(&self, vm: &VirtualMachine, key: &K, value: T) -> PyResult<()>
+    pub(crate) fn insert<K>(&self, vm: &VirtualMachine, key: &K, value: T) -> PyResult<()>
     where
         K: DictKey + ?Sized,
     {
@@ -299,6 +299,10 @@ impl<T: Clone> Dict<T> {
                         // but still possible
                         continue;
                     };
+                    #[expect(
+                        clippy::redundant_else,
+                        reason = "Keeping the empty `else` block here for documentation"
+                    )]
                     if entry.index == index_index {
                         let removed = core::mem::replace(&mut entry.value, value);
                         self.bump_version();
@@ -324,7 +328,11 @@ impl<T: Clone> Dict<T> {
         Ok(())
     }
 
-    pub fn contains<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool> {
+    pub(crate) fn contains<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<bool> {
         let key_hash = key.key_hash(vm)?;
         let (entry, _) = self.lookup(vm, key, key_hash, None)?;
         Ok(entry.index().is_some())
@@ -332,7 +340,11 @@ impl<T: Clone> Dict<T> {
 
     /// Retrieve a key
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
-    pub fn get<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+    pub(crate) fn get<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<Option<T>> {
         let hash = key.key_hash(vm)?;
         self._get_inner(vm, key, hash)
     }
@@ -341,7 +353,7 @@ impl<T: Clone> Dict<T> {
     ///
     /// The hint is the internal entry index and can be used with
     /// [`Self::get_hint`]. It is invalidated by dict mutations.
-    pub fn hint_for_key<K: DictKey + ?Sized>(
+    pub(crate) fn hint_for_key<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -357,7 +369,7 @@ impl<T: Clone> Dict<T> {
     /// Fast path lookup using a cached entry index (`hint`).
     ///
     /// Returns `None` if the hint is stale or the key no longer matches.
-    pub fn get_hint<K: DictKey + ?Sized>(
+    pub(crate) fn get_hint<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -392,11 +404,11 @@ impl<T: Clone> Dict<T> {
             if let Some(index) = entry.index() {
                 let inner = self.read();
                 if let Some(entry) = inner.get_entry_checked(index, index_index) {
+                    // The dict was not changed since we did lookup
                     break Some(entry.value.clone());
-                } else {
-                    // The dict was changed since we did lookup. Let's try again.
-                    continue;
                 }
+
+                // The dict was changed since we did lookup. Let's try again.
             } else {
                 break None;
             }
@@ -404,7 +416,7 @@ impl<T: Clone> Dict<T> {
         Ok(ret)
     }
 
-    pub fn get_chain<K: DictKey + ?Sized>(
+    pub(crate) fn get_chain<K: DictKey + ?Sized>(
         &self,
         other: &Self,
         vm: &VirtualMachine,
@@ -418,7 +430,7 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn clear(&self) {
+    pub(crate) fn clear(&self) {
         let _removed = {
             let mut inner = self.write();
             inner.indices.clear();
@@ -432,7 +444,7 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Delete a key
-    pub fn delete<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<()>
+    pub(crate) fn delete<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<()>
     where
         K: DictKey + ?Sized,
     {
@@ -443,14 +455,14 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn delete_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool>
+    pub(crate) fn delete_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool>
     where
         K: DictKey + ?Sized,
     {
         self.remove_if_exists(vm, key).map(|opt| opt.is_some())
     }
 
-    pub fn delete_if<K, F>(&self, vm: &VirtualMachine, key: &K, pred: F) -> PyResult<bool>
+    pub(crate) fn delete_if<K, F>(&self, vm: &VirtualMachine, key: &K, pred: F) -> PyResult<bool>
     where
         K: DictKey + ?Sized,
         F: Fn(&T) -> PyResult<bool>,
@@ -458,7 +470,7 @@ impl<T: Clone> Dict<T> {
         self.remove_if(vm, key, pred).map(|opt| opt.is_some())
     }
 
-    pub fn remove_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>>
+    pub(crate) fn remove_if_exists<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>>
     where
         K: DictKey + ?Sized,
     {
@@ -488,7 +500,12 @@ impl<T: Clone> Dict<T> {
         Ok(removed.map(|entry| entry.value))
     }
 
-    pub fn delete_or_insert(&self, vm: &VirtualMachine, key: &PyObject, value: T) -> PyResult<()> {
+    pub(crate) fn delete_or_insert(
+        &self,
+        vm: &VirtualMachine,
+        key: &PyObject,
+        value: T,
+    ) -> PyResult<()> {
         let hash = key.key_hash(vm)?;
         let _removed = loop {
             let lookup = self.lookup(vm, key, hash, None)?;
@@ -498,20 +515,20 @@ impl<T: Clone> Dict<T> {
                     ControlFlow::Break(Some(entry)) => break Some(entry),
                     _ => continue,
                 }
-            } else {
-                let mut inner = self.write();
-                if inner.indices.get(index_index) != Some(&entry) {
-                    continue;
-                }
-                inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
-                self.bump_version();
-                break None;
             }
+
+            let mut inner = self.write();
+            if inner.indices.get(index_index) != Some(&entry) {
+                continue;
+            }
+            inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
+            self.bump_version();
+            break None;
         };
         Ok(())
     }
 
-    pub fn setdefault<K, F>(&self, vm: &VirtualMachine, key: &K, default: F) -> PyResult<T>
+    pub(crate) fn setdefault<K, F>(&self, vm: &VirtualMachine, key: &K, default: F) -> PyResult<T>
     where
         K: DictKey + ?Sized,
         F: FnOnce() -> T,
@@ -547,7 +564,7 @@ impl<T: Clone> Dict<T> {
     }
 
     #[allow(dead_code)]
-    pub fn setdefault_entry<K, F>(
+    pub(crate) fn setdefault_entry<K, F>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -583,15 +600,15 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.read().used
     }
 
-    pub fn size(&self) -> DictSize {
+    pub(crate) fn size(&self) -> DictSize {
         self.read().size()
     }
 
-    pub fn next_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
+    pub(crate) fn next_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
         let inner = self.read();
         loop {
             let entry = inner.entries.get(position)?;
@@ -602,7 +619,7 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn prev_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
+    pub(crate) fn prev_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
         let inner = self.read();
         loop {
             let entry = inner.entries.get(position)?;
@@ -613,16 +630,16 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub fn len_from_entry_index(&self, position: EntryIndex) -> usize {
+    pub(crate) fn len_from_entry_index(&self, position: EntryIndex) -> usize {
         self.read().entries.len().saturating_sub(position)
     }
 
-    pub fn has_changed_size(&self, old: &DictSize) -> bool {
+    pub(crate) fn has_changed_size(&self, old: &DictSize) -> bool {
         let current = self.read().size();
         current != *old
     }
 
-    pub fn keys(&self) -> Vec<PyObjectRef> {
+    pub(crate) fn keys(&self) -> Vec<PyObjectRef> {
         self.read()
             .entries
             .iter()
@@ -630,7 +647,7 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
-    pub fn values(&self) -> Vec<T> {
+    pub(crate) fn values(&self) -> Vec<T> {
         self.read()
             .entries
             .iter()
@@ -638,7 +655,7 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
-    pub fn items(&self) -> Vec<(PyObjectRef, T)> {
+    pub(crate) fn items(&self) -> Vec<(PyObjectRef, T)> {
         self.read()
             .entries
             .iter()
@@ -646,7 +663,7 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
-    pub fn try_fold_keys<Acc, Fold>(&self, init: Acc, f: Fold) -> PyResult<Acc>
+    pub(crate) fn try_fold_keys<Acc, Fold>(&self, init: Acc, f: Fold) -> PyResult<Acc>
     where
         Fold: FnMut(Acc, &PyObject) -> PyResult<Acc>,
     {
@@ -705,6 +722,11 @@ impl<T: Clone> Dict<T> {
                                 inner.entries.get_unchecked(i).as_ref().unwrap_unchecked()
                             };
                             let ret = (idx, index_index);
+
+                            #[expect(
+                                clippy::redundant_else,
+                                reason = "Keeping the empty `else` block here for documentation"
+                            )]
                             if key.key_is(&entry.key) {
                                 break 'outer ret;
                             } else if entry.hash == hash_value {
@@ -717,6 +739,11 @@ impl<T: Clone> Dict<T> {
                     // warn!("Perturb value: {}", i);
                 }
             };
+
+            #[expect(
+                clippy::redundant_else,
+                reason = "Keeping the empty `else` block here for documentation"
+            )]
             // This comparison needs to be done outside the lock.
             if key.key_eq(vm, &entry_key)? {
                 break 'outer ret;
@@ -771,7 +798,11 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Retrieve and delete a key
-    pub fn pop<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<Option<T>> {
+    pub(crate) fn pop<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<Option<T>> {
         let hash_value = key.key_hash(vm)?;
         let removed = loop {
             let lookup = self.lookup(vm, key, hash_value, None)?;
@@ -783,7 +814,7 @@ impl<T: Clone> Dict<T> {
         Ok(removed)
     }
 
-    pub fn pop_back(&self) -> Option<(PyObjectRef, T)> {
+    pub(crate) fn pop_back(&self) -> Option<(PyObjectRef, T)> {
         let inner = &mut *self.write();
         let entry = loop {
             let entry = inner.entries.pop()?;
@@ -800,7 +831,7 @@ impl<T: Clone> Dict<T> {
         Some((entry.key, entry.value))
     }
 
-    pub fn sizeof(&self) -> usize {
+    pub(crate) fn sizeof(&self) -> usize {
         let inner = self.read();
         size_of::<Self>()
             + size_of::<DictInner<T>>()
@@ -811,7 +842,7 @@ impl<T: Clone> Dict<T> {
     /// Pop all entries from the dict, returning (key, value) pairs.
     /// This is used for circular reference resolution in GC.
     /// Requires &mut self to avoid lock contention.
-    pub fn drain_entries(&mut self) -> impl Iterator<Item = (PyObjectRef, T)> + '_ {
+    pub(crate) fn drain_entries(&mut self) -> impl Iterator<Item = (PyObjectRef, T)> + '_ {
         let inner = self.inner.get_mut();
         inner.used = 0;
         inner.filled = 0;

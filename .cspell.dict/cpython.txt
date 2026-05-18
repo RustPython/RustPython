@@ -4,6 +4,7 @@ argdefs
 argtypes
 asdl
 asname
+atopen
 attro
 augassign
 badcert
@@ -30,6 +31,8 @@ cellvar
 cellvars
 ceval
 cfield
+cfws
+CFWS
 CLASSDEREF
 classdict
 cmpop
@@ -47,13 +50,16 @@ datastack
 defaultdict
 denom
 deopt
+deopts
 dictbytype
 DICTFLAG
 dictoffset
 distpoint
 dynload
 elts
+eooh
 eofs
+EOOH
 evalloop
 excepthandler
 exceptiontable
@@ -62,6 +68,7 @@ fastlocals
 fblock
 fblocks
 fdescr
+fdst
 ffi_argtypes
 fielddesc
 fieldlist
@@ -75,6 +82,7 @@ freelist
 freevar
 freevars
 fromlist
+fsrc
 getdict
 getfunc
 getiter
@@ -94,8 +102,11 @@ IMMUTABLETYPE
 INCREF
 inlinedepth
 inplace
+inpos
+isbytecode
 ismine
 ISPOINTER
+isoctal
 iteminfo
 Itertool
 keeped
@@ -105,12 +116,14 @@ kwonlyargs
 lasti
 libffi
 linearise
+lineful
 lineiterator
 linetable
 loadfast
 localsplus
 localspluskinds
 Lshift
+lslpp
 lsprof
 MAXBLOCKS
 maxdepth
@@ -130,6 +143,7 @@ nfrees
 nkwargs
 nkwelts
 nlocalsplus
+nointerrupt
 Nondescriptor
 noninteger
 nops
@@ -152,15 +166,18 @@ platstdlib
 posonlyarg
 posonlyargs
 prec
+preds
 preinitialized
 pybuilddir
 pycore
 pyinner
 pydecimal
+pyerrors
 Pyfunc
 pylifecycle
 pymain
 pyrepl
+pystate
 PYTHONTRACEMALLOC
 PYTHONUTF8
 pythonw
@@ -168,6 +185,7 @@ PYTHREAD_NAME
 releasebuffer
 repr
 resinfo
+retarget
 Rshift
 SA_ONSTACK
 saveall
@@ -179,6 +197,7 @@ SETREF
 setresult
 setslice
 settraceallthreads
+sget
 SLOTDEFINED
 SMALLBUF
 SOABI
@@ -196,6 +215,7 @@ subscr
 sval
 swappedbytes
 sysdict
+tbstderr
 templatelib
 testconsole
 threadstate

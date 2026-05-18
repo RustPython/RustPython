@@ -1372,26 +1372,17 @@ mod _ssl {
         ) -> PyResult<()> {
             #[cfg(windows)]
             {
-                // Windows: Use schannel to load from both ROOT and CA stores
-                use schannel::cert_store::CertStore;
-
                 let store_names = ["ROOT", "CA"];
-                let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
 
                 for store_name in store_names {
-                    for open_fn in &open_fns {
-                        if let Ok(cert_store) = open_fn(store_name) {
-                            for cert_ctx in cert_store.certs() {
-                                let der_bytes = cert_ctx.to_der();
-                                let cert =
-                                    rustls::pki_types::CertificateDer::from(der_bytes.to_vec());
-                                let is_ca = cert::is_ca_certificate(cert.as_ref());
-                                if store.add(cert).is_ok() {
-                                    *self.x509_cert_count.write() += 1;
-                                    if is_ca {
-                                        *self.ca_cert_count.write() += 1;
-                                    }
-                                }
+                    let certs = rustpython_host_env::cert_store::enum_certificates(store_name);
+                    for cert_ctx in certs.entries {
+                        let cert = rustls::pki_types::CertificateDer::from(cert_ctx.der.to_vec());
+                        let is_ca = cert::is_ca_certificate(cert.as_ref());
+                        if store.add(cert).is_ok() {
+                            *self.x509_cert_count.write() += 1;
+                            if is_ca {
+                                *self.ca_cert_count.write() += 1;
                             }
                         }
                     }
@@ -1517,7 +1508,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ciphers(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        fn get_ciphers(&self, vm: &VirtualMachine) -> PyListRef {
             // Dynamically generate cipher list from rustls ALL_CIPHER_SUITES
             // This automatically includes all cipher suites supported by the current rustls version
 
@@ -1575,7 +1566,7 @@ mod _ssl {
                 })
                 .collect::<Vec<_>>();
 
-            Ok(PyListRef::from(vm.ctx.new_list(cipher_list)))
+            PyListRef::from(vm.ctx.new_list(cipher_list))
         }
 
         #[pymethod]
@@ -1760,7 +1751,7 @@ mod _ssl {
                 // Set filename attribute
                 let _ = exc
                     .as_object()
-                    .set_attr("filename", vm.ctx.new_str(path_str.clone()), vm);
+                    .set_attr("filename", vm.ctx.new_str(path_str), vm);
                 return Err(exc.upcast());
             }
 
@@ -2265,7 +2256,7 @@ mod _ssl {
                 session_cache: shared_session_cache.clone(),
             });
 
-            Ok(PySSLContext {
+            Ok(Self {
                 protocol,
                 check_hostname: PyRwLock::new(protocol == PROTOCOL_TLS_CLIENT),
                 verify_mode: PyRwLock::new(default_verify_mode),
@@ -2427,10 +2418,10 @@ mod _ssl {
         }
 
         // Create and store a session object after successful handshake
-        fn create_session_after_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn create_session_after_handshake(&self, vm: &VirtualMachine) {
             // Only create session for client-side connections
             if self.server_side {
-                return Ok(());
+                return;
             }
 
             // Check if session already exists
@@ -2438,7 +2429,7 @@ mod _ssl {
             if let Some(ref s) = session_opt {
                 if vm.is_none(s) {
                 } else {
-                    return Ok(());
+                    return;
                 }
             }
 
@@ -2489,8 +2480,6 @@ mod _ssl {
             let py_session = session.into_pyobject(vm);
 
             *self.session.write() = Some(py_session);
-
-            Ok(())
         }
 
         // Complete handshake and create session
@@ -2550,7 +2539,7 @@ mod _ssl {
             Ok(())
         }
 
-        fn complete_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn complete_handshake(&self, vm: &VirtualMachine) {
             *self.handshake_done.lock() = true;
 
             // Check if session was resumed - get value and release lock immediately
@@ -2558,8 +2547,7 @@ mod _ssl {
                 .connection
                 .lock()
                 .as_ref()
-                .map(|conn| conn.is_session_resumed())
-                .unwrap_or(false);
+                .is_some_and(|conn| conn.is_session_resumed());
 
             *self.session_was_reused.lock() = was_resumed;
 
@@ -2581,8 +2569,7 @@ mod _ssl {
                 let _ = self.track_used_ca_from_capath();
             }
 
-            self.create_session_after_handshake(vm)?;
-            Ok(())
+            self.create_session_after_handshake(vm);
         }
 
         // Internal implementation with timeout control
@@ -2690,7 +2677,7 @@ mod _ssl {
                 .clone()
                 .ok_or_else(|| vm.new_value_error("SNI callback not set"))?;
 
-            let ssl_sock = self.owner.read().clone().unwrap_or(vm.ctx.none());
+            let ssl_sock = self.owner.read().clone().unwrap_or_else(|| vm.ctx.none());
             let server_name_py: PyObjectRef = match sni_name {
                 Some(name) => vm.ctx.new_str(name.to_string()).into(),
                 None => vm.ctx.none(),
@@ -2732,7 +2719,7 @@ mod _ssl {
                         "servername callback must return None or an integer, not '{}'",
                         result.class().name()
                     ));
-                    vm.run_unraisable(type_error, None, result.clone());
+                    vm.run_unraisable(type_error, None, result);
 
                     // Return SSL error with reason set to TLSV1_ALERT_INTERNAL_ERROR
                     //
@@ -2835,7 +2822,7 @@ mod _ssl {
             }
 
             let socket_timeout = self.get_socket_timeout(vm)?;
-            let is_non_blocking = socket_timeout.map(|t| t.is_zero()).unwrap_or(false);
+            let is_non_blocking = socket_timeout.is_some_and(|t| t.is_zero());
 
             let mut sent_total = 0;
 
@@ -2918,7 +2905,7 @@ mod _ssl {
             }
 
             let timeout = self.get_socket_timeout(vm)?;
-            let is_non_blocking = timeout.map(|t| t.is_zero()).unwrap_or(false);
+            let is_non_blocking = timeout.is_some_and(|t| t.is_zero());
 
             let mut sent_total = 0;
             while sent_total < buf.len() {
@@ -2976,7 +2963,7 @@ mod _ssl {
         pub(crate) fn blocking_flush_all_pending(&self, vm: &VirtualMachine) -> PyResult<()> {
             // Get socket timeout to respect during flush
             let timeout = self.get_socket_timeout(vm)?;
-            if timeout.map(|t| t.is_zero()).unwrap_or(false) {
+            if timeout.is_some_and(|t| t.is_zero()) {
                 return self.flush_pending_tls_output(vm, None);
             }
 
@@ -3436,7 +3423,7 @@ mod _ssl {
             if is_client {
                 // CLIENT is simple - no SNI callback handling needed
                 handshake_result.map_err(|e| e.into_py_err(vm))?;
-                self.complete_handshake(vm)?;
+                self.complete_handshake(vm);
                 Ok(())
             } else {
                 // Use OpenSSL-compatible handshake for server
@@ -3444,7 +3431,7 @@ mod _ssl {
                 match handshake_result {
                     Ok(()) => {
                         // Handshake completed successfully
-                        self.complete_handshake(vm)?;
+                        self.complete_handshake(vm);
                         Ok(())
                     }
                     Err(SslError::SniCallbackRestart) => {
@@ -3581,7 +3568,7 @@ mod _ssl {
                         };
 
                         let mut reader = conn.reader();
-                        reader.fill_buf().map(|buf| buf.len()).unwrap_or(0)
+                        reader.fill_buf().map_or(0, |buf| buf.len())
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
@@ -3610,7 +3597,7 @@ mod _ssl {
                         };
 
                         let mut reader = conn.reader();
-                        reader.fill_buf().map(|buf| buf.len()).unwrap_or(0)
+                        reader.fill_buf().map_or(0, |buf| buf.len())
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
@@ -3663,13 +3650,13 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn pending(&self) -> PyResult<usize> {
+        fn pending(&self) -> usize {
             // Returns the number of already decrypted bytes available for read
             // This is critical for asyncore's readable() method which checks socket.pending() > 0
             let mut conn_guard = self.connection.lock();
             let conn = match conn_guard.as_mut() {
                 Some(c) => c,
-                None => return Ok(0), // No connection established yet
+                None => return 0, // No connection established yet
             };
 
             // Use rustls Reader's fill_buf() to check buffered plaintext
@@ -3677,11 +3664,11 @@ mod _ssl {
             // This matches OpenSSL's SSL_pending() behavior
             let mut reader = conn.reader();
             match reader.fill_buf() {
-                Ok(buf) => Ok(buf.len()),
+                Ok(buf) => buf.len(),
                 Err(_) => {
                     // WouldBlock or other errors mean no data available
                     // Return 0 like OpenSSL does when buffer is empty
-                    Ok(0)
+                    0
                 }
             }
         }
@@ -3858,9 +3845,8 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_owner(&self, owner: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
+        fn set_owner(&self, owner: PyObjectRef, _vm: &VirtualMachine) {
             *self.owner.write() = Some(owner);
-            Ok(())
         }
 
         #[pygetset]
@@ -3874,7 +3860,7 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_context(&self, value: PyRef<PySSLContext>, _vm: &VirtualMachine) -> PyResult<()> {
+        fn set_context(&self, value: PyRef<PySSLContext>, _vm: &VirtualMachine) {
             // Update context reference immediately
             // SSL_set_SSL_CTX allows context changes at any time,
             // even after handshake completion
@@ -3882,8 +3868,6 @@ mod _ssl {
 
             // Clear pending context as we've applied the change
             *self.pending_context.write() = None;
-
-            Ok(())
         }
 
         #[pygetset]
@@ -3917,14 +3901,10 @@ mod _ssl {
         }
 
         #[pygetset]
-        fn session(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn session(&self, vm: &VirtualMachine) -> PyObjectRef {
             // Return the stored session object if any
             let sess = self.session.read().clone();
-            if let Some(s) = sess {
-                Ok(s)
-            } else {
-                Ok(vm.ctx.none())
-            }
+            sess.unwrap_or_else(|| vm.ctx.none())
         }
 
         #[pygetset(setter)]
@@ -4000,18 +3980,12 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_verified_chain(&self, vm: &VirtualMachine) -> PyResult<Option<PyListRef>> {
+        fn get_verified_chain(&self, vm: &VirtualMachine) -> Option<PyListRef> {
             // Get peer certificates (what peer sent during handshake)
             let conn_guard = self.connection.lock();
-            let Some(ref conn) = *conn_guard else {
-                return Ok(None);
-            };
-
+            let conn = (*conn_guard).as_ref()?;
             let peer_certs = conn.peer_certificates();
-
-            let Some(peer_certs_slice) = peer_certs else {
-                return Ok(None);
-            };
+            let peer_certs_slice = peer_certs?;
 
             // Build the verified chain using cert module
             let ctx_guard = self.context.read();
@@ -4025,7 +3999,7 @@ mod _ssl {
                 .map(|der_bytes| PySSLCertificate { der_bytes }.into_ref(&vm.ctx).into())
                 .collect();
 
-            Ok(Some(vm.ctx.new_list(cert_list)))
+            Some(vm.ctx.new_list(cert_list))
         }
 
         #[pymethod]
@@ -4656,9 +4630,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write_eof(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn write_eof(&self, _vm: &VirtualMachine) {
             *self.eof.write() = true;
-            Ok(())
         }
 
         #[pygetset]
@@ -4685,7 +4658,7 @@ mod _ssl {
         type Args = ();
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(PyMemoryBIO {
+            Ok(Self {
                 buffer: PyMutex::new(Vec::new()),
                 eof: PyRwLock::new(false),
             })
@@ -4776,12 +4749,7 @@ mod _ssl {
 
         // If name=False (default), only accept OID strings
         // If name=True, accept both names and OID strings
-        let entry = if txt
-            .chars()
-            .next()
-            .map(|c| c.is_ascii_digit())
-            .unwrap_or(false)
-        {
+        let entry = if txt.chars().next().is_some_and(|c| c.is_ascii_digit()) {
             // Looks like an OID string (starts with digit)
             oid::find_by_oid_string(txt)
         } else if name {
@@ -4822,7 +4790,7 @@ mod _ssl {
     }
 
     #[pyfunction]
-    fn get_default_verify_paths(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn get_default_verify_paths(vm: &VirtualMachine) -> PyObjectRef {
         // Return default certificate paths as a tuple
         // Lib/ssl.py expects: (openssl_cafile_env, openssl_cafile, openssl_capath_env, openssl_capath)
         // parts[0] = environment variable name for cafile
@@ -4832,42 +4800,28 @@ mod _ssl {
 
         // Common default paths for different platforms
         // These match the first candidates that rustls-native-certs/openssl-probe checks
-        #[cfg(target_os = "macos")]
-        let (default_cafile, default_capath) = {
+        let (default_cafile, default_capath): (Option<&str>, Option<&str>) = cfg_select! {
             // macOS primarily uses Keychain API, but provides fallback paths
             // for compatibility and when Keychain access fails
-            (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs"))
-        };
-
-        #[cfg(target_os = "linux")]
-        let (default_cafile, default_capath) = {
+            target_os = "macos" => (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs")),
             // Linux: matches openssl-probe's first candidate (/etc/ssl/cert.pem)
             // openssl-probe checks multiple locations at runtime, but we return
             // OpenSSL's compile-time default
-            (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs"))
-        };
-
-        #[cfg(windows)]
-        let (default_cafile, default_capath) = {
+            target_os = "linux" => (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs")),
             // Windows uses certificate store, not file paths
             // Return empty strings to avoid None being passed to os.path.isfile()
-            (Some(""), Some(""))
+            windows => (Some(""), Some("")),
+            _ => (None, None),
         };
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-        let (default_cafile, default_capath): (Option<&str>, Option<&str>) = (None, None);
 
         let tuple = vm.ctx.new_tuple(vec![
             vm.ctx.new_str("SSL_CERT_FILE").into(), // openssl_cafile_env
-            default_cafile
-                .map(|s| vm.ctx.new_str(s).into())
-                .unwrap_or_else(|| vm.ctx.none()), // openssl_cafile
-            vm.ctx.new_str("SSL_CERT_DIR").into(),  // openssl_capath_env
-            default_capath
-                .map(|s| vm.ctx.new_str(s).into())
-                .unwrap_or_else(|| vm.ctx.none()), // openssl_capath
+            default_cafile.map_or_else(|| vm.ctx.none(), |s| vm.ctx.new_str(s).into()), // openssl_cafile
+            vm.ctx.new_str("SSL_CERT_DIR").into(), // openssl_capath_env
+            default_capath.map_or_else(|| vm.ctx.none(), |s| vm.ctx.new_str(s).into()), // openssl_capath
         ]);
-        Ok(tuple.into())
+
+        tuple.into()
     }
 
     #[pyfunction]
@@ -4914,10 +4868,7 @@ mod _ssl {
         // Read certificate file
         let path_str = path.as_str();
         let cert_data = rustpython_host_env::fs::read(path_str).map_err(|e| {
-            vm.new_os_error(format!(
-                "Failed to read certificate file {}: {}",
-                path_str, e
-            ))
+            vm.new_os_error(format!("Failed to read certificate file {path_str}: {e}"))
         })?;
 
         // Auto-detect PEM vs DER format
@@ -4972,40 +4923,28 @@ mod _ssl {
         store_name: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        use schannel::{RawPointer, cert_context::ValidUses, cert_store::CertStore};
-        use windows_sys::Win32::Security::Cryptography;
-
         let store_name_str = store_name.as_str();
-
-        // Try both Current User and Local Machine stores
-        let open_fns = [CertStore::open_current_user, CertStore::open_local_machine];
-        let stores = open_fns
-            .iter()
-            .filter_map(|open| open(store_name_str).ok())
-            .collect::<Vec<_>>();
-
-        // If no stores could be opened, raise OSError
-        if stores.is_empty() {
+        let certs = rustpython_host_env::cert_store::enum_certificates(store_name_str);
+        if !certs.had_open_store {
             return Err(vm.new_os_error(format!(
-                "failed to open certificate store {:?}",
-                store_name_str
+                "failed to open certificate store {store_name_str:?}"
             )));
         }
 
-        let certs = stores.iter().flat_map(|s| s.certs()).map(|c| {
-            let cert = vm.ctx.new_bytes(c.to_der().to_owned());
-            let enc_type = unsafe {
-                let ptr = c.as_ptr() as *const Cryptography::CERT_CONTEXT;
-                (*ptr).dwCertEncodingType
+        let certs = certs.entries.into_iter().map(|c| {
+            let cert = vm.ctx.new_bytes(c.der);
+            let enc_type = match c.encoding {
+                rustpython_host_env::cert_store::EncodingType::X509Asn => vm.new_pyobj("x509_asn"),
+                rustpython_host_env::cert_store::EncodingType::Pkcs7Asn => {
+                    vm.new_pyobj("pkcs_7_asn")
+                }
+                rustpython_host_env::cert_store::EncodingType::Other(other) => vm.new_pyobj(other),
             };
-            let enc_type = match enc_type {
-                Cryptography::X509_ASN_ENCODING => vm.new_pyobj("x509_asn"),
-                Cryptography::PKCS_7_ASN_ENCODING => vm.new_pyobj("pkcs_7_asn"),
-                other => vm.new_pyobj(other),
-            };
-            let usage: PyObjectRef = match c.valid_uses() {
-                Ok(ValidUses::All) => vm.ctx.new_bool(true).into(),
-                Ok(ValidUses::Oids(oids)) => {
+            let usage: PyObjectRef = match c.valid_uses {
+                Ok(rustpython_host_env::cert_store::CertificateUses::All) => {
+                    vm.ctx.new_bool(true).into()
+                }
+                Ok(rustpython_host_env::cert_store::CertificateUses::Oids(oids)) => {
                     match crate::builtins::PyFrozenSet::from_iter(
                         vm,
                         oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()),
@@ -5024,62 +4963,37 @@ mod _ssl {
     #[cfg(windows)]
     #[pyfunction]
     fn enum_crls(store_name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        use windows_sys::Win32::Security::Cryptography::{
-            CRL_CONTEXT, CertCloseStore, CertEnumCRLsInStore, CertOpenSystemStoreW,
-            X509_ASN_ENCODING,
-        };
-
         let store_name_str = store_name.as_str();
-        let store_name_wide: Vec<u16> = store_name_str
-            .encode_utf16()
-            .chain(core::iter::once(0))
-            .collect();
+        let crls = rustpython_host_env::cert_store::enum_crls(store_name_str).map_err(|_| {
+            vm.new_os_error(format!(
+                "failed to open certificate store {store_name_str:?}"
+            ))
+        })?;
 
-        // Open system store
-        let store = unsafe { CertOpenSystemStoreW(0, store_name_wide.as_ptr()) };
-
-        if store.is_null() {
-            return Err(vm.new_os_error(format!(
-                "failed to open certificate store {:?}",
-                store_name_str
-            )));
-        }
-
-        let mut result = Vec::new();
-
-        let mut crl_context: *const CRL_CONTEXT = core::ptr::null();
-        loop {
-            crl_context = unsafe { CertEnumCRLsInStore(store, crl_context) };
-            if crl_context.is_null() {
-                break;
-            }
-
-            let crl = unsafe { &*crl_context };
-            let crl_bytes =
-                unsafe { core::slice::from_raw_parts(crl.pbCrlEncoded, crl.cbCrlEncoded as usize) };
-
-            let enc_type = if crl.dwCertEncodingType == X509_ASN_ENCODING {
-                vm.new_pyobj("x509_asn")
-            } else {
-                vm.new_pyobj(crl.dwCertEncodingType)
-            };
-
-            result.push(
-                vm.new_tuple((vm.ctx.new_bytes(crl_bytes.to_vec()), enc_type))
-                    .into(),
-            );
-        }
-
-        unsafe { CertCloseStore(store, 0) };
-
-        Ok(result)
+        Ok(crls
+            .into_iter()
+            .map(|crl| {
+                let enc_type = match crl.encoding {
+                    rustpython_host_env::cert_store::EncodingType::X509Asn => {
+                        vm.new_pyobj("x509_asn")
+                    }
+                    rustpython_host_env::cert_store::EncodingType::Pkcs7Asn => {
+                        vm.new_pyobj("pkcs_7_asn")
+                    }
+                    rustpython_host_env::cert_store::EncodingType::Other(other) => {
+                        vm.new_pyobj(other)
+                    }
+                };
+                vm.new_tuple((vm.ctx.new_bytes(crl.der), enc_type)).into()
+            })
+            .collect())
     }
 
     // Certificate type for SSL module (pure Rust implementation)
     #[pyattr]
     #[pyclass(module = "_ssl", name = "Certificate")]
     #[derive(Debug, PyPayload)]
-    pub struct PySSLCertificate {
+    pub(super) struct PySSLCertificate {
         // Store the raw DER bytes
         der_bytes: Vec<u8>,
     }

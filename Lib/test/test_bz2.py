@@ -740,7 +740,6 @@ class BZ2FileTest(BaseTest):
             self.assertEqual(f.read(), self.DATA)
             self.assertEqual(f.name, str_filename)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <FakePath 'Z:\\TEMP\\tmphoipjcen'> != 'Z:\\TEMP\\tmphoipjcen'
     def testOpenPathLikeFilename(self):
         filename = FakePath(self.filename)
         with BZ2File(filename, "wb") as f:

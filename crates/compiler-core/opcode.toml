@@ -1,0 +1,270 @@
+[Opcode]
+instruction_enum = "Instruction"
+numeric_repr = "u8"
+range = { min = 0, max = 255 }
+
+[Opcode.opcodes.BinaryOp]
+oparg = { name = "op", type = "oparg::BinaryOperator" }
+
+[Opcode.opcodes.BuildInterpolation]
+oparg = { name = "format", type = "u32" }
+
+[Opcode.opcodes.BuildList]
+oparg = { name = "count", type = "u32" }
+
+[Opcode.opcodes.BuildMap]
+oparg = { name = "count", type = "u32" }
+
+[Opcode.opcodes.BuildSet]
+oparg = { name = "count", type = "u32" }
+
+[Opcode.opcodes.BuildSlice]
+oparg = { name = "argc", type = "oparg::BuildSliceArgCount" }
+
+[Opcode.opcodes.BuildString]
+oparg = { name = "count", type = "u32" }
+
+[Opcode.opcodes.BuildTuple]
+oparg = { name = "count", type = "u32" }
+
+[Opcode.opcodes.Call]
+oparg = { name = "argc", type = "u32" }
+
+[Opcode.opcodes.CallIntrinsic1]
+oparg = { name = "func", type = "oparg::IntrinsicFunction1" }
+
+[Opcode.opcodes.CallIntrinsic2]
+oparg = { name = "func", type = "oparg::IntrinsicFunction2" }
+
+[Opcode.opcodes.CallKw]
+oparg = { name = "argc", type = "u32" }
+
+[Opcode.opcodes.CompareOp]
+oparg = { name = "opname", type = "oparg::ComparisonOperator" }
+
+[Opcode.opcodes.ContainsOp]
+oparg = { name = "invert", type = "oparg::Invert" }
+
+[Opcode.opcodes.ConvertValue]
+oparg = { name = "oparg", type = "oparg::ConvertValueOparg" }
+
+[Opcode.opcodes.Copy]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.CopyFreeVars]
+oparg = { name = "n", type = "u32" }
+
+[Opcode.opcodes.DeleteAttr]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.DeleteDeref]
+oparg = { name = "i", type = "oparg::VarNum" }
+
+[Opcode.opcodes.DeleteFast]
+oparg = { name = "var_num", type = "oparg::VarNum" }
+
+[Opcode.opcodes.DeleteGlobal]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.DeleteName]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.DictMerge]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.DictUpdate]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.ForIter]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[Opcode.opcodes.GetAwaitable]
+oparg = { name = "r#where", type = "u32" }
+
+[Opcode.opcodes.ImportFrom]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.ImportName]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.IsOp]
+oparg = { name = "invert", type = "oparg::Invert" }
+
+[Opcode.opcodes.JumpBackward]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[Opcode.opcodes.JumpBackwardNoInterrupt]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[Opcode.opcodes.JumpForward]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[Opcode.opcodes.ListAppend]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.ListExtend]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.LoadAttr]
+oparg = { name = "namei", type = "oparg::LoadAttr" }
+
+[Opcode.opcodes.LoadCommonConstant]
+oparg = { name = "idx", type = "oparg::CommonConstant" }
+
+[Opcode.opcodes.LoadConst]
+oparg = { name = "consti", type = "oparg::ConstIdx" }
+
+[Opcode.opcodes.LoadDeref]
+oparg = { name = "i", type = "oparg::VarNum" }
+
+[Opcode.opcodes.LoadFast]
+oparg = { name = "var_num", type = "oparg::VarNum" }
+
+[Opcode.opcodes.LoadFastAndClear]
+oparg = { name = "var_num", type = "oparg::VarNum" }
+
+[Opcode.opcodes.LoadFastBorrow]
+oparg = { name = "var_num", type = "oparg::VarNum" }
+
+[Opcode.opcodes.LoadFastBorrowLoadFastBorrow]
+oparg = { name = "var_nums", type = "oparg::VarNums" }
+
+[Opcode.opcodes.LoadFastCheck]
+oparg = { name = "var_num", type = "oparg::VarNum" }
+
+[Opcode.opcodes.LoadFastLoadFast]
+oparg = { name = "var_nums", type = "oparg::VarNums" }
+
+[Opcode.opcodes.LoadFromDictOrDeref]
+oparg = { name = "i", type = "oparg::VarNum" }
+
+[Opcode.opcodes.LoadFromDictOrGlobals]
+oparg = { name = "i", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.LoadGlobal]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.LoadName]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.LoadSmallInt]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.LoadSpecial]
+oparg = { name = "method", type = "oparg::SpecialMethod" }
+
+[Opcode.opcodes.LoadSuperAttr]
+oparg = { name = "namei", type = "oparg::LoadSuperAttr" }
+
+[Opcode.opcodes.MakeCell]
+oparg = { name = "i", type = "oparg::VarNum" }
+
+[Opcode.opcodes.MapAdd]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.MatchClass]
+oparg = { name = "count", type = "u32" }
+
+[Opcode.opcodes.PopJumpIfFalse]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[Opcode.opcodes.PopJumpIfNone]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[Opcode.opcodes.PopJumpIfNotNone]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[Opcode.opcodes.PopJumpIfTrue]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[Opcode.opcodes.RaiseVarargs]
+oparg = { name = "argc", type = "oparg::RaiseKind" }
+
+[Opcode.opcodes.Reraise]
+oparg = { name = "depth", type = "u32" }
+
+[Opcode.opcodes.Send]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[Opcode.opcodes.SetAdd]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.SetFunctionAttribute]
+oparg = { name = "flag", type = "oparg::MakeFunctionFlag" }
+
+[Opcode.opcodes.SetUpdate]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.StoreAttr]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.StoreDeref]
+oparg = { name = "i", type = "oparg::VarNum" }
+
+[Opcode.opcodes.StoreFast]
+oparg = { name = "var_num", type = "oparg::VarNum" }
+
+[Opcode.opcodes.StoreFastLoadFast]
+oparg = { name = "var_nums", type = "oparg::VarNums" }
+
+[Opcode.opcodes.StoreFastStoreFast]
+oparg = { name = "var_nums", type = "oparg::VarNums" }
+
+[Opcode.opcodes.StoreGlobal]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.StoreName]
+oparg = { name = "namei", type = "oparg::NameIdx" }
+
+[Opcode.opcodes.Swap]
+oparg = { name = "i", type = "u32" }
+
+[Opcode.opcodes.UnpackEx]
+oparg = { name = "counts", type = "oparg::UnpackExArgs" }
+
+[Opcode.opcodes.UnpackSequence]
+oparg = { name = "count", type = "u32" }
+
+[Opcode.opcodes.WithExceptStart]
+stack_effect = { pushed = "7", popped = "6" }
+
+[Opcode.opcodes.YieldValue]
+oparg = { name = "arg", type = "u32" }
+
+[Opcode.opcodes.Resume]
+oparg = { name = "context", type = "oparg::ResumeContext" }
+
+[PseudoOpcode]
+instruction_enum = "PseudoInstruction"
+numeric_repr = "u16"
+range = { min = 256, max = 65535 }
+
+[PseudoOpcode.opcodes.Jump]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[PseudoOpcode.opcodes.JumpIfFalse]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[PseudoOpcode.opcodes.JumpIfTrue]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[PseudoOpcode.opcodes.JumpNoInterrupt]
+oparg = { name = "delta", type = "oparg::Label" }
+
+[PseudoOpcode.opcodes.LoadClosure]
+oparg = { name = "i", type = "oparg::NameIdx" }
+
+[PseudoOpcode.opcodes.SetupCleanup]
+oparg = { name = "delta", type = "oparg::Label" }
+stack_effect = { pushed = "0" }
+
+[PseudoOpcode.opcodes.SetupFinally]
+oparg = { name = "delta", type = "oparg::Label" }
+stack_effect = { pushed = "0" }
+
+[PseudoOpcode.opcodes.SetupWith]
+oparg = { name = "delta", type = "oparg::Label" }
+stack_effect = { pushed = "0" }
+
+[PseudoOpcode.opcodes.StoreFastMaybeNull]
+oparg = { name = "var_num", type = "oparg::NameIdx" }

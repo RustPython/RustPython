@@ -99,7 +99,7 @@ impl Initializer for PyNamespace {
             };
 
             // Validate keys are strings and set attributes
-            for (key, value) in dict.into_iter() {
+            for (key, value) in dict {
                 let key_str = key
                     .downcast_ref::<crate::builtins::PyStr>()
                     .ok_or_else(|| {
@@ -175,6 +175,6 @@ impl Representable for PyNamespace {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyNamespace::extend_class(context, context.types.namespace_type);
 }

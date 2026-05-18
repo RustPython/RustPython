@@ -225,7 +225,7 @@ impl ByteInnerTranslateOptions {
     }
 }
 
-pub type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
+pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
 impl PyBytesInner {
     #[inline]
@@ -413,15 +413,7 @@ impl PyBytesInner {
     }
 
     pub fn swapcase(&self) -> Vec<u8> {
-        let mut new: Vec<u8> = Vec::with_capacity(self.elements.len());
-        for w in &self.elements {
-            match w {
-                b'A'..=b'Z' => new.push(w.to_ascii_lowercase()),
-                b'a'..=b'z' => new.push(w.to_ascii_uppercase()),
-                x => new.push(*x),
-            }
-        }
-        new
+        swapcase_ascii(self.as_bytes())
     }
 
     pub fn hex(
@@ -805,9 +797,8 @@ impl PyBytesInner {
             new[offset..offset + len].clone_from_slice(to.elements.as_slice());
             if max_count == Some(1) {
                 return new;
-            } else {
-                new
             }
+            new
         } else {
             return self.elements.clone();
         };
@@ -920,28 +911,9 @@ impl PyBytesInner {
         }
     }
 
+    #[inline]
     pub fn title(&self) -> Vec<u8> {
-        let mut res = vec![];
-        let mut spaced = true;
-
-        for i in &self.elements {
-            match i {
-                b'A'..=b'Z' | b'a'..=b'z' => {
-                    if spaced {
-                        res.push(i.to_ascii_uppercase());
-                        spaced = false
-                    } else {
-                        res.push(i.to_ascii_lowercase());
-                    }
-                }
-                _ => {
-                    res.push(*i);
-                    spaced = true
-                }
-            }
-        }
-
-        res
+        title_ascii(self.as_bytes())
     }
 
     pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -972,7 +944,7 @@ impl PyBytesInner {
     }
 }
 
-pub fn try_as_bytes<F, R>(obj: PyObjectRef, f: F) -> Option<R>
+pub(crate) fn try_as_bytes<F, R>(obj: PyObjectRef, f: F) -> Option<R>
 where
     F: Fn(&[u8]) -> R,
 {
@@ -993,7 +965,7 @@ fn count_substring(haystack: &[u8], needle: &[u8], max_count: Option<usize>) -> 
     }
 }
 
-pub trait ByteOr: ToPrimitive {
+pub(crate) trait ByteOr: ToPrimitive {
     fn byte_or(&self, vm: &VirtualMachine) -> PyResult<u8> {
         match self.to_u8() {
             Some(value) => Ok(value),
@@ -1116,14 +1088,14 @@ impl AnyStr for [u8] {
 }
 
 #[derive(FromArgs)]
-pub struct DecodeArgs {
+pub(crate) struct DecodeArgs {
     #[pyarg(any, default)]
     encoding: Option<PyUtf8StrRef>,
     #[pyarg(any, default)]
     errors: Option<PyUtf8StrRef>,
 }
 
-pub fn bytes_decode(
+pub(crate) fn bytes_decode(
     zelf: PyObjectRef,
     args: DecodeArgs,
     vm: &VirtualMachine,
@@ -1190,7 +1162,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
-pub fn bytes_to_hex(
+pub(crate) fn bytes_to_hex(
     bytes: &[u8],
     sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
     bytes_per_sep: OptionalArg<isize>,
@@ -1233,6 +1205,34 @@ pub fn bytes_to_hex(
     }
 }
 
-pub const fn is_py_ascii_whitespace(b: u8) -> bool {
+pub(crate) const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
+}
+
+/// ASCII-only title casing.
+///
+/// This is purposely naive as is CPython's implementation.
+pub(crate) fn title_ascii(bytes: &[u8]) -> Vec<u8> {
+    let mut next_upper = true;
+    let mut out = Vec::with_capacity(bytes.len());
+    for &b in bytes {
+        let b = if !b.is_ascii_alphabetic() {
+            next_upper = true;
+            b
+        } else if next_upper {
+            next_upper = false;
+            b.to_ascii_uppercase()
+        } else {
+            b.to_ascii_lowercase()
+        };
+        out.push(b);
+    }
+    out
+}
+
+pub(crate) fn swapcase_ascii(bytes: &[u8]) -> Vec<u8> {
+    bytes
+        .iter()
+        .map(|&b| if b.is_ascii_alphabetic() { b ^ 0x20 } else { b })
+        .collect()
 }

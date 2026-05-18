@@ -11,9 +11,7 @@ use crate::{
     types::Representable,
 };
 use num_traits::Zero;
-use rustpython_compiler_core::bytecode::{
-    self, Constant, Instruction, InstructionMetadata, StackEffect,
-};
+use rustpython_compiler_core::bytecode::{self, Constant, Instruction, StackEffect};
 use stack_analysis::*;
 
 /// Stack state analysis for safe line-number jumps.
@@ -29,14 +27,14 @@ pub(crate) mod stack_analysis {
     const MAX_STACK_ENTRIES: u32 = 63 / BITS_PER_BLOCK; // 21
     const WILL_OVERFLOW: u64 = 1u64 << ((MAX_STACK_ENTRIES - 1) * BITS_PER_BLOCK);
 
-    pub const EMPTY_STACK: i64 = 0;
-    pub const UNINITIALIZED: i64 = -2;
-    pub const OVERFLOWED: i64 = -1;
+    pub(crate) const EMPTY_STACK: i64 = 0;
+    pub(crate) const UNINITIALIZED: i64 = -2;
+    pub(crate) const OVERFLOWED: i64 = -1;
 
     /// Kind of a stack entry.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     #[repr(i64)]
-    pub enum Kind {
+    pub(crate) enum Kind {
         Iterator = 1,
         Except = 2,
         Object = 3,
@@ -47,17 +45,17 @@ pub(crate) mod stack_analysis {
     impl Kind {
         fn from_i64(v: i64) -> Option<Self> {
             match v {
-                1 => Some(Kind::Iterator),
-                2 => Some(Kind::Except),
-                3 => Some(Kind::Object),
-                4 => Some(Kind::Null),
-                5 => Some(Kind::Lasti),
+                1 => Some(Self::Iterator),
+                2 => Some(Self::Except),
+                3 => Some(Self::Object),
+                4 => Some(Self::Null),
+                5 => Some(Self::Lasti),
                 _ => None,
             }
         }
     }
 
-    pub fn push_value(stack: i64, kind: i64) -> i64 {
+    pub(crate) fn push_value(stack: i64, kind: i64) -> i64 {
         if (stack as u64) >= WILL_OVERFLOW {
             OVERFLOWED
         } else {
@@ -65,11 +63,11 @@ pub(crate) mod stack_analysis {
         }
     }
 
-    pub fn pop_value(stack: i64) -> i64 {
+    pub(crate) fn pop_value(stack: i64) -> i64 {
         stack >> BITS_PER_BLOCK
     }
 
-    pub fn top_of_stack(stack: i64) -> i64 {
+    pub(crate) fn top_of_stack(stack: i64) -> i64 {
         stack & MASK
     }
 
@@ -112,7 +110,7 @@ pub(crate) mod stack_analysis {
         from == to
     }
 
-    pub fn compatible_stack(from_stack: i64, to_stack: i64) -> bool {
+    pub(crate) fn compatible_stack(from_stack: i64, to_stack: i64) -> bool {
         if from_stack < 0 || to_stack < 0 {
             return false;
         }
@@ -133,7 +131,7 @@ pub(crate) mod stack_analysis {
         to == 0
     }
 
-    pub fn explain_incompatible_stack(to_stack: i64) -> &'static str {
+    pub(crate) fn explain_incompatible_stack(to_stack: i64) -> &'static str {
         debug_assert!(to_stack != 0);
         if to_stack == OVERFLOWED {
             return "stack is too deep to analyze";
@@ -150,7 +148,7 @@ pub(crate) mod stack_analysis {
     }
 
     /// Analyze bytecode and compute the stack state at each instruction index.
-    pub fn mark_stacks<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i64> {
+    pub(crate) fn mark_stacks<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i64> {
         let instructions = &*code.instructions;
         let len = instructions.len();
 
@@ -237,7 +235,7 @@ pub(crate) mod stack_analysis {
                             }
                         }
                     }
-                    Instruction::GetIter | Instruction::GetAIter => {
+                    Instruction::GetIter | Instruction::GetAiter => {
                         next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
@@ -393,7 +391,7 @@ pub(crate) mod stack_analysis {
 
     /// Build a mapping from instruction index to line number.
     /// Returns -1 for indices with no line start.
-    pub fn mark_lines<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i32> {
+    pub(crate) fn mark_lines<C: Constant>(code: &bytecode::CodeObject<C>) -> Vec<i32> {
         let len = code.instructions.len();
         let mut line_starts = vec![-1i32; len];
         let mut last_line: i32 = -1;
@@ -412,7 +410,7 @@ pub(crate) mod stack_analysis {
     }
 
     /// Find the first line number >= `line` that has code.
-    pub fn first_line_not_before(lines: &[i32], line: i32) -> i32 {
+    pub(crate) fn first_line_not_before(lines: &[i32], line: i32) -> i32 {
         let mut result = i32::MAX;
         for &l in lines {
             if l >= line && l < result {
@@ -423,7 +421,7 @@ pub(crate) mod stack_analysis {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     Frame::extend_class(context, context.types.frame_type);
 }
 
@@ -476,7 +474,7 @@ impl Frame {
         // If lasti is 0, execution hasn't started yet - use first line number
         // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
         if self.lasti() == 0 {
-            self.code.first_line_number.map(|n| n.get()).unwrap_or(1)
+            self.code.first_line_number.map_or(1, |n| n.get())
         } else {
             self.current_location().line.get()
         }
@@ -498,11 +496,7 @@ impl Frame {
             }
         };
 
-        let first_line = self
-            .code
-            .first_line_number
-            .map(|n| n.get() as i32)
-            .unwrap_or(1);
+        let first_line = self.code.first_line_number.map_or(1, |n| n.get() as i32);
 
         if l_new_lineno < first_line {
             return Err(vm.new_value_error(format!(
@@ -601,6 +595,7 @@ impl Frame {
         *storage = value.unwrap_or_none(vm);
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
@@ -632,6 +627,7 @@ impl Frame {
         }
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
@@ -726,7 +722,7 @@ impl Py<Frame> {
             .iter()
             .find(|fp| {
                 // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
-                let py: &crate::Py<Frame> = unsafe { fp.as_ref() };
+                let py: &Self = unsafe { fp.as_ref() };
                 let ptr: *const Frame = &**py;
                 core::ptr::eq(ptr, previous)
             })

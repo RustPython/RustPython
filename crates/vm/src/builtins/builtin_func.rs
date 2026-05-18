@@ -31,7 +31,8 @@ impl fmt::Debug for PyNativeFunction {
         write!(
             f,
             "builtin function {}.{} ({:?}) self as instance of {:?}",
-            self.module.map_or(Wtf8::new("<unknown>"), |m| m.as_wtf8()),
+            self.module
+                .map_or_else(|| Wtf8::new("<unknown>"), |m| m.as_wtf8()),
             self.value.name,
             self.value.flags,
             self.zelf.as_ref().map(|z| z.class().name().to_owned())
@@ -128,7 +129,7 @@ impl Representable for PyNativeFunction {
 
 #[pyclass(
     with(Callable, Comparable, Representable),
-    flags(HAS_DICT, HAS_WEAKREF, DISALLOW_INSTANTIATION)
+    flags(HAS_WEAKREF, DISALLOW_INSTANTIATION)
 )]
 impl PyNativeFunction {
     #[pygetset]
@@ -209,7 +210,8 @@ pub struct PyNativeMethod {
 
 // All Python-visible behavior (getters, slots) is registered by PyNativeFunction::extend_class.
 // PyNativeMethod only extends the Rust-side struct with the defining class reference.
-#[pyclass(flags(HAS_DICT, HAS_WEAKREF, DISALLOW_INSTANTIATION))]
+// The func field at offset 0 (#[repr(C)]) allows NativeFunctionOrMethod to read it safely.
+#[pyclass(flags(HAS_WEAKREF, DISALLOW_INSTANTIATION))]
 impl PyNativeMethod {}
 
 impl fmt::Debug for PyNativeMethod {
@@ -253,7 +255,7 @@ fn vectorcall_native_function(
     (zelf.value.func)(vm, func_args)
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyNativeFunction::extend_class(context, context.types.builtin_function_or_method_type);
     context
         .types

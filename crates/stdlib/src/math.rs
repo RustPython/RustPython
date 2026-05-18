@@ -559,9 +559,7 @@ mod math {
             let mut flt_result: f64 = if let Some(ref f) = obj_float {
                 f.to_f64()
             } else if start_is_float && let OptionalArg::Present(s) = &start {
-                s.downcast_ref::<PyFloat>()
-                    .map(|f| f.to_f64())
-                    .unwrap_or(1.0)
+                s.downcast_ref::<PyFloat>().map_or(1.0, |f| f.to_f64())
             } else {
                 1.0
             };
@@ -950,10 +948,10 @@ fn float_repr(value: f64) -> String {
             "-inf".to_owned()
         }
     } else {
-        let s = format!("{}", value);
+        let s = format!("{value}");
         // If no decimal point and not in scientific notation, add .0
         if !s.contains('.') && !s.contains('e') && !s.contains('E') {
-            format!("{}.0", s)
+            format!("{s}.0")
         } else {
             s
         }

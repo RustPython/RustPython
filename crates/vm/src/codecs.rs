@@ -34,7 +34,7 @@ struct RegistryInner {
     errors: HashMap<String, PyObjectRef>,
 }
 
-pub const DEFAULT_ENCODING: &str = "utf-8";
+pub(crate) const DEFAULT_ENCODING: &str = "utf-8";
 
 #[derive(Clone)]
 #[repr(transparent)]
@@ -158,7 +158,7 @@ impl CodecsRegistry {
     /// # Safety
     /// Must only be called after fork() in the child process when no other
     /// threads exist.
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
     pub(crate) unsafe fn reinit_after_fork(&self) {
         unsafe { crate::common::lock::reinit_rwlock_after_fork(&self.inner) };
     }
@@ -214,31 +214,30 @@ impl CodecsRegistry {
         Ok(())
     }
 
-    pub fn unregister(&self, search_function: PyObjectRef) -> PyResult<()> {
+    pub fn unregister(&self, search_function: PyObjectRef) {
         let mut inner = self.inner.write();
         // Do nothing if search_path is not created yet or was cleared.
         if inner.search_path.is_empty() {
-            return Ok(());
+            return;
         }
+
         for (i, item) in inner.search_path.iter().enumerate() {
             if item.get_id() == search_function.get_id() {
                 if !inner.search_cache.is_empty() {
                     inner.search_cache.clear();
                 }
                 inner.search_path.remove(i);
-                return Ok(());
+                return;
             }
         }
-        Ok(())
     }
 
-    pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) -> PyResult<()> {
+    pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) {
         let name = normalize_encoding_name(name);
         self.inner
             .write()
             .search_cache
             .insert(name.into_owned(), codec);
-        Ok(())
     }
 
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
@@ -441,15 +440,15 @@ enum StandardEncoding {
 }
 
 impl StandardEncoding {
-    #[cfg(target_endian = "little")]
-    const UTF_16_NE: Self = Self::Utf16Le;
-    #[cfg(target_endian = "big")]
-    const UTF_16_NE: Self = Self::Utf16Be;
+    const UTF_16_NE: Self = cfg_select! {
+        target_endian = "little" => Self::Utf16Le,
+        target_endian = "big" => Self::Utf16Be,
+    };
 
-    #[cfg(target_endian = "little")]
-    const UTF_32_NE: Self = Self::Utf32Le;
-    #[cfg(target_endian = "big")]
-    const UTF_32_NE: Self = Self::Utf32Be;
+    const UTF_32_NE: Self = cfg_select! {
+        target_endian = "little" => Self::Utf32Le,
+        target_endian = "big" => Self::Utf32Be,
+    };
 
     fn parse(encoding: &str) -> Option<Self> {
         if let Some(encoding) = encoding.to_lowercase().strip_prefix("utf") {
@@ -580,7 +579,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for SurrogatePass {
     }
 }
 
-pub struct PyEncodeContext<'a> {
+pub(crate) struct PyEncodeContext<'a> {
     vm: &'a VirtualMachine,
     encoding: &'a str,
     data: &'a Py<PyStr>,
@@ -589,7 +588,7 @@ pub struct PyEncodeContext<'a> {
 }
 
 impl<'a> PyEncodeContext<'a> {
-    pub fn new(encoding: &'a str, data: &'a Py<PyStr>, vm: &'a VirtualMachine) -> Self {
+    pub(crate) fn new(encoding: &'a str, data: &'a Py<PyStr>, vm: &'a VirtualMachine) -> Self {
         Self {
             vm,
             encoding,
@@ -683,7 +682,7 @@ impl EncodeContext for PyEncodeContext<'_> {
     }
 }
 
-pub struct PyDecodeContext<'a> {
+pub(crate) struct PyDecodeContext<'a> {
     vm: &'a VirtualMachine,
     encoding: &'a str,
     data: PyDecodeData<'a>,
@@ -706,7 +705,7 @@ impl ops::Deref for PyDecodeData<'_> {
 }
 
 impl<'a> PyDecodeContext<'a> {
-    pub fn new(encoding: &'a str, data: &'a ArgBytesLike, vm: &'a VirtualMachine) -> Self {
+    pub(crate) fn new(encoding: &'a str, data: &'a ArgBytesLike, vm: &'a VirtualMachine) -> Self {
         Self {
             vm,
             encoding,
@@ -855,7 +854,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for StandardError {
     }
 }
 
-pub struct ErrorsHandler<'a> {
+pub(crate) struct ErrorsHandler<'a> {
     errors: &'a Py<PyUtf8Str>,
     resolved: OnceCell<ResolvedError>,
 }
@@ -866,7 +865,7 @@ enum ResolvedError {
 
 impl<'a> ErrorsHandler<'a> {
     #[inline]
-    pub fn new(errors: Option<&'a Py<PyUtf8Str>>, vm: &VirtualMachine) -> Self {
+    pub(crate) fn new(errors: Option<&'a Py<PyUtf8Str>>, vm: &VirtualMachine) -> Self {
         match errors {
             Some(errors) => Self {
                 errors,
@@ -916,7 +915,7 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
             ResolvedError::Handler(handler) => handler,
         };
         let encode_exc = ctx.error_encoding(range.clone(), reason);
-        let res = handler.call((encode_exc.clone(),), vm)?;
+        let res = handler.call((encode_exc,), vm)?;
         let tuple_err =
             || vm.new_type_error("encoding error handler must return (str/bytes, int) tuple");
         let (replace, restart) = match res.downcast_ref::<PyTuple>().map(|tup| tup.as_slice()) {
@@ -945,7 +944,7 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
                     .as_wtf8()
                     .code_point_indices()
                     .nth(restart)
-                    .map_or(ctx.data.byte_len(), |(i, _)| i),
+                    .map_or_else(|| ctx.data.byte_len(), |(i, _)| i),
             }
         };
         Ok((replace, restart))
@@ -965,7 +964,7 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
             }
             ResolvedError::Handler(handler) => handler,
         };
-        let decode_exc = ctx.error_decoding(byte_range.clone(), reason);
+        let decode_exc = ctx.error_decoding(byte_range, reason);
         let data_bytes: PyObjectRef = decode_exc.as_object().get_attr("object", vm)?;
         let res = handler.call((decode_exc.clone(),), vm)?;
         let new_data = decode_exc.as_object().get_attr("object", vm)?;
@@ -1025,7 +1024,7 @@ where
     let end = StrSize {
         chars: range.end,
         bytes: if let Some(n) = range.len().checked_sub(1) {
-            iter.nth(n).map_or(s.byte_len(), |(i, _)| i)
+            iter.nth(n).map_or_else(|| s.byte_len(), |(i, _)| i)
         } else {
             start.bytes
         },
@@ -1088,7 +1087,7 @@ where
     let end = StrSize {
         chars: range.end,
         bytes: if let Some(n) = range.len().checked_sub(1) {
-            iter.nth(n).map_or(s.byte_len(), |(i, _)| i)
+            iter.nth(n).map_or_else(|| s.byte_len(), |(i, _)| i)
         } else {
             start.bytes
         },

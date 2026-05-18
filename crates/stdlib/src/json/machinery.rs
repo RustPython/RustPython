@@ -44,10 +44,6 @@ static ESCAPE_CHARS: [&str; 0x20] = [
 // And which one need to be escaped (1)
 // The characters that need escaping are 0x00 to 0x1F, 0x22 ("), 0x5C (\), 0x7F (DEL)
 // Non-ASCII unicode characters can be safely included in a JSON string
-#[allow(
-    clippy::unusual_byte_groupings,
-    reason = "groups of 16 are intentional here"
-)]
 static NEEDS_ESCAPING_BITSET: [u64; 4] = [
     //fedcba9876543210_fedcba9876543210_fedcba9876543210_fedcba9876543210
     0b0000000000000000_0000000000000100_1111111111111111_1111111111111111, // 3_2_1_0
@@ -72,7 +68,11 @@ fn json_escaped_char(c: u8) -> Option<&'static str> {
     }
 }
 
-pub fn write_json_string<W: io::Write>(wtf8: &Wtf8, ascii_only: bool, w: &mut W) -> io::Result<()> {
+pub(super) fn write_json_string<W: io::Write>(
+    wtf8: &Wtf8,
+    ascii_only: bool,
+    w: &mut W,
+) -> io::Result<()> {
     w.write_all(b"\"")?;
     let mut write_start_idx = 0;
     let bytes = wtf8.as_bytes();
@@ -128,12 +128,12 @@ pub fn write_json_string<W: io::Write>(wtf8: &Wtf8, ascii_only: bool, w: &mut W)
 }
 
 #[derive(Debug)]
-pub struct DecodeError {
+pub(super) struct DecodeError {
     pub msg: String,
     pub pos: usize,
 }
 impl DecodeError {
-    pub fn new(msg: impl Into<String>, pos: usize) -> Self {
+    pub(super) fn new(msg: impl Into<String>, pos: usize) -> Self {
         let msg = msg.into();
         Self { msg, pos }
     }
@@ -161,7 +161,7 @@ impl StrOrChar<'_> {
 /// # Returns
 /// * `Ok((result, chars_consumed, bytes_consumed))` - The decoded string and how much was consumed
 /// * `Err(DecodeError)` - If the string is malformed
-pub fn scanstring<'a>(
+pub(super) fn scanstring<'a>(
     s: &'a Wtf8,
     char_offset: usize,
     strict: bool,

@@ -21,6 +21,7 @@ pub struct PathConverter {
 }
 
 impl PathConverter {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             function_name: None,
@@ -29,16 +30,19 @@ impl PathConverter {
         }
     }
 
+    #[must_use]
     pub const fn function(mut self, name: &'static str) -> Self {
         self.function_name = Some(name);
         self
     }
 
+    #[must_use]
     pub const fn argument(mut self, name: &'static str) -> Self {
         self.argument_name = Some(name);
         self
     }
 
+    #[must_use]
     pub const fn non_strict(mut self) -> Self {
         self.non_strict = true;
         self
@@ -47,7 +51,7 @@ impl PathConverter {
     /// Generate error message prefix like "rename: "
     fn error_prefix(&self) -> String {
         match self.function_name {
-            Some(func) => format!("{}: ", func),
+            Some(func) => format!("{func}: "),
             None => String::new(),
         }
     }
@@ -110,7 +114,7 @@ impl PathConverter {
         vm: &VirtualMachine,
     ) -> PyResult<OsPath> {
         // Try direct str/bytes match
-        let obj = match self.try_match_str_bytes(obj.clone(), vm)? {
+        let obj = match self.try_match_str_bytes(obj, vm)? {
             Ok(path) => return Ok(path),
             Err(obj) => obj,
         };
@@ -235,14 +239,17 @@ impl OsPath {
         Self::from_fspath(fspath, vm)
     }
 
+    #[must_use]
     pub fn as_path(&self) -> &Path {
         Path::new(&self.path)
     }
 
+    #[must_use]
     pub fn into_bytes(self) -> Vec<u8> {
         self.path.into_encoded_bytes()
     }
 
+    #[must_use]
     pub fn to_string_lossy(&self) -> alloc::borrow::Cow<'_, str> {
         self.path.to_string_lossy()
     }
@@ -266,6 +273,7 @@ impl OsPath {
     }
 
     /// Get the output mode based on origin type (bytes -> Bytes, otherwise -> String)
+    #[must_use]
     pub fn mode(&self) -> OutputMode {
         match &self.origin {
             Some(obj) if obj.downcast_ref::<PyBytes>().is_some() => OutputMode::Bytes,
@@ -306,7 +314,7 @@ impl From<OsPath> for OsPathOrFd<'_> {
 }
 
 impl OsPathOrFd<'_> {
-    pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             Self::Path(path) => path.filename(vm),
             Self::Fd(fd) => fd.to_pyobject(vm),

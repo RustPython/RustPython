@@ -1,7 +1,10 @@
 //! Implementation of the _thread module
-#[cfg(unix)]
+
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) use _thread::after_fork_child;
+
 pub use _thread::get_ident;
+
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
     CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames,
@@ -28,10 +31,12 @@ pub(crate) mod _thread {
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
     use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
+    #[cfg(any(unix, windows))]
+    use rustpython_host_env::thread as host_thread;
     use std::thread;
 
     // PYTHREAD_NAME: show current thread name
-    pub const PYTHREAD_NAME: Option<&str> = cfg_select! {
+    pub(crate) const PYTHREAD_NAME: Option<&str> = cfg_select! {
         windows => Some("nt"),
         unix => Some("pthread"),
         any(target_os = "solaris", target_os = "illumos") => Some("solaris"),
@@ -137,11 +142,10 @@ pub(crate) mod _thread {
 
         #[cfg(unix)]
         #[pymethod]
-        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) {
             // Overwrite lock state to unlocked. Do NOT call unlock() here —
             // after fork(), unlock_slow() would try to unpark stale waiters.
             unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
-            Ok(())
         }
 
         #[pymethod]
@@ -170,7 +174,7 @@ pub(crate) mod _thread {
         }
     }
 
-    pub type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
+    pub(crate) type RawRMutex = RawReentrantMutex<RawMutex, RawThreadId>;
     #[pyattr]
     #[pyclass(module = "_thread", name = "RLock")]
     #[derive(PyPayload)]
@@ -232,12 +236,11 @@ pub(crate) mod _thread {
 
         #[cfg(unix)]
         #[pymethod]
-        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) {
             // Overwrite lock state to unlocked. Do NOT call unlock() here —
             // after fork(), unlock_slow() would try to unpark stale waiters.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
             unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
-            Ok(())
         }
 
         #[pymethod]
@@ -315,6 +318,7 @@ pub(crate) mod _thread {
 
     /// Get thread identity - uses pthread_self() on Unix for fork compatibility
     #[pyfunction]
+    #[must_use]
     pub fn get_ident() -> u64 {
         current_thread_id()
     }
@@ -379,50 +383,17 @@ pub(crate) mod _thread {
     /// Set the name of the current thread
     #[pyfunction]
     fn set_name(name: PyUtf8StrRef) {
-        #[cfg(target_os = "linux")]
-        {
-            use alloc::ffi::CString;
-            if let Ok(c_name) = CString::new(name.as_str()) {
-                // pthread_setname_np on Linux has a 16-byte limit including null terminator
-                // TODO: Potential UTF-8 boundary issue when truncating thread name on Linux.
-                // https://github.com/RustPython/RustPython/pull/6726/changes#r2689379171
-                let truncated = if c_name.as_bytes().len() > 15 {
-                    CString::new(&c_name.as_bytes()[..15]).unwrap_or(c_name)
-                } else {
-                    c_name
-                };
-                unsafe {
-                    libc::pthread_setname_np(libc::pthread_self(), truncated.as_ptr());
-                }
-            }
-        }
-        #[cfg(target_os = "macos")]
-        {
-            use alloc::ffi::CString;
-            if let Ok(c_name) = CString::new(name.as_str()) {
-                unsafe {
-                    libc::pthread_setname_np(c_name.as_ptr());
-                }
-            }
-        }
-        #[cfg(windows)]
-        {
-            // Windows doesn't have a simple pthread_setname_np equivalent
-            // SetThreadDescription requires Windows 10+
-            let _ = name;
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-        {
-            let _ = name;
-        }
+        #[cfg(any(unix, windows))]
+        host_thread::set_current_thread_name(name.as_str());
+        #[cfg(not(any(unix, windows)))]
+        let _ = name;
     }
 
     /// Get OS-level thread ID (pthread_self on Unix)
     /// This is important for fork compatibility - the ID must remain stable after fork
     #[cfg(unix)]
     fn current_thread_id() -> u64 {
-        // pthread_self() for fork compatibility
-        unsafe { libc::pthread_self() as u64 }
+        host_thread::current_thread_id()
     }
 
     #[cfg(not(unix))]
@@ -456,11 +427,13 @@ pub(crate) mod _thread {
     /// Get thread ID for a given thread handle (used by start_new_thread)
     fn thread_to_id(handle: &thread::JoinHandle<()>) -> u64 {
         #[cfg(unix)]
+        #[allow(clippy::unnecessary_cast)]
         {
             // On Unix, use pthread ID from the handle
             use std::os::unix::thread::JoinHandleExt;
             handle.as_pthread_t() as _
         }
+
         #[cfg(not(unix))]
         {
             thread_to_rust_id(handle.thread())
@@ -642,7 +615,7 @@ pub(crate) mod _thread {
     }
 
     // Registry for non-daemon threads that need to be joined at shutdown
-    pub type ShutdownEntry = (
+    pub(crate) type ShutdownEntry = (
         Weak<parking_lot::Mutex<ThreadHandleInner>>,
         Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     );
@@ -672,7 +645,7 @@ pub(crate) mod _thread {
                         let done_event = done_event_weak.upgrade()?;
                         let guard = inner.lock();
                         if guard.state != ThreadHandleState::Done && guard.ident != current_ident {
-                            Some((inner.clone(), done_event.clone()))
+                            Some((inner.clone(), done_event))
                         } else {
                             None
                         }
@@ -749,7 +722,7 @@ pub(crate) mod _thread {
     }
 
     /// Initialize the main thread ident. Should be called once at interpreter startup.
-    pub fn init_main_thread_ident(vm: &VirtualMachine) {
+    pub(crate) fn init_main_thread_ident(vm: &VirtualMachine) {
         let ident = get_ident();
         vm.state.main_thread_ident.store(ident);
     }
@@ -859,11 +832,7 @@ pub(crate) mod _thread {
         };
         let name = thread_name.unwrap_or_else(|| Wtf8Buf::from(format!("{}", get_ident())));
 
-        let _ = vm.call_method(
-            &file,
-            "write",
-            (format!("Exception in thread {}:\n", name),),
-        );
+        let _ = vm.call_method(&file, "write", (format!("Exception in thread {name}:\n"),));
 
         // Display the traceback
         if let Ok(traceback_mod) = vm.import("traceback", 0)
@@ -1026,16 +995,16 @@ pub(crate) mod _thread {
 
     // Registry of all ThreadHandles for fork cleanup
     // Stores weak references so handles can be garbage collected normally
-    pub type HandleEntry = (
+    pub(crate) type HandleEntry = (
         Weak<parking_lot::Mutex<ThreadHandleInner>>,
         Weak<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     );
 
     // Re-export type from vm::thread for PyGlobalState
-    pub use crate::vm::thread::CurrentFrameSlot;
+    pub(crate) use crate::vm::thread::CurrentFrameSlot;
 
     /// Get all threads' current (top) frames. Used by sys._current_frames().
-    pub fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
+    pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
         let registry = vm.state.thread_frames.lock();
         registry
             .iter()
@@ -1055,8 +1024,8 @@ pub(crate) mod _thread {
     ///
     /// Precondition: `reinit_locks_after_fork()` has already been called, so all
     /// parking_lot-based locks in VmState are in unlocked state.
-    #[cfg(unix)]
-    pub fn after_fork_child(vm: &VirtualMachine) {
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
+    pub(crate) fn after_fork_child(vm: &VirtualMachine) {
         let current_ident = get_ident();
 
         // Update main thread ident - after fork, the current thread becomes the main thread
@@ -1139,7 +1108,7 @@ pub(crate) mod _thread {
     }
 
     /// Reset a parking_lot::Mutex to unlocked state after fork.
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "host_env"))]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
         unsafe { rustpython_common::lock::zero_reinit_after_fork(mutex.raw()) };
     }
@@ -1456,9 +1425,7 @@ pub(crate) mod _thread {
 
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            ThreadHandle::new(vm)
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            Self::new(vm).into_ref_with_type(vm, cls).map(Into::into)
         }
     }
 

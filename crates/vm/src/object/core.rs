@@ -307,9 +307,13 @@ pub(super) struct ObjExt {
 }
 
 impl ObjExt {
-    fn new(dict: Option<PyDictRef>, member_count: usize) -> Self {
+    fn new(dict: Option<PyDictRef>, member_count: usize, has_dict: bool) -> Self {
         Self {
-            dict: dict.map(InstanceDict::new),
+            dict: if has_dict {
+                Some(InstanceDict::from_opt(dict))
+            } else {
+                None
+            },
             slots: core::iter::repeat_with(|| PyRwLock::new(None))
                 .take(member_count)
                 .collect_vec()
@@ -470,7 +474,7 @@ mod weakref_lock {
 
     /// Reset all weakref stripe locks after fork in child process.
     /// Locks held by parent threads would cause infinite spin in the child.
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "host_env"))]
     pub(crate) fn reset_all_after_fork() {
         for lock in &LOCKS {
             lock.store(0, Ordering::Release);
@@ -493,7 +497,7 @@ mod weakref_lock {
 
 /// Reset weakref stripe locks after fork. Must be called before any
 /// Python code runs in the child process.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) fn reset_weakref_locks_after_fork() {
     weakref_lock::reset_all_after_fork();
 }
@@ -544,7 +548,7 @@ unsafe fn unlink_weakref(wrl: &WeakRefList, node: NonNull<Py<PyWeak>>) {
 }
 
 impl WeakRefList {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             head: Radium::new(ptr::null_mut()),
             generic: Radium::new(ptr::null_mut()),
@@ -808,7 +812,7 @@ unsafe impl Link for WeakLink {
 #[pyclass(name = "weakref", module = false)]
 #[derive(Debug)]
 pub struct PyWeak {
-    pointers: Pointers<Py<PyWeak>>,
+    pointers: Pointers<Py<Self>>,
     /// Direct pointer to the referent object, null when dead.
     /// Equivalent to wr_object in PyWeakReference.
     wr_object: PyAtomic<*mut PyObject>,
@@ -933,8 +937,8 @@ impl Py<PyWeak> {
 }
 
 #[derive(Debug)]
-pub(super) struct InstanceDict {
-    pub(super) d: PyRwLock<PyDictRef>,
+pub(crate) struct InstanceDict {
+    pub(crate) d: PyRwLock<Option<PyDictRef>>,
 }
 
 impl From<PyDictRef> for InstanceDict {
@@ -946,31 +950,46 @@ impl From<PyDictRef> for InstanceDict {
 
 impl InstanceDict {
     #[inline]
-    pub const fn new(d: PyDictRef) -> Self {
+    pub(crate) const fn new(d: PyDictRef) -> Self {
+        Self {
+            d: PyRwLock::new(Some(d)),
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn from_opt(d: Option<PyDictRef>) -> Self {
         Self {
             d: PyRwLock::new(d),
         }
     }
 
     #[inline]
-    pub fn get(&self) -> PyDictRef {
+    pub(crate) fn get(&self) -> Option<PyDictRef> {
         self.d.read().clone()
     }
 
     #[inline]
-    pub fn set(&self, d: PyDictRef) {
+    pub(crate) fn set(&self, d: Option<PyDictRef>) {
         self.replace(d);
     }
 
     #[inline]
-    pub fn replace(&self, d: PyDictRef) -> PyDictRef {
+    pub(crate) fn replace(&self, d: Option<PyDictRef>) -> Option<PyDictRef> {
         core::mem::replace(&mut self.d.write(), d)
     }
 
-    /// Consume the InstanceDict and return the inner PyDictRef.
-    #[inline]
-    pub fn into_inner(self) -> PyDictRef {
-        self.d.into_inner()
+    pub(crate) fn get_or_insert(&self, vm: &VirtualMachine) -> PyDictRef {
+        if let Some(existing) = self.d.read().as_ref() {
+            return existing.clone();
+        }
+        let dict = vm.ctx.new_dict();
+        let mut d = self.d.write();
+        if let Some(existing) = d.as_ref() {
+            existing.clone()
+        } else {
+            *d = Some(dict.clone());
+            dict
+        }
     }
 }
 
@@ -1084,7 +1103,11 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             unsafe {
                 if let Some(offset) = ext_start {
                     let ext_ptr = alloc_ptr.add(offset) as *mut ObjExt;
-                    ext_ptr.write(ObjExt::new(dict, member_count));
+                    let has_dict = typ
+                        .slots
+                        .flags
+                        .has_feature(crate::types::PyTypeFlags::HAS_DICT);
+                    ext_ptr.write(ObjExt::new(dict, member_count, has_dict));
                 }
 
                 if let Some(offset) = weakref_start {
@@ -1268,6 +1291,7 @@ impl PyObject {
 
 impl PyObjectRef {
     #[inline(always)]
+    #[must_use]
     pub const fn into_raw(self) -> NonNull<PyObject> {
         let ptr = self.ptr;
         core::mem::forget(self);
@@ -1280,6 +1304,7 @@ impl PyObjectRef {
     /// dropped more than once due to mishandling the reference count by calling this function
     /// too many times.
     #[inline(always)]
+    #[must_use]
     pub const unsafe fn from_raw(ptr: NonNull<PyObject>) -> Self {
         Self { ptr }
     }
@@ -1307,6 +1332,7 @@ impl PyObjectRef {
     /// # Safety
     /// T must be the exact payload type
     #[inline(always)]
+    #[must_use]
     pub unsafe fn downcast_unchecked<T>(self) -> PyRef<T> {
         // PyRef::from_obj_unchecked(self)
         // manual impl to avoid assertion
@@ -1350,7 +1376,7 @@ impl PyObject {
     /// Returns the first weakref in the weakref list, if any.
     pub(crate) fn get_weakrefs(&self) -> Option<PyObjectRef> {
         let wrl = self.weak_ref_list()?;
-        let _lock = weakref_lock::lock(self as *const PyObject as usize);
+        let _lock = weakref_lock::lock(self as *const Self as usize);
         let head_ptr = wrl.head.load(Ordering::Relaxed);
         if head_ptr.is_null() {
             None
@@ -1476,18 +1502,18 @@ impl PyObject {
     }
 
     #[inline(always)]
-    fn instance_dict(&self) -> Option<&InstanceDict> {
+    pub(crate) fn instance_dict(&self) -> Option<&InstanceDict> {
         self.0.ext_ref().and_then(|ext| ext.dict.as_ref())
     }
 
     #[inline(always)]
     pub fn dict(&self) -> Option<PyDictRef> {
-        self.instance_dict().map(|d| d.get())
+        self.instance_dict().and_then(|d| d.get())
     }
 
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
-    pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
+    pub fn set_dict(&self, dict: Option<PyDictRef>) -> Result<(), Option<PyDictRef>> {
         match self.instance_dict() {
             Some(d) => {
                 d.set(dict);
@@ -1708,7 +1734,7 @@ impl PyObject {
     /// Uses the full traverse including dict and slots.
     pub fn gc_get_referents(&self) -> Vec<PyObjectRef> {
         let mut result = Vec::new();
-        self.0.traverse(&mut |child: &PyObject| {
+        self.0.traverse(&mut |child: &Self| {
             result.push(child.to_owned());
         });
         result
@@ -1756,10 +1782,10 @@ impl PyObject {
     /// # Safety
     /// The returned pointers are only valid as long as the object is alive
     /// and its contents haven't been modified.
-    pub unsafe fn gc_get_referent_ptrs(&self) -> Vec<NonNull<PyObject>> {
+    pub unsafe fn gc_get_referent_ptrs(&self) -> Vec<NonNull<Self>> {
         let mut result = Vec::new();
         // Traverse the entire object including dict and slots
-        self.0.traverse(&mut |child: &PyObject| {
+        self.0.traverse(&mut |child: &Self| {
             result.push(NonNull::from(child));
         });
         result
@@ -1773,7 +1799,7 @@ impl PyObject {
     /// - ptr must be a valid pointer to a PyObject
     /// - The caller must have exclusive access (no other references exist)
     /// - This is only safe during GC when the object is unreachable
-    pub unsafe fn gc_clear_raw(ptr: *mut PyObject) -> Vec<PyObjectRef> {
+    pub unsafe fn gc_clear_raw(ptr: *mut Self) -> Vec<PyObjectRef> {
         let mut result = Vec::new();
         let obj = unsafe { &*ptr };
 
@@ -1799,12 +1825,10 @@ impl PyObject {
             let ext_ptr =
                 core::ptr::with_exposed_provenance_mut::<ObjExt>(self_addr.wrapping_sub(offset));
             let ext = unsafe { &mut *ext_ptr };
-            if let Some(old_dict) = ext.dict.take() {
-                // Get the dict ref before dropping InstanceDict
-                let dict_ref = old_dict.into_inner();
+            if let Some(dict_ref) = ext.dict.as_ref().and_then(|d| d.replace(None)) {
                 result.push(dict_ref.into());
             }
-            for slot in ext.slots.iter() {
+            for slot in &ext.slots {
                 if let Some(val) = slot.write().take() {
                     result.push(val);
                 }
@@ -1825,7 +1849,7 @@ impl PyObject {
         // SAFETY: During GC collection, this object is unreachable (gc_refs == 0),
         // meaning no other code has a reference to it. The only references are
         // internal cycle references which we're about to break.
-        unsafe { Self::gc_clear_raw(self as *const _ as *mut PyObject) }
+        unsafe { Self::gc_clear_raw(self as *const _ as *mut Self) }
     }
 
     /// Check if this object has clear capability (tp_clear)
@@ -1905,6 +1929,7 @@ impl PyStackRef {
     /// Create an owned stack reference, consuming the `PyObjectRef`.
     /// Refcount is NOT incremented — ownership is transferred.
     #[inline(always)]
+    #[must_use]
     pub fn new_owned(obj: PyObjectRef) -> Self {
         let ptr = obj.into_raw();
         let bits = ptr.as_ptr() as usize;
@@ -1936,12 +1961,14 @@ impl PyStackRef {
 
     /// Whether this is a borrowed (non-owning) reference.
     #[inline(always)]
+    #[must_use]
     pub fn is_borrowed(&self) -> bool {
         self.bits.get() & STACKREF_BORROW_TAG != 0
     }
 
     /// Get a `&PyObject` reference.  Works for both owned and borrowed.
     #[inline(always)]
+    #[must_use]
     pub fn as_object(&self) -> &PyObject {
         unsafe { &*((self.bits.get() & !STACKREF_BORROW_TAG) as *const PyObject) }
     }
@@ -1951,6 +1978,7 @@ impl PyStackRef {
     /// * If **borrowed** → increments refcount, forgets self.
     /// * If **owned** → reconstructs `PyObjectRef` from the raw pointer, forgets self.
     #[inline(always)]
+    #[must_use]
     pub fn to_pyobj(self) -> PyObjectRef {
         let obj = if self.is_borrowed() {
             self.as_object().to_owned() // inc refcount
@@ -2192,6 +2220,7 @@ impl<T: PyPayload> PyRef<T> {
         }
     }
 
+    #[must_use]
     pub const fn leak(pyref: Self) -> &'static Py<T> {
         let ptr = pyref.ptr;
         core::mem::forget(pyref);
@@ -2260,6 +2289,7 @@ where
     /// # Safety
     /// T and T::Base must have compatible layouts in size_of::<T::Base>() bytes.
     #[inline]
+    #[must_use]
     pub fn into_base(self) -> PyRef<T::Base> {
         let obj: PyObjectRef = self.into();
         match obj.downcast() {
@@ -2268,6 +2298,7 @@ where
         }
     }
     #[inline]
+    #[must_use]
     pub fn upcast<U: PyPayload + StaticType>(self) -> PyRef<U>
     where
         T: StaticType,
@@ -2288,7 +2319,7 @@ impl<T: crate::class::PySubclass> Py<T> {
         debug_assert!(self.as_object().downcast_ref::<T::Base>().is_some());
         // SAFETY: T is #[repr(transparent)] over T::Base,
         // so Py<T> and Py<T::Base> have the same layout.
-        unsafe { &*(self as *const Py<T> as *const Py<T::Base>) }
+        unsafe { &*(self as *const Self as *const Py<T::Base>) }
     }
 
     /// Converts `&Py<T>` to `&Py<U>` where U is an ancestor type.
@@ -2299,7 +2330,7 @@ impl<T: crate::class::PySubclass> Py<T> {
     {
         debug_assert!(T::static_type().is_subtype(U::static_type()));
         // SAFETY: T is a subtype of U, so Py<T> can be viewed as Py<U>.
-        unsafe { &*(self as *const Py<T> as *const Py<U>) }
+        unsafe { &*(self as *const Self as *const Py<U>) }
     }
 }
 
@@ -2383,6 +2414,7 @@ pub struct PyWeakRef<T: PyPayload> {
 }
 
 impl<T: PyPayload> PyWeakRef<T> {
+    #[must_use]
     pub fn upgrade(&self) -> Option<PyRef<T>> {
         self.weak
             .upgrade()
@@ -2471,7 +2503,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
 
             unsafe {
                 let ext_ptr = alloc_ptr as *mut ObjExt;
-                ext_ptr.write(ObjExt::new(None, 0));
+                ext_ptr.write(ObjExt::new(None, 0, true));
 
                 let weakref_ptr = alloc_ptr.add(weakref_offset) as *mut WeakRefList;
                 weakref_ptr.write(WeakRefList::new());

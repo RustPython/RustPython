@@ -67,6 +67,7 @@ pub struct GcGeneration {
 }
 
 impl GcGeneration {
+    #[must_use]
     pub const fn new(threshold: u32) -> Self {
         Self {
             count: AtomicUsize::new(0),
@@ -174,6 +175,7 @@ impl Default for GcState {
 }
 
 impl GcState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             generations: [
@@ -697,7 +699,7 @@ impl GcState {
 
         if debug.contains(GcDebugFlags::SAVEALL) {
             let mut garbage_guard = self.garbage.lock();
-            for obj_ref in truly_dead.iter() {
+            for obj_ref in &truly_dead {
                 garbage_guard.push(obj_ref.clone());
             }
         }
@@ -706,7 +708,7 @@ impl GcState {
             // Break cycles by clearing references (tp_clear)
             // Use deferred drop context to prevent stack overflow.
             rustpython_common::refcount::with_deferred_drops(|| {
-                for obj_ref in truly_dead.iter() {
+                for obj_ref in &truly_dead {
                     if obj_ref.gc_has_clear() {
                         let edges = unsafe { obj_ref.gc_clear() };
                         drop(edges);

@@ -392,15 +392,6 @@ fn print_source_line<W: Write>(
     Ok(())
 }
 
-#[cfg(not(feature = "host_env"))]
-fn print_source_line<W: Write>(
-    _output: &mut W,
-    _filename: &str,
-    _lineno: usize,
-) -> Result<(), W::Error> {
-    Ok(())
-}
-
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(
     output: &mut W,
@@ -414,6 +405,8 @@ fn write_traceback_entry<W: Write>(
         tb_entry.lineno,
         tb_entry.frame.code.obj_name
     )?;
+
+    #[cfg(feature = "host_env")]
     print_source_line(output, filename, tb_entry.lineno.get())?;
 
     Ok(())
@@ -674,22 +667,22 @@ impl PyBaseException {
 #[pyclass]
 impl Py<PyBaseException> {
     #[pymethod]
-    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = vm.exception_args_as_string(self.args(), true);
-        Ok(match str_args.into_iter().exactly_one() {
+        match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => vm.ctx.empty_str.to_owned(),
             Ok(s) => s,
             Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(&vm.ctx),
-        })
+        }
     }
 }
 
 #[pyclass]
 impl PyRef<PyBaseException> {
     #[pymethod]
-    fn with_traceback(self, tb: Option<PyTracebackRef>) -> PyResult<Self> {
+    fn with_traceback(self, tb: Option<PyTracebackRef>) -> Self {
         *self.traceback.write() = tb;
-        Ok(self)
+        self
     }
 
     #[pymethod]
@@ -1092,11 +1085,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObject
     move |exc| exc.get_arg(idx)
 }
 
-fn syntax_error_set_msg(
-    exc: PyBaseExceptionRef,
-    value: PySetterValue,
-    vm: &VirtualMachine,
-) -> PyResult<()> {
+fn syntax_error_set_msg(exc: PyBaseExceptionRef, value: PySetterValue, vm: &VirtualMachine) {
     let mut args = exc.args.write();
     let mut new_args = args.as_slice().to_vec();
     // Ensure the message slot at index 0 always exists for SyntaxError.args.
@@ -1108,7 +1097,6 @@ fn syntax_error_set_msg(
         PySetterValue::Delete => new_args[0] = vm.ctx.none(),
     }
     *args = PyTuple::new_ref(new_args, &vm.ctx);
-    Ok(())
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
@@ -1117,11 +1105,11 @@ fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
     // - size == 1: code is args[0]
     // - size > 1: code is args (the whole tuple)
     let args = exc.args.read();
-    match args.len() {
-        0 => None,
-        1 => Some(args.first().unwrap().clone()),
-        _ => Some(args.as_object().to_owned()),
-    }
+    Some(match args.len() {
+        0 => return None,
+        1 => args.first().unwrap().clone(),
+        _ => args.as_object().to_owned(),
+    })
 }
 
 #[cfg(feature = "serde")]
@@ -1283,7 +1271,7 @@ pub(crate) struct OSErrorBuilder {
 
 impl OSErrorBuilder {
     #[must_use]
-    pub fn with_subtype(
+    pub(crate) fn with_subtype(
         exc_type: PyTypeRef,
         errno: Option<i32>,
         strerror: impl ToPyObject,
@@ -1302,7 +1290,7 @@ impl OSErrorBuilder {
     }
 
     #[must_use]
-    pub fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
+    pub(crate) fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
         let exc_type = errno_to_exc_type(errno, vm)
             .unwrap_or(vm.ctx.exceptions.os_error)
             .to_owned();
@@ -1340,10 +1328,10 @@ impl OSErrorBuilder {
         self
     }
 
-    pub fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
+    pub(crate) fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
         use types::PyOSError;
 
-        let OSErrorBuilder {
+        let Self {
             exc_type,
             errno,
             strerror,
@@ -1354,10 +1342,10 @@ impl OSErrorBuilder {
         } = self;
 
         let args = if let Some(errno) = errno {
-            #[cfg(windows)]
-            let winerror = winerror.to_pyobject(vm);
-            #[cfg(not(windows))]
-            let winerror = vm.ctx.none();
+            let winerror = cfg_select! {
+                windows => winerror.to_pyobject(vm),
+                _ => vm.ctx.none(),
+            };
 
             vec![
                 errno.to_pyobject(vm),
@@ -1442,13 +1430,6 @@ impl ToPyException for std::io::Error {
 impl IntoPyException for std::io::Error {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.to_pyexception(vm)
-    }
-}
-
-#[cfg(unix)]
-impl IntoPyException for nix::Error {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        std::io::Error::from(self).into_pyexception(vm)
     }
 }
 
@@ -1613,7 +1594,7 @@ pub(super) mod types {
             }
 
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            let base_args = FuncArgs::new(args.args, KwArgs::default());
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set attributes
@@ -1712,16 +1693,16 @@ pub(super) mod types {
     #[pyexception]
     impl PyKeyError {
         #[pymethod]
-        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
             let args = zelf.args();
-            Ok(if args.len() == 1 {
+            if args.len() == 1 {
                 vm.exception_args_as_string(args, false)
                     .into_iter()
                     .exactly_one()
                     .unwrap()
             } else {
-                zelf.__str__(vm)?
-            })
+                zelf.__str__(vm)
+            }
         }
     }
 
@@ -1754,7 +1735,7 @@ pub(super) mod types {
             }
 
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            let base_args = FuncArgs::new(args.args, KwArgs::default());
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set name attribute if provided
@@ -1901,7 +1882,7 @@ pub(super) mod types {
             // SAFETY: All OSError subclasses (FileNotFoundError, etc.) are
             // #[repr(transparent)] wrappers around PyOSError with identical memory layout
             #[allow(deprecated)]
-            let exc: &Py<PyOSError> = zelf.downcast_ref::<PyOSError>().unwrap();
+            let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
 
             // Check if this is BlockingIOError - need to handle characters_written
             let is_blocking_io_error =
@@ -1960,7 +1941,11 @@ pub(super) mod types {
 
             // args are truncated to 2 for compatibility (only when 2-5 args and filename is not None)
             // truncation happens inside "if (filename && filename != Py_None)" block
-            let has_filename = exc.filename.to_owned().filter(|f| !vm.is_none(f)).is_some();
+            let has_filename = exc
+                .filename
+                .to_owned()
+                .as_ref()
+                .is_some_and(|f| !vm.is_none(f));
             if (3..=5).contains(&len) && has_filename {
                 new_args.args.truncate(2);
             }
@@ -1998,8 +1983,8 @@ pub(super) mod types {
                         .as_ref()
                         .map(|s| s.str(vm))
                         .transpose()?
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "None".to_owned());
+                        .map_or_else(|| "None".to_owned(), |s| s.to_string());
+
                     if let Some(ref f2) = filename2 {
                         return Ok(vm.ctx.new_str(format!(
                             "[WinError {}] {}: {} -> {}",
@@ -2030,14 +2015,12 @@ pub(super) mod types {
                     .as_ref()
                     .map(|e| e.str(vm))
                     .transpose()?
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "None".to_owned());
+                    .map_or_else(|| "None".to_owned(), |s| s.to_string());
                 let msg = strerror
                     .as_ref()
                     .map(|s| s.str(vm))
                     .transpose()?
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "None".to_owned());
+                    .map_or_else(|| "None".to_owned(), |s| s.to_string());
                 if let Some(ref f2) = filename2 {
                     return Ok(vm.ctx.new_str(format!(
                         "[Errno {}] {}: {} -> {}",
@@ -2063,7 +2046,7 @@ pub(super) mod types {
             }
 
             // fallback to BaseException.__str__
-            zelf.__str__(vm)
+            Ok(zelf.__str__(vm))
         }
 
         #[pymethod]
@@ -2085,21 +2068,19 @@ pub(super) mod types {
                             .get_attr("filename2", vm)
                             .ok()
                             .filter(|f| !vm.is_none(f));
-                        #[cfg(windows)]
-                        let winerror = obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w));
+
+                        let winerror: Option<PyObjectRef> = cfg_select! {
+                            windows => obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w)),
+                            _ => None,
+                        };
 
                         if let Some(filename2) = filename2 {
-                            #[cfg(windows)]
-                            {
-                                args_reduced.push(winerror.unwrap_or_else(|| vm.ctx.none()));
-                            }
-                            #[cfg(not(windows))]
-                            args_reduced.push(vm.ctx.none());
-                            args_reduced.push(filename2);
+                            #[allow(clippy::unnecessary_literal_unwrap)]
+                            let winerror = winerror.unwrap_or_else(|| vm.ctx.none());
+                            args_reduced.extend([winerror, filename2]);
                         } else {
                             // Diverges from CPython: include winerror even without
                             // filename2 so it survives pickle round-trips.
-                            #[cfg(windows)]
                             if let Some(winerror) = winerror {
                                 args_reduced.push(winerror);
                             }
@@ -2334,7 +2315,7 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PySyntaxError {
         #[pymethod]
-        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
             fn basename(filename: &Wtf8) -> &Wtf8 {
                 let bytes = filename.as_bytes();
                 let pos = if cfg!(windows) {
@@ -2387,7 +2368,7 @@ pub(super) mod types {
                 (None, None) => msg.as_wtf8().to_owned(),
             };
 
-            Ok(vm.ctx.new_str(msg_with_location_info))
+            vm.ctx.new_str(msg_with_location_info)
         }
     }
 
@@ -2416,8 +2397,7 @@ pub(super) mod types {
                     }
                     _ => {
                         return Err(vm.new_type_error(format!(
-                            "function takes exactly 4 or 6 arguments ({} given)",
-                            location_tup_len
+                            "function takes exactly 4 or 6 arguments ({location_tup_len} given)"
                         )));
                     }
                 }

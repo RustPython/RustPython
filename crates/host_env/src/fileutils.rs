@@ -352,6 +352,7 @@ pub mod windows {
         }
     }
 
+    #[must_use]
     pub fn stat_basic_info_to_stat(info: &FILE_STAT_BASIC_INFORMATION) -> StatStruct {
         use windows_sys::Win32::Storage::FileSystem;
         use windows_sys::Win32::System::Ioctl;
@@ -453,7 +454,7 @@ pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::F
     if mode != "rb" {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("unsupported mode: {}", mode),
+            format!("unsupported mode: {mode}"),
         ));
     }
 

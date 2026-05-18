@@ -254,6 +254,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     }
 }
 
+#[must_use]
 pub fn syntax_err(err: CompileError) -> SyntaxError {
     let js_err = SyntaxError::new(&format!("Error parsing Python code: {err}"));
     let _ = Reflect::set(
@@ -270,8 +271,9 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
     let can_continue = matches!(
         &err,
         CompileError::Parse(ParseError {
-            error: ParseErrorType::Lexical(LexicalErrorType::Eof)
-                | ParseErrorType::Lexical(LexicalErrorType::IndentationError),
+            error: ParseErrorType::Lexical(
+                LexicalErrorType::Eof | LexicalErrorType::IndentationError
+            ),
             ..
         })
     );

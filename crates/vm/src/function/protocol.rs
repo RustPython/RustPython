@@ -124,21 +124,25 @@ pub struct ArgMapping {
 
 impl ArgMapping {
     #[inline]
+    #[must_use]
     pub const fn new(obj: PyObjectRef) -> Self {
         Self { obj }
     }
 
     #[inline(always)]
+    #[must_use]
     pub fn from_dict_exact(dict: PyDictRef) -> Self {
         Self { obj: dict.into() }
     }
 
     #[inline(always)]
+    #[must_use]
     pub fn obj(&self) -> &PyObject {
         &self.obj
     }
 
     #[inline(always)]
+    #[must_use]
     pub fn mapping(&self) -> PyMapping<'_> {
         self.obj.mapping_unchecked()
     }
@@ -191,10 +195,12 @@ unsafe impl<T: Traverse> Traverse for ArgSequence<T> {
 
 impl<T> ArgSequence<T> {
     #[inline(always)]
+    #[must_use]
     pub fn into_vec(self) -> Vec<T> {
         self.0
     }
     #[inline(always)]
+    #[must_use]
     pub fn as_slice(&self) -> &[T] {
         &self.0
     }

@@ -457,7 +457,7 @@ mod _sqlite3 {
                 let db = context.db_handle();
                 let args = args
                     .iter()
-                    .cloned()
+                    .copied()
                     .map(|val| value_to_object(val, db, vm))
                     .collect::<PyResult<Vec<PyObjectRef>>>()?;
 
@@ -654,7 +654,7 @@ mod _sqlite3 {
                 let db = context.db_handle();
                 let args = args
                     .iter()
-                    .cloned()
+                    .copied()
                     .map(|val| value_to_object(val, db, vm))
                     .collect::<PyResult<Vec<PyObjectRef>>>()?;
                 vm.call_method(instance, name, args).map(drop)
@@ -680,7 +680,9 @@ mod _sqlite3 {
 
     impl Drop for CallbackData {
         fn drop(&mut self) {
-            unsafe { PyObjectRef::from_raw(self.obj) };
+            unsafe {
+                let _ = PyObjectRef::from_raw(self.obj);
+            };
         }
     }
 
@@ -895,11 +897,11 @@ mod _sqlite3 {
 
             // For non-subclassed Connection, initialize in __new__
             // For subclassed Connection, leave db as None and require __init__ to be called
-            let is_base_class = cls.is(Connection::class(&vm.ctx));
+            let is_base_class = cls.is(Self::class(&vm.ctx));
 
             let db = if is_base_class {
                 // Initialize immediately for base class
-                Some(Connection::initialize_db(&args, vm)?)
+                Some(Self::initialize_db(&args, vm)?)
             } else {
                 // For subclasses, require __init__ to be called
                 None
@@ -1734,8 +1736,7 @@ mod _sqlite3 {
                 st.bind_parameters(&parameters, vm)?;
             } else if params_needed > 0 {
                 let msg = format!(
-                    "Incorrect number of bindings supplied. The current statement uses {}, and 0 were supplied.",
-                    params_needed
+                    "Incorrect number of bindings supplied. The current statement uses {params_needed}, and 0 were supplied."
                 );
                 return Err(new_programming_error(vm, msg));
             }
@@ -1902,7 +1903,7 @@ mod _sqlite3 {
             let mut list = vec![];
             let mut remaining = max_rows;
             while remaining > 0 {
-                match Cursor::next(zelf, vm)? {
+                match Self::next(zelf, vm)? {
                     PyIterReturn::Return(row) => {
                         list.push(row);
                         remaining -= 1;
@@ -1944,6 +1945,7 @@ mod _sqlite3 {
 
         #[pymethod]
         fn setinputsizes(&self, _sizes: PyObjectRef) {}
+
         #[pymethod]
         fn setoutputsize(&self, _size: PyObjectRef, _column: OptionalArg<PyObjectRef>) {}
 
@@ -2209,12 +2211,11 @@ mod _sqlite3 {
     )]
     impl Row {
         #[pymethod]
-        fn keys(&self, _vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            Ok(self
-                .description
+        fn keys(&self, _vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            self.description
                 .iter()
                 .map(|x| x.downcast_ref::<PyTuple>().unwrap().as_slice()[0].clone())
-                .collect())
+                .collect()
         }
 
         fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -3033,7 +3034,7 @@ mod _sqlite3 {
 
     impl From<*mut sqlite3_stmt> for SqliteStatementRaw {
         fn from(st: *mut sqlite3_stmt) -> Self {
-            SqliteStatementRaw { st }
+            Self { st }
         }
     }
 
@@ -3174,8 +3175,7 @@ mod _sqlite3 {
                 return Err(new_programming_error(
                     vm,
                     format!(
-                        "Incorrect number of bindings supplied. The current statement uses {}, and {} were supplied.",
-                        num_needed, num_supplied
+                        "Incorrect number of bindings supplied. The current statement uses {num_needed}, and {num_supplied} were supplied."
                     ),
                 ));
             }

@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyModule, PyStr, PyStrRef, PyTuple,
-    PyTupleRef, PyType,
+    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr, PyStrRef,
+    PyTuple, PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -192,15 +192,14 @@ impl PyFunction {
             code.code
                 .constants
                 .first()
-                .map(|c| c.as_object().to_owned())
-                .unwrap_or_else(|| vm.ctx.none())
+                .map_or_else(|| vm.ctx.none(), |c| c.as_object().to_owned())
         } else {
             vm.ctx.none()
         };
 
         let qualname = vm.ctx.new_str(code.qualname.as_str());
         let func = Self {
-            code: PyAtomicRef::from(code.clone()),
+            code: PyAtomicRef::from(code),
             globals,
             builtins,
             closure: None,
@@ -269,7 +268,7 @@ impl PyFunction {
                     .map_or(0, |d| d.len());
                 let n_required = n_expected_args - n_defaults;
                 let takes_msg = if n_defaults > 0 {
-                    format!("from {} to {}", n_required, n_expected_args)
+                    format!("from {n_required} to {n_expected_args}")
                 } else {
                     n_expected_args.to_string()
                 };
@@ -493,7 +492,6 @@ impl PyFunction {
             }
             bytecode::MakeFunctionFlag::Closure => {
                 let closure_tuple = attr_value
-                    .clone()
                     .downcast_exact::<PyTuple>(vm)
                     .map_err(|obj| {
                         vm.new_type_error(format!(
@@ -701,7 +699,7 @@ impl Py<PyFunction> {
         };
 
         let frame = Frame::new(
-            code.clone(),
+            code,
             Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
@@ -788,7 +786,17 @@ impl PyFunction {
     }
 
     #[pygetset(setter)]
-    fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) {
+    fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) -> PyResult<()> {
+        let n_free = code.freevars.len();
+        let n_closure = self.closure.as_ref().map_or(0, |c| c.len());
+        if n_closure != n_free {
+            return Err(vm.new_value_error(format!(
+                "{}() requires a code object with {} free vars, not {}",
+                self.qualname.lock(),
+                n_closure,
+                n_free,
+            )));
+        }
         #[cfg(feature = "jit")]
         let mut jit_guard = self.jitted_code.lock();
         self.code.swap_to_temporary_refs(code, vm);
@@ -797,6 +805,7 @@ impl PyFunction {
             *jit_guard = None;
         }
         self.func_version.store(0, Relaxed);
+        Ok(())
     }
 
     #[pygetset]
@@ -804,8 +813,11 @@ impl PyFunction {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
     #[pygetset(setter)]
-    fn set___defaults__(&self, defaults: Option<PyTupleRef>) {
-        self.defaults_and_kwdefaults.lock().0 = defaults;
+    fn set___defaults__(&self, defaults: PySetterValue<Option<PyTupleRef>>) {
+        self.defaults_and_kwdefaults.lock().0 = match defaults {
+            PySetterValue::Assign(d) => d,
+            PySetterValue::Delete => None,
+        };
         self.func_version.store(0, Relaxed);
     }
 
@@ -814,8 +826,11 @@ impl PyFunction {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
     #[pygetset(setter)]
-    fn set___kwdefaults__(&self, kwdefaults: Option<PyDictRef>) {
-        self.defaults_and_kwdefaults.lock().1 = kwdefaults;
+    fn set___kwdefaults__(&self, kwdefaults: PySetterValue<Option<PyDictRef>>) {
+        self.defaults_and_kwdefaults.lock().1 = match kwdefaults {
+            PySetterValue::Assign(d) => d,
+            PySetterValue::Delete => None,
+        };
         self.func_version.store(0, Relaxed);
     }
 
@@ -852,6 +867,7 @@ impl PyFunction {
         *self.name.lock() = name;
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember]
     fn __doc__(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
         // When accessed from instance, obj is the PyFunction instance
@@ -864,6 +880,7 @@ impl PyFunction {
         }
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(setter)]
     fn set___doc__(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
         let zelf: PyRef<Self> = zelf.downcast().unwrap_or_else(|_| unreachable!());
@@ -952,6 +969,16 @@ impl PyFunction {
             }
         }
         Ok(())
+    }
+
+    #[pygetset]
+    fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        object::object_get_dict(zelf.as_object().to_owned(), vm)
+    }
+
+    #[pygetset(setter)]
+    fn set___dict__(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        object::object_generic_set_dict(zelf.as_object().to_owned(), value, vm)
     }
 
     #[pygetset]
@@ -1235,6 +1262,7 @@ impl Constructor for PyBoundMethod {
 }
 
 impl PyBoundMethod {
+    #[must_use]
     pub const fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
         Self { object, function }
     }
@@ -1298,6 +1326,39 @@ impl PyBoundMethod {
     fn __module__(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.function.get_attr("__module__", vm).ok()
     }
+
+    #[pymethod]
+    fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyList> {
+        let func_dir = vm.dir(Some(self.function.clone()))?;
+
+        let bound_only = [
+            "__self__",
+            "__func__",
+            "__doc__",
+            "__module__",
+            "__call__",
+            "__get__",
+            "__repr__",
+        ];
+
+        let mut seen = std::collections::HashSet::new();
+        let mut result: Vec<PyObjectRef> = Vec::new();
+
+        for item in func_dir.borrow_vec().iter() {
+            if let Ok(s) = item.clone().downcast::<PyStr>() {
+                seen.insert(s.as_wtf8().to_string());
+            }
+            result.push(item.clone());
+        }
+
+        for name in bound_only {
+            if seen.insert(name.to_owned()) {
+                result.push(vm.ctx.new_str(name).into());
+            }
+        }
+
+        Ok(PyList::from(result))
+    }
 }
 
 impl PyPayload for PyBoundMethod {
@@ -1319,7 +1380,9 @@ impl Representable for PyBoundMethod {
         };
         let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
         let object_repr = zelf.object.repr(vm)?;
-        let name = func_name.as_ref().map_or("?".as_ref(), |s| s.as_wtf8());
+        let name = func_name
+            .as_ref()
+            .map_or_else(|| "?".as_ref(), |s| s.as_wtf8());
         Ok(wtf8_concat!(
             "<bound method ",
             name,
@@ -1354,16 +1417,16 @@ impl Constructor for PyCell {
 
 #[pyclass(with(Constructor))]
 impl PyCell {
-    pub const fn new(contents: Option<PyObjectRef>) -> Self {
+    pub(crate) const fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
         }
     }
 
-    pub fn get(&self) -> Option<PyObjectRef> {
+    pub(crate) fn get(&self) -> Option<PyObjectRef> {
         self.contents.lock().clone()
     }
-    pub fn set(&self, x: Option<PyObjectRef>) {
+    pub(crate) fn set(&self, x: Option<PyObjectRef>) {
         *self.contents.lock() = x;
     }
 
@@ -1445,7 +1508,7 @@ fn vectorcall_bound_method(
     zelf.function.vectorcall(args, new_nargs, kwnames, vm)
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyFunction::extend_class(context, context.types.function_type);
     context
         .types

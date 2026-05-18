@@ -276,7 +276,7 @@ fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
     )))
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     let super_type = &context.types.super_type;
     PySuper::extend_class(context, super_type);
 

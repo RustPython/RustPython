@@ -306,7 +306,7 @@ pub(crate) fn is_possibly_shadowing_path(origin: &str, vm: &VirtualMachine) -> b
     };
     // For packages (__init__.py), look one directory further up
     let root = if origin_path.file_name() == Some("__init__.py".as_ref()) {
-        parent.parent().unwrap_or(Path::new(""))
+        parent.parent().unwrap_or_else(|| Path::new(""))
     } else {
         parent
     };
@@ -390,10 +390,10 @@ pub(crate) fn import_module_level(
             if level == 0 {
                 let sys_modules = vm.sys_module.get_attr("modules", vm)?;
                 return sys_modules.get_item(name, vm).map_err(|_| {
-                    vm.new_import_error(format!("No module named '{}'", name), name.to_owned())
+                    vm.new_import_error(format!("No module named '{name}'"), name.to_owned())
                 });
             }
-            return Err(vm.new_import_error(format!("No module named '{}'", name), name.to_owned()));
+            return Err(vm.new_import_error(format!("No module named '{name}'"), name.to_owned()));
         }
     };
 

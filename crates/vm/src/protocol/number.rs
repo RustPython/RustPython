@@ -180,6 +180,7 @@ impl PyNumberMethods {
         inplace_matrix_multiply: None,
     };
 
+    #[must_use]
     pub fn not_implemented() -> &'static Self {
         static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
         &GLOBAL_NOT_IMPLEMENTED
@@ -267,8 +268,8 @@ impl PyNumberTernaryOp {
         vm: &VirtualMachine,
     ) -> Option<&'static crate::builtins::PyStrInterned> {
         Some(match self {
-            PyNumberTernaryOp::Power => identifier!(vm, __rpow__),
-            PyNumberTernaryOp::InplacePower => return None,
+            Self::Power => identifier!(vm, __rpow__),
+            Self::InplacePower => return None,
         })
     }
 }
@@ -612,6 +613,7 @@ impl<'a> PyNumber<'a> {
 
 impl PyNumber<'_> {
     // PyIndex_Check
+    #[must_use]
     pub fn is_index(self) -> bool {
         self.class().slots.as_number.index.load().is_some()
     }

@@ -14,7 +14,7 @@ use rustpython_literal::{float, format::Case};
 
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CFormatErrorType {
     UnmatchedKeyParentheses,
     MissingModuloSign,
@@ -27,7 +27,7 @@ pub enum CFormatErrorType {
 // also contains how many chars the parsing function consumed
 pub type ParsingError = (CFormatErrorType, usize);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CFormatError {
     pub typ: CFormatErrorType, // FIXME
     pub index: usize,
@@ -54,7 +54,7 @@ impl fmt::Display for CFormatError {
 
 pub type CFormatConversion = super::format::FormatConversion;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CNumberType {
     DecimalD = b'd',
@@ -65,7 +65,7 @@ pub enum CNumberType {
     HexUpper = b'X',
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CFloatType {
     ExponentLower = b'e',
@@ -87,13 +87,13 @@ impl CFloatType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CCharacterType {
     Character = b'c',
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CFormatType {
     Number(CNumberType),
     Float(CFloatType),
@@ -102,6 +102,7 @@ pub enum CFormatType {
 }
 
 impl CFormatType {
+    #[must_use]
     pub const fn to_char(self) -> char {
         match self {
             Self::Number(x) => x as u8 as char,
@@ -112,7 +113,7 @@ impl CFormatType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CFormatPrecision {
     Quantity(CFormatQuantity),
     Dot,
@@ -125,7 +126,7 @@ impl From<CFormatQuantity> for CFormatPrecision {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct CConversionFlags: u32 {
         const ALTERNATE_FORM = 0b0000_0001;
         const ZERO_PAD = 0b0000_0010;
@@ -137,6 +138,7 @@ bitflags! {
 
 impl CConversionFlags {
     #[inline]
+    #[must_use]
     pub const fn sign_string(&self) -> &'static str {
         if self.contains(Self::SIGN_CHAR) {
             "+"
@@ -148,7 +150,7 @@ impl CConversionFlags {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CFormatQuantity {
     Amount(usize),
     FromValuesTuple,
@@ -252,7 +254,7 @@ impl FormatChar for u8 {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CFormatSpec {
     pub flags: CConversionFlags,
     pub min_field_width: Option<CFormatQuantity>,
@@ -261,7 +263,7 @@ pub struct CFormatSpec {
     // chars_consumed: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CFormatSpecKeyed<T> {
     pub mapping_key: Option<T>,
     pub spec: CFormatSpec,
@@ -408,6 +410,7 @@ impl CFormatSpec {
         )
     }
 
+    #[must_use]
     pub fn format_bytes(&self, bytes: &[u8]) -> Vec<u8> {
         let bytes = if let Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(precision))) =
             self.precision
@@ -432,6 +435,7 @@ impl CFormatSpec {
         }
     }
 
+    #[must_use]
     pub fn format_number(&self, num: &BigInt) -> String {
         use CNumberType::*;
         let CFormatType::Number(format_type) = self.format_type else {
@@ -492,6 +496,7 @@ impl CFormatSpec {
         }
     }
 
+    #[must_use]
     pub fn format_float(&self, num: f64) -> String {
         let sign_string = if num.is_sign_negative() && !num.is_nan() {
             "-"
@@ -615,7 +620,7 @@ where
     let (index, c) = iter.next().ok_or_else(|| {
         (
             CFormatErrorType::IncompleteFormat,
-            iter.peek().map(|x| x.0).unwrap_or(0),
+            iter.peek().map_or(0, |x| x.0),
         )
     })?;
     let format_type = match c.to_char_lossy() {
@@ -713,7 +718,7 @@ where
     Some(contained_text)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum CFormatPart<T> {
     Literal(T),
     Spec(CFormatSpecKeyed<T>),
@@ -734,12 +739,13 @@ impl<T> CFormatPart<T> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CFormatStrOrBytes<S> {
     parts: Vec<(usize, CFormatPart<S>)>,
 }
 
 impl<S> CFormatStrOrBytes<S> {
+    #[must_use]
     pub fn check_specifiers(&self) -> Option<(usize, bool)> {
         let mut count = 0;
         let mut mapping_required = false;
@@ -782,21 +788,23 @@ impl<S> CFormatStrOrBytes<S> {
                         iter.next().unwrap();
                         literal.extend([second]);
                         continue;
-                    } else {
-                        if !literal.is_empty() {
-                            parts.push((
-                                part_index,
-                                CFormatPart::Literal(core::mem::take(&mut literal)),
-                            ));
-                        }
-                        let spec = CFormatSpecKeyed::parse(iter).map_err(|err| CFormatError {
-                            typ: err.0,
-                            index: err.1,
-                        })?;
-                        parts.push((index, CFormatPart::Spec(spec)));
-                        if let Some(&(index, _)) = iter.peek() {
-                            part_index = index;
-                        }
+                    }
+
+                    if !literal.is_empty() {
+                        parts.push((
+                            part_index,
+                            CFormatPart::Literal(core::mem::take(&mut literal)),
+                        ));
+                    }
+
+                    let spec = CFormatSpecKeyed::parse(iter).map_err(|err| CFormatError {
+                        typ: err.0,
+                        index: err.1,
+                    })?;
+
+                    parts.push((index, CFormatPart::Spec(spec)));
+                    if let Some(&(index, _)) = iter.peek() {
+                        part_index = index;
                     }
                 } else {
                     return Err(CFormatError {
@@ -828,7 +836,7 @@ pub type CFormatBytes = CFormatStrOrBytes<Vec<u8>>;
 
 impl CFormatBytes {
     pub fn parse_from_bytes(bytes: &[u8]) -> Result<Self, CFormatError> {
-        let mut iter = bytes.iter().cloned().enumerate().peekable();
+        let mut iter = bytes.iter().copied().enumerate().peekable();
         Self::parse(&mut iter)
     }
 }

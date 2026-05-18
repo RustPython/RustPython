@@ -44,7 +44,7 @@ impl PyInterpolation {
         let is_valid = vm.is_none(&conversion)
             || conversion
                 .downcast_ref::<PyStr>()
-                .is_some_and(|s| matches!(s.to_str(), Some("s") | Some("r") | Some("a")));
+                .is_some_and(|s| matches!(s.to_str(), Some("s" | "r" | "a")));
         if !is_valid {
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.system_error.to_owned(),
@@ -88,7 +88,7 @@ impl Constructor for PyInterpolation {
             .format_spec
             .unwrap_or_else(|| vm.ctx.empty_str.to_owned());
 
-        Ok(PyInterpolation {
+        Ok(Self {
             value: args.value,
             expression,
             conversion,
@@ -224,6 +224,6 @@ impl Representable for PyInterpolation {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyInterpolation::extend_class(context, context.types.interpolation_type);
 }

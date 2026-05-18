@@ -1860,8 +1860,8 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(b.foo, 3)
         self.assertEqual(b.__class__, D)
 
-    # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
-    # @unittest.expectedFailure
+    @unittest.expectedSuccess  # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
+    @unittest.expectedFailure
     def test_bad_new(self):
         self.assertRaises(TypeError, object.__new__)
         self.assertRaises(TypeError, object.__new__, '')
@@ -1908,8 +1908,8 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         object.__init__(A(3))
         self.assertRaises(TypeError, object.__init__, A(3), 5)
 
-    # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
-    # @unittest.expectedFailure
+    @unittest.expectedSuccess  # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
+    @unittest.expectedFailure
     def test_restored_object_new(self):
         class A(object):
             def __new__(cls, *args, **kwargs):
@@ -3120,7 +3120,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         ##         pass
         ##     os_helper.unlink(os_helper.TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords(self):
         # Testing keyword args to basic type constructors ...
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
@@ -4340,7 +4339,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         C.__name__ = Nasty("abc")
         C.__name__ = "normal"
 
-    @unittest.expectedFailureIf(support.is_android, "TODO: RUSTPYTHON; AssertionError: 'C.__rfloordiv__' != 'C.__floordiv__'")
     def test_subclass_right_op(self):
         # Testing correct dispatch of subclass overloading __r<op>__...
 
@@ -5018,7 +5016,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         ns = {'__qualname__': 1}
         self.assertRaises(TypeError, type, 'Foo', (), ns)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cycle_through_dict(self):
         # See bug #1469629
         class X(dict):

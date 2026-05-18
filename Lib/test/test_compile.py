@@ -647,7 +647,6 @@ class TestSpecifics(unittest.TestCase):
         d = {f(): f(), f(): f()}
         self.assertEqual(d, {1: 2, 3: 4})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_compile_filename(self):
         for filename in 'file.py', b'file.py':
             code = compile('pass', filename, 'exec')
@@ -657,7 +656,6 @@ class TestSpecifics(unittest.TestCase):
                 compile('pass', filename, 'exec')
         self.assertRaises(TypeError, compile, 'pass', list(b'file.py'), 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type bool, not EvilBool
     def test_compile_filename_refleak(self):
         # Regression tests for reference leak in PyUnicode_FSDecoder.
         # See https://github.com/python/cpython/issues/139748.

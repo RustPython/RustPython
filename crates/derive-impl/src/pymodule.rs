@@ -32,7 +32,7 @@ impl syn::parse::Parse for WithItem {
             }
         }
         let path = input.parse()?;
-        Ok(WithItem { cfg_attrs, path })
+        Ok(Self { cfg_attrs, path })
     }
 }
 
@@ -75,7 +75,7 @@ impl syn::parse::Parse for PyModuleArgs {
             input.parse::<syn::Token![,]>()?;
         }
 
-        Ok(PyModuleArgs { metas, with_items })
+        Ok(Self { metas, with_items })
     }
 }
 
@@ -147,7 +147,7 @@ struct ModuleContext {
     errors: Vec<syn::Error>,
 }
 
-pub fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<TokenStream> {
     let PyModuleArgs { metas, with_items } = args;
     let (doc, mut module_item) = match module_item {
         Item::Mod(m) => (m.attrs.doc(), m),
@@ -469,9 +469,8 @@ where
                     continue;
                 } else if closed {
                     bail_span!(attr, "Only one #[pyattr] annotated #[py*] item can exist")
-                } else {
-                    bail_span!(attr, "#[pymodule] doesn't accept #[{}]", wrong_name)
                 }
+                bail_span!(attr, "#[pymodule] doesn't accept #[{}]", wrong_name)
             }
         };
 
@@ -817,7 +816,7 @@ impl ModuleItem for ClassItem {
                 #set_attr
             },
             0,
-        )?;
+        );
         Ok(())
     }
 }
@@ -911,7 +910,7 @@ impl ModuleItem for StructSequenceItem {
                 #set_attr
             },
             0,
-        )?;
+        );
         Ok(())
     }
 }
@@ -996,9 +995,9 @@ impl ModuleItem for AttributeItem {
                         cfgs.clone(),
                         tokens,
                         1,
-                    )?;
+                    );
                     Ok(())
-                })?;
+                });
                 return Ok(());
             }
             other => {
@@ -1054,7 +1053,7 @@ impl ModuleItem for AttributeItem {
 
         args.context
             .attribute_items
-            .add_item(ident, py_names, cfgs, tokens, 1)?;
+            .add_item(ident, py_names, cfgs, tokens, 1);
 
         Ok(())
     }

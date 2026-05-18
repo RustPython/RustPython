@@ -11,22 +11,21 @@ import os
 import os.path
 import pathlib
 import re
+import shlex
 import shutil
 import struct
 import subprocess
 import sys
 import sysconfig
 import tempfile
-import shlex
 from test.support import (captured_stdout, captured_stderr,
                           skip_if_broken_multiprocessing_synchronize, verbose,
                           requires_subprocess, is_android, is_apple_mobile,
-                          is_emscripten, is_wasi,
+                          is_wasm32,
                           requires_venv_with_pip, TEST_HOME_DIR,
                           requires_resource, copy_python_src_ignore)
 from test.support.os_helper import (can_symlink, EnvironmentVarGuard, rmtree,
                                     TESTFN, FakePath)
-from test.support.testcase import ExtraAssertions
 import unittest
 import venv
 from unittest.mock import patch, Mock
@@ -43,7 +42,7 @@ requireVenvCreate = unittest.skipUnless(
     or sys._base_executable != sys.executable,
     'cannot run venv.create from within a venv on this platform')
 
-if is_android or is_apple_mobile or is_emscripten or is_wasi:
+if is_android or is_apple_mobile or is_wasm32:
     raise unittest.SkipTest("venv is not available on this platform")
 
 @requires_subprocess()
@@ -65,7 +64,7 @@ def check_output(cmd, encoding=None):
         )
     return out, err
 
-class BaseTest(unittest.TestCase, ExtraAssertions):
+class BaseTest(unittest.TestCase):
     """Base class for venv tests."""
     maxDiff = 80 * 50
 
@@ -119,7 +118,6 @@ class BasicTest(BaseTest):
         fn = self.get_env_file(*args)
         self.assertTrue(os.path.isdir(fn))
 
-    # TODO: RUSTPYTHON
     def test_defaults_with_str_path(self):
         """
         Test the create function with default arguments and a str path.
@@ -128,7 +126,6 @@ class BasicTest(BaseTest):
         self.run_with_capture(venv.create, self.env_dir)
         self._check_output_of_default_create()
 
-    # TODO: RUSTPYTHON
     def test_defaults_with_pathlike(self):
         """
         Test the create function with default arguments and a path-like path.
@@ -231,25 +228,27 @@ class BasicTest(BaseTest):
         builder = venv.EnvBuilder()
         bin_path = 'bin'
         python_exe = os.path.split(sys.executable)[1]
+        expected_exe = os.path.basename(sys._base_executable)
+
         if sys.platform == 'win32':
             bin_path = 'Scripts'
             if os.path.normcase(os.path.splitext(python_exe)[0]).endswith('_d'):
-                python_exe = 'python_d.exe'
+                expected_exe = 'python_d'
             else:
-                python_exe = 'python.exe'
+                expected_exe = 'python'
+            python_exe = expected_exe + '.exe'
+
         with tempfile.TemporaryDirectory() as fake_env_dir:
             expect_exe = os.path.normcase(
-                os.path.join(fake_env_dir, bin_path, python_exe)
+                os.path.join(fake_env_dir, bin_path, expected_exe)
             )
             if sys.platform == 'win32':
                 expect_exe = os.path.normcase(os.path.realpath(expect_exe))
 
             def pip_cmd_checker(cmd, **kwargs):
-                cmd[0] = os.path.normcase(cmd[0])
                 self.assertEqual(
-                    cmd,
+                    cmd[1:],
                     [
-                        expect_exe,
                         '-m',
                         'pip',
                         'install',
@@ -257,6 +256,9 @@ class BasicTest(BaseTest):
                         'pip',
                     ]
                 )
+                exe_dir = os.path.normcase(os.path.dirname(cmd[0]))
+                expected_dir = os.path.normcase(os.path.dirname(expect_exe))
+                self.assertEqual(exe_dir, expected_dir)
 
             fake_context = builder.ensure_directories(fake_env_dir)
             with patch('venv.subprocess.check_output', pip_cmd_checker):
@@ -378,6 +380,16 @@ class BasicTest(BaseTest):
             with open(fn, 'wb') as f:
                 f.write(b'Still here?')
 
+    @unittest.skipUnless(hasattr(os, 'listxattr'), 'test requires os.listxattr')
+    def test_install_scripts_selinux(self):
+        """
+        gh-145417: Test that install_scripts does not copy SELinux context
+        when copying scripts.
+        """
+        with patch('os.listxattr') as listxattr_mock:
+            venv.create(self.env_dir)
+            listxattr_mock.assert_not_called()
+
     def test_overwrite_existing(self):
         """
         Test creating environment in an existing directory.
@@ -413,7 +425,6 @@ class BasicTest(BaseTest):
             self.assertRaises((ValueError, OSError), venv.create, self.env_dir)
             self.clear_directory(self.env_dir)
 
-    # TODO: RUSTPYTHON
     def test_upgrade(self):
         """
         Test upgrading an existing environment directory.
@@ -674,12 +685,9 @@ class BasicTest(BaseTest):
         self.assertRaises(ValueError, venv.create, bad_itempath)
         self.assertRaises(ValueError, venv.create, FakePath(bad_itempath))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(os.name == 'nt', 'not relevant on Windows')
     @requireVenvCreate
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    # TODO: RUSTPYTHON; zip path detection broken in RustPython
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; zip path detection broken in RustPython")
     def test_zippath_from_non_installed_posix(self):
         """
         Test that when create venv from non-installed python, the zip path
@@ -693,7 +701,8 @@ class BasicTest(BaseTest):
         self.addCleanup(rmtree, non_installed_dir)
         bindir = os.path.join(non_installed_dir, self.bindir)
         os.mkdir(bindir)
-        shutil.copy2(sys.executable, bindir)
+        python_exe = os.path.basename(sys.executable)
+        shutil.copy2(sys.executable, os.path.join(bindir, python_exe))
         libdir = os.path.join(non_installed_dir, platlibdir, self.lib[1])
         os.makedirs(libdir)
         landmark = os.path.join(libdir, "os.py")
@@ -729,7 +738,7 @@ class BasicTest(BaseTest):
             else:
                 additional_pythonpath_for_non_installed.append(
                     eachpath)
-        cmd = [os.path.join(non_installed_dir, self.bindir, self.exe),
+        cmd = [os.path.join(non_installed_dir, self.bindir, python_exe),
                "-m",
                "venv",
                "--without-pip",
@@ -760,7 +769,8 @@ class BasicTest(BaseTest):
         subprocess.check_call(cmd, env=child_env)
         # Now check the venv created from the non-installed python has
         # correct zip path in pythonpath.
-        cmd = [self.envpy(), '-S', '-c', 'import sys; print(sys.path)']
+        target_python = os.path.join(self.env_dir, self.bindir, python_exe)
+        cmd = [target_python, '-S', '-c', 'import sys; print(sys.path)']
         out, err = check_output(cmd)
         self.assertTrue(zip_landmark.encode() in out)
 
@@ -779,7 +789,7 @@ class BasicTest(BaseTest):
         with open(script_path, 'rb') as script:
             for i, line in enumerate(script, 1):
                 error_message = f"CR LF found in line {i}"
-                self.assertFalse(line.endswith(b'\r\n'), error_message)
+                self.assertNotEndsWith(line, b'\r\n', error_message)
 
     @requireVenvCreate
     def test_scm_ignore_files_git(self):
@@ -983,7 +993,7 @@ class EnsurePipTest(BaseTest):
         self.assertEqual(err, "")
         out = out.decode("latin-1") # Force to text, prevent decoding errors
         expected_version = "pip {}".format(ensurepip.version())
-        self.assertEqual(out[:len(expected_version)], expected_version)
+        self.assertStartsWith(out, expected_version)
         env_dir = os.fsencode(self.env_dir).decode("latin-1")
         self.assertIn(env_dir, out)
 

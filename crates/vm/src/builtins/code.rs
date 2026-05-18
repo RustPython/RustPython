@@ -198,7 +198,7 @@ impl From<Literal> for PyObjectRef {
 
 impl From<PyObjectRef> for Literal {
     fn from(obj: PyObjectRef) -> Self {
-        Literal(obj)
+        Self(obj)
     }
 }
 
@@ -344,7 +344,7 @@ impl ConstantBag for PyObjBag<'_> {
 }
 
 #[derive(Clone, Copy)]
-pub struct PyVmBag<'a>(pub &'a VirtualMachine);
+pub(crate) struct PyVmBag<'a>(pub &'a VirtualMachine);
 
 impl ConstantBag for PyVmBag<'_> {
     type Constant = Literal;
@@ -424,7 +424,7 @@ impl ConstantBag for PyVmBag<'_> {
     }
 }
 
-pub type CodeObject = bytecode::CodeObject<Literal>;
+pub(crate) type CodeObject = bytecode::CodeObject<Literal>;
 
 pub trait IntoCodeObject {
     fn into_code_object(self, ctx: &Context) -> CodeObject;
@@ -505,7 +505,7 @@ impl PyCode {
     }
 
     pub fn new_ref_with_bag(vm: &VirtualMachine, code: CodeObject) -> PyRef<Self> {
-        PyRef::new_ref(PyCode::new(code), vm.ctx.types.code_type.to_owned(), None)
+        PyRef::new_ref(Self::new(code), vm.ctx.types.code_type.to_owned(), None)
     }
 
     pub fn new_ref_from_bytecode(vm: &VirtualMachine, code: bytecode::CodeObject) -> PyRef<Self> {
@@ -748,7 +748,7 @@ impl Constructor for PyCode {
         // Parse and validate bytecode from bytes
         let bytecode_bytes = args.co_code.as_bytes();
         let instructions = CodeUnits::try_from(bytecode_bytes)
-            .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?;
+            .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?;
 
         // Convert constants
         let constants = args
@@ -836,7 +836,7 @@ impl Constructor for PyCode {
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
 
-        Ok(PyCode::new(code))
+        Ok(Self::new(code))
     }
 }
 
@@ -1195,7 +1195,7 @@ impl PyCode {
                     let target = after_cache + oparg as usize;
                     let right = if matches!(
                         instructions.get(target).map(|u| u.op),
-                        Some(Instruction::EndFor) | Some(Instruction::InstrumentedEndFor)
+                        Some(Instruction::EndFor | Instruction::InstrumentedEndFor)
                     ) {
                         (target + 1) * 2
                     } else {
@@ -1342,7 +1342,7 @@ impl PyCode {
             OptionalArg::Present(code_bytes) => {
                 // Parse and validate bytecode from bytes
                 CodeUnits::try_from(code_bytes.as_bytes())
-                    .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?
+                    .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?
             }
             OptionalArg::Missing => self.code.instructions.clone(),
         };
@@ -1418,7 +1418,7 @@ impl PyCode {
             exceptiontable,
         };
 
-        Ok(PyCode::new(new_code))
+        Ok(Self::new(new_code))
     }
 
     #[pymethod]
@@ -1459,12 +1459,6 @@ impl PyCode {
                 .ok_or_else(|| idx_err(vm))?
         };
         Ok(name.to_object())
-    }
-}
-
-impl fmt::Display for PyCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (**self).fmt(f)
     }
 }
 
@@ -1543,6 +1537,6 @@ impl<'a> LineTableReader<'a> {
     }
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
 }

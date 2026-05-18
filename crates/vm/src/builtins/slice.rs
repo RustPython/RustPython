@@ -248,14 +248,14 @@ impl PySlice {
     #[pymethod]
     fn __reduce__(
         zelf: PyRef<Self>,
-    ) -> PyResult<(
+    ) -> (
         PyTypeRef,
         (Option<PyObjectRef>, PyObjectRef, Option<PyObjectRef>),
-    )> {
-        Ok((
+    ) {
+        (
             zelf.class().to_owned(),
             (zelf.start.clone(), zelf.stop.clone(), zelf.step.clone()),
-        ))
+        )
     }
 
     // TODO: Uncomment when Python adds __class_getitem__ to slice
@@ -413,7 +413,7 @@ impl Representable for PyEllipsis {
     }
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PySlice::extend_class(ctx, ctx.types.slice_type);
     PyEllipsis::extend_class(ctx, ctx.types.ellipsis_type);
 }

@@ -437,7 +437,6 @@ class PositionalOnlyTestCase(unittest.TestCase):
 
         self.assertEqual(C().method(), sentinel)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_annotations_constant_fold(self):
         def g():
             def f(x: not (int is int), /): ...

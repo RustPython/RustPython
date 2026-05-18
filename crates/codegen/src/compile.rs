@@ -13,12 +13,12 @@ use crate::{
     IndexMap, IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
     ir::{self, BlockIdx},
+    preprocess,
     symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
 use alloc::borrow::Cow;
 use core::mem;
-use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive, Zero};
@@ -51,18 +51,18 @@ impl ExprExt for ast::Expr {
     fn is_constant(&self) -> bool {
         matches!(
             self,
-            ast::Expr::NumberLiteral(_)
-                | ast::Expr::StringLiteral(_)
-                | ast::Expr::BytesLiteral(_)
-                | ast::Expr::NoneLiteral(_)
-                | ast::Expr::BooleanLiteral(_)
-                | ast::Expr::EllipsisLiteral(_)
-        ) || matches!(self, ast::Expr::Tuple(ast::ExprTuple { elts, .. }) if elts.iter().all(ExprExt::is_constant))
+            Self::NumberLiteral(_)
+                | Self::StringLiteral(_)
+                | Self::BytesLiteral(_)
+                | Self::NoneLiteral(_)
+                | Self::BooleanLiteral(_)
+                | Self::EllipsisLiteral(_)
+        )
     }
 
     fn is_constant_slice(&self) -> bool {
         match self {
-            ast::Expr::Slice(s) => {
+            Self::Slice(s) => {
                 let lower_const =
                     s.lower.is_none() || s.lower.as_deref().is_some_and(|e| e.is_constant());
                 let upper_const =
@@ -76,7 +76,7 @@ impl ExprExt for ast::Expr {
     }
 
     fn should_use_slice_optimization(&self) -> bool {
-        !self.is_constant_slice() && matches!(self, ast::Expr::Slice(s) if s.step.is_none())
+        !self.is_constant_slice() && matches!(self, Self::Slice(s) if s.step.is_none())
     }
 }
 
@@ -173,6 +173,11 @@ struct Compiler {
     /// Disable constant tuple/list/set collection folding in contexts where
     /// CPython keeps the builder form for later assignment lowering.
     disable_const_collection_folding: bool,
+    split_next_for_normal_exit_from_break: bool,
+    fallthrough_has_statement_successor: bool,
+    fallthrough_has_local_statement_successor: bool,
+    fallthrough_successor_stack: Vec<(bool, bool)>,
+    try_else_orelse_conditional_base_stack: Vec<u32>,
 }
 
 #[derive(Clone, Copy)]
@@ -222,18 +227,26 @@ impl CompileContext {
     }
 }
 
-/// Segment of a parsed %-format string for optimize_format_str.
-struct FormatSegment {
-    literal: String,
-    conversion: Option<oparg::ConvertValueOparg>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ComprehensionType {
     Generator,
     List,
     Set,
     Dict,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ComprehensionLoopControl {
+    Iteration {
+        loop_block: BlockIdx,
+        if_cleanup_block: BlockIdx,
+        after_block: BlockIdx,
+        is_async: bool,
+        end_async_for_target: BlockIdx,
+    },
+    IfCleanupOnly {
+        if_cleanup_block: BlockIdx,
+    },
 }
 
 fn validate_duplicate_params(params: &ast::Parameters) -> Result<(), CodegenErrorType> {
@@ -252,11 +265,12 @@ fn validate_duplicate_params(params: &ast::Parameters) -> Result<(), CodegenErro
 
 /// Compile an Mod produced from ruff parser
 pub fn compile_top(
-    ast: ruff_python_ast::Mod,
+    mut ast: ruff_python_ast::Mod,
     source_file: SourceFile,
     mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
+    preprocess::preprocess_mod(&mut ast);
     match ast {
         ruff_python_ast::Mod::Module(module) => match mode {
             Mode::Exec | Mode::Eval => compile_program(&module, source_file, opts),
@@ -275,7 +289,7 @@ pub fn compile_program(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_program(ast, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -290,7 +304,7 @@ pub fn compile_program_single(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_program_single(&ast.body, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -304,7 +318,7 @@ pub fn compile_block_expression(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_block_expr(&ast.body, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -318,7 +332,7 @@ pub fn compile_expression(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_expr(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_eval(ast, symbol_table)?;
     let code = compiler.exit_scope();
     Ok(code)
@@ -417,6 +431,7 @@ impl Default for PatternContext {
 }
 
 impl PatternContext {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             stores: Vec::new(),
@@ -426,18 +441,20 @@ impl PatternContext {
         }
     }
 
+    #[must_use]
     pub fn fail_pop_size(&self) -> usize {
         self.fail_pop.len()
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum JumpOp {
     Jump,
     PopJumpIfFalse,
 }
 
 /// Type of collection to build in starunpack_helper
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CollectionType {
     Tuple,
     List,
@@ -481,23 +498,69 @@ impl Compiler {
             .map(|constant| Self::constant_truthiness(&constant)))
     }
 
+    fn has_always_taken_jump_in_test(
+        &mut self,
+        expr: &ast::Expr,
+        condition: bool,
+    ) -> CompileResult<bool> {
+        Ok(match expr {
+            ast::Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) => {
+                let (last_value, prefix_values) = values.split_last().unwrap();
+                let cond2 = matches!(op, ast::BoolOp::Or);
+                for value in prefix_values {
+                    if self.has_always_taken_jump_in_test(value, cond2)? {
+                        return Ok(true);
+                    }
+                }
+                self.has_always_taken_jump_in_test(last_value, condition)?
+            }
+            ast::Expr::UnaryOp(ast::ExprUnaryOp {
+                op: ast::UnaryOp::Not,
+                operand,
+                ..
+            }) => self.has_always_taken_jump_in_test(operand, !condition)?,
+            ast::Expr::If(ast::ExprIf {
+                test, body, orelse, ..
+            }) => {
+                self.has_always_taken_jump_in_test(test, false)?
+                    || self.has_always_taken_jump_in_test(body, condition)?
+                    || self.has_always_taken_jump_in_test(orelse, condition)?
+            }
+            _ => matches!(self.constant_expr_truthiness(expr)?, Some(value) if value == condition),
+        })
+    }
+
     fn disable_load_fast_borrow_for_block(&mut self, block: BlockIdx) {
         if block != BlockIdx::NULL {
             self.current_code_info().blocks[block.idx()].disable_load_fast_borrow = true;
         }
     }
 
-    fn new(opts: CompileOpts, source_file: SourceFile, code_name: String) -> Self {
+    fn mark_try_else_orelse_entry_block(&mut self, block: BlockIdx) {
+        if block != BlockIdx::NULL {
+            self.current_code_info().blocks[block.idx()].try_else_orelse_entry = true;
+        }
+    }
+
+    fn new(opts: CompileOpts, source_file: SourceFile, code_name: &str) -> Self {
         let module_code = ir::CodeInfo {
-            flags: bytecode::CodeFlags::NEWLOCALS,
+            // CPython convention: top-level module / interactive /
+            // expression code does not carry CO_NEWLOCALS or CO_OPTIMIZED.
+            // (See `Python/compile.c compiler_enter_scope` for module
+            // scope.)  This matches the per-scope mapping at
+            // enter_scope::CompilerScope::Module below, which also returns
+            // empty flags.  frame.rs:725-731 then binds locals to globals
+            // for module/REPL frames whose `scope.locals` is None — the
+            // correct semantics for `exec(code, globals)` and module init.
+            flags: bytecode::CodeFlags::empty(),
             source_path: source_file.name().to_owned(),
             private: None,
             blocks: vec![ir::Block::default()],
             current_block: BlockIdx::new(0),
             annotations_blocks: None,
             metadata: ir::CodeUnitMetadata {
-                name: code_name.clone(),
-                qualname: Some(code_name),
+                name: code_name.to_string(),
+                qualname: Some(code_name.to_string()),
                 consts: IndexSet::default(),
                 names: IndexSet::default(),
                 varnames: IndexSet::default(),
@@ -515,6 +578,8 @@ impl Compiler {
             fblock: Vec::with_capacity(MAXBLOCKS),
             symbol_table_index: 0, // Module is always the first symbol table
             in_conditional_block: 0,
+            in_final_with_cleanup_statement: 0,
+            in_try_else_orelse: 0,
             next_conditional_annotation_index: 0,
         };
         Self {
@@ -537,6 +602,11 @@ impl Compiler {
             do_not_emit_bytecode: 0,
             disable_const_boolop_folding: false,
             disable_const_collection_folding: false,
+            split_next_for_normal_exit_from_break: false,
+            fallthrough_has_statement_successor: false,
+            fallthrough_has_local_statement_successor: false,
+            fallthrough_successor_stack: Vec::new(),
+            try_else_orelse_conditional_base_stack: Vec::new(),
         }
     }
 
@@ -564,6 +634,286 @@ impl Compiler {
 
     fn is_unpack_assignment_target(target: &ast::Expr) -> bool {
         matches!(target, ast::Expr::List(_) | ast::Expr::Tuple(_))
+    }
+
+    fn statements_end_with_scope_exit(body: &[ast::Stmt]) -> bool {
+        body.last()
+            .is_some_and(Self::statement_ends_with_scope_exit)
+    }
+
+    fn statements_end_with_finally_entry_scope_exit(body: &[ast::Stmt]) -> bool {
+        body.last()
+            .is_some_and(Self::statement_ends_with_finally_entry_scope_exit)
+    }
+
+    fn statement_ends_with_finally_entry_scope_exit(stmt: &ast::Stmt) -> bool {
+        match stmt {
+            ast::Stmt::Return(_)
+            | ast::Stmt::Raise(_)
+            | ast::Stmt::Break(_)
+            | ast::Stmt::Continue(_) => true,
+            ast::Stmt::If(ast::StmtIf { body, .. }) => {
+                Self::statements_end_with_finally_entry_scope_exit(body)
+            }
+            _ => false,
+        }
+    }
+
+    fn statement_ends_with_scope_exit(stmt: &ast::Stmt) -> bool {
+        match stmt {
+            ast::Stmt::Return(_) | ast::Stmt::Raise(_) => true,
+            ast::Stmt::If(ast::StmtIf {
+                body,
+                elif_else_clauses,
+                ..
+            }) => {
+                let has_else = elif_else_clauses
+                    .last()
+                    .is_some_and(|clause| clause.test.is_none());
+                has_else
+                    && Self::statements_end_with_scope_exit(body)
+                    && elif_else_clauses
+                        .iter()
+                        .all(|clause| Self::statements_end_with_scope_exit(&clause.body))
+            }
+            _ => false,
+        }
+    }
+
+    fn statements_end_with_with_cleanup_scope_exit(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::With(ast::StmtWith { body, .. }) => {
+                Self::statements_end_with_scope_exit(body)
+                    || Self::statements_end_with_with_cleanup_scope_exit(body)
+            }
+            _ => false,
+        })
+    }
+
+    fn statements_end_with_nonterminal_with_cleanup(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::With(ast::StmtWith { body, .. }) => {
+                !Self::statements_end_with_scope_exit(body)
+                    && !Self::statements_end_with_with_cleanup_scope_exit(body)
+            }
+            _ => false,
+        })
+    }
+
+    fn statements_end_with_try_finally(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| {
+            matches!(
+                stmt,
+                ast::Stmt::Try(ast::StmtTry { finalbody, .. }) if !finalbody.is_empty()
+            )
+        })
+    }
+
+    fn statements_end_with_nested_finalbody_try_finally(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::Try(ast::StmtTry { finalbody, .. }) if !finalbody.is_empty() => {
+                Self::statements_end_with_try_finally(finalbody)
+            }
+            _ => false,
+        })
+    }
+
+    fn statements_end_with_try_star_except(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| {
+            matches!(
+                stmt,
+                ast::Stmt::Try(ast::StmtTry {
+                    handlers,
+                    finalbody,
+                    is_star: true,
+                    ..
+                }) if !handlers.is_empty() && finalbody.is_empty()
+            )
+        })
+    }
+
+    fn statements_end_with_try_except_handler_fallthrough(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::Try(ast::StmtTry {
+                body,
+                handlers,
+                finalbody,
+                is_star: false,
+                ..
+            }) => {
+                finalbody.is_empty()
+                    && !handlers.is_empty()
+                    && Self::statements_end_with_scope_exit(body)
+                    && handlers.iter().any(|handler| {
+                        let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                        !Self::statements_end_with_scope_exit(&handler.body)
+                    })
+            }
+            _ => false,
+        })
+    }
+
+    fn statements_end_with_try_except_else_handler_scope_exit(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::Try(ast::StmtTry {
+                handlers,
+                orelse,
+                finalbody,
+                is_star: false,
+                ..
+            }) => {
+                !orelse.is_empty()
+                    && finalbody.is_empty()
+                    && handlers.iter().any(|handler| {
+                        let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                        Self::statements_end_with_finally_entry_scope_exit(&handler.body)
+                    })
+            }
+            _ => false,
+        })
+    }
+
+    fn statements_end_with_open_conditional_fallthrough(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::If(ast::StmtIf {
+                elif_else_clauses, ..
+            }) => elif_else_clauses
+                .last()
+                .is_none_or(|clause| clause.test.is_some()),
+            _ => false,
+        })
+    }
+
+    fn statements_end_with_conditional_scope_exit(&self, body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::Assert(_) => self.opts.optimize == 0,
+            ast::Stmt::If(ast::StmtIf {
+                body,
+                elif_else_clauses,
+                ..
+            }) => {
+                Self::statements_end_with_scope_exit(body)
+                    || elif_else_clauses
+                        .iter()
+                        .any(|clause| Self::statements_end_with_scope_exit(&clause.body))
+            }
+            _ => false,
+        })
+    }
+
+    fn statements_end_with_loop_fallthrough(&mut self, body: &[ast::Stmt]) -> CompileResult<bool> {
+        match body.last() {
+            Some(ast::Stmt::For(ast::StmtFor { body, .. })) => {
+                Ok(!Self::statements_contain_direct_break(body))
+            }
+            Some(ast::Stmt::While(ast::StmtWhile { test, body, .. })) => {
+                Ok(!matches!(self.constant_expr_truthiness(test)?, Some(true))
+                    && !Self::statements_contain_direct_break(body))
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn statements_contain_direct_break(body: &[ast::Stmt]) -> bool {
+        body.iter().any(Self::statement_contains_direct_break)
+    }
+
+    fn statements_are_single_for_direct_break(body: &[ast::Stmt]) -> bool {
+        matches!(
+            body,
+            [ast::Stmt::For(ast::StmtFor { body, .. })]
+                if Self::statements_contain_direct_break(body)
+        )
+    }
+
+    fn statement_contains_direct_break(stmt: &ast::Stmt) -> bool {
+        match stmt {
+            ast::Stmt::Break(_) => true,
+            ast::Stmt::If(ast::StmtIf {
+                body,
+                elif_else_clauses,
+                ..
+            }) => {
+                Self::statements_contain_direct_break(body)
+                    || elif_else_clauses
+                        .iter()
+                        .any(|clause| Self::statements_contain_direct_break(&clause.body))
+            }
+            ast::Stmt::With(ast::StmtWith { body, .. }) => {
+                Self::statements_contain_direct_break(body)
+            }
+            ast::Stmt::Try(ast::StmtTry {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+                ..
+            }) => {
+                Self::statements_contain_direct_break(body)
+                    || handlers.iter().any(|handler| {
+                        let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                        Self::statements_contain_direct_break(&handler.body)
+                    })
+                    || Self::statements_contain_direct_break(orelse)
+                    || Self::statements_contain_direct_break(finalbody)
+            }
+            ast::Stmt::Match(ast::StmtMatch { cases, .. }) => cases
+                .iter()
+                .any(|case| Self::statements_contain_direct_break(&case.body)),
+            ast::Stmt::For(_) | ast::Stmt::While(_) => false,
+            _ => false,
+        }
+    }
+
+    fn has_resuming_bare_except(handlers: &[ast::ExceptHandler]) -> bool {
+        handlers.iter().any(|handler| {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                type_,
+                body,
+                ..
+            }) = handler;
+            type_.is_none() && !Self::statements_end_with_scope_exit(body)
+        })
+    }
+
+    fn statements_end_with_optimized_finally_entry_scope_exit(&self, body: &[ast::Stmt]) -> bool {
+        body.last()
+            .is_some_and(|stmt| self.statement_ends_with_optimized_finally_entry_scope_exit(stmt))
+    }
+
+    fn statement_ends_with_optimized_finally_entry_scope_exit(&self, stmt: &ast::Stmt) -> bool {
+        match stmt {
+            ast::Stmt::Assert(_) => self.opts.optimize == 0,
+            ast::Stmt::If(ast::StmtIf { body, .. }) => {
+                self.statements_end_with_optimized_finally_entry_scope_exit(body)
+            }
+            _ => Self::statement_ends_with_finally_entry_scope_exit(stmt),
+        }
+    }
+
+    fn preserves_finally_entry_nop(&self, body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::Try(ast::StmtTry {
+                body,
+                handlers,
+                finalbody,
+                ..
+            }) => {
+                !finalbody.is_empty()
+                    && !Self::statements_end_with_open_conditional_fallthrough(finalbody)
+                    || (!handlers.is_empty() && Self::statements_end_with_scope_exit(body))
+            }
+            ast::Stmt::If(ast::StmtIf {
+                body,
+                elif_else_clauses,
+                ..
+            }) => {
+                elif_else_clauses.is_empty()
+                    && self.statements_end_with_optimized_finally_entry_scope_exit(body)
+            }
+            ast::Stmt::Assert(_) => self.opts.optimize == 0,
+            _ => false,
+        })
     }
 
     fn compile_module_annotation_setup_sequence(
@@ -684,13 +1034,10 @@ impl Compiler {
 
         let big = n + pushed > STACK_USE_GUIDELINE;
 
-        let can_fold_const_collection = match collection_type {
-            CollectionType::Tuple => n > 0,
-            // Match CPython's constant ordering for list/set literals by
-            // letting the late IR folding passes introduce their tuple-backed
-            // constants instead of inserting them during AST lowering.
-            CollectionType::List | CollectionType::Set => false,
-        };
+        // Match CPython's constant ordering by letting the late flowgraph-style
+        // folding passes introduce tuple-backed constants after their operands
+        // have first been emitted as constants.
+        let can_fold_const_collection = false;
         if !self.disable_const_collection_folding
             && !seen_star
             && pushed == 0
@@ -761,7 +1108,7 @@ impl Compiler {
             }
         }
 
-        for elt in elts.iter() {
+        for elt in elts {
             if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = elt {
                 // When we hit first star, build sequence with elements so far
                 if !sequence_built {
@@ -870,6 +1217,10 @@ impl Compiler {
             .expect("symbol_table_stack is empty! This is a compiler bug.")
     }
 
+    fn has_enclosing_non_module_code_scope(&self) -> bool {
+        self.code_stack.len() > 1
+    }
+
     /// Match CPython's `is_import_originated()`: only imports recorded in the
     /// module-level symbol table suppress method-call optimization.
     fn is_name_imported(&self, name: &str) -> bool {
@@ -881,37 +1232,37 @@ impl Compiler {
 
     /// Get the cell-relative index of a free variable.
     /// Returns ncells + freevar_idx. Fixed up to localsplus index during finalize.
-    fn get_free_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
+    fn get_free_var_index(&mut self, name: &str) -> oparg::VarNum {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .freevars
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.freevars.insert_full(name.to_owned()).0);
-        Ok((idx + info.metadata.cellvars.len()).to_u32().into())
+        (idx + info.metadata.cellvars.len()).to_u32().into()
     }
 
     /// Get the cell-relative index of a cell variable.
     /// Returns cellvar_idx. Fixed up to localsplus index during finalize.
-    fn get_cell_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
+    fn get_cell_var_index(&mut self, name: &str) -> oparg::VarNum {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .cellvars
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.cellvars.insert_full(name.to_owned()).0);
-        Ok(idx.to_u32().into())
+        idx.to_u32().into()
     }
 
     /// Get the index of a local variable.
-    fn get_local_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
+    fn get_local_var_index(&mut self, name: &str) -> oparg::VarNum {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .varnames
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.varnames.insert_full(name.to_owned()).0);
-        Ok(idx.to_u32().into())
+        idx.to_u32().into()
     }
 
     /// Get the index of a global name.
@@ -937,8 +1288,7 @@ impl Compiler {
             let name = current_table.name.clone();
             let typ = current_table.typ;
             return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                "no symbol table available in {} (type: {:?})",
-                name, typ
+                "no symbol table available in {name} (type: {typ:?})"
             ))));
         }
 
@@ -1129,8 +1479,8 @@ impl Compiler {
                 // Load __class__ from cell/free variable
                 let scope = self.get_ref_type("__class__").map_err(|e| self.error(e))?;
                 let idx = match scope {
-                    SymbolScope::Cell => self.get_cell_var_index("__class__")?,
-                    SymbolScope::Free => self.get_free_var_index("__class__")?,
+                    SymbolScope::Cell => self.get_cell_var_index("__class__"),
+                    SymbolScope::Free => self.get_free_var_index("__class__"),
                     _ => {
                         return Err(self.error(CodegenErrorType::SyntaxError(
                             "super(): __class__ cell not found".to_owned(),
@@ -1256,9 +1606,7 @@ impl Compiler {
                 annotation
                     .symbols
                     .iter()
-                    .filter(|(_, s)| {
-                        s.scope == SymbolScope::Free || s.flags.contains(SymbolFlags::FREE_CLASS)
-                    })
+                    .filter(|(_, s)| s.scope == SymbolScope::Free)
                     .map(|(name, _)| name.clone())
                     .collect()
             })
@@ -1267,7 +1615,12 @@ impl Compiler {
             .symbols
             .iter()
             .filter(|(_, s)| {
-                s.scope == SymbolScope::Free || s.flags.contains(SymbolFlags::FREE_CLASS)
+                s.scope == SymbolScope::Free
+                    || (scope_type != CompilerScope::Class
+                        && s.flags.contains(SymbolFlags::FREE_CLASS))
+                    || (scope_type == CompilerScope::Class
+                        && s.flags.contains(SymbolFlags::FREE_CLASS)
+                        && self.has_enclosing_non_module_code_scope())
             })
             .filter(|(name, symbol)| {
                 if !matches!(
@@ -1333,7 +1686,7 @@ impl Compiler {
         // Create the new compilation unit
         let code_info = ir::CodeInfo {
             flags,
-            source_path: source_path.clone(),
+            source_path,
             private,
             blocks: vec![ir::Block::default()],
             current_block: BlockIdx::new(0),
@@ -1362,11 +1715,19 @@ impl Compiler {
             fblock: Vec::with_capacity(MAXBLOCKS),
             symbol_table_index: key,
             in_conditional_block: 0,
+            in_final_with_cleanup_statement: 0,
+            in_try_else_orelse: 0,
             next_conditional_annotation_index: 0,
         };
 
         // Push the old compiler unit on the stack (like PyCapsule)
         // This happens before setting qualname
+        self.fallthrough_successor_stack.push((
+            self.fallthrough_has_statement_successor,
+            self.fallthrough_has_local_statement_successor,
+        ));
+        self.fallthrough_has_statement_successor = false;
+        self.fallthrough_has_local_statement_successor = false;
         self.code_stack.push(code_info);
 
         // Set qualname after pushing (uses compiler_set_qualname logic)
@@ -1423,6 +1784,12 @@ impl Compiler {
             folded_from_nonliteral_expr: false,
             lineno_override,
             cache_entries: 0,
+            preserve_redundant_jump_as_nop: false,
+            remove_no_location_nop: false,
+            folded_operand_nop: false,
+            no_location_exit: false,
+            preserve_block_start_no_location_nop: false,
+            match_success_jump: false,
         });
     }
 
@@ -1462,7 +1829,7 @@ impl Compiler {
         posonlyarg_count: u32,
         arg_count: u32,
         kwonlyarg_count: u32,
-        obj_name: String,
+        obj_name: &str,
     ) -> CompileResult<()> {
         // First push the symbol table
         let table = self.push_symbol_table()?;
@@ -1475,7 +1842,7 @@ impl Compiler {
         let lineno = self.get_source_line_number().get();
 
         // Call enter_scope which does most of the work
-        self.enter_scope(&obj_name, scope_type, key, lineno.to_u32())?;
+        self.enter_scope(obj_name, scope_type, key, lineno.to_u32())?;
 
         // Override the values that push_output sets explicitly
         // enter_scope sets default values based on scope_type, but push_output
@@ -1493,6 +1860,10 @@ impl Compiler {
     // compiler_exit_scope
     fn exit_scope(&mut self) -> CodeObject {
         let _table = self.pop_symbol_table();
+        if let Some((previous, previous_local)) = self.fallthrough_successor_stack.pop() {
+            self.fallthrough_has_statement_successor = previous;
+            self.fallthrough_has_local_statement_successor = previous_local;
+        }
 
         // Various scopes can have sub_tables:
         // - ast::TypeParams scope can have sub_tables (the function body's symbol table)
@@ -1510,6 +1881,10 @@ impl Compiler {
     fn exit_annotation_scope(&mut self, saved_ctx: CompileContext) -> CodeObject {
         self.pop_annotation_symbol_table();
         self.ctx = saved_ctx;
+        if let Some((previous, previous_local)) = self.fallthrough_successor_stack.pop() {
+            self.fallthrough_has_statement_successor = previous;
+            self.fallthrough_has_local_statement_successor = previous_local;
+        }
 
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
@@ -1554,14 +1929,14 @@ impl Compiler {
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
         // VALUE_WITH_FAKE_GLOBALS = 2 (from annotationlib.Format)
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         Ok(Some(saved_ctx))
     }
 
     /// Emit format parameter validation for annotation scope
     /// if format > VALUE_WITH_FAKE_GLOBALS (2): raise NotImplementedError
-    fn emit_format_validation(&mut self) -> CompileResult<()> {
+    fn emit_format_validation(&mut self) {
         // Load format parameter (first local variable, index 0)
         emit!(
             self,
@@ -1601,8 +1976,6 @@ impl Compiler {
 
         // Body label - continue with annotation evaluation
         self.switch_to_block(body_block);
-
-        Ok(())
     }
 
     /// Push a new fblock
@@ -1758,7 +2131,11 @@ impl Compiler {
     /// Unwind the fblock stack, emitting cleanup code for each block
     /// preserve_tos: if true, preserve the top of stack (e.g., return value)
     /// stop_at_loop: if true, stop when encountering a loop (for break/continue)
-    fn unwind_fblock_stack(&mut self, preserve_tos: bool, stop_at_loop: bool) -> CompileResult<()> {
+    fn unwind_fblock_stack(
+        &mut self,
+        preserve_tos: bool,
+        stop_at_loop: bool,
+    ) -> CompileResult<bool> {
         // Collect the info we need, with indices for FinallyTry blocks
         #[derive(Clone)]
         enum UnwindInfo {
@@ -1802,6 +2179,7 @@ impl Compiler {
         }
 
         // Process each fblock
+        let mut unwound_finally = false;
         for info in unwind_infos {
             match info {
                 UnwindInfo::Normal(fblock_info) => {
@@ -1826,6 +2204,7 @@ impl Compiler {
                     }
 
                     self.compile_statements(&body)?;
+                    unwound_finally = true;
 
                     if preserve_tos {
                         self.pop_fblock(FBlockType::PopValue);
@@ -1838,7 +2217,7 @@ impl Compiler {
             }
         }
 
-        Ok(())
+        Ok(unwound_finally)
     }
 
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
@@ -1847,11 +2226,9 @@ impl Compiler {
         self._name_inner(name, |i| &mut i.metadata.names)
     }
 
-    fn varname(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
-        // Note: __debug__ checks are now handled in symboltable phase
-        Ok(oparg::VarNum::from_u32(
-            self._name_inner(name, |i| &mut i.metadata.varnames),
-        ))
+    fn varname(&mut self, name: &str) -> oparg::VarNum {
+        // NOTE: __debug__ checks are now handled in symboltable phase
+        oparg::VarNum::from_u32(self._name_inner(name, |i| &mut i.metadata.varnames))
     }
 
     fn _name_inner(
@@ -1999,16 +2376,8 @@ impl Compiler {
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let (doc, statements) = split_doc(&body.body, &self.opts);
-        if let Some(value) = doc {
-            self.emit_load_const(ConstantData::Str {
-                value: value.into(),
-            });
-            let doc = self.name("__doc__");
-            emit!(self, Instruction::StoreName { namei: doc })
-        }
-
-        // Handle annotation bookkeeping in CPython order: initialize the
-        // conditional annotation set first, then materialize __annotations__.
+        // Handle annotation bookkeeping before the docstring assignment, as
+        // codegen_body() does after _PyCodegen_Module() inserts the prefix set.
         if Self::find_ann(statements) {
             if Self::scope_needs_conditional_annotations_cell(self.current_symbol_table()) {
                 emit!(self, Instruction::BuildSet { count: 0 });
@@ -2018,6 +2387,14 @@ impl Compiler {
             if self.future_annotations {
                 emit!(self, Instruction::SetupAnnotations);
             }
+        }
+
+        if let Some(value) = doc {
+            self.emit_load_const(ConstantData::Str {
+                value: value.into(),
+            });
+            let doc = self.name("__doc__");
+            emit!(self, Instruction::StoreName { namei: doc })
         }
 
         // Compile all statements
@@ -2154,21 +2531,61 @@ impl Compiler {
     }
 
     fn compile_statements(&mut self, statements: &[ast::Stmt]) -> CompileResult<()> {
-        for statement in statements {
-            self.compile_statement(statement)?
+        let inherited_successor = self.fallthrough_has_statement_successor;
+        for (idx, statement) in statements.iter().enumerate() {
+            let previous_successor = self.fallthrough_has_statement_successor;
+            let previous_local_successor = self.fallthrough_has_local_statement_successor;
+            self.fallthrough_has_statement_successor =
+                inherited_successor || idx + 1 < statements.len();
+            self.fallthrough_has_local_statement_successor = idx + 1 < statements.len();
+            let result = self.compile_statement(statement);
+            self.fallthrough_has_statement_successor = previous_successor;
+            self.fallthrough_has_local_statement_successor = previous_local_successor;
+            result?;
         }
         Ok(())
     }
 
+    fn compile_with_body_statements(&mut self, statements: &[ast::Stmt]) -> CompileResult<()> {
+        let inherited_successor = self.fallthrough_has_statement_successor;
+        for (idx, statement) in statements.iter().enumerate() {
+            let previous_successor = self.fallthrough_has_statement_successor;
+            let previous_local_successor = self.fallthrough_has_local_statement_successor;
+            self.fallthrough_has_statement_successor =
+                inherited_successor || idx + 1 < statements.len();
+            self.fallthrough_has_local_statement_successor = idx + 1 < statements.len();
+            if idx + 1 == statements.len() && matches!(statement, ast::Stmt::Try(_)) {
+                self.current_code_info().in_final_with_cleanup_statement += 1;
+                let result = self.compile_statement(statement);
+                self.current_code_info().in_final_with_cleanup_statement -= 1;
+                self.fallthrough_has_statement_successor = previous_successor;
+                self.fallthrough_has_local_statement_successor = previous_local_successor;
+                result?;
+            } else {
+                let result = self.compile_statement(statement);
+                self.fallthrough_has_statement_successor = previous_successor;
+                self.fallthrough_has_local_statement_successor = previous_local_successor;
+                result?;
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_loop_body_statements(&mut self, statements: &[ast::Stmt]) -> CompileResult<()> {
+        let previous_successor = self.fallthrough_has_statement_successor;
+        let previous_local_successor = self.fallthrough_has_local_statement_successor;
+        self.fallthrough_has_statement_successor = false;
+        self.fallthrough_has_local_statement_successor = false;
+        let result = self.compile_statements(statements);
+        self.fallthrough_has_statement_successor = previous_successor;
+        self.fallthrough_has_local_statement_successor = previous_local_successor;
+        result
+    }
+
     fn scope_needs_conditional_annotations_cell(symbol_table: &SymbolTable) -> bool {
         match symbol_table.typ {
-            CompilerScope::Module => {
+            CompilerScope::Module | CompilerScope::Class => {
                 symbol_table.has_conditional_annotations
-                    || (symbol_table.future_annotations && symbol_table.annotation_block.is_some())
-            }
-            CompilerScope::Class => {
-                symbol_table.has_conditional_annotations
-                    || symbol_table.lookup("__conditional_annotations__").is_some()
             }
             _ => false,
         }
@@ -2226,8 +2643,9 @@ impl Compiler {
         let is_function_like = self.ctx.in_func();
 
         // Look up the symbol, handling ast::TypeParams and Annotation scopes specially
-        let (symbol_scope, can_see_class_scope) = {
-            let current_table = self.current_symbol_table();
+        let (symbol_scope, can_see_class_scope, class_declared_global) = {
+            let current_idx = self.symbol_table_stack.len() - 1;
+            let current_table = &self.symbol_table_stack[current_idx];
             let is_typeparams = current_table.typ == CompilerScope::TypeParams;
             let is_annotation = current_table.typ == CompilerScope::Annotation;
             let can_see_class = current_table.can_see_class_scope;
@@ -2244,8 +2662,19 @@ impl Compiler {
             } else {
                 symbol
             };
+            let class_declared_global = can_see_class
+                && self.symbol_table_stack[..current_idx]
+                    .iter()
+                    .rev()
+                    .find(|table| table.typ == CompilerScope::Class)
+                    .and_then(|table| table.lookup(name.as_ref()))
+                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::GLOBAL));
 
-            (symbol.map(|s| s.scope), can_see_class)
+            (
+                symbol.map(|s| s.scope),
+                can_see_class,
+                class_declared_global,
+            )
         };
 
         // Special handling for class scope implicit cell variables
@@ -2318,7 +2747,9 @@ impl Compiler {
             SymbolScope::GlobalImplicit => {
                 // PEP 649: In annotation scope with class visibility, use DictOrGlobals
                 // to check classdict first before globals
-                if can_see_class_scope {
+                if class_declared_global {
+                    NameOp::Global
+                } else if can_see_class_scope {
                     NameOp::DictOrGlobals
                 } else if is_function_like {
                     NameOp::Global
@@ -2327,7 +2758,10 @@ impl Compiler {
                 }
             }
             SymbolScope::GlobalExplicit => {
-                if can_see_class_scope {
+                // A global declared in the owning class body must bypass the
+                // classdict, but an explicit global inherited from an outer
+                // function still participates in DictOrGlobals lookup.
+                if can_see_class_scope && !class_declared_global {
                     NameOp::DictOrGlobals
                 } else {
                     NameOp::Global
@@ -2346,8 +2780,8 @@ impl Compiler {
         match op_type {
             NameOp::Deref => {
                 let i = match actual_scope {
-                    SymbolScope::Free => self.get_free_var_index(&name)?,
-                    SymbolScope::Cell => self.get_cell_var_index(&name)?,
+                    SymbolScope::Free => self.get_free_var_index(&name),
+                    SymbolScope::Cell => self.get_cell_var_index(&name),
                     _ => unreachable!("Invalid scope for Deref operation"),
                 };
 
@@ -2362,7 +2796,7 @@ impl Compiler {
                             emit!(self, Instruction::LoadFromDictOrDeref { i });
                         // can_see_class_scope: LOAD_DEREF(__classdict__) first
                         } else if can_see_class_scope {
-                            let classdict_idx = self.get_free_var_index("__classdict__")?;
+                            let classdict_idx = self.get_free_var_index("__classdict__");
                             emit!(self, Instruction::LoadDeref { i: classdict_idx });
                             emit!(self, Instruction::LoadFromDictOrDeref { i });
                         } else {
@@ -2374,7 +2808,7 @@ impl Compiler {
                 };
             }
             NameOp::Fast => {
-                let var_num = self.get_local_var_index(&name)?;
+                let var_num = self.get_local_var_index(&name);
                 match usage {
                     NameUsage::Load => emit!(self, Instruction::LoadFast { var_num }),
                     NameUsage::Store => emit!(self, Instruction::StoreFast { var_num }),
@@ -2414,7 +2848,7 @@ impl Compiler {
                 match usage {
                     NameUsage::Load => {
                         // Load __classdict__ first (it's a free variable in annotation scope)
-                        let classdict_idx = self.get_free_var_index("__classdict__")?;
+                        let classdict_idx = self.get_free_var_index("__classdict__");
                         emit!(self, Instruction::LoadDeref { i: classdict_idx });
                         emit!(self, Instruction::LoadFromDictOrGlobals { i: idx });
                     }
@@ -2753,7 +3187,11 @@ impl Compiler {
                                 statement.range(),
                             ));
                         }
-                        let folded_constant = self.try_fold_constant_expr(v)?;
+                        let folded_constant = if v.is_constant() {
+                            self.try_fold_constant_expr(v)?
+                        } else {
+                            None
+                        };
                         let preserve_tos = folded_constant.is_none();
                         if preserve_tos {
                             self.compile_expression(v)?;
@@ -2770,20 +3208,37 @@ impl Compiler {
                             emit!(self, Instruction::Nop);
                         }
                         self.set_source_range(stmt_range);
-                        self.unwind_fblock_stack(preserve_tos, false)?;
-                        self.set_source_range(stmt_range);
-                        if let Some(constant) = folded_constant {
-                            self.emit_load_const(constant);
+                        let unwound_finally = self.unwind_fblock_stack(preserve_tos, false)?;
+                        if !unwound_finally {
+                            self.set_source_range(stmt_range);
                         }
-                        self.emit_return_value();
+                        match folded_constant {
+                            Some(constant) if unwound_finally => {
+                                self.emit_return_const_no_location(constant);
+                            }
+                            Some(constant) => {
+                                self.emit_load_const(constant);
+                                self.emit_return_value();
+                            }
+                            None => {
+                                self.emit_return_value();
+                                if unwound_finally {
+                                    self.set_no_location();
+                                }
+                            }
+                        }
                     }
                     None => {
                         self.set_source_range(stmt_range);
                         emit!(self, Instruction::Nop);
                         // Unwind fblock stack with preserve_tos=false (no value to preserve)
-                        self.unwind_fblock_stack(false, false)?;
-                        self.set_source_range(stmt_range);
-                        self.emit_return_const(ConstantData::None);
+                        let unwound_finally = self.unwind_fblock_stack(false, false)?;
+                        if unwound_finally {
+                            self.emit_return_const_no_location(ConstantData::None);
+                        } else {
+                            self.set_source_range(stmt_range);
+                            self.emit_return_const(ConstantData::None);
+                        }
                     }
                 }
                 self.set_source_range(prev_source_range);
@@ -2945,7 +3400,7 @@ impl Compiler {
             parameters.posonlyargs.len().to_u32(),
             (parameters.posonlyargs.len() + parameters.args.len()).to_u32(),
             parameters.kwonlyargs.len().to_u32(),
-            name.to_owned(),
+            name,
         )?;
 
         let args_iter = core::iter::empty()
@@ -2955,16 +3410,16 @@ impl Compiler {
             .chain(kw_without_defaults)
             .chain(kw_with_defaults.into_iter().map(|(arg, _)| arg));
         for name in args_iter {
-            self.varname(name.name.as_str())?;
+            self.varname(name.name.as_str());
         }
 
         if let Some(name) = parameters.vararg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::VARARGS;
-            self.varname(name.name.as_str())?;
+            self.varname(name.name.as_str());
         }
         if let Some(name) = parameters.kwarg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::VARKEYWORDS;
-            self.varname(name.name.as_str())?;
+            self.varname(name.name.as_str());
         }
 
         Ok(())
@@ -3011,9 +3466,9 @@ impl Compiler {
         self.current_code_info()
             .metadata
             .varnames
-            .insert("format".to_owned());
+            .insert(".format".to_owned());
 
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         // TypeParams scope is function-like
         let prev_ctx = self.ctx;
@@ -3066,7 +3521,7 @@ impl Compiler {
             .metadata
             .varnames
             .insert(".format".to_owned());
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         let prev_ctx = self.ctx;
         self.ctx = CompileContext {
@@ -3240,6 +3695,9 @@ impl Compiler {
         // End block - continuation point after try-finally
         // Normal path jumps here to skip exception path blocks
         let end_block = self.new_block();
+        if Self::has_resuming_bare_except(handlers) {
+            self.disable_load_fast_borrow_for_block(end_block);
+        }
 
         // Emit NOP at the try: line so LINE events fire for it
         emit!(self, Instruction::Nop);
@@ -3266,11 +3724,12 @@ impl Compiler {
             )?;
         }
 
-        let else_block = self.new_block();
-
         // if handlers is empty, compile body directly
         // without wrapping in TryExcept (only FinallyTry is needed)
         if handlers.is_empty() {
+            let preserve_finally_entry_nop = self.preserves_finally_entry_nop(body)
+                || self.statements_end_with_loop_fallthrough(body)?;
+
             // Just compile body with FinallyTry fblock active (if finalbody exists)
             self.compile_statements(body)?;
 
@@ -3278,6 +3737,12 @@ impl Compiler {
             // This prevents exception table from covering the normal path
             if !finalbody.is_empty() {
                 emit!(self, PseudoInstruction::PopBlock);
+                if preserve_finally_entry_nop {
+                    self.preserve_last_redundant_nop();
+                } else {
+                    self.set_no_location();
+                    self.remove_last_no_location_nop();
+                }
                 self.pop_fblock(FBlockType::FinallyTry);
             }
 
@@ -3298,7 +3763,11 @@ impl Compiler {
             }
 
             // Jump to end (skip exception path blocks)
-            emit!(self, PseudoInstruction::Jump { delta: end_block });
+            emit!(
+                self,
+                PseudoInstruction::JumpNoInterrupt { delta: end_block }
+            );
+            self.set_no_location();
 
             if let Some(finally_except) = finally_except_block {
                 // Restore sub_tables for exception path compilation
@@ -3324,6 +3793,7 @@ impl Compiler {
                 // handler (COPY 3, POP_EXCEPT, RERAISE 1) runs POP_EXCEPT to
                 // restore exc_info before the exception reaches the outer handler.
                 emit!(self, Instruction::Reraise { depth: 0 });
+                self.set_no_location();
 
                 // PopBlock after RERAISE (dead code, but marks the exception
                 // table range end so the cleanup covers RERAISE).
@@ -3354,8 +3824,20 @@ impl Compiler {
         self.push_fblock(FBlockType::TryExcept, handler_block, handler_block)?;
         self.compile_statements(body)?;
         emit!(self, PseudoInstruction::PopBlock);
+        self.set_no_location();
         self.pop_fblock(FBlockType::TryExcept);
-        emit!(self, PseudoInstruction::Jump { delta: else_block });
+
+        let cleanup_block = self.new_block();
+        // We successfully ran the try block:
+        // else:
+        self.compile_statements(orelse)?;
+
+        emit!(
+            self,
+            PseudoInstruction::JumpNoInterrupt {
+                delta: finally_block,
+            }
+        );
         self.set_no_location();
 
         // except handlers:
@@ -3366,18 +3848,19 @@ impl Compiler {
         // Exception table: L2 to L3 -> L5 [1] lasti
         // After PUSH_EXC_INFO, stack is [prev_exc, exc]
         // depth=1 means keep prev_exc on stack when routing to cleanup
-        let cleanup_block = self.new_block();
         emit!(
             self,
             PseudoInstruction::SetupCleanup {
                 delta: cleanup_block
             }
         );
+        self.set_no_location();
         self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
 
         // Exception is on top of stack now, pushed by unwind_blocks
         // PUSH_EXC_INFO transforms [exc] -> [prev_exc, exc] for PopExcept
         emit!(self, Instruction::PushExcInfo);
+        self.set_no_location();
         for handler in handlers {
             let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                 type_,
@@ -3389,39 +3872,26 @@ impl Compiler {
             self.set_source_range(*handler_range);
             let next_handler = self.new_block();
 
-            // If we gave a typ,
-            // check if this handler can handle the exception:
             if let Some(exc_type) = type_ {
-                // Check exception type:
-                // Stack: [prev_exc, exc]
                 self.compile_expression(exc_type)?;
-                // Stack: [prev_exc, exc, type]
                 emit!(self, Instruction::CheckExcMatch);
-                // Stack: [prev_exc, exc, bool]
                 emit!(
                     self,
                     Instruction::PopJumpIfFalse {
                         delta: next_handler
                     }
                 );
-                // Stack: [prev_exc, exc]
 
-                // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
                     self.store_name(alias.as_str())?
                 } else {
-                    // Drop exception from top of stack:
                     emit!(self, Instruction::PopTop);
                 }
             } else {
-                // Catch all!
-                // Drop exception from top of stack:
                 emit!(self, Instruction::PopTop);
             }
 
-            // If name is bound, we need a cleanup handler for RERAISE
             let handler_cleanup_block = if name.is_some() {
-                // SETUP_CLEANUP(cleanup_end) for named handler
                 let cleanup_end = self.new_block();
                 emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup_end });
                 self.push_fblock_full(
@@ -3432,24 +3902,17 @@ impl Compiler {
                 )?;
                 Some(cleanup_end)
             } else {
-                // no SETUP_CLEANUP for unnamed handler
                 self.push_fblock(FBlockType::HandlerCleanup, finally_block, finally_block)?;
                 None
             };
 
-            // Handler code:
             self.compile_statements(body)?;
 
             self.pop_fblock(FBlockType::HandlerCleanup);
-            // PopBlock for inner SETUP_CLEANUP (named handler only)
             if handler_cleanup_block.is_some() {
                 emit!(self, PseudoInstruction::PopBlock);
             }
 
-            // cleanup_end block for named handler
-            // IMPORTANT: In CPython, cleanup_end is within outer SETUP_CLEANUP scope.
-            // so when RERAISE is executed, it goes to the cleanup block which does POP_EXCEPT.
-            // We MUST compile cleanup_end BEFORE popping ExceptionHandler so RERAISE routes to cleanup_block.
             if let Some(cleanup_end) = handler_cleanup_block {
                 let handler_normal_exit = self.new_block();
                 emit!(
@@ -3461,110 +3924,95 @@ impl Compiler {
 
                 self.switch_to_block(cleanup_end);
                 if let Some(alias) = name {
-                    // name = None; del name; before RERAISE
                     self.emit_load_const(ConstantData::None);
                     self.store_name(alias.as_str())?;
                     self.compile_name(alias.as_str(), NameUsage::Delete)?;
                 }
-                // RERAISE 1 (with lasti) - exception is on stack from exception table routing
-                // Stack at entry: [prev_exc (at handler_depth), lasti, exc]
-                // This RERAISE is within ExceptionHandler scope, so it routes to cleanup_block
-                // which does COPY 3; POP_EXCEPT; RERAISE
                 emit!(self, Instruction::Reraise { depth: 1 });
-
-                // Switch to normal exit block - this is where handler body success continues
                 self.switch_to_block(handler_normal_exit);
             }
 
-            // PopBlock for outer SETUP_CLEANUP (ExceptionHandler)
             emit!(self, PseudoInstruction::PopBlock);
-            // Now pop ExceptionHandler - the normal path continues from here
             self.pop_fblock(FBlockType::ExceptionHandler);
             emit!(self, Instruction::PopExcept);
 
-            // Delete the exception variable if it was bound (normal path)
             if let Some(alias) = name {
-                // Set the variable to None before deleting
                 self.emit_load_const(ConstantData::None);
                 self.store_name(alias.as_str())?;
                 self.compile_name(alias.as_str(), NameUsage::Delete)?;
             }
 
-            // Pop FinallyTry block before jumping to finally body.
-            // The else_block path also pops this; both paths must agree
-            // on the except stack when entering finally_block.
-            if !finalbody.is_empty() {
-                emit!(self, PseudoInstruction::PopBlock);
-            }
-
-            // Jump to finally block
             emit!(
                 self,
                 PseudoInstruction::JumpNoInterrupt {
                     delta: finally_block,
                 }
             );
+            self.set_no_location();
 
-            // Re-push ExceptionHandler for next handler in the loop
-            // This will be popped at the end of handlers loop or when matched
             self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
-
-            // Emit a new label for the next handler
             self.switch_to_block(next_handler);
         }
 
-        // If code flows here, we have an unhandled exception,
-        // raise the exception again!
-        // RERAISE 0
-        // Stack: [prev_exc, exc] - exception is on stack from PUSH_EXC_INFO
-        // NOTE: We emit RERAISE 0 BEFORE popping fblock so it is within cleanup handler scope
         emit!(self, Instruction::Reraise { depth: 0 });
-
-        // Pop EXCEPTION_HANDLER fblock
-        // Pop after RERAISE so the instruction has the correct exception handler
+        self.set_no_location();
         self.pop_fblock(FBlockType::ExceptionHandler);
 
-        // cleanup block (POP_EXCEPT_AND_RERAISE)
-        // Stack at entry: [prev_exc, lasti, exc] (depth=1 + lasti + exc pushed)
-        // COPY 3: copy prev_exc to top -> [prev_exc, lasti, exc, prev_exc]
-        // POP_EXCEPT: pop prev_exc from stack and restore -> [prev_exc, lasti, exc]
-        // RERAISE 1: reraise with lasti
         self.switch_to_block(cleanup_block);
         emit!(self, Instruction::Copy { i: 3 });
+        self.set_no_location();
         emit!(self, Instruction::PopExcept);
+        self.set_no_location();
         emit!(self, Instruction::Reraise { depth: 1 });
-
-        // We successfully ran the try block:
-        // else:
-        self.switch_to_block(else_block);
-        self.compile_statements(orelse)?;
-
-        // Pop the FinallyTry fblock before jumping to finally
-        if !finalbody.is_empty() {
-            emit!(self, PseudoInstruction::PopBlock);
-            self.pop_fblock(FBlockType::FinallyTry);
-        }
-
-        // Snapshot sub_tables before first finally compilation (for double compilation issue)
-        let sub_table_cursor = if !finalbody.is_empty() && finally_except_block.is_some() {
-            self.symbol_table_stack.last().map(|t| t.next_sub_table)
-        } else {
-            None
-        };
+        self.set_no_location();
 
         // finally (normal path):
+        // CPython's codegen_try_finally emits the wrapped try/except first and
+        // places the outer finally body at the inner try/except end label.  Keep
+        // the FinallyTry fblock active through exception-handler normal exits so
+        // the CFG and exception-table ranges match that structure.
         self.switch_to_block(finally_block);
         if !finalbody.is_empty() {
+            let preserve_finally_normal_pop_block_nop = orelse.is_empty()
+                && !Self::statements_end_with_scope_exit(body)
+                && (!Self::statements_end_with_open_conditional_fallthrough(body)
+                    || Self::statements_end_with_finally_entry_scope_exit(body))
+                && handlers.iter().all(|handler| match handler {
+                    ast::ExceptHandler::ExceptHandler(handler) => {
+                        Self::statements_end_with_scope_exit(&handler.body)
+                    }
+                });
+            if preserve_finally_normal_pop_block_nop && let Some(last_body_stmt) = body.last() {
+                self.set_source_range(last_body_stmt.range());
+            }
+            emit!(self, PseudoInstruction::PopBlock);
+            if preserve_finally_normal_pop_block_nop {
+                self.preserve_last_redundant_nop();
+            } else {
+                self.set_no_location();
+            }
+            self.pop_fblock(FBlockType::FinallyTry);
+
+            // Snapshot sub_tables before first finally compilation (for double compilation issue)
+            let sub_table_cursor = if finally_except_block.is_some() {
+                self.symbol_table_stack.last().map(|t| t.next_sub_table)
+            } else {
+                None
+            };
+
             self.compile_statements(finalbody)?;
             // Jump to end_block to skip exception path blocks
             // This prevents fall-through to finally_except_block
-            emit!(self, PseudoInstruction::Jump { delta: end_block });
-        }
+            emit!(
+                self,
+                PseudoInstruction::JumpNoInterrupt { delta: end_block }
+            );
+            self.set_no_location();
 
-        // finally (exception path)
-        // This is where exceptions go to run finally before reraise
-        // Stack at entry: [lasti, exc] (from exception table with preserve_lasti=true)
-        if let Some(finally_except) = finally_except_block {
+            // finally (exception path)
+            // This is where exceptions go to run finally before reraise
+            // Stack at entry: [lasti, exc] (from exception table with preserve_lasti=true)
+            let finally_except = finally_except_block.expect("finally except block");
             // Restore sub_tables for exception path compilation
             if let Some(cursor) = sub_table_cursor
                 && let Some(current_table) = self.symbol_table_stack.last_mut()
@@ -3578,8 +4026,10 @@ impl Compiler {
             // Exceptions during finally body need to go to cleanup block
             if let Some(cleanup) = finally_cleanup_block {
                 emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup });
+                self.set_no_location();
             }
             emit!(self, Instruction::PushExcInfo);
+            self.set_no_location();
             if let Some(cleanup) = finally_cleanup_block {
                 self.push_fblock(FBlockType::FinallyEnd, cleanup, cleanup)?;
             }
@@ -3592,6 +4042,7 @@ impl Compiler {
             // runs POP_EXCEPT to restore exc_info before re-raising to
             // the outer handler.
             emit!(self, Instruction::Reraise { depth: 0 });
+            self.set_no_location();
 
             // PopBlock after RERAISE (dead code, but marks the exception
             // table range end so the cleanup covers RERAISE).
@@ -3627,23 +4078,32 @@ impl Compiler {
         handlers: &[ast::ExceptHandler],
         orelse: &[ast::Stmt],
     ) -> CompileResult<()> {
-        let normal_exit_range = orelse
-            .last()
-            .map(ast::Stmt::range)
-            .or_else(|| body.last().map(ast::Stmt::range));
         let handler_block = self.new_block();
         let cleanup_block = self.new_block();
         let end_block = self.new_block();
-        let has_bare_except = handlers.iter().any(|handler| {
-            matches!(
-                handler,
-                ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
-                    type_: None,
-                    ..
-                })
-            )
+        let has_terminal_raise_handlers = handlers.iter().all(|handler| {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler { body, .. }) =
+                handler;
+            body.last()
+                .is_some_and(|stmt| matches!(stmt, ast::Stmt::Raise(_)))
         });
-        if has_bare_except {
+        let handlers_end_with_scope_exit = handlers.iter().all(|handler| {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler { body, .. }) =
+                handler;
+            Self::statements_end_with_scope_exit(body)
+        });
+        let typed_handlers_end_with_scope_exit = handlers.iter().all(|handler| {
+            let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                type_,
+                body,
+                ..
+            }) = handler;
+            type_.is_some() && Self::statements_end_with_scope_exit(body)
+        });
+        if Self::has_resuming_bare_except(handlers) {
+            self.disable_load_fast_borrow_for_block(end_block);
+        }
+        if typed_handlers_end_with_scope_exit {
             self.disable_load_fast_borrow_for_block(end_block);
         }
 
@@ -3655,16 +4115,65 @@ impl Compiler {
         );
 
         self.push_fblock(FBlockType::TryExcept, handler_block, handler_block)?;
-        self.compile_statements(body)?;
+        let split_for_normal_exit_from_break = orelse.is_empty()
+            && self.fallthrough_has_statement_successor
+            && Self::statements_are_single_for_direct_break(body)
+            && !self
+                .current_code_info()
+                .fblock
+                .iter()
+                .any(|info| matches!(info.fb_type, FBlockType::With | FBlockType::AsyncWith));
+        let previous_split_for_normal_exit_from_break = self.split_next_for_normal_exit_from_break;
+        self.split_next_for_normal_exit_from_break =
+            previous_split_for_normal_exit_from_break || split_for_normal_exit_from_break;
+        let compile_body_result = self.compile_statements(body);
+        self.split_next_for_normal_exit_from_break = previous_split_for_normal_exit_from_break;
+        compile_body_result?;
         self.pop_fblock(FBlockType::TryExcept);
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
-        self.compile_statements(orelse)?;
+        let exits_directly_to_with_cleanup = {
+            let code_info = self.current_code_info();
+            code_info.in_final_with_cleanup_statement > 0
+                && code_info.fblock.last().is_some_and(|info| {
+                    matches!(info.fb_type, FBlockType::With | FBlockType::AsyncWith)
+                })
+        };
+        if !orelse.is_empty() && self.statements_end_with_conditional_scope_exit(body) {
+            self.preserve_last_redundant_nop();
+        } else {
+            self.remove_last_no_location_nop();
+        }
+        if !orelse.is_empty() {
+            if has_terminal_raise_handlers {
+                let orelse_block = self.new_block();
+                self.switch_to_block(orelse_block);
+            }
+            let current = self.current_code_info().current_block;
+            self.mark_try_else_orelse_entry_block(current);
+        }
+        let try_else_orelse_conditional_base = self.current_code_info().in_conditional_block;
+        self.current_code_info().in_try_else_orelse += 1;
+        self.try_else_orelse_conditional_base_stack
+            .push(try_else_orelse_conditional_base);
+        let compile_orelse_result = self.compile_statements(orelse);
+        self.try_else_orelse_conditional_base_stack.pop();
+        self.current_code_info().in_try_else_orelse -= 1;
+        compile_orelse_result?;
         emit!(
             self,
             PseudoInstruction::JumpNoInterrupt { delta: end_block }
         );
         self.set_no_location();
+        if (!orelse.is_empty() && self.statements_end_with_loop_fallthrough(orelse)?)
+            || (exits_directly_to_with_cleanup
+                && handlers_end_with_scope_exit
+                && !Self::statements_end_with_nonterminal_with_cleanup(body))
+        {
+            self.preserve_last_redundant_jump_as_nop();
+        } else {
+            self.remove_last_no_location_nop();
+        }
 
         self.switch_to_block(handler_block);
         emit!(
@@ -3688,6 +4197,8 @@ impl Compiler {
             }) = handler;
             self.set_source_range(*handler_range);
             let next_handler = self.new_block();
+            let handler_body_exits = Self::statements_end_with_scope_exit(body);
+            let mut exception_handler_was_popped = false;
 
             if let Some(exc_type) = type_ {
                 self.compile_expression(exc_type)?;
@@ -3705,9 +4216,11 @@ impl Compiler {
 
                 let cleanup_end = self.new_block();
                 emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup_end });
+                let cleanup_body = self.new_block();
+                self.switch_to_block(cleanup_body);
                 self.push_fblock_full(
                     FBlockType::HandlerCleanup,
-                    cleanup_end,
+                    cleanup_body,
                     cleanup_end,
                     FBlockDatum::ExceptionName(alias.as_str().to_owned()),
                 )?;
@@ -3715,26 +4228,29 @@ impl Compiler {
                 self.compile_statements(body)?;
 
                 self.pop_fblock(FBlockType::HandlerCleanup);
-                emit!(self, PseudoInstruction::PopBlock);
-                self.set_no_location();
-                emit!(self, PseudoInstruction::PopBlock);
-                self.set_no_location();
-                self.pop_fblock(FBlockType::ExceptionHandler);
-                emit!(self, Instruction::PopExcept);
-                self.set_no_location();
+                if !handler_body_exits {
+                    emit!(self, PseudoInstruction::PopBlock);
+                    self.set_no_location();
+                    emit!(self, PseudoInstruction::PopBlock);
+                    self.set_no_location();
+                    self.pop_fblock(FBlockType::ExceptionHandler);
+                    exception_handler_was_popped = true;
+                    emit!(self, Instruction::PopExcept);
+                    self.set_no_location();
 
-                self.emit_load_const(ConstantData::None);
-                self.set_no_location();
-                self.store_name(alias.as_str())?;
-                self.set_no_location();
-                self.compile_name(alias.as_str(), NameUsage::Delete)?;
-                self.set_no_location();
+                    self.emit_load_const(ConstantData::None);
+                    self.set_no_location();
+                    self.store_name(alias.as_str())?;
+                    self.set_no_location();
+                    self.compile_name(alias.as_str(), NameUsage::Delete)?;
+                    self.set_no_location();
 
-                emit!(
-                    self,
-                    PseudoInstruction::JumpNoInterrupt { delta: end_block }
-                );
-                self.set_no_location();
+                    emit!(
+                        self,
+                        PseudoInstruction::JumpNoInterrupt { delta: end_block }
+                    );
+                    self.set_no_location();
+                }
 
                 self.switch_to_block(cleanup_end);
                 self.emit_load_const(ConstantData::None);
@@ -3747,24 +4263,31 @@ impl Compiler {
                 self.set_no_location();
             } else {
                 emit!(self, Instruction::PopTop);
-                self.push_fblock(FBlockType::HandlerCleanup, end_block, end_block)?;
+                let cleanup_body = self.new_block();
+                self.switch_to_block(cleanup_body);
+                self.push_fblock(FBlockType::HandlerCleanup, cleanup_body, end_block)?;
 
                 self.compile_statements(body)?;
 
                 self.pop_fblock(FBlockType::HandlerCleanup);
-                emit!(self, PseudoInstruction::PopBlock);
-                self.set_no_location();
-                self.pop_fblock(FBlockType::ExceptionHandler);
-                emit!(self, Instruction::PopExcept);
-                self.set_no_location();
-                emit!(
-                    self,
-                    PseudoInstruction::JumpNoInterrupt { delta: end_block }
-                );
-                self.set_no_location();
+                if !handler_body_exits {
+                    emit!(self, PseudoInstruction::PopBlock);
+                    self.set_no_location();
+                    self.pop_fblock(FBlockType::ExceptionHandler);
+                    exception_handler_was_popped = true;
+                    emit!(self, Instruction::PopExcept);
+                    self.set_no_location();
+                    emit!(
+                        self,
+                        PseudoInstruction::JumpNoInterrupt { delta: end_block }
+                    );
+                    self.set_no_location();
+                }
             }
 
-            self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
+            if exception_handler_was_popped {
+                self.push_fblock(FBlockType::ExceptionHandler, cleanup_block, cleanup_block)?;
+            }
             self.switch_to_block(next_handler);
         }
 
@@ -3781,9 +4304,6 @@ impl Compiler {
         self.set_no_location();
 
         self.switch_to_block(end_block);
-        if let Some(range) = normal_exit_range {
-            self.set_source_range(range);
-        }
         Ok(())
     }
 
@@ -3814,6 +4334,12 @@ impl Compiler {
         } else {
             self.new_block()
         };
+        if !handlers.is_empty() {
+            self.disable_load_fast_borrow_for_block(end_block);
+            if !finalbody.is_empty() {
+                self.disable_load_fast_borrow_for_block(exit_block);
+            }
+        }
 
         // Emit NOP at the try: line so LINE events fire for it
         emit!(self, Instruction::Nop);
@@ -3844,8 +4370,15 @@ impl Compiler {
         self.push_fblock(FBlockType::TryExcept, handler_block, handler_block)?;
         self.compile_statements(body)?;
         emit!(self, PseudoInstruction::PopBlock);
+        self.set_no_location();
+        self.remove_last_no_location_nop();
         self.pop_fblock(FBlockType::TryExcept);
-        emit!(self, PseudoInstruction::Jump { delta: else_block });
+        emit!(
+            self,
+            PseudoInstruction::JumpNoInterrupt { delta: else_block }
+        );
+        self.set_no_location();
+        self.remove_last_no_location_nop();
 
         // Exception handler entry
         self.switch_to_block(handler_block);
@@ -3884,7 +4417,7 @@ impl Compiler {
             // Stack: [prev_exc, orig, list]
             emit!(
                 self,
-                PseudoInstruction::Jump {
+                PseudoInstruction::JumpNoInterrupt {
                     delta: reraise_star_block
                 }
             );
@@ -3975,8 +4508,8 @@ impl Compiler {
             self.compile_statements(body)?;
 
             // Handler body completed normally
-            self.set_no_location();
             emit!(self, PseudoInstruction::PopBlock);
+            self.set_no_location();
             self.pop_fblock(FBlockType::HandlerCleanup);
 
             // Cleanup name binding
@@ -3991,7 +4524,7 @@ impl Compiler {
             }
             emit!(
                 self,
-                PseudoInstruction::Jump {
+                PseudoInstruction::JumpNoInterrupt {
                     delta: next_handler_block
                 }
             );
@@ -4025,14 +4558,14 @@ impl Compiler {
                 emit!(self, Instruction::ListAppend { i: 1 });
                 emit!(
                     self,
-                    PseudoInstruction::Jump {
+                    PseudoInstruction::JumpNoInterrupt {
                         delta: reraise_star_block
                     }
                 );
             } else {
                 emit!(
                     self,
-                    PseudoInstruction::Jump {
+                    PseudoInstruction::JumpNoInterrupt {
                         delta: next_handler_block
                     }
                 );
@@ -4048,7 +4581,7 @@ impl Compiler {
                 emit!(self, Instruction::ListAppend { i: 1 });
                 emit!(
                     self,
-                    PseudoInstruction::Jump {
+                    PseudoInstruction::JumpNoInterrupt {
                         delta: reraise_star_block
                     }
                 );
@@ -4098,28 +4631,24 @@ impl Compiler {
         // Stack: [prev_exc]
 
         emit!(self, PseudoInstruction::PopBlock);
+        self.set_no_location();
         // POP_EXCEPT - restore previous exception context
         emit!(self, Instruction::PopExcept);
         // Stack: []
 
-        if !finalbody.is_empty() {
-            emit!(self, PseudoInstruction::PopBlock);
-            self.pop_fblock(FBlockType::FinallyTry);
-        }
-
         emit!(
             self,
-            PseudoInstruction::Jump {
+            PseudoInstruction::JumpNoInterrupt {
                 delta: continuation_block
             }
         );
 
         // Reraise the result
         self.switch_to_block(reraise_block);
-        // Stack: [prev_exc, result]
-        self.set_no_location();
 
+        // Stack: [prev_exc, result]
         emit!(self, PseudoInstruction::PopBlock);
+        self.set_no_location();
         emit!(self, Instruction::Swap { i: 2 });
         // Stack: [result, prev_exc]
 
@@ -4137,50 +4666,35 @@ impl Compiler {
         emit!(self, Instruction::Reraise { depth: 1 });
 
         // try-else path
-        // NOTE: When we reach here in compilation, the nothing-to-reraise path above
-        // has already popped FinallyTry. But else_block is a different execution path
-        // that branches from try body success (where FinallyTry is still active).
-        // We need to re-push FinallyTry to reflect the correct fblock state for else path.
-        if !finalbody.is_empty() {
-            emit!(
-                self,
-                PseudoInstruction::SetupFinally {
-                    delta: finally_block
-                }
-            );
-            self.push_fblock_full(
-                FBlockType::FinallyTry,
-                finally_block,
-                finally_block,
-                FBlockDatum::FinallyBody(finalbody.to_vec()),
-            )?;
-        }
         if else_block != continuation_block {
             self.switch_to_block(else_block);
             self.compile_statements(orelse)?;
 
-            if !finalbody.is_empty() {
-                // Pop the FinallyTry fblock we just pushed for the else path
-                emit!(self, PseudoInstruction::PopBlock);
-                self.pop_fblock(FBlockType::FinallyTry);
-            }
-
             emit!(
                 self,
-                PseudoInstruction::Jump {
+                PseudoInstruction::JumpNoInterrupt {
                     delta: continuation_block
                 }
             );
+            self.set_no_location();
         }
 
         if !finalbody.is_empty() {
             self.switch_to_block(end_block);
+            emit!(self, PseudoInstruction::PopBlock);
+            self.set_no_location();
+            self.remove_last_no_location_nop();
+            self.pop_fblock(FBlockType::FinallyTry);
+
             // Snapshot sub_tables before first finally compilation
             let sub_table_cursor = self.symbol_table_stack.last().map(|t| t.next_sub_table);
 
             // Compile finally body inline for normal path
             self.compile_statements(finalbody)?;
-            emit!(self, PseudoInstruction::Jump { delta: exit_block });
+            emit!(
+                self,
+                PseudoInstruction::JumpNoInterrupt { delta: exit_block }
+            );
 
             // Restore sub_tables for exception path compilation
             if let Some(cursor) = sub_table_cursor
@@ -4206,6 +4720,7 @@ impl Compiler {
             }
 
             emit!(self, Instruction::Reraise { depth: 0 });
+            self.set_no_location();
 
             if let Some(cleanup) = finally_cleanup_block {
                 self.switch_to_block(cleanup);
@@ -4586,10 +5101,10 @@ impl Compiler {
         self.current_code_info()
             .metadata
             .varnames
-            .insert(".format".to_owned());
+            .insert("format".to_owned());
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         emit!(self, Instruction::BuildMap { count: 0 });
 
@@ -4628,7 +5143,7 @@ impl Compiler {
                     value: simple_idx.into(),
                 });
                 if parent_scope_type == CompilerScope::Class {
-                    let idx = self.get_free_var_index("__conditional_annotations__")?;
+                    let idx = self.get_free_var_index("__conditional_annotations__");
                     emit!(self, Instruction::LoadDeref { i: idx });
                 } else {
                     let cond_annotations_name = self.name("__conditional_annotations__");
@@ -4694,7 +5209,7 @@ impl Compiler {
     }
 
     // = compiler_function
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
     fn compile_function_def(
         &mut self,
         name: &str,
@@ -4732,6 +5247,9 @@ impl Compiler {
             if funcflags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
                 num_typeparam_args += 1;
             }
+            if num_typeparam_args == 2 {
+                emit!(self, Instruction::Swap { i: 2 });
+            }
 
             // Enter type params scope
             let type_params_name = format!("<generic parameters of {name}>");
@@ -4740,7 +5258,7 @@ impl Compiler {
                 0,
                 num_typeparam_args as u32,
                 0,
-                type_params_name,
+                &type_params_name,
             )?;
 
             // TypeParams scope is function-like
@@ -4814,33 +5332,17 @@ impl Compiler {
             // Make closure for type params code
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::new())?;
 
-            // Call the type params closure with defaults/kwdefaults as arguments.
-            // Call protocol: [callable, self_or_null, arg1, ..., argN]
-            // We need to reorder: [args..., closure] -> [closure, NULL, args...]
-            // Using Swap operations to move closure down and insert NULL.
-            // Note: num_typeparam_args is at most 2 (defaults tuple, kwdefaults dict).
             if num_typeparam_args > 0 {
-                match num_typeparam_args {
-                    1 => {
-                        // Stack: [arg1, closure]
-                        emit!(self, Instruction::Swap { i: 2 }); // [closure, arg1]
-                        emit!(self, Instruction::PushNull); // [closure, arg1, NULL]
-                        emit!(self, Instruction::Swap { i: 2 }); // [closure, NULL, arg1]
+                emit!(
+                    self,
+                    Instruction::Swap {
+                        i: num_typeparam_args as u32 + 1
                     }
-                    2 => {
-                        // Stack: [arg1, arg2, closure]
-                        emit!(self, Instruction::Swap { i: 3 }); // [closure, arg2, arg1]
-                        emit!(self, Instruction::Swap { i: 2 }); // [closure, arg1, arg2]
-                        emit!(self, Instruction::PushNull); // [closure, arg1, arg2, NULL]
-                        emit!(self, Instruction::Swap { i: 3 }); // [closure, NULL, arg2, arg1]
-                        emit!(self, Instruction::Swap { i: 2 }); // [closure, NULL, arg1, arg2]
-                    }
-                    _ => unreachable!("only defaults and kwdefaults are supported"),
-                }
+                );
                 emit!(
                     self,
                     Instruction::Call {
-                        argc: num_typeparam_args as u32
+                        argc: num_typeparam_args as u32 - 1
                     }
                 );
             } else {
@@ -5038,133 +5540,22 @@ impl Compiler {
         Ok(())
     }
 
-    /// Collect attribute names assigned via `self.xxx = ...` in methods.
-    /// These are stored as __static_attributes__ in the class dict.
-    fn collect_static_attributes(body: &[ast::Stmt], attrs: Option<&mut IndexSet<String>>) {
-        let Some(attrs) = attrs else { return };
-        for stmt in body {
-            let ast::Stmt::FunctionDef(f) = stmt else {
-                continue;
-            };
-            Self::scan_function_store_attrs(f, attrs);
-        }
-    }
-
-    fn scan_function_store_attrs(f: &ast::StmtFunctionDef, attrs: &mut IndexSet<String>) {
-        // Skip @staticmethod and @classmethod decorated functions
-        let has_special_decorator = f.decorator_list.iter().any(|d| {
-            matches!(&d.expression, ast::Expr::Name(n)
-                if n.id.as_str() == "staticmethod" || n.id.as_str() == "classmethod")
-        });
-        if has_special_decorator {
+    // Python/compile.c _PyCompile_MaybeAddStaticAttributeToClass
+    fn maybe_add_static_attribute_to_class(&mut self, value: &ast::Expr, attr: &str) {
+        if !matches!(value, ast::Expr::Name(n) if n.id.as_str() == "self") {
             return;
         }
-        // Skip implicit classmethods (__init_subclass__, __class_getitem__)
-        let fname = f.name.as_str();
-        if fname == "__init_subclass__" || fname == "__class_getitem__" {
-            return;
-        }
-        // For __new__, scan for "self" (not the first param "cls")
-        if fname == "__new__" {
-            Self::scan_store_attrs(&f.body, "self", attrs);
-            return;
-        }
-        let first_param = f
-            .parameters
-            .posonlyargs
-            .first()
-            .or(f.parameters.args.first())
-            .map(|p| &p.parameter.name);
-        let Some(self_name) = first_param else {
-            return;
-        };
-        Self::scan_store_attrs(&f.body, self_name.as_str(), attrs);
-    }
-
-    /// Extract self.attr patterns from an assignment target expression.
-    fn scan_target_for_attrs(target: &ast::Expr, name: &str, attrs: &mut IndexSet<String>) {
-        match target {
-            ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-                if let ast::Expr::Name(n) = value.as_ref()
-                    && n.id.as_str() == name
-                {
-                    attrs.insert(attr.to_string());
-                }
-            }
-            ast::Expr::Tuple(t) => {
-                for elt in &t.elts {
-                    Self::scan_target_for_attrs(elt, name, attrs);
-                }
-            }
-            ast::Expr::List(l) => {
-                for elt in &l.elts {
-                    Self::scan_target_for_attrs(elt, name, attrs);
-                }
-            }
-            ast::Expr::Starred(s) => {
-                Self::scan_target_for_attrs(&s.value, name, attrs);
-            }
-            _ => {}
-        }
-    }
-
-    /// Recursively scan statements for `name.attr = value` patterns.
-    fn scan_store_attrs(stmts: &[ast::Stmt], name: &str, attrs: &mut IndexSet<String>) {
-        for stmt in stmts {
-            match stmt {
-                ast::Stmt::Assign(a) => {
-                    for target in &a.targets {
-                        Self::scan_target_for_attrs(target, name, attrs);
-                    }
-                }
-                ast::Stmt::AnnAssign(a) => {
-                    Self::scan_target_for_attrs(&a.target, name, attrs);
-                }
-                ast::Stmt::AugAssign(a) => {
-                    if let ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) =
-                        a.target.as_ref()
-                        && let ast::Expr::Name(n) = value.as_ref()
-                        && n.id.as_str() == name
-                    {
-                        attrs.insert(attr.to_string());
-                    }
-                }
-                ast::Stmt::If(s) => {
-                    Self::scan_store_attrs(&s.body, name, attrs);
-                    for clause in &s.elif_else_clauses {
-                        Self::scan_store_attrs(&clause.body, name, attrs);
-                    }
-                }
-                ast::Stmt::For(s) => {
-                    Self::scan_store_attrs(&s.body, name, attrs);
-                    Self::scan_store_attrs(&s.orelse, name, attrs);
-                }
-                ast::Stmt::While(s) => {
-                    Self::scan_store_attrs(&s.body, name, attrs);
-                    Self::scan_store_attrs(&s.orelse, name, attrs);
-                }
-                ast::Stmt::Try(s) => {
-                    Self::scan_store_attrs(&s.body, name, attrs);
-                    for handler in &s.handlers {
-                        let ast::ExceptHandler::ExceptHandler(h) = handler;
-                        Self::scan_store_attrs(&h.body, name, attrs);
-                    }
-                    Self::scan_store_attrs(&s.orelse, name, attrs);
-                    Self::scan_store_attrs(&s.finalbody, name, attrs);
-                }
-                ast::Stmt::With(s) => {
-                    Self::scan_store_attrs(&s.body, name, attrs);
-                }
-                ast::Stmt::Match(s) => {
-                    for case in &s.cases {
-                        Self::scan_store_attrs(&case.body, name, attrs);
-                    }
-                }
-                ast::Stmt::FunctionDef(f) => {
-                    Self::scan_function_store_attrs(f, attrs);
-                }
-                _ => {}
-            }
+        if let Some(class_unit) = self
+            .code_stack
+            .iter_mut()
+            .rev()
+            .find(|unit| unit.static_attributes.is_some())
+        {
+            class_unit
+                .static_attributes
+                .as_mut()
+                .unwrap()
+                .insert(attr.to_owned());
         }
     }
 
@@ -5286,15 +5677,8 @@ impl Compiler {
         // setup so nested generic classes match CPython's prologue order.
         if self.current_symbol_table().needs_classdict {
             emit!(self, Instruction::LoadLocals);
-            let classdict_idx = self.get_cell_var_index("__classdict__")?;
+            let classdict_idx = self.get_cell_var_index("__classdict__");
             emit!(self, Instruction::StoreDeref { i: classdict_idx });
-        }
-
-        // Store __doc__ only if there's an explicit docstring.
-        if let Some(doc) = doc_str {
-            self.emit_load_const(ConstantData::Str { value: doc.into() });
-            let doc_name = self.name("__doc__");
-            emit!(self, Instruction::StoreName { namei: doc_name });
         }
 
         // Handle class annotation bookkeeping in CPython order.
@@ -5309,15 +5693,12 @@ impl Compiler {
             }
         }
 
-        // Collect __static_attributes__: scan methods for self.xxx = ... patterns
-        Self::collect_static_attributes(
-            body,
-            self.code_stack
-                .last_mut()
-                .unwrap()
-                .static_attributes
-                .as_mut(),
-        );
+        // Store __doc__ only if there's an explicit docstring.
+        if let Some(doc) = doc_str {
+            self.emit_load_const(ConstantData::Str { value: doc.into() });
+            let doc_name = self.name("__doc__");
+            emit!(self, Instruction::StoreName { namei: doc_name });
+        }
 
         // 3. Compile the class body
         self.compile_statements(body)?;
@@ -5353,6 +5734,7 @@ impl Compiler {
                     .map(|s| ConstantData::Str { value: s.into() })
                     .collect(),
             });
+            self.set_no_location();
             let static_attrs_name = self.name("__static_attributes__");
             emit!(
                 self,
@@ -5360,12 +5742,14 @@ impl Compiler {
                     namei: static_attrs_name
                 }
             );
+            self.set_no_location();
         }
 
         // Store __classdictcell__ if __classdict__ is a cell variable
         if self.current_symbol_table().needs_classdict {
-            let classdict_idx = u32::from(self.get_cell_var_index("__classdict__")?);
+            let classdict_idx = u32::from(self.get_cell_var_index("__classdict__"));
             emit!(self, PseudoInstruction::LoadClosure { i: classdict_idx });
+            self.set_no_location();
             let classdictcell = self.name("__classdictcell__");
             emit!(
                 self,
@@ -5373,6 +5757,7 @@ impl Compiler {
                     namei: classdictcell
                 }
             );
+            self.set_no_location();
         }
 
         if let Some(classcell_idx) = classcell_idx {
@@ -5382,15 +5767,20 @@ impl Compiler {
                     i: classcell_idx.to_u32()
                 }
             );
+            self.set_no_location();
             emit!(self, Instruction::Copy { i: 1 });
+            self.set_no_location();
             let classcell = self.name("__classcell__");
             emit!(self, Instruction::StoreName { namei: classcell });
+            self.set_no_location();
         } else {
             self.emit_load_const(ConstantData::None);
+            self.set_no_location();
         }
 
         // Return the class namespace
         self.emit_return_value();
+        self.set_no_location();
 
         // Exit scope and return the code object
         Ok(self.exit_scope())
@@ -5407,6 +5797,7 @@ impl Compiler {
         self.prepare_decorators(decorator_list)?;
 
         let is_generic = type_params.is_some();
+        #[expect(clippy::map_unwrap_or, reason = "Changing this will not compile")]
         let firstlineno = decorator_list
             .first()
             .map(|decorator| {
@@ -5429,7 +5820,7 @@ impl Compiler {
                 0,
                 0,
                 0,
-                type_params_name,
+                &type_params_name,
             )?;
 
             // Set private name for name mangling
@@ -5492,7 +5883,7 @@ impl Compiler {
             let has_double_star =
                 arguments.is_some_and(|args| args.keywords.iter().any(|kw| kw.arg.is_none()));
 
-            if has_starred || has_double_star {
+            if has_starred {
                 // Use CallFunctionEx for *bases or **kwargs
                 // Stack has: [__build_class__, NULL, class_func, name]
                 // Need to build: args tuple = (class_func, name, *bases, .generic_base)
@@ -5527,12 +5918,25 @@ impl Compiler {
                     }
                 );
 
-                // Build kwargs if needed
-                if arguments.is_some_and(|args| !args.keywords.is_empty()) {
-                    self.compile_keywords(&arguments.unwrap().keywords)?;
-                } else {
-                    emit!(self, Instruction::PushNull);
+                self.compile_call_function_ex_keywords(
+                    arguments.map_or(&[][..], |args| &args.keywords[..]),
+                )?;
+                emit!(self, Instruction::CallFunctionEx);
+            } else if has_double_star {
+                if let Some(arguments) = arguments {
+                    for arg in &arguments.args {
+                        self.compile_expression(arg)?;
+                    }
                 }
+                self.load_name(".generic_base")?;
+                emit!(
+                    self,
+                    Instruction::BuildTuple {
+                        count: 3 + arguments
+                            .map_or(0, |args| u32::try_from(args.args.len()).unwrap())
+                    }
+                );
+                self.compile_call_function_ex_keywords(&arguments.unwrap().keywords[..])?;
                 emit!(self, Instruction::CallFunctionEx);
             } else {
                 // Simple case: no starred bases, no **kwargs
@@ -5629,14 +6033,29 @@ impl Compiler {
             self.new_block()
         };
 
-        if matches!(self.constant_expr_truthiness(test)?, Some(false)) {
+        if self.has_always_taken_jump_in_test(test, false)? {
             self.disable_load_fast_borrow_for_block(next_block);
+            self.disable_load_fast_borrow_for_block(end_block);
         }
+        let in_direct_try_else_orelse_conditional = {
+            let base = self.try_else_orelse_conditional_base_stack.last().copied();
+            let code_info = self.current_code_info();
+            code_info.in_try_else_orelse > 0
+                && base.is_some_and(|base| code_info.in_conditional_block == base + 1)
+        };
+        let preserve_try_else_scope_exit_target_nop = elif_else_clauses.is_empty()
+            && in_direct_try_else_orelse_conditional
+            && !self.fallthrough_has_local_statement_successor
+            && Self::statements_end_with_scope_exit(body);
         self.compile_jump_if(test, false, next_block)?;
         self.compile_statements(body)?;
 
         let Some((clause, rest)) = elif_else_clauses.split_first() else {
             self.switch_to_block(end_block);
+            if preserve_try_else_scope_exit_target_nop {
+                self.set_source_range(test.range());
+                emit!(self, Instruction::Nop);
+            }
             return Ok(());
         };
 
@@ -5665,11 +6084,13 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.enter_conditional_block();
 
-        let while_block = self.new_block();
-        let else_block = self.new_block();
+        let while_block = self.switch_to_new_or_reuse_empty();
         let after_block = self.new_block();
-
-        self.switch_to_block(while_block);
+        let else_block = if orelse.is_empty() {
+            after_block
+        } else {
+            self.new_block()
+        };
         self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
         if matches!(self.constant_expr_truthiness(test)?, Some(false)) {
             self.disable_load_fast_borrow_for_block(else_block);
@@ -5678,7 +6099,7 @@ impl Compiler {
         self.compile_jump_if(test, false, else_block)?;
 
         let was_in_loop = self.ctx.loop_data.replace((while_block, after_block));
-        self.compile_statements(body)?;
+        self.compile_loop_body_statements(body)?;
         self.ctx.loop_data = was_in_loop;
         emit!(self, PseudoInstruction::Jump { delta: while_block });
         self.set_no_location();
@@ -5686,7 +6107,9 @@ impl Compiler {
 
         self.pop_fblock(FBlockType::WhileLoop);
         self.compile_statements(orelse)?;
-        self.switch_to_block(after_block);
+        if !orelse.is_empty() {
+            self.switch_to_block(after_block);
+        }
 
         self.leave_conditional_block();
         Ok(())
@@ -5727,11 +6150,10 @@ impl Compiler {
         //     RERAISE 1
         // after: ...
 
-        let with_range = self.current_source_range;
-
         let Some((item, items)) = items.split_first() else {
             return Err(self.error(CodegenErrorType::EmptyWithItems));
         };
+        let with_range = item.context_expr.range();
 
         let exc_handler_block = self.new_block();
         let after_block = self.new_block();
@@ -5821,15 +6243,63 @@ impl Compiler {
             if body.is_empty() {
                 return Err(self.error(CodegenErrorType::EmptyWithBody));
             }
-            self.compile_statements(body)?;
+            self.compile_with_body_statements(body)?;
         } else {
-            self.set_source_range(with_range);
+            self.set_source_range(items[0].context_expr.range());
             self.compile_with(items, body, is_async)?;
         }
 
-        // Pop fblock before normal exit
-        self.set_source_range(with_range);
+        let nested_multiline_with_cleanup_target_nop =
+            !is_async && Self::statements_end_with_scope_exit(body) && {
+                let parent_with_ranges: Vec<_> = self
+                    .current_code_info()
+                    .fblock
+                    .iter()
+                    .rev()
+                    .skip(1)
+                    .filter_map(|info| {
+                        matches!(info.fb_type, FBlockType::With).then_some(info.fb_range)
+                    })
+                    .collect();
+                let source = self.source_file.to_source_code();
+                let current_line = source.line_index(with_range.start());
+                parent_with_ranges
+                    .iter()
+                    .any(|range| source.line_index(range.start()) != current_line)
+            };
+        let preserve_outer_cleanup_target_nop = !is_async
+            && (Self::statements_end_with_with_cleanup_scope_exit(body)
+                || self.statements_end_with_conditional_scope_exit(body)
+                || Self::statements_end_with_try_except_handler_fallthrough(body)
+                || Self::statements_end_with_try_except_else_handler_scope_exit(body)
+                || Self::statements_end_with_try_finally(body)
+                || self.statements_end_with_loop_fallthrough(body)?);
+        let materialize_async_with_outer_cleanup_target_nop = is_async
+            && Self::statements_end_with_nested_finalbody_try_finally(body)
+            && self
+                .current_code_info()
+                .fblock
+                .iter()
+                .any(|info| matches!(info.fb_type, FBlockType::With));
+
+        // Pop fblock before normal exit.  CPython emits this POP_BLOCK with
+        // no location for sync with, but with the with-item location for
+        // async with.
+        if is_async {
+            self.set_source_range(with_range);
+        }
         emit!(self, PseudoInstruction::PopBlock);
+        if !is_async {
+            self.set_no_location();
+            if preserve_outer_cleanup_target_nop {
+                self.preserve_last_redundant_nop();
+            } else if Self::statements_end_with_try_star_except(body) {
+                self.force_remove_last_no_location_nop();
+            } else {
+                self.remove_last_no_location_nop();
+            }
+            self.set_source_range(with_range);
+        }
         self.pop_fblock(if is_async {
             FBlockType::AsyncWith
         } else {
@@ -5839,7 +6309,6 @@ impl Compiler {
         // ===== Normal exit path =====
         // Stack: [..., exit_func, self_exit]
         // Call exit_func(self_exit, None, None, None)
-        self.set_source_range(with_range);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
         self.emit_load_const(ConstantData::None);
@@ -5851,6 +6320,7 @@ impl Compiler {
         }
         emit!(self, Instruction::PopTop); // Pop __exit__ result
         emit!(self, PseudoInstruction::Jump { delta: after_block });
+        self.set_no_location();
 
         // ===== Exception handler path =====
         // Stack at entry: [..., exit_func, self_exit, lasti, exc]
@@ -5922,6 +6392,12 @@ impl Compiler {
 
         // ===== After block =====
         self.switch_to_block(after_block);
+        if materialize_async_with_outer_cleanup_target_nop
+            || nested_multiline_with_cleanup_target_nop
+        {
+            self.set_source_range(with_range);
+            emit!(self, Instruction::Nop);
+        }
 
         self.leave_conditional_block();
         Ok(())
@@ -5941,6 +6417,19 @@ impl Compiler {
         let for_block = self.new_block();
         let else_block = self.new_block();
         let after_block = self.new_block();
+        let split_normal_exit_from_break = !is_async
+            && self.split_next_for_normal_exit_from_break
+            && Self::statements_contain_direct_break(body)
+            && self
+                .current_code_info()
+                .fblock
+                .iter()
+                .any(|info| matches!(info.fb_type, FBlockType::TryExcept));
+        let normal_exit_block = if split_normal_exit_from_break {
+            self.new_block()
+        } else {
+            after_block
+        };
         let mut end_async_for_target = BlockIdx::NULL;
 
         // The thing iterated:
@@ -5950,7 +6439,7 @@ impl Compiler {
             if self.ctx.func != FunctionContext::AsyncFunction {
                 return Err(self.error(CodegenErrorType::InvalidAsyncFor));
             }
-            emit!(self, Instruction::GetAIter);
+            emit!(self, Instruction::GetAiter);
 
             self.switch_to_block(for_block);
 
@@ -5959,7 +6448,7 @@ impl Compiler {
 
             // SETUP_FINALLY to guard the __anext__ call
             emit!(self, PseudoInstruction::SetupFinally { delta: else_block });
-            emit!(self, Instruction::GetANext);
+            emit!(self, Instruction::GetAnext);
             self.emit_load_const(ConstantData::None);
             end_async_for_target = self.compile_yield_from_sequence(true)?;
             // POP_BLOCK for SETUP_FINALLY - only GetANext/yield_from are protected
@@ -5989,7 +6478,7 @@ impl Compiler {
         };
 
         let was_in_loop = self.ctx.loop_data.replace((for_block, after_block));
-        self.compile_statements(body)?;
+        self.compile_loop_body_statements(body)?;
         self.ctx.loop_data = was_in_loop;
         emit!(self, PseudoInstruction::Jump { delta: for_block });
         self.set_no_location();
@@ -6012,10 +6501,25 @@ impl Compiler {
         self.set_source_range(saved_range);
         self.compile_statements(orelse)?;
 
-        self.switch_to_block(after_block);
+        self.switch_to_block(normal_exit_block);
 
         // Implicit return after for-loop should be attributed to the `for` line
         self.set_source_range(iter.range());
+        if split_normal_exit_from_break {
+            emit!(self, Instruction::Nop);
+            self.set_no_location();
+            self.preserve_last_redundant_nop();
+            self.preserve_last_redundant_jump_as_nop();
+            self.mark_last_no_location_exit();
+            emit!(
+                self,
+                PseudoInstruction::JumpNoInterrupt { delta: after_block }
+            );
+            self.set_no_location();
+            self.remove_last_no_location_nop();
+            self.switch_to_block(after_block);
+            self.set_source_range(iter.range());
+        }
 
         self.leave_conditional_block();
         Ok(())
@@ -6032,6 +6536,7 @@ impl Compiler {
         // the original object semantics.
         if !is_async
             && let ast::Expr::List(ast::ExprList { elts, .. }) = iter
+            && elts.len() <= usize::try_from(STACK_USE_GUIDELINE).unwrap()
             && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
         {
             if let Some(folded) = self.try_fold_constant_collection(elts, CollectionType::List)? {
@@ -6051,6 +6556,18 @@ impl Compiler {
         }
 
         self.compile_expression(iter)
+    }
+
+    fn singleton_comprehension_assignment_iter(iter: &ast::Expr) -> Option<&ast::Expr> {
+        let elts = match iter {
+            ast::Expr::List(ast::ExprList { elts, .. }) => elts,
+            ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => elts,
+            _ => return None,
+        };
+        match elts.as_slice() {
+            [elt] if !matches!(elt, ast::Expr::Starred(_)) => Some(elt),
+            _ => None,
+        }
     }
 
     fn forbidden_name(&mut self, name: &str, ctx: NameUsage) -> CompileResult<bool> {
@@ -6073,24 +6590,23 @@ impl Compiler {
 
     /// Ensures that `pc.fail_pop` has at least `n + 1` entries.
     /// If not, new labels are generated and pushed until the required size is reached.
-    fn ensure_fail_pop(&mut self, pc: &mut PatternContext, n: usize) -> CompileResult<()> {
+    fn ensure_fail_pop(&mut self, pc: &mut PatternContext, n: usize) {
         let required_size = n + 1;
         if required_size <= pc.fail_pop.len() {
-            return Ok(());
+            return;
         }
         while pc.fail_pop.len() < required_size {
             let new_block = self.new_block();
             pc.fail_pop.push(new_block);
         }
-        Ok(())
     }
 
-    fn jump_to_fail_pop(&mut self, pc: &mut PatternContext, op: JumpOp) -> CompileResult<()> {
+    fn jump_to_fail_pop(&mut self, pc: &mut PatternContext, op: JumpOp) {
         // Compute the total number of items to pop:
         // items on top plus the captured objects.
         let pops = pc.on_top + pc.stores.len();
         // Ensure that the fail_pop vector has at least `pops + 1` elements.
-        self.ensure_fail_pop(pc, pops)?;
+        self.ensure_fail_pop(pc, pops);
         // Emit a jump using the jump target stored at index `pops`.
         match op {
             JumpOp::Jump => {
@@ -6099,7 +6615,7 @@ impl Compiler {
                     PseudoInstruction::Jump {
                         delta: pc.fail_pop[pops]
                     }
-                );
+                )
             }
             JumpOp::PopJumpIfFalse => {
                 emit!(
@@ -6107,19 +6623,18 @@ impl Compiler {
                     Instruction::PopJumpIfFalse {
                         delta: pc.fail_pop[pops]
                     }
-                );
+                )
             }
-        }
-        Ok(())
+        };
     }
 
     /// Emits the necessary POP instructions for all failure targets in the pattern context,
     /// then resets the fail_pop vector.
-    fn emit_and_reset_fail_pop(&mut self, pc: &mut PatternContext) -> CompileResult<()> {
+    fn emit_and_reset_fail_pop(&mut self, pc: &mut PatternContext) {
         // If the fail_pop vector is empty, nothing needs to be done.
         if pc.fail_pop.is_empty() {
             debug_assert!(pc.fail_pop.is_empty());
-            return Ok(());
+            return;
         }
         // Iterate over the fail_pop vector in reverse order, skipping the first label.
         for &label in pc.fail_pop.iter().skip(1).rev() {
@@ -6132,11 +6647,10 @@ impl Compiler {
         pc.fail_pop.clear();
         // Free the memory used by the vector.
         pc.fail_pop.shrink_to_fit();
-        Ok(())
     }
 
     /// Duplicate the effect of Python 3.10's ROT_* instructions using SWAPs.
-    fn pattern_helper_rotate(&mut self, mut count: usize) -> CompileResult<()> {
+    fn pattern_helper_rotate(&mut self, mut count: usize) {
         // Rotate TOS (top of stack) to position `count` down
         // This is done by a series of swaps
         // For count=1, no rotation needed (already at top)
@@ -6152,7 +6666,6 @@ impl Compiler {
             );
             count -= 1;
         }
-        Ok(())
     }
 
     /// Helper to store a captured name for a star pattern.
@@ -6188,7 +6701,7 @@ impl Compiler {
 
                 // Calculate how many items to rotate:
                 let rotations = pc.on_top + pc.stores.len() + 1;
-                self.pattern_helper_rotate(rotations)?;
+                self.pattern_helper_rotate(rotations);
 
                 // Append the name to the captured stores.
                 pc.stores.push(name.to_string());
@@ -6342,12 +6855,11 @@ impl Compiler {
                     return Err(self.error(CodegenErrorType::UnreachablePattern(
                         PatternUnreachableReason::NameCapture,
                     )));
-                } else {
-                    // A wildcard makes remaining patterns unreachable.
-                    return Err(self.error(CodegenErrorType::UnreachablePattern(
-                        PatternUnreachableReason::Wildcard,
-                    )));
                 }
+                // A wildcard makes remaining patterns unreachable.
+                return Err(self.error(CodegenErrorType::UnreachablePattern(
+                    PatternUnreachableReason::Wildcard,
+                )));
             }
             // If irrefutable matches are allowed, store the name (if any).
             return self.pattern_helper_store_name(p.name.as_ref(), pc);
@@ -6471,7 +6983,7 @@ impl Compiler {
 
         // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
 
         // Unpack the tuple into (nargs + n_attrs) items.
         let total = nargs + n_attrs;
@@ -6543,7 +7055,7 @@ impl Compiler {
         emit!(self, Instruction::MatchMapping);
         // Stack: [subject, is_mapping]
 
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         // Stack: [subject]
 
         // Special case: empty pattern {} with no rest
@@ -6566,18 +7078,16 @@ impl Compiler {
                     opname: ComparisonOperator::GreaterOrEqual
                 }
             );
-            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
             // Stack: [subject]
         }
 
         // Check for overflow (INT_MAX < size - 1)
-        if size > (i32::MAX as usize + 1) {
-            return Err(self.error(CodegenErrorType::SyntaxError(
+        let size = u32::try_from(size).map_err(|_| {
+            self.error(CodegenErrorType::SyntaxError(
                 "too many sub-patterns in mapping pattern".to_string(),
-            )));
-        }
-        #[allow(clippy::cast_possible_truncation, reason = "checked right before")]
-        let size = size as u32;
+            ))
+        })?;
 
         // Step 2: If we have keys to match
         if size > 0 {
@@ -6641,7 +7151,7 @@ impl Compiler {
         );
 
         // Stack: [subject, keys_tuple, values_tuple, bool]
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         // Stack: [subject, keys_tuple, values_tuple]
 
         // Unpack values (the original values_tuple)
@@ -6780,7 +7290,7 @@ impl Compiler {
                             // Also perform the same rotation on the evaluation stack.
                             self.set_source_range(alt.range());
                             for _ in 0..=i_stores {
-                                self.pattern_helper_rotate(i_control + 1)?;
+                                self.pattern_helper_rotate(i_control + 1);
                             }
                         }
                     }
@@ -6790,11 +7300,11 @@ impl Compiler {
             self.set_source_range(alt.range());
             emit!(self, PseudoInstruction::Jump { delta: end });
             self.set_source_range(alt.range());
-            self.emit_and_reset_fail_pop(pc)?;
+            self.emit_and_reset_fail_pop(pc);
         }
 
         // Restore the original pattern context.
-        *pc = old_pc.clone();
+        *pc = old_pc;
         // Simulate Py_INCREF on pc.stores.
         pc.stores = pc.stores.clone();
         // In C, old_pc.fail_pop is set to NULL to avoid freeing it later.
@@ -6803,7 +7313,7 @@ impl Compiler {
         // No alternative matched: pop the subject and fail.
         self.set_source_range(p.range());
         emit!(self, Instruction::PopTop);
-        self.jump_to_fail_pop(pc, JumpOp::Jump)?;
+        self.jump_to_fail_pop(pc, JumpOp::Jump);
 
         // Use the label "end".
         self.switch_to_block(end);
@@ -6814,7 +7324,7 @@ impl Compiler {
         for i in 0..n_stores {
             // Rotate the capture to its proper place.
             self.set_source_range(p.range());
-            self.pattern_helper_rotate(n_rots)?;
+            self.pattern_helper_rotate(n_rots);
             let name = &control.as_ref().unwrap()[i];
             // Check for duplicate binding.
             if pc.stores.contains(name) {
@@ -6850,25 +7360,19 @@ impl Compiler {
                     return Err(self.error(CodegenErrorType::MultipleStarArgs));
                 }
                 // star wildcard check
-                star_wildcard = pattern
-                    .as_match_star()
-                    .map(|m| m.name.is_none())
-                    .unwrap_or(false);
+                star_wildcard = pattern.as_match_star().is_some_and(|m| m.name.is_none());
                 only_wildcard &= star_wildcard;
                 star = Some(i);
                 continue;
             }
             // wildcard check
-            only_wildcard &= pattern
-                .as_match_as()
-                .map(|m| m.name.is_none())
-                .unwrap_or(false);
+            only_wildcard &= pattern.as_match_as().is_some_and(|m| m.name.is_none());
         }
 
         // Keep the subject on top during the sequence and length checks.
         pc.on_top += 1;
         emit!(self, Instruction::MatchSequence);
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
 
         if star.is_none() {
             // No star: len(subject) == size
@@ -6880,7 +7384,7 @@ impl Compiler {
                     opname: ComparisonOperator::Equal
                 }
             );
-            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         } else if size > 1 {
             // Star exists: len(subject) >= size - 1
             emit!(self, Instruction::GetLen);
@@ -6893,7 +7397,7 @@ impl Compiler {
                     opname: ComparisonOperator::GreaterOrEqual
                 }
             );
-            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         }
 
         // Whatever comes next should consume the subject.
@@ -6925,7 +7429,7 @@ impl Compiler {
             }
         );
         emit!(self, Instruction::ToBool);
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         Ok(())
     }
 
@@ -6933,7 +7437,7 @@ impl Compiler {
         &mut self,
         p: &ast::PatternMatchSingleton,
         pc: &mut PatternContext,
-    ) -> CompileResult<()> {
+    ) {
         // Load the singleton constant value.
         self.emit_load_const(match p.value {
             ast::Singleton::None => ConstantData::None,
@@ -6943,8 +7447,7 @@ impl Compiler {
         // Compare using the "Is" operator.
         emit!(self, Instruction::IsOp { invert: Invert::No });
         // Jump to the failure label if the comparison is false.
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
-        Ok(())
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
     }
 
     fn compile_pattern(
@@ -6959,7 +7462,8 @@ impl Compiler {
                 self.compile_pattern_value(pattern_type, pattern_context)
             }
             ast::Pattern::MatchSingleton(pattern_type) => {
-                self.compile_pattern_singleton(pattern_type, pattern_context)
+                self.compile_pattern_singleton(pattern_type, pattern_context);
+                Ok(())
             }
             ast::Pattern::MatchSequence(pattern_type) => {
                 self.compile_pattern_sequence(pattern_type, pattern_context)
@@ -7028,7 +7532,7 @@ impl Compiler {
             }
 
             if let Some(ref guard) = m.guard {
-                self.ensure_fail_pop(pattern_context, 0)?;
+                self.ensure_fail_pop(pattern_context, 0);
                 self.compile_jump_if_inner(
                     guard,
                     false,
@@ -7045,12 +7549,19 @@ impl Compiler {
                     emit!(self, Instruction::Nop);
                 }
                 emit!(self, Instruction::PopTop);
+                if matches!(m.body.first(), Some(ast::Stmt::Try(_))) {
+                    let body_block = self.new_block();
+                    self.switch_to_block(body_block);
+                }
             }
 
             self.compile_statements(&m.body)?;
-            emit!(self, PseudoInstruction::Jump { delta: end });
+            emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
+            if let Some(last) = self.current_block().instructions.last_mut() {
+                last.match_success_jump = true;
+            }
             self.set_source_range(m.pattern.range());
-            self.emit_and_reset_fail_pop(pattern_context)?;
+            self.emit_and_reset_fail_pop(pattern_context);
         }
 
         if has_default {
@@ -7185,7 +7696,8 @@ impl Compiler {
         self.compile_addcompare(last_op);
 
         let end = self.new_block();
-        emit!(self, PseudoInstruction::Jump { delta: end });
+        emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
+        self.set_no_location();
 
         // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
         self.switch_to_block(cleanup);
@@ -7236,7 +7748,8 @@ impl Compiler {
         self.compile_addcompare(last_op);
         emit!(self, Instruction::ToBool);
         self.emit_pop_jump_by_condition(condition, target_block);
-        emit!(self, PseudoInstruction::Jump { delta: end });
+        emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
+        self.set_no_location();
 
         self.switch_to_block(cleanup);
         emit!(self, Instruction::PopTop);
@@ -7414,28 +7927,33 @@ impl Compiler {
     }
 
     fn compile_store(&mut self, target: &ast::Expr) -> CompileResult<()> {
-        match &target {
-            ast::Expr::Name(ast::ExprName { id, .. }) => self.store_name(id.as_str())?,
-            ast::Expr::Subscript(ast::ExprSubscript {
-                value, slice, ctx, ..
-            }) => {
-                self.compile_subscript(value, slice, *ctx)?;
-            }
-            ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-                self.compile_expression(value)?;
-                let namei = self.name(attr.as_str());
-                emit!(self, Instruction::StoreAttr { namei });
-            }
-            ast::Expr::List(ast::ExprList { elts, .. })
-            | ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
-                let mut seen_star = false;
+        let prev_source_range = self.current_source_range;
+        self.set_source_range(target.range());
+        let result = (|| -> CompileResult<()> {
+            match &target {
+                ast::Expr::Name(ast::ExprName { id, .. }) => self.store_name(id.as_str())?,
+                ast::Expr::Subscript(ast::ExprSubscript {
+                    value, slice, ctx, ..
+                }) => {
+                    self.compile_subscript(value, slice, *ctx)?;
+                }
+                ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+                    self.maybe_add_static_attribute_to_class(value, attr.as_str());
+                    self.compile_expression(value)?;
+                    let namei = self.name(attr.as_str());
+                    emit!(self, Instruction::StoreAttr { namei });
+                }
+                ast::Expr::List(ast::ExprList { elts, .. })
+                | ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
+                    let mut seen_star = false;
 
-                // Scan for star args:
-                for (i, element) in elts.iter().enumerate() {
-                    if let ast::Expr::Starred(_) = &element {
-                        if seen_star {
-                            return Err(self.error(CodegenErrorType::MultipleStarArgs));
-                        } else {
+                    // Scan for star args:
+                    for (i, element) in elts.iter().enumerate() {
+                        if let ast::Expr::Starred(_) = &element {
+                            if seen_star {
+                                return Err(self.error(CodegenErrorType::MultipleStarArgs));
+                            }
+
                             seen_star = true;
                             let before = i;
                             let after = elts.len() - i - 1;
@@ -7450,36 +7968,38 @@ impl Compiler {
                             emit!(self, Instruction::UnpackEx { counts });
                         }
                     }
-                }
 
-                if !seen_star {
-                    emit!(
-                        self,
-                        Instruction::UnpackSequence {
-                            count: elts.len().to_u32(),
+                    if !seen_star {
+                        emit!(
+                            self,
+                            Instruction::UnpackSequence {
+                                count: elts.len().to_u32(),
+                            }
+                        );
+                    }
+
+                    for element in elts {
+                        if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = &element {
+                            self.compile_store(value)?;
+                        } else {
+                            self.compile_store(element)?;
                         }
-                    );
-                }
-
-                for element in elts {
-                    if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = &element {
-                        self.compile_store(value)?;
-                    } else {
-                        self.compile_store(element)?;
                     }
                 }
+                _ => {
+                    return Err(self.error(match target {
+                        ast::Expr::Starred(_) => CodegenErrorType::SyntaxError(
+                            "starred assignment target must be in a list or tuple".to_owned(),
+                        ),
+                        _ => CodegenErrorType::Assign(target.python_name()),
+                    }));
+                }
             }
-            _ => {
-                return Err(self.error(match target {
-                    ast::Expr::Starred(_) => CodegenErrorType::SyntaxError(
-                        "starred assignment target must be in a list or tuple".to_owned(),
-                    ),
-                    _ => CodegenErrorType::Assign(target.python_name()),
-                }));
-            }
-        }
+            Ok(())
+        })();
 
-        Ok(())
+        self.set_source_range(prev_source_range);
+        result
     }
 
     fn compile_augassign(
@@ -7678,6 +8198,14 @@ impl Compiler {
                 && matches!(&comparators[0], ast::Expr::NoneLiteral(_)) =>
             {
                 self.compile_expression(left)?;
+                let source = self.source_file.to_source_code();
+                let comparator_line = source.line_index(comparators[0].range().start());
+                let left_line = source.line_index(left.range().start());
+                if comparator_line != left_line {
+                    self.set_source_range(comparators[0].range());
+                    emit!(self, Instruction::Nop);
+                    self.set_source_range(source_range.unwrap_or_else(|| expression.range()));
+                }
                 let is_not = matches!(ops[0], ast::CmpOp::IsNot);
                 // is None + jump_if_false → POP_JUMP_IF_NOT_NONE
                 // is None + jump_if_true → POP_JUMP_IF_NONE
@@ -7703,6 +8231,10 @@ impl Compiler {
             }
             _ => {
                 // Fall back case which always will work!
+                if matches!(self.constant_expr_truthiness(expression)?, Some(value) if value == condition)
+                {
+                    self.disable_load_fast_borrow_for_block(target_block);
+                }
                 self.compile_expression(expression)?;
                 emit!(self, Instruction::ToBool);
                 if condition {
@@ -7770,22 +8302,7 @@ impl Compiler {
 
         for value in prefix_values {
             let continue_block = self.new_block();
-            match value {
-                ast::Expr::BoolOp(ast::ExprBoolOp {
-                    op: inner_op,
-                    values,
-                    ..
-                }) if inner_op != op => {
-                    let (last_inner_value, inner_prefix_values) = values.split_last().unwrap();
-                    for inner_value in inner_prefix_values {
-                        self.compile_expression(inner_value)?;
-                        self.emit_short_circuit_test(inner_op, continue_block);
-                        emit!(self, Instruction::PopTop);
-                    }
-                    self.compile_expression(last_inner_value)?;
-                }
-                _ => self.compile_expression(value)?,
-            }
+            self.compile_expression(value)?;
             self.emit_short_circuit_test(op, after_block);
             self.switch_to_block(continue_block);
             emit!(self, Instruction::PopTop);
@@ -8025,13 +8542,11 @@ impl Compiler {
         // fail: CLEANUP_THROW
         // Stack when exception: [receiver, yielded_value, exc]
         // CLEANUP_THROW: [sub_iter, last_sent_val, exc] -> [None, value]
-        // Jump back to the shared END_SEND block like CPython's fail path.
+        // CPython lets this block fall through to END_SEND during codegen;
+        // push_cold_blocks_to_end later inserts the no-interrupt jump after
+        // moving the cold fail block behind the warm exit path.
         self.switch_to_block(fail_block);
         emit!(self, Instruction::CleanupThrow);
-        emit!(
-            self,
-            PseudoInstruction::JumpNoInterrupt { delta: exit_block }
-        );
 
         // exit: END_SEND
         // Stack: [receiver, value] (from SEND) or [None, value] (from CLEANUP_THROW)
@@ -8083,6 +8598,13 @@ impl Compiler {
             ctx: ast::ExprContext::Load,
             ..
         }) = expression
+            && let Some(constant) = self.try_fold_constant_expr(expression)?
+        {
+            self.emit_load_const(constant);
+            return Ok(());
+        }
+
+        if matches!(expression, ast::Expr::BinOp(_))
             && let Some(constant) = self.try_fold_constant_expr(expression)?
         {
             self.emit_load_const(constant);
@@ -8154,15 +8676,6 @@ impl Compiler {
             ast::Expr::BinOp(ast::ExprBinOp {
                 left, op, right, ..
             }) => {
-                // optimize_format_str: 'format' % (args,) → f-string bytecode
-                if matches!(op, ast::Operator::Mod)
-                    && let ast::Expr::StringLiteral(s) = left.as_ref()
-                    && let ast::Expr::Tuple(ast::ExprTuple { elts, .. }) = right.as_ref()
-                    && !elts.iter().any(|e| matches!(e, ast::Expr::Starred(_)))
-                    && self.try_optimize_format_str(s.value.to_str(), elts, range)?
-                {
-                    return Ok(());
-                }
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
 
@@ -8247,12 +8760,12 @@ impl Compiler {
             ast::Expr::Slice(ast::ExprSlice {
                 lower, upper, step, ..
             }) => {
-                // Try constant slice folding first
-                if self.try_fold_constant_slice(
+                if let Some(folded_const) = self.try_fold_constant_slice(
                     lower.as_deref(),
                     upper.as_deref(),
                     step.as_deref(),
                 )? {
+                    self.emit_load_const(folded_const);
                     return Ok(());
                 }
                 let mut compile_bound = |bound: Option<&ast::Expr>| match bound {
@@ -8408,7 +8921,10 @@ impl Compiler {
                 self.ctx = prev_ctx;
             }
             ast::Expr::ListComp(ast::ExprListComp {
-                elt, generators, ..
+                elt,
+                generators,
+                range,
+                ..
             }) => {
                 self.compile_comprehension(
                     "<listcomp>",
@@ -8419,22 +8935,26 @@ impl Compiler {
                         .into(),
                     ),
                     generators,
-                    &|compiler| {
+                    &|compiler, collection_add_i| {
                         compiler.compile_comprehension_element(elt)?;
                         emit!(
                             compiler,
                             Instruction::ListAppend {
-                                i: (generators.len() + 1).to_u32(),
+                                i: collection_add_i.to_u32(),
                             }
                         );
                         Ok(())
                     },
                     ComprehensionType::List,
                     Self::contains_await(elt) || Self::generators_contain_await(generators),
+                    *range,
                 )?;
             }
             ast::Expr::SetComp(ast::ExprSetComp {
-                elt, generators, ..
+                elt,
+                generators,
+                range,
+                ..
             }) => {
                 self.compile_comprehension(
                     "<setcomp>",
@@ -8445,24 +8965,26 @@ impl Compiler {
                         .into(),
                     ),
                     generators,
-                    &|compiler| {
+                    &|compiler, collection_add_i| {
                         compiler.compile_comprehension_element(elt)?;
                         emit!(
                             compiler,
                             Instruction::SetAdd {
-                                i: (generators.len() + 1).to_u32(),
+                                i: collection_add_i.to_u32(),
                             }
                         );
                         Ok(())
                     },
                     ComprehensionType::Set,
                     Self::contains_await(elt) || Self::generators_contain_await(generators),
+                    *range,
                 )?;
             }
             ast::Expr::DictComp(ast::ExprDictComp {
                 key,
                 value,
                 generators,
+                range,
                 ..
             }) => {
                 self.compile_comprehension(
@@ -8474,7 +8996,7 @@ impl Compiler {
                         .into(),
                     ),
                     generators,
-                    &|compiler| {
+                    &|compiler, collection_add_i| {
                         // changed evaluation order for Py38 named expression PEP 572
                         compiler.compile_expression(key)?;
                         compiler.compile_expression(value)?;
@@ -8482,7 +9004,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::MapAdd {
-                                i: (generators.len() + 1).to_u32(),
+                                i: collection_add_i.to_u32(),
                             }
                         );
 
@@ -8492,10 +9014,14 @@ impl Compiler {
                     Self::contains_await(key)
                         || Self::contains_await(value)
                         || Self::generators_contain_await(generators),
+                    *range,
                 )?;
             }
             ast::Expr::Generator(ast::ExprGenerator {
-                elt, generators, ..
+                elt,
+                generators,
+                range,
+                ..
             }) => {
                 // Check if element or generators contain async content
                 // This makes the generator expression into an async generator
@@ -8505,7 +9031,7 @@ impl Compiler {
                     "<genexpr>",
                     None,
                     generators,
-                    &|compiler| {
+                    &|compiler, _collection_add_i| {
                         // Compile the element expression
                         // Note: if element is an async comprehension, compile_expression
                         // already handles awaiting it, so we don't need to await again here
@@ -8536,6 +9062,7 @@ impl Compiler {
                     },
                     ComprehensionType::Generator,
                     element_contains_await,
+                    *range,
                 )?;
             }
             ast::Expr::Starred(ast::ExprStarred { value, .. }) => {
@@ -8551,12 +9078,19 @@ impl Compiler {
             ast::Expr::If(ast::ExprIf {
                 test, body, orelse, ..
             }) => {
+                let folded_test_truthiness = self
+                    .try_fold_constant_expr(test)?
+                    .as_ref()
+                    .map(Self::constant_truthiness);
                 let else_block = self.new_block();
                 let after_block = self.new_block();
                 self.compile_jump_if(test, false, else_block)?;
 
                 // True case
                 self.compile_expression(body)?;
+                if folded_test_truthiness == Some(true) {
+                    self.mark_last_instruction_folded_from_nonliteral_expr();
+                }
                 emit!(
                     self,
                     PseudoInstruction::JumpNoInterrupt { delta: after_block }
@@ -8566,6 +9100,9 @@ impl Compiler {
                 // False case
                 self.switch_to_block(else_block);
                 self.compile_expression(orelse)?;
+                if folded_test_truthiness == Some(false) {
+                    self.mark_last_instruction_folded_from_nonliteral_expr();
+                }
 
                 // End
                 self.switch_to_block(after_block);
@@ -8630,39 +9167,6 @@ impl Compiler {
             }
             ast::Expr::IpyEscapeCommand(_) => {
                 panic!("unexpected ipy escape command");
-            }
-        }
-        Ok(())
-    }
-
-    fn compile_keywords(&mut self, keywords: &[ast::Keyword]) -> CompileResult<()> {
-        let mut size = 0;
-        let groupby = keywords.iter().chunk_by(|e| e.arg.is_none());
-        for (is_unpacking, sub_keywords) in &groupby {
-            if is_unpacking {
-                for keyword in sub_keywords {
-                    self.compile_expression(&keyword.value)?;
-                    size += 1;
-                }
-            } else {
-                let mut sub_size = 0;
-                for keyword in sub_keywords {
-                    if let Some(name) = &keyword.arg {
-                        self.emit_load_const(ConstantData::Str {
-                            value: name.as_str().into(),
-                        });
-                        self.compile_expression(&keyword.value)?;
-                        sub_size += 1;
-                    }
-                }
-                emit!(self, Instruction::BuildMap { count: sub_size });
-                size += 1;
-            }
-        }
-        if size > 1 {
-            // Merge all dicts: first dict is accumulator, merge rest into it
-            for _ in 1..size {
-                emit!(self, Instruction::DictMerge { i: 1 });
             }
         }
         Ok(())
@@ -8812,6 +9316,12 @@ impl Compiler {
                             self.emit_load_zero_super_attr(idx);
                         }
                     }
+                    // CPython's Attribute_kind super path emits an attr-line
+                    // NOP after LOAD_SUPER_ATTR, even when the call later uses
+                    // CALL_FUNCTION_EX for starred arguments.
+                    self.set_source_range(attr.range());
+                    emit!(self, Instruction::Nop);
+                    self.set_source_range(super_range);
                     emit!(self, Instruction::PushNull);
                     self.codegen_call_helper(0, args, call_range)?;
                 } else {
@@ -8872,7 +9382,8 @@ impl Compiler {
             .iter()
             .any(|arg| matches!(arg, ast::Expr::Starred(_)));
         let has_double_star = arguments.keywords.iter().any(|k| k.arg.is_none());
-        let too_big = arguments.args.len() + arguments.keywords.len() > 15;
+        let too_big =
+            arguments.args.len() + arguments.keywords.len() * 2 > STACK_USE_GUIDELINE as usize;
         has_starred || has_double_star || too_big
     }
 
@@ -8886,8 +9397,8 @@ impl Compiler {
         let n = end - begin;
         assert!(n > 0);
 
-        // For large kwargs, use BUILD_MAP(0) + MAP_ADD to avoid stack overflow
-        let big = n * 2 > 8; // STACK_USE_GUIDELINE approximation
+        // For large kwargs, use BUILD_MAP(0) + MAP_ADD to avoid stack overflow.
+        let big = n * 2 > STACK_USE_GUIDELINE as usize;
 
         if big {
             emit!(self, Instruction::BuildMap { count: 0 });
@@ -8931,10 +9442,10 @@ impl Compiler {
             .any(|arg| matches!(arg, ast::Expr::Starred(_)));
         let has_double_star = arguments.keywords.iter().any(|k| k.arg.is_none());
 
-        // Check if exceeds stack guideline (STACK_USE_GUIDELINE / 2 = 15)
+        // Check if exceeds CPython's stack-use guideline.
         // With CALL_KW, kwargs values go on stack but keys go in a const tuple,
         // so stack usage is: func + null + positional_args + kwarg_values + kwnames_tuple
-        let too_big = nelts + nkwelts > 15;
+        let too_big = nelts + nkwelts * 2 > STACK_USE_GUIDELINE as usize;
 
         if !has_starred && !has_double_star && !too_big {
             // Simple call path: no * or ** args
@@ -9009,54 +9520,59 @@ impl Compiler {
                 );
             }
 
-            // Compile keyword arguments
-            if nkwelts > 0 {
-                let mut have_dict = false;
-                let mut nseen = 0usize;
-
-                for (i, keyword) in arguments.keywords.iter().enumerate() {
-                    if keyword.arg.is_none() {
-                        // **kwargs unpacking
-                        if nseen > 0 {
-                            // Pack up preceding keywords using codegen_subkwargs
-                            self.codegen_subkwargs(&arguments.keywords, i - nseen, i)?;
-                            if have_dict {
-                                emit!(self, Instruction::DictMerge { i: 1 });
-                            }
-                            have_dict = true;
-                            nseen = 0;
-                        }
-
-                        if !have_dict {
-                            emit!(self, Instruction::BuildMap { count: 0 });
-                            have_dict = true;
-                        }
-
-                        self.compile_expression_without_const_boolop_folding(&keyword.value)?;
-                        emit!(self, Instruction::DictMerge { i: 1 });
-                    } else {
-                        nseen += 1;
-                    }
-                }
-
-                // Pack up any trailing keyword arguments
-                if nseen > 0 {
-                    self.codegen_subkwargs(&arguments.keywords, nkwelts - nseen, nkwelts)?;
-                    if have_dict {
-                        emit!(self, Instruction::DictMerge { i: 1 });
-                    }
-                    have_dict = true;
-                }
-
-                assert!(have_dict);
-            } else {
-                emit!(self, Instruction::PushNull);
-            }
+            self.compile_call_function_ex_keywords(&arguments.keywords)?;
 
             self.set_source_range(call_range);
             emit!(self, Instruction::CallFunctionEx);
         }
 
+        Ok(())
+    }
+
+    fn compile_call_function_ex_keywords(
+        &mut self,
+        keywords: &[ast::Keyword],
+    ) -> CompileResult<()> {
+        if keywords.is_empty() {
+            emit!(self, Instruction::PushNull);
+            return Ok(());
+        }
+
+        let mut have_dict = false;
+        let mut nseen = 0usize;
+
+        for (i, keyword) in keywords.iter().enumerate() {
+            if keyword.arg.is_none() {
+                if nseen > 0 {
+                    self.codegen_subkwargs(keywords, i - nseen, i)?;
+                    if have_dict {
+                        emit!(self, Instruction::DictMerge { i: 1 });
+                    }
+                    have_dict = true;
+                    nseen = 0;
+                }
+
+                if !have_dict {
+                    emit!(self, Instruction::BuildMap { count: 0 });
+                    have_dict = true;
+                }
+
+                self.compile_expression_without_const_boolop_folding(&keyword.value)?;
+                emit!(self, Instruction::DictMerge { i: 1 });
+            } else {
+                nseen += 1;
+            }
+        }
+
+        if nseen > 0 {
+            self.codegen_subkwargs(keywords, keywords.len() - nseen, keywords.len())?;
+            if have_dict {
+                emit!(self, Instruction::DictMerge { i: 1 });
+            }
+            have_dict = true;
+        }
+
+        debug_assert!(have_dict);
         Ok(())
     }
 
@@ -9175,8 +9691,7 @@ impl Compiler {
                 let name = current_table.name.clone();
                 let typ = current_table.typ;
                 Err(self.error(CodegenErrorType::SyntaxError(format!(
-                    "no symbol table available in {} (type: {:?})",
-                    name, typ
+                    "no symbol table available in {name} (type: {typ:?})"
                 ))))
             }
         })();
@@ -9194,14 +9709,14 @@ impl Compiler {
         posonlyarg_count: u32,
         arg_count: u32,
         kwonlyarg_count: u32,
-        obj_name: String,
+        obj_name: &str,
     ) -> CompileResult<()> {
         let scope_type = table.typ;
         self.symbol_table_stack.push(table);
 
         let key = self.symbol_table_stack.len() - 1;
         let lineno = self.get_source_line_number().get();
-        self.enter_scope(&obj_name, scope_type, key, lineno.to_u32())?;
+        self.enter_scope(obj_name, scope_type, key, lineno.to_u32())?;
 
         if let Some(info) = self.code_stack.last_mut() {
             info.flags = flags | (info.flags & bytecode::CodeFlags::NESTED);
@@ -9212,14 +9727,16 @@ impl Compiler {
         Ok(())
     }
 
+    #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
     fn compile_comprehension(
         &mut self,
         name: &str,
         init_collection: Option<AnyInstruction>,
         generators: &[ast::Comprehension],
-        compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
+        compile_element: &dyn Fn(&mut Self, usize) -> CompileResult<()>,
         comprehension_type: ComprehensionType,
         element_contains_await: bool,
+        comprehension_range: TextRange,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
         let has_an_async_gen = generators.iter().any(|g| g.is_async);
@@ -9263,11 +9780,12 @@ impl Compiler {
             // and relies on the inlined path itself to handle GET_AITER /
             // async-comprehension cleanup.
             return self.compile_inlined_comprehension(
-                comp_table,
+                &comp_table,
                 init_collection,
                 generators,
                 compile_element,
                 has_an_async_gen,
+                comprehension_range,
             );
         }
 
@@ -9297,12 +9815,12 @@ impl Compiler {
         // scope itself. Peek past those nested scopes so we can enter the
         // correct comprehension table here, then let the real outermost
         // iterator compile consume its nested scopes later in parent scope.
-        self.push_output_with_symbol_table(comp_table, flags, 1, 1, 0, name.to_owned())?;
+        self.push_output_with_symbol_table(comp_table, flags, 1, 1, 0, name)?;
 
         // Set qualname for comprehension
         self.set_qualname();
 
-        let arg0 = self.varname(".0")?;
+        let arg0 = self.varname(".0");
 
         let return_none = init_collection.is_none();
 
@@ -9329,12 +9847,33 @@ impl Compiler {
         }
 
         let mut loop_labels = vec![];
-        for generator in generators {
+        let mut real_loop_depth = 0;
+        for (gen_index, generator) in generators.iter().enumerate() {
+            if gen_index > 0
+                && !generator.is_async
+                && let Some(singleton_iter) =
+                    Self::singleton_comprehension_assignment_iter(&generator.iter)
+            {
+                self.compile_expression(singleton_iter)?;
+                self.compile_store(&generator.target)?;
+
+                if !generator.ifs.is_empty() {
+                    let if_cleanup_block = self.new_block();
+                    for if_condition in &generator.ifs {
+                        self.compile_jump_if(if_condition, false, if_cleanup_block)?;
+                    }
+                    let body_block = self.new_block();
+                    self.switch_to_block(body_block);
+                    loop_labels.push(ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block });
+                }
+                continue;
+            }
+
             let loop_block = self.new_block();
             let if_cleanup_block = self.new_block();
             let after_block = self.new_block();
 
-            if loop_labels.is_empty() {
+            if gen_index == 0 {
                 // Load iterator onto stack (passed as first argument):
                 emit!(self, Instruction::LoadFast { var_num: arg0 });
             } else {
@@ -9343,7 +9882,7 @@ impl Compiler {
 
                 // Get iterator / turn item into an iterator
                 if generator.is_async {
-                    emit!(self, Instruction::GetAIter);
+                    emit!(self, Instruction::GetAiter);
                 } else {
                     emit!(self, Instruction::GetIter);
                 }
@@ -9353,7 +9892,7 @@ impl Compiler {
             let mut end_async_for_target = BlockIdx::NULL;
             if generator.is_async {
                 emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
-                emit!(self, Instruction::GetANext);
+                emit!(self, Instruction::GetAnext);
                 self.push_fblock(
                     FBlockType::AsyncComprehensionGenerator,
                     loop_block,
@@ -9370,13 +9909,14 @@ impl Compiler {
                 emit!(self, Instruction::ForIter { delta: after_block });
                 self.compile_store(&generator.target)?;
             }
-            loop_labels.push((
+            real_loop_depth += 1;
+            loop_labels.push(ComprehensionLoopControl::Iteration {
                 loop_block,
                 if_cleanup_block,
                 after_block,
-                generator.is_async,
+                is_async: generator.is_async,
                 end_async_for_target,
-            ));
+            });
 
             // CPython always lowers comprehension guards through codegen_jump_if
             // and leaves constant-folding to later CFG optimization passes.
@@ -9389,25 +9929,36 @@ impl Compiler {
             }
         }
 
-        compile_element(self)?;
+        compile_element(self, real_loop_depth + 1)?;
 
-        for (loop_block, if_cleanup_block, after_block, is_async, end_async_for_target) in
-            loop_labels.iter().rev().copied()
-        {
-            emit!(self, PseudoInstruction::Jump { delta: loop_block });
+        for loop_control in loop_labels.iter().rev().copied() {
+            match loop_control {
+                ComprehensionLoopControl::Iteration {
+                    loop_block,
+                    if_cleanup_block,
+                    after_block,
+                    is_async,
+                    end_async_for_target,
+                } => {
+                    emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
-            self.switch_to_block(if_cleanup_block);
-            emit!(self, PseudoInstruction::Jump { delta: loop_block });
+                    self.switch_to_block(if_cleanup_block);
+                    emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
-            self.switch_to_block(after_block);
-            if is_async {
-                // EndAsyncFor pops both the exception and the aiter
-                // (handler depth is before GetANext, so aiter is at handler depth)
-                self.emit_end_async_for(end_async_for_target);
-            } else {
-                // END_FOR + POP_ITER pattern (CPython 3.14)
-                emit!(self, Instruction::EndFor);
-                emit!(self, Instruction::PopIter);
+                    self.switch_to_block(after_block);
+                    if is_async {
+                        // EndAsyncFor pops both the exception and the aiter
+                        // (handler depth is before GetANext, so aiter is at handler depth)
+                        self.emit_end_async_for(end_async_for_target);
+                    } else {
+                        // END_FOR + POP_ITER pattern (CPython 3.14)
+                        emit!(self, Instruction::EndFor);
+                        emit!(self, Instruction::PopIter);
+                    }
+                }
+                ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block } => {
+                    self.switch_to_block(if_cleanup_block);
+                }
             }
         }
 
@@ -9451,7 +10002,7 @@ impl Compiler {
         // Get iterator / turn item into an iterator
         // Use is_async from the first generator, not has_an_async_gen which covers ALL generators
         if outermost.is_async {
-            emit!(self, Instruction::GetAIter);
+            emit!(self, Instruction::GetAiter);
         } else {
             emit!(self, Instruction::GetIter);
         };
@@ -9471,11 +10022,12 @@ impl Compiler {
     /// This generates bytecode inline without creating a new code object
     fn compile_inlined_comprehension(
         &mut self,
-        comp_table: SymbolTable,
+        comp_table: &SymbolTable,
         init_collection: Option<AnyInstruction>,
         generators: &[ast::Comprehension],
-        compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
+        compile_element: &dyn Fn(&mut Self, usize) -> CompileResult<()>,
         has_async: bool,
+        comprehension_range: TextRange,
     ) -> CompileResult<()> {
         fn collect_bound_names(target: &ast::Expr, out: &mut Vec<String>) {
             match target {
@@ -9507,6 +10059,7 @@ impl Compiler {
             .next_sub_table += 1;
 
         let was_in_inlined_comp = self.current_code_info().in_inlined_comp;
+        let saved_source_range = self.current_source_range;
         let in_class_block = {
             let ct = self.current_symbol_table();
             ct.typ == CompilerScope::Class && !was_in_inlined_comp
@@ -9530,7 +10083,7 @@ impl Compiler {
                 }
             }
             if has_async && generators[0].is_async {
-                emit!(self, Instruction::GetAIter);
+                emit!(self, Instruction::GetAiter);
             } else {
                 emit!(self, Instruction::GetIter);
             }
@@ -9552,15 +10105,10 @@ impl Compiler {
                     if sym.flags.contains(SymbolFlags::PARAMETER) {
                         continue; // skip .0
                     }
-                    // Walrus operator targets (ASSIGNED_IN_COMPREHENSION without ITER)
-                    // are not local to the comprehension; they leak to the outer scope.
-                    let is_walrus = sym.flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
-                        && !sym.flags.contains(SymbolFlags::ITER);
                     let is_local = sym
                         .flags
                         .intersects(SymbolFlags::ASSIGNED | SymbolFlags::ITER)
-                        && !sym.flags.contains(SymbolFlags::NONLOCAL)
-                        && !is_walrus;
+                        && !sym.flags.contains(SymbolFlags::NONLOCAL);
                     if is_local {
                         pushed_locals.push(name);
                     }
@@ -9619,9 +10167,10 @@ impl Compiler {
             // For merged CELL variables, LoadFastAndClear saves the cell object from
             // the merged slot, and MAKE_CELL creates a new empty cell in-place.
             // MAKE_CELL has no stack effect (operates only on fastlocals).
+            self.set_source_range(comprehension_range);
             let mut total_stack_items: usize = 0;
             for name in &pushed_locals {
-                let var_num = self.varname(name)?;
+                let var_num = self.varname(name);
                 emit!(self, Instruction::LoadFastAndClear { var_num });
                 total_stack_items += 1;
                 // If the comp symbol is CELL, emit MAKE_CELL to create fresh cell
@@ -9634,9 +10183,9 @@ impl Compiler {
                         .get(name)
                         .is_some_and(|s| s.scope == SymbolScope::Free)
                     {
-                        self.get_free_var_index(name)?
+                        self.get_free_var_index(name)
                     } else {
-                        self.get_cell_var_index(name)?
+                        self.get_cell_var_index(name)
                     };
                     emit!(self, Instruction::MakeCell { i });
                 }
@@ -9674,8 +10223,30 @@ impl Compiler {
             }
 
             // Step 5: Compile the comprehension loop(s)
-            let mut loop_labels: Vec<(BlockIdx, BlockIdx, BlockIdx, bool, BlockIdx)> = vec![];
+            let mut loop_labels: Vec<ComprehensionLoopControl> = vec![];
+            let mut real_loop_depth = 0;
             for (i, generator) in generators.iter().enumerate() {
+                if i > 0
+                    && !generator.is_async
+                    && let Some(singleton_iter) =
+                        Self::singleton_comprehension_assignment_iter(&generator.iter)
+                {
+                    self.compile_expression(singleton_iter)?;
+                    self.compile_store(&generator.target)?;
+
+                    if !generator.ifs.is_empty() {
+                        let if_cleanup_block = self.new_block();
+                        for if_condition in &generator.ifs {
+                            self.compile_jump_if(if_condition, false, if_cleanup_block)?;
+                        }
+                        let body_block = self.new_block();
+                        self.switch_to_block(body_block);
+                        loop_labels
+                            .push(ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block });
+                    }
+                    continue;
+                }
+
                 let loop_block = self.new_block();
                 let if_cleanup_block = self.new_block();
                 let after_block = self.new_block();
@@ -9683,7 +10254,7 @@ impl Compiler {
                 if i > 0 {
                     self.compile_for_iterable_expression(&generator.iter, generator.is_async)?;
                     if generator.is_async {
-                        emit!(self, Instruction::GetAIter);
+                        emit!(self, Instruction::GetAiter);
                     } else {
                         emit!(self, Instruction::GetIter);
                     }
@@ -9694,7 +10265,7 @@ impl Compiler {
                 let mut end_async_for_target = BlockIdx::NULL;
                 if generator.is_async {
                     emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
-                    emit!(self, Instruction::GetANext);
+                    emit!(self, Instruction::GetAnext);
                     self.push_fblock(
                         FBlockType::AsyncComprehensionGenerator,
                         loop_block,
@@ -9706,17 +10277,21 @@ impl Compiler {
                     self.pop_fblock(FBlockType::AsyncComprehensionGenerator);
                     self.compile_store(&generator.target)?;
                 } else {
+                    let saved_range = self.current_source_range;
+                    self.set_source_range(generator.iter.range());
                     emit!(self, Instruction::ForIter { delta: after_block });
+                    self.set_source_range(saved_range);
                     self.compile_store(&generator.target)?;
                 }
 
-                loop_labels.push((
+                real_loop_depth += 1;
+                loop_labels.push(ComprehensionLoopControl::Iteration {
                     loop_block,
                     if_cleanup_block,
                     after_block,
-                    generator.is_async,
+                    is_async: generator.is_async,
                     end_async_for_target,
-                ));
+                });
 
                 // CPython always lowers comprehension guards through codegen_jump_if
                 // and leaves constant-folding to later CFG optimization passes.
@@ -9726,27 +10301,39 @@ impl Compiler {
             }
 
             // Step 6: Compile the element expression and append to collection
-            compile_element(self)?;
+            compile_element(self, real_loop_depth + 1)?;
 
             // Step 7: Close all loops
-            for &(loop_block, if_cleanup_block, after_block, is_async, end_async_for_target) in
-                loop_labels.iter().rev()
-            {
-                emit!(self, PseudoInstruction::Jump { delta: loop_block });
+            for loop_control in loop_labels.iter().rev().copied() {
+                match loop_control {
+                    ComprehensionLoopControl::Iteration {
+                        loop_block,
+                        if_cleanup_block,
+                        after_block,
+                        is_async,
+                        end_async_for_target,
+                    } => {
+                        emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
-                self.switch_to_block(if_cleanup_block);
-                emit!(self, PseudoInstruction::Jump { delta: loop_block });
+                        self.switch_to_block(if_cleanup_block);
+                        emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
-                self.switch_to_block(after_block);
-                if is_async {
-                    self.emit_end_async_for(end_async_for_target);
-                } else {
-                    emit!(self, Instruction::EndFor);
-                    emit!(self, Instruction::PopIter);
+                        self.switch_to_block(after_block);
+                        if is_async {
+                            self.emit_end_async_for(end_async_for_target);
+                        } else {
+                            emit!(self, Instruction::EndFor);
+                            emit!(self, Instruction::PopIter);
+                        }
+                    }
+                    ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block } => {
+                        self.switch_to_block(if_cleanup_block);
+                    }
                 }
             }
 
             // Step 8: Clean up - restore saved locals (and cell values)
+            self.set_source_range(comprehension_range);
             if total_stack_items > 0 {
                 emit!(self, PseudoInstruction::PopBlock);
                 self.pop_fblock(FBlockType::TryExcept);
@@ -9774,8 +10361,8 @@ impl Compiler {
                     }
                 );
                 for name in pushed_locals.iter().rev() {
-                    let var_num = self.varname(name)?;
-                    emit!(self, Instruction::StoreFast { var_num });
+                    let var_num = self.varname(name).as_u32();
+                    emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
                 }
                 // Re-raise the exception
                 emit!(self, Instruction::Reraise { depth: 0 });
@@ -9796,9 +10383,10 @@ impl Compiler {
 
             // Restore saved locals (StoreFast restores the saved cell object for merged cells)
             for name in pushed_locals.iter().rev() {
-                let var_num = self.varname(name)?;
-                emit!(self, Instruction::StoreFast { var_num });
+                let var_num = self.varname(name).as_u32();
+                emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
             }
+            self.set_source_range(saved_source_range);
 
             Ok(())
         })();
@@ -9859,6 +10447,12 @@ impl Compiler {
             folded_from_nonliteral_expr: false,
             lineno_override: None,
             cache_entries: 0,
+            preserve_redundant_jump_as_nop: false,
+            remove_no_location_nop: false,
+            folded_operand_nop: false,
+            no_location_exit: false,
+            preserve_block_start_no_location_nop: false,
+            match_success_jump: false,
         });
     }
 
@@ -9868,11 +10462,42 @@ impl Compiler {
         }
     }
 
+    fn preserve_last_redundant_jump_as_nop(&mut self) {
+        if let Some(info) = self.current_block().instructions.last_mut() {
+            info.preserve_redundant_jump_as_nop = true;
+        }
+    }
+
+    fn preserve_last_redundant_nop(&mut self) {
+        if let Some(info) = self.current_block().instructions.last_mut() {
+            info.preserve_block_start_no_location_nop = true;
+        }
+    }
+
+    fn remove_last_no_location_nop(&mut self) {
+        if let Some(info) = self.current_block().instructions.last_mut() {
+            info.remove_no_location_nop = true;
+        }
+    }
+
+    fn force_remove_last_no_location_nop(&mut self) {
+        if let Some(info) = self.current_block().instructions.last_mut() {
+            info.remove_no_location_nop = true;
+            info.folded_operand_nop = true;
+        }
+    }
+
     /// Mark the last emitted instruction as having no source location.
     /// Prevents it from triggering LINE events in sys.monitoring.
     fn set_no_location(&mut self) {
         if let Some(last) = self.current_block().instructions.last_mut() {
             last.lineno_override = Some(-1);
+        }
+    }
+
+    fn mark_last_no_location_exit(&mut self) {
+        if let Some(last) = self.current_block().instructions.last_mut() {
+            last.no_location_exit = true;
         }
     }
 
@@ -10044,6 +10669,107 @@ impl Compiler {
         Ok(Some(constant))
     }
 
+    fn constant_as_fold_int(constant: &ConstantData) -> Option<(BigInt, bool)> {
+        match constant {
+            ConstantData::Boolean { value } => Some((BigInt::from(u8::from(*value)), true)),
+            ConstantData::Integer { value } => Some((value.clone(), false)),
+            _ => None,
+        }
+    }
+
+    fn try_fold_constant_binop(
+        op: ast::Operator,
+        left: &ConstantData,
+        right: &ConstantData,
+    ) -> Option<ConstantData> {
+        let (left_int, left_is_bool) = Self::constant_as_fold_int(left)?;
+        let (right_int, right_is_bool) = Self::constant_as_fold_int(right)?;
+        let zero = BigInt::from(0);
+
+        if !left_is_bool && !right_is_bool {
+            return None;
+        }
+
+        match op {
+            ast::Operator::Add => Some(ConstantData::Integer {
+                value: left_int + right_int,
+            }),
+            ast::Operator::Sub => Some(ConstantData::Integer {
+                value: left_int - right_int,
+            }),
+            ast::Operator::Mult => Some(ConstantData::Integer {
+                value: left_int * right_int,
+            }),
+            ast::Operator::Div => {
+                if right_int.is_zero() {
+                    return None;
+                }
+                Some(ConstantData::Float {
+                    value: left_int.to_f64()? / right_int.to_f64()?,
+                })
+            }
+            ast::Operator::FloorDiv => {
+                if right_int.is_zero() || left_int < zero || right_int < zero {
+                    return None;
+                }
+                Some(ConstantData::Integer {
+                    value: left_int / right_int,
+                })
+            }
+            ast::Operator::Mod => {
+                if right_int.is_zero() || left_int < zero || right_int < zero {
+                    return None;
+                }
+                Some(ConstantData::Integer {
+                    value: left_int % right_int,
+                })
+            }
+            ast::Operator::Pow => {
+                let exponent = right_int.to_u32()?;
+                if exponent > 128 {
+                    return None;
+                }
+                Some(ConstantData::Integer {
+                    value: left_int.pow(exponent),
+                })
+            }
+            ast::Operator::BitAnd => {
+                if left_is_bool && right_is_bool {
+                    Some(ConstantData::Boolean {
+                        value: !left_int.is_zero() & !right_int.is_zero(),
+                    })
+                } else {
+                    Some(ConstantData::Integer {
+                        value: left_int & right_int,
+                    })
+                }
+            }
+            ast::Operator::BitOr => {
+                if left_is_bool && right_is_bool {
+                    Some(ConstantData::Boolean {
+                        value: !left_int.is_zero() | !right_int.is_zero(),
+                    })
+                } else {
+                    Some(ConstantData::Integer {
+                        value: left_int | right_int,
+                    })
+                }
+            }
+            ast::Operator::BitXor => {
+                if left_is_bool && right_is_bool {
+                    Some(ConstantData::Boolean {
+                        value: !left_int.is_zero() ^ !right_int.is_zero(),
+                    })
+                } else {
+                    Some(ConstantData::Integer {
+                        value: left_int ^ right_int,
+                    })
+                }
+            }
+            ast::Operator::MatMult | ast::Operator::LShift | ast::Operator::RShift => None,
+        }
+    }
+
     fn try_fold_constant_expr(&mut self, expr: &ast::Expr) -> CompileResult<Option<ConstantData>> {
         Ok(Some(match expr {
             ast::Expr::NumberLiteral(num) => match &num.value {
@@ -10064,6 +10790,13 @@ impl Compiler {
             ast::Expr::BooleanLiteral(b) => ConstantData::Boolean { value: b.value },
             ast::Expr::NoneLiteral(_) => ConstantData::None,
             ast::Expr::EllipsisLiteral(_) => ConstantData::Ellipsis,
+            ast::Expr::Name(ast::ExprName { id, ctx, .. })
+                if matches!(ctx, ast::ExprContext::Load) && id.as_str() == "__debug__" =>
+            {
+                ConstantData::Boolean {
+                    value: self.opts.optimize == 0,
+                }
+            }
             ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
                 let mut elements = Vec::with_capacity(elts.len());
                 for elt in elts {
@@ -10140,6 +10873,20 @@ impl Compiler {
                     _ => return Ok(None),
                 }
             }
+            ast::Expr::BinOp(ast::ExprBinOp {
+                left, op, right, ..
+            }) => {
+                let Some(left) = self.try_fold_constant_expr(left)? else {
+                    return Ok(None);
+                };
+                let Some(right) = self.try_fold_constant_expr(right)? else {
+                    return Ok(None);
+                };
+                let Some(constant) = Self::try_fold_constant_binop(*op, &left, &right) else {
+                    return Ok(None);
+                };
+                constant
+            }
             ast::Expr::UnaryOp(ast::ExprUnaryOp { op, operand, .. }) => {
                 let Some(constant) = self.try_fold_constant_expr(operand)? else {
                     return Ok(None);
@@ -10212,32 +10959,51 @@ impl Compiler {
         self.emit_arg(idx, |consti| Instruction::LoadConst { consti })
     }
 
-    /// Fold constant slice: if all parts are compile-time constants, emit LOAD_CONST(slice).
     fn try_fold_constant_slice(
         &mut self,
         lower: Option<&ast::Expr>,
         upper: Option<&ast::Expr>,
         step: Option<&ast::Expr>,
-    ) -> CompileResult<bool> {
-        let to_const = |expr: Option<&ast::Expr>, this: &mut Self| -> CompileResult<_> {
-            match expr {
-                None => Ok(Some(ConstantData::None)),
-                Some(expr) => this.try_fold_constant_expr(expr),
+    ) -> CompileResult<Option<ConstantData>> {
+        if [lower, upper, step]
+            .into_iter()
+            .flatten()
+            .any(|expr| !expr.is_constant())
+        {
+            return Ok(None);
+        }
+
+        let start = match lower {
+            Some(expr) => {
+                let Some(constant) = self.try_fold_constant_expr(expr)? else {
+                    return Ok(None);
+                };
+                constant
             }
+            None => ConstantData::None,
+        };
+        let stop = match upper {
+            Some(expr) => {
+                let Some(constant) = self.try_fold_constant_expr(expr)? else {
+                    return Ok(None);
+                };
+                constant
+            }
+            None => ConstantData::None,
+        };
+        let step = match step {
+            Some(expr) => {
+                let Some(constant) = self.try_fold_constant_expr(expr)? else {
+                    return Ok(None);
+                };
+                constant
+            }
+            None => ConstantData::None,
         };
 
-        let (Some(start), Some(stop), Some(step_val)) = (
-            to_const(lower, self)?,
-            to_const(upper, self)?,
-            to_const(step, self)?,
-        ) else {
-            return Ok(false);
-        };
-
-        self.emit_load_const(ConstantData::Slice {
-            elements: Box::new([start, stop, step_val]),
-        });
-        Ok(true)
+        Ok(Some(ConstantData::Slice {
+            elements: Box::new([start, stop, step]),
+        }))
     }
 
     fn emit_return_const(&mut self, constant: ConstantData) {
@@ -10248,8 +11014,10 @@ impl Compiler {
     fn emit_return_const_no_location(&mut self, constant: ConstantData) {
         self.emit_load_const(constant);
         self.set_no_location();
+        self.mark_last_no_location_exit();
         emit!(self, Instruction::ReturnValue);
         self.set_no_location();
+        self.mark_last_no_location_exit();
     }
 
     fn emit_end_async_for(&mut self, send_target: BlockIdx) {
@@ -10356,9 +11124,8 @@ impl Compiler {
             if !found_loop {
                 if is_break {
                     return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
-                } else {
-                    return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
                 }
+                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
             }
             return Ok(());
         }
@@ -10397,9 +11164,8 @@ impl Compiler {
         let Some(loop_idx) = loop_idx else {
             if is_break {
                 return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
-            } else {
-                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
             }
+            return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
         };
 
         let loop_block = code.fblock[loop_idx].fb_block;
@@ -10479,6 +11245,7 @@ impl Compiler {
         }
 
         // Emit cleanup for each fblock
+        let mut jump_no_location = false;
         for action in unwind_actions {
             match action {
                 UnwindAction::With { is_async, range } => {
@@ -10499,6 +11266,7 @@ impl Compiler {
 
                     emit!(self, Instruction::PopTop);
                     self.set_source_range(saved_range);
+                    jump_no_location = true;
                 }
                 UnwindAction::HandlerCleanup { ref name } => {
                     // codegen_unwind_fblock(HANDLER_CLEANUP)
@@ -10535,6 +11303,7 @@ impl Compiler {
                     // this keeps the fblock stack consistent for error checking)
                     let code = self.current_code_info();
                     code.fblock.insert(fblock_idx, saved_fblock);
+                    jump_no_location = true;
                 }
                 UnwindAction::FinallyEnd => {
                     // codegen_unwind_fblock(FINALLY_END)
@@ -10556,7 +11325,13 @@ impl Compiler {
 
         // Jump to target
         let target = if is_break { exit_block } else { loop_block };
+        let saved_range = self.current_source_range;
+        self.set_source_range(range);
         emit!(self, PseudoInstruction::Jump { delta: target });
+        if jump_no_location {
+            self.set_no_location();
+        }
+        self.set_source_range(saved_range);
 
         Ok(())
     }
@@ -10564,6 +11339,30 @@ impl Compiler {
     fn current_block(&mut self) -> &mut ir::Block {
         let info = self.current_code_info();
         &mut info.blocks[info.current_block]
+    }
+
+    /// Switch to a fresh block, but reuse the current block when it is empty
+    /// and unlinked, mirroring CPython's USE_LABEL behavior in
+    /// `cfg_builder_maybe_start_new_block` (Python/flowgraph.c): when the
+    /// current block has no instructions and no existing label/next pointer,
+    /// CPython attaches the new label to the current block instead of creating
+    /// a new one. RustPython's plain `switch_to_block(new_block())` always
+    /// creates a fresh block, which leaves a stray empty block in the b_next
+    /// chain (e.g. after compile_try_except's switch_to_block(end_block)).
+    /// That stray empty block then causes optimize_load_fast_borrow to stop
+    /// fall-through propagation at the wrong place. Use this helper for
+    /// "entry to construct" labels (while loop header, for loop header, etc.)
+    /// where reusing the empty current block is semantically safe.
+    fn switch_to_new_or_reuse_empty(&mut self) -> BlockIdx {
+        let cur = self.current_code_info().current_block;
+        let block = &self.current_code_info().blocks[cur.idx()];
+        if block.instructions.is_empty() && block.next == BlockIdx::NULL {
+            cur
+        } else {
+            let b = self.new_block();
+            self.switch_to_block(b);
+            b
+        }
     }
 
     fn new_block(&mut self) -> BlockIdx {
@@ -10637,11 +11436,13 @@ impl Compiler {
 
                 match expr {
                     ast::Expr::Await(_) => self.found = true,
-                    // Note: We do NOT check for async comprehensions here.
-                    // Async list/set/dict comprehensions are handled by compile_comprehension
-                    // which already awaits the result. A generator expression containing
-                    // an async comprehension as its element does NOT become an async generator,
-                    // because the async comprehension is awaited when evaluating the element.
+                    ast::Expr::ListComp(ast::ExprListComp { generators, .. })
+                    | ast::Expr::SetComp(ast::ExprSetComp { generators, .. })
+                    | ast::Expr::DictComp(ast::ExprDictComp { generators, .. })
+                        if generators.iter().any(|generator| generator.is_async) =>
+                    {
+                        self.found = true
+                    }
                     _ => ast::visitor::walk_expr(self, expr),
                 }
             }
@@ -10671,28 +11472,71 @@ impl Compiler {
     }
 
     fn compile_expr_fstring(&mut self, fstring: &ast::ExprFString) -> CompileResult<()> {
-        let fstring = &fstring.value;
+        let fstring_range = fstring.range;
+        let fstring = fstring.value.as_slice();
+        if self.count_fstring_parts(fstring) > STACK_USE_GUIDELINE {
+            return self.compile_fstring_parts_joined(fstring);
+        }
+
         let mut element_count = 0;
         let mut pending_literal = None;
+        let mut pending_literal_no_location = false;
         for part in fstring {
-            self.compile_fstring_part_into(part, &mut pending_literal, &mut element_count)?;
+            self.compile_fstring_part_into(
+                part,
+                &mut pending_literal,
+                &mut pending_literal_no_location,
+                &mut element_count,
+                false,
+            )?;
         }
-        self.finish_fstring(pending_literal, element_count)
+        self.set_source_range(fstring_range);
+        self.finish_fstring(pending_literal, pending_literal_no_location, element_count);
+        Ok(())
+    }
+
+    fn compile_fstring_parts_joined(&mut self, fstring: &[ast::FStringPart]) -> CompileResult<()> {
+        self.emit_load_const(ConstantData::Str {
+            value: Wtf8Buf::new(),
+        });
+        let join_idx = self.get_global_name_index("join");
+        self.emit_load_attr_method(join_idx);
+        emit!(self, Instruction::BuildList { count: 0 });
+
+        let mut element_count = 0;
+        let mut pending_literal = None;
+        let mut pending_literal_no_location = false;
+        for part in fstring {
+            self.compile_fstring_part_into(
+                part,
+                &mut pending_literal,
+                &mut pending_literal_no_location,
+                &mut element_count,
+                true,
+            )?;
+        }
+        self.finish_fstring_join(pending_literal, pending_literal_no_location, element_count);
+        Ok(())
     }
 
     fn compile_fstring_part_into(
         &mut self,
         part: &ast::FStringPart,
         pending_literal: &mut Option<Wtf8Buf>,
+        pending_literal_no_location: &mut bool,
         element_count: &mut u32,
+        append_to_join_list: bool,
     ) -> CompileResult<()> {
         match part {
             ast::FStringPart::Literal(string) => {
                 let value = self.compile_fstring_part_literal_value(string);
-                if let Some(pending) = pending_literal.as_mut() {
-                    pending.push_wtf8(value.as_ref());
-                } else {
+                if pending_literal.is_none() {
+                    self.set_source_range(string.range);
+                    *pending_literal_no_location = string.range == TextRange::default();
                     *pending_literal = Some(value);
+                } else if let Some(pending) = pending_literal.as_mut() {
+                    *pending_literal_no_location &= string.range == TextRange::default();
+                    pending.push_wtf8(value.as_ref());
                 }
                 Ok(())
             }
@@ -10700,7 +11544,9 @@ impl Compiler {
                 fstring.flags,
                 &fstring.elements,
                 pending_literal,
+                pending_literal_no_location,
                 element_count,
+                append_to_join_list,
             ),
         }
     }
@@ -10708,10 +11554,17 @@ impl Compiler {
     fn finish_fstring(
         &mut self,
         mut pending_literal: Option<Wtf8Buf>,
+        mut pending_literal_no_location: bool,
         mut element_count: u32,
-    ) -> CompileResult<()> {
+    ) {
         let keep_empty = element_count == 0;
-        self.emit_pending_fstring_literal(&mut pending_literal, &mut element_count, keep_empty);
+        self.emit_pending_fstring_literal(
+            &mut pending_literal,
+            &mut pending_literal_no_location,
+            &mut element_count,
+            keep_empty,
+            false,
+        );
 
         if element_count == 0 {
             self.emit_load_const(ConstantData::Str {
@@ -10725,19 +11578,38 @@ impl Compiler {
                 }
             );
         }
+    }
 
-        Ok(())
+    fn finish_fstring_join(
+        &mut self,
+        mut pending_literal: Option<Wtf8Buf>,
+        mut pending_literal_no_location: bool,
+        mut element_count: u32,
+    ) {
+        let keep_empty = element_count == 0;
+        self.emit_pending_fstring_literal(
+            &mut pending_literal,
+            &mut pending_literal_no_location,
+            &mut element_count,
+            keep_empty,
+            true,
+        );
+        emit!(self, Instruction::Call { argc: 1 });
     }
 
     fn emit_pending_fstring_literal(
         &mut self,
         pending_literal: &mut Option<Wtf8Buf>,
+        pending_literal_no_location: &mut bool,
         element_count: &mut u32,
         keep_empty: bool,
+        append_to_join_list: bool,
     ) {
         let Some(value) = pending_literal.take() else {
             return;
         };
+        let no_location = *pending_literal_no_location;
+        *pending_literal_no_location = false;
 
         // CPython drops empty literal fragments when they are adjacent to
         // formatted values, but still emits an empty string for a fully-empty
@@ -10747,126 +11619,64 @@ impl Compiler {
         }
 
         self.emit_load_const(ConstantData::Str { value });
+        if no_location {
+            self.set_no_location();
+        }
         *element_count += 1;
+        if append_to_join_list {
+            emit!(self, Instruction::ListAppend { i: 1 });
+        }
     }
 
-    /// Optimize `'format_str' % (args,)` into f-string bytecode.
-    /// Returns true if optimization was applied, false to fall back to normal BINARY_OP %.
-    /// Matches CPython's codegen.c `compiler_formatted_value` optimization.
-    fn try_optimize_format_str(
-        &mut self,
-        format_str: &str,
-        args: &[ast::Expr],
-        range: ruff_text_size::TextRange,
-    ) -> CompileResult<bool> {
-        // Parse format string into segments
-        let Some(segments) = Self::parse_percent_format(format_str) else {
-            return Ok(false);
+    fn count_fstring_parts(&self, fstring: &[ast::FStringPart]) -> u32 {
+        let mut element_count = 0;
+        let mut pending_literal = None;
+        for part in fstring {
+            self.count_fstring_part_into(part, &mut pending_literal, &mut element_count);
+        }
+        let keep_empty = element_count == 0;
+        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count, keep_empty);
+        element_count
+    }
+
+    fn count_fstring_part_into(
+        &self,
+        part: &ast::FStringPart,
+        pending_literal: &mut Option<Wtf8Buf>,
+        element_count: &mut u32,
+    ) {
+        match part {
+            ast::FStringPart::Literal(string) => {
+                let value = self.compile_fstring_part_literal_value(string);
+                if let Some(pending) = pending_literal.as_mut() {
+                    pending.push_wtf8(value.as_ref());
+                } else {
+                    *pending_literal = Some(value);
+                }
+            }
+            ast::FStringPart::FString(fstring) => self.count_fstring_elements_into(
+                fstring.flags,
+                &fstring.elements,
+                pending_literal,
+                element_count,
+            ),
+        }
+    }
+
+    fn count_pending_fstring_literal(
+        pending_literal: &mut Option<Wtf8Buf>,
+        element_count: &mut u32,
+        keep_empty: bool,
+    ) {
+        let Some(value) = pending_literal.take() else {
+            return;
         };
 
-        // Verify arg count matches specifier count
-        let spec_count = segments.iter().filter(|s| s.conversion.is_some()).count();
-        if spec_count != args.len() {
-            return Ok(false);
+        if value.is_empty() && (!keep_empty || *element_count > 0) {
+            return;
         }
 
-        self.set_source_range(range);
-
-        // Special case: no specifiers, just %% escaping → constant fold
-        if spec_count == 0 {
-            let folded: String = segments.iter().map(|s| s.literal.as_str()).collect();
-            self.emit_load_const(ConstantData::Str {
-                value: folded.into(),
-            });
-            return Ok(true);
-        }
-
-        // Emit f-string style bytecode
-        let mut part_count: u32 = 0;
-        let mut arg_idx = 0;
-
-        for seg in &segments {
-            if !seg.literal.is_empty() {
-                self.emit_load_const(ConstantData::Str {
-                    value: seg.literal.clone().into(),
-                });
-                part_count += 1;
-            }
-            if let Some(conv) = seg.conversion {
-                self.compile_expression(&args[arg_idx])?;
-                self.set_source_range(range);
-                emit!(self, Instruction::ConvertValue { oparg: conv });
-                emit!(self, Instruction::FormatSimple);
-                part_count += 1;
-                arg_idx += 1;
-            }
-        }
-
-        if part_count == 0 {
-            self.emit_load_const(ConstantData::Str {
-                value: String::new().into(),
-            });
-        } else if part_count > 1 {
-            emit!(self, Instruction::BuildString { count: part_count });
-        }
-
-        Ok(true)
-    }
-
-    /// Parse a %-format string into segments of (literal_prefix, optional conversion).
-    /// Returns None if the format string contains unsupported specifiers.
-    fn parse_percent_format(format_str: &str) -> Option<Vec<FormatSegment>> {
-        let mut segments = Vec::new();
-        let mut chars = format_str.chars().peekable();
-        let mut current_literal = String::new();
-
-        while let Some(ch) = chars.next() {
-            if ch == '%' {
-                match chars.peek() {
-                    Some('%') => {
-                        chars.next();
-                        current_literal.push('%');
-                    }
-                    Some('s') => {
-                        chars.next();
-                        segments.push(FormatSegment {
-                            literal: core::mem::take(&mut current_literal),
-                            conversion: Some(oparg::ConvertValueOparg::Str),
-                        });
-                    }
-                    Some('r') => {
-                        chars.next();
-                        segments.push(FormatSegment {
-                            literal: core::mem::take(&mut current_literal),
-                            conversion: Some(oparg::ConvertValueOparg::Repr),
-                        });
-                    }
-                    Some('a') => {
-                        chars.next();
-                        segments.push(FormatSegment {
-                            literal: core::mem::take(&mut current_literal),
-                            conversion: Some(oparg::ConvertValueOparg::Ascii),
-                        });
-                    }
-                    _ => {
-                        // Unsupported: %d, %f, %(name)s, %10s, etc.
-                        return None;
-                    }
-                }
-            } else {
-                current_literal.push(ch);
-            }
-        }
-
-        // Trailing literal
-        if !current_literal.is_empty() {
-            segments.push(FormatSegment {
-                literal: current_literal,
-                conversion: None,
-            });
-        }
-
-        Some(segments)
+        *element_count += 1;
     }
 
     fn compile_fstring_elements(
@@ -10874,15 +11684,50 @@ impl Compiler {
         flags: ast::FStringFlags,
         fstring_elements: &ast::InterpolatedStringElements,
     ) -> CompileResult<()> {
+        if self.count_fstring_elements(flags, fstring_elements) > STACK_USE_GUIDELINE {
+            return self.compile_fstring_elements_joined(flags, fstring_elements);
+        }
+
         let mut element_count = 0;
         let mut pending_literal: Option<Wtf8Buf> = None;
+        let mut pending_literal_no_location = false;
         self.compile_fstring_elements_into(
             flags,
             fstring_elements,
             &mut pending_literal,
+            &mut pending_literal_no_location,
             &mut element_count,
+            false,
         )?;
-        self.finish_fstring(pending_literal, element_count)
+        self.finish_fstring(pending_literal, pending_literal_no_location, element_count);
+        Ok(())
+    }
+
+    fn compile_fstring_elements_joined(
+        &mut self,
+        flags: ast::FStringFlags,
+        fstring_elements: &ast::InterpolatedStringElements,
+    ) -> CompileResult<()> {
+        self.emit_load_const(ConstantData::Str {
+            value: Wtf8Buf::new(),
+        });
+        let join_idx = self.get_global_name_index("join");
+        self.emit_load_attr_method(join_idx);
+        emit!(self, Instruction::BuildList { count: 0 });
+
+        let mut element_count = 0;
+        let mut pending_literal: Option<Wtf8Buf> = None;
+        let mut pending_literal_no_location = false;
+        self.compile_fstring_elements_into(
+            flags,
+            fstring_elements,
+            &mut pending_literal,
+            &mut pending_literal_no_location,
+            &mut element_count,
+            true,
+        )?;
+        self.finish_fstring_join(pending_literal, pending_literal_no_location, element_count);
+        Ok(())
     }
 
     fn compile_fstring_elements_into(
@@ -10890,16 +11735,21 @@ impl Compiler {
         flags: ast::FStringFlags,
         fstring_elements: &ast::InterpolatedStringElements,
         pending_literal: &mut Option<Wtf8Buf>,
+        pending_literal_no_location: &mut bool,
         element_count: &mut u32,
+        append_to_join_list: bool,
     ) -> CompileResult<()> {
         for element in fstring_elements {
             match element {
                 ast::InterpolatedStringElement::Literal(string) => {
                     let value = self.compile_fstring_literal_value(string, flags);
-                    if let Some(pending) = pending_literal.as_mut() {
-                        pending.push_wtf8(value.as_ref());
-                    } else {
+                    if pending_literal.is_none() {
+                        self.set_source_range(string.range);
+                        *pending_literal_no_location = string.range == TextRange::default();
                         *pending_literal = Some(value);
+                    } else if let Some(pending) = pending_literal.as_mut() {
+                        *pending_literal_no_location &= string.range == TextRange::default();
+                        pending.push_wtf8(value.as_ref());
                     }
                 }
                 ast::InterpolatedStringElement::Interpolation(fstring_expr) => {
@@ -10921,9 +11771,11 @@ impl Compiler {
                         .concat();
 
                         let text: Wtf8Buf = text.into();
-                        pending_literal
-                            .get_or_insert_with(Wtf8Buf::new)
-                            .push_wtf8(text.as_ref());
+                        if pending_literal.is_none() {
+                            *pending_literal_no_location = false;
+                            *pending_literal = Some(Wtf8Buf::new());
+                        }
+                        pending_literal.as_mut().unwrap().push_wtf8(text.as_ref());
 
                         // If debug text is present, apply repr conversion when no `format_spec` specified.
                         // See action_helpers.c: fstring_find_expr_replacement
@@ -10935,7 +11787,13 @@ impl Compiler {
                         }
                     }
 
-                    self.emit_pending_fstring_literal(pending_literal, element_count, false);
+                    self.emit_pending_fstring_literal(
+                        pending_literal,
+                        pending_literal_no_location,
+                        element_count,
+                        false,
+                        append_to_join_list,
+                    );
 
                     self.compile_expression(&fstring_expr.expression)?;
 
@@ -10960,11 +11818,73 @@ impl Compiler {
                     }
 
                     *element_count += 1;
+                    if append_to_join_list {
+                        emit!(self, Instruction::ListAppend { i: 1 });
+                    }
                 }
             }
         }
 
         Ok(())
+    }
+
+    fn count_fstring_elements(
+        &self,
+        flags: ast::FStringFlags,
+        fstring_elements: &ast::InterpolatedStringElements,
+    ) -> u32 {
+        let mut element_count = 0;
+        let mut pending_literal = None;
+        self.count_fstring_elements_into(
+            flags,
+            fstring_elements,
+            &mut pending_literal,
+            &mut element_count,
+        );
+        let keep_empty = element_count == 0;
+        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count, keep_empty);
+        element_count
+    }
+
+    fn count_fstring_elements_into(
+        &self,
+        flags: ast::FStringFlags,
+        fstring_elements: &ast::InterpolatedStringElements,
+        pending_literal: &mut Option<Wtf8Buf>,
+        element_count: &mut u32,
+    ) {
+        for element in fstring_elements {
+            match element {
+                ast::InterpolatedStringElement::Literal(string) => {
+                    let value = self.compile_fstring_literal_value(string, flags);
+                    if let Some(pending) = pending_literal.as_mut() {
+                        pending.push_wtf8(value.as_ref());
+                    } else {
+                        *pending_literal = Some(value);
+                    }
+                }
+                ast::InterpolatedStringElement::Interpolation(fstring_expr) => {
+                    if let Some(ast::DebugText { leading, trailing }) = &fstring_expr.debug_text {
+                        let range = fstring_expr.expression.range();
+                        let source = self.source_file.slice(range);
+                        let text = [
+                            strip_fstring_debug_comments(leading).as_str(),
+                            source,
+                            strip_fstring_debug_comments(trailing).as_str(),
+                        ]
+                        .concat();
+
+                        let text: Wtf8Buf = text.into();
+                        pending_literal
+                            .get_or_insert_with(Wtf8Buf::new)
+                            .push_wtf8(text.as_ref());
+                    }
+
+                    Self::count_pending_fstring_literal(pending_literal, element_count, false);
+                    *element_count += 1;
+                }
+            }
+        }
     }
 
     fn compile_expr_tstring(&mut self, expr_tstring: &ast::ExprTString) -> CompileResult<()> {
@@ -10977,7 +11897,7 @@ impl Compiler {
         let mut current_string = Wtf8Buf::new();
         let mut interp_count: u32 = 0;
 
-        for tstring in tstring_value.iter() {
+        for tstring in tstring_value {
             self.collect_tstring_strings(
                 tstring,
                 &mut all_strings,
@@ -11002,7 +11922,7 @@ impl Compiler {
             }
         );
 
-        for tstring in tstring_value.iter() {
+        for tstring in tstring_value {
             self.compile_tstring_interpolations(tstring)?;
         }
 
@@ -11411,7 +12331,10 @@ mod ruff_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustpython_compiler_core::{SourceFileBuilder, bytecode::OpArg};
+    use rustpython_compiler_core::{
+        SourceFileBuilder,
+        bytecode::{CodeUnit, OpArg},
+    };
 
     fn assert_scope_exit_locations(code: &CodeObject) {
         for (instr, (location, _)) in code.instructions.iter().zip(code.locations.iter()) {
@@ -11466,7 +12389,8 @@ mod tests {
             ruff_python_parser::Mode::Module.into(),
         )
         .unwrap();
-        let ast = parsed.into_syntax();
+        let mut ast = parsed.into_syntax();
+        preprocess::preprocess_mod(&mut ast);
         let ast = match ast {
             ruff_python_ast::Mod::Module(stmts) => stmts,
             _ => unreachable!(),
@@ -11474,7 +12398,7 @@ mod tests {
         let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
             .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
             .unwrap();
-        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>");
         compiler.compile_program(&ast, symbol_table).unwrap();
         compiler.exit_scope()
     }
@@ -11512,7 +12436,7 @@ mod tests {
         let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
             .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
             .unwrap();
-        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>");
         compiler.compile_program(&ast, symbol_table).unwrap();
         let _table = compiler.pop_symbol_table();
         let stack_top = compiler.code_stack.pop().unwrap();
@@ -11553,7 +12477,7 @@ mod tests {
         let is_async = function.is_async;
         let range = function.range();
 
-        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>");
         compiler.future_annotations = symbol_table.future_annotations;
         compiler.symbol_table_stack.push(symbol_table);
         compiler.set_source_range(range);
@@ -11589,6 +12513,341 @@ mod tests {
         stack_top.debug_late_cfg_trace().unwrap()
     }
 
+    #[test]
+    #[ignore = "debug helper"]
+    fn debug_trace_nested_continue_after_optional_body() {
+        let trace = compile_single_function_late_cfg_trace(
+            "\
+def f(names, show_empty, keywords, args_buffer, args, cls, object, level):
+    for name in names:
+        value = getattr(cls, name)
+        if not show_empty:
+            if value == []:
+                field_type = cls._field_types.get(name, object)
+                if getattr(field_type, '__origin__', ...) is list:
+                    if not keywords:
+                        args_buffer.append(repr(value))
+                    continue
+            if not keywords:
+                args.extend(args_buffer)
+                args_buffer = []
+        value, simple = _format(value, level)
+        if keywords:
+            args.append('%s=%s' % (name, value))
+        else:
+            args.append(value)
+",
+            "f",
+        );
+        for (label, dump) in trace {
+            if label == "after_reorder"
+                || label == "after_remove_redundant_nops_and_jumps"
+                || label == "after_final_cfg_cleanup"
+                || label == "after_borrow_deopts"
+            {
+                eprintln!("=== {label} ===\n{dump}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "debug helper"]
+    fn debug_trace_make_dataclass_borrow_tail() {
+        let trace = compile_single_function_late_cfg_trace(
+            r#"
+def f(module, cls, decorator, init, repr, eq, order, unsafe_hash, frozen, match_args, kw_only, slots, weakref_slot):
+    if module is None:
+        try:
+            module = sys._getframemodulename(1) or '__main__'
+        except AttributeError:
+            try:
+                module = sys._getframe(1).f_globals.get('__name__', '__main__')
+            except (AttributeError, ValueError):
+                pass
+    if module is not None:
+        cls.__module__ = module
+    cls = decorator(cls, init=init, repr=repr, eq=eq, order=order,
+                    unsafe_hash=unsafe_hash, frozen=frozen,
+                    match_args=match_args, kw_only=kw_only, slots=slots,
+                    weakref_slot=weakref_slot)
+    return cls
+"#,
+            "f",
+        );
+        for (label, dump) in trace {
+            if label.starts_with("after_") {
+                eprintln!("=== {label} ===\n{dump}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "debug helper"]
+    fn debug_trace_protected_attr_subscript_tail() {
+        let trace = compile_single_function_late_cfg_trace(
+            r#"
+def f(f, oldcls, newcls):
+    try:
+        idx = f.__code__.co_freevars.index("__class__")
+    except ValueError:
+        return False
+    closure = f.__closure__[idx]
+    if closure.cell_contents is oldcls:
+        closure.cell_contents = newcls
+        return True
+    return False
+"#,
+            "f",
+        );
+        for (label, dump) in trace {
+            if label.starts_with("after_") {
+                eprintln!("=== {label} ===\n{dump}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "debug helper"]
+    fn debug_trace_dtrace_tail() {
+        let trace = compile_single_function_late_cfg_trace(
+            r#"
+def f(proc, unittest):
+    try:
+        with proc:
+            version, stderr = proc.communicate()
+        if proc.returncode:
+            raise Exception(version, stderr)
+    except OSError:
+        raise unittest.SkipTest("x")
+    match = re.search("pat", version)
+    if match is None:
+        raise unittest.SkipTest(f"Unable to parse readelf version: {version}")
+    return int(match.group(1)), int(match.group(2))
+"#,
+            "f",
+        );
+        for (label, dump) in trace {
+            if label == "after_raw_optimize_load_fast_borrow"
+                || label.contains("deoptimize_borrow_in_protected_conditional_tail")
+                || label.contains("deoptimize_borrow_after_terminal_except_tail")
+            {
+                eprintln!("=== {label} ===\n{dump}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "debug helper"]
+    fn debug_trace_colorize_tail() {
+        let trace = compile_single_function_late_cfg_trace(
+            r#"
+def f(sys, os, file):
+    if sys.platform == "win32":
+        try:
+            import nt
+            if not nt._supports_virtual_terminal():
+                return False
+        except (ImportError, AttributeError):
+            return False
+
+    try:
+        return os.isatty(file.fileno())
+    except OSError:
+        return hasattr(file, "isatty") and file.isatty()
+"#,
+            "f",
+        );
+        for (label, dump) in trace {
+            if label == "after_raw_optimize_load_fast_borrow"
+                || label == "after_deoptimize_borrow_after_protected_import"
+                || label == "after_optimize_load_fast_borrow"
+                || label == "after_borrow_deopts"
+            {
+                eprintln!("=== {label} ===\n{dump}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_named_except_continue_resume_try_body_keeps_method_borrows() {
+        let code = compile_exec(
+            r#"
+def f(self, block=True):
+    if not block and not self.wait(timeout=0):
+        return None
+    while self.event_queue.empty():
+        while True:
+            try:
+                self.push_char(self.read(1))
+            except OSError as err:
+                if err.errno == errno.EINTR:
+                    if not self.event_queue.empty():
+                        return self.event_queue.get()
+                    else:
+                        continue
+                else:
+                    raise
+            else:
+                break
+    return self.event_queue.get()
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        let attr_idx = |name: &str| {
+            instructions
+                .iter()
+                .position(|unit| match unit.op {
+                    Instruction::LoadAttr { namei } => {
+                        let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                        f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == name
+                    }
+                    _ => false,
+                })
+                .unwrap_or_else(|| panic!("missing {name} LOAD_ATTR"))
+        };
+        let push_char_idx = attr_idx("push_char");
+        let read_idx = attr_idx("read");
+
+        assert!(
+            matches!(
+                instructions[push_char_idx - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "named-except cleanup continue backedge should not deopt the protected try-body method receiver, got instructions={:?}",
+            instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(
+                instructions[read_idx - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "nested protected try-body method receiver should remain borrowed like CPython, got instructions={:?}",
+            instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_boolop_or_shared_body_keeps_false_jump_before_loop_backedge() {
+        let code = compile_exec(
+            r#"
+def f(value):
+    digits = []
+    for digit in value:
+        if isinstance(digit, int) and 0 <= digit <= 9:
+            if digits or digit != 0:
+                digits.append(digit)
+        else:
+            raise ValueError
+    return digits
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(11).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "OR-shared body should keep CPython last-condition false jump before the loop backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "OR-shared body should not be moved after the implicit loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_single_if_loop_backedge_keeps_true_body_fallthrough_backedge_shape() {
+        let code = compile_exec(
+            r##"
+def f(buffer, pos, last_char):
+    while pos > 0:
+        pos -= 1
+        if buffer[pos] == "#":
+            last_char = None
+    return last_char
+"##,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "single-if loop tail should keep CPython true-body plus fallthrough-backedge shape, got ops={ops:?}",
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "single-if loop tail should not be inverted away from CPython shape, got ops={ops:?}",
+        );
+    }
+
     fn find_code<'a>(code: &'a CodeObject, name: &str) -> Option<&'a CodeObject> {
         if code.obj_name == name {
             return Some(code);
@@ -11618,26 +12877,6 @@ mod tests {
             }
             _ => false,
         })
-    }
-
-    macro_rules! assert_dis_snapshot {
-        ($value:expr) => {
-            insta::assert_snapshot!(
-                insta::internals::AutoName,
-                $value.display_expand_code_objects().to_string(),
-                stringify!($value)
-            )
-        };
-    }
-
-    #[test]
-    fn test_if_ors() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-if True or False or False:
-    pass
-"
-        ));
     }
 
     #[test]
@@ -11875,44 +13114,6 @@ def f(self):
     }
 
     #[test]
-    fn test_if_ands() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-if True and False and False:
-    pass
-"
-        ));
-    }
-
-    #[test]
-    fn test_if_mixed() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-if (True and False) or (False and True):
-    pass
-"
-        ));
-    }
-
-    #[test]
-    fn test_nested_bool_op() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-x = Test() and False or False
-"
-        ));
-    }
-
-    #[test]
-    fn test_const_bool_not_op() {
-        assert_dis_snapshot!(compile_exec_optimized(
-            "\
-x = not True
-"
-        ));
-    }
-
-    #[test]
     fn test_plain_constant_bool_op_folds_to_selected_operand() {
         let code = compile_exec(
             "\
@@ -12034,6 +13235,77 @@ def outer(null):
     }
 
     #[test]
+    fn test_taken_constant_boolop_jump_disables_following_borrows() {
+        for source in [
+            "\
+def f(self):
+    if 0 and self.h:
+        self.x = self.y
+    elif self.a and self.b:
+        self.x = self.y
+    self.z = self.w
+",
+            "\
+def f(self):
+    if 1 or self.h:
+        self.x = self.y
+    self.z = self.w
+",
+        ] {
+            let code = compile_exec(source);
+            let f = find_code(&code, "f").expect("missing f code");
+            let ops: Vec<_> = f
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .filter(|op| !matches!(op, Instruction::Cache))
+                .collect();
+            assert!(
+                ops.iter()
+                    .any(|op| matches!(op, Instruction::LoadFast { .. })),
+                "CPython keeps plain LOAD_FAST after an always-taken constant bool-op jump, got ops={ops:?}"
+            );
+            assert!(
+                !ops.iter()
+                    .any(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+                "always-taken constant bool-op jump should suppress later LOAD_FAST_BORROW, got ops={ops:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_untaken_constant_boolop_jump_keeps_following_borrows() {
+        for source in [
+            "\
+def f(self):
+    if 1 and self.h:
+        self.x = self.y
+    self.z = self.w
+",
+            "\
+def f(self):
+    if 0 or self.h:
+        self.x = self.y
+    self.z = self.w
+",
+        ] {
+            let code = compile_exec(source);
+            let f = find_code(&code, "f").expect("missing f code");
+            let ops: Vec<_> = f
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .filter(|op| !matches!(op, Instruction::Cache))
+                .collect();
+            assert!(
+                ops.iter()
+                    .any(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+                "constant bool-op jump that is not taken should keep CPython-style borrows, got ops={ops:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_nonliteral_constant_bool_op_preserves_short_circuit_shape() {
         let code = compile_exec(
             "\
@@ -12145,21 +13417,44 @@ def or_false(x):
     }
 
     #[test]
-    fn test_nested_double_async_with() {
-        assert_dis_snapshot!(compile_exec(
+    fn test_folded_nonliteral_tuple_unpack_tail_keeps_plain_load_fast() {
+        let code = compile_exec(
             "\
-async def test():
-    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
-        with self.subTest(type=type(stop_exc)):
-            try:
-                async with egg():
-                    raise stop_exc
-            except Exception as ex:
-                self.assertIs(ex, stop_exc)
-            else:
-                self.fail(f'{stop_exc} was suppressed')
-"
-        ));
+def f(self, mod):
+    optimize, opt = (1, 1) if __debug__ else (0, '')
+    mod.call(self.path, optimize=optimize)
+    cached = mod.cache(self.source_path, optimization=opt)
+    self.assertTrue(cached)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let tail_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadFast { .. }))
+            .expect("missing folded assignment tail load");
+        let tail = &ops[tail_start..];
+
+        assert!(
+            tail.iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "expected folded nonliteral tuple-unpack tail to use strong LOAD_FAST, got tail={tail:?}"
+        );
+        assert!(
+            !tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "folded nonliteral tuple-unpack tail should not borrow local loads, got tail={tail:?}"
+        );
     }
 
     #[test]
@@ -12218,6 +13513,38 @@ def f(cls, args, kwargs):
     }
 
     #[test]
+    fn test_large_plain_call_uses_direct_call_until_stack_guideline() {
+        let code = compile_exec(
+            "\
+def f(g):
+    return g(a0, a1, a2, a3, a4, a5, a6, a7, a8,
+             a9, a10, a11, a12, a13, a14, a15, a16, a17)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let direct_call_18 = f.instructions.iter().any(|unit| match unit.op {
+            Instruction::Call { argc } => argc.get(OpArg::new(u32::from(u8::from(unit.arg)))) == 18,
+            _ => false,
+        });
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            direct_call_18,
+            "18 positional arguments should stay on CPython's direct CALL path, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::CallFunctionEx)),
+            "18 positional arguments should not use CALL_FUNCTION_EX, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_simple_attribute_call_keeps_method_load() {
         let code = compile_exec(
             "\
@@ -12240,6 +13567,42 @@ def f(obj, arg):
         assert!(
             load_attr.is_method(),
             "simple method calls should stay optimized"
+        );
+    }
+
+    #[test]
+    fn test_starred_super_call_keeps_attr_line_nop() {
+        let code = compile_exec(
+            "\
+def outer(log):
+    class DelegatingHTTPRequestHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            if log:
+                super(DelegatingHTTPRequestHandler,
+                      self).log_message(format, *args)
+",
+        );
+        let log_message = find_code(&code, "log_message").expect("missing log_message code");
+        let ops: Vec<_> = log_message
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadSuperAttr { .. },
+                        Instruction::Nop,
+                        Instruction::PushNull,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "starred super call should keep CPython's attr-line NOP after LOAD_SUPER_ATTR, got ops={ops:?}"
         );
     }
 
@@ -12333,6 +13696,135 @@ def set_f(xs):
     }
 
     #[test]
+    fn test_builtin_tuple_genexpr_try_assignment_uses_shared_tail() {
+        let code = compile_exec(
+            "\
+def f(xs):
+    global y
+    try:
+        y = tuple(int(i) for i in xs.split('.'))
+    except ValueError:
+        y = ()
+    return y
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let intrinsic = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::CallIntrinsic1 { .. }))
+            .expect("tuple(genexpr) fast path should emit LIST_TO_TUPLE");
+        let first_fallback = ops[intrinsic + 1..]
+            .iter()
+            .position(|op| matches!(op, Instruction::PushNull))
+            .map(|offset| intrinsic + 1 + offset)
+            .expect("shadowed tuple fallback call should remain after fast path");
+        let first_store = ops[intrinsic + 1..]
+            .iter()
+            .position(|op| matches!(op, Instruction::StoreGlobal { .. }))
+            .map(|offset| intrinsic + 1 + offset)
+            .expect("tuple(genexpr) result should be stored after fast or fallback call");
+
+        assert!(
+            matches!(ops[intrinsic + 1], Instruction::JumpForward { .. })
+                && first_fallback < first_store,
+            "tuple(genexpr) fast path should jump over fallback to CPython-style shared store tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_builtin_tuple_genexpr_unprotected_assignment_return_duplicates_tail() {
+        let code = compile_exec(
+            "\
+def f(arg):
+    if isinstance(arg, (list, tuple)):
+        arg = tuple(a for a in arg)
+    elif not p(arg):
+        raise TypeError(f'bad {arg}')
+    return arg
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let intrinsic = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::CallIntrinsic1 { .. }))
+            .expect("tuple(genexpr) fast path should emit LIST_TO_TUPLE");
+
+        assert!(
+            matches!(ops[intrinsic + 1], Instruction::StoreFast { .. })
+                && matches!(
+                    ops[intrinsic + 2],
+                    Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. }
+                )
+                && matches!(ops[intrinsic + 3], Instruction::ReturnValue),
+            "unprotected tuple(genexpr) assignment before return should inline CPython's assignment-return tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_unprotected_builtin_any_prefix_before_returning_try_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(template):
+    if any(part.expression.strip() == '' for part in template.interpolations):
+        return ctor(template)
+    try:
+        parsed = tuple(
+            ast.parse(f'({part.expression})', mode='eval').body
+            for part in template.interpolations
+        )
+    except SyntaxError:
+        return ctor(template)
+    return lit(template, parsed)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let first_try_nop = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::Nop))
+            .expect("missing try entry NOP");
+        let mut saw_interpolations = false;
+        for window in instructions[..first_try_nop].windows(2) {
+            let [receiver, attr] = window else {
+                continue;
+            };
+            let Instruction::LoadAttr { namei } = attr.op else {
+                continue;
+            };
+            let load_attr = namei.get(OpArg::new(u32::from(u8::from(attr.arg))));
+            if f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() != "interpolations"
+            {
+                continue;
+            }
+            saw_interpolations = true;
+            assert!(
+                matches!(receiver.op, Instruction::LoadFastBorrow { .. }),
+                "unprotected builtin any(genexpr) prefix before a later returning try should keep CPython-style borrowed receiver, got instructions={instructions:?}"
+            );
+        }
+        assert!(
+            saw_interpolations,
+            "missing interpolations attr load in builtin any prefix, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
     fn test_module_store_uses_store_global_when_nested_scope_declares_global() {
         let code = compile_exec(
             "\
@@ -12414,6 +13906,88 @@ def f(kwonlyargs, kw_only_defaults, arg2value):
         assert!(
             matches!(next_op, Instruction::JumpBackward { .. }),
             "expected direct loop backedge after STORE_SUBSCR, got {next_op:?}; ops={window:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_store_subscr_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(cache, lock, format):
+    with lock:
+        format_regex = cache.get(format)
+        if not format_regex:
+            try:
+                format_regex = cache.compile(format)
+            except KeyError as err:
+                bad_directive = err.args[0]
+                del err
+                raise ValueError(bad_directive) from None
+            cache[format] = format_regex
+    return format_regex.match('x')
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::StoreSubscr,
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style strong loads before protected STORE_SUBSCR tail, got ops={ops:?}"
+        );
+
+        let code = compile_exec(
+            "\
+cache = {}
+def g(lock, format):
+    with lock:
+        format_regex = cache.get(format)
+        if not format_regex:
+            try:
+                format_regex = compile(format)
+            except KeyError as err:
+                bad_directive = err.args[0]
+                del err
+                raise ValueError(bad_directive) from None
+            cache[format] = format_regex
+    return format_regex.match('x')
+",
+        );
+        let g = find_code(&code, "g").expect("missing function code");
+        let ops: Vec<_> = g
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadGlobal { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::StoreSubscr,
+                    ]
+                )
+            }),
+            "expected CPython-style strong value/key loads around global STORE_SUBSCR tail, got ops={ops:?}"
         );
     }
 
@@ -12659,6 +14233,255 @@ def f(msg):
     }
 
     #[test]
+    fn test_nested_try_line_nops_after_for_cleanup_are_preserved() {
+        let code = compile_exec(
+            "\
+def f(xs, env):
+    for x in xs:
+        pass
+    try:
+        try:
+            if env is not None:
+                env_list = []
+            else:
+                env_list = None
+        finally:
+            pass
+    finally:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::Nop,
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::PopJumpIfNone { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style outer and inner try-line NOPs after for cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_finally_assert_keeps_finalbody_entry_nop() {
+        let code = compile_exec(
+            "\
+def f(x):
+    try:
+        assert x
+    finally:
+        g()
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::Nop,
+                        Instruction::LoadGlobal { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "assert in try/finally should preserve CPython finalbody-entry NOP after the raise edge, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::Nop,
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "assert true edge should land on a distinct finalbody-entry NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_finally_if_break_false_edge_keeps_finalbody_entry_nop() {
+        let code = compile_exec(
+            "\
+def f(self, pid):
+    while True:
+        try:
+            if pid == self.pid:
+                self.h()
+                break
+        finally:
+            self.r()
+        self.g()
+    return self.x
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ReturnValue,
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "expected CPython-style if-line NOP before fallthrough finally body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_percent_format_preprocess_removes_redundant_try_nop() {
+        let code = compile_exec(
+            "\
+def f(self, signal):
+    if self.returncode and self.returncode < 0:
+        try:
+            return \"Command '%s' died with %r.\" % (
+                self.cmd, signal.Signals(-self.returncode))
+        except ValueError:
+            return \"Command '%s' died with unknown signal %d.\" % (
+                self.cmd, -self.returncode)
+    return \"Command '%s' returned non-zero exit status %d.\" % (
+        self.cmd, self.returncode)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::NotTaken,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "expected preprocessed percent-format body immediately after condition, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::NotTaken,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "percent-format preprocessing should let CFG remove the try-line NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_try_except_in_finally_exception_path_shares_continuation() {
+        let code = compile_exec(
+            "\
+def f(self, exc_type, KeyboardInterrupt, TimeoutExpired):
+    try:
+        if self.stdin:
+            self.stdin.close()
+    finally:
+        if exc_type == KeyboardInterrupt:
+            if self._sigint_wait_secs > 0:
+                try:
+                    self._wait(timeout=self._sigint_wait_secs)
+                except TimeoutExpired:
+                    pass
+            self._sigint_wait_secs = 0
+        else:
+            self.wait()
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let store_reraise_tails = ops
+            .windows(2)
+            .filter(|window| {
+                matches!(
+                    window,
+                    [Instruction::StoreAttr { .. }, Instruction::Reraise { .. },]
+                )
+            })
+            .count();
+
+        assert_eq!(
+            store_reraise_tails, 1,
+            "nested try/except inside an exceptional finally body should share the remaining finalbody tail before RERAISE, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::StoreAttr { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "normal finally body should keep CPython-style borrowed load before STORE_ATTR, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_try_else_return_keeps_nop_before_final_call_return() {
         let code = compile_exec(
             "\
@@ -12701,6 +14524,104 @@ def f(msg):
     }
 
     #[test]
+    fn test_try_else_conditional_scope_exit_keeps_pop_block_nop() {
+        let code = compile_exec(
+            "\
+def f(values, check):
+    found = ''
+    for value in values:
+        try:
+            if check(value):
+                raise UnicodeError
+        except UnicodeError:
+            pass
+        else:
+            found = value
+            break
+    return found
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "try-else after conditional scope exit should keep CPython's POP_BLOCK NOP anchor, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_loop_fallthrough_keeps_end_jump_nop_before_finally() {
+        let code = compile_exec(
+            "\
+def f(locale, category, locales):
+    try:
+        orig_locale = locale.setlocale(category)
+    except AttributeError:
+        raise
+    except Exception:
+        locale = orig_locale = None
+        if '' not in locales:
+            raise SkipTest('no locales')
+    else:
+        for loc in locales:
+            try:
+                locale.setlocale(category, loc)
+                break
+            except locale.Error:
+                pass
+        else:
+            if '' not in locales:
+                raise SkipTest(locales)
+    try:
+        yield
+    finally:
+        if locale and orig_locale:
+            locale.setlocale(category, orig_locale)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::Nop,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::YieldValue { .. },
+                    ]
+                )
+            }),
+            "try-else loop fallthrough should keep CPython's end-label NOP before following try/finally, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_conditional_compare_uses_bool_compare_oparg() {
         let code = compile_exec(
             "\
@@ -12718,6 +14639,40 @@ def f(x, y):
             .expect("missing COMPARE_OP");
 
         assert_eq!(u8::from(compare.arg), 88);
+    }
+
+    #[test]
+    fn test_multiline_is_none_conditional_keeps_comparator_nop() {
+        let code = compile_exec(
+            "\
+def f(x):
+    if x.find(
+            'a') is not None:
+        return 1
+    return 0
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Call { .. },
+                        Instruction::Nop,
+                        Instruction::PopJumpIfNone { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style comparator NOP before folded POP_JUMP_IF_NONE, got ops={ops:?}"
+        );
     }
 
     #[test]
@@ -13057,6 +15012,77 @@ def g2(x):
     }
 
     #[test]
+    fn test_high_index_parameter_stays_initialized_in_fast_scan() {
+        let params = (0..65)
+            .map(|idx| format!("p{idx}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let code = compile_exec(&format!(
+            "\
+def f({params}):
+    return p64
+"
+        ));
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(
+            f.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num }
+                    if f.varnames
+                        [usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))))]
+                        == "p64"
+            )),
+            "expected high-index parameter p64 to use LOAD_FAST, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !f.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::LoadFastCheck { var_num }
+                    if f.varnames
+                        [usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))))]
+                        == "p64"
+            )),
+            "high-index parameter p64 should not use LOAD_FAST_CHECK before deletion"
+        );
+    }
+
+    #[test]
+    fn test_deleted_high_index_parameter_uses_load_fast_check() {
+        let params = (0..65)
+            .map(|idx| format!("p{idx}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let code = compile_exec(&format!(
+            "\
+def f({params}):
+    del p64
+    return p64
+"
+        ));
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(
+            f.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::LoadFastCheck { var_num }
+                    if f.varnames
+                        [usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))))]
+                        == "p64"
+            )),
+            "expected deleted high-index parameter p64 to use LOAD_FAST_CHECK, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn test_assert_without_message_raises_class_directly() {
         let code = compile_exec(
             "\
@@ -13131,8 +15157,162 @@ def f(x, y):
     }
 
     #[test]
+    fn test_conditional_assert_message_target_uses_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(fname):
+    if fname == 'a':
+        return 1
+    assert False, 'Unknown attrname %s' % fname
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let assertion_error = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadCommonConstant { .. }))
+            .expect("missing LOAD_COMMON_CONSTANT AssertionError");
+        let window = &ops[assertion_error..(assertion_error + 5).min(ops.len())];
+        assert!(
+            matches!(
+                window,
+                [
+                    Instruction::LoadCommonConstant { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::LoadFast { .. },
+                    Instruction::BinaryOp { .. },
+                    Instruction::Call { .. },
+                    ..
+                ]
+            ),
+            "expected CPython-style strong LOAD_FAST in targeted assert message block, got {window:?}"
+        );
+    }
+
+    #[test]
+    fn test_chained_compare_assert_message_keeps_borrowed_load_fast() {
+        let code = compile_exec(
+            "\
+def f(month):
+    assert 1 <= month <= 12, f'month must be in 1..12, not {month}'
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let assertion_error = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadCommonConstant { .. }))
+            .expect("missing LOAD_COMMON_CONSTANT AssertionError");
+        let raise = ops[assertion_error..]
+            .iter()
+            .position(|op| matches!(op, Instruction::RaiseVarargs { .. }))
+            .map(|idx| assertion_error + idx)
+            .expect("missing assert raise");
+        let message_path = &ops[assertion_error..raise];
+
+        assert!(
+            message_path
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+            "CPython keeps assert message loads borrowed for same-line chained compare failure blocks, got {message_path:?}"
+        );
+        assert!(
+            !message_path
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "same-line chained compare assert message should not be deoptimized to LOAD_FAST, got {message_path:?}"
+        );
+    }
+
+    #[test]
+    fn test_assert_message_after_condition_in_same_block_keeps_borrowed_loads() {
+        let code = compile_exec(
+            "\
+def f(expected_ns, namespace):
+    try:
+        assert expected_ns == namespace, ('expected %s, got %s' % (expected_ns, namespace))
+    except AssertionError as e:
+        raise RuntimeError(e)
+    setattr(namespace, 'spam', expected_ns)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let assertion_error = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::LoadCommonConstant { .. }))
+            .expect("missing LOAD_COMMON_CONSTANT AssertionError");
+        let raise = ops[assertion_error..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::RaiseVarargs { .. }))
+            .map(|idx| assertion_error + idx)
+            .expect("missing assert raise");
+        let message_path = &ops[assertion_error..raise];
+
+        let load_fast_name = |unit: &&bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+        let borrow_name = |unit: &&bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+
+        assert!(
+            message_path
+                .iter()
+                .filter_map(load_fast_name)
+                .all(|name| name != "expected_ns" && name != "namespace"),
+            "assert message after same-block condition should keep borrowed loads, got {message_path:?}"
+        );
+        for name in ["expected_ns", "namespace"] {
+            assert!(
+                message_path
+                    .iter()
+                    .filter_map(borrow_name)
+                    .any(|var| var == name),
+                "expected borrowed {name} load in assert message path, got {message_path:?}"
+            );
+        }
+
+        let setattr = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::LoadGlobal { .. }))
+            .expect("missing final setattr load");
+        let tail = &ops[setattr..];
+        for name in ["expected_ns", "namespace"] {
+            assert!(
+                tail.iter()
+                    .filter_map(load_fast_name)
+                    .any(|var| var == name),
+                "expected strong {name} load in post-try tail, got {tail:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_bare_function_annotations_check_attribute_and_subscript_expressions() {
-        assert_dis_snapshot!(compile_exec(
+        let code = compile_exec(
             "\
 def f(one: int):
     int.new_attr: int
@@ -13140,8 +15320,111 @@ def f(one: int):
     my_lst = [1]
     my_lst[one]: int
     return my_lst
-"
-        ));
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let loads_global = |name: &str| {
+            f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadGlobal { namei } => {
+                    let namei = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
+                    f.names[usize::try_from(namei).unwrap()].as_str() == name
+                }
+                _ => false,
+            })
+        };
+        assert!(
+            loads_global("int"),
+            "bare attribute annotations should evaluate int, got ops={:?}",
+            f.instructions
+        );
+        assert!(
+            loads_global("list"),
+            "bare subscript annotations should evaluate list, got ops={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_function_local_annassign_annotation_does_not_capture_outer_local() {
+        let code = compile_exec(
+            "\
+def f():
+    from collections import namedtuple
+
+    class MyHandler:
+        def __init__(self, resource):
+            self.resource: namedtuple = resource
+
+    return namedtuple
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let class_code = find_code(&code, "MyHandler").expect("missing MyHandler code");
+        let init = find_code(&code, "__init__").expect("missing __init__ code");
+
+        assert!(
+            !f.cellvars.iter().any(|name| name == "namedtuple"),
+            "function-local AnnAssign annotation must not make namedtuple a cell, got cellvars={:?}",
+            f.cellvars
+        );
+        assert!(
+            !class_code.freevars.iter().any(|name| name == "namedtuple"),
+            "class body must not close over function-local annotation-only name, got freevars={:?}",
+            class_code.freevars
+        );
+        assert!(
+            !init.freevars.iter().any(|name| name == "namedtuple"),
+            "method body must not close over function-local annotation-only name, got freevars={:?}",
+            init.freevars
+        );
+    }
+
+    #[test]
+    fn test_finally_exception_path_inlines_except_pass_reraise_tail() {
+        let source = "\
+def f(self, file, backupfilename):
+    try:
+        if file:
+            file.close()
+    finally:
+        backupfilename = self._backupfilename
+        self._backupfilename = None
+        if backupfilename and not self._backup:
+            try:
+                os.unlink(backupfilename)
+            except OSError:
+                pass
+        self._isstdin = False
+";
+        let code = compile_exec(source);
+        let f = find_code(&code, "f").expect("missing f code");
+        assert!(
+            f.instructions.windows(9).any(|window| {
+                matches!(
+                    [
+                        window[0].op,
+                        window[1].op,
+                        window[2].op,
+                        window[3].op,
+                        window[8].op,
+                    ],
+                    [
+                        Instruction::PopExcept,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::StoreAttr { .. },
+                        Instruction::Reraise { .. },
+                    ]
+                ) && match window[8].op {
+                    Instruction::Reraise { depth } => {
+                        depth.get(OpArg::new(u32::from(u8::from(window[8].arg)))) == 0
+                    }
+                    _ => false,
+                }
+            }),
+            "except-pass normal exit in a finally exception path should inline the CPython reraise tail, got instructions={:?}",
+            f.instructions
+        );
     }
 
     #[test]
@@ -13174,16 +15457,6 @@ def f2bad():
                 .map(|unit| unit.op)
                 .collect::<Vec<_>>()
         );
-    }
-
-    #[test]
-    fn test_constant_true_if_pass_keeps_line_anchor_nop() {
-        assert_dis_snapshot!(compile_exec(
-            "\
-if 1:
-    pass
-"
-        ));
     }
 
     #[test]
@@ -13247,6 +15520,200 @@ def f(it):
                 .iter()
                 .map(|unit| unit.op)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_generator_filter_keeps_cpython_style_forward_yield_body_entry() {
+        let code = compile_exec(
+            "\
+def gen(it):
+    for f in it:
+        if f.name:
+            yield f.name
+",
+        );
+        let gen_code = find_code(&code, "gen").expect("missing gen code");
+        let ops: Vec<_> = gen_code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::YieldValue { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style generator filter to jump on true into the yield body and fall through into the loop backedge on false, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_generator_negated_filter_keeps_cpython_style_false_edge_into_yield_body() {
+        let code = compile_exec(
+            "\
+def gen(fields):
+    for f in fields:
+        if f.init and not f.kw_only:
+            yield f
+",
+        );
+        let gen_code = find_code(&code, "gen").expect("missing gen code");
+        let ops: Vec<_> = gen_code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::YieldValue { .. },
+                        Instruction::Resume { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style negated generator filter to jump on false into the yield body and fall through into the loop backedge on true, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_filter_with_nested_loop_body_uses_cpython_implicit_continue_layout() {
+        let code = compile_exec(
+            "\
+def f(values):
+    for fmt, items in values:
+        nd = make(items, fmt)
+        for i in range(-5, 5):
+            check(nd[i], items[i])
+        check(nd[-6])
+        check(nd[5])
+        if is_memoryview_format(fmt):
+            mv = memoryview(nd)
+            check(mv, nd)
+            for i in range(-5, 5):
+                check(mv[i], items[i])
+            check(mv[-6])
+            check(mv[5])
+    return None
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style nested loop filter to fall through into the implicit continue and jump on true into the body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_final_elif_with_inlined_comprehensions_threads_backedge_before_body() {
+        let code = compile_exec(
+            "\
+def f(checks, enumeration, named):
+    for check in checks:
+        if check == 1:
+            pass
+        elif check is named:
+            member_names = enumeration._member_names_
+            member_values = [m.value for m in enumeration]
+            missing_names = []
+            missing_value = 0
+            for name, alias in enumeration._member_map_.items():
+                if name in member_names:
+                    continue
+                if alias.value < 0:
+                    continue
+                values = list(_iter_bits_lsb(alias.value))
+                missed = [v for v in values if v not in member_values]
+                if missed:
+                    missing_names.append(name)
+                    for val in missed:
+                        missing_value |= val
+            if missing_names:
+                raise ValueError('x')
+    return enumeration
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::IsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style final elif to put loop backedge before the inlined-comprehension body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::IsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "unexpected final elif body before loop backedge, got ops={ops:?}"
         );
     }
 
@@ -13408,6 +15875,42 @@ def http_error(status):
     }
 
     #[test]
+    fn test_match_try_body_keeps_setup_nop_after_success_pop() {
+        let code = compile_exec(
+            "\
+def f(x):
+    match x:
+        case 1:
+            try:
+                y = 2
+            except Exception:
+                pass
+        case 2:
+            y = 3
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| matches!(
+                window,
+                [
+                    Instruction::PopTop,
+                    Instruction::Nop,
+                    Instruction::LoadSmallInt { .. } | Instruction::LoadConst { .. }
+                ]
+            )),
+            "expected CPython-style match success POP_TOP followed by try-entry NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_match_mapping_attribute_key_keeps_plain_load_fast() {
         let code = compile_exec(
             "\
@@ -13559,6 +16062,946 @@ def f(filters, text, category, module, lineno, defaultaction, _wm):
     }
 
     #[test]
+    fn test_try_except_else_with_finally_keeps_with_handler_before_outer_except() {
+        let code = compile_exec(
+            "\
+def f(i):
+    try:
+        1 / 0
+    except ZeroDivisionError:
+        print('e')
+    else:
+        with i as dodgy:
+            print('w')
+    finally:
+        print('d')
+",
+        );
+        let jumpy = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = jumpy
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let with_except_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::WithExceptStart))
+            .expect("missing WITH_EXCEPT_START");
+        let check_exc_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::CheckExcMatch))
+            .expect("missing CHECK_EXC_MATCH");
+        assert!(
+            with_except_idx < check_exc_idx,
+            "expected with-except cleanup to be emitted before outer except matching like CPython, got ops={ops:?}",
+        );
+
+        let with_cleanup_end = ops
+            .windows(5)
+            .position(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            })
+            .expect("missing with success cleanup")
+            + 5;
+        assert!(
+            !matches!(ops.get(with_cleanup_end), Some(Instruction::Nop)),
+            "expected with success cleanup to fall straight into the surrounding continuation without a synthetic NOP target, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_nested_try_finally_keeps_inner_finally_cleanup_nop() {
+        let code = compile_exec(
+            "\
+def f(a, b, d):
+    try:
+        try:
+            a()
+        finally:
+            b()
+    finally:
+        d()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            ops_lines.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::PopTop, 6),
+                        (Instruction::Nop, 6),
+                        (
+                            Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                            8
+                        ),
+                    ]
+                )
+            }),
+            "expected CPython-style inner finally cleanup NOP before outer finalbody, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
+    fn test_nested_finally_open_conditional_falls_through_without_entry_nop() {
+        let code = compile_exec(
+            "\
+def f(self, f, closed, new_key):
+    try:
+        try:
+            work()
+        finally:
+            if self._locked:
+                _unlock_file(f)
+    finally:
+        if not closed:
+            _sync_close(f)
+    return new_key
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache | Instruction::NotTaken))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "expected CPython-style fallthrough from inner finally body into outer finalbody condition, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "unexpected preserved inner-finally entry NOP before outer finalbody condition, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_try_finally_normal_cleanup_keeps_redundant_jump_nop() {
+        let code = compile_exec(
+            "\
+def f(cm):
+    with cm:
+        try:
+            x = 1
+        finally:
+            del x
+    return x
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            ops_lines.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::DeleteFast { .. }, 6),
+                        (Instruction::Nop, 6),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::Call { .. }, 2),
+                    ]
+                )
+            }),
+            "expected CPython-style redundant finally cleanup jump to become a line NOP before with-exit cleanup, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
+    fn test_with_try_except_normal_cleanup_keeps_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, names, modname):
+    with cm:
+        try:
+            exec('import %s' % modname, names)
+        except:
+            raise FailedImport(modname)
+    return names
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "try/except inside with should preserve the CPython body-exit NOP before with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_try_except_return_handler_keeps_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm):
+    with cm:
+        try:
+            x = 1
+        except OSError:
+            return False
+    return True
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "scope-exiting except handler inside with should preserve the CPython body-exit NOP before with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_try_except_else_return_handler_keeps_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, func, check):
+    with cm:
+        try:
+            func()
+        except ValueError:
+            return False
+        else:
+            check()
+    return True
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "try/except/else inside with with scope-exiting handler should preserve the CPython body-exit NOP before with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_try_except_else_continue_handler_keeps_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(meta_path, cm):
+    for finder in meta_path:
+        with cm:
+            try:
+                find_spec = finder.find_spec
+            except AttributeError:
+                continue
+            else:
+                spec = find_spec()
+        if spec is not None:
+            return spec
+    return None
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            ops_lines.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::Call { .. }, 9),
+                        (Instruction::StoreFast { .. }, 9),
+                        (Instruction::Nop, 9),
+                        (Instruction::LoadConst { .. }, 3),
+                        (Instruction::LoadConst { .. }, 3),
+                        (Instruction::LoadConst { .. }, 3),
+                    ]
+                )
+            }),
+            "try/except/else with continue handler should preserve the CPython body-exit NOP before with cleanup, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
+    fn test_elif_boolop_skips_following_elif_with_forward_jumpback_block() {
+        let code = compile_exec(
+            r#"
+def f(module, fromlist, import_, recursive=False):
+    for x in fromlist:
+        if not isinstance(x, str):
+            raise TypeError
+        elif x == '*':
+            if not recursive and hasattr(module, '__all__'):
+                _handle_fromlist(module, module.__all__, import_, recursive=True)
+        elif not hasattr(module, x):
+            pass
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let is_load_global =
+            |unit: &&rustpython_compiler_core::bytecode::CodeUnit, name: &str| match unit.op {
+                Instruction::LoadGlobal { namei } => {
+                    let namei = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
+                    f.names[usize::try_from(namei).unwrap()].as_str() == name
+                }
+                _ => false,
+            };
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        unit0,
+                        unit1,
+                        unit2,
+                        unit3,
+                    ] if matches!(unit0.op, Instruction::ToBool)
+                        && matches!(unit1.op, Instruction::PopJumpIfTrue { .. })
+                        && matches!(unit2.op, Instruction::NotTaken)
+                        && is_load_global(unit3, "hasattr")
+                )
+            }),
+            "boolop branch in elif should keep CPython's forward jump-back block before hasattr, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_with_nonterminal_try_except_normal_cleanup_drops_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm):
+    with cm:
+        try:
+            x = 1
+        except Exception:
+            pass
+    return x
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "non-terminal except inside with should not preserve a body-exit NOP before with cleanup, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style direct fallthrough into with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_try_except_scope_exit_body_handler_fallthrough_keeps_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, ValueError):
+    with cm:
+        try:
+            raise ValueError
+        except 42:
+            pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            ops_lines.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::Nop, 6),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::Call { .. }, 2),
+                    ]
+                )
+            }),
+            "handler fallthrough target should preserve the CPython NOP before with cleanup, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
+    fn test_with_try_except_nested_with_normal_cleanup_drops_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(open, src, dst, copyfileobj):
+    with open(src) as fsrc:
+        try:
+            with open(dst) as fdst:
+                copyfileobj(fsrc, fdst)
+        except IsADirectoryError:
+            raise
+    return dst
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "nested with normal cleanup in try/except should fall directly into outer with cleanup, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "nested with normal cleanup in try/except should not preserve a body-exit NOP before outer with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_nested_if_try_except_normal_cleanup_drops_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, root):
+    with cm:
+        if root:
+            try:
+                x = 1
+            except Exception as e:
+                raise ValueError from e
+    return root
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "nested try/except should not preserve a body-exit NOP before with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_finally_normal_cleanup_keeps_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(self, x):
+    if x and self.sock:
+        saved = self.sock.gettimeout()
+        self.sock.settimeout(x)
+        try:
+            resp = self._get_line()
+        except TimeoutError as err:
+            raise self._timeout from err
+        finally:
+            self.sock.settimeout(saved)
+    else:
+        resp = self._get_line()
+    return resp
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let resp_store = ops
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::StoreFast { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == "resp"
+                }
+                _ => false,
+            })
+            .expect("missing resp store");
+
+        assert!(
+            matches!(
+                ops.get(resp_store + 1).map(|unit| unit.op),
+                Some(Instruction::Nop)
+            ),
+            "expected CPython-style NOP between try/except normal body exit and finally cleanup, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_try_except_finally_open_conditional_fallthrough_drops_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(err, ov, self):
+    try:
+        if err:
+            assert ov
+    except:
+        ov.cancel()
+        raise
+    finally:
+        self.cleanup()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let assert_raise = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::RaiseVarargs { .. }))
+            .expect("missing assertion raise");
+
+        assert!(
+            !matches!(ops.get(assert_raise + 1), Some(Instruction::Nop)),
+            "open conditional fallthrough should go directly into finally cleanup, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_try_finally_loop_fallthrough_keeps_finalbody_entry_nop() {
+        let code = compile_exec(
+            "\
+def f(close, dup, first, second):
+    try:
+        retries = 0
+        while second != first + 1:
+            close(first)
+            retries += 1
+            if retries > 10:
+                raise RuntimeError
+            first, second = second, dup(second)
+    finally:
+        close(second)
+    close(first)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::PushNull,
+                    ]
+                )
+            }),
+            "try/finally loop fallthrough should preserve CPython finalbody-entry NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_finally_loop_direct_break_drops_finalbody_entry_nop() {
+        let code = compile_exec(
+            "\
+def f(lines, close):
+    try:
+        while lines:
+            if lines[0]:
+                break
+            close(1)
+    finally:
+        close(2)
+    close(3)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::PushNull,
+                    ]
+                )
+            }),
+            "direct loop break should enter CPython finalbody without a NOP, got ops={ops:?}",
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::PushNull,
+                    ]
+                )
+            }),
+            "direct loop break should not preserve finalbody-entry NOP, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_try_except_finally_suppressing_handler_drops_body_exit_nop() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        self.sock.shutdown(socket.SHUT_RDWR)
+    except OSError as exc:
+        if exc.errno != errno.ENOTCONN:
+            raise
+    finally:
+        self.sock.close()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let shutdown_pop = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopTop))
+            .expect("missing shutdown POP_TOP");
+
+        assert!(
+            !matches!(ops.get(shutdown_pop + 1), Some(Instruction::Nop)),
+            "suppressing except handler should fall directly into finally cleanup without a CPython body-exit NOP, got ops={ops:?}",
+        );
+        assert!(
+            matches!(
+                ops.get(shutdown_pop + 1),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "suppressing except handler should keep CPython-style borrowed finally cleanup receiver, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_conditional_break_finally_does_not_keep_break_cleanup_nop() {
+        let code = compile_exec(
+            "\
+def f(tar1, x):
+    try:
+        while True:
+            if x:
+                break
+            x = 1
+    finally:
+        tar1.close()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            !ops_lines.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::Nop, 5),
+                        (
+                            Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                            8
+                        ),
+                    ]
+                )
+            }),
+            "expected CPython-style break cleanup to jump directly into finally body, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
+    fn test_with_break_cleanup_makes_following_jump_artificial() {
+        let code = compile_exec(
+            "\
+def f(self):
+    while self.returncode is None:
+        with self._waitpid_lock:
+            if self.returncode is not None:
+                break
+            self.work()
+    return self.returncode
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            !ops_lines.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::Nop, 5),
+                        (
+                            Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                            7
+                        ),
+                    ]
+                )
+            }),
+            "expected CPython-style artificial jump after with-break cleanup, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
+    fn test_while_exit_before_with_cleanup_materializes_anchor_nop() {
+        let code = compile_exec(
+            "\
+def f(selector, self):
+    with selector:
+        while selector.get_map():
+            pass
+    try:
+        self.wait()
+    except Exception:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            ops_lines.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::JumpBackward { .. }, 4),
+                        (Instruction::Nop, 3),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::Call { .. }, 2),
+                    ]
+                )
+            }),
+            "expected CPython-style while-exit anchor NOP before with cleanup, got ops_lines={ops_lines:?}",
+        );
+    }
+
+    #[test]
     fn test_nested_boolop_same_or_prefixes_compile_without_extra_boolop_block() {
         let code = compile_exec(
             "\
@@ -13584,6 +17027,132 @@ def f(c, encodeO, encodeWS):
                 .iter()
                 .map(|unit| unit.op)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_nested_opposite_boolop_threads_to_fallthrough_like_cpython() {
+        for source in [
+            "\
+def f(a, b, c):
+    return ((a and b)
+            or c)
+",
+            "\
+def f(a, b, c):
+    return ((a or b)
+            and c)
+",
+        ] {
+            let code = compile_exec(source);
+            let f = find_code(&code, "f").expect("missing f code");
+            let jumps: Vec<_> = f
+                .instructions
+                .iter()
+                .filter(|unit| {
+                    matches!(
+                        unit.op,
+                        Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                    )
+                })
+                .collect();
+
+            assert_eq!(
+                jumps.len(),
+                2,
+                "expected two conditional jumps, got {jumps:?}"
+            );
+            assert!(
+                u8::from(jumps[0].arg) > u8::from(jumps[1].arg),
+                "expected CPython-style first jump to bypass the opposite short-circuit test, got jumps={jumps:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_loop_or_continue_keeps_boolop_true_edge_to_continue() {
+        let code = compile_exec(
+            "\
+def f(numpy_array, lshape, rshape, litems, fmt, tl):
+    for _ in range(3):
+        if numpy_array:
+            if 0 in lshape or 0 in rshape:
+                continue
+            zl = numpy_array_from_structure(litems, fmt, tl)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                    ]
+                )
+            }),
+            "expected CPython-style `or` continue test to keep first true edge to continue, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted first `or` continue condition before second operand, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_and_or_expression_threads_same_false_short_circuit() {
+        let code = compile_exec(
+            "\
+def f(fmt, MEMORYVIEW):
+    x = len(fmt)
+    return ((x == 1 or (x == 2 and fmt[0] == '@')) and
+            fmt[x - 1] in MEMORYVIEW)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let false_jumps: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::PopJumpIfFalse { .. }))
+            .collect();
+
+        assert!(
+            false_jumps.len() >= 2,
+            "expected nested boolop false jumps, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            u8::from(false_jumps[0].arg) > u8::from(false_jumps[1].arg),
+            "expected CPython-style same-false short-circuit threading to outer end, got false_jumps={false_jumps:?}"
         );
     }
 
@@ -13622,6 +17191,1917 @@ def f(msg):
                 .iter()
                 .map(|unit| unit.op)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_try_import_return_handler_deopts_common_tail_borrow() {
+        let code = compile_exec(
+            "\
+def f():
+    try:
+        import pwd, grp
+    except ImportError:
+        return False
+    if pwd.getpwuid(0)[0] != 'root':
+        return False
+    if grp.getgrgid(0)[0] != 'root':
+        return False
+    return True
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+            "expected CPython-style LOAD_FAST after protected import common tail, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_try_import_return_handler_deopts_later_protected_tail_borrow() {
+        let code = compile_exec(
+            "\
+def f(info_add):
+    try:
+        import pwd
+    except ImportError:
+        return
+    import os
+    uid = os.getuid()
+    try:
+        entry = pwd.getpwuid(uid)
+    except KeyError:
+        entry = None
+    info_add(uid, entry)
+    if entry is None:
+        return
+    if hasattr(os, 'getgrouplist'):
+        groups = os.getgrouplist(entry.pw_name, entry.pw_gid)
+        groups = ', '.join(map(str, groups))
+        info_add('os.getgrouplist', groups)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let import_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ImportName { .. }))
+            .expect("missing IMPORT_NAME");
+        let protected_tail = &ops[import_idx + 1..];
+
+        assert!(
+            !protected_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "CPython keeps strong LOAD_FAST ops after protected import with return handler, even across later protected tails, got tail={protected_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_import_continue_handler_deopts_loop_tail_borrow() {
+        let code = compile_exec(
+            "\
+def f(size):
+    pos = 0
+    while pos < size:
+        try:
+            import unicodedata
+        except ImportError:
+            continue
+        if pos < size:
+            pos += 1
+    return pos
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let import_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ImportName { .. }))
+            .expect("missing IMPORT_NAME");
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &ops[import_idx + 1..handler_start];
+        let return_idx = normal_tail
+            .iter()
+            .position(|op| matches!(op, Instruction::ReturnValue))
+            .unwrap_or(normal_tail.len());
+        let loop_tail = &normal_tail[..return_idx.saturating_sub(1)];
+
+        assert!(
+            !loop_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "CPython keeps strong LOAD_FAST ops in the loop tail after protected import with continue handler, got tail={loop_tail:?}",
+        );
+    }
+
+    #[test]
+    fn test_try_import_continue_inside_loop_keeps_earlier_loop_body_borrows() {
+        let code = compile_exec(
+            r#"
+def f(s, size, errors):
+    p = []
+    pos = 0
+    while pos < size:
+        if s[pos] != ord("\\"):
+            p.append(chr(s[pos]))
+            pos += 1
+            continue
+        if pos < size:
+            try:
+                import unicodedata
+            except ImportError:
+                errors(pos, size)
+                continue
+            if pos < size:
+                p.append(chr(s[pos]))
+        pos += 1
+    return p, pos
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let import_idx = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ImportName { .. }))
+            .expect("missing IMPORT_NAME");
+        let is_pair = |unit: &&CodeUnit, left_name: &str, right_name: &str, borrowed: bool| {
+            let Some(var_nums) = (match (unit.op, borrowed) {
+                (Instruction::LoadFastBorrowLoadFastBorrow { var_nums }, true)
+                | (Instruction::LoadFastLoadFast { var_nums }, false) => Some(var_nums),
+                _ => None,
+            }) else {
+                return false;
+            };
+            let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+            let (left, right) = var_nums.get(arg).indexes();
+            f.varnames[usize::from(left)] == left_name
+                && f.varnames[usize::from(right)] == right_name
+        };
+        let before_import = &instructions[..import_idx];
+
+        assert!(
+            before_import
+                .iter()
+                .any(|unit| is_pair(unit, "s", "pos", true)),
+            "loop body before protected import should keep CPython-style borrowed s/pos pair, got instructions={instructions:?}"
+        );
+        assert!(
+            !before_import
+                .iter()
+                .any(|unit| is_pair(unit, "s", "pos", false)),
+            "protected import later in the loop should not deopt earlier s/pos pair to strong LOAD_FAST_LOAD_FAST, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_import_pass_else_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        from _ctypes import set_conversion_mode
+    except ImportError:
+        pass
+    else:
+        self.prev_conv_mode = set_conversion_mode('ascii', 'strict')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &ops[..handler_start];
+
+        assert!(
+            normal_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "try-import pass/else normal path should keep CPython-style borrows, got tail={normal_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_import_broad_handler_implicit_return_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, record):
+    try:
+        import smtplib
+        port = self.mailport
+        if not port:
+            port = smtplib.SMTP_PORT
+        smtp = smtplib.SMTP(self.mailhost, port, timeout=self.timeout)
+        smtp.quit()
+    except Exception:
+        self.handleError(record)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &instructions[..handler_start];
+        let local_name = |unit: &&CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+
+        for name in ["self", "smtplib", "smtp"] {
+            assert!(
+                normal_tail
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })
+                        && local_name(unit) == Some(name)),
+                "broad except handler with implicit return should keep CPython-style borrowed {name} loads, got tail={normal_tail:?}"
+            );
+            assert!(
+                !normal_tail
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })
+                        && local_name(unit) == Some(name)),
+                "broad except handler with implicit return should not force strong {name} loads, got tail={normal_tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_try_import_handler_assignment_resume_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f():
+    try:
+        import subprocess
+        out = subprocess.check_output(['/usr/bin/lslpp', '-Lqc', 'bos.rte'])
+    except ImportError:
+        out = _read_cmd_output('/usr/bin/lslpp -Lqc bos.rte')
+    out = out.decode('utf-8')
+    out = out.strip().split(':')
+    _bd = int(out[-1]) if out[-1] != '' else 9988
+    return (str(out[2]), _bd)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &instructions[..handler_start];
+        let out_idx = f
+            .varnames
+            .iter()
+            .position(|name| name == "out")
+            .expect("missing out local");
+        let load_out_is = |unit: &&CodeUnit, borrowed: bool| match (unit.op, borrowed) {
+            (Instruction::LoadFastBorrow { var_num }, true)
+            | (Instruction::LoadFast { var_num }, false) => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                usize::from(var_num.get(arg)) == out_idx
+            }
+            _ => false,
+        };
+
+        assert!(
+            normal_tail.iter().any(|unit| load_out_is(unit, true)),
+            "handler assignment resume tail should keep CPython-style borrowed out loads, got tail={normal_tail:?}"
+        );
+        assert!(
+            !normal_tail.iter().any(|unit| load_out_is(unit, false)),
+            "handler assignment resume tail should not force strong out loads, got tail={normal_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_empty_fallthrough_handler_assignment_tail_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(value):
+    obs_local_part = ObsLocalPart()
+    try:
+        token, value = get_word(value)
+    except HeaderParseError:
+        if value[0] not in CFWS_LEADER:
+            raise
+        token, value = get_cfws(value)
+    obs_local_part.append(token)
+    return obs_local_part, value
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_path = &ops[..handler_start];
+        let load_name = |unit: &&CodeUnit, name: &str, borrowed: bool| {
+            let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+            match (unit.op, borrowed) {
+                (Instruction::LoadFastBorrow { var_num }, true)
+                | (Instruction::LoadFast { var_num }, false) => {
+                    f.varnames[usize::from(var_num.get(arg))].as_str() == name
+                }
+                _ => false,
+            }
+        };
+
+        for name in ["obs_local_part", "token"] {
+            assert!(
+                normal_path.iter().any(|unit| load_name(unit, name, true)),
+                "handler assignment tail should keep CPython-style borrowed {name} loads, got path={normal_path:?}"
+            );
+            assert!(
+                !normal_path.iter().any(|unit| load_name(unit, name, false)),
+                "handler assignment tail should not force strong {name}, got path={normal_path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_protected_store_of_preinitialized_local_keeps_return_borrow() {
+        let code = compile_exec(
+            "\
+def f(obj):
+    maybe_routine = obj
+    try:
+        maybe_routine = inspect.unwrap(maybe_routine)
+    except ValueError:
+        pass
+    return inspect.isroutine(maybe_routine)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_path = &ops[..handler_start];
+        let maybe_routine_idx = f
+            .varnames
+            .iter()
+            .position(|name| name == "maybe_routine")
+            .expect("missing maybe_routine local");
+        let loads_maybe_routine = |unit: &&CodeUnit, borrowed: bool| match (unit.op, borrowed) {
+            (Instruction::LoadFastBorrow { var_num }, true)
+            | (Instruction::LoadFast { var_num }, false) => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                usize::from(var_num.get(arg)) == maybe_routine_idx
+            }
+            _ => false,
+        };
+
+        assert!(
+            normal_path
+                .iter()
+                .any(|unit| loads_maybe_routine(unit, true)),
+            "preinitialized protected-store tail should keep CPython-style borrowed local, got path={normal_path:?}"
+        );
+        assert!(
+            !normal_path
+                .iter()
+                .any(|unit| loads_maybe_routine(unit, false)),
+            "preinitialized protected-store tail should not force strong local, got path={normal_path:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_attr_direct_return_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(obj):
+    try:
+        x = 1
+    except ValueError:
+        return False
+    return obj.values()
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let protected_tail = &ops[..handler_start];
+
+        assert!(
+            protected_tail.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::Call { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "expected protected direct attr-call return to keep LOAD_FAST_BORROW, got tail={protected_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_store_normal_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(tarfile, tarinfo, self):
+    try:
+        filtered = tarfile.tar_filter(tarinfo, '')
+    except UnicodeEncodeError:
+        return None
+    self.assertIs(filtered.name, tarinfo.name)
+    return filtered
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let filtered_store = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::StoreFast { .. }))
+            .expect("missing filtered store");
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &ops[filtered_store + 1..handler_start];
+
+        assert!(
+            !normal_tail.iter().any(|op| matches!(
+                op,
+                Instruction::LoadFastBorrow { .. }
+                    | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+            )),
+            "expected CPython-style strong LOAD_FAST in protected store normal tail, got tail={normal_tail:?}",
+        );
+    }
+
+    #[test]
+    fn test_protected_call_arm_final_store_return_uses_strong_load() {
+        let code = compile_exec(
+            "\
+def f(self, action, default_metavar):
+    get_metavar = self._metavar_formatter(action, default_metavar)
+    if action.nargs is None:
+        result = '%s' % get_metavar(1)
+    elif action.nargs == OPTIONAL:
+        result = '[%s]' % get_metavar(1)
+    elif action.nargs == ZERO_OR_MORE:
+        metavar = get_metavar(1)
+        if len(metavar) == 2:
+            result = '[%s [%s ...]]' % metavar
+        else:
+            result = '[%s ...]' % metavar
+    elif action.nargs == ONE_OR_MORE:
+        result = '%s [%s ...]' % get_metavar(2)
+    elif action.nargs == REMAINDER:
+        result = '...'
+    elif action.nargs == PARSER:
+        result = '%s ...' % get_metavar(1)
+    elif action.nargs == SUPPRESS:
+        result = ''
+    else:
+        try:
+            formats = ['%s' for _ in range(action.nargs)]
+        except TypeError:
+            raise ValueError(\"invalid nargs value\") from None
+        result = ' '.join(formats) % get_metavar(action.nargs)
+    return result
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let modulo = ops
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::BinaryOp { op }
+                        if op.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                            == BinaryOperator::Remainder
+                )
+            })
+            .expect("missing final format modulo");
+        let tail = &ops[modulo..];
+        assert!(
+            tail.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        bytecode::CodeUnit {
+                            op: Instruction::StoreFast { .. },
+                            ..
+                        },
+                        bytecode::CodeUnit {
+                            op: Instruction::LoadFast { .. },
+                            ..
+                        },
+                        bytecode::CodeUnit {
+                            op: Instruction::ReturnValue,
+                            ..
+                        },
+                    ]
+                )
+            }),
+            "protected call arm final store-return should keep CPython-style strong LOAD_FAST, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_store_try_else_tail_keeps_borrowed_loads() {
+        let code = compile_exec(
+            "\
+def f(value):
+    message_id = MessageID()
+    try:
+        token, value = get_msg_id(value)
+        message_id.append(token)
+    except HeaderParseError as ex:
+        token = get_unstructured(value)
+        message_id = InvalidMessageID(token)
+        message_id.defects.append(InvalidHeaderDefect('Invalid msg-id: {!r}'.format(ex)))
+    else:
+        if value:
+            message_id.defects.append(InvalidHeaderDefect('Unexpected {!r}'.format(value)))
+    return message_id
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &ops[..handler_start];
+
+        assert!(
+            normal_tail.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        CodeUnit {
+                            op: Instruction::LoadFastBorrow { .. },
+                            ..
+                        },
+                        CodeUnit {
+                            op: Instruction::ToBool,
+                            ..
+                        },
+                        CodeUnit {
+                            op: Instruction::PopJumpIfFalse { .. }
+                                | Instruction::PopJumpIfTrue { .. },
+                            ..
+                        },
+                    ]
+                )
+            }),
+            "try/except/else bool guard should keep CPython-style borrowed load, got tail={normal_tail:?}",
+        );
+
+        let defects_idx = normal_tail
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "defects"
+                }
+                _ => false,
+            })
+            .expect("missing defects LOAD_ATTR in else tail");
+        assert!(
+            matches!(
+                normal_tail[defects_idx - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "try/except/else method receiver should stay borrowed like CPython, got tail={normal_tail:?}",
+        );
+
+        let format_idx = normal_tail
+            .iter()
+            .rposition(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "format"
+                }
+                _ => false,
+            })
+            .expect("missing format LOAD_ATTR in else tail");
+        assert!(
+            matches!(
+                normal_tail[format_idx + 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "try/except/else format argument should stay borrowed like CPython, got tail={normal_tail:?}",
+        );
+    }
+
+    #[test]
+    fn test_nested_try_except_common_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(value):
+    address = Address()
+    try:
+        token, value = get_group(value)
+    except HeaderParseError:
+        try:
+            token, value = get_mailbox(value)
+        except HeaderParseError:
+            raise HeaderParseError('expected {}'.format(value))
+    address.append(token)
+    return address, value
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::LoadFastLoadFast { .. },
+                    ]
+                )
+            }),
+            "nested try/except common tail should use CPython-style strong loads, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_try_except_branch_tail_with_following_try_uses_strong_loads() {
+        let code = compile_exec(
+            r#"
+def f(value):
+    msg_id = MsgID()
+    try:
+        token, value = get_dot_atom_text(value)
+    except HeaderParseError:
+        try:
+            token, value = get_obs_local_part(value)
+            msg_id.defects.append(ObsoleteHeaderDefect("obsolete id-left in msg-id"))
+        except HeaderParseError:
+            raise HeaderParseError("expected {}".format(value))
+    msg_id.append(token)
+    if not value or value[0] != "@":
+        msg_id.defects.append(InvalidHeaderDefect("msg-id with no id-right"))
+        if value and value[0] == ">":
+            msg_id.append(ValueTerminal(">", "msg-id-end"))
+            value = value[1:]
+        return msg_id, value
+    msg_id.append(ValueTerminal("@", "address-at-symbol"))
+    value = value[1:]
+    try:
+        token, value = get_dot_atom_text(value)
+    except HeaderParseError:
+        pass
+    return msg_id, value
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(16).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ReturnValue,
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadGlobal { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadGlobal { .. },
+                        Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "nested try branch tail before a following try should use CPython-style strong loads, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_try_store_subscr_following_try_tail_uses_strong_loads() {
+        let code = compile_exec(
+            r#"
+def f(value):
+    local_part = LocalPart()
+    try:
+        token, value = get_dot_atom(value)
+    except HeaderParseError:
+        try:
+            token, value = get_word(value)
+        except HeaderParseError:
+            token = TokenList()
+    if value:
+        obs_local_part, value = get_obs_local_part(str(local_part) + value)
+        if obs_local_part.token_type == "invalid-obs-local-part":
+            local_part.defects.append(InvalidHeaderDefect("invalid"))
+        else:
+            local_part.defects.append(ObsoleteHeaderDefect("obsolete"))
+        local_part[0] = obs_local_part
+    try:
+        local_part.value.encode("ascii")
+    except UnicodeEncodeError:
+        local_part.defects.append(NonASCIILocalPartDefect("non-ascii"))
+    return local_part, value
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(10).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreSubscr,
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::LoadFastLoadFast { .. },
+                        Instruction::BuildTuple { .. },
+                    ]
+                )
+            }),
+            "nested try STORE_SUBSCR tail before a following try should use CPython-style strong loads, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_resuming_except_in_loop_keeps_post_try_store_tail_borrowed() {
+        let code = compile_exec(
+            "\
+def f(part, lines, maxlen, encoding):
+    for name, value in part.params:
+        charset = encoding
+        error_handler = 'strict'
+        try:
+            value.encode(encoding)
+            encoding_required = False
+        except UnicodeEncodeError:
+            encoding_required = True
+            charset = 'utf-8'
+        if encoding_required:
+            encoded_value = quote(value, safe='', errors=error_handler)
+            tstr = \"{}*={}''{}\".format(name, charset, encoded_value)
+        else:
+            tstr = '{}={}'.format(name, quote_string(value))
+        if len(lines[-1]) + len(tstr) + 1 < maxlen:
+            lines[-1] = lines[-1] + ' ' + tstr
+            continue
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. },
+                    ]
+                )
+            }),
+            "resuming except handler should keep CPython-style borrowed bool guard, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreSubscr,
+                    ]
+                )
+            }),
+            "resuming except handler should not deopt the post-try STORE_SUBSCR tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_handler_resume_loop_latch_method_call_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(phrase, value):
+    while value and value[0] not in PHRASE_ENDS:
+        if value[0] == '.':
+            phrase.append(DOT)
+            phrase.defects.append(ObsoleteHeaderDefect('period in phrase'))
+            value = value[1:]
+        else:
+            try:
+                token, value = get_word(value)
+            except HeaderParseError:
+                if value[0] in CFWS_LEADER:
+                    token, value = get_cfws(value)
+                    phrase.defects.append(ObsoleteHeaderDefect('comment found without atom'))
+                else:
+                    raise
+            phrase.append(token)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. },
+                    ]
+                )
+            }) || ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "exception-handler resume loop latch should match CPython's strong method-call loads, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_single_handler_multiple_resume_branches_keep_post_try_tail_borrowed() {
+        let code = compile_exec(
+            "\
+def f(part, lines, maxlen, encoding):
+    for name, value in part.params:
+        charset = encoding
+        error_handler = 'strict'
+        try:
+            value.encode(encoding)
+            encoding_required = False
+        except UnicodeEncodeError:
+            encoding_required = True
+            if utils._has_surrogates(value):
+                charset = 'unknown-8bit'
+                error_handler = 'surrogateescape'
+            else:
+                charset = 'utf-8'
+        if encoding_required:
+            encoded_value = quote(value, safe='', errors=error_handler)
+            tstr = \"{}*={}''{}\".format(name, charset, encoded_value)
+        else:
+            tstr = '{}={}'.format(name, quote_string(value))
+        if len(lines[-1]) + len(tstr) + 1 < maxlen:
+            lines[-1] = lines[-1] + ' ' + tstr
+            continue
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. },
+                    ]
+                )
+            }),
+            "single except handler with multiple resume branches should keep the post-try bool guard borrowed, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreSubscr,
+                    ]
+                )
+            }),
+            "single except handler with multiple resume branches should keep the post-try STORE_SUBSCR tail borrowed, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_exception_handler_resume_update_tail_uses_strong_load() {
+        let code = compile_exec(
+            "\
+def f(inpos, size, g, replacement):
+    while inpos < size:
+        try:
+            g()
+        except KeyError:
+            try:
+                for y in replacement:
+                    g(y)
+            except KeyError:
+                raise ValueError(inpos)
+        inpos += 1
+    return inpos
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let arg = |unit: &&bytecode::CodeUnit| OpArg::new(u32::from(u8::from(unit.arg)));
+        let is_inpos_load = |unit: &&bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                f.varnames[usize::from(var_num.get(arg(unit)))].as_str() == "inpos"
+            }
+            _ => false,
+        };
+        let is_inpos_store = |unit: &&bytecode::CodeUnit| match unit.op {
+            Instruction::StoreFast { var_num } => {
+                f.varnames[usize::from(var_num.get(arg(unit)))].as_str() == "inpos"
+            }
+            _ => false,
+        };
+        let update = ops
+            .windows(4)
+            .find(|window| {
+                is_inpos_load(&window[0])
+                    && matches!(
+                        window[1].op,
+                        Instruction::LoadSmallInt { i } if i.get(arg(&window[1])) == 1
+                    )
+                    && matches!(
+                        window[2].op,
+                        Instruction::BinaryOp { op }
+                            if op.get(arg(&window[2])) == BinaryOperator::InplaceAdd
+                    )
+                    && is_inpos_store(&window[3])
+            })
+            .expect("missing inpos += 1 update");
+
+        assert!(
+            matches!(update[0].op, Instruction::LoadFast { .. }),
+            "CPython keeps a strong LOAD_FAST for nested-handler resumed inplace update, got update={update:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_store_finally_cleanup_keeps_borrow_tail() {
+        let code = compile_exec(
+            "\
+def f(re, f):
+    try:
+        try:
+            m = re.search('x', f.read())
+        finally:
+            f.close()
+        if m is not None:
+            return m.group(1)
+    except OSError:
+        pass
+    return None
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let is_m_borrow = |unit: &bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))].as_str() == "m"
+            }
+            _ => false,
+        };
+
+        assert!(
+            ops.windows(3).any(|window| {
+                is_m_borrow(window[0])
+                    && matches!(window[1].op, Instruction::PopJumpIfNone { .. })
+                    && matches!(window[2].op, Instruction::NotTaken)
+            }) && ops.windows(2).any(|window| {
+                is_m_borrow(window[0]) && matches!(window[1].op, Instruction::LoadAttr { .. })
+            }),
+            "finally cleanup RERAISE should not make the outer except deopt the normal m tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_finally_cleanup_keeps_borrow_tail() {
+        let code = compile_exec(
+            "\
+def f(re, open):
+    global _SYSTEM_VERSION
+    if _SYSTEM_VERSION is None:
+        _SYSTEM_VERSION = ''
+        try:
+            f = open('/System/Library/CoreServices/SystemVersion.plist', encoding='utf-8')
+        except OSError:
+            pass
+        else:
+            try:
+                m = re.search('x', f.read())
+            finally:
+                f.close()
+            if m is not None:
+                _SYSTEM_VERSION = '.'.join(m.group(1).split('.')[:2])
+    return _SYSTEM_VERSION
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let is_m_borrow = |unit: &bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))].as_str() == "m"
+            }
+            _ => false,
+        };
+
+        assert!(
+            ops.windows(3).any(|window| {
+                is_m_borrow(window[0])
+                    && matches!(window[1].op, Instruction::PopJumpIfNone { .. })
+                    && matches!(window[2].op, Instruction::NotTaken)
+            }) && ops.windows(2).any(|window| {
+                is_m_borrow(window[0]) && matches!(window[1].op, Instruction::LoadAttr { .. })
+            }),
+            "try/else finally cleanup should keep CPython-style borrowed m tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_generator_protected_store_subscr_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(names, modules):
+    for name in names:
+        try:
+            mod = __import__(name)
+        except ImportError:
+            continue
+        modules[name] = mod
+        yield mod
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let store_subscr = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::StoreSubscr))
+            .expect("missing STORE_SUBSCR");
+        let window = &ops[store_subscr.saturating_sub(2)..(store_subscr + 3).min(ops.len())];
+
+        assert!(
+            matches!(
+                window,
+                [
+                    Instruction::LoadFastLoadFast { .. },
+                    Instruction::LoadFast { .. },
+                    Instruction::StoreSubscr,
+                    Instruction::LoadFast { .. },
+                    Instruction::YieldValue { .. },
+                    ..
+                ]
+            ),
+            "expected CPython-style strong LOAD_FAST around protected STORE_SUBSCR generator tail, got {window:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_call_function_ex_store_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(func, *args):
+    try:
+        result = func(*args)
+    except Exception:
+        return None
+    return type(result)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let tail_call = ops
+            .iter()
+            .rposition(|op| matches!(op, Instruction::Call { .. }))
+            .expect("missing tail CALL");
+        let result_store = ops[..tail_call]
+            .iter()
+            .rposition(|op| matches!(op, Instruction::StoreFast { .. }))
+            .expect("missing protected result STORE_FAST");
+        let tail = &ops[result_store + 1..tail_call];
+
+        assert!(
+            tail.iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "expected CPython-style strong LOAD_FAST after protected CALL_FUNCTION_EX store, got ops={ops:?}",
+        );
+        assert!(
+            !tail
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+            "protected CALL_FUNCTION_EX store tail should not borrow result, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_protected_attr_subscript_tail_uses_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(obj, idx):
+    try:
+        x = 1
+    except ValueError:
+        return False
+    return obj.__closure__[idx]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let protected_tail = &ops[..handler_start];
+
+        assert!(
+            !protected_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "expected protected attr-subscript tail to keep strong LOAD_FAST ops, got tail={protected_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_direct_subscript_tail_uses_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(seq):
+    try:
+        items = [int(item) for item in seq]
+    except ValueError:
+        return None
+    return items[0] + items[1]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let protected_store = ops[..handler_start]
+            .iter()
+            .rposition(|op| matches!(op, Instruction::StoreFast { .. }))
+            .expect("missing protected local store");
+        let tail = &ops[protected_store + 1..handler_start];
+
+        assert!(
+            !tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "expected protected direct-subscript tail to keep strong LOAD_FAST ops, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_attr_iter_chain_uses_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(fields):
+    try:
+        x = 1
+    except ValueError:
+        return False
+    return tuple(v for v in fields.values())
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let protected_tail = &ops[..handler_start];
+
+        assert!(
+            !protected_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "expected protected attr-iter chain to keep strong LOAD_FAST ops, got tail={protected_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_generator_except_return_handler_deopts_normal_tail_borrows() {
+        let code = compile_exec(
+            "\
+def f(fields):
+    try:
+        x = 1
+    except ValueError:
+        return
+    for fielddesc in fields:
+        yield fielddesc
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &ops[..handler_start];
+
+        assert!(
+            normal_tail
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "generator tail after non-yielding except return should keep CPython-style strong LOAD_FAST, got tail={normal_tail:?}"
+        );
+        assert!(
+            !normal_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "generator tail after non-yielding except return should not borrow, got tail={normal_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_generator_except_yielding_handler_keeps_normal_tail_borrows() {
+        let code = compile_exec(
+            "\
+def f(tp, parent=None):
+    try:
+        fields = tp._fields_
+    except AttributeError:
+        yield parent
+    else:
+        for fielddesc in fields:
+            yield fielddesc
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &ops[..handler_start];
+
+        assert!(
+            normal_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "generator tail after yielding except handler should keep CPython-style borrows, got tail={normal_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_generator_returning_except_keeps_yield_from_resume_tail_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, action):
+    try:
+        get_subactions = action._get_subactions
+    except AttributeError:
+        pass
+    else:
+        self._indent()
+        yield from get_subactions()
+        self._dedent()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let end_send = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::EndSend))
+            .expect("missing END_SEND");
+        let dedent_attr = instructions[end_send..]
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_dedent"
+                }
+                _ => false,
+            })
+            .map(|idx| end_send + idx)
+            .expect("missing _dedent LOAD_ATTR");
+
+        assert!(
+            matches!(
+                instructions[dedent_attr - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "CPython keeps yield-from resume receiver borrowed after END_SEND, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_generator_except_pass_resume_tail_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, msg):
+    if self.log_queue is not None:
+        yield
+        output = []
+        try:
+            while True:
+                output.append(self.log_queue.get_nowait().getMessage())
+        except queue.Empty:
+            pass
+    else:
+        with self.assertLogs('concurrent.futures', 'CRITICAL') as cm:
+            yield
+        output = cm.output
+    self.assertTrue(any(msg in line for line in output), output)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        let has_strong_load = |name: &str| {
+            f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+        let has_borrow_load = |name: &str| {
+            f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+
+        for name in ["msg", "output"] {
+            assert!(
+                has_borrow_load(name),
+                "generator except-pass resume tail should borrow {name}, got instructions={:?}",
+                f.instructions
+            );
+            assert!(
+                !has_strong_load(name),
+                "generator except-pass resume tail should not force strong LOAD_FAST for {name}, got instructions={:?}",
+                f.instructions
+            );
+        }
+    }
+
+    #[test]
+    fn test_async_for_cleanup_resume_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+async def f(g, self, x):
+    async for val in g:
+        break
+    self.x(x)
+    await g.aclose()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let ops: Vec<_> = instructions.iter().map(|unit| unit.op).collect();
+        let aclose_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "aclose"
+                }
+                _ => false,
+            })
+            .expect("missing aclose load");
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "async-for cleanup resume tail should use strong LOAD_FAST ops before the await, got ops={ops:?}"
+        );
+        assert!(
+            matches!(
+                instructions
+                    .get(aclose_idx.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFast { .. })
+            ),
+            "async-for cleanup resume tail should keep g strong before aclose, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_async_generator_async_with_yield_keeps_borrow() {
+        let code = compile_exec(
+            "\
+async def f(self, my_cm):
+    async with self.exit_stack() as stack:
+        await stack.enter_async_context(my_cm())
+        yield stack
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let ops: Vec<_> = instructions.iter().map(|unit| unit.op).collect();
+        let wrap_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::CallIntrinsic1 { func } => {
+                    func.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        == IntrinsicFunction1::AsyncGenWrap
+                }
+                _ => false,
+            })
+            .expect("missing async generator wrap");
+
+        assert!(
+            matches!(
+                ops.get(wrap_idx.saturating_sub(1)),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "async generator yield inside async-with should borrow stack like CPython, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_deoptimized_async_with_enter_continuation_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+async def f():
+    async def cm():
+        pass
+    try:
+        async with cm():
+            1 / 0
+    except ZeroDivisionError as e:
+        frames = e
+    class E(RuntimeError):
+        pass
+    try:
+        async with cm():
+            raise E(42)
+    except E as e:
+        frames = e
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::PushNull,
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::Call { .. },
+                        Instruction::RaiseVarargs { .. },
+                    ]
+                )
+            }),
+            "async-with enter continuation after a deoptimized setup block should keep raised class strong, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_async_with_bare_raise_continuation_keeps_borrow() {
+        let code = compile_exec(
+            "\
+async def f(tg):
+    class E(Exception):
+        pass
+    try:
+        async with tg:
+            raise E
+    except ExceptionGroup:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let raise_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::RaiseVarargs { .. }))
+            .expect("missing raise");
+
+        assert!(
+            matches!(
+                ops.get(raise_idx.saturating_sub(1)),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "bare async-with raise continuation should keep the raised class borrowed like CPython, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_except_star_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        pass
+    except* ValueError:
+        pass
+    self.fail('x')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "except* tail should use strong LOAD_FAST like CPython, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "except* tail should not borrow the receiver after the handler region, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_attr_subscript_store_tail_uses_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(f, oldcls, newcls):
+    try:
+        idx = f.__code__.co_freevars.index('__class__')
+    except ValueError:
+        return False
+    closure = f.__closure__[idx]
+    if closure.cell_contents is oldcls:
+        closure.cell_contents = newcls
+        return True
+    return False
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let protected_tail = &ops[..handler_start];
+        let store_closure_idx = protected_tail
+            .windows(2)
+            .position(|window| {
+                matches!(
+                    window,
+                    [Instruction::BinaryOp { .. }, Instruction::StoreFast { .. }]
+                )
+            })
+            .map(|idx| idx + 1)
+            .expect("missing STORE_FAST for closure");
+        let post_store_tail = &protected_tail[store_closure_idx + 1..];
+
+        assert!(
+            !post_store_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "expected protected attr-subscript store tail to keep strong LOAD_FAST ops, got tail={post_store_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_plain_attr_subscript_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, name):
+    annotations = self.method_annotations[name]
+    return annotations
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::BinaryOp { .. },
+                    ]
+                )
+            }),
+            "expected plain attr-subscript tail to keep borrowed receiver/index loads, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_plain_attr_iter_chain_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(fields):
+    return tuple(v for v in fields.values())
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::Call { .. },
+                        Instruction::GetIter,
+                    ]
+                )
+            }),
+            "expected plain attr-iter chain to keep borrowed receiver, got ops={ops:?}"
         );
     }
 
@@ -13706,6 +19186,82 @@ class C:
     }
 
     #[test]
+    fn test_conditional_class_body_duplicates_no_location_exit_tail() {
+        let code = compile_exec(
+            "\
+flag = False
+class C:
+    if flag:
+        value = 1
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+        let ops: Vec<_> = class_code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let return_count = ops
+            .iter()
+            .filter(|op| matches!(op, Instruction::ReturnValue))
+            .count();
+        let static_attrs_count = class_code
+            .instructions
+            .iter()
+            .filter(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::StoreName { namei }
+                        if class_code.names
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            .as_str()
+                            == "__static_attributes__"
+                )
+            })
+            .count();
+
+        assert_eq!(
+            return_count, 2,
+            "conditional class body should duplicate CPython no-location return tail, got ops={ops:?}"
+        );
+        assert_eq!(
+            static_attrs_count, 2,
+            "conditional class body should duplicate __static_attributes__ tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_class_lambda_assignment_does_not_create_classdictcell() {
+        let code = compile_exec(
+            "\
+class C:
+    data = start = end = lambda *a: None
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+
+        assert!(
+            !class_code.instructions.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::StoreName { namei }
+                        if class_code.names
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            .as_str()
+                            == "__classdictcell__"
+                )
+            }),
+            "lambda-only class should not create __classdictcell__, got ops={:?}",
+            class_code
+                .instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn test_nested_function_static_attributes_are_collected() {
         let code = compile_exec(
             "\
@@ -13742,6 +19298,47 @@ class C:
                         ]
             )),
             "expected nested function static attributes in class consts"
+        );
+    }
+
+    #[test]
+    fn test_static_attributes_match_cpython_store_rule() {
+        let code = compile_exec(
+            "\
+class C:
+    @staticmethod
+    def f():
+        self.x = 1
+
+    @classmethod
+    def g(cls):
+        self.y = 2
+
+    def h(obj):
+        obj.z = 3
+        tarinfo.uid = 4
+
+    def i(self):
+        self.a: int
+        self.b: int = 1
+        self.c += 1
+        del self.d
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+
+        assert!(
+            class_code.constants.iter().any(|constant| matches!(
+                constant,
+                ConstantData::Tuple { elements }
+                    if elements
+                        == &[
+                            ConstantData::Str { value: "b".into() },
+                            ConstantData::Str { value: "x".into() },
+                            ConstantData::Str { value: "y".into() },
+                        ]
+            )),
+            "expected only CPython-collected static attributes in class consts"
         );
     }
 
@@ -13796,7 +19393,7 @@ class C:
     }
 
     #[test]
-    fn test_future_annotations_class_keeps_conditional_annotations_cell() {
+    fn test_future_annotations_class_uses_direct_annotation_store() {
         let code = compile_exec(
             "\
 from __future__ import annotations
@@ -13807,12 +19404,137 @@ class C:
         let class_code = find_code(&code, "C").expect("missing class code");
 
         assert!(
+            !class_code
+                .cellvars
+                .iter()
+                .any(|name| name.as_str() == "__conditional_annotations__"),
+            "future annotations should not create __conditional_annotations__ cellvar, got cellvars={:?}",
+            class_code.cellvars
+        );
+        let ops: Vec<_> = class_code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Instruction::SetupAnnotations)),
+            "future annotations should emit SETUP_ANNOTATIONS, got ops={ops:?}"
+        );
+        assert!(
+            ops.iter().any(|op| matches!(op, Instruction::StoreSubscr)),
+            "future annotations should store directly into __annotations__, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::BuildSet { .. })),
+            "future annotations should not initialize __conditional_annotations__, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_future_annotations_module_keeps_conditional_annotations_cell() {
+        let code = compile_exec(
+            "\
+from __future__ import annotations
+x: int = 1
+",
+        );
+
+        assert!(
+            code.cellvars
+                .iter()
+                .any(|name| name.as_str() == "__conditional_annotations__"),
+            "module annotations should create __conditional_annotations__ cellvar, got cellvars={:?}",
+            code.cellvars
+        );
+    }
+
+    #[test]
+    fn test_future_annotations_conditional_class_keeps_conditional_annotations_cell() {
+        let code = compile_exec(
+            "\
+from __future__ import annotations
+class C:
+    if True:
+        x: int = 1
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+
+        assert!(
             class_code
                 .cellvars
                 .iter()
                 .any(|name| name.as_str() == "__conditional_annotations__"),
-            "expected __conditional_annotations__ cellvar, got cellvars={:?}",
+            "conditional class annotations should create __conditional_annotations__ cellvar, got cellvars={:?}",
             class_code.cellvars
+        );
+    }
+
+    #[test]
+    fn test_future_annotations_setup_precedes_docstring() {
+        let code = compile_exec(
+            "\
+\"module doc\"
+from __future__ import annotations
+x: int = 1
+
+class C:
+    \"class doc\"
+    x: int = 1
+",
+        );
+        let module_setup = code
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::SetupAnnotations))
+            .expect("missing module SETUP_ANNOTATIONS");
+        let module_doc = code
+            .instructions
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::StoreName { namei }
+                        if code.names
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            .as_str()
+                            == "__doc__"
+                )
+            })
+            .expect("missing module doc store");
+        assert!(
+            module_setup < module_doc,
+            "module SETUP_ANNOTATIONS should precede docstring store, got instructions={:?}",
+            code.instructions
+        );
+
+        let class_code = find_code(&code, "C").expect("missing class code");
+        let class_setup = class_code
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::SetupAnnotations))
+            .expect("missing class SETUP_ANNOTATIONS");
+        let class_doc = class_code
+            .instructions
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::StoreName { namei }
+                        if class_code.names
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            .as_str()
+                            == "__doc__"
+                )
+            })
+            .expect("missing class doc store");
+        assert!(
+            class_setup < class_doc,
+            "class SETUP_ANNOTATIONS should precede docstring store, got instructions={:?}",
+            class_code.instructions
         );
     }
 
@@ -13845,6 +19567,73 @@ class B(A):
                 .iter()
                 .map(|unit| unit.op)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_nested_class_super_does_not_create_outer_class_closure() {
+        let code = compile_exec(
+            "\
+class C:
+    def outer(self):
+        class D:
+            def __init__(self):
+                super().__init__()
+",
+        );
+        let outer_class = find_code(&code, "C").expect("missing outer class code");
+        let nested_class = find_code(&code, "D").expect("missing nested class code");
+        let init = find_code(&code, "__init__").expect("missing nested __init__ code");
+
+        assert!(
+            !outer_class.cellvars.iter().any(|name| name == "__class__"),
+            "nested super() must not force __class__ on outer class, got cellvars={:?}",
+            outer_class.cellvars
+        );
+        assert!(
+            nested_class.cellvars.iter().any(|name| name == "__class__"),
+            "nested class should own __class__ cell, got cellvars={:?}",
+            nested_class.cellvars
+        );
+        assert!(
+            init.freevars.iter().any(|name| name == "__class__"),
+            "method using super() should close over nested class, got freevars={:?}",
+            init.freevars
+        );
+    }
+
+    #[test]
+    fn test_nested_closure_parameter_class_does_not_create_outer_class_closure() {
+        let code = compile_exec(
+            "\
+class C:
+    def m(self):
+        def create_closure(__class__):
+            return (lambda: __class__).__closure__
+",
+        );
+        let outer_class = find_code(&code, "C").expect("missing class code");
+        let create_closure =
+            find_code(&code, "create_closure").expect("missing create_closure code");
+        let lambda = find_code(&code, "<lambda>").expect("missing lambda code");
+
+        assert!(
+            !outer_class.cellvars.iter().any(|name| name == "__class__"),
+            "nested __class__ parameter must not force outer class cell, got cellvars={:?}",
+            outer_class.cellvars
+        );
+        assert!(
+            create_closure
+                .cellvars
+                .iter()
+                .any(|name| name == "__class__"),
+            "create_closure should own __class__ parameter cell, got cellvars={:?}",
+            create_closure.cellvars
+        );
+        assert!(
+            lambda.freevars.iter().any(|name| name == "__class__"),
+            "lambda should close over create_closure parameter, got freevars={:?}",
+            lambda.freevars
         );
     }
 
@@ -13898,8 +19687,7 @@ def outer():
         assert!(
             matches!(
                 ops.get(cleanup_idx + 1),
-                Some(Instruction::JumpBackwardNoInterrupt { .. })
-                    | Some(Instruction::JumpForward { .. })
+                Some(Instruction::JumpBackwardNoInterrupt { .. } | Instruction::JumpForward { .. })
             ),
             "expected CLEANUP_THROW to jump to shared END_SEND block, got ops={ops:?}"
         );
@@ -13944,9 +19732,295 @@ def f():
         assert!(
             matches!(
                 ops.get(first_pop_except + 1),
-                Some(Instruction::LoadSmallInt { .. }) | Some(Instruction::LoadConst { .. })
+                Some(Instruction::LoadSmallInt { .. } | Instruction::LoadConst { .. })
             ),
             "expected line-after-except code immediately after POP_EXCEPT, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_while_body_preserves_while_exit_line_nop() {
+        let code = compile_exec(
+            "\
+def f(x, E):
+    try:
+        while x:
+            x -= 1
+    except E:
+        if not x:
+            return None
+    assert x
+    return x
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let assertion_error = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadCommonConstant { .. }))
+            .expect("missing assertion error load");
+
+        assert!(
+            ops[..assertion_error].windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "try/except while body should preserve CPython while-exit NOP before following assert, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_for_direct_break_preserves_normal_exhaustion_nop() {
+        let code = compile_exec(
+            "\
+def f(xs, g, E):
+    try:
+        for x in xs:
+            if x:
+                break
+            g()
+    except E:
+        pass
+    g()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                    ]
+                )
+            }),
+            "try/except for-body with direct break should keep CPython normal-exhaustion NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_for_without_direct_break_drops_normal_exhaustion_nop() {
+        let code = compile_exec(
+            "\
+def f(xs, g, E):
+    try:
+        for x in xs:
+            g()
+    except E:
+        pass
+    g()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                    ]
+                )
+            }),
+            "try/except for-body without direct break should not keep a redundant normal-exhaustion NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_before_conditional_tail_uses_strong_load() {
+        let code = compile_exec(
+            "\
+def f(self, Exception):
+    try:
+        tree = self.g()
+    except Exception:
+        return False
+    if tree.body:
+        return True
+    return False
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let tree_load_before_body_attr = instructions.windows(2).find(|window| {
+            let loads_tree = match window[0].op {
+                Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                    f.varnames
+                        [usize::from(var_num.get(OpArg::new(u32::from(u8::from(window[0].arg)))))]
+                        == "tree"
+                }
+                _ => false,
+            };
+            loads_tree && matches!(window[1].op, Instruction::LoadAttr { .. })
+        });
+
+        assert!(
+            matches!(
+                tree_load_before_body_attr.map(|window| window[0].op),
+                Some(Instruction::LoadFast { .. })
+            ),
+            "conditional tail after terminal except should match CPython's strong LOAD_FAST, got instructions={instructions:?}",
+        );
+    }
+
+    #[test]
+    fn test_try_except_continuation_folded_tuple_drops_operand_nop() {
+        let code = compile_exec(
+            "\
+def f():
+    try:
+        import sqlite3
+    except ImportError:
+        return
+
+    attributes = ('sqlite_version',)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython nop_out-style folded tuple operand NOP to be removed, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_if_else_normal_fallthrough_end_label_drops_return_anchor_nop() {
+        let code = compile_exec(
+            "\
+def f(s):
+    if s[0] in (0o200, 0o377):
+        n = 0
+        for i in range(len(s) - 1):
+            n <<= 8
+            n += s[i + 1]
+        if s[0] == 0o377:
+            n = -(256 ** (len(s) - 1) - n)
+    else:
+        try:
+            s = nts(s, 'ascii', 'strict')
+            n = int(s.strip() or '0', 8)
+        except ValueError:
+            raise InvalidHeaderError('invalid header')
+    return n
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "normal fallthrough into an if-end final return should not keep a CPython return-anchor NOP, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_explicit_final_return_none_is_not_duplicated() {
+        let code = compile_exec(
+            "\
+def f(src, dst, length, exception, bufsize):
+    if length == 0:
+        return
+    if length is None:
+        copyfileobj(src, dst, bufsize)
+        return
+
+    blocks, remainder = divmod(length, bufsize)
+    for b in range(blocks):
+        buf = src.read(bufsize)
+        if len(buf) < bufsize:
+            raise exception('unexpected end of data')
+        dst.write(buf)
+
+    if remainder != 0:
+        buf = src.read(remainder)
+        if len(buf) < remainder:
+            raise exception('unexpected end of data')
+        dst.write(buf)
+    return
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let return_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .count();
+
+        assert_eq!(
+            return_count,
+            3,
+            "explicit final return None should not be duplicated as a synthetic no-location epilogue, got ops={:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -13996,6 +20070,46 @@ def f(self):
                 ]
             ),
             "expected named except cleanup to jump over cleanup reraise block, got ops={window:?}"
+        );
+    }
+
+    #[test]
+    fn test_named_except_with_suppress_does_not_duplicate_following_with() {
+        let code = compile_exec(
+            "\
+def f(StringIO, captured_output, print):
+    try:
+        raise KeyError
+    except KeyError as e:
+        with captured_output('stderr') as tbstderr:
+            print('x')
+        with captured_output('stderr') as tbstderr:
+            print('y')
+    else:
+        print('else')
+    s = StringIO()
+    return s
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let load_y_count = f
+            .instructions
+            .iter()
+            .filter(|unit| match unit.op {
+                Instruction::LoadConst { consti } => {
+                    matches!(
+                        &f.constants
+                            [consti.get(OpArg::new(u32::from(u8::from(unit.arg))))],
+                        ConstantData::Str { value } if value.as_str() == Ok("y")
+                    )
+                }
+                _ => false,
+            })
+            .count();
+
+        assert_eq!(
+            load_y_count, 1,
+            "following with body should not be duplicated into the previous with suppress path"
         );
     }
 
@@ -14065,7 +20179,477 @@ def f(self):
     }
 
     #[test]
-    fn test_constant_slice_folding_handles_string_and_bigint_bounds() {
+    fn test_conditional_typed_except_return_join_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(cond, obj, xs, E):
+    if cond:
+        try:
+            obj.m()
+        except E:
+            return 1
+    for x in xs:
+        obj.n(x)
+    return obj
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_tail = &instructions[..handler_start];
+        let load_name = |unit: &&CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+
+        for name in ["xs", "obj", "x"] {
+            assert!(
+                normal_tail
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })
+                        && load_name(unit) == Some(name)),
+                "conditional typed except return join should keep CPython-style borrowed {name} loads, got tail={normal_tail:?}"
+            );
+            assert!(
+                !normal_tail
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })
+                        && load_name(unit) == Some(name)),
+                "conditional typed except return join should not force strong {name} loads, got tail={normal_tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_typed_except_pass_resume_store_subscr_tail_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, sys, KeyError):
+    mod_name = self.mod_name
+    try:
+        self._saved_module.append(sys.modules[mod_name])
+    except KeyError:
+        pass
+    sys.modules[mod_name] = self.module
+    return self
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let store_subscr_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::StoreSubscr))
+            .expect("missing STORE_SUBSCR tail");
+        assert!(
+            matches!(
+                ops.get(store_subscr_idx - 5),
+                Some(Instruction::LoadFastBorrow { .. })
+            ) && matches!(
+                ops.get(store_subscr_idx - 3),
+                Some(Instruction::LoadFastBorrow { .. })
+            ) && matches!(
+                ops.get(store_subscr_idx - 1),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "typed except pass tail should keep STORE_SUBSCR operands borrowed, got ops={ops:?}"
+        );
+        assert!(
+            matches!(
+                ops.get(store_subscr_idx + 1),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "typed except pass return should keep self borrowed, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_reraising_typed_except_deopts_post_handler_loads() {
+        let code = compile_exec(
+            "\
+def f(x, os, self, pid, exitcode):
+    try:
+        y = 1
+    except RuntimeError:
+        raise
+    if x:
+        os._exit(exitcode)
+    self.wait_impl(pid, exitcode=exitcode)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let guard_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ToBool))
+            .and_then(|idx| idx.checked_sub(1))
+            .expect("missing post-handler bool guard");
+        assert!(
+            matches!(ops.get(guard_idx), Some(Instruction::LoadFast { .. })),
+            "reraising typed except tail should deopt guard load, got ops={ops:?}"
+        );
+
+        let wait_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::CallKw { .. }))
+            .expect("missing wait_impl CALL_KW");
+        let call_args = &ops[wait_idx.saturating_sub(3)..wait_idx];
+        assert!(
+            call_args.iter().any(|op| matches!(
+                op,
+                Instruction::LoadFastLoadFast { .. } | Instruction::LoadFast { .. }
+            )),
+            "reraising typed except tail should keep strong fast loads for call args, got ops={ops:?}"
+        );
+        assert!(
+            !call_args.iter().any(|op| matches!(
+                op,
+                Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                    | Instruction::LoadFastBorrow { .. }
+            )),
+            "reraising typed except tail should not borrow call args, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_reraising_outer_handler_keeps_explicit_raise_call_arg_borrow() {
+        let code = compile_exec(
+            "\
+def f(file, os, stat, errno, self, fd):
+    try:
+        self._stat_atopen = os.fstat(fd)
+        try:
+            if stat.S_ISDIR(self._stat_atopen.st_mode):
+                raise IsADirectoryError(errno.EISDIR, os.strerror(errno.EISDIR), file)
+        except AttributeError:
+            pass
+        self.name = file
+        try:
+            os.lseek(fd, 0, SEEK_END)
+        except OSError as e:
+            if e.errno != errno.ESPIPE:
+                raise
+    except OSError:
+        raise
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let file_borrow_before_raise_call = instructions.windows(3).any(|window| {
+            let is_file_borrow = match window[0].op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    f.varnames
+                        [usize::from(var_num.get(OpArg::new(u32::from(u8::from(window[0].arg)))))]
+                        == "file"
+                }
+                _ => false,
+            };
+            is_file_borrow
+                && matches!(window[1].op, Instruction::Call { .. })
+                && matches!(window[2].op, Instruction::RaiseVarargs { .. })
+        });
+
+        assert!(
+            file_borrow_before_raise_call,
+            "outer reraising handler should not deopt explicit raise call args; CPython keeps file as LOAD_FAST_BORROW, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_reraising_except_loop_backedge_keeps_loop_header_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, tag, expect_bye):
+    while 1:
+        result = self.tagged_commands[tag]
+        if result is not None:
+            del self.tagged_commands[tag]
+            return result
+        if expect_bye:
+            typ = 'BYE'
+            bye = self.untagged_responses.pop(typ, None)
+            if bye is not None:
+                return (typ, bye)
+        self._check_bye()
+        try:
+            self._get_response()
+        except self.abort as val:
+            if __debug__:
+                if self.debug >= 1:
+                    self.print_log()
+            raise
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_ops: Vec<_> = instructions[..handler_start]
+            .iter()
+            .map(|unit| unit.op)
+            .collect();
+
+        assert!(
+            warm_ops.iter().any(|op| matches!(
+                op,
+                Instruction::LoadFastBorrow { .. }
+                    | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+            )),
+            "expected loop body before reraising handler to keep borrowed loads, got ops={warm_ops:?}"
+        );
+        assert!(
+            warm_ops
+                .iter()
+                .all(|op| !matches!(op, Instruction::LoadFast { .. })),
+            "loop backedge into reraising handler should not deopt warm loop loads, got ops={warm_ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_store_break_handler_deopts_bool_guard_tail() {
+        let code = compile_exec(
+            "\
+def f(self, size):
+    parts = []
+    while size > 0:
+        try:
+            buf = self.sock.recv(DEFAULT_BUFFER_SIZE)
+        except ConnectionError:
+            break
+        if not buf:
+            break
+        self._readbuf.append(buf)
+        size -= len(buf)
+    return b''.join(parts)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let guard_bool = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ToBool))
+            .expect("missing bool guard");
+        let store_buf = instructions[..guard_bool]
+            .iter()
+            .rposition(|unit| matches!(unit.op, Instruction::StoreFast { .. }))
+            .expect("missing protected STORE_FAST before bool guard");
+        let guard_load = instructions[store_buf + 1].op;
+        let append_call = instructions[store_buf + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::Call { .. }))
+            .map(|idx| idx + store_buf + 1)
+            .expect("missing append call");
+        let append_arg = instructions[append_call - 1].op;
+
+        assert!(
+            matches!(guard_load, Instruction::LoadFast { .. }),
+            "CPython uses strong LOAD_FAST for protected-store break guard, got ops={:?}",
+            instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(append_arg, Instruction::LoadFast { .. }),
+            "CPython uses strong LOAD_FAST for protected-store append arg, got ops={:?}",
+            instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_assertion_success_join_keeps_following_debug_tail_borrowed() {
+        let code = compile_exec(
+            "\
+def f(self, typ, dat):
+    if self._idle_capture:
+        if self._idle_responses:
+            response = self._idle_responses[-1]
+            assert response[0] == typ
+            response[1].append(dat)
+        else:
+            self._idle_responses.append((typ, [dat]))
+        if self.debug >= 5:
+            self._mesg(f'idle: queue untagged {typ} {dat!r}')
+        return
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let debug_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "debug"
+                }
+                _ => false,
+            })
+            .expect("missing debug LOAD_ATTR");
+        let mesg_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_mesg"
+                }
+                _ => false,
+            })
+            .expect("missing _mesg LOAD_ATTR");
+
+        assert!(
+            matches!(
+                instructions[debug_attr - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "CPython keeps LOAD_FAST_BORROW after assertion success join, got ops={:?}",
+            instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(
+                instructions[mesg_attr - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "CPython keeps LOAD_FAST_BORROW in assertion-success debug body, got ops={:?}",
+            instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_multi_protected_method_call_terminal_handler_keeps_try_body_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, literal):
+    try:
+        self.send(literal)
+        self.send(CRLF)
+    except OSError as val:
+        raise self.abort('socket error: %s' % val)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let first_send = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "send"
+                }
+                _ => false,
+            })
+            .expect("missing send LOAD_ATTR");
+        let first_literal = instructions[first_send + 1].op;
+        let second_send = instructions[first_send + 1..]
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "send"
+                }
+                _ => false,
+            })
+            .map(|idx| idx + first_send + 1)
+            .expect("missing second send LOAD_ATTR");
+
+        assert!(
+            matches!(
+                instructions[first_send - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "CPython keeps first protected send receiver borrowed, got ops={:?}",
+            instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(first_literal, Instruction::LoadFastBorrow { .. }),
+            "CPython keeps first protected send arg borrowed, got ops={:?}",
+            instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(
+                instructions[second_send - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "CPython keeps second protected send receiver borrowed, got ops={:?}",
+            instructions.iter().map(|unit| unit.op).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_dunder_debug_constant_false_if_deopts_tail_borrow() {
+        let code = compile_exec(
+            "\
+def f(self):
+    if not __debug__:
+        self.skipTest('need asserts, run without -O')
+    self.do_disassembly_test()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let attr_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                        == "do_disassembly_test"
+                }
+                _ => false,
+            })
+            .expect("missing LOAD_ATTR for do_disassembly_test");
+        let ops: Vec<_> = instructions.iter().map(|unit| unit.op).collect();
+        assert!(
+            matches!(ops.get(attr_idx - 1), Some(Instruction::LoadFast { .. })),
+            "constant-false __debug__ tail should deopt self to LOAD_FAST, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_constant_slice_folds_constant_bounds() {
         let code = compile_exec(
             "\
 def f(obj):
@@ -14073,7 +20657,13 @@ def f(obj):
 ",
         );
         let f = find_code(&code, "f").expect("missing function code");
-        let slice = f
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        let folded_slice = f
             .constants
             .iter()
             .find_map(|constant| match constant {
@@ -14081,10 +20671,177 @@ def f(obj):
                 _ => None,
             })
             .expect("missing folded slice constant");
+        assert!(
+            matches!(
+                folded_slice.as_ref(),
+                [
+                    ConstantData::Str { .. },
+                    ConstantData::Integer { .. },
+                    ConstantData::None,
+                ]
+            ),
+            "expected folded slice('a', 123456789012345678901234567890, None), got {folded_slice:?}"
+        );
+        assert!(
+            matches!(
+                ops.as_slice(),
+                [
+                    Instruction::Resume { .. },
+                    Instruction::LoadFastBorrow { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::BinaryOp { .. },
+                    Instruction::ReturnValue,
+                ]
+            ),
+            "expected CPython-style LOAD_CONST(slice(...)) path for constant bounds, got ops={ops:?}"
+        );
+    }
 
-        assert!(matches!(slice[0], ConstantData::Str { .. }));
-        assert!(matches!(slice[1], ConstantData::Integer { .. }));
-        assert!(matches!(slice[2], ConstantData::None));
+    #[test]
+    fn test_negative_step_slice_uses_build_slice() {
+        let code = compile_exec(
+            "\
+def f(obj):
+    return obj[::-1]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            matches!(
+                ops.as_slice(),
+                [
+                    Instruction::Resume { .. },
+                    Instruction::LoadFastBorrow { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::BuildSlice { .. },
+                    Instruction::BinaryOp { .. },
+                    Instruction::ReturnValue,
+                ]
+            ),
+            "expected CPython-style BUILD_SLICE path for non-literal negative step, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_bool_int_binop_constants_fold() {
+        let code = compile_exec(
+            "\
+def f():
+    return False + 2, True + 2, False + False, True / 1, True & False
+
+def g():
+    return False + 2
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::BinaryOp { .. })),
+            "expected CPython-style folded bool/int binops, got ops={ops:?}"
+        );
+        assert!(
+            matches!(
+                ops.as_slice(),
+                [
+                    Instruction::Resume { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::ReturnValue
+                ]
+            ),
+            "expected folded constants for bool/int binops, got ops={ops:?}"
+        );
+
+        let g = find_code(&code, "g").expect("missing function code");
+        let g_ops: Vec<_> = g
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        assert!(
+            !g_ops
+                .iter()
+                .any(|op| matches!(op, Instruction::BinaryOp { .. })),
+            "expected top-level bool/int binop to fold, got ops={g_ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_double_not_expression_folds_to_bool_conversion() {
+        let code = compile_exec(
+            "\
+def f(x):
+    return not not x
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            matches!(
+                ops.as_slice(),
+                [
+                    Instruction::Resume { .. },
+                    Instruction::LoadFastBorrow { .. },
+                    Instruction::ToBool,
+                    Instruction::ReturnValue,
+                ]
+            ),
+            "expected CPython-style double-not bool conversion, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_tuple_bound_slice_uses_two_part_slice_path() {
+        let code = compile_exec(
+            "\
+def f(obj):
+    return obj[(1, 2):]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            matches!(
+                ops.as_slice(),
+                [
+                    Instruction::Resume { .. },
+                    Instruction::LoadFastBorrow { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::BinarySlice,
+                    Instruction::ReturnValue,
+                ]
+            ),
+            "expected CPython-style BINARY_SLICE path for tuple lower bound, got ops={ops:?}"
+        );
     }
 
     #[test]
@@ -14109,6 +20866,168 @@ def f(names, cls):
         assert_eq!(
             return_count, 2,
             "expected CPython-style distinct return sites for normal and except paths"
+        );
+    }
+
+    #[test]
+    fn test_except_break_preserves_plain_jump_when_inlining_no_lineno_tail() {
+        let code = compile_exec(
+            "\
+def f(compiler_so, cc_args):
+    strip_sysroot = True
+    if '-arch' in cc_args:
+        while True:
+            try:
+                index = compiler_so.index('-arch')
+                del compiler_so[index:index + 2]
+            except ValueError:
+                break
+    if strip_sysroot:
+        while True:
+            indices = [i for i, x in enumerate(compiler_so) if x.startswith('-isysroot')]
+            if not indices:
+                break
+            index = indices[0]
+            del compiler_so[index:index + 1]
+    return compiler_so
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [Instruction::PopExcept, Instruction::JumpBackward { .. }]
+                )
+            }) && !ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopExcept,
+                        Instruction::JumpBackwardNoInterrupt { .. }
+                    ]
+                )
+            }),
+            "except-break cleanup should preserve CPython's plain JUMP when a no-lineno tail is inlined, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_with_bare_except_keeps_handler_cleanup_before_following_code() {
+        let code = compile_exec(
+            "\
+def f(cm, self):
+    try:
+        with cm:
+            raise Exception
+    except:
+        pass
+    self.g()
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let outer_handler = ops
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, op)| matches!(op, Instruction::PushExcInfo).then_some(idx))
+            .next_back()
+            .expect("missing outer handler");
+        assert!(
+            ops[outer_handler..].windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopExcept,
+                        Instruction::JumpForward { .. },
+                        Instruction::Copy { .. },
+                        Instruction::PopExcept,
+                        Instruction::Reraise { .. },
+                        Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style handler cleanup before following code, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_for_cleanup_drops_redundant_jump_nop() {
+        let code = compile_exec(
+            "\
+def f(self, xs, ys, cm1, cm2):
+    for x in xs:
+        with self.subTest(x=x):
+            try:
+                with cm1:
+                    self.a()
+            except Exception:
+                if x:
+                    pass
+                else:
+                    raise
+            else:
+                for y in ys:
+                    with self.subTest(y=y):
+                        with cm2:
+                            self.b()
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "expected inner for cleanup to fall directly into surrounding with cleanup, got ops={ops:?}",
+        );
+        assert!(
+            !ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "expected CPython-style removal of the redundant jump NOP after for cleanup, got ops={ops:?}",
         );
     }
 
@@ -14155,6 +21074,38 @@ def f(p, s):
     }
 
     #[test]
+    fn test_for_return_unary_constant_preserves_value_over_iterator_cleanup() {
+        let code = compile_exec(
+            "\
+def f(xs):
+    for x in xs:
+        return -1
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let units: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            units.windows(4).any(|window| {
+                matches!(
+                    window[0].op,
+                    Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. }
+                ) && matches!(
+                    window[1].op,
+                    Instruction::Swap { i }
+                        if i.get(OpArg::new(u32::from(u8::from(window[1].arg)))) == 2
+                ) && matches!(window[2].op, Instruction::PopTop)
+                    && matches!(window[3].op, Instruction::ReturnValue)
+            }),
+            "expected CPython-style LOAD_CONST/SWAP/POP_TOP/RETURN_VALUE cleanup, got units={units:?}"
+        );
+    }
+
+    #[test]
     fn test_try_else_if_return_keeps_conditional_target_nop() {
         let code = compile_exec(
             "\
@@ -14189,20 +21140,104 @@ def f(cond):
                 ]
             )
         });
-        let has_direct_fallthrough = ops.windows(4).any(|window| {
-            matches!(
-                window,
-                [
-                    Instruction::LoadSmallInt { .. } | Instruction::LoadConst { .. },
-                    Instruction::ReturnValue,
-                    Instruction::LoadSmallInt { .. } | Instruction::LoadConst { .. },
-                    Instruction::ReturnValue,
-                ]
-            )
-        });
         assert!(
-            has_cpython_nop_target || has_direct_fallthrough,
-            "expected adjacent try-else return and final return targets, got ops={ops:?}"
+            has_cpython_nop_target,
+            "expected CPython-style try-else conditional target NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_nested_if_return_drops_inner_conditional_target_nop() {
+        let code = compile_exec(
+            "\
+def f(obj, Sig):
+    try:
+        sig = obj.__signature__
+    except AttributeError:
+        pass
+    else:
+        if sig is not None:
+            if not isinstance(sig, Sig):
+                raise TypeError(sig)
+            return sig
+    return obj
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "inner try-else if target should not materialize as a NOP before the return, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                        Instruction::ReturnValue,
+                        Instruction::Nop,
+                    ]
+                )
+            }),
+            "expected only the outer try-else if false target after the return, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_nested_final_if_return_drops_nested_conditional_target_nop() {
+        let code = compile_exec(
+            "\
+def f(cond, outer):
+    try:
+        x = cond
+    except E:
+        pass
+    else:
+        if outer:
+            if x:
+                return 1
+    return 2
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ReturnValue,
+                        Instruction::Nop,
+                        Instruction::LoadSmallInt { .. } | Instruction::LoadConst { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "nested try-else conditional target should fall through directly to following code, got ops={ops:?}"
         );
     }
 
@@ -14250,6 +21285,50 @@ def f(self):
     }
 
     #[test]
+    fn test_named_except_conditional_before_explicit_return_shares_cleanup_return() {
+        let code = compile_exec(
+            "\
+def f(onerror, err, OSError):
+    try:
+        x()
+    except OSError as err:
+        if onerror is not None:
+            onerror(err)
+        return
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let cleanup_return_count = ops
+            .windows(6)
+            .filter(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopExcept,
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreFast { .. } | Instruction::StoreName { .. },
+                        Instruction::DeleteFast { .. } | Instruction::DeleteName { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            })
+            .count();
+
+        assert_eq!(
+            cleanup_return_count, 1,
+            "explicit return after the conditional should share the named-except cleanup return block, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_listcomp_cleanup_tail_keeps_split_store_fast_pair() {
         let code = compile_exec(
             "\
@@ -14288,6 +21367,43 @@ def f(escaped_string, quote_types):
     }
 
     #[test]
+    fn test_dictcomp_cleanup_tail_keeps_split_store_fast_pair() {
+        let code = compile_exec(
+            "\
+def f(obj, g):
+    return {g(k): g(v) for k, v in obj.items()}
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let pop_iter_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopIter))
+            .expect("missing POP_ITER");
+        let tail = &ops[pop_iter_idx + 1..];
+
+        assert!(
+            matches!(
+                tail,
+                [
+                    Instruction::Swap { .. },
+                    Instruction::StoreFast { .. },
+                    Instruction::StoreFast { .. },
+                    Instruction::ReturnValue,
+                    ..
+                ]
+            ),
+            "expected split STORE_FAST pair after dictcomp cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_static_swap_triple_assign_keeps_store_fast_store_fast() {
         let code = compile_exec(
             "\
@@ -14316,6 +21432,67 @@ def f(x, y, z):
                 )
             }),
             "expected CPython-style SWAP/STORE_FAST_STORE_FAST/STORE_FAST sequence, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_static_swap_duplicate_pair_eliminates_swap() {
+        let code = compile_exec(
+            "\
+def f(x, y):
+    a, a = x, y
+    return a
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.iter().any(|op| matches!(op, Instruction::Swap { .. })),
+            "duplicate pair assignment should statically eliminate SWAP, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(window, [Instruction::StoreFast { .. }, Instruction::PopTop])
+            }),
+            "expected CPython-style STORE_FAST/POP_TOP duplicate assignment, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_static_swap_duplicate_prefix_eliminates_swap() {
+        let code = compile_exec(
+            "\
+def f(x, y, z):
+    a, a, b = x, y, z
+    return a
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.iter().any(|op| matches!(op, Instruction::Swap { .. })),
+            "duplicate-prefix assignment should statically eliminate SWAP, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [Instruction::StoreFastStoreFast { .. }, Instruction::PopTop]
+                )
+            }),
+            "expected CPython-style STORE_FAST_STORE_FAST/POP_TOP duplicate prefix, got ops={ops:?}"
         );
     }
 
@@ -14436,6 +21613,158 @@ def f(cm, registry, altkey):
                 )
             }),
             "expected CPython-style return-line NOP before with-exit cleanup return, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_multiline_nested_with_return_finally_keeps_inner_cleanup_anchor_nop() {
+        let code = compile_exec(
+            "\
+def f(a, b, path):
+    try:
+        with cm(a) as x, \\
+             cm(b):
+            return g(x).copy()
+    finally:
+        try:
+            cleanup(path)
+        except ValueError:
+            pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Copy { .. },
+                        Instruction::PopExcept,
+                        Instruction::Reraise { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "multi-line nested with return/finally cleanup should keep CPython's inner item anchor NOP before outer __exit__, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_finally_conditional_return_duplicates_finally_exit_return() {
+        let code = compile_exec(
+            "\
+def f(flag, data, callback):
+    try:
+        if flag:
+            return
+        value = 1
+    finally:
+        if data:
+            callback(data)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let return_count = ops
+            .iter()
+            .filter(|op| matches!(op, Instruction::ReturnValue))
+            .count();
+        assert_eq!(
+            return_count, 4,
+            "try-finally return unwind should keep CPython-style distinct true/false finalbody exits, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_named_except_conditional_cleanup_is_inlined_per_branch() {
+        let code = compile_exec(
+            "\
+def f(self, logger):
+    try:
+        work()
+    except A as exc:
+        if not self.closing:
+            self.fatal(exc, 'msg')
+        elif self.loop.get_debug():
+            logger.debug('closing', exc_info=True)
+    finally:
+        if self.length > -1:
+            self.recv()
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let cleanup_after_branch_count = ops
+            .windows(6)
+            .filter(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::PopExcept,
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::DeleteFast { .. },
+                        Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            })
+            .count();
+        assert_eq!(
+            cleanup_after_branch_count, 2,
+            "named except branch exits should inline cleanup like CPython, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_finally_exception_path_duplicates_conditional_reraise() {
+        let code = compile_exec(
+            "\
+def f(flag, callback):
+    try:
+        work()
+    finally:
+        if flag:
+            callback()
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let reraise_count = ops
+            .iter()
+            .filter(|op| matches!(op, Instruction::Reraise { .. }))
+            .count();
+        assert_eq!(
+            reraise_count, 3,
+            "try-finally exception finalbody should duplicate CPython no-location RERAISE exits, got ops={ops:?}"
         );
     }
 
@@ -14576,6 +21905,48 @@ def f(x):
     }
 
     #[test]
+    fn test_large_fstring_uses_join_list_like_cpython() {
+        let mut source = String::from("def f(x):\n    return f\"");
+        for _ in 0..=STACK_USE_GUIDELINE {
+            source.push_str("{x}");
+        }
+        source.push_str("\"\n");
+
+        let code = compile_exec(&source);
+        let f = find_code(&code, "f").expect("missing function code");
+        let build_string_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::BuildString { .. }))
+            .count();
+        let list_append_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::ListAppend { .. }))
+            .count();
+        let join_attr_count = f
+            .instructions
+            .iter()
+            .filter(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    load_attr.is_method()
+                        && f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                            == "join"
+                }
+                _ => false,
+            })
+            .count();
+
+        assert_eq!(build_string_count, 0);
+        assert_eq!(
+            list_append_count,
+            usize::try_from(STACK_USE_GUIDELINE + 1).unwrap()
+        );
+        assert_eq!(join_attr_count, 1);
+    }
+
+    #[test]
     fn test_large_power_is_not_constant_folded() {
         let code = compile_exec("x = 2**100\n");
 
@@ -14612,6 +21983,81 @@ y = 103 * 'a' + 'x'\n",
             constant,
             ConstantData::Str { value }
                 if value.to_string() == expected
+        )));
+    }
+
+    #[test]
+    fn test_float_floor_division_constant_folds_like_cpython() {
+        let code = compile_exec(
+            "\
+x = 1.0 // 0.1\n\
+y = 1.0 % 0.1\n\
+z = 1e300 * 1e300 * 0\n",
+        );
+
+        assert!(
+            !code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BinaryOp { .. })),
+            "float constant floor-div/mod should fold away, got instructions={:?}",
+            code.instructions
+        );
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Float { value } if value.to_bits() == 9.0f64.to_bits()
+        )));
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Float { value }
+                if value.to_bits() == 0.09999999999999995f64.to_bits()
+        )));
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Float { value } if value.is_nan()
+        )));
+    }
+
+    #[test]
+    fn test_float_power_overflow_constant_does_not_fold() {
+        let code = compile_exec("x = 1e300 ** 2\n");
+
+        assert!(
+            code.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::BinaryOp { op }
+                    if op.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        == oparg::BinaryOperator::Power
+            )),
+            "overflowing float power should stay runtime like CPython, got instructions={:?}",
+            code.instructions
+        );
+    }
+
+    #[test]
+    fn test_large_string_and_bytes_binops_constant_fold_like_cpython() {
+        let code = compile_exec(
+            r#"
+encoded = b'\xff\xfe\x00\x00' + b'\x00\x00\x01\x00' * 1024
+text = '\U00010000' * 1024
+"#,
+        );
+
+        assert!(
+            !code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BinaryOp { .. })),
+            "large safe string/bytes constants should fold away, got instructions={:?}",
+            code.instructions
+        );
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Bytes { value } if value.len() == 4100
+        )));
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Str { value } if value.code_points().count() == 1024
         )));
     }
 
@@ -14707,6 +22153,47 @@ values = [item for item in [r\"\\\\'a\\\\'\", r\"\\t3\", r\"\\\\\"[0]]]\n",
     }
 
     #[test]
+    fn test_constant_slice_subscript_folds_in_load_context() {
+        let code = compile_exec(
+            "\
+a = 'hello'[:4]\n\
+b = b'abcd'[1:3]\n\
+c = (1, 2, 3)[:2]\n",
+        );
+
+        assert!(
+            !code.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::BinaryOp { op }
+                    if op.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        == oparg::BinaryOperator::Subscr
+            )),
+            "expected folded constant slice subscripts, got instructions={:?}",
+            code.instructions
+        );
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Str { value } if value.to_string() == "hell"
+        )));
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Bytes { value } if value == b"bc"
+        )));
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Tuple { elements }
+                if matches!(
+                    elements.as_slice(),
+                    [
+                        ConstantData::Integer { value: a },
+                        ConstantData::Integer { value: b },
+                    ] if *a == BigInt::from(1)
+                        && *b == BigInt::from(2)
+                )
+        )));
+    }
+
+    #[test]
     fn test_list_of_constant_tuples_uses_list_extend() {
         let code = compile_exec(
             "\
@@ -14750,6 +22237,98 @@ values = [-1, not True, ~0, +True, 5]
     }
 
     #[test]
+    fn test_outer_unary_after_binop_folds_before_list_folding() {
+        let code = compile_exec(
+            "\
+values = [2.0**53, -0.5, -2.0**-54]
+",
+        );
+
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::ListExtend { .. })),
+            "expected binop-folded constants to participate in list folding, got instructions={:?}",
+            code.instructions
+        );
+        assert!(
+            !code.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::BinaryOp { .. } | Instruction::UnaryNegative
+            )),
+            "constant expression list should not leave runtime ops, got instructions={:?}",
+            code.instructions
+        );
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Tuple { elements }
+                if elements.len() == 3
+                    && matches!(&elements[0], ConstantData::Float { value } if *value == 9007199254740992.0)
+                    && matches!(&elements[1], ConstantData::Float { value } if *value == -0.5)
+                    && matches!(&elements[2], ConstantData::Float { value } if value.is_sign_negative())
+        )));
+    }
+
+    #[test]
+    fn test_negative_integer_power_folds_to_float_constant() {
+        let code = compile_exec("value = -3.0 * 2**(-333)\n");
+
+        assert!(
+            !code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BinaryOp { .. })),
+            "negative integer power should fold through the enclosing multiply, got instructions={:?}",
+            code.instructions
+        );
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Float { value }
+                if value.is_sign_negative() && *value < 0.0 && value.abs() < 1.0e-90
+        )));
+    }
+
+    #[test]
+    fn test_complex_power_constants_fold_like_cpython() {
+        let code = compile_exec(
+            "\
+one = 3j ** 0j
+zero = 0j ** 2
+",
+        );
+
+        assert!(
+            !code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BinaryOp { .. })),
+            "safe complex power constants should fold away, got instructions={:?}",
+            code.instructions
+        );
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Complex { value } if value.re == 1.0 && value.im == 0.0
+        )));
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Complex { value } if value.re == 0.0 && value.im == 0.0
+        )));
+    }
+
+    #[test]
+    fn test_zero_complex_power_exception_constants_do_not_fold() {
+        let code = compile_exec("value = 0j ** (3 - 2j)\n");
+
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BinaryOp { .. })),
+            "zero complex to complex power should stay runtime so ZeroDivisionError is preserved, got instructions={:?}",
+            code.instructions
+        );
+    }
+
+    #[test]
     fn test_large_constant_list_keeps_streaming_build() {
         let source = format!(
             "values = [{}]\n",
@@ -14774,6 +22353,429 @@ values = [-1, not True, ~0, +True, 5]
                 .any(|unit| matches!(unit.op, Instruction::ListExtend { .. })),
             "large constant lists should not fold to LIST_EXTEND, got instructions={:?}",
             code.instructions
+        );
+    }
+
+    #[test]
+    fn test_large_constant_tuple_stream_folds_to_tuple_const() {
+        let source = format!(
+            "values = ({},)\n",
+            (0..31)
+                .map(|i| format!("'v{i}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let code = compile_exec(&source);
+
+        assert!(
+            !code.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::BuildList { .. }
+                    | Instruction::ListAppend { .. }
+                    | Instruction::CallIntrinsic1 { .. }
+            )),
+            "large constant tuple should fold the LIST_TO_TUPLE stream, got instructions={:?}",
+            code.instructions
+        );
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Tuple { elements } if elements.len() == 31
+        )));
+    }
+
+    #[test]
+    fn test_annotation_closure_uses_format_varname() {
+        let code = compile_exec(
+            "\
+class C:
+    x: int
+",
+        );
+        let annotate = find_code(&code, "__annotate__").expect("missing __annotate__ code");
+        let varnames = annotate
+            .varnames
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(varnames, vec!["format"]);
+    }
+
+    #[test]
+    fn test_type_param_evaluator_uses_dot_format_varname() {
+        let code = compile_exec(
+            "\
+class C[T: int]:
+    pass
+",
+        );
+        let evaluator = find_code(&code, "T").expect("missing type parameter evaluator");
+        let varnames = evaluator
+            .varnames
+            .iter()
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(varnames, vec![".format"]);
+    }
+
+    #[test]
+    fn test_generic_class_double_star_bases_use_tuple_ex_call_path() {
+        let code = compile_exec(
+            "\
+def f(Base, kwargs):
+    class C[T](Base, **kwargs):
+        pass
+    return C
+",
+        );
+        let type_params =
+            find_code(&code, "<generic parameters of C>").expect("missing type params code");
+        let ops: Vec<_> = type_params
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !has_intrinsic_1(type_params, IntrinsicFunction1::ListToTuple),
+            "generic class call with **kwargs but no starred bases should not use list-to-tuple, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::BuildTuple { .. },
+                        Instruction::BuildMap { .. },
+                        Instruction::LoadDeref { .. } | Instruction::LoadFast { .. },
+                        Instruction::DictMerge { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style BUILD_TUPLE/BUILD_MAP/DICT_MERGE ex-call path, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_generic_function_defaults_call_type_params_like_cpython() {
+        let code = compile_exec(
+            "\
+def func[T](a: T = 'a', *, b: T = 'b'):
+    return a, b
+",
+        );
+        let ops: Vec<_> = code
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Swap { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::MakeFunction,
+                        Instruction::Swap { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "expected CPython generic defaults call pattern SWAP/MAKE_FUNCTION/SWAP/CALL, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::MakeFunction,
+                        Instruction::Swap { .. },
+                        Instruction::Swap { .. },
+                        Instruction::PushNull,
+                        Instruction::Swap { .. },
+                    ]
+                )
+            }),
+            "generic defaults call should not use RustPython-specific PUSH_NULL reshuffle, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_class_type_param_bound_prefers_classdict_over_outer_function_local() {
+        let code = compile_exec(
+            "\
+def f(self):
+    class X:
+        T = int
+        def foo[U: T](self): ...
+    T, U = X.foo.__type_params__
+    return T.__bound__, U.__bound__
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        assert!(
+            !f.cellvars.iter().any(|name| name == "T"),
+            "class-local type-param bound must not force outer function T cell, got cellvars={:?}",
+            f.cellvars
+        );
+
+        let class_code = find_code(f, "X").expect("missing X class code");
+        assert!(
+            !class_code.freevars.iter().any(|name| name == "T"),
+            "class body must not close over outer T for class-local bound, got freevars={:?}",
+            class_code.freevars
+        );
+
+        let type_params =
+            find_code(class_code, "<generic parameters of foo>").expect("missing type params code");
+        assert_eq!(
+            type_params
+                .freevars
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["__classdict__"],
+            "type params scope should close only over __classdict__, got freevars={:?}",
+            type_params.freevars
+        );
+
+        let bound = find_code(type_params, "U").expect("missing U bound code");
+        assert_eq!(
+            bound
+                .freevars
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["__classdict__"],
+            "bound evaluator should close only over __classdict__, got freevars={:?}",
+            bound.freevars
+        );
+        assert!(
+            bound
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFromDictOrGlobals { .. })),
+            "bound evaluator should use LOAD_FROM_DICT_OR_GLOBALS for class-local T, got instructions={:?}",
+            bound.instructions
+        );
+    }
+
+    #[test]
+    fn test_class_type_param_bound_respects_class_global_over_outer_function_local() {
+        let code = compile_exec(
+            "\
+def f(self):
+    T = int
+    class X:
+        global T
+        def foo[U: T](self): ...
+    return X.foo.__type_params__
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        assert!(
+            f.cellvars.is_empty(),
+            "class global type-param bound must not force outer function cells, got cellvars={:?}",
+            f.cellvars
+        );
+
+        let class_code = find_code(f, "X").expect("missing X class code");
+        let type_params =
+            find_code(class_code, "<generic parameters of foo>").expect("missing type params code");
+        let bound = find_code(type_params, "U").expect("missing U bound code");
+        assert!(
+            bound
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadGlobal { .. })),
+            "explicit class global should resolve as LOAD_GLOBAL in bound evaluator, got instructions={:?}",
+            bound.instructions
+        );
+        assert!(
+            !bound.instructions.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFromDictOrGlobals { .. }
+                        | Instruction::LoadFromDictOrDeref { .. }
+                )
+            }),
+            "explicit class global should not use classdict/deref lookup, got instructions={:?}",
+            bound.instructions
+        );
+    }
+
+    #[test]
+    fn test_generic_type_alias_in_class_does_not_capture_module_name() {
+        let code = compile_exec(
+            r#"
+T = U = "global"
+class C:
+    T = "class"
+    U = "class"
+    type Alias[T] = lambda: (T, U)
+"#,
+        );
+        assert!(
+            code.cellvars.is_empty(),
+            "module T must remain a global name, got cellvars={:?}",
+            code.cellvars
+        );
+
+        let class_code = find_code(&code, "C").expect("missing class code");
+        assert!(
+            class_code.freevars.is_empty(),
+            "plain module-level class must not close over module T, got freevars={:?}",
+            class_code.freevars
+        );
+
+        let type_params = find_code(class_code, "<generic parameters of Alias>")
+            .expect("missing alias type params");
+        assert_eq!(
+            type_params
+                .cellvars
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["T"],
+            "alias type parameter T should be local to the type-params scope, got cellvars={:?}",
+            type_params.cellvars
+        );
+        assert_eq!(
+            type_params
+                .freevars
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["__classdict__"],
+            "alias type params should close only over the classdict, got freevars={:?}",
+            type_params.freevars
+        );
+
+        let alias = find_code(type_params, "Alias").expect("missing alias value code");
+        assert_eq!(
+            alias
+                .freevars
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["T", "__classdict__"],
+            "alias value should close over its type parameter and classdict, got freevars={:?}",
+            alias.freevars
+        );
+        let lambda = find_code(alias, "<lambda>").expect("missing alias lambda");
+        assert_eq!(
+            lambda
+                .freevars
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["T"],
+            "lambda should close over alias type parameter T only, got freevars={:?}",
+            lambda.freevars
+        );
+    }
+
+    #[test]
+    fn test_nested_generic_class_base_child_free_keeps_classdict_lookup() {
+        for (child_name, base_expr) in [
+            ("<genexpr>", "make_base(T for _ in (1,))"),
+            ("<listcomp>", "make_base([T for _ in (1,)])"),
+            ("<lambda>", "make_base(lambda: T)"),
+        ] {
+            let code = compile_exec(&format!(
+                "\
+class C[T]:
+    T = 'class'
+    class Inner[U]({base_expr}, make_base(T)):
+        pass
+"
+            ));
+            let type_params = find_code(&code, "<generic parameters of Inner>")
+                .expect("missing inner type params code");
+            assert_eq!(
+                type_params
+                    .freevars
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                vec!["T", "__classdict__"],
+                "inner type params should keep T as a child-only freevar for {child_name}, got freevars={:?}",
+                type_params.freevars
+            );
+            assert!(
+                type_params
+                    .instructions
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFromDictOrGlobals { .. })),
+                "direct class-local T lookup should still use classdict/global path for {child_name}, got instructions={:?}",
+                type_params.instructions
+            );
+
+            let child = find_code(type_params, child_name).expect("missing child code");
+            assert_eq!(
+                child
+                    .freevars
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                vec!["T"],
+                "{child_name} should close over T from the type-params scope, got freevars={:?}",
+                child.freevars
+            );
+        }
+    }
+
+    #[test]
+    fn test_class_annotation_global_resolution_matches_cpython() {
+        let class_global = compile_exec(
+            "\
+X = 'global'
+class C:
+    locals()['X'] = 'class'
+    global X
+    y: X
+",
+        );
+        let annotate =
+            find_code(&class_global, "__annotate__").expect("missing class __annotate__ code");
+        assert!(
+            annotate
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadGlobal { .. })),
+            "expected explicit class global to use LOAD_GLOBAL, got instructions={:?}",
+            annotate.instructions
+        );
+        assert!(
+            !annotate
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFromDictOrGlobals { .. })),
+            "did not expect class explicit global to use LOAD_FROM_DICT_OR_GLOBALS, got instructions={:?}",
+            annotate.instructions
+        );
+
+        let outer_global = compile_exec(
+            "\
+def f():
+    global X
+    class C:
+        locals()['X'] = 'class'
+        y: X
+",
+        );
+        let annotate = find_code(&outer_global, "__annotate__")
+            .expect("missing nested class __annotate__ code");
+        assert!(
+            annotate
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFromDictOrGlobals { .. })),
+            "expected outer explicit global in class annotation to use LOAD_FROM_DICT_OR_GLOBALS, got instructions={:?}",
+            annotate.instructions
         );
     }
 
@@ -14831,6 +22833,34 @@ def f():
                         )
                 )
         )));
+    }
+
+    #[test]
+    fn test_large_constant_list_iterable_keeps_streaming_list_build() {
+        let source = format!(
+            "def f():\n    for x in [{}]:\n        pass\n",
+            (0..=STACK_USE_GUIDELINE)
+                .map(|i| format!("'v{i}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let code = compile_exec(&source);
+        let f = find_code(&code, "f").expect("missing function code");
+
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BuildList { .. })),
+            "large list iterable should keep CPython streaming BUILD_LIST form, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::ListAppend { .. })),
+            "large list iterable should use LIST_APPEND streaming form, got instructions={:?}",
+            f.instructions
+        );
     }
 
     #[test]
@@ -14947,6 +22977,36 @@ def f(a, b, c, x):
     }
 
     #[test]
+    fn test_unary_not_membership_and_identity_invert_compare_op() {
+        let code = compile_exec(
+            "\
+def f(a, b, d):
+    x = not (a in d)
+    y = not (a is b)
+    return x, y
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let ops: Vec<_> = instructions.iter().map(|unit| unit.op).collect();
+
+        assert!(
+            !ops.iter().any(|op| matches!(op, Instruction::UnaryNot)),
+            "CPython folds CONTAINS_OP/IS_OP + UNARY_NOT into inverted op, got ops={ops:?}"
+        );
+        assert!(instructions.iter().any(|unit| {
+            matches!(unit.op, Instruction::ContainsOp { invert } if invert.get(OpArg::new(unit.arg.as_u32())) == Invert::Yes)
+        }));
+        assert!(instructions.iter().any(|unit| {
+            matches!(unit.op, Instruction::IsOp { invert } if invert.get(OpArg::new(unit.arg.as_u32())) == Invert::Yes)
+        }));
+    }
+
+    #[test]
     fn test_starred_tuple_iterable_drops_list_to_tuple_before_get_iter() {
         let code = compile_exec(
             "\
@@ -15020,6 +23080,47 @@ def f():
                 )
             }),
             "expected BUILD_TUPLE before GET_ITER for nested list iterable in comprehension, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_comprehension_singleton_sub_iter_uses_assignment_idiom() {
+        let code = compile_exec(
+            "\
+def f():
+    return {j: j * j for i in range(4) for j in [i + 1]}
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let for_iter_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::ForIter { .. }))
+            .count();
+        let has_map_add_depth_2 = f.instructions.iter().any(|unit| {
+            matches!(
+                unit.op,
+                Instruction::MapAdd { i }
+                    if i.get(OpArg::new(u32::from(u8::from(unit.arg)))) == 2
+            )
+        });
+
+        assert_eq!(
+            for_iter_count, 1,
+            "singleton sub-iter should not emit its own FOR_ITER, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            has_map_add_depth_2,
+            "assignment-idiom dictcomp should use MAP_ADD depth 2, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            !f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::BuildTuple { .. })),
+            "singleton sub-iter should not materialize an iterator tuple, got instructions={:?}",
+            f.instructions
         );
     }
 
@@ -15104,7 +23205,7 @@ async def f(items):
             "async dict comprehension should be inlined"
         );
         assert!(
-            ops.iter().any(|op| matches!(op, Instruction::GetAIter)),
+            ops.iter().any(|op| matches!(op, Instruction::GetAiter)),
             "inlined async dict comprehension should keep GET_AITER in outer code, got ops={ops:?}"
         );
         assert!(
@@ -15115,6 +23216,261 @@ async def f(items):
         assert!(
             !ops.iter().any(|op| matches!(op, Instruction::MakeFunction)),
             "inlined async dict comprehension should not materialize MAKE_FUNCTION, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_async_inlined_comprehension_inlines_restore_return_into_end_async_for() {
+        let code = compile_exec(
+            "\
+async def f():
+    return [i + 1 async for i in g([10, 20])]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndAsyncFor,
+                        Instruction::Swap { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::ReturnValue,
+                        Instruction::Swap { .. },
+                        Instruction::PopTop,
+                        Instruction::Swap { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style restore+return inlined into END_ASYNC_FOR before cleanup, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndAsyncFor,
+                        Instruction::JumpForward { .. } | Instruction::JumpBackward { .. },
+                    ]
+                )
+            }),
+            "unexpected jump from END_ASYNC_FOR to the normal restore tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_await_cleanup_throw_falls_through_until_cold_reorder() {
+        let code = compile_exec(
+            "\
+async def f():
+    await 1
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CleanupThrow,
+                        Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::CallIntrinsic1 { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style cold CLEANUP_THROW jump before StopIteration handler, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(2).any(|window| {
+                matches!(window, [Instruction::CleanupThrow, Instruction::EndSend])
+            }),
+            "CLEANUP_THROW should not inline the normal END_SEND return tail, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_match_async_inlined_comprehension_success_jump_no_interrupt() {
+        let code = compile_exec(
+            "\
+async def f(name_3, name_5):
+    match b'':
+        case True:
+            pass
+        case name_5 if f'e':
+            {name_3: f async for name_2 in name_5}
+        case []:
+            pass
+    [[]]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::StoreFast { .. },
+                        Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style no-interrupt match success backedge after async comprehension cleanup, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::StoreFast { .. },
+                        Instruction::JumpBackward { .. },
+                    ]
+                )
+            }),
+            "match success cleanup backedge should not be a regular interrupting jump, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_for_loop_if_return_reorders_continue_backedge_before_exit_body() {
+        let code = compile_exec(
+            "\
+def f(items, occurrence):
+    for item in items:
+        if item:
+            occurrence -= 1
+            if not occurrence:
+                return item
+    return None
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style inverted return guard followed by loop backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. },
+                    ]
+                )
+            }),
+            "return guard should not fall through into the return body before the loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_sync_with_after_async_for_keeps_end_async_for_line_marker() {
+        let code = compile_exec(
+            "\
+async def f(cm, source, tgt):
+    with cm:
+        async for tgt[0] in source():
+            pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndAsyncFor,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style line-marker NOP between END_ASYNC_FOR and with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_genexpr_with_async_comprehension_element_is_async_generator() {
+        let code = compile_exec(
+            "\
+async def f():
+    gen = ([i async for i in asynciter([1, 2])] for j in [10, 20])
+    return [x async for x in gen]
+",
+        );
+        let genexpr = find_code(&code, "<genexpr>").expect("missing genexpr code");
+        let units: Vec<_> = genexpr
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            units.windows(2).any(|window| {
+                let [wrap, yield_value] = window else {
+                    return false;
+                };
+                matches!(yield_value.op, Instruction::YieldValue { .. })
+                    && match wrap.op {
+                        Instruction::CallIntrinsic1 { func } => {
+                            func.get(OpArg::new(u32::from(u8::from(wrap.arg))))
+                                == bytecode::IntrinsicFunction1::AsyncGenWrap
+                        }
+                        _ => false,
+                    }
+            }),
+            "expected CPython-style ASYNC_GEN_WRAP before genexpr yield, got units={units:?}"
         );
     }
 
@@ -15230,8 +23586,10 @@ _pathseps_with_colon = {f':{s}' for s in path_separators}
         assert!(
             !ops.windows(2).any(|window| matches!(
                 window,
-                [Instruction::LoadFast { .. }, Instruction::GetIter]
-                    | [Instruction::LoadFastCheck { .. }, Instruction::GetIter]
+                [
+                    Instruction::LoadFast { .. } | Instruction::LoadFastCheck { .. },
+                    Instruction::GetIter
+                ]
             )),
             "module local outer iterable should not become a fast local, got ops={ops:?}"
         );
@@ -15276,6 +23634,162 @@ def f():
     }
 
     #[test]
+    fn test_inlined_comprehension_namedexpr_target_stays_parent_fast_local() {
+        let code = compile_exec(
+            "\
+def f(seq, emit):
+    return [(x, y) for x in seq if (y := emit(x))]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(f.varnames.iter().any(|name| name == "y"));
+        assert!(!f.cellvars.iter().any(|name| name == "y"));
+        assert!(!f.freevars.iter().any(|name| name == "y"));
+        assert!(
+            !f.names.iter().any(|name| name == "y"),
+            "inlined comprehension namedexpr target should not use NAME ops, got names={:?}",
+            f.names
+        );
+    }
+
+    #[test]
+    fn test_global_namedexpr_in_inlined_comprehension_saves_fast_slot() {
+        let code = compile_exec(
+            "\
+def f(seq, value):
+    global G
+    [G := value for _ in seq]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(f.varnames.iter().any(|name| name == "G"));
+        assert!(f.instructions.iter().any(|unit| match unit.op {
+            Instruction::LoadFastAndClear { var_num } => {
+                let idx = var_num.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                f.varnames[usize::from(idx)] == "G"
+            }
+            _ => false,
+        }));
+        assert!(f.instructions.iter().any(|unit| match unit.op {
+            Instruction::StoreGlobal { namei } => {
+                let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                f.names[usize::try_from(idx).unwrap()] == "G"
+            }
+            _ => false,
+        }));
+    }
+
+    #[test]
+    fn test_genexpr_namedexpr_target_is_cell_not_fast_local() {
+        let code = compile_exec(
+            "\
+def f(seq):
+    a = 1
+    return (c := x + a for x in seq)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(!f.varnames.iter().any(|name| name == "c"));
+        assert_eq!(
+            f.cellvars.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["a", "c"]
+        );
+    }
+
+    #[test]
+    fn test_inlined_comprehension_restore_does_not_form_store_fast_load_fast() {
+        let code = compile_exec(
+            "\
+def f(e):
+    e[1:3] = [g(i) for i in range(2)]
+
+def g(datadir):
+    files = [filename[:-4] for filename in sorted(os.listdir(datadir)) if filename.endswith('.xml')]
+    input_files = [filename for filename in files if filename.startswith('in')]
+    return files, input_files
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::Swap { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreSubscr,
+                    ]
+                )
+            }),
+            "expected CPython-style inlined comprehension restore before slice store, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFastLoadFast { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreSubscr,
+                    ]
+                )
+            }),
+            "inlined comprehension restore should not be folded into STORE_FAST_LOAD_FAST, got ops={ops:?}"
+        );
+
+        let g = find_code(&code, "g").expect("missing g code");
+        let g_ops: Vec<_> = g
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+        assert!(
+            g_ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::StoreFast { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style static swap over STORE_FAST_MAYBE_NULL restore, got ops={g_ops:?}"
+        );
+        assert!(
+            !g_ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::Swap { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "inlined comprehension restore should statically remove SWAP before adjacent stores, got ops={g_ops:?}"
+        );
+    }
+
+    #[test]
     fn test_single_mode_folded_multiline_constant_does_not_leave_nops() {
         let code = compile_single(
             "\
@@ -15293,6 +23807,133 @@ def f():
                 .any(|unit| matches!(unit.op, Instruction::Nop)),
             "expected folded single-mode multiline constant to drop NOP anchors, got instructions={:?}",
             code.instructions
+        );
+    }
+
+    #[test]
+    fn test_folded_multiline_tuple_constant_does_not_leave_operand_nops() {
+        let code = compile_exec(
+            "\
+values = (
+    (1 + 1j, 0 + 0j),
+    (1 + 1j, 0.0),
+    (1 + 1j, 0),
+)
+",
+        );
+
+        assert!(
+            !code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::Nop)),
+            "expected CPython nop_out-style folded tuple operands to have no surviving NOPs, got instructions={:?}",
+            code.instructions
+        );
+    }
+
+    #[test]
+    fn test_folded_multiline_bytes_binop_does_not_leave_operand_nops() {
+        let code = compile_exec(
+            "\
+def f(self, out):
+    self.assertIn(
+        b'gnu' + (b'/123' * 125) + b'/longlink' + (b'/123' * 125) + b'/longname',
+        out)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        assert!(
+            !f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::Nop)),
+            "expected CPython nop_out-style folded operands to have no surviving NOPs, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_folded_binop_at_branch_body_start_does_not_leave_nop() {
+        let code = compile_exec(
+            "\
+def f(sys):
+    if sys.platform == 'win32':
+        component = 'd' * 25
+    return component
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::NotTaken,
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. }
+                    ]
+                )
+            }),
+            "expected CPython nop_out-style folded branch body to drop operand NOP, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_folded_iterable_at_assert_target_does_not_leave_nop() {
+        let code = compile_exec(
+            r#"
+def f(caches, non_caches):
+    assert 1 / 3 <= caches / non_caches, "this test needs more caches!"
+    for show_caches in (False, True):
+        pass
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(2).any(|window| {
+                matches!(window, [Instruction::Nop, Instruction::LoadConst { .. }])
+            }),
+            "expected folded for-iterable at assert target to drop operand NOP, got ops={ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_multiline_unpack_target_uses_element_locations() {
+        let code = compile_exec(
+            "\
+def f(cm):
+    with cm as (_,
+                filename_2):
+        return filename_2
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Instruction::StoreFastStoreFast { .. })),
+            "expected multiline target elements to keep separate STORE_FAST instructions, got ops={ops:?}",
         );
     }
 
@@ -15425,6 +24066,1195 @@ def f(new, old):
     }
 
     #[test]
+    fn test_try_loop_inner_if_keeps_duplicate_jump_back_paths() {
+        let code = compile_exec(
+            "\
+def f(config, logging):
+    handlers = config.get('handlers', {})
+    for name in handlers:
+        if name not in logging._handlers:
+            raise ValueError('missing')
+        else:
+            try:
+                handler = logging._handlers[name]
+                handler_config = handlers[name]
+                level = handler_config.get('level', None)
+                if level:
+                    handler.setLevel(logging._checkLevel(level))
+            except Exception as e:
+                raise ValueError('bad') from e
+    loggers = config.get('loggers', {})
+    for name in loggers:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::EndFor,
+                    ]
+                )
+            }),
+            "expected CPython-style separate body and false-path jump-back blocks, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_loop_nested_bool_tail_keeps_duplicate_jump_back_paths() {
+        let code = compile_exec(
+            "\
+def f(obj, flags, writer, value, Error):
+    while obj.running:
+        try:
+            if value == 0:
+                return
+            elif obj.ready and obj.active and value == 1:
+                obj.work()
+                if flags.verbose and obj.chatty:
+                    writer.write('trace')
+            elif value == 2:
+                obj.other()
+            else:
+                obj.default()
+        except Error as e:
+            obj.running = False
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style body and both bool false-path jump-back blocks, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_continue_shares_backedge_with_fallthrough_body() {
+        let code = compile_exec(
+            "\
+def f(names, show_empty, keywords, args_buffer, args, cls, object, level):
+    for name in names:
+        value = getattr(cls, name)
+        if not show_empty:
+            if value == []:
+                field_type = cls._field_types.get(name, object)
+                if getattr(field_type, '__origin__', ...) is list:
+                    if not keywords:
+                        args_buffer.append(repr(value))
+                    continue
+            if not keywords:
+                args.extend(args_buffer)
+                args_buffer = []
+        value, simple = _format(value, level)
+        if keywords:
+            args.append('%s=%s' % (name, value))
+        else:
+            args.append(value)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache | Instruction::NotTaken))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "expected CPython-style shared continue backedge before outer condition, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "unexpected duplicated continue/backedge jumps, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_line_bearing_loop_if_false_backedge_keeps_body_before_jump_back() {
+        let code = compile_exec(
+            "\
+def f(self, replacement_pairs):
+    for n, d in [(19, '%OC'), (2, '%Ow')]:
+        if self.LC_alt_digits is None:
+            s = str(n)
+            replacement_pairs.append((s, d))
+            if n < 10:
+                replacement_pairs.append((s[1], d))
+        elif len(self.LC_alt_digits) > n:
+            replacement_pairs.append((self.LC_alt_digits[n], d))
+        else:
+            replacement_pairs.append((d, d))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style line-bearing false target to keep body before backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "unexpected no-lineno-style inverted loop-if body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_branch_local_implicit_continue_keeps_body_before_jump_back() {
+        let code = compile_exec(
+            "\
+def f(items, outer, cond, sub, out):
+    for x in items:
+        if outer:
+            if cond:
+                out.append(x)
+                if sub:
+                    out.append(1)
+                out.append(2)
+        else:
+            out.append(3)
+    return out
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "expected branch-local implicit continue target to stay after the body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "unexpected direct-loop-body implicit continue layout for branch-local target, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_boolop_continue_deduplicates_marker_jump_back() {
+        let code = compile_exec(
+            "\
+def f(ws, seen, more_than):
+    while ws:
+        w = ws.pop()
+        if w in seen or w <= more_than:
+            continue
+        seen.add(w)
+    return seen
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected adjacent equivalent continue backedges to be deduplicated, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style boolop continue fallthrough before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_elif_nested_if_false_backedge_keeps_body_before_jump_back() {
+        let code = compile_exec(
+            "\
+def f(keys, parse_int, d, ampm, AM, PM):
+    hour = minute = 0
+    for group_key in keys:
+        if group_key == 'I':
+            hour = parse_int(d['I'])
+            if ampm in ('', AM):
+                if hour == 12:
+                    hour = 0
+            elif ampm == PM:
+                if hour != 12:
+                    hour += 12
+        elif group_key == 'M':
+            minute = parse_int(d['M'])
+    return hour, minute
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style nested elif body before false backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted nested elif false path before body, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(15).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style duplicated body/false loop exits for nested elif, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_nested_if_before_elif_keeps_body_before_false_backedge() {
+        let code = compile_exec(
+            "\
+def f(keys, parse_int, found_dict, locale_time):
+    hour = minute = 0
+    for group_key in keys:
+        if group_key == 'I':
+            hour = parse_int(found_dict['I'])
+            ampm = found_dict.get('p', '').lower()
+            if ampm in ('', locale_time.am_pm[0]):
+                if hour == 12:
+                    hour = 0
+            elif ampm == locale_time.am_pm[1]:
+                if hour != 12:
+                    hour += 12
+        elif group_key == 'M':
+            minute = parse_int(found_dict['M'])
+    return hour, minute
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style nested if body before false backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadSmallInt { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted nested if body after false backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_elif_pass_before_raise_keeps_line_bearing_forward_jump() {
+        let code = compile_exec(
+            "\
+def f(entries, path, self):
+    if entries == ['.mh_sequences']:
+        os.remove(os.path.join(path, '.mh_sequences'))
+    elif entries == []:
+        pass
+    else:
+        raise NotEmptyError('Folder not empty: %s' % self._path)
+    os.rmdir(path)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpForward { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style pass branch forward jump before raise body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted pass branch before raise body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_multiblock_conditional_body_keeps_body_before_jump_back() {
+        let code = compile_exec(
+            "\
+def f(random, d, f):
+    for dummy in range(100):
+        k = random.choice('abc')
+        if random.random() < 0.2:
+            if k in d:
+                del d[k]
+                del f[k]
+        else:
+            v = random.choice((1, 2))
+            d[k] = v
+            f[k] = v
+            check(f[k], v)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. },
+                        Instruction::DeleteSubscr,
+                    ]
+                )
+            }),
+            "expected CPython-style multi-block body before false jump-back, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_not_conditional_body_threads_true_path_to_jump_back() {
+        let code = compile_exec(
+            "\
+def f(xs):
+    for x in xs:
+        if not x:
+            g(x)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style true path to jump back before not-body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_not_in_conditional_body_threads_true_path_to_jump_back() {
+        let code = compile_exec(
+            "\
+def f(native, array):
+    for k in native:
+        if k not in 'bBhHiIlLfd':
+            del array[k]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style true path to jump back before not-in body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_while_implicit_continue_body_after_jumpback_for_boolop_call_arg() {
+        let code = compile_exec(
+            "\
+def f(source, state, verbose, nested):
+    items = []
+    itemsappend = items.append
+    sourcematch = source.match
+    while True:
+        itemsappend(parse(source, state, verbose, nested + 1,
+                          not nested and not items))
+        if not sourcematch('|'):
+            break
+        if not nested:
+            verbose = state.flags & 64
+    return verbose
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style while implicit-continue jumpback before conditional body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_multiblock_elif_continue_keeps_next_test_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(source, state, verbose, nested, subpatternappend, start, MAXGROUPS):
+    sourceget = source.get
+    sourcematch = source.match
+    while True:
+        this = source.next
+        sourceget()
+        if this == '(':
+            if sourcematch('?'):
+                char = sourceget()
+                if char in '=!<':
+                    dir = 1
+                    if char == '<':
+                        char = sourceget()
+                        if char not in '=!':
+                            raise source.error('unknown extension ?<' + char, len(char) + 2)
+                        dir = -1
+                        lookbehindgroups = state.lookbehindgroups
+                        if lookbehindgroups is None:
+                            state.lookbehindgroups = state.groups
+                    p = parse_sub(source, state, verbose, nested + 1)
+                    if dir < 0:
+                        if lookbehindgroups is None:
+                            state.lookbehindgroups = None
+                    if not sourcematch(')'):
+                        raise source.error('missing ), unterminated subpattern', source.tell() - start)
+                    if char == '=':
+                        subpatternappend(('ASSERT', (dir, p)))
+                    elif p:
+                        subpatternappend(('ASSERT_NOT', (dir, p)))
+                    else:
+                        subpatternappend(('FAILURE', ()))
+                    continue
+                elif char == '(':
+                    condname = source.getuntil(')', 'group name')
+                    if not (condname.isdecimal() and condname.isascii()):
+                        source.checkgroupname(condname, 1)
+                        condgroup = state.groupdict.get(condname)
+                        if condgroup is None:
+                            msg = 'unknown group name %r' % condname
+                            raise source.error(msg, len(condname) + 1)
+                    else:
+                        condgroup = int(condname)
+                        if not condgroup:
+                            raise source.error('bad group number', len(condname) + 1)
+                        if condgroup >= MAXGROUPS:
+                            msg = 'invalid group reference %d' % condgroup
+                            raise source.error(msg, len(condname) + 1)
+                    state.checklookbehindgroup(condgroup, source)
+                    item_yes = parse(source, state, verbose, nested + 1)
+                    if source.match('|'):
+                        item_no = parse(source, state, verbose, nested + 1)
+                        if source.next == '|':
+                            raise source.error('conditional backref with more than two branches')
+                    else:
+                        item_no = None
+                    if not source.match(')'):
+                        raise source.error('missing ), unterminated subpattern', source.tell() - start)
+                    subpatternappend(('GROUPREF_EXISTS', (condgroup, item_yes, item_no)))
+                    continue
+                elif char == '>':
+                    capture = False
+        return
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style elif test between separate continue backedges, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_while_scope_exit_body_keeps_line_backedge_before_raise_body() {
+        let code = compile_exec(
+            "\
+FLAGS = {}
+TYPE_FLAGS = 0
+GLOBAL_FLAGS = 0
+
+def f(source, state, char):
+    sourceget = source.get
+    add_flags = 0
+    del_flags = 0
+    if char != '-':
+        while True:
+            flag = FLAGS[char]
+            if source.istext:
+                if char == 'L':
+                    msg = 'bad inline flags'
+                    raise source.error(msg)
+            else:
+                if char == 'u':
+                    msg = 'bad inline flags'
+                    raise source.error(msg)
+            add_flags |= flag
+            if (flag & TYPE_FLAGS) and (add_flags & TYPE_FLAGS) != flag:
+                msg = 'bad inline flags'
+                raise source.error(msg)
+            char = sourceget()
+            if char is None:
+                raise source.error('missing -, : or )')
+            if char in ')-:':
+                break
+            if char not in FLAGS:
+                msg = 'unknown flag' if char.isalpha() else 'missing -, : or )'
+                raise source.error(msg, len(char))
+    if char == ')':
+        state.flags |= add_flags
+        return None
+    if add_flags & GLOBAL_FLAGS:
+        raise source.error('bad inline flags: cannot turn on global flag', 1)
+    if char == '-':
+        char = sourceget()
+        if char is None:
+            raise source.error('missing flag')
+        if char not in FLAGS:
+            msg = 'unknown flag' if char.isalpha() else 'missing flag'
+            raise source.error(msg, len(char))
+        while True:
+            flag = FLAGS[char]
+            if flag & TYPE_FLAGS:
+                msg = 'bad inline flags'
+                raise source.error(msg)
+            del_flags |= flag
+            char = sourceget()
+            if char is None:
+                raise source.error('missing :')
+            if char == ':':
+                break
+            if char not in FLAGS:
+                msg = 'unknown flag' if char.isalpha() else 'missing :'
+                raise source.error(msg, len(char))
+    return add_flags, del_flags
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let cpython_style_not_in_raise_body_count = ops
+            .windows(6)
+            .filter(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            })
+            .count();
+        assert!(
+            cpython_style_not_in_raise_body_count >= 2,
+            "expected both while-loop not-in checks to put the false-path backedge before the conditional-expression raise body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_call_body_implicit_continue_keeps_cpython_normalized_forward_jump() {
+        let code = compile_exec(
+            "\
+DIGITS = '0123456789'
+
+def f(s, sget, lappend, addgroup, this, c):
+    while True:
+        if c in DIGITS:
+            isoctal = False
+            if s.next in DIGITS:
+                this += sget()
+            if not isoctal:
+                addgroup(int(this[1:]), len(this) - 1)
+        else:
+            lappend(this)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style forward jump over call body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "call body should not be moved after an implicit continue backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_empty_if_end_label_preserves_cpython_return_anchor_nop() {
+        let code = compile_exec(
+            "\
+SRE_FLAG_LOCALE = 1
+SRE_FLAG_ASCII = 2
+SRE_FLAG_UNICODE = 4
+
+def f(src, flags):
+    if isinstance(src, str):
+        if flags & SRE_FLAG_LOCALE:
+            raise ValueError('cannot use LOCALE flag with a str pattern')
+        if not flags & SRE_FLAG_ASCII:
+            flags |= SRE_FLAG_UNICODE
+        elif flags & SRE_FLAG_UNICODE:
+            raise ValueError('ASCII and UNICODE flags are incompatible')
+    else:
+        if flags & SRE_FLAG_UNICODE:
+            raise ValueError('cannot use UNICODE flag with a bytes pattern')
+        if flags & SRE_FLAG_LOCALE and flags & SRE_FLAG_ASCII:
+            raise ValueError('ASCII and LOCALE flags are incompatible')
+    return flags
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::RaiseVarargs { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "expected CPython-style NOP return anchor after elif raise body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_except_normal_exit_return_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+LITERAL = 1
+
+def f(source, escape):
+    try:
+        c = escape[1:2]
+        if c == 'N' and source.istext:
+            try:
+                c = ord(source.lookup())
+            except (KeyError, TypeError):
+                raise source.error() from None
+            return LITERAL, c
+    except ValueError:
+        pass
+    raise source.error(escape)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadGlobal { .. },
+                        Instruction::LoadFast { .. },
+                        Instruction::BuildTuple { .. },
+                        Instruction::ReturnValue,
+                    ]
+                )
+            }),
+            "expected CPython-style strong LOAD_FAST in nested except normal-exit return, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_targeted_nop_after_prefix_for_else_uses_strong_for_tail_loads() {
+        let code = compile_exec(
+            "\
+LITERAL = 1
+IN = 2
+NEGATE = 3
+
+def f(items):
+    while True:
+        prefix = None
+        for item in items:
+            if not item:
+                break
+            if prefix is None:
+                prefix = item[0]
+            elif item[0] != prefix:
+                break
+        else:
+            for item in items:
+                del item[0]
+            continue
+        break
+    set = []
+    for item in items:
+        if len(item) != 1:
+            break
+        op, av = item[0]
+        if op is LITERAL:
+            set.append((op, av))
+        elif op is IN and av[0][0] is not NEGATE:
+            set.extend(av)
+        else:
+            break
+    return set
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let get_iter_idx = ops
+            .iter()
+            .rposition(|op| matches!(op, Instruction::GetIter))
+            .expect("missing GET_ITER");
+        assert!(
+            matches!(ops[get_iter_idx - 1], Instruction::LoadFast { .. }),
+            "targeted NOP after prefix for/else should use strong iterable LOAD_FAST, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFastLoadFast { .. },
+                        Instruction::BuildTuple { .. },
+                    ]
+                )
+            }),
+            "targeted NOP after prefix for/else should keep set.append tuple loads strong, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_plain_pass_before_for_tail_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(xs):
+    pass
+    for x in xs:
+        pass
+    return xs
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let get_iter_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::GetIter))
+            .expect("missing GET_ITER");
+        assert!(
+            matches!(ops[get_iter_idx - 1], Instruction::LoadFastBorrow { .. }),
+            "plain pass before for-tail should keep borrowed iterable load, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_targeted_nop_after_return_uses_strong_pair_call_args() {
+        let code = compile_exec(
+            "\
+def f(x, d, count, inner, hi, w1, lo, w2):
+    if x:
+        return
+    if 0:
+        pass
+    d[count] += 1
+    inner(hi, w1)
+    del hi
+    inner(lo, w2)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::PushNull,
+                        Instruction::LoadFastLoadFast { .. },
+                    ]
+                )
+            }),
+            "targeted NOP after return should keep CPython-style strong pair call args, got ops={ops:?}"
+        );
+        let nop_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::Nop))
+            .expect("missing targeted NOP");
+        assert!(
+            !ops[nop_idx..].iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "targeted NOP tail should not reintroduce borrowed fast loads, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_if_pass_uses_line_bearing_jump_back_instead_of_nop() {
         let code = compile_exec(
             "\
@@ -15462,6 +25292,38 @@ def f(x, y):
         assert!(
             !ops.iter().any(|op| matches!(op, Instruction::Nop)),
             "expected pass body line to attach to loop backedge instead of leaving a NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_constant_true_while_pass_keeps_loop_header_nop() {
+        let code = compile_exec(
+            "\
+def f():
+    while 1:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style loop-header NOP before self backedge, got ops={ops:?}"
         );
     }
 
@@ -15512,6 +25374,70 @@ def f(s, size, encodeSetO, encodeWhiteSpace):
                 )
             }),
             "expected separate nested-if and outer-if jump-back tails, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_exception_cleanup_backedge_target_is_shared() {
+        let code = compile_exec(
+            "\
+def f(enum_class, value, Flag, int_type, is_single_bit):
+    try:
+        try:
+            enum_member = enum_class[value]
+        except TypeError:
+            raise KeyError
+    except KeyError:
+        if Flag is None or not issubclass(enum_class, Flag):
+            enum_class.names.append(value)
+        elif (
+            Flag is not None
+            and issubclass(enum_class, Flag)
+            and isinstance(value, int_type)
+            and is_single_bit(value)
+        ):
+            enum_class.names.append(value)
+    enum_class.add(enum_member)
+    return enum_member
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopExcept,
+                        Instruction::JumpBackwardNoInterrupt { .. }
+                            | Instruction::JumpBackward { .. },
+                        Instruction::Reraise { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style shared exception cleanup backedge before reraise, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopExcept,
+                        Instruction::JumpBackwardNoInterrupt { .. }
+                            | Instruction::JumpBackward { .. },
+                        Instruction::PopExcept,
+                        Instruction::JumpBackwardNoInterrupt { .. }
+                            | Instruction::JumpBackward { .. },
+                    ]
+                )
+            }),
+            "exception cleanup backedge should be shared, not duplicated per conditional edge, got ops={ops:?}"
         );
     }
 
@@ -15693,6 +25619,166 @@ def while_not_chained(a, b, c):
     }
 
     #[test]
+    fn test_nested_while_chained_compare_break_keeps_break_jump_block() {
+        let code = compile_exec(
+            "\
+def f(start, self, stop, size):
+    while size > 0:
+        while True:
+            if start <= self.position < stop:
+                break
+            else:
+                self.map_index += 1
+                if self.map_index == len(self.map):
+                    self.map_index = 0
+        length = min(size, stop - self.position)
+        size -= length
+    return size
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpForward { .. },
+                        Instruction::PopTop,
+                        Instruction::JumpForward { .. },
+                        Instruction::JumpForward { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style chained-compare success hop into the break jump block, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_while_break_else_keeps_true_edge_into_forward_break_body() {
+        let code = compile_exec(
+            "\
+def f(i):
+    while i:
+        i -= 1
+        if i < 4:
+            break
+    else:
+        print('x')
+    print('y')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpForward { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style true edge into forward break body with false path falling into the loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_if_continue_reorders_false_path_to_loop_backedge() {
+        let code = compile_exec(
+            "\
+def f(items, changes):
+    for x in items:
+        if not x:
+            if x in changes:
+                raise TypeError
+            continue
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                    ]
+                )
+            }),
+            "expected nested if/continue to keep CPython-style false-edge jump-back tails, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_assert_keeps_false_edge_into_raise_body() {
+        let code = compile_exec(
+            "\
+def f(bytecode):
+    for instr, positions in zip(bytecode, bytecode.codeobj.co_positions()):
+        assert instr.positions == positions
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::RaiseVarargs { .. },
+                    ]
+                )
+            }),
+            "expected loop assert to keep CPython-style false-edge into the raise body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
     fn test_and_is_not_none_loop_guard_uses_direct_jump_back_false_path() {
         let code = compile_exec(
             "\
@@ -15728,6 +25814,54 @@ def f(code):
                 )
             }),
             "expected CPython-style direct jump-back false path for 'is not None and ...', got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_large_is_not_none_loop_guard_uses_direct_jump_back_false_path() {
+        let code = compile_exec(
+            "\
+def f(cls, _FIELDS, _PARAMS):
+    all_frozen_bases = None
+    any_frozen_base = False
+    has_dataclass_bases = False
+    for b in cls.__mro__[-1:0:-1]:
+        base_fields = getattr(b, _FIELDS, None)
+        if base_fields is not None:
+            has_dataclass_bases = True
+            for field in base_fields.values():
+                name = field.name
+            if all_frozen_bases is None:
+                all_frozen_bases = True
+            current_frozen = getattr(b, _PARAMS).frozen
+            all_frozen_bases = all_frozen_bases and current_frozen
+            any_frozen_base = any_frozen_base or current_frozen
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::PopJumpIfNotNone { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style direct jump-back false path for large 'is not None' loop body, got ops={ops:?}"
         );
     }
 
@@ -15769,6 +25903,175 @@ def f(it):
                 )
             }),
             "expected CPython-style line-marker NOP before with-exit cleanup on continue, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_async_with_normal_cleanup_drops_pop_block_nop() {
+        let code = compile_exec(
+            "\
+async def foo():
+    async with CM():
+        async with CM():
+            raise RuntimeError
+",
+        );
+        let f = find_code(&code, "foo").expect("missing foo code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::GetAwaitable { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style async-with normal cleanup without a POP_BLOCK NOP, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::GetAwaitable { .. },
+                    ]
+                )
+            }),
+            "unexpected POP_BLOCK NOP before async-with normal cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_async_with_try_finally_before_outer_sync_with_cleanup_keeps_anchor_nop() {
+        let code = compile_exec(
+            "\
+async def foo(self):
+    with self.assertRaises(ZeroDivisionError):
+        async with timeout():
+            try:
+                try:
+                    raise ValueError
+                finally:
+                    await sleep(1)
+            finally:
+                try:
+                    raise KeyError
+                finally:
+                    1 / 0
+    after()
+",
+        );
+        let f = find_code(&code, "foo").expect("missing foo code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Copy { .. },
+                        Instruction::PopExcept,
+                        Instruction::Reraise { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style async-with after-block NOP before outer sync-with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_terminal_with_keeps_outer_cleanup_target_nop() {
+        let code = compile_exec(
+            "\
+def f():
+    with a():
+        with b():
+            raise E()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Copy { .. },
+                        Instruction::PopExcept,
+                        Instruction::Reraise { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style outer with-exit target NOP after terminal nested with cleanup, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_nonterminal_with_drops_outer_cleanup_target_nop() {
+        let code = compile_exec(
+            "\
+def f():
+    with a():
+        with b():
+            x()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Copy { .. },
+                        Instruction::PopExcept,
+                        Instruction::Reraise { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "unexpected outer with-exit target NOP for nested with with normal fallthrough, got ops={ops:?}"
         );
     }
 
@@ -15901,6 +26204,36 @@ def f(self):
                 .count()
                 >= 3,
             "expected individual constant loads before unpack-target stores, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_four_item_unpack_assignment_folds_tuple_constant_like_cpython() {
+        let code = compile_exec("a, b, c, d = 1, 2, 3, 4\n");
+
+        assert!(
+            code.instructions.iter().any(|unit| {
+                matches!(unit.op, Instruction::LoadConst { .. })
+                    && matches!(
+                        code.constants.get(usize::from(u8::from(unit.arg))),
+                        Some(ConstantData::Tuple { elements }) if elements.len() == 4
+                    )
+            }),
+            "four-item unpack assignment should fold BUILD_TUPLE before UNPACK_SEQUENCE like CPython, got ops={:?}",
+            code.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::UnpackSequence { .. })),
+            "four-item unpack assignment should keep UNPACK_SEQUENCE after tuple folding, got ops={:?}",
             code.instructions
                 .iter()
                 .map(|unit| unit.op)
@@ -16224,6 +26557,1260 @@ def f(m, class_name, category, warning_base):
     }
 
     #[test]
+    fn test_nonresuming_protected_conditional_tail_keeps_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(href, parse='xml'):
+    try:
+        data = XINCLUDE[href]
+    except KeyError:
+        raise OSError('resource not found')
+    if parse == 'xml':
+        data = ET.XML(data)
+    return data
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let tail_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::StoreFast { .. }))
+            .expect("missing protected STORE_FAST data");
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &ops[tail_start + 1..handler_start];
+
+        assert!(
+            !tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "expected non-resuming protected conditional tail to keep strong LOAD_FAST ops, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_optional_nonresuming_protected_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(b):
+    if type(b) is not bytes:
+        try:
+            b = bytes(memoryview(b))
+        except TypeError:
+            raise TypeError(f'bad {type(b).__name__}') from None
+    if b:
+        sink(b)
+    return len(b)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let b_index = f
+            .varnames
+            .iter()
+            .position(|name| name.as_str() == "b")
+            .expect("missing b varname");
+        let store_b = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::StoreFast { var_num } => {
+                    usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg))))) == b_index
+                }
+                _ => false,
+            })
+            .expect("missing protected STORE_FAST b");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &instructions[store_b + 1..handler_start];
+
+        assert!(
+            tail.iter()
+                .filter(|unit| match unit.op {
+                    Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                        usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))))
+                            == b_index
+                    }
+                    _ => false,
+                })
+                .all(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })),
+            "optional protected tail should keep CPython-style borrowed b loads, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_handled_except_conditional_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        if self.active:
+            self.step()
+        if self.waiter is not None and self.pending is None:
+            self.waiter.set_result(None)
+    except ConnectionResetError as exc:
+        self.close(exc)
+    except OSError as exc:
+        self.fail(exc, 'x')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let waiter_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "waiter"
+                }
+                _ => false,
+            })
+            .expect("missing waiter LOAD_ATTR");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &instructions[waiter_idx.saturating_sub(1)..handler_start];
+
+        assert!(
+            tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "handled-except conditional tail should keep borrowed loads, got tail={tail:?}"
+        );
+        assert!(
+            !tail
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "handled-except conditional tail should not force strong LOAD_FAST, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_handled_except_else_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, fut=None):
+    try:
+        if self.closed:
+            return
+        item = self.queue.popleft()
+        self.size -= len(item)
+        if self.addr is not None:
+            self.future = self.loop.send(self.sock, item)
+        else:
+            self.future = self.loop.sendto(self.sock, item, addr=item)
+    except OSError as exc:
+        self.protocol.error_received(exc)
+    except Exception as exc:
+        self.fatal(exc, 'x')
+    else:
+        self.future.add_done_callback(self.loop_writing)
+        self.resume()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let done_callback_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                        == "add_done_callback"
+                }
+                _ => false,
+            })
+            .expect("missing add_done_callback LOAD_ATTR");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &instructions[done_callback_idx.saturating_sub(3)..handler_start];
+
+        assert!(
+            tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "handled-except else tail should keep borrowed loads, got tail={tail:?}"
+        );
+        assert!(
+            !tail
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "handled-except else tail should not force strong LOAD_FAST, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_reraising_handler_with_handled_returns_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, fut=None):
+    try:
+        if fut is not None:
+            fut.result()
+        if self.future is not fut:
+            return
+        fut = self.reader.recv(self.sock, 4096)
+    except CancelledError:
+        return
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except BaseException as exc:
+        self.handle({'exception': exc, 'loop': self})
+    else:
+        self.future = fut
+        fut.add_done_callback(self.loop_reading)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let recv_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "recv"
+                }
+                _ => false,
+            })
+            .expect("missing recv LOAD_ATTR");
+        let done_callback_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                        == "add_done_callback"
+                }
+                _ => false,
+            })
+            .expect("missing add_done_callback LOAD_ATTR");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail =
+            &instructions[recv_idx.saturating_sub(3)..handler_start.min(done_callback_idx + 3)];
+
+        assert!(
+            tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "handler chain with handled returns should keep borrowed warm/else loads, got tail={tail:?}"
+        );
+        assert!(
+            !tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFast { .. } | Instruction::LoadFastLoadFast { .. }
+                )
+            }),
+            "handler chain with handled returns should not force strong warm/else loads, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_protected_conditional_tail_without_exception_match_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, cm, p, platform):
+    with cm:
+        if p.returncode != 0:
+            if platform.machine() == 'x86_64':
+                p.check_returncode()
+            else:
+                self.skipTest(f'could not compile indirect function: {p}')
+        done()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        let attr_load_uses_borrow = |name: &str| {
+            let attr_idx = instructions
+                .iter()
+                .position(|unit| match unit.op {
+                    Instruction::LoadAttr { namei } => {
+                        let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                        f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == name
+                    }
+                    _ => false,
+                })
+                .unwrap_or_else(|| panic!("missing {name} attr load"));
+            matches!(
+                instructions
+                    .get(attr_idx.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            )
+        };
+
+        assert!(
+            attr_load_uses_borrow("check_returncode"),
+            "plain with-protected conditional tail should keep borrowed p load, got instructions={instructions:?}"
+        );
+        assert!(
+            attr_load_uses_borrow("skipTest"),
+            "plain with-protected conditional tail should keep borrowed self load, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_listcomp_cleanup_predecessor_does_not_deopt_following_conditional_tail() {
+        let code = compile_exec(
+            "\
+def f(self, compile_snippet):
+    sizes = [compile_snippet(i).co_stacksize for i in range(2, 5)]
+    if len(set(sizes)) != 1:
+        import dis, io
+        out = io.StringIO()
+        dis.dis(compile_snippet(1), file=out)
+        self.fail('%s\\n%s' % (sizes, out.getvalue()))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        let has_strong_load = |name: &str| {
+            f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+        let has_borrow_load = |name: &str| {
+            f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+
+        for name in ["sizes", "io", "dis", "compile_snippet", "out", "self"] {
+            assert!(
+                has_borrow_load(name),
+                "expected listcomp-following conditional tail to borrow {name}, got instructions={:?}",
+                f.instructions
+            );
+        }
+        for name in ["sizes", "io", "dis", "compile_snippet", "out", "self"] {
+            assert!(
+                !has_strong_load(name),
+                "listcomp cleanup predecessor should not force strong LOAD_FAST for {name}, got instructions={:?}",
+                f.instructions
+            );
+        }
+    }
+
+    #[test]
+    fn test_handler_resume_loop_conditional_tail_keeps_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(self):
+    is_utf8 = (self.ENCODING == 'utf-8')
+    encode_errors = 'surrogateescape' if is_utf8 else 'strict'
+    strings = list(self.BYTES_STRINGS)
+    for text in self.STRINGS:
+        try:
+            encoded = text.encode(self.ENCODING, encode_errors)
+            if encoded not in strings:
+                strings.append(encoded)
+        except UnicodeEncodeError:
+            encoded = None
+        if is_utf8:
+            encoded2 = text.encode(self.ENCODING, 'surrogatepass')
+            if encoded2 != encoded:
+                strings.append(encoded2)
+    for encoded in strings:
+        self.consume(encoded)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+
+        let has_strong_load = |name: &str| {
+            f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+        let has_borrow_load = |name: &str| {
+            f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+
+        for name in ["is_utf8", "text", "self", "strings", "encoded2"] {
+            assert!(
+                has_strong_load(name),
+                "expected handler-resume loop tail to use strong LOAD_FAST for {name}, got instructions={:?}",
+                f.instructions
+            );
+        }
+        assert!(
+            f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadFastLoadFast { var_nums } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    let (left, right) = var_nums.get(arg).indexes();
+                    f.varnames[usize::from(left)] == "encoded2"
+                        && f.varnames[usize::from(right)] == "encoded"
+                }
+                _ => false,
+            }),
+            "expected encoded2/encoded comparison to use strong LOAD_FAST_LOAD_FAST, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            !f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    let (left, right) = var_nums.get(arg).indexes();
+                    f.varnames[usize::from(left)] == "encoded2"
+                        && f.varnames[usize::from(right)] == "encoded"
+                }
+                _ => false,
+            }),
+            "handler-resume loop tail should not borrow encoded2/encoded comparison, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            has_borrow_load("strings"),
+            "expected later loop/list uses outside the deopt tail to keep borrowing strings"
+        );
+    }
+
+    #[test]
+    fn test_handler_resume_while_conditional_tail_keeps_borrow_load_fast() {
+        let code = compile_exec(
+            "\
+def f(value):
+    items = []
+    while value:
+        try:
+            token, value = parse(value)
+            items.append(token)
+        except Error:
+            token, value = recover(value)
+            items.append(token)
+        if value and value[0] != ',':
+            item = items[-1]
+            token, value = recover(value)
+            item.extend(token)
+        if value and value[0] == ',':
+            items.append(',')
+            value = value[1:]
+    return items, value
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let handler_start = f
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_region = &f.instructions[..handler_start];
+        let is_strong_local_load = |unit: &CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                matches!(
+                    f.varnames[usize::from(var_num.get(arg))].as_str(),
+                    "value" | "items" | "token" | "item"
+                )
+            }
+            Instruction::LoadFastLoadFast { var_nums } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                let (left, right) = var_nums.get(arg).indexes();
+                let left = f.varnames[usize::from(left)].as_str();
+                let right = f.varnames[usize::from(right)].as_str();
+                matches!(left, "value" | "items" | "token" | "item")
+                    || matches!(right, "value" | "items" | "token" | "item")
+            }
+            _ => false,
+        };
+
+        assert!(
+            !normal_region.iter().any(is_strong_local_load),
+            "while-loop handler resume tail should keep CPython-style borrowed normal loads, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_multi_handler_resume_while_tail_keeps_borrow_load_fast() {
+        let code = compile_exec(
+            "\
+def f(value):
+    items = []
+    while value and value[0] != ';':
+        try:
+            token, value = parse(value)
+            items.append(token)
+        except Error:
+            leader = None
+            if value[0] in leaders:
+                leader, value = recover(value)
+                if not value or value[0] in ',;':
+                    items.append(leader)
+                else:
+                    token, value = recover_invalid(value)
+                    if leader is not None:
+                        token[:0] = [leader]
+                    items.append(token)
+            elif value[0] == ',':
+                items.append(',')
+            else:
+                token, value = recover_invalid(value)
+                if leader is not None:
+                    token[:0] = [leader]
+                items.append(token)
+        if value and value[0] not in ',;':
+            item = items[-1]
+            token, value = recover_invalid(value)
+            item.extend(token)
+        if value and value[0] == ',':
+            items.append(',')
+            value = value[1:]
+    return items, value
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let handler_start = f
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_region = &f.instructions[..handler_start];
+
+        assert!(
+            normal_region.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "expected multi-handler while tail to keep borrowed normal loads, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            !normal_region
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "multi-handler while tail should not be deoptimized to strong LOAD_FAST, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_multi_handler_resume_before_with_keeps_with_body_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, input, cm):
+    try:
+        self.stdin.flush()
+    except BrokenPipeError:
+        pass
+    except ValueError:
+        if not self.stdin.closed:
+            raise
+    if not input:
+        self.stdin.close()
+    with cm() as selector:
+        if self.stdin and self._input:
+            selector.register(self.stdin, EVENT_WRITE)
+        while selector.get_map():
+            ready = selector.select()
+            for key in ready:
+                self._fileobj2output[key].append(key)
+    return self.stdin
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let handler_start = f
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_path = &f.instructions[..handler_start];
+        let self_load_is = |unit: &CodeUnit, borrowed: bool| match unit.op {
+            Instruction::LoadFast { var_num } if !borrowed => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))] == "self"
+            }
+            Instruction::LoadFastBorrow { var_num } if borrowed => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))] == "self"
+            }
+            _ => false,
+        };
+
+        assert!(
+            warm_path.iter().any(|unit| self_load_is(unit, true)),
+            "expected multi-handler resume before with-body to keep borrowed self loads, got warm_path={warm_path:?}"
+        );
+        assert!(
+            !warm_path.iter().any(|unit| self_load_is(unit, false)),
+            "multi-handler resume must not deopt with-body self loads to strong LOAD_FAST, got warm_path={warm_path:?}"
+        );
+    }
+
+    #[test]
+    fn test_suppressing_with_and_typed_except_resume_loop_method_tail_keeps_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(proc, text):
+    try:
+        with proc.stdin as pipe:
+            try:
+                pipe.write(text)
+            except KeyboardInterrupt:
+                pass
+    except OSError:
+        pass
+    while True:
+        try:
+            proc.wait()
+            break
+        except KeyboardInterrupt:
+            pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let load_name = |unit: &CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+
+        let wait_receiver_is_strong = f.instructions.windows(2).any(|window| {
+            matches!(window[0].op, Instruction::LoadFast { .. })
+                && load_name(&window[0]) == Some("proc")
+                && matches!(window[1].op, Instruction::LoadAttr { .. })
+        });
+        assert!(
+            wait_receiver_is_strong,
+            "CPython keeps proc.wait() receiver strong after suppressing-with and typed-except loop resumes, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_handler_break_join_loop_body_and_tail_keep_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(function, stem):
+    result = []
+    state = 0
+    while True:
+        try:
+            next = function(stem, state)
+        except Exception:
+            break
+        if not isinstance(next, str):
+            break
+        result.append(next)
+        state += 1
+    result.sort()
+    return result
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let load_name = |unit: &CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        let body_method_call_uses_strong_loads = instructions.windows(4).any(|window| {
+            matches!(window[0].op, Instruction::LoadFast { .. })
+                && load_name(window[0]) == Some("result")
+                && matches!(window[1].op, Instruction::LoadAttr { .. })
+                && matches!(window[2].op, Instruction::LoadFast { .. })
+                && load_name(window[2]) == Some("next")
+                && matches!(window[3].op, Instruction::Call { .. })
+        });
+        assert!(
+            body_method_call_uses_strong_loads,
+            "CPython keeps result.append(next) loads strong after an except-break join, got instructions={:?}",
+            f.instructions
+        );
+
+        let body_update_uses_strong_load = instructions.windows(3).any(|window| {
+            matches!(window[0].op, Instruction::LoadFast { .. })
+                && load_name(window[0]) == Some("state")
+                && matches!(window[1].op, Instruction::LoadSmallInt { .. })
+                && matches!(window[2].op, Instruction::BinaryOp { .. })
+        });
+        assert!(
+            body_update_uses_strong_load,
+            "CPython keeps state += 1 load strong after an except-break join, got instructions={:?}",
+            f.instructions
+        );
+
+        let tail_method_call_uses_strong_load = instructions.windows(2).any(|window| {
+            matches!(window[0].op, Instruction::LoadFast { .. })
+                && load_name(window[0]) == Some("result")
+                && matches!(window[1].op, Instruction::LoadAttr { .. })
+        });
+        assert!(
+            tail_method_call_uses_strong_load,
+            "CPython keeps result.sort() receiver strong after an except-break join, got instructions={:?}",
+            f.instructions
+        );
+
+        let return_uses_strong_load = instructions.windows(2).any(|window| {
+            matches!(window[0].op, Instruction::LoadFast { .. })
+                && load_name(window[0]) == Some("result")
+                && matches!(window[1].op, Instruction::ReturnValue)
+        });
+        assert!(
+            return_uses_strong_load,
+            "CPython keeps post-loop result return strong after an except-break join, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_handler_resume_to_loop_header_keeps_loop_header_borrows() {
+        let code = compile_exec(
+            "\
+def f(value, Phrase, get_word, errors, ENDS, DOT):
+    phrase = Phrase()
+    try:
+        token, value = get_word(value)
+        phrase.append(token)
+    except errors.HeaderParseError:
+        phrase.defects.append(errors.InvalidHeaderDefect('bad'))
+    while value and value[0] not in ENDS:
+        if value[0] == '.':
+            phrase.append(DOT)
+            phrase.defects.append(errors.ObsoleteHeaderDefect('dot'))
+            value = value[1:]
+        else:
+            token, value = get_word(value)
+            phrase.append(token)
+    return phrase, value
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let load_name = |unit: &CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        let loop_header_uses_borrow = instructions.windows(3).any(|window| {
+            matches!(window[0].op, Instruction::LoadFastBorrow { .. })
+                && load_name(window[0]) == Some("value")
+                && matches!(window[1].op, Instruction::ToBool)
+                && matches!(window[2].op, Instruction::PopJumpIfFalse { .. })
+        });
+        assert!(
+            loop_header_uses_borrow,
+            "CPython keeps loop-header value test borrowed after a pre-loop handler resumes to that header, got instructions={:?}",
+            f.instructions
+        );
+
+        let return_pair_uses_borrow = instructions.windows(3).any(|window| {
+            matches!(
+                window[0].op,
+                Instruction::LoadFastBorrowLoadFastBorrow { .. }
+            ) && matches!(window[1].op, Instruction::BuildTuple { .. })
+                && matches!(window[2].op, Instruction::ReturnValue)
+        });
+        assert!(
+            return_pair_uses_borrow,
+            "CPython keeps phrase/value return pair borrowed after a pre-loop handler resumes to the loop header, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_reraising_except_loop_break_tail_keeps_post_loop_borrows() {
+        let code = compile_exec(
+            "\
+def f(flag=1, count=0):
+    value = 2
+    while value:
+        count += 1
+        try:
+            if flag and value == 1:
+                flag -= 1
+                break
+            value -= 1
+            continue
+        except:
+            raise
+    return count > 2 or value != 1
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let return_idx = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .expect("missing return");
+        let tail = &instructions[return_idx.saturating_sub(12)..return_idx];
+
+        let load_name = |unit: &CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+        for name in ["count", "value"] {
+            assert!(
+                tail.iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })
+                        && load_name(unit) == Some(name)),
+                "post-loop condition should borrow {name}, got tail={tail:?}"
+            );
+            assert!(
+                !tail
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })
+                        && load_name(unit) == Some(name)),
+                "post-loop condition should not deopt {name} to LOAD_FAST, got tail={tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_try_except_continue_keeps_try_line_nop_before_continue_jump() {
+        let code = compile_exec(
+            "\
+def f(done=False):
+    while not done:
+        done = True
+        try:
+            continue
+        except:
+            done = False
+    return done
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        assert!(
+            instructions.windows(2).any(|window| matches!(
+                window,
+                [
+                    CodeUnit {
+                        op: Instruction::Nop,
+                        ..
+                    },
+                    CodeUnit {
+                        op: Instruction::JumpBackward { .. },
+                        ..
+                    }
+                ]
+            )),
+            "try/except continue should keep CPython-style try-line NOP before continue jump, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_for_else_pass_keeps_line_marker_after_pop_iter() {
+        let code = compile_exec(
+            "\
+def f():
+    for item in ():
+        pass
+    else:
+        pass
+    marker = 1
+    return marker
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            instructions.windows(2).any(|window| matches!(
+                window,
+                [
+                    CodeUnit {
+                        op: Instruction::PopIter,
+                        ..
+                    },
+                    CodeUnit {
+                        op: Instruction::Nop,
+                        ..
+                    }
+                ]
+            )),
+            "for-else pass should keep CPython-style else-line NOP after POP_ITER, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_folded_if_chain_after_previous_chain_keeps_final_elif_line_marker() {
+        let code = compile_exec(
+            "\
+def f():
+    if 0: pass
+    elif 0: pass
+    if 0: pass
+    elif 0: pass
+    elif 0: pass
+    elif 0: pass
+    else: pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let nop_count = f
+            .instructions
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::Nop))
+            .count();
+
+        assert_eq!(
+            nop_count, 6,
+            "folded if chains should preserve CPython-style line-marker NOPs, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_handler_resume_before_later_loop_keeps_borrowed_tail_loads() {
+        let code = compile_exec(
+            "\
+def f(msg, category):
+    s = 'x'
+    if msg.line is None:
+        try:
+            import linecache
+            line = linecache.getline(msg.filename, msg.lineno)
+        except Exception:
+            line = None
+            linecache = None
+    else:
+        line = msg.line
+    if line:
+        line = line.strip()
+        s += '  %s\\n' % line
+    if msg.source is not None:
+        try:
+            import tracemalloc
+        except Exception:
+            suggest_tracemalloc = False
+            tb = None
+        else:
+            try:
+                suggest_tracemalloc = not tracemalloc.is_tracing()
+                tb = tracemalloc.get_object_traceback(msg.source)
+            except Exception:
+                suggest_tracemalloc = False
+                tb = None
+        if tb is not None:
+            for frame in tb:
+                s += frame.filename
+        elif suggest_tracemalloc:
+            s += category
+    return s
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let is_borrow_load = |unit: &&bytecode::CodeUnit, name: &str| match unit.op {
+            Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))] == name
+            }
+            _ => false,
+        };
+
+        assert!(
+            ops.windows(5).any(|window| {
+                is_borrow_load(&window[0], "line")
+                    && matches!(window[1].op, Instruction::ToBool)
+                    && matches!(window[2].op, Instruction::PopJumpIfFalse { .. })
+                    && matches!(window[3].op, Instruction::NotTaken)
+                    && is_borrow_load(&window[4], "line")
+            }),
+            "handler resume before a later independent loop should preserve CPython-style borrowed line loads, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            ops.windows(2)
+                .filter(|window| {
+                    is_borrow_load(&window[0], "tracemalloc")
+                        && matches!(window[1].op, Instruction::LoadAttr { .. })
+                })
+                .count()
+                >= 2,
+            "independent later loop should not deopt tracemalloc loads before the loop, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            ops.windows(2).any(|window| {
+                is_borrow_load(&window[0], "s") && matches!(window[1].op, Instruction::ReturnValue)
+            }),
+            "final return should keep CPython-style borrowed s load, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_async_early_return_send_tail_uses_strong_load_fast_after_entry() {
+        let code = compile_exec(
+            "\
+class C:
+    async def _sock_sendfile_native(self, sock, file, offset, count):
+        try:
+            fileno = file.fileno()
+        except (AttributeError, io.UnsupportedOperation) as err:
+            raise exceptions.SendfileNotAvailableError('not a regular file')
+        try:
+            fsize = os.fstat(fileno).st_size
+        except OSError:
+            raise exceptions.SendfileNotAvailableError('not a regular file')
+        blocksize = count if count else fsize
+        if not blocksize:
+            return 0
+        blocksize = min(blocksize, 0xffff_ffff)
+        end_pos = min(offset + count, fsize) if count else fsize
+        offset = min(offset, fsize)
+        total_sent = 0
+        try:
+            while True:
+                blocksize = min(end_pos - offset, blocksize)
+                if blocksize <= 0:
+                    return total_sent
+                await self._proactor.sendfile(sock, file, offset, blocksize)
+                offset += blocksize
+                total_sent += blocksize
+        finally:
+            if total_sent > 0:
+                file.seek(offset)
+",
+        );
+        let f = find_code(&code, "_sock_sendfile_native").expect("missing method code");
+
+        let names_for_unit = |unit: &bytecode::CodeUnit| -> Vec<String> {
+            let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+            match unit.op {
+                Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                    vec![f.varnames[usize::from(var_num.get(arg))].to_string()]
+                }
+                Instruction::LoadFastLoadFast { var_nums }
+                | Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                    let (left, right) = var_nums.get(arg).indexes();
+                    vec![
+                        f.varnames[usize::from(left)].to_string(),
+                        f.varnames[usize::from(right)].to_string(),
+                    ]
+                }
+                _ => Vec::new(),
+            }
+        };
+
+        let borrowed_names: Vec<_> = f
+            .instructions
+            .iter()
+            .filter_map(|unit| match unit.op {
+                Instruction::LoadFastBorrow { .. }
+                | Instruction::LoadFastBorrowLoadFastBorrow { .. } => Some(names_for_unit(unit)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            borrowed_names,
+            vec![vec!["file".to_owned()]],
+            "only the initial file.fileno() receiver should borrow, got instructions={:?}",
+            f.instructions
+        );
+
+        let has_strong_name = |name: &str| {
+            f.instructions.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFast { .. } | Instruction::LoadFastLoadFast { .. }
+                ) && names_for_unit(unit).iter().any(|loaded| loaded == name)
+            })
+        };
+
+        for name in [
+            "fileno",
+            "count",
+            "blocksize",
+            "offset",
+            "fsize",
+            "end_pos",
+            "total_sent",
+            "file",
+            "self",
+            "sock",
+        ] {
+            assert!(
+                has_strong_name(name),
+                "async early-return send tail should use strong LOAD_FAST for {name}, got instructions={:?}",
+                f.instructions
+            );
+        }
+    }
+
+    #[test]
+    fn test_async_with_return_await_after_early_return_keeps_borrow_load_fast() {
+        let code = compile_exec(
+            "\
+async def wait_for(fut, timeout):
+    if timeout is not None and timeout <= 0:
+        fut = ensure_future(fut)
+        if fut.done():
+            return fut.result()
+        await cancel_and_wait(fut)
+        try:
+            return fut.result()
+        except CancelledError as exc:
+            raise TimeoutError from exc
+    async with timeout_cm(timeout):
+        return await fut
+",
+        );
+        let f = find_code(&code, "wait_for").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let loaded_names = |unit: &bytecode::CodeUnit| -> Vec<String> {
+            let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+            match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    vec![f.varnames[usize::from(var_num.get(arg))].to_string()]
+                }
+                Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                    let (left, right) = var_nums.get(arg).indexes();
+                    vec![
+                        f.varnames[usize::from(left)].to_string(),
+                        f.varnames[usize::from(right)].to_string(),
+                    ]
+                }
+                _ => Vec::new(),
+            }
+        };
+        let borrowed_names: Vec<_> = f
+            .instructions
+            .iter()
+            .filter_map(|unit| {
+                let names = loaded_names(unit);
+                (!names.is_empty()).then_some(names)
+            })
+            .collect();
+
+        assert!(
+            borrowed_names
+                .iter()
+                .flatten()
+                .any(|name| name == "timeout"),
+            "CPython preserves borrowed timeout loads in async-with setup, got instructions={:?}",
+            f.instructions
+        );
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(window[0].op, Instruction::LoadFastBorrow { .. })
+                    && loaded_names(window[0]).iter().any(|name| name == "fut")
+                    && matches!(window[1].op, Instruction::LoadAttr { namei }
+                        if f.names[usize::try_from(namei.get(OpArg::new(u32::from(u8::from(window[1].arg)))).name_idx()).unwrap()] == "result")
+                    && matches!(window[2].op, Instruction::Call { .. })
+                    && matches!(window[3].op, Instruction::ReturnValue)
+            }),
+            "CPython preserves borrowed fut loads for direct try-return method calls, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
     fn test_protected_import_tail_keeps_strong_load_fast() {
         let code = compile_exec(
             "\
@@ -16276,7 +27863,1543 @@ def f(s, size, pos, errors):
     }
 
     #[test]
-    fn test_handler_resume_join_keeps_strong_load_fast_common_tail() {
+    fn test_nested_protected_import_tail_keeps_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(self, mode, compresslevel):
+    try:
+        try:
+            import zlib
+        except ImportError:
+            raise RuntimeError from None
+        self.zlib = zlib
+        self.crc = zlib.crc32(b'')
+        if mode == 'r':
+            self.exception = zlib.error
+            self._init_read_gz()
+        else:
+            self._init_write_gz(compresslevel)
+    except:
+        self.closed = True
+        raise
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let import_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ImportName { .. }))
+            .expect("missing IMPORT_NAME");
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let nested_protected_tail = &ops[import_idx + 1..handler_start];
+
+        assert!(
+            !nested_protected_tail.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "CPython keeps strong LOAD_FAST ops after a nested protected import tail, got tail={nested_protected_tail:?}"
+        );
+        assert!(
+            nested_protected_tail
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFastLoadFast { .. })),
+            "expected nested protected import tail to keep LOAD_FAST_LOAD_FAST, got tail={nested_protected_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_unprotected_import_before_with_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, document):
+    from xml.etree import ElementInclude
+    document = self.xinclude_loader('C1.xml')
+    with self.assertRaises(OSError) as cm:
+        ElementInclude.include(document, self.xinclude_loader)
+    self.assertEqual(str(cm.exception), 'resource not found')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let import_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::ImportName { .. }))
+            .expect("missing IMPORT_NAME");
+        let handler_start = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_path = &ops[import_idx + 1..handler_start];
+
+        assert!(
+            warm_path.iter().any(|op| {
+                matches!(
+                    op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "expected unprotected import before with-block to keep LOAD_FAST_BORROW ops, got warm_path={warm_path:?}"
+        );
+        assert!(
+            warm_path
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFastBorrowLoadFastBorrow { .. })),
+            "expected with body arguments to keep LOAD_FAST_BORROW_LOAD_FAST_BORROW, got warm_path={warm_path:?}"
+        );
+    }
+
+    #[test]
+    fn test_from_import_after_conditional_store_join_uses_strong_prefix_loads() {
+        let code = compile_exec(
+            "\
+def f(x):
+    if x is None:
+        x = 'a'
+    y = x.rpartition('.')[0]
+    from pkgutil import get_importer
+    return y
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let import_from_idx = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ImportFrom { .. }))
+            .expect("missing IMPORT_FROM");
+        let rpartition_idx = ops[..import_from_idx]
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "rpartition"
+                }
+                _ => false,
+            })
+            .expect("missing rpartition LOAD_ATTR");
+
+        assert!(
+            matches!(ops[rpartition_idx - 1].op, Instruction::LoadFast { .. }),
+            "CPython keeps the conditional-store join receiver strong before IMPORT_FROM, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_plain_import_after_conditional_store_join_keeps_borrow_prefix_loads() {
+        let code = compile_exec(
+            "\
+def f(x):
+    if x is None:
+        x = 'a'
+    y = x.rpartition('.')[0]
+    import pkgutil
+    return y
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let import_name_idx = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ImportName { .. }))
+            .expect("missing IMPORT_NAME");
+        let rpartition_idx = ops[..import_name_idx]
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "rpartition"
+                }
+                _ => false,
+            })
+            .expect("missing rpartition LOAD_ATTR");
+
+        assert!(
+            matches!(
+                ops[rpartition_idx - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "plain import after conditional-store join should keep CPython-style borrowed receiver, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_unprotected_prefix_before_try_keeps_attr_subscript_borrow() {
+        let code = compile_exec(
+            "\
+def f():
+    import sys, getopt
+    usage = f'usage: {sys.argv[0]}'
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'h')
+    except getopt.error as msg:
+        sys.stdout = sys.stderr
+        print(msg)
+        print(usage)
+        sys.exit(2)
+    return usage
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let first_argv_idx = f
+            .instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "argv"
+                }
+                _ => false,
+            })
+            .expect("missing argv attr load");
+        let receiver = f.instructions[..first_argv_idx]
+            .iter()
+            .rev()
+            .find(|unit| !matches!(unit.op, Instruction::Cache))
+            .expect("missing argv receiver")
+            .op;
+
+        assert!(
+            matches!(receiver, Instruction::LoadFastBorrow { .. }),
+            "unprotected prefix before try should keep CPython-style LOAD_FAST_BORROW receiver, got {receiver:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_inlined_comprehension_keeps_borrowed_warm_loads() {
+        let code = compile_exec(
+            r##"
+def f(output):
+    output = re.sub(r"\[[0-9]+ refs\]", "", output)
+    try:
+        result = [
+            row.split("\t")
+            for row in output.splitlines()
+            if row and not row.startswith('#')
+        ]
+        result.sort(key=lambda row: int(row[0]))
+        result = [row[1] for row in result]
+        return "\n".join(result)
+    except (IndexError, ValueError):
+        raise AssertionError(
+            "tracer produced unparsable output:\n{}".format(output)
+        )
+"##,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let handler_start = f
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_path = &f.instructions[..handler_start];
+        let load_fast_name = |unit: &bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+        let borrow_name = |unit: &bytecode::CodeUnit| match unit.op {
+            Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+
+        assert!(
+            warm_path
+                .iter()
+                .filter_map(load_fast_name)
+                .all(|name| name != "row" && name != "result"),
+            "terminal-except inlined comprehension warm path should keep CPython-style borrowed row/result loads, got warm_path={warm_path:?}"
+        );
+        for name in ["row", "result"] {
+            assert!(
+                warm_path
+                    .iter()
+                    .filter_map(borrow_name)
+                    .any(|var| var == name),
+                "expected borrowed {name} load in terminal-except inlined comprehension warm path, got warm_path={warm_path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_outer_guarded_protected_import_keeps_borrow_tail() {
+        let code = compile_exec(
+            "\
+def f(sys, os, file):
+    if sys.platform == 'win32':
+        try:
+            import nt
+            if not nt._supports_virtual_terminal():
+                return False
+        except (ImportError, AttributeError):
+            return False
+    try:
+        return os.isatty(file.fileno())
+    except OSError:
+        return hasattr(file, 'isatty') and file.isatty()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let borrows_name = |name: &str| {
+            f.instructions.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    let (left, right) = var_nums.get(arg).indexes();
+                    f.varnames[usize::from(left)] == name || f.varnames[usize::from(right)] == name
+                }
+                _ => false,
+            })
+        };
+
+        for name in ["nt", "os", "file"] {
+            assert!(
+                borrows_name(name),
+                "outer-guarded protected import should keep CPython-style borrow for {name}, got instructions={:?}",
+                f.instructions
+            );
+        }
+    }
+
+    #[test]
+    fn test_loop_or_break_continue_orders_break_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(self, quoted):
+    while True:
+        if self.state == 'x':
+            if self.token or (self.posix and quoted):
+                break
+            else:
+                continue
+        elif self.state == 'y':
+            self.consume()
+    x = self.a + self.b + self.c
+    return x
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let quoted_load = ops
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == "quoted"
+                }
+                _ => false,
+            })
+            .expect("missing quoted LOAD_FAST_BORROW");
+        let final_cond = ops[quoted_load + 1..]
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                )
+            })
+            .map(|idx| quoted_load + 1 + idx)
+            .expect("missing final conditional jump");
+        assert!(
+            matches!(ops[final_cond].op, Instruction::PopJumpIfFalse { .. }),
+            "expected CPython-style inverted final condition, got ops={ops:?}"
+        );
+        let break_jump_idx = ops[final_cond + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpForward { .. }))
+            .map(|idx| final_cond + 1 + idx)
+            .expect("missing break jump after condition");
+        let jump_back_idx = ops[final_cond + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpBackward { .. }))
+            .map(|idx| final_cond + 1 + idx)
+            .expect("missing continue backedge");
+        assert!(
+            break_jump_idx < jump_back_idx,
+            "expected break jump before continue backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_for_continue_before_return_orders_backedge_before_return_body() {
+        let code = compile_exec(
+            "\
+def f(self):
+    for version in AllowedVersions:
+        if not version in self.capabilities:
+            continue
+        self.PROTOCOL_VERSION = version
+        return
+    raise self.error('x')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let contains_idx = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ContainsOp { .. }))
+            .expect("missing containment test");
+        let cond_idx = ops[contains_idx + 1..]
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                )
+            })
+            .map(|idx| contains_idx + 1 + idx)
+            .expect("missing conditional jump");
+        assert!(
+            matches!(ops[cond_idx].op, Instruction::PopJumpIfTrue { .. }),
+            "expected CPython-style condition targeting the return body, got ops={ops:?}"
+        );
+
+        let backedge_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpBackward { .. }))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing continue backedge");
+        let store_attr_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::StoreAttr { namei } => {
+                    let namei = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(namei).unwrap()].as_str() == "PROTOCOL_VERSION"
+                }
+                _ => false,
+            })
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing PROTOCOL_VERSION store");
+        assert!(
+            backedge_idx < store_attr_idx,
+            "expected continue backedge before return body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_while_conditional_return_orders_backedge_before_return_body() {
+        let code = compile_exec(
+            "\
+def f(self, tag):
+    while self._get_response():
+        if self.tagged_commands[tag]:
+            return tag
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let subscript_idx = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::BinaryOp { .. }))
+            .expect("missing tagged_commands subscript");
+        let cond_idx = ops[subscript_idx + 1..]
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                )
+            })
+            .map(|idx| subscript_idx + 1 + idx)
+            .expect("missing conditional jump");
+        assert!(
+            matches!(ops[cond_idx].op, Instruction::PopJumpIfTrue { .. }),
+            "expected CPython-style condition targeting return body, got ops={ops:?}"
+        );
+        let backedge_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpBackward { .. }))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing loop backedge");
+        let return_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing return");
+        assert!(
+            backedge_idx < return_idx,
+            "expected loop backedge before return body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_while_boolop_conditional_return_splits_backedges_before_return_body() {
+        let code = compile_exec(
+            "\
+def f(flags, A, B, stop):
+    while True:
+        if stop:
+            break
+        if flags & A and flags & B:
+            return None
+    return flags
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(12).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::BinaryOp { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "boolop conditional return in a while tail should split CPython-style false backedges before the return body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_for_break_to_return_orders_backedge_before_return() {
+        let code = compile_exec(
+            "\
+def f(it):
+    best = 10
+    body = None
+    for prio, part in it:
+        if prio < best:
+            best = prio
+            body = part
+            if prio == 0:
+                break
+    return body
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let compare_idx = ops
+            .iter()
+            .enumerate()
+            .filter(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
+            .nth(1)
+            .map(|(idx, _)| idx)
+            .expect("missing break comparison");
+        let cond_idx = ops[compare_idx + 1..]
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                )
+            })
+            .map(|idx| compare_idx + 1 + idx)
+            .expect("missing break conditional jump");
+        assert!(
+            matches!(ops[cond_idx].op, Instruction::PopJumpIfTrue { .. }),
+            "expected CPython-style true jump to break return path, got ops={ops:?}"
+        );
+        let jump_back_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpBackward { .. }))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing loop backedge before break return");
+        let return_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing break return path");
+        assert!(
+            jump_back_idx < return_idx,
+            "expected loop backedge before break return block, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_for_conditional_raise_orders_backedge_before_raise() {
+        let code = compile_exec(
+            "\
+def f(items, limit):
+    found = 0
+    for item in items:
+        if item:
+            found += 1
+            if found >= limit:
+                raise ValueError(found)
+    return found
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let compare_idx = ops
+            .iter()
+            .enumerate()
+            .find(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
+            .map(|(idx, _)| idx)
+            .expect("missing raise comparison");
+        let cond_idx = ops[compare_idx + 1..]
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                )
+            })
+            .map(|idx| compare_idx + 1 + idx)
+            .expect("missing raise conditional jump");
+        assert!(
+            matches!(ops[cond_idx].op, Instruction::PopJumpIfTrue { .. }),
+            "expected CPython-style true jump to raise path, got ops={ops:?}"
+        );
+        let jump_back_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpBackward { .. }))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing loop backedge before raise");
+        let raise_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::RaiseVarargs { .. }))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing raise path");
+        assert!(
+            jump_back_idx < raise_idx,
+            "expected loop backedge before conditional raise block, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_simple_for_conditional_raise_orders_backedge_before_raise() {
+        let code = compile_exec(
+            "\
+def f(kw):
+    for k in ('stdout', 'check'):
+        if k in kw:
+            raise ValueError(f'{k} argument not allowed, it will be overridden.')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style true jump to raise path after loop backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "unexpected conditional raise body before loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_nested_boolop_exit_keeps_cpython_backedge_line_order() {
+        let code = compile_exec(
+            "\
+def f(found, value, m, done, name, renamed_variables, keep_unresolved, variables):
+    for _ in [0]:
+        if m is not None:
+            if found:
+                if '$' in value:
+                    done[name] = value
+                else:
+                    try:
+                        value = int(value)
+                    except ValueError:
+                        done[name] = value.strip()
+                    else:
+                        done[name] = value
+                    variables.remove(name)
+                    if name.startswith('PY_') \\
+                    and name[3:] in renamed_variables:
+                        name = name[3:]
+                        if name not in done:
+                            done[name] = value
+        else:
+            if keep_unresolved:
+                done[name] = value
+            variables.remove(name)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops_lines: Vec<_> = f
+            .instructions
+            .iter()
+            .zip(&f.locations)
+            .filter_map(|(unit, (location, _))| {
+                (!matches!(unit.op, Instruction::Cache)).then_some((unit.op, location.line.get()))
+            })
+            .collect();
+
+        assert!(
+            ops_lines.windows(9).any(|window| {
+                matches!(
+                    window,
+                    [
+                        (Instruction::StoreSubscr, 19),
+                        (Instruction::JumpBackward { .. }, 19),
+                        (Instruction::JumpBackward { .. }, 18),
+                        (Instruction::JumpBackward { .. }, 16),
+                        (Instruction::JumpBackward { .. }, 15),
+                        (Instruction::JumpBackward { .. }, 4),
+                        (
+                            Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                            21
+                        ),
+                        (Instruction::ToBool, 21),
+                        (Instruction::PopJumpIfFalse { .. }, 21),
+                    ]
+                )
+            }),
+            "expected CPython-style nested boolop backedge line order before enclosing else, got ops_lines={ops_lines:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_conditional_raise_before_elif_keeps_raise_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(checks, missing, named):
+    for check in checks:
+        if check == 1:
+            if missing:
+                raise ValueError('x')
+        elif check is named:
+            pass
+    return checks
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadGlobal { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style false edge into raise body before following elif chain, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                    ]
+                )
+            }),
+            "unexpected loop backedge before conditional raise body in if/elif chain, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_for_is_none_raise_threads_backedge_before_raise() {
+        let code = compile_exec(
+            "\
+def f(stacklevel, frame, skip_file_prefixes):
+    try:
+        for x in range(stacklevel - 1):
+            frame = _next_external_frame(frame, skip_file_prefixes)
+            if frame is None:
+                raise ValueError
+    except ValueError:
+        frame = None
+    return frame
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::PopJumpIfNone { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected protected is-None raise path to match CPython's backedge-before-raise layout, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_exception_handler_loop_conditional_raise_orders_backedge_before_raise() {
+        let code = compile_exec(
+            "\
+def f(chunk, dec, i):
+    try:
+        for c in chunk:
+            acc = dec[c]
+    except TypeError:
+        for j, c in enumerate(chunk):
+            if dec[c] is None:
+                raise ValueError('%d' % (i + j)) from None
+        raise
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::BinaryOp { .. },
+                        Instruction::PopJumpIfNone { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "expected exception-handler loop false path to jump back before raise body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::BinaryOp { .. },
+                        Instruction::PopJumpIfNotNone { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "unexpected exception-handler loop raise body before backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_exception_handler_loop_conditional_return_orders_backedge_before_return() {
+        let code = compile_exec(
+            "\
+def f(cls, value):
+    try:
+        return cls[value]
+    except TypeError:
+        for name, values in cls.items():
+            if value in values:
+                return cls[name]
+        for name, member in cls.items():
+            if value == member.value:
+                return cls[name]
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastLoadFast { .. }
+                            | Instruction::LoadFastBorrowLoadFastBorrow { .. },
+                    ]
+                )
+            }),
+            "expected exception-handler loop false path to jump back before return body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastLoadFast { .. }
+                            | Instruction::LoadFastBorrowLoadFastBorrow { .. },
+                    ]
+                )
+            }),
+            "unexpected exception-handler loop return body before backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_if_body_keeps_fallthrough_before_implicit_continue_backedge() {
+        let code = compile_exec(
+            "\
+def f(b, curr, curr_append, decoded_append, packI, curr_clear):
+    for x in b:
+        if 33 <= x <= 117:
+            curr_append(x)
+            if len(curr) == 5:
+                acc = 0
+                for x in curr:
+                    acc = 85 * acc + (x - 33)
+                decoded_append(packI(acc))
+                curr_clear()
+        elif x == 122:
+            decoded_append(0)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style conditional body fallthrough before implicit continue backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted conditional with implicit continue backedge before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_if_not_continue_before_conditional_listcomp_body_keeps_cpython_layout() {
+        let code = compile_exec(
+            "\
+def f(data, use):
+    for line in data:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith('@'):
+            continue
+        values = [use(x) for x in line]
+        use(values)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "if-not continue should keep CPython's forward true edge over the continue backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_chained_compare_continue_does_not_duplicate_cleanup_backedge() {
+        let code = compile_exec(
+            "\
+def f(items):
+    offsets = []
+    ranges = [(0, 10), (20, 30)]
+    for item in items:
+        trans_time, offset_before, offset_after = item
+        for dt_min, dt_max in ranges:
+            if trans_time is not None and not (dt_min <= trans_time <= dt_max):
+                continue
+            if offset_before not in offsets:
+                offsets.append(offset_before)
+            if offset_after not in offsets:
+                offsets.append(offset_after)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. }
+                            | Instruction::LoadFast { .. }
+                            | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::ContainsOp { .. }
+                            | Instruction::LoadFastBorrow { .. }
+                            | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "chained-compare continue cleanup should fall through to the following body after one backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "chained-compare continue cleanup should not duplicate the loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_loop_if_body_keeps_cpython_fallthrough_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(self, ready, selector, key, input_view, os, BrokenPipeError):
+    for key, events in ready:
+        if key.fileobj is self.stdin:
+            chunk = input_view[self._input_offset:self._input_offset + 1]
+            try:
+                self._input_offset += os.write(key.fd, chunk)
+            except BrokenPipeError:
+                selector.unregister(key.fileobj)
+                key.fileobj.close()
+            else:
+                if self._input_offset >= len(input_view):
+                    selector.unregister(key.fileobj)
+                    key.fileobj.close()
+        elif key.fileobj in (self.stdout, self.stderr):
+            self.read(key)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style try-else if body fallthrough before loop backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "unexpected inverted try-else conditional with loop backedge before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_after_conditional_raise_keeps_loop_if_body_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(seq, flag, stat, OSError, pred, SpecialFileError):
+    for i in seq:
+        try:
+            st = stat(i)
+        except OSError:
+            pass
+        else:
+            if pred(st.mode):
+                raise SpecialFileError(i)
+            if flag and i == 0:
+                x = st.real
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::StoreFast { .. },
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "try-else tail after conditional raise should keep CPython body-before-backedge layout, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "try-else tail should not invert the inner condition before its body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_explicit_continue_after_return_orders_return_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(j, n):
+    while j < n:
+        if j < 0:
+            return j
+        continue
+    return -1
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let compare_idx = ops
+            .iter()
+            .enumerate()
+            .filter(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
+            .nth(1)
+            .map(|(idx, _)| idx)
+            .expect("missing inner comparison");
+        let cond_idx = ops[compare_idx + 1..]
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                )
+            })
+            .map(|idx| compare_idx + 1 + idx)
+            .expect("missing conditional jump");
+        assert!(
+            matches!(ops[cond_idx].op, Instruction::PopJumpIfFalse { .. }),
+            "expected CPython-style false jump to explicit continue, got ops={ops:?}"
+        );
+        let return_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing return path");
+        let jump_back_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpBackward { .. }))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing explicit continue backedge");
+        assert!(
+            return_idx < jump_back_idx,
+            "expected return block before explicit continue backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_implicit_while_tail_return_orders_backedge_before_return() {
+        let code = compile_exec(
+            "\
+def f(self, j, n):
+    while j < n:
+        name, j = self.scan(j)
+        if j < 0:
+            return j
+    return -1
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let compare_idx = ops
+            .iter()
+            .enumerate()
+            .filter(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
+            .nth(1)
+            .map(|(idx, _)| idx)
+            .expect("missing inner comparison");
+        let cond_idx = ops[compare_idx + 1..]
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                )
+            })
+            .map(|idx| compare_idx + 1 + idx)
+            .expect("missing conditional jump");
+        assert!(
+            matches!(ops[cond_idx].op, Instruction::PopJumpIfTrue { .. }),
+            "expected CPython-style true jump to return, got ops={ops:?}"
+        );
+        let jump_back_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpBackward { .. }))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing implicit backedge");
+        let return_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing return path");
+        assert!(
+            jump_back_idx < return_idx,
+            "expected implicit loop backedge before return block, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_branch_arm_implicit_continue_keeps_return_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(self, j, n, c):
+    while j < n:
+        if c == 'x':
+            j = self.step(j)
+            if j < 0:
+                return j
+        elif c == 'y':
+            j = j + 1
+    return -1
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let compare_idx = ops
+            .iter()
+            .enumerate()
+            .filter(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
+            .nth(2)
+            .map(|(idx, _)| idx)
+            .expect("missing branch-arm return comparison");
+        let cond_idx = ops[compare_idx + 1..]
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                )
+            })
+            .map(|idx| compare_idx + 1 + idx)
+            .expect("missing branch-arm conditional jump");
+        assert!(
+            matches!(ops[cond_idx].op, Instruction::PopJumpIfFalse { .. }),
+            "expected CPython-style false jump to branch-arm continuation, got ops={ops:?}"
+        );
+        let return_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing branch-arm return path");
+        let jump_back_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpBackward { .. }))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing branch-arm loop backedge");
+        assert!(
+            return_idx < jump_back_idx,
+            "expected branch-arm return before loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_implicit_while_tail_return_orders_backedge_before_return() {
+        let code = compile_exec(
+            "\
+def f(self, rawdata, j, match):
+    while 1:
+        c = rawdata[j:j + 1]
+        if c in \"'\\\"\":
+            m = match(rawdata, j)
+            if not m:
+                return -1
+            j = m.end()
+        else:
+            name, j = self.scan(j)
+            if j < 0:
+                return j
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let compare_idx = ops
+            .iter()
+            .enumerate()
+            .rfind(|(_, unit)| matches!(unit.op, Instruction::CompareOp { .. }))
+            .map(|(idx, _)| idx)
+            .expect("missing nested tail comparison");
+        let cond_idx = ops[compare_idx + 1..]
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
+                )
+            })
+            .map(|idx| compare_idx + 1 + idx)
+            .expect("missing nested tail conditional jump");
+        assert!(
+            matches!(ops[cond_idx].op, Instruction::PopJumpIfTrue { .. }),
+            "expected CPython-style true jump to nested return path, got ops={ops:?}"
+        );
+        let jump_back_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::JumpBackward { .. }))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing nested tail loop backedge");
+        let return_idx = ops[cond_idx + 1..]
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .map(|idx| cond_idx + 1 + idx)
+            .expect("missing nested tail return path");
+        assert!(
+            jump_back_idx < return_idx,
+            "expected nested implicit loop backedge before return block, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_join_store_global_before_import_keeps_strong_load_fast() {
+        let code = compile_exec(
+            "\
+def f(module=None):
+    global ET
+    if module is None:
+        module = pyET
+    ET = module
+    from xml.etree import ElementPath
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFast { .. },
+                        Instruction::StoreGlobal { .. },
+                    ]
+                )
+            }),
+            "expected CPython-style strong LOAD_FAST before join STORE_GLOBAL followed by import, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_handler_resume_join_keeps_borrow_in_common_tail() {
         let code = compile_exec(
             "\
 def f(p, errors, s, pos, look, final, escape_start, st):
@@ -16317,20 +29440,119 @@ def f(p, errors, s, pos, look, final, escape_start, st):
             .collect();
 
         assert!(
-            !tail.iter().any(|op| {
+            matches!(
+                tail.as_slice(),
+                [
+                    Instruction::LoadFastBorrow { .. },
+                    Instruction::LoadAttr { .. },
+                    Instruction::LoadFastBorrow { .. },
+                    ..,
+                ]
+            ),
+            "expected handler resume common tail to start with borrowed append receiver/arg loads, got tail={tail:?}"
+        );
+        assert!(
+            tail.iter().any(|op| {
                 matches!(
                     op,
-                    Instruction::LoadFastBorrow { .. }
-                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                    Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrow { .. }
                 )
             }),
-            "expected handler resume common tail to keep strong LOAD_FAST ops, got tail={tail:?}"
+            "expected handler resume common tail to keep borrowed LOAD_FAST ops, got tail={tail:?}"
         );
+    }
+
+    #[test]
+    fn test_multi_handler_guarded_resume_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(a):
+    try:
+        g()
+    except ValueError:
+        pass
+    except TypeError:
+        pass
+    if a:
+        return a.x
+    return 0
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
 
         assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. },
+                    ]
+                )
+            }),
+            "expected guarded resume tail to keep borrowed guard/body loads, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::LoadAttr { .. }
+                    ]
+                )
+            }),
+            "expected guarded resume tail attr access to keep borrowed receiver, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_multi_handler_method_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, xs):
+    for vals, expected in xs:
+        try:
+            actual = g(vals)
+        except OverflowError:
+            self.fail(expected)
+        except ValueError:
+            self.fail(expected)
+        self.assertEqual(actual, expected)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        let assert_equal_idx = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::LoadAttr { .. }))
+            .expect("missing assertEqual LOAD_ATTR");
+        let tail = &ops[assert_equal_idx.saturating_sub(1)..];
+
+        assert!(
+            matches!(tail.first(), Some(Instruction::LoadFastBorrow { .. })),
+            "expected multi-handler method-call tail receiver to keep LOAD_FAST_BORROW, got tail={tail:?}"
+        );
+        assert!(
             tail.iter()
-                .any(|op| matches!(op, Instruction::LoadFastLoadFast { .. })),
-            "expected handler resume common tail to keep LOAD_FAST_LOAD_FAST ops, got tail={tail:?}"
+                .any(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+            "expected multi-handler method-call tail args to keep borrowed loads, got tail={tail:?}"
         );
     }
 
@@ -16374,6 +29596,2996 @@ def f(args):
                 ]
             ),
             "expected loop body call to keep borrowed arg load after named-except cleanup, got window={window:?}"
+        );
+    }
+
+    #[test]
+    fn test_multi_named_except_loop_header_keeps_borrow_for_normal_path() {
+        let code = compile_exec(
+            "\
+def f(self):
+    for badval in ['illegal', -1, 1 << 32]:
+        class A:
+            def __len__(self):
+                return badval
+        try:
+            bool(A())
+        except (Exception) as e_bool:
+            try:
+                len(A())
+            except (Exception) as e_len:
+                self.assertEqual(str(e_bool), str(e_len))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadBuildClass,
+                        Instruction::PushNull,
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::BuildTuple { .. },
+                    ]
+                )
+            }),
+            "expected class closure setup in loop header to borrow badval, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. },
+                        Instruction::PushNull,
+                        Instruction::Call { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "expected normal bool(A()) path in loop header to borrow A, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_named_except_cleanup_simple_resume_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        1 / 0
+    except Exception as e:
+        tb = e.__traceback__
+    self.get_disassemble_as_string(tb.tb_frame.f_code, tb.tb_lasti)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let attr_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                        == "get_disassemble_as_string"
+                }
+                _ => false,
+            })
+            .expect("missing LOAD_ATTR for get_disassemble_as_string");
+        let ops: Vec<_> = instructions.iter().map(|unit| unit.op).collect();
+        assert!(
+            matches!(
+                ops.get(attr_idx - 1),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "expected named-except resume tail to keep borrowed self load, got ops={ops:?}"
+        );
+        assert!(
+            matches!(
+                ops.get(attr_idx + 4),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "expected named-except resume tail to keep borrowed tb load, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_named_except_cleanup_conditional_raise_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        output = self.trace()
+        output = output.strip()
+    except (A, B, C) as fnfe:
+        output = str(fnfe)
+    if output != 'probe: success':
+        raise E('{} {}'.format(self.command[0], output))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let raise_idx = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::RaiseVarargs { .. }))
+            .expect("missing conditional raise");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &instructions[..handler_start.min(raise_idx)];
+
+        assert!(
+            tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "named-except cleanup conditional raise tail should keep borrowed loads, got tail={tail:?}"
+        );
+        assert!(
+            !tail
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "named-except cleanup conditional raise tail should not force strong LOAD_FAST, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_suppress_named_except_resume_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(self, cm, E):
+    try:
+        with cm:
+            pass
+    except E as e:
+        frames = e
+    self.x(frames)
+    self.y(frames)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let first_tail_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "x"
+                }
+                _ => false,
+            })
+            .expect("missing x attr load");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &instructions[first_tail_attr.saturating_sub(1)..handler_start];
+
+        assert!(
+            tail.iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "expected with-suppress/named-except resume tail to use strong LOAD_FAST, got tail={tail:?}"
+        );
+        assert!(
+            tail.iter().all(|unit| {
+                !matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "expected with-suppress/named-except resume tail not to borrow, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_named_except_return_value_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, b, BlockingIOError):
+    with self._write_lock:
+        written = len(self._write_buf)
+        if len(self._write_buf) > self.buffer_size:
+            try:
+                self._flush_unlocked()
+            except BlockingIOError as e:
+                if len(self._write_buf) > self.buffer_size:
+                    overage = len(self._write_buf) - self.buffer_size
+                    written -= overage
+                    raise BlockingIOError(e.errno, e.strerror, written)
+        return written
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let with_exit_start = instructions
+            .windows(3)
+            .position(|window| {
+                matches!(
+                    window,
+                    [
+                        CodeUnit {
+                            op: Instruction::Swap { .. },
+                            ..
+                        },
+                        CodeUnit {
+                            op: Instruction::Swap { .. },
+                            ..
+                        },
+                        CodeUnit {
+                            op: Instruction::LoadConst { .. },
+                            ..
+                        },
+                    ]
+                )
+            })
+            .expect("missing with-exit cleanup");
+        let return_value_load = instructions
+            .get(with_exit_start.saturating_sub(1))
+            .expect("missing return value load");
+        let arg = OpArg::new(u32::from(u8::from(return_value_load.arg)));
+
+        assert!(
+            matches!(
+                return_value_load.op,
+                Instruction::LoadFastBorrow { var_num }
+                    if f.varnames[usize::from(var_num.get(arg))] == "written"
+            ),
+            "return value loaded through with-exit cleanup should keep borrowed written, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_final_conditional_return_preserves_fallthrough_cleanup_nop() {
+        let code = compile_exec(
+            "\
+def f(self):
+    with self.lock:
+        if self.raw is None or self.closed:
+            return
+    self.flush()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .map(|unit| unit.op)
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "with fallthrough cleanup should preserve the CPython POP_BLOCK NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_while_fallthrough_preserves_cleanup_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, source):
+    with cm as out:
+        s = source.read()
+        while s:
+            out.write(s)
+            s = source.read()
+    source.close()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .map(|unit| unit.op)
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "with cleanup after while fallthrough should preserve the CPython POP_BLOCK NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_while_true_break_drops_cleanup_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, source):
+    with cm as out:
+        while True:
+            data = source.read()
+            if not data:
+                break
+            out.write(data)
+    source.close()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .map(|unit| unit.op)
+            .collect();
+
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "with cleanup after while True break should not preserve a POP_BLOCK NOP, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_final_assert_preserves_cleanup_nop() {
+        let code = compile_exec(
+            "\
+def f(cm, dst):
+    with cm:
+        assert not dst.closed
+    return dst
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .map(|unit| unit.op)
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "with cleanup after a final assert should preserve CPython's POP_BLOCK NOP anchor, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_named_except_conditional_reraise_final_store_attr_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, fd, file, closefd, owned_fd, OSError, AttributeError, errno, os, stat, _setmode):
+    try:
+        self._closefd = closefd
+        self._stat_atopen = os.fstat(fd)
+        try:
+            if stat.S_ISDIR(self._stat_atopen.st_mode):
+                raise IsADirectoryError(errno.EISDIR, os.strerror(errno.EISDIR), file)
+        except AttributeError:
+            pass
+        if _setmode:
+            _setmode(fd, os.O_BINARY)
+        self.name = file
+        if self._appending:
+            try:
+                os.lseek(fd, 0, SEEK_END)
+            except OSError as e:
+                if e.errno != errno.ESPIPE:
+                    raise
+    except:
+        self._stat_atopen = None
+        if owned_fd is not None:
+            os.close(owned_fd)
+        raise
+    self._fd = fd
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let load_attr_name = |unit: &&bytecode::CodeUnit, expected: &str| match unit.op {
+            Instruction::LoadAttr { namei } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                let load_attr = namei.get(arg);
+                f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == expected
+            }
+            _ => false,
+        };
+        let lseek_attr = instructions
+            .iter()
+            .position(|unit| load_attr_name(unit, "lseek"))
+            .expect("missing lseek load");
+        let store_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::StoreAttr { namei } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.names[usize::try_from(namei.get(arg)).unwrap()].as_str() == "_fd"
+                }
+                _ => false,
+            })
+            .expect("missing _fd store");
+
+        assert!(
+            matches!(
+                instructions
+                    .get(lseek_attr.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "nested conditional reraise try body should keep borrowed os receiver, got instructions={instructions:?}"
+        );
+        assert!(
+            matches!(
+                instructions.get(lseek_attr + 1).map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "nested conditional reraise try body should keep borrowed fd argument, got instructions={instructions:?}"
+        );
+        assert!(
+            matches!(
+                instructions
+                    .get(store_attr.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrowLoadFastBorrow { .. })
+            ),
+            "conditional reraise named-except final store tail should keep borrowed pair loads, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_except_else_with_resume_loop_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(self, cm, E):
+    with cm:
+        try:
+            g()
+        except E:
+            pass
+        else:
+            with self.z(E):
+                h()
+        for _ in support.sleeping_retry(support.SHORT_TIMEOUT, 'not ready'):
+            if self.x:
+                break
+        self.y()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let get_iter = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::GetIter))
+            .expect("missing loop iterator");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &instructions[get_iter.saturating_sub(1)..handler_start];
+
+        assert!(
+            tail.iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "expected with except/else-with resume loop tail to use strong LOAD_FAST ops, got tail={tail:?}"
+        );
+        assert!(
+            tail.iter().all(|unit| {
+                !matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "with except/else-with resume loop tail should not borrow LOAD_FAST ops, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_plain_with_then_global_loop_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, cm):
+    with cm:
+        self.x()
+    for value in ITEMS:
+        self.y(value)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let y_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "y"
+                }
+                _ => false,
+            })
+            .expect("missing y attr load");
+
+        assert!(
+            matches!(
+                instructions
+                    .get(y_attr.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "plain with/global-loop tail should keep CPython-style borrowed self load, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_context_manager_for_join_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, factory):
+    with factory() as e:
+        executor = e
+        self.x(e)
+    for t in executor._threads:
+        t.join()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let join_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "join"
+                }
+                _ => false,
+            })
+            .expect("missing join attr load");
+
+        assert!(
+            matches!(
+                instructions
+                    .get(join_attr.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "context-manager for-join tail should keep CPython-style borrowed t load, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_except_resume_normal_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(self, cm, E):
+    try:
+        with self.assertRaises(E):
+            with cm:
+                h()
+    except TimeoutError:
+        self._fail_on_deadlock(cm)
+    cm.shutdown(wait=True)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let shutdown_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "shutdown"
+                }
+                _ => false,
+            })
+            .expect("missing shutdown attr load");
+
+        assert!(
+            matches!(
+                instructions
+                    .get(shutdown_attr.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFast { .. })
+            ),
+            "with/except resume normal tail should keep CPython-style strong cm load, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_except_else_attr_subscript_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, cm, E, obj):
+    try:
+        with cm:
+            pass
+    except E as exc:
+        self.x(exc)
+    else:
+        self.fail('Expected')
+    inner = obj.saved_details[1]
+    self.x(inner)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let saved_details = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                        == "saved_details"
+                }
+                _ => false,
+            })
+            .expect("missing saved_details attr load");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &instructions[saved_details.saturating_sub(1)..handler_start];
+
+        assert!(
+            tail.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::LoadFastBorrow { .. }
+                    | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+            )),
+            "expected except-else attr-subscript tail to keep borrowed LOAD_FAST ops, got tail={tail:?}"
+        );
+        assert!(
+            tail.iter()
+                .all(|unit| !matches!(unit.op, Instruction::LoadFast { .. })),
+            "except-else attr-subscript tail should not be deoptimized to strong LOAD_FAST, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_suppress_attr_subscript_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, cm):
+    stack = self.exit_stack()
+    with self.assertRaisesRegex(TypeError, 'the context manager'):
+        stack.enter_context(cm)
+    stack.push(cm)
+    self.assertIs(stack._exit_callbacks[-1][1], cm)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let exit_callbacks = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                        == "_exit_callbacks"
+                }
+                _ => false,
+            })
+            .expect("missing _exit_callbacks attr load");
+
+        assert!(
+            matches!(
+                instructions
+                    .get(exit_callbacks.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "with-suppress attr-subscript tail should keep CPython-style borrowed stack load, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_named_except_conditional_reraise_deopts_with_chain_tail() {
+        let code = compile_exec(
+            "\
+def f(self, arc, tmp_filename, new_mode):
+    try:
+        os.chmod(tmp_filename, new_mode)
+    except OSError as exc:
+        if exc.errno == ERR:
+            self.skipTest()
+        else:
+            raise
+    with self.check_context(arc.open(), 'fully_trusted'):
+        self.expect_file('a')
+    with self.check_context(arc.open(), 'tar'):
+        self.expect_file('b')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let first_check_context = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                        == "check_context"
+                }
+                _ => false,
+            })
+            .expect("missing check_context load");
+        let first_handler = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .unwrap_or(instructions.len());
+        let warm_tail = &instructions[first_check_context.saturating_sub(1)..first_handler];
+
+        assert!(
+            warm_tail
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "expected conditional named-except reraise tail to use strong LOAD_FAST ops, got tail={warm_tail:?}"
+        );
+        assert!(
+            warm_tail.iter().all(|unit| {
+                !matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "expected all warm with-chain tail loads to stay strong after named-except reraise, got tail={warm_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_before_with_deopts_with_body_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, cm):
+    try:
+        g()
+    except OSError:
+        raise Exception('skip')
+    with cm:
+        self.x()
+        self.y()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let first_tail_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "x"
+                }
+                _ => false,
+            })
+            .expect("missing x attr load");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let with_tail = &instructions[first_tail_attr.saturating_sub(1)..handler_start];
+
+        assert!(
+            with_tail
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "expected terminal-except before with to use strong LOAD_FAST ops, got tail={with_tail:?}"
+        );
+        assert!(
+            with_tail.iter().all(|unit| {
+                !matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "terminal-except before with should not borrow protected with body loads, got tail={with_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_resume_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(re, proc, unittest):
+    try:
+        version = proc.communicate()
+    except OSError:
+        raise unittest.SkipTest('x')
+    match = re.search('pat', version)
+    if match is None:
+        raise unittest.SkipTest(f'Unable to parse readelf version: {version}')
+    return int(match.group(1)), int(match.group(2))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let search_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "search"
+                }
+                _ => false,
+            })
+            .expect("missing re.search attr load");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &instructions[search_attr.saturating_sub(1)..handler_start];
+
+        let strong_loads_name = |name: &str| {
+            tail.iter().any(|unit| match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                Instruction::LoadFastLoadFast { var_nums } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    let (left, right) = var_nums.get(arg).indexes();
+                    f.varnames[usize::from(left)] == name || f.varnames[usize::from(right)] == name
+                }
+                _ => false,
+            })
+        };
+        let borrows_name = |name: &str| {
+            tail.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    let (left, right) = var_nums.get(arg).indexes();
+                    f.varnames[usize::from(left)] == name || f.varnames[usize::from(right)] == name
+                }
+                _ => false,
+            })
+        };
+
+        for name in ["re", "version", "match"] {
+            assert!(
+                strong_loads_name(name),
+                "terminal-except resume tail should use strong LOAD_FAST for {name}, got tail={tail:?}"
+            );
+            assert!(
+                !borrows_name(name),
+                "terminal-except resume tail should not borrow {name}, got tail={tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_terminal_except_conditional_return_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(param, value, quote):
+    try:
+        value.encode('ascii')
+    except UnicodeEncodeError:
+        return param
+    if quote:
+        return param
+    return value
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let quote_idx = instructions[..handler_start]
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == "quote"
+                }
+                _ => false,
+            })
+            .expect("missing quote guard load");
+        let tail = &instructions[quote_idx..handler_start];
+
+        let strong_loads_name = |name: &str| {
+            tail.iter().any(|unit| match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+        let borrows_name = |name: &str| {
+            tail.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+
+        for name in ["quote", "param", "value"] {
+            assert!(
+                strong_loads_name(name),
+                "terminal-except conditional tail should use strong LOAD_FAST for {name}, got tail={tail:?}"
+            );
+            assert!(
+                !borrows_name(name),
+                "terminal-except conditional tail should not borrow {name}, got tail={tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_terminal_except_successor_call_tail_uses_strong_load() {
+        let code = compile_exec(
+            "\
+def f(curr, decoded_append, packI, curr_clear, Error):
+    if len(curr) == 5:
+        acc = 0
+        for x in curr:
+            acc = 85 * acc + (x - 33)
+        try:
+            decoded_append(packI(acc))
+        except Error:
+            raise ValueError('overflow') from None
+        curr_clear()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let curr_clear_load = instructions[..handler_start]
+            .iter()
+            .rev()
+            .find(|unit| match unit.op {
+                Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == "curr_clear"
+                }
+                _ => false,
+            })
+            .expect("missing curr_clear load");
+
+        assert!(
+            matches!(curr_clear_load.op, Instruction::LoadFast { .. }),
+            "terminal except successor call tail should use strong LOAD_FAST for curr_clear, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_following_if_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(s):
+    try:
+        t = s[1:]
+        d = g(s)
+    except ValueError:
+        raise ValueError('bad') from None
+    if t:
+        try:
+            a, b, c = h(t)
+        except ValueError:
+            raise ValueError('bad') from None
+        else:
+            if b:
+                x, y, z = d
+                if y <= 12 and z <= q(x, y):
+                    z += 1
+                d = [x, y, z]
+    else:
+        a = [0]
+    return k(*(d + a))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail_start = ops
+            .iter()
+            .position(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num }
+                        if f.varnames[usize::from(
+                            var_num.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        )] == "t"
+                )
+            })
+            .expect("missing post-try t load");
+        let tail = &ops[tail_start..handler_start];
+
+        assert!(
+            !tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "terminal except following conditional tail should use CPython-style strong LOAD_FAST ops, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_bare_except_internal_condition_keeps_try_body_borrows() {
+        let code = compile_exec(
+            "\
+def f(buffering, raw, binary, result, BufferedReader):
+    try:
+        line_buffering = False
+        if buffering == 1 or buffering < 0 and raw._isatty_open_only():
+            buffering = -1
+            line_buffering = True
+        if buffering < 0:
+            buffering = max(min(raw._blksize, 8192 * 1024), 8192)
+        if buffering < 0:
+            raise ValueError('invalid buffering size')
+        if buffering == 0:
+            if binary:
+                return result
+            raise ValueError(\"can't have unbuffered text I/O\")
+        buffer = BufferedReader(raw, buffering)
+        result = buffer
+        if binary:
+            return result
+        return result
+    except:
+        result.close()
+        raise
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_path = &ops[..handler_start];
+
+        let borrows_name = |name: &str| {
+            warm_path.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    let (left, right) = var_nums.get(arg).indexes();
+                    f.varnames[usize::from(left)] == name || f.varnames[usize::from(right)] == name
+                }
+                _ => false,
+            })
+        };
+        let strong_loads_name = |name: &str| {
+            warm_path.iter().any(|unit| match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                Instruction::LoadFastLoadFast { var_nums } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    let (left, right) = var_nums.get(arg).indexes();
+                    f.varnames[usize::from(left)] == name || f.varnames[usize::from(right)] == name
+                }
+                _ => false,
+            })
+        };
+
+        for name in ["buffering", "raw", "binary", "result", "BufferedReader"] {
+            assert!(
+                borrows_name(name),
+                "CPython keeps {name} borrowed inside the same bare-except protected region, got warm_path={warm_path:?}"
+            );
+            assert!(
+                !strong_loads_name(name),
+                "same protected-region conditional tail should not be terminal-except deoptimized for {name}, got warm_path={warm_path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_try_except_else_terminal_handler_conditional_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(self, pos, whence):
+    try:
+        pos_index = pos.__index__
+    except AttributeError:
+        raise TypeError(f'{pos!r} is not an integer')
+    else:
+        pos = pos_index()
+    if whence == 0:
+        if pos < 0:
+            raise ValueError(f'negative {pos!r}')
+        self._pos = pos
+    elif whence == 1:
+        self._pos = max(0, self._pos + pos)
+    return self._pos
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_path = &ops[..handler_start];
+
+        let op_mentions_name = |unit: &CodeUnit, name: &str| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))] == name
+            }
+            Instruction::LoadFastLoadFast { var_nums }
+            | Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                let (left, right) = var_nums.get(arg).indexes();
+                f.varnames[usize::from(left)] == name || f.varnames[usize::from(right)] == name
+            }
+            _ => false,
+        };
+        let is_borrow_for_name = |unit: &CodeUnit, name: &str| match unit.op {
+            Instruction::LoadFastBorrow { .. }
+            | Instruction::LoadFastBorrowLoadFastBorrow { .. } => op_mentions_name(unit, name),
+            _ => false,
+        };
+        let is_strong_for_name = |unit: &CodeUnit, name: &str| match unit.op {
+            Instruction::LoadFast { .. } | Instruction::LoadFastLoadFast { .. } => {
+                op_mentions_name(unit, name)
+            }
+            _ => false,
+        };
+
+        assert!(
+            warm_path
+                .iter()
+                .any(|unit| is_borrow_for_name(unit, "pos_index")),
+            "try-else call should remain borrowed before the terminal-handler tail, got warm_path={warm_path:?}"
+        );
+
+        let tail_start = warm_path
+            .iter()
+            .position(|unit| {
+                is_strong_for_name(unit, "whence") || is_borrow_for_name(unit, "whence")
+            })
+            .expect("missing post-try conditional tail");
+        let post_try_tail = &warm_path[tail_start..];
+        for name in ["whence", "pos", "self"] {
+            assert!(
+                post_try_tail
+                    .iter()
+                    .any(|unit| is_strong_for_name(unit, name)),
+                "terminal except conditional tail should use strong loads for {name}, got tail={post_try_tail:?}"
+            );
+            assert!(
+                !post_try_tail
+                    .iter()
+                    .any(|unit| is_borrow_for_name(unit, name)),
+                "terminal except conditional tail should not borrow {name}, got tail={post_try_tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_try_except_else_outer_join_keeps_borrowed_loads() {
+        let code = compile_exec(
+            "\
+def f(self, pos=None):
+    if self.closed:
+        raise ValueError('closed')
+    if pos is None:
+        pos = self._pos
+    else:
+        try:
+            pos_index = pos.__index__
+        except AttributeError:
+            raise TypeError(f'{pos!r} is not an integer')
+        else:
+            pos = pos_index()
+        if pos < 0:
+            raise ValueError(f'negative {pos!r}')
+    del self._buffer[pos:]
+    return pos
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let warm_path = &ops[..handler_start];
+
+        let mentions_name = |unit: &CodeUnit, name: &str| match unit.op {
+            Instruction::LoadFast { var_num }
+            | Instruction::LoadFastBorrow { var_num }
+            | Instruction::StoreFast { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                f.varnames[usize::from(var_num.get(arg))] == name
+            }
+            _ => false,
+        };
+        let else_store = warm_path
+            .iter()
+            .position(|unit| {
+                matches!(unit.op, Instruction::StoreFast { .. }) && mentions_name(unit, "pos")
+            })
+            .expect("missing try-else pos store");
+        let delete_subscr = warm_path
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::DeleteSubscr))
+            .expect("missing join delete");
+        let else_tail = &warm_path[else_store + 1..delete_subscr];
+
+        assert!(
+            else_tail
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })
+                    && mentions_name(unit, "pos")),
+            "terminal try-else conditional should use strong pos loads, got tail={else_tail:?}"
+        );
+
+        let join_tail = &warm_path[delete_subscr.saturating_sub(6)..];
+        for name in ["self", "pos"] {
+            assert!(
+                join_tail
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })
+                        && mentions_name(unit, name)),
+                "outer if/else join should keep borrowed {name} loads, got tail={join_tail:?}"
+            );
+        }
+        assert!(
+            !join_tail
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })
+                    && (mentions_name(unit, "self") || mentions_name(unit, "pos"))),
+            "outer if/else join should not inherit terminal try-else deopts, got tail={join_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_else_final_store_attr_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(self, E, Event):
+    try:
+        decoded = bytes(self.buf).decode(self.encoding)
+    except E:
+        return
+    else:
+        self.insert(Event('key', decoded, self.flush_buf()))
+    self.keymap = self.compiled_keymap
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let store_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::StoreAttr { namei } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.names[usize::try_from(namei.get(arg)).unwrap()].as_str() == "keymap"
+                }
+                _ => false,
+            })
+            .expect("missing keymap STORE_ATTR");
+        let insert_attr_idx = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "insert"
+                }
+                _ => false,
+            })
+            .expect("missing insert LOAD_ATTR");
+
+        assert!(
+            matches!(
+                instructions[insert_attr_idx - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "terminal except should not deopt the try/else method receiver before the final tail, got instructions={instructions:?}"
+        );
+        assert!(
+            matches!(
+                (
+                    instructions[store_idx - 3].op,
+                    instructions[store_idx - 1].op
+                ),
+                (Instruction::LoadFast { .. }, Instruction::LoadFast { .. })
+            ),
+            "terminal except final STORE_ATTR tail should use CPython-style strong LOAD_FAST ops, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_except_break_try_else_loop_tail_keeps_else_borrows() {
+        let code = compile_exec(
+            "\
+def f(self):
+    self.setup()
+    prompt = 'Hit Return for more, or q (and Return) to quit: '
+    lineno = 0
+    while 1:
+        try:
+            for i in range(lineno, lineno + self.MAXLINES):
+                print(self.lines[i])
+        except IndexError:
+            break
+        else:
+            lineno += self.MAXLINES
+            key = None
+            while key is None:
+                key = input(prompt)
+                if key not in ('', 'q'):
+                    key = None
+            if key == 'q':
+                break
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let borrowed_loads = instructions
+            .iter()
+            .filter(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            })
+            .count();
+        let strong_loads_in_else_tail = instructions.iter().any(|unit| {
+            matches!(
+                unit.op,
+                Instruction::LoadFast { .. } | Instruction::LoadFastLoadFast { .. }
+            )
+        });
+
+        assert!(
+            borrowed_loads >= 7,
+            "except-break try/else loop tail should keep CPython-style borrowed loads, got instructions={instructions:?}"
+        );
+        assert!(
+            !strong_loads_in_else_tail,
+            "except-break try/else loop tail must not be deoptimized as terminal return/raise, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_protected_method_call_after_terminal_except_tail_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(items, chunk, out, packI, Error):
+    for i in items:
+        acc = 0
+        try:
+            for c in chunk:
+                acc = acc * 85 + c
+        except TypeError:
+            raise
+        try:
+            out.append(packI(acc))
+        except Error:
+            raise ValueError from None
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let append_attr = instructions[..handler_start]
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "append"
+                }
+                _ => false,
+            })
+            .expect("missing append LOAD_ATTR");
+        let tail = &instructions[append_attr.saturating_sub(1)..handler_start];
+
+        let strong_loads_name = |name: &str| {
+            tail.iter().any(|unit| match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+        let borrows_name = |name: &str| {
+            tail.iter().any(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == name
+                }
+                _ => false,
+            })
+        };
+
+        for name in ["out", "packI", "acc"] {
+            assert!(
+                strong_loads_name(name),
+                "protected method-call after terminal except tail should use strong LOAD_FAST for {name}, got tail={tail:?}"
+            );
+            assert!(
+                !borrows_name(name),
+                "protected method-call after terminal except tail should not borrow {name}, got tail={tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_terminal_reraising_handler_keeps_try_body_method_borrows() {
+        let code = compile_exec(
+            "\
+def f(self):
+    try:
+        self.console.prepare()
+        self.arg = None
+        self.finished = False
+        del self.buffer[:]
+        self.pos = 0
+        self.dirty = True
+        self.last_command = None
+        self.calc_screen()
+    except BaseException:
+        self.restore()
+        raise
+    while self.scheduled_commands:
+        cmd = self.scheduled_commands.pop()
+        self.do_cmd((cmd, []))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let first_handler = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let try_body = &instructions[..first_handler];
+        let self_borrows = try_body
+            .iter()
+            .filter(|unit| {
+                matches!(unit.op, Instruction::LoadFastBorrow { var_num }
+                    if f.varnames[usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg)))))]
+                        == "self")
+            })
+            .count();
+
+        assert!(
+            self_borrows >= 8,
+            "terminal reraising handler should keep try-body self loads borrowed, got try_body={try_body:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_loop_successor_augassign_uses_strong_load_pair() {
+        let code = compile_exec(
+            "\
+def f(items, decoded, b32rev):
+    for i in range(0, len(items), 8):
+        quanta = items[i:i + 8]
+        acc = 0
+        try:
+            for c in quanta:
+                acc = (acc << 5) + b32rev[c]
+        except KeyError:
+            raise ValueError from None
+        decoded += acc.to_bytes(5)
+    return decoded
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let to_bytes_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "to_bytes"
+                }
+                _ => false,
+            })
+            .expect("missing to_bytes LOAD_ATTR");
+        let pair = instructions[to_bytes_attr.saturating_sub(1)].op;
+
+        assert!(
+            matches!(pair, Instruction::LoadFastLoadFast { .. }),
+            "terminal-except loop successor augassign should use strong LOAD_FAST_LOAD_FAST, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_except_loop_backedge_keeps_header_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, value, start=0, stop=None):
+    i = start
+    while stop is None or i < stop:
+        try:
+            v = self[i]
+        except IndexError:
+            break
+        if v is value or v == value:
+            return i
+        i += 1
+    raise ValueError
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            instructions.windows(7).any(|window| {
+                matches!(window[0].op, Instruction::StoreFast { .. })
+                    && matches!(window[1].op, Instruction::LoadFastBorrow { .. })
+                    && matches!(window[2].op, Instruction::PopJumpIfNone { .. })
+                    && matches!(window[3].op, Instruction::NotTaken)
+                    && matches!(
+                        window[4].op,
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                    )
+                    && matches!(window[5].op, Instruction::CompareOp { .. })
+                    && matches!(window[6].op, Instruction::PopJumpIfFalse { .. })
+            }),
+            "terminal-except loop backedge deopt should not cross into the loop header, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_if_implicit_continue_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(_config_vars, _INITPRE):
+    for k in list(_config_vars):
+        if k.startswith(_INITPRE):
+            del _config_vars[k]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::DeleteSubscr,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::EndFor,
+                    ]
+                )
+            }),
+            "loop if with implicit continue should use CPython body-after-jumpback layout, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_if_call_body_implicit_continue_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(seq, db):
+    count = 0
+    for c in seq:
+        dec = db.value(c, -1)
+        if dec != -1:
+            db.check(dec, c)
+            count += 1
+    return count
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::Call { .. },
+                    ]
+                )
+            }),
+            "no-else loop call body should use CPython body-after-jumpback layout, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_loop_if_try_body_implicit_continue_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(seq, broken, codecs, LookupError, s, Queue, bytes):
+    for encoding in seq:
+        if encoding not in broken:
+            q = Queue(b'')
+            writer = codecs.getwriter(encoding)(q)
+            encodedresult = b''
+            for c in s:
+                writer.write(c)
+                chunk = q.read()
+                encodedresult += chunk
+            q = Queue(b'')
+            reader = codecs.getreader(encoding)(q)
+            decodedresult = ''
+            for c in encodedresult:
+                q.write(bytes([c]))
+                decodedresult += reader.read()
+        if encoding not in broken:
+            try:
+                encoder = codecs.getincrementalencoder(encoding)()
+            except LookupError:
+                pass
+            else:
+                encoder.encode('x')
+            if encoding not in ('idna', 'mbcs'):
+                try:
+                    encoder = codecs.getincrementalencoder(encoding)('ignore')
+                except LookupError:
+                    pass
+                else:
+                    encodedresult = b''.join(encoder.encode(c) for c in s)
+                    decoder = codecs.getincrementaldecoder(encoding)('ignore')
+                    decodedresult = ''.join(decoder.decode(bytes([c])) for c in encodedresult)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(8).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "nested final if with try body should put false backedge before body, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::Nop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "nested final if with try body should not leave body before false backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_branch_raise_before_elif_keeps_body_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(checks, UNIQUE, CONTINUOUS, ValueError):
+    for check in checks:
+        if check is UNIQUE:
+            duplicates = []
+            for name in checks:
+                if name:
+                    duplicates.append(name)
+            if duplicates:
+                detail = ', '.join(str(name) for name in duplicates)
+                raise ValueError('aliases: %s' % detail)
+        elif check is CONTINUOUS:
+            value = 1
+    return value
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadAttr { .. },
+                    ]
+                )
+            }),
+            "raise body before an elif chain should stay before the branch backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "raise body before an elif chain should not be moved after the branch backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_nested_raise_then_append_places_body_after_false_backedge() {
+        let code = compile_exec(
+            "\
+def f(args, parameters, enforce_default_ordering, type_var_tuple_encountered, default_encountered, TypeError):
+    for t in args:
+        if t not in parameters:
+            if enforce_default_ordering:
+                if type_var_tuple_encountered and t.has_default():
+                    raise TypeError('a')
+                if t.has_default():
+                    default_encountered = True
+                elif default_encountered:
+                    raise TypeError('b')
+            parameters.append(t)
+    return parameters
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "CPython places the nested raise/append body after the false backedge for this loop tail, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                    ]
+                )
+            }),
+            "this case should not keep the body before the false backedge; CPython emits the split backedge first, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_break_before_adjacent_break_keeps_body_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(pattern, prefix, get_prefix):
+    for op, av in pattern:
+        if op == 1:
+            prefix.append(av)
+        elif op == 2:
+            prefix1, got_all = get_prefix(av)
+            prefix.extend(prefix1)
+            if not got_all:
+                break
+        else:
+            break
+    else:
+        return prefix, True
+    return prefix, False
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::PopTop,
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::BuildTuple { .. },
+                    ]
+                )
+            }),
+            "break before an adjacent break exit should stay before the loop backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::PopTop,
+                    ]
+                )
+            }),
+            "break before an adjacent break exit should not be moved after the loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_elif_and_pass_keeps_shared_false_backedge_after_body() {
+        let code = compile_exec(
+            "\
+def f(methods, simple_keys, checked_keys, checked_enum, simple_enum, failed):
+    for method in methods:
+        if method in simple_keys and method in checked_keys:
+            continue
+        elif method not in simple_keys and method not in checked_keys:
+            checked_method = getattr(checked_enum, method, None)
+            simple_method = getattr(simple_enum, method, None)
+            if hasattr(checked_method, '__func__'):
+                checked_method = checked_method.__func__
+                simple_method = simple_method.__func__
+            if checked_method != simple_method:
+                failed.append(method)
+        else:
+            pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(9).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadGlobal { .. },
+                        _,
+                    ]
+                )
+            }),
+            "elif-and body should stay before the shared false backedge, got ops={ops:?}"
+        );
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "elif-and shared false backedge should not be split before the body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_nested_if_delete_slice_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(compiler_so):
+    for idx in reversed(range(len(compiler_so))):
+        if compiler_so[idx] == '-arch' and compiler_so[idx + 1] == 'arm64':
+            del compiler_so[idx:idx + 2]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(15).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::BinaryOp { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    ]
+                )
+            }),
+            "nested loop delete-slice condition should put false jump-back before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_if_subscr_store_delete_places_body_after_jumpback() {
+        let code = compile_exec(
+            "\
+def f(chunks):
+    for k in range(len(chunks)-1, 0, -1):
+        if chunks[k-1][-1] > chunks[k][0]:
+            chunks[k-1] = chunks[k-1][:-1] + chunks[k][1:]
+            del chunks[k]
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadSmallInt { .. },
+                        Instruction::BinaryOp { .. },
+                    ]
+                )
+            }),
+            "loop if with subscript store/delete body should put false jump-back before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_final_elif_implicit_continue_places_jumpback_before_body() {
+        let code = compile_exec(
+            "\
+def f(state, nextchar, whitespace, token, posix, quoted, debug):
+    while True:
+        if state is None:
+            break
+        elif state == ' ':
+            if not nextchar:
+                state = None
+                break
+            elif nextchar in whitespace:
+                if debug >= 2:
+                    print('x')
+                if token or (posix and quoted):
+                    break
+                else:
+                    continue
+        elif state in ('a', 'c'):
+            if not nextchar:
+                state = None
+                break
+            elif nextchar in whitespace:
+                if debug >= 2:
+                    print('y')
+                state = ' '
+                if token or (posix and quoted):
+                    break
+                else:
+                    continue
+    return token
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "final elif with implicit continue should put false jump-back before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_final_attribute_elif_implicit_continue_places_jumpback_before_body() {
+        let code = compile_exec(
+            "\
+def f(self, nextchar, quoted):
+    while True:
+        if self.state is None:
+            break
+        elif self.state in ('a', 'c'):
+            if not nextchar:
+                self.state = None
+                break
+            elif nextchar in self.whitespace:
+                self.state = ' '
+                if self.token or (self.posix and quoted):
+                    break
+                else:
+                    continue
+    return self.token
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                            | Instruction::LoadFastLoadFast { .. },
+                        Instruction::LoadAttr { .. },
+                        Instruction::ContainsOp { .. },
+                        Instruction::PopJumpIfTrue { .. },
+                        Instruction::NotTaken,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. },
+                    ]
+                )
+            }),
+            "final attribute elif with implicit continue should put false jump-back before body, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_inner_if_implicit_continue_keeps_line_bearing_body_before_backedge() {
+        let code = compile_exec(
+            "\
+def f(self, nextchar, quoted):
+    while True:
+        if self.state is None:
+            break
+        elif self.state in ('a', 'c'):
+            if not nextchar:
+                self.state = None
+                break
+            elif nextchar in self.whitespace:
+                self.state = ' '
+                if self.token or (self.posix and quoted):
+                    break
+                else:
+                    continue
+            elif nextchar in self.commenters:
+                self.instream.readline()
+                self.lineno += 1
+                if self.posix:
+                    self.state = ' '
+                    if self.token or (self.posix and quoted):
+                        break
+                    else:
+                        continue
+            elif self.state == 'c':
+                break
+    return self.token
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadAttr { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::StoreAttr { .. },
+                    ]
+                )
+            }),
+            "line-bearing inner if with implicit continue should keep body before backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_except_handler_with_conditional_raise_and_resume_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(formatstr, args, output, overflowok):
+    try:
+        result = formatstr % args
+    except OverflowError:
+        if not overflowok:
+            raise
+        print('overflow')
+    else:
+        if output and result != output:
+            raise AssertionError(result, output)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let assertion_error = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadGlobal { namei } => {
+                    let load_global = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_global >> 1).unwrap()].as_str() == "AssertionError"
+                }
+                _ => false,
+            })
+            .expect("missing AssertionError raise");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let tail = &instructions[..handler_start.min(assertion_error)];
+
+        assert!(
+            tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "conditional-raise handler with a resume path should keep borrowed loads, got tail={tail:?}"
+        );
+        assert!(
+            tail.iter()
+                .all(|unit| !matches!(unit.op, Instruction::LoadFast { .. })),
+            "conditional-raise handler with a resume path should not force strong LOAD_FAST, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_typed_except_resume_import_warning_tail_keeps_borrows() {
+        let code = compile_exec(
+            r#"
+def f(mod_name, error, sys, RuntimeWarning):
+    pkg_name, _, _ = mod_name.rpartition(".")
+    if pkg_name:
+        try:
+            __import__(pkg_name)
+        except ImportError as e:
+            if e.name is None or (e.name != pkg_name and
+                    not pkg_name.startswith(e.name + ".")):
+                raise
+        existing = sys.modules.get(mod_name)
+        if existing is not None and not hasattr(existing, "__path__"):
+            from warnings import warn
+            msg = "{mod_name!r} found in sys.modules after import of " \
+                "package {pkg_name!r}, but prior to execution of " \
+                "{mod_name!r}; this may result in unpredictable " \
+                "behaviour".format(mod_name=mod_name, pkg_name=pkg_name)
+            warn(RuntimeWarning(msg))
+    return mod_name
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let arg = |unit: &bytecode::CodeUnit| OpArg::new(u32::from(u8::from(unit.arg)));
+        let strong_names = |unit: &bytecode::CodeUnit| -> Vec<&str> {
+            match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    vec![f.varnames[usize::from(var_num.get(arg(unit)))].as_str()]
+                }
+                Instruction::LoadFastLoadFast { var_nums } => {
+                    let (left, right) = var_nums.get(arg(unit)).indexes();
+                    vec![
+                        f.varnames[usize::from(left)].as_str(),
+                        f.varnames[usize::from(right)].as_str(),
+                    ]
+                }
+                _ => Vec::new(),
+            }
+        };
+        let borrowed_names = |unit: &bytecode::CodeUnit| -> Vec<&str> {
+            match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    vec![f.varnames[usize::from(var_num.get(arg(unit)))].as_str()]
+                }
+                Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                    let (left, right) = var_nums.get(arg(unit)).indexes();
+                    vec![
+                        f.varnames[usize::from(left)].as_str(),
+                        f.varnames[usize::from(right)].as_str(),
+                    ]
+                }
+                _ => Vec::new(),
+            }
+        };
+
+        let handler_start = f
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_path = &f.instructions[..handler_start];
+        for name in ["mod_name", "existing", "warn", "msg"] {
+            assert!(
+                normal_path
+                    .iter()
+                    .flat_map(borrowed_names)
+                    .any(|borrowed| borrowed == name),
+                "CPython keeps {name} borrowed after typed-except resume, got ops={:?}",
+                normal_path.iter().map(|unit| unit.op).collect::<Vec<_>>()
+            );
+            assert!(
+                !normal_path
+                    .iter()
+                    .flat_map(strong_names)
+                    .any(|strong| strong == name),
+                "typed-except resume should not force strong {name} loads, got ops={:?}",
+                normal_path.iter().map(|unit| unit.op).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn test_reraising_except_else_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, data, length):
+    if self._paused:
+        self._pending_data_length = length
+        return
+    if length == 0:
+        self._eof_received()
+        return
+    if isinstance(self._protocol, protocols.BufferedProtocol):
+        try:
+            protocols._feed_data_to_buffered_proto(self._protocol, data)
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as exc:
+            self._fatal_error(exc, 'x')
+            return
+    else:
+        self._protocol.data_received(data)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let data_received_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                        == "data_received"
+                }
+                _ => false,
+            })
+            .expect("missing data_received LOAD_ATTR");
+        let ops: Vec<_> = instructions.iter().map(|unit| unit.op).collect();
+
+        assert!(
+            matches!(
+                ops.get(data_received_attr - 2),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "normal else tail after reraising handler should keep borrowed self load, got ops={ops:?}"
+        );
+        assert!(
+            matches!(
+                ops.get(data_received_attr + 1),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "normal else tail after reraising handler should keep borrowed data load, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_finally_with_keeps_context_manager_borrow() {
+        let code = compile_exec(
+            "\
+def f(i):
+    try:
+        1 / 0
+    except ZeroDivisionError:
+        pass
+    else:
+        with i as dodgy:
+            pass
+    finally:
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let first_with_exit = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadSpecial { method } => {
+                    method.get(OpArg::new(u32::from(u8::from(unit.arg)))) == SpecialMethod::Exit
+                }
+                _ => false,
+            })
+            .expect("missing __exit__ load");
+
+        assert!(
+            matches!(
+                instructions
+                    .get(first_with_exit.saturating_sub(2))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "try/except/else/finally with setup should keep CPython-style borrowed context manager load, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_except_star_handler_pop_block_does_not_leave_nop_before_with_exit() {
+        let code = compile_exec(
+            "\
+def f(self):
+    with self.assertRaises(TypeError):
+        try:
+            raise OSError('blah')
+        except* ExceptionGroup as e:
+            pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            !ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::Reraise { .. },
+                        Instruction::Nop,
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                        Instruction::LoadConst { .. },
+                    ]
+                )
+            }),
+            "except* handler cleanup should not leave an extra NOP before with-exit None loads, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_except_star_body_to_else_jump_drops_without_line_nop() {
+        let code = compile_exec(
+            "\
+async def f(self, cm):
+    try:
+        async with cm:
+            pass
+    except* Exception:
+        pass
+    else:
+        self.fail()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let fail_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "fail"
+                }
+                _ => false,
+            })
+            .expect("missing self.fail load");
+
+        assert!(
+            !matches!(
+                instructions
+                    .get(fail_attr.saturating_sub(2))
+                    .map(|unit| unit.op),
+                Some(Instruction::Nop)
+            ),
+            "body-to-else jump should be no-location and disappear, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
+    fn test_resuming_except_before_with_keeps_with_body_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, cm):
+    try:
+        g()
+    except OSError:
+        pass
+    with cm:
+        self.x()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let first_tail_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "x"
+                }
+                _ => false,
+            })
+            .expect("missing x attr load");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let with_tail = &instructions[first_tail_attr.saturating_sub(1)..handler_start];
+
+        assert!(
+            with_tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "resuming except before with should keep borrowed LOAD_FAST ops, got tail={with_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_nested_finally_except_resume_loop_uses_strong_loads() {
+        let code = compile_exec(
+            "\
+def f(self, xs):
+    try:
+        try:
+            g()
+        finally:
+            h()
+    except OSError:
+        self.skipTest('x')
+    for x in xs:
+        self.x(x)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let for_iter = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ForIter { .. }))
+            .expect("missing FOR_ITER");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let loop_tail = &instructions[for_iter.saturating_sub(2)..handler_start];
+
+        assert!(
+            loop_tail
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "expected nested finally/except resume loop to use strong LOAD_FAST ops, got tail={loop_tail:?}"
+        );
+        assert!(
+            loop_tail.iter().all(|unit| {
+                !matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "nested finally/except resume loop should not borrow LOAD_FAST ops, got tail={loop_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_finally_protected_loop_without_except_resume_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, obj, expected, buf):
+    try:
+        lines = obj.readlines()
+    except ValueError:
+        self.fail('x')
+    if lines != expected:
+        self.fail('bad')
+    obj.close()
+    obj = self.open()
+    try:
+        for line in obj:
+            pass
+        try:
+            obj.readline()
+            obj.readinto(buf)
+        except ValueError:
+            self.fail('inner')
+    finally:
+        obj.close()
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let get_iter = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::GetIter))
+            .expect("missing GET_ITER");
+        assert!(
+            matches!(
+                instructions
+                    .get(get_iter.saturating_sub(1))
+                    .map(|unit| unit.op),
+                Some(Instruction::LoadFastBorrow { .. })
+            ),
+            "finally-protected loop without except resume should keep borrowed iterable load, got instructions={instructions:?}"
+        );
+
+        for attr_name in ["close", "open"] {
+            let attr_idx = instructions[..get_iter]
+                .iter()
+                .rposition(|unit| match unit.op {
+                    Instruction::LoadAttr { namei } => {
+                        let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                        f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
+                            == attr_name
+                    }
+                    _ => false,
+                })
+                .unwrap_or_else(|| panic!("missing {attr_name} attr load before loop"));
+            assert!(
+                matches!(
+                    instructions
+                        .get(attr_idx.saturating_sub(1))
+                        .map(|unit| unit.op),
+                    Some(Instruction::LoadFastBorrow { .. })
+                ),
+                "pre-loop {attr_name} call should keep borrowed receiver load, got instructions={instructions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_plain_except_resume_loop_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, xs):
+    try:
+        g()
+    except OSError:
+        self.skipTest('x')
+    for x in xs:
+        self.x(x)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let for_iter = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ForIter { .. }))
+            .expect("missing FOR_ITER");
+        let handler_start = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let loop_tail = &instructions[for_iter.saturating_sub(2)..handler_start];
+
+        assert!(
+            loop_tail.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::LoadFastBorrow { .. }
+                        | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+                )
+            }),
+            "plain except resume loop should keep borrowed LOAD_FAST ops, got tail={loop_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_except_pass_resume_loop_branch_keeps_borrows() {
+        let code = compile_exec(
+            r#"
+def f(self, cls, fns):
+    for name, fn in zip(self.names, fns):
+        try:
+            annotation_fields, return_type = self.method_annotations[name]
+        except KeyError:
+            pass
+        else:
+            annotate_fn = _make_annotate_function(cls, name, annotation_fields, return_type)
+            fn.__annotate__ = annotate_fn
+        if self.unconditional_adds.get(name, False):
+            setattr(cls, name, fn)
+        else:
+            already_exists = _set_new_attribute(cls, name, fn)
+            if already_exists and (msg_extra := self.overwrite_errors.get(name)):
+                error_msg = (f'Cannot overwrite attribute {fn.__name__} '
+                             f'in class {cls.__name__}')
+                if not msg_extra is True:
+                    error_msg = f'{error_msg} {msg_extra}'
+                raise TypeError(error_msg)
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let load_global_name = |unit: &&CodeUnit, name: &str| match unit.op {
+            Instruction::LoadGlobal { namei } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                let load_global = namei.get(arg) >> 1;
+                f.names[usize::try_from(load_global).unwrap()].as_str() == name
+            }
+            _ => false,
+        };
+        let load_name = |unit: &&CodeUnit| match unit.op {
+            Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                Some(f.varnames[usize::from(var_num.get(arg))].as_str())
+            }
+            _ => None,
+        };
+        let load_pair_names = |unit: &&CodeUnit| match unit.op {
+            Instruction::LoadFastLoadFast { var_nums }
+            | Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                let (left, right) = var_nums.get(arg).indexes();
+                Some((
+                    f.varnames[usize::from(left)].as_str(),
+                    f.varnames[usize::from(right)].as_str(),
+                ))
+            }
+            _ => None,
+        };
+
+        let set_new_attribute = instructions
+            .iter()
+            .position(|unit| load_global_name(unit, "_set_new_attribute"))
+            .expect("missing _set_new_attribute call");
+        let tail = &instructions[set_new_attribute..instructions.len()];
+        assert!(
+            tail.iter().any(|unit| {
+                matches!(unit.op, Instruction::LoadFastBorrowLoadFastBorrow { .. })
+                    && load_pair_names(unit) == Some(("cls", "name"))
+            }) && tail.iter().any(|unit| {
+                matches!(unit.op, Instruction::LoadFastBorrow { .. })
+                    && load_name(unit) == Some("fn")
+            }),
+            "except-pass resume should keep CPython-style borrowed loads in loop branch, got tail={tail:?}"
+        );
+        assert!(
+            !tail.iter().any(|unit| {
+                matches!(unit.op, Instruction::LoadFastLoadFast { .. })
+                    && load_pair_names(unit) == Some(("cls", "name"))
+            }) && !tail.iter().any(|unit| {
+                matches!(unit.op, Instruction::LoadFast { .. })
+                    && matches!(
+                        load_name(unit),
+                        Some("fn" | "already_exists" | "msg_extra" | "error_msg")
+                    )
+            }),
+            "except-pass resume must not deopt the independent loop branch, got tail={tail:?}"
         );
     }
 
@@ -16488,6 +32700,206 @@ def f(s, size, errors, final):
         assert!(
             saw_borrow_p_after_warn && saw_borrow_ch_after_warn,
             "expected outer invalid-escape tail to keep borrowed p/ch loads"
+        );
+    }
+
+    #[test]
+    fn test_imap_idle_status_debug_tail_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, exc_type, CRLF, OSError):
+    imap = self._imap
+    try:
+        imap.send(b'DONE' + CRLF)
+        status, [msg] = imap._command_complete('IDLE', self._tag)
+        if __debug__ and imap.debug >= 4:
+            imap._mesg(f'idle status: {status} {msg!r}')
+    except OSError:
+        if not exc_type:
+            raise
+    return False
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let mesg_attr = instructions
+            .iter()
+            .position(|unit| match unit.op {
+                Instruction::LoadAttr { namei } => {
+                    let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_mesg"
+                }
+                _ => false,
+            })
+            .expect("missing _mesg attr load");
+        let tail = &instructions[mesg_attr.saturating_sub(1)..];
+
+        assert!(
+            tail.iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })),
+            "expected idle status debug tail to keep borrowed loads, got tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_match_async_comprehension_iter_keeps_capture_borrow() {
+        let code = compile_exec(
+            r#"
+async def name_4():
+    match b'':
+        case True:
+            pass
+        case name_5 if f'e':
+            {name_3: name_4 async for name_2 in name_5}
+        case []:
+            pass
+    [[]]
+"#,
+        );
+        let name_4 = find_code(&code, "name_4").expect("missing name_4 code");
+        let Some(get_aiter_pos) = name_4
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::GetAiter))
+        else {
+            panic!("missing GET_AITER in name_4");
+        };
+        let prev = &name_4.instructions[get_aiter_pos - 1];
+        assert!(
+            matches!(
+                prev.op,
+                Instruction::LoadFastBorrow { var_num }
+                    if name_4.varnames[usize::from(var_num.get(OpArg::new(u32::from(u8::from(prev.arg)))))] == "name_5"
+            ),
+            "expected async comprehension iterator capture to borrow name_5 before GET_AITER, got {prev:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_protected_generator_tail_after_cleanup_uses_strong_loads() {
+        let code = compile_exec(
+            r#"
+def f(scandir, fspath, path, reversed, top, OSError, topdown=True, followlinks=False):
+    stack = [fspath(top)]
+    islink, join = path.islink, path.join
+    while stack:
+        top = stack.pop()
+        dirs = []
+        nondirs = []
+        walk_dirs = []
+        try:
+            with scandir(top) as entries:
+                for entry in entries:
+                    try:
+                        is_dir = entry.is_dir()
+                    except OSError:
+                        is_dir = False
+                    if is_dir:
+                        dirs.append(entry.name)
+                    else:
+                        nondirs.append(entry.name)
+                    if not topdown and is_dir:
+                        if followlinks:
+                            walk_into = True
+                        else:
+                            try:
+                                is_symlink = entry.is_symlink()
+                            except OSError:
+                                is_symlink = False
+                            walk_into = not is_symlink
+                        if walk_into:
+                            walk_dirs.append(entry.path)
+        except OSError:
+            continue
+        if topdown:
+            yield top, dirs, nondirs
+            for dirname in reversed(dirs):
+                new_path = join(top, dirname)
+                if not followlinks and islink(new_path):
+                    continue
+                stack.append(new_path)
+        else:
+            stack.append((top, dirs, nondirs))
+            for new_path in reversed(walk_dirs):
+                stack.append(new_path)
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let yield_pos = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::YieldValue { .. }))
+            .expect("missing YIELD_VALUE");
+        assert!(
+            matches!(
+                instructions[yield_pos - 3].op,
+                Instruction::LoadFastLoadFast { .. }
+            ) && matches!(instructions[yield_pos - 2].op, Instruction::LoadFast { .. }),
+            "CPython keeps the yielded tuple inputs strong after with cleanup, got {:?} {:?}",
+            instructions[yield_pos - 3],
+            instructions[yield_pos - 2],
+        );
+        assert!(
+            instructions[yield_pos + 1..]
+                .iter()
+                .take(30)
+                .any(|unit| matches!(unit.op, Instruction::LoadFast { .. })),
+            "expected post-yield traversal tail to contain strong LOAD_FAST ops"
+        );
+    }
+
+    #[test]
+    fn test_yield_from_finally_cleanup_keeps_normal_path_borrows() {
+        let code = compile_exec(
+            r#"
+def f(_fwalk, stack, isbytes, topdown, onerror, follow_symlinks, close):
+    try:
+        while stack:
+            yield from _fwalk(stack, isbytes, topdown, onerror, follow_symlinks)
+    finally:
+        while stack:
+            action, value = stack.pop()
+            if action == 2:
+                close(value)
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let send_pos = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::Send { .. }))
+            .expect("missing SEND");
+        assert!(
+            instructions[..send_pos]
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })),
+            "CPython keeps yield-from normal path loads borrowed, got prefix={:?}",
+            &instructions[..send_pos]
+        );
+        let cleanup_pop = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::StoreFastStoreFast { .. }))
+            .expect("missing finally cleanup unpack");
+        assert!(
+            instructions[..cleanup_pop]
+                .iter()
+                .rev()
+                .take(12)
+                .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })),
+            "CPython keeps normal finally cleanup loads borrowed, got cleanup prefix={:?}",
+            &instructions[cleanup_pop.saturating_sub(12)..cleanup_pop]
         );
     }
 }

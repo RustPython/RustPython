@@ -12,43 +12,35 @@ impl VirtualMachine {
     #[track_caller]
     #[cold]
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
-        #[cfg(not(all(
-            target_arch = "wasm32",
-            not(any(target_os = "emscripten", target_os = "wasi")),
-        )))]
-        {
-            self.print_exception(exc);
-            self.flush_std();
-            panic!("{msg}")
-        }
-        #[cfg(all(
-            target_arch = "wasm32",
-            feature = "wasmbind",
-            not(any(target_os = "emscripten", target_os = "wasi")),
-        ))]
-        #[cfg(all(target_arch = "wasm32", not(target_os = "wasi"), feature = "wasmbind"))]
-        {
-            use wasm_bindgen::prelude::*;
-            #[wasm_bindgen]
-            extern "C" {
-                #[wasm_bindgen(js_namespace = console)]
-                fn error(s: &str);
+        cfg_select! {
+            all(
+                target_arch = "wasm32",
+                not(any(target_os = "emscripten", target_os = "wasi"))
+            ) => cfg_select! {
+                feature = "wasmbind" => {
+                    use wasm_bindgen::prelude::*;
+                    #[wasm_bindgen]
+                    extern "C" {
+                        #[wasm_bindgen(js_namespace = console)]
+                        fn error(s: &str);
+                    }
+                    let mut s = String::new();
+                    self.write_exception(&mut s, &exc).unwrap();
+                    error(&s);
+                    panic!("{msg}; exception backtrace above")
+                }
+                _ => {
+                    use crate::convert::ToPyObject;
+                    let err_string: String = exc.to_pyobject(self).repr(self).unwrap().to_string();
+                    eprintln!("{err_string}");
+                    panic!("{msg}; python exception not available")
+                }
+            },
+            _ => {
+                self.print_exception(exc);
+                self.flush_std();
+                panic!("{msg}")
             }
-            let mut s = String::new();
-            self.write_exception(&mut s, &exc).unwrap();
-            error(&s);
-            panic!("{msg}; exception backtrace above")
-        }
-        #[cfg(all(
-            target_arch = "wasm32",
-            not(feature = "wasmbind"),
-            not(any(target_os = "emscripten", target_os = "wasi")),
-        ))]
-        {
-            use crate::convert::ToPyObject;
-            let err_string: String = exc.to_pyobject(self).repr(self).unwrap().to_string();
-            eprintln!("{err_string}");
-            panic!("{msg}; python exception not available")
         }
     }
 
@@ -61,15 +53,17 @@ impl VirtualMachine {
 
     pub(crate) fn flush_std(&self) -> i32 {
         let vm = self;
-        let mut status = 0;
-        if let Ok(stdout) = sys::get_stdout(vm)
+        let status = if let Ok(stdout) = sys::get_stdout(vm)
             && !vm.is_none(&stdout)
             && !vm.file_is_closed(&stdout)
             && let Err(e) = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ())
         {
             vm.run_unraisable(e, None, stdout);
-            status = -1;
-        }
+            -1
+        } else {
+            0
+        };
+
         if let Ok(stderr) = sys::get_stderr(vm)
             && !vm.is_none(&stderr)
             && !vm.file_is_closed(&stderr)
@@ -88,6 +82,7 @@ impl VirtualMachine {
             }
         }
     }
+
     #[track_caller]
     pub fn expect_pyresult<T>(&self, result: PyResult<T>, msg: &str) -> T {
         match result {
@@ -100,9 +95,11 @@ impl VirtualMachine {
     pub fn is_none(&self, obj: &PyObject) -> bool {
         obj.is(&self.ctx.none)
     }
+
     pub fn option_if_none(&self, obj: PyObjectRef) -> Option<PyObjectRef> {
         if self.is_none(&obj) { None } else { Some(obj) }
     }
+
     pub fn unwrap_or_none(&self, obj: Option<PyObjectRef>) -> PyObjectRef {
         obj.unwrap_or_else(|| self.ctx.none())
     }

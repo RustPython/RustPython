@@ -1185,7 +1185,7 @@ impl Iterable for PyMemoryView {
 
 #[pyclass(module = false, name = "memory_iterator")]
 #[derive(Debug, Traverse)]
-pub struct PyMemoryViewIterator {
+pub(crate) struct PyMemoryViewIterator {
     internal: PyMutex<PositionIterInternal<PyRef<PyMemoryView>>>,
 }
 

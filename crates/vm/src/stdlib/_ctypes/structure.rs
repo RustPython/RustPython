@@ -16,7 +16,7 @@ pub(super) fn calculate_struct_size(cls: &Py<PyType>, vm: &VirtualMachine) -> Py
         let fields: Vec<PyObjectRef> = fields_attr.try_to_value(vm)?;
         let mut total_size = 0usize;
 
-        for field in fields.iter() {
+        for field in &fields {
             if let Some(tuple) = field.downcast_ref::<PyTuple>()
                 && let Some(field_type) = tuple.get(1)
             {
@@ -68,7 +68,7 @@ impl Initializer for PyCStructType {
 
     fn init(zelf: crate::PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Get the type as PyTypeRef by converting PyRef<Self> -> PyObjectRef -> PyRef<PyType>
-        let obj: PyObjectRef = zelf.clone().into();
+        let obj: PyObjectRef = zelf.into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
@@ -155,7 +155,7 @@ impl PyCStructType {
 
         // 2. Check for _as_parameter_ attribute
         if let Ok(as_parameter) = value.get_attr("_as_parameter_", vm) {
-            return PyCStructType::from_param(cls.as_object().to_owned(), as_parameter, vm);
+            return Self::from_param(cls.as_object().to_owned(), as_parameter, vm);
         }
 
         Err(vm.new_type_error(format!(
@@ -331,7 +331,7 @@ impl PyCStructType {
             }
 
             // Get size and alignment of the field type
-            let size = super::base::get_field_size(&field_type, vm)?;
+            let size = super::base::get_field_size(&field_type, vm);
             let field_align = super::base::get_field_align(&field_type, vm);
 
             // Calculate effective alignment (PyCField_FromDesc)
@@ -405,7 +405,7 @@ impl PyCStructType {
                     .map(|d| d.to_string())
                     .collect::<Vec<_>>()
                     .join(",");
-                format.push_str(&std::format!("({}){}", shape_str, field_format));
+                format.push_str(&std::format!("({shape_str}){field_format}"));
             } else {
                 format.push_str(&field_format);
             }
@@ -622,7 +622,7 @@ impl SetAttr for PyCStructType {
                 return Err(vm.new_attribute_error("cannot delete _fields_"));
             };
             // Process fields (this will also set DICTFLAG_FINAL)
-            PyCStructType::process_fields(pytype, fields_value.clone(), vm)?;
+            Self::process_fields(pytype, fields_value.clone(), vm)?;
             // Set the _fields_ attribute on the type
             pytype
                 .attributes
@@ -667,7 +667,7 @@ impl SetAttr for PyCStructType {
     metaclass = "PyCStructType"
 )]
 #[repr(transparent)]
-pub struct PyCStructure(pub PyCData);
+pub(crate) struct PyCStructure(pub PyCData);
 
 impl Debug for PyCStructure {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -695,7 +695,7 @@ impl Constructor for PyCStructure {
         // Initialize buffer with zeros using computed size
         let mut new_stg_info = StgInfo::new(total_size, total_align);
         new_stg_info.length = length;
-        PyCStructure(PyCData::from_stg_info(&new_stg_info))
+        Self(PyCData::from_stg_info(&new_stg_info))
             .into_ref_with_type(vm, cls)
             .map(Into::into)
     }
@@ -738,7 +738,7 @@ impl PyCStructure {
         if let Some(fields_attr) = type_obj.get_direct_attr(vm.ctx.intern_str("_fields_")) {
             let fields: Vec<PyObjectRef> = fields_attr.try_to_value(vm)?;
 
-            for field in fields.iter() {
+            for field in &fields {
                 if current_index >= args.len() {
                     break;
                 }
@@ -749,10 +749,9 @@ impl PyCStructure {
                     let field_name = name_str.as_str().to_owned();
                     // Check for duplicate in kwargs
                     if kwargs.contains_key(&field_name) {
-                        return Err(vm.new_type_error(format!(
-                            "duplicate values for field {:?}",
-                            field_name
-                        )));
+                        return Err(
+                            vm.new_type_error(format!("duplicate values for field {field_name:?}"))
+                        );
                     }
                     self_obj.as_object().set_attr(
                         vm.ctx.intern_str(field_name),
@@ -777,8 +776,7 @@ impl Initializer for PyCStructure {
 
         // 1. Process positional arguments recursively through inheritance chain
         if !args.args.is_empty() {
-            let consumed =
-                PyCStructure::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
+            let consumed = Self::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
 
             if consumed < args.args.len() {
                 return Err(vm.new_type_error("too many initializers"));
@@ -786,7 +784,7 @@ impl Initializer for PyCStructure {
         }
 
         // 2. Process keyword arguments
-        for (key, value) in args.kwargs.iter() {
+        for (key, value) in &args.kwargs {
             zelf.as_object()
                 .set_attr(vm.ctx.intern_str(key.as_str()), value.clone(), vm)?;
         }

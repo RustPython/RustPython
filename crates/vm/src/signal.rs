@@ -92,6 +92,7 @@ pub(crate) fn set_triggered() {
 }
 
 #[inline(always)]
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn is_triggered() -> bool {
     ANY_TRIGGERED.load(Ordering::Relaxed)
 }
@@ -171,6 +172,7 @@ impl fmt::Display for UserSignalSendError {
     }
 }
 
+#[must_use]
 pub fn user_signal_channel() -> (UserSignalSender, UserSignalReceiver) {
     let (tx, rx) = mpsc::channel();
     (UserSignalSender { tx }, UserSignalReceiver { rx })

@@ -1,3 +1,4 @@
+import ast
 import dis
 import gc
 from itertools import combinations, product
@@ -92,7 +93,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(unot, 'POP_JUMP_IF_TRUE')
         self.check_lnotab(unot)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_elim_inversion_of_is_or_in(self):
         for line, cmp_op, invert in (
             ('not a is b', 'IS_OP', 1,),
@@ -243,7 +243,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertTrue(g(4))
         self.check_lnotab(g)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constant_folding_small_int(self):
         tests = [
             ('(0, )[0]', 0),
@@ -278,7 +277,6 @@ class TestTranforms(BytecodeTestCase):
                     self.assertNotInBytecode(code, 'LOAD_SMALL_INT')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'UNARY_NEGATIVE' starts with 'UNARY_'
     def test_constant_folding_unaryop(self):
         intrinsic_positive = 5
         tests = [
@@ -324,7 +322,6 @@ class TestTranforms(BytecodeTestCase):
             self.assertNotStartsWith(instr.opname, 'UNARY_')
         self.check_lnotab(negzero)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; BINARY_OP               26 ([])
     def test_constant_folding_binop(self):
         tests = [
             ('1 + 2', 'NB_ADD', True, 'LOAD_SMALL_INT', 3),
@@ -672,7 +669,6 @@ class TestTranforms(BytecodeTestCase):
             return 6
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 2 != 1
     def test_assignment_idiom_in_comprehensions(self):
         def listcomp():
             return [y for x in a for y in [f(x)]]
@@ -937,7 +933,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_too_many_locals(self):
         # When there get to be too many locals to analyze completely,
         # later locals are all converted to LOAD_FAST_CHECK, except
@@ -1128,6 +1123,53 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
 
 
 class DirectCfgOptimizerTests(CfgOptimizationTestCase):
+
+    def test_optimize_cfg_const_index_out_of_range(self):
+        insts = [
+            ('LOAD_CONST', 2, 0),
+            ('RETURN_VALUE', None, 0),
+        ]
+        seq = self.seq_from_insts(insts)
+        with self.assertRaisesRegex(ValueError, "out of range"):
+            _testinternalcapi.optimize_cfg(seq, [0, 1], 0)
+
+    def test_optimize_cfg_consts_must_be_list(self):
+        insts = [
+            ('LOAD_CONST', 0, 0),
+            ('RETURN_VALUE', None, 0),
+        ]
+        seq = self.seq_from_insts(insts)
+        with self.assertRaisesRegex(TypeError, "consts must be a list"):
+            _testinternalcapi.optimize_cfg(seq, (0,), 0)
+
+    def test_compiler_codegen_metadata_consts_roundtrips_optimize_cfg(self):
+        tree = ast.parse("x = (1, 2)", mode="exec", optimize=1)
+        insts, meta = _testinternalcapi.compiler_codegen(tree, "<s>", 0)
+        consts = meta["consts"]
+        self.assertIsInstance(consts, list)
+        _testinternalcapi.optimize_cfg(insts, consts, 0)
+
+    def test_compiler_codegen_consts_include_none_required_for_implicit_return(self):
+        # Module "pass" only needs the const table entry for None once
+        # _PyCodegen_AddReturnAtEnd runs. If metadata["consts"] were taken
+        # before that, the list would not match LOAD_CONST opargs (here: 0
+        # for None), and optimize_cfg would read out of range.
+        tree = ast.parse("pass", mode="exec", optimize=1)
+        insts, meta = _testinternalcapi.compiler_codegen(tree, "<s>", 0)
+        consts = meta["consts"]
+        self.assertEqual(consts, [None])
+
+        load_const = opcode.opmap["LOAD_CONST"]
+        self.assertEqual(
+            [t[1] for t in insts.get_instructions() if t[0] == load_const],
+            [0],
+        )
+
+        # As if consts were snapshotted before AddReturnAtEnd: still LOAD_CONST 0, no row.
+        with self.assertRaisesRegex(ValueError, "out of range"):
+            _testinternalcapi.optimize_cfg(insts, [], 0)
+
+        _testinternalcapi.optimize_cfg(insts, list(consts), 0)
 
     def cfg_optimization_test(self, insts, expected_insts,
                               consts=None, expected_consts=None,

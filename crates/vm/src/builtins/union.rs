@@ -53,6 +53,7 @@ impl PyUnion {
 
     /// Direct access to args field (_Py_union_args)
     #[inline]
+    #[must_use]
     pub fn args(&self) -> &Py<PyTuple> {
         &self.args
     }
@@ -219,7 +220,7 @@ fn has_union_operands(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> bo
     a.class().is(union_type) || b.class().is(union_type)
 }
 
-pub fn or_op(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn or_op(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if !has_union_operands(zelf.clone(), other.clone(), vm)
         && (!is_unionable(zelf.clone(), vm) || !is_unionable(other.clone(), vm))
     {
@@ -378,18 +379,16 @@ impl PyUnion {
             needle,
             vm,
         )?;
-        let res;
-        if new_args.is_empty() {
-            res = make_union(&new_args, vm)?;
+
+        Ok(if new_args.is_empty() {
+            make_union(&new_args, vm)?
         } else {
             let mut tmp = new_args[0].to_owned();
             for arg in new_args.iter().skip(1) {
                 tmp = vm._or(&tmp, arg)?;
             }
-            res = tmp;
-        }
-
-        Ok(res)
+            tmp
+        })
     }
 }
 
@@ -540,7 +539,7 @@ impl Representable for PyUnion {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     let union_type = &context.types.union_type;
     PyUnion::extend_class(context, union_type);
 }

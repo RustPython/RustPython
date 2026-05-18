@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{
-    bytecode::{CodeUnit, instruction::Instruction},
+    bytecode::{CodeUnit, instructions::Instruction},
     marshal::MarshalError,
 };
 
@@ -66,6 +66,7 @@ impl OpArg {
 
     /// Returns how many CodeUnits a instruction with this op_arg will be encoded as
     #[inline]
+    #[must_use]
     pub const fn instr_size(self) -> usize {
         (self.0 > 0xff) as usize + (self.0 > 0xff_ff) as usize + (self.0 > 0xff_ff_ff) as usize + 1
     }
@@ -484,7 +485,7 @@ impl TryFrom<u32> for MakeFunctionFlag {
 impl From<MakeFunctionFlag> for u32 {
     /// Encode as CPython-compatible power-of-two value
     fn from(flag: MakeFunctionFlag) -> Self {
-        1u32 << (flag as u32)
+        1u32 << (flag as Self)
     }
 }
 

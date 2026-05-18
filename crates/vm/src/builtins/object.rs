@@ -1,4 +1,4 @@
-use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef};
+use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef};
 use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
@@ -104,6 +104,7 @@ impl Constructor for PyBaseObject {
     }
 }
 
+#[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
 pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine) -> PyResult {
     // Only create dict if the class has HAS_DICT flag (i.e., __slots__ was not defined
     // or __dict__ is in __slots__)
@@ -542,6 +543,7 @@ impl PyBaseObject {
         common_reduce(obj, proto, vm)
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pyslot]
     fn slot_hash(zelf: &PyObject, _vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.get_id() as _)
@@ -553,16 +555,50 @@ impl PyBaseObject {
     }
 }
 
-pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-    obj.dict()
-        .ok_or_else(|| vm.new_attribute_error("This object has no __dict__"))
+pub(crate) fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    if let Some(dict) = obj.dict() {
+        Ok(dict)
+    } else {
+        match obj.instance_dict() {
+            Some(d) => Ok(d.get_or_insert(vm)),
+            None => Err(vm.new_attribute_error("This object has no __dict__")),
+        }
+    }
 }
-pub fn object_set_dict(obj: PyObjectRef, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+pub(crate) fn object_set_dict(
+    obj: PyObjectRef,
+    value: PySetterValue<PyDictRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let dict = match value {
+        PySetterValue::Assign(dict) => Some(dict),
+        PySetterValue::Delete => None,
+    };
     obj.set_dict(dict)
         .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn object_generic_set_dict(
+    obj: PyObjectRef,
+    value: PySetterValue,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let dict = match value {
+        PySetterValue::Assign(value) => {
+            let dict = value.downcast::<PyDict>().map_err(|value| {
+                vm.new_type_error(format!(
+                    "__dict__ must be set to a dictionary, not a '{}'",
+                    value.class().name()
+                ))
+            })?;
+            PySetterValue::Assign(dict)
+        }
+        PySetterValue::Delete => return Err(vm.new_type_error("cannot delete __dict__")),
+    };
+    object_set_dict(obj, dict, vm)
+}
+
+pub(crate) fn init(ctx: &'static Context) {
     // Manually set alloc/init slots - derive macro doesn't generate extend_slots
     // for trait impl that overrides #[pyslot] method
     ctx.types.object_type.slots.alloc.store(Some(generic_alloc));
@@ -722,9 +758,8 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Use copyreg.__newobj_ex__
         let newobj = copyreg.get_attr("__newobj_ex__", vm)?;
         let args_tuple: PyObjectRef = args.into();
-        let kwargs_dict: PyObjectRef = kwargs
-            .map(|k| k.into())
-            .unwrap_or_else(|| vm.ctx.new_dict().into());
+        let kwargs_dict: PyObjectRef =
+            kwargs.map_or_else(|| vm.ctx.new_dict().into(), |k| k.into());
 
         let newargs = vm
             .ctx

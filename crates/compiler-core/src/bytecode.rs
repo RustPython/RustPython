@@ -20,10 +20,8 @@ use num_complex::Complex64;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
-    instruction::{
-        AnyInstruction, AnyOpcode, Arg, Instruction, InstructionMetadata, Opcode,
-        PseudoInstruction, PseudoOpcode, StackEffect,
-    },
+    instruction::{AnyInstruction, AnyOpcode, Arg, StackEffect},
+    instructions::{Instruction, Opcode, PseudoInstruction, PseudoOpcode},
     oparg::{
         BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,
         IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr, LoadSuperAttr,
@@ -33,6 +31,7 @@ pub use crate::bytecode::{
 };
 
 mod instruction;
+mod instructions;
 pub mod oparg;
 
 /// Exception table entry for zero-cost exception handling
@@ -52,6 +51,7 @@ pub struct ExceptionTableEntry {
 }
 
 impl ExceptionTableEntry {
+    #[must_use]
     pub const fn new(start: u32, end: u32, target: u32, depth: u16, push_lasti: bool) -> Self {
         Self {
             start,
@@ -65,6 +65,7 @@ impl ExceptionTableEntry {
 
 /// Encode exception table entries.
 /// Uses 6-bit varint encoding with start marker (MSB) and continuation bit.
+#[must_use]
 pub fn encode_exception_table(entries: &[ExceptionTableEntry]) -> alloc::boxed::Box<[u8]> {
     let mut data = Vec::new();
     for entry in entries {
@@ -80,6 +81,7 @@ pub fn encode_exception_table(entries: &[ExceptionTableEntry]) -> alloc::boxed::
 }
 
 /// Find exception handler for given instruction offset.
+#[must_use]
 pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTableEntry> {
     let mut pos = 0;
     while pos < table.len() {
@@ -106,6 +108,7 @@ pub fn find_exception_handler(table: &[u8], offset: u32) -> Option<ExceptionTabl
 }
 
 /// Decode all exception table entries.
+#[must_use]
 pub fn decode_exception_table(table: &[u8]) -> Vec<ExceptionTableEntry> {
     let mut entries = Vec::new();
     let mut pos = 0;
@@ -138,6 +141,7 @@ pub fn decode_exception_table(table: &[u8]) -> Vec<ExceptionTableEntry> {
 
 /// Parse linetable to build a boolean mask indicating which code units
 /// have NO_LOCATION (line == -1). Returns a Vec<bool> of length `num_units`.
+#[must_use]
 pub fn build_no_location_mask(linetable: &[u8], num_units: usize) -> Vec<bool> {
     let mut mask = Vec::new();
     mask.resize(num_units, false);
@@ -227,6 +231,7 @@ pub enum PyCodeLocationInfoKind {
 }
 
 impl PyCodeLocationInfoKind {
+    #[must_use]
     pub fn from_code(code: u8) -> Option<Self> {
         match code {
             0 => Some(Self::Short0),
@@ -249,10 +254,12 @@ impl PyCodeLocationInfoKind {
         }
     }
 
+    #[must_use]
     pub fn is_short(&self) -> bool {
         (*self as u8) <= 9
     }
 
+    #[must_use]
     pub fn short_column_group(&self) -> Option<u8> {
         if self.is_short() {
             Some(*self as u8)
@@ -261,6 +268,7 @@ impl PyCodeLocationInfoKind {
         }
     }
 
+    #[must_use]
     pub fn one_line_delta(&self) -> Option<i32> {
         match self {
             Self::OneLine0 => Some(0),
@@ -442,7 +450,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct CodeFlags: u32 {
         const OPTIMIZED = 0x0001;
         const NEWLOCALS = 0x0002;
@@ -483,24 +491,28 @@ const MAX_BACKOFF: u16 = 12;
 const UNREACHABLE_BACKOFF: u16 = 15;
 
 /// Encode an adaptive counter as `(value << 4) | backoff`.
+#[must_use]
 pub const fn adaptive_counter_bits(value: u16, backoff: u16) -> u16 {
     (value << BACKOFF_BITS) | backoff
 }
 
 /// True when the adaptive counter should trigger specialization.
 #[inline]
+#[must_use]
 pub const fn adaptive_counter_triggers(counter: u16) -> bool {
     counter < UNREACHABLE_BACKOFF
 }
 
 /// Decrement adaptive counter by one countdown step.
 #[inline]
+#[must_use]
 pub const fn advance_adaptive_counter(counter: u16) -> u16 {
     counter.wrapping_sub(1 << BACKOFF_BITS)
 }
 
 /// Reset adaptive counter with exponential backoff.
 #[inline]
+#[must_use]
 pub const fn adaptive_counter_backoff(counter: u16) -> u16 {
     let backoff = counter & ((1 << BACKOFF_BITS) - 1);
     if backoff < MAX_BACKOFF {
@@ -511,6 +523,7 @@ pub const fn adaptive_counter_backoff(counter: u16) -> u16 {
 }
 
 impl CodeUnit {
+    #[must_use]
     pub const fn new(op: Instruction, arg: OpArgByte) -> Self {
         Self { op, arg }
     }
@@ -639,7 +652,7 @@ impl CodeUnits {
     /// Disable adaptive specialization by setting all counters to unreachable.
     /// Used for CPython-compiled bytecode where specialization may not be safe.
     pub fn disable_specialization(&self) {
-        for counter in self.adaptive_counters.iter() {
+        for counter in &self.adaptive_counters {
             counter.store(UNREACHABLE_BACKOFF, Ordering::Relaxed);
         }
     }
@@ -853,7 +866,7 @@ impl CodeUnits {
 #[derive(Debug, Clone)]
 pub enum ConstantData {
     Tuple {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     Integer {
         value: BigInt,
@@ -878,10 +891,10 @@ pub enum ConstantData {
     },
     /// Constant slice(start, stop, step)
     Slice {
-        elements: Box<[ConstantData; 3]>,
+        elements: Box<[Self; 3]>,
     },
     Frozenset {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     None,
     Ellipsis,
@@ -1016,6 +1029,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
         }
     }
 
+    #[must_use]
     pub fn to_owned(self) -> ConstantData {
         use ConstantData::*;
 
@@ -1136,65 +1150,6 @@ impl<C: Constant> CodeObject<C> {
         label_targets
     }
 
-    fn display_inner(
-        &self,
-        f: &mut fmt::Formatter<'_>,
-        expand_code_objects: bool,
-        level: usize,
-    ) -> fmt::Result {
-        let label_targets = self.label_targets();
-        let line_digits = (3).max(self.locations.last().unwrap().0.line.digits().get());
-        let offset_digits = (4).max(1 + self.instructions.len().ilog10() as usize);
-        let mut last_line = OneIndexed::MAX;
-        let mut arg_state = OpArgState::default();
-        for (offset, &instruction) in self.instructions.iter().enumerate() {
-            let (instruction, arg) = arg_state.get(instruction);
-            // optional line number
-            let line = self.locations[offset].0.line;
-            if line != last_line {
-                if last_line != OneIndexed::MAX {
-                    writeln!(f)?;
-                }
-                last_line = line;
-                write!(f, "{line:line_digits$}")?;
-            } else {
-                for _ in 0..line_digits {
-                    write!(f, " ")?;
-                }
-            }
-            write!(f, " ")?;
-
-            // level indent
-            for _ in 0..level {
-                write!(f, "    ")?;
-            }
-
-            // arrow and offset
-            let arrow = if label_targets.contains(&Label::from_u32(offset as u32)) {
-                ">>"
-            } else {
-                "  "
-            };
-            write!(f, "{arrow} {offset:offset_digits$} ")?;
-
-            // instruction
-            instruction.fmt_dis(arg, f, self, expand_code_objects, 21, level)?;
-            writeln!(f)?;
-        }
-        Ok(())
-    }
-
-    /// Recursively display this CodeObject
-    pub fn display_expand_code_objects(&self) -> impl fmt::Display + '_ {
-        struct Display<'a, C: Constant>(&'a CodeObject<C>);
-        impl<C: Constant> fmt::Display for Display<'_, C> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                self.0.display_inner(f, true, 1)
-            }
-        }
-        Display(self)
-    }
-
     /// Map this CodeObject to one that holds a Bag::Constant
     pub fn map_bag<Bag: ConstantBag>(self, bag: Bag) -> CodeObject<Bag::Constant> {
         let map_names = |names: Box<[C::Name]>| {
@@ -1261,19 +1216,6 @@ impl<C: Constant> CodeObject<C> {
             linetable: self.linetable.clone(),
             exceptiontable: self.exceptiontable.clone(),
         }
-    }
-}
-
-impl<C: Constant> fmt::Display for CodeObject<C> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display_inner(f, false, 1)?;
-        for constant in &*self.constants {
-            if let BorrowedConstant::Code { code } = constant.borrow_constant() {
-                writeln!(f, "\nDisassembly of {code:?}")?;
-                code.fmt(f)?;
-            }
-        }
-        Ok(())
     }
 }
 

@@ -108,9 +108,7 @@ impl PyPayload for PyTuple {
 
     #[inline]
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
-        let len = unsafe { &*(obj as *const crate::Py<PyTuple>) }
-            .elements
-            .len();
+        let len = unsafe { &*(obj as *const crate::Py<Self>) }.elements.len();
         if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
             return false;
         }
@@ -225,7 +223,7 @@ impl Constructor for PyTuple {
         if cls.is(vm.ctx.types.tuple_type) {
             // Return exact tuple as-is
             if let OptionalArg::Present(ref input) = iterable
-                && let Ok(tuple) = input.clone().downcast_exact::<PyTuple>(vm)
+                && let Ok(tuple) = input.clone().downcast_exact::<Self>(vm)
             {
                 return Ok(tuple.into_pyref().into());
             }
@@ -291,16 +289,19 @@ impl<'a, R> core::iter::IntoIterator for &'a Py<PyTuple<R>> {
 }
 
 impl<R> PyTuple<R> {
+    #[must_use]
     pub const fn as_slice(&self) -> &[R] {
         &self.elements
     }
 
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.elements.len()
     }
 
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
@@ -325,6 +326,7 @@ impl PyTuple<PyObjectRef> {
     /// Creating a new tuple with given boxed slice.
     /// NOTE: for usual case, you probably want to use PyTuple::new_ref.
     /// Calling this function implies trying micro optimization for non-zero-sized tuple.
+    #[must_use]
     pub const fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
         Self { elements }
     }
@@ -402,6 +404,7 @@ impl PyTuple {
     }
 
     #[inline]
+    #[must_use]
     pub const fn __len__(&self) -> usize {
         self.elements.len()
     }
@@ -608,6 +611,7 @@ impl PyRef<PyTuple<PyObjectRef>> {
 }
 
 impl<T: PyPayload> PyRef<PyTuple<PyRef<T>>> {
+    #[must_use]
     pub fn into_untyped(self) -> PyRef<PyTuple> {
         // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
         unsafe { core::mem::transmute::<Self, PyRef<PyTuple>>(self) }

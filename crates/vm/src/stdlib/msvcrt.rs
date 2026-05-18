@@ -1,6 +1,6 @@
 // spell-checker:disable
 
-pub use msvcrt::*;
+pub(crate) use msvcrt::*;
 
 #[pymodule]
 mod msvcrt {
@@ -13,27 +13,30 @@ mod msvcrt {
     use itertools::Itertools;
     use rustpython_host_env::msvcrt as host_msvcrt;
     use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::System::Diagnostics::Debug;
 
     #[pyattr]
-    use windows_sys::Win32::System::Diagnostics::Debug::{
+    use host_msvcrt::{
         SEM_FAILCRITICALERRORS, SEM_NOALIGNMENTFAULTEXCEPT, SEM_NOGPFAULTERRORBOX,
         SEM_NOOPENFILEERRORBOX,
     };
 
-    pub fn setmode_binary(fd: crt_fd::Borrowed<'_>) {
+    pub(crate) fn setmode_binary(fd: crt_fd::Borrowed<'_>) {
         host_msvcrt::setmode_binary(fd);
     }
 
     // Locking mode constants
     #[pyattr]
     const LK_UNLCK: i32 = host_msvcrt::LK_UNLCK; // Unlock
+
     #[pyattr]
     const LK_LOCK: i32 = host_msvcrt::LK_LOCK; // Lock (blocking)
+
     #[pyattr]
     const LK_NBLCK: i32 = host_msvcrt::LK_NBLCK; // Non-blocking lock
+
     #[pyattr]
     const LK_RLCK: i32 = host_msvcrt::LK_RLCK; // Lock for reading (same as LK_LOCK)
+
     #[pyattr]
     const LK_NBRLCK: i32 = host_msvcrt::LK_NBRLCK; // Non-blocking lock for reading (same as LK_NBLCK)
 
@@ -41,18 +44,22 @@ mod msvcrt {
     fn getch() -> Vec<u8> {
         host_msvcrt::getch()
     }
+
     #[pyfunction]
     fn getwch() -> String {
         host_msvcrt::getwch()
     }
+
     #[pyfunction]
     fn getche() -> Vec<u8> {
         host_msvcrt::getche()
     }
+
     #[pyfunction]
     fn getwche() -> String {
         host_msvcrt::getwche()
     }
+
     #[pyfunction]
     fn putch(b: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {
         let &c =
@@ -62,6 +69,7 @@ mod msvcrt {
         host_msvcrt::putch(c);
         Ok(())
     }
+
     #[pyfunction]
     fn putwch(s: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let c = s
@@ -130,7 +138,7 @@ mod msvcrt {
 
     #[allow(non_snake_case)]
     #[pyfunction]
-    fn SetErrorMode(mode: Debug::THREAD_ERROR_MODE, _: &VirtualMachine) -> u32 {
+    fn SetErrorMode(mode: host_msvcrt::ErrorMode, _: &VirtualMachine) -> u32 {
         host_msvcrt::set_error_mode(mode)
     }
 }
