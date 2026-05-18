@@ -23,18 +23,19 @@ mod _browser {
 
     impl FetchResponseFormat {
         fn from_str(vm: &VirtualMachine, s: &str) -> PyResult<Self> {
-            match s {
-                "json" => Ok(FetchResponseFormat::Json),
-                "text" => Ok(FetchResponseFormat::Text),
-                "array_buffer" => Ok(FetchResponseFormat::ArrayBuffer),
-                _ => Err(vm.new_type_error("Unknown fetch response_format")),
-            }
+            Ok(match s {
+                "json" => Self::Json,
+                "text" => Self::Text,
+                "array_buffer" => Self::ArrayBuffer,
+                _ => return Err(vm.new_type_error("Unknown fetch response_format")),
+            })
         }
+
         fn get_response(&self, response: &web_sys::Response) -> Result<Promise, JsValue> {
             match self {
-                FetchResponseFormat::Json => response.json(),
-                FetchResponseFormat::Text => response.text(),
-                FetchResponseFormat::ArrayBuffer => response.array_buffer(),
+                Self::Json => response.json(),
+                Self::Text => response.text(),
+                Self::ArrayBuffer => response.array_buffer(),
             }
         }
     }

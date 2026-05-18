@@ -390,10 +390,10 @@ pub(crate) fn import_module_level(
             if level == 0 {
                 let sys_modules = vm.sys_module.get_attr("modules", vm)?;
                 return sys_modules.get_item(name, vm).map_err(|_| {
-                    vm.new_import_error(format!("No module named '{}'", name), name.to_owned())
+                    vm.new_import_error(format!("No module named '{name}'"), name.to_owned())
                 });
             }
-            return Err(vm.new_import_error(format!("No module named '{}'", name), name.to_owned()));
+            return Err(vm.new_import_error(format!("No module named '{name}'"), name.to_owned()));
         }
     };
 

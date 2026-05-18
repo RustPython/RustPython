@@ -2,7 +2,6 @@ import functools
 import hashlib
 import importlib
 import unittest
-
 from test.support.import_helper import import_module
 
 try:

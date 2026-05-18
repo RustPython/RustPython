@@ -21,7 +21,8 @@ pub(crate) mod ssl_cert {
         x509::{self, X509, X509Ref},
     };
     use openssl_sys as sys;
-    use std::fmt;
+
+    use core::fmt;
 
     // Import constants and error converter from _ssl module
     use crate::openssl::_ssl::{ENCODING_DER, ENCODING_PEM, convert_openssl_error};
@@ -30,7 +31,7 @@ pub(crate) mod ssl_cert {
         let no_name = i32::from(no_name);
         let ptr = obj.as_ptr();
         let b = unsafe {
-            let buflen = sys::OBJ_obj2txt(std::ptr::null_mut(), 0, ptr, no_name);
+            let buflen = sys::OBJ_obj2txt(core::ptr::null_mut(), 0, ptr, no_name);
             assert!(buflen >= 0);
             if buflen == 0 {
                 return None;
@@ -172,7 +173,7 @@ pub(crate) mod ssl_cert {
                 let txt = obj2txt(entry.object(), false).to_pyobject(vm);
                 let asn1_str = entry.data();
                 let data_bytes = asn1_str.as_slice();
-                let data = match std::str::from_utf8(data_bytes) {
+                let data = match core::str::from_utf8(data_bytes) {
                     Ok(s) => vm.ctx.new_str(s.to_owned()),
                     Err(_) => vm
                         .ctx
@@ -234,8 +235,9 @@ pub(crate) mod ssl_cert {
                             format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
                         } else if ip.len() == 16 {
                             // IPv6 - format with all zeros visible (not compressed)
-                            let ip_addr =
-                                std::net::Ipv6Addr::from(<[u8; 16]>::try_from(&ip[0..16]).unwrap());
+                            let ip_addr = core::net::Ipv6Addr::from(
+                                <[u8; 16]>::try_from(&ip[0..16]).unwrap(),
+                            );
                             let s = ip_addr.segments();
                             format!(
                                 "{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}",

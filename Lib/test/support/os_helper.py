@@ -13,6 +13,7 @@ import warnings
 
 from test import support
 
+
 # Filename used for testing
 TESTFN_ASCII = '@test'
 

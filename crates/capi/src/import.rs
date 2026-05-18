@@ -3,7 +3,7 @@ use core::ffi::{CStr, c_char};
 use rustpython_vm::builtins::PyStr;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyImport_Import(name: *mut PyObject) -> *mut PyObject {
+pub unsafe extern "C" fn PyImport_Import(name: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
         vm.import(name, 0)

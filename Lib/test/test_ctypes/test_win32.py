@@ -13,8 +13,7 @@ from ._support import Py_TPFLAGS_DISALLOW_INSTANTIATION, Py_TPFLAGS_IMMUTABLETYP
 
 @unittest.skipUnless(sys.platform == "win32", 'Windows-specific test')
 class FunctionCallTestCase(unittest.TestCase):
-    # TODO: RUSTPYTHON: SEH not implemented, crashes with STATUS_ACCESS_VIOLATION
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON; SEH not implemented, crashes with STATUS_ACCESS_VIOLATION")
     @unittest.skipUnless('MSC' in sys.version, "SEH only supported by MSC")
     @unittest.skipIf(sys.executable.lower().endswith('_d.exe'),
                      "SEH not enabled in debug builds")

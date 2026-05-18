@@ -548,7 +548,6 @@ def requires_lzma(reason='requires lzma'):
         import lzma
     except ImportError:
         lzma = None
-    lzma = None # XXX: RUSTPYTHON; xz is not supported yet
     return unittest.skipUnless(lzma, reason)
 
 def requires_zstd(reason='requires zstd'):
@@ -856,8 +855,6 @@ def gc_collect():
     longer than expected.  This function tries its best to force all garbage
     objects to disappear.
     """
-    return # TODO: RUSTPYTHON
-
     import gc
     gc.collect()
     gc.collect()
@@ -865,13 +862,6 @@ def gc_collect():
 
 @contextlib.contextmanager
 def disable_gc():
-    # TODO: RUSTPYTHON; GC is not supported yet
-    try:
-        yield
-    finally:
-        pass
-    return
-
     import gc
     have_gc = gc.isenabled()
     gc.disable()
@@ -2004,10 +1994,6 @@ def _check_tracemalloc():
 
 
 def check_free_after_iterating(test, iter, cls, args=()):
-    # TODO: RUSTPYTHON; GC is not supported yet
-    test.assertTrue(False)
-    return
-
     done = False
     def wrapper():
         class A(cls):
@@ -3047,6 +3033,10 @@ def get_signal_name(exitcode):
         return WINDOWS_STATUS[exitcode]
     except KeyError:
         pass
+
+    # Format Windows exit status as hexadecimal
+    if 0xC0000000 <= exitcode:
+        return f"0x{exitcode:X}"
 
     return None
 

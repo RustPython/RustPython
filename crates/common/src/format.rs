@@ -31,7 +31,7 @@ trait FormatParse {
         Self: Sized;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum FormatConversion {
     Str = b's',
@@ -74,7 +74,7 @@ impl FormatConversion {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FormatAlign {
     Left,
     Right,
@@ -105,7 +105,7 @@ impl FormatParse for FormatAlign {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FormatSign {
     Plus,
     Minus,
@@ -124,7 +124,7 @@ impl FormatParse for FormatSign {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatGrouping {
     Comma,
     Underscore,
@@ -150,7 +150,7 @@ impl From<&FormatGrouping> for char {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatType {
     String,
     Binary,
@@ -216,7 +216,7 @@ impl FormatParse for FormatType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FormatSpec {
     conversion: Option<FormatConversion>,
     fill: Option<CodePoint>,
@@ -580,7 +580,13 @@ impl FormatSpec {
             },
         };
 
-        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), sign_str, FormatAlign::Right)
+        Ok(
+            self.format_sign_and_align(
+                &AsciiStr::new(&magnitude_str),
+                sign_str,
+                FormatAlign::Right,
+            ),
+        )
     }
 
     /// Format a float with locale-aware 'n' format.
@@ -620,7 +626,13 @@ impl FormatSpec {
             }
         };
 
-        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), sign_str, FormatAlign::Right)
+        Ok(
+            self.format_sign_and_align(
+                &AsciiStr::new(&magnitude_str),
+                sign_str,
+                FormatAlign::Right,
+            ),
+        )
     }
 
     /// Format a complex number with locale-aware 'n' format.
@@ -632,7 +644,7 @@ impl FormatSpec {
         // Reuse format_complex_re_im with 'g' type to get the base formatted parts,
         // then apply locale grouping. This matches CPython's format_complex_internal:
         // 'n' → 'g', add_parens=0, skip_re=0.
-        let locale_spec = FormatSpec {
+        let locale_spec = Self {
             format_type: Some(FormatType::GeneralFormat(Case::Lower)),
             ..*self
         };
@@ -672,7 +684,7 @@ impl FormatSpec {
         // No parentheses for 'n' format (CPython: add_parens=0)
         let magnitude_str = format!("{grouped_re}{grouped_im}");
 
-        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right)
+        Ok(self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right))
     }
 
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
@@ -751,7 +763,7 @@ impl FormatSpec {
                         Ok("inf%".to_owned())
                     } else {
                         let capped = float::clamp_fmt_precision(precision);
-                        let mut result = format!("{:.*}", capped, scaled);
+                        let mut result = format!("{scaled:.capped$}");
                         // Pad with '0's up to the requested precision to match
                         // CPython byte-identically past the internal cap.
                         let missing = precision.saturating_sub(capped);
@@ -789,7 +801,13 @@ impl FormatSpec {
             }
         };
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, sign_str);
-        self.format_sign_and_align(&AsciiStr::new(&magnitude_str), sign_str, FormatAlign::Right)
+        Ok(
+            self.format_sign_and_align(
+                &AsciiStr::new(&magnitude_str),
+                sign_str,
+                FormatAlign::Right,
+            ),
+        )
     }
 
     #[inline]
@@ -863,11 +881,11 @@ impl FormatSpec {
         };
         let sign_prefix = format!("{sign_str}{prefix}");
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str, &sign_prefix);
-        self.format_sign_and_align(
+        Ok(self.format_sign_and_align(
             &AsciiStr::new(&magnitude_str),
             &sign_prefix,
             FormatAlign::Right,
-        )
+        ))
     }
 
     pub fn format_string<T>(&self, s: &T) -> Result<String, FormatSpecError>
@@ -883,7 +901,7 @@ impl FormatSpec {
                     Some(p) => s.deref().chars().take(p).collect(),
                     None => s.deref().to_owned(),
                 };
-                self.format_sign_and_align(&truncated, "", FormatAlign::Left)
+                Ok(self.format_sign_and_align(&truncated, "", FormatAlign::Left))
             }
             _ => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
@@ -905,26 +923,33 @@ impl FormatSpec {
         }
         match &self.fill.unwrap_or_else(|| ' '.into()).to_char() {
             Some('0') => Err(FormatSpecError::ZeroPadding),
-            _ => self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right),
+            _ => Ok(self.format_sign_and_align(
+                &AsciiStr::new(&magnitude_str),
+                "",
+                FormatAlign::Right,
+            )),
         }
     }
 
     fn format_complex_re_im(&self, num: &Complex64) -> Result<(String, String), FormatSpecError> {
         // Format real part
-        let mut formatted_re = String::new();
-        if num.re != 0.0 || num.re.is_negative_zero() || self.format_type.is_some() {
-            let sign_re = if num.re.is_sign_negative() && !num.is_nan() {
-                "-"
+        let formatted_re =
+            if num.re != 0.0 || num.re.is_negative_zero() || self.format_type.is_some() {
+                let sign_re = if num.re.is_sign_negative() && !num.is_nan() {
+                    "-"
+                } else {
+                    match self.sign.unwrap_or(FormatSign::Minus) {
+                        FormatSign::Plus => "+",
+                        FormatSign::Minus => "",
+                        FormatSign::MinusOrSpace => " ",
+                    }
+                };
+                let re = self.format_complex_float(num.re)?;
+                format!("{sign_re}{re}")
             } else {
-                match self.sign.unwrap_or(FormatSign::Minus) {
-                    FormatSign::Plus => "+",
-                    FormatSign::Minus => "",
-                    FormatSign::MinusOrSpace => " ",
-                }
+                String::new()
             };
-            let re = self.format_complex_float(num.re)?;
-            formatted_re = format!("{sign_re}{re}");
-        }
+
         // Format imaginary part
         let sign_im = if num.im.is_sign_negative() && !num.im.is_nan() {
             "-"
@@ -1017,7 +1042,7 @@ impl FormatSpec {
         magnitude_str: &T,
         sign_str: &str,
         default_align: FormatAlign,
-    ) -> Result<String, FormatSpecError>
+    ) -> String
     where
         T: CharLen + Deref<Target = str>,
     {
@@ -1030,7 +1055,7 @@ impl FormatSpec {
         });
 
         let magnitude_str = magnitude_str.deref();
-        Ok(match align {
+        match align {
             FormatAlign::Left => format!(
                 "{}{}{}",
                 sign_str,
@@ -1057,7 +1082,7 @@ impl FormatSpec {
                     Self::compute_fill_string(fill_char, right_fill_chars_needed);
                 format!("{left_fill_string}{sign_str}{magnitude_str}{right_fill_string}")
             }
-        })
+        }
     }
 }
 
@@ -1096,7 +1121,7 @@ impl Deref for AsciiStr<'_> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatSpecError {
     DecimalDigitsTooMany,
     PrecisionTooBig,
@@ -1113,7 +1138,7 @@ pub enum FormatSpecError {
     NotImplemented(char, &'static str),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FormatParseError {
     UnmatchedBracket,
     MissingStartBracket,
@@ -1133,7 +1158,7 @@ impl FromStr for FormatSpec {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FieldNamePart {
     Attribute(Wtf8Buf),
     Index(usize),
@@ -1180,14 +1205,14 @@ impl FieldNamePart {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FieldType {
     Auto,
     Index(usize),
     Keyword(Wtf8Buf),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FieldName {
     pub field_type: FieldType,
     pub parts: Vec<FieldNamePart>,
@@ -1233,7 +1258,7 @@ impl FieldName {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FormatPart {
     Field {
         field_name: Wtf8Buf,
@@ -1243,7 +1268,7 @@ pub enum FormatPart {
     Literal(Wtf8Buf),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FormatString {
     pub format_parts: Vec<FormatPart>,
 }

@@ -948,10 +948,10 @@ fn float_repr(value: f64) -> String {
             "-inf".to_owned()
         }
     } else {
-        let s = format!("{}", value);
+        let s = format!("{value}");
         // If no decimal point and not in scientific notation, add .0
         if !s.contains('.') && !s.contains('e') && !s.contains('E') {
-            format!("{}.0", s)
+            format!("{s}.0")
         } else {
             s
         }

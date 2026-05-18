@@ -124,9 +124,9 @@ mod _pyexpat {
             namespace_separator: Option<String>,
             intern: Option<PyObjectRef>,
             vm: &VirtualMachine,
-        ) -> PyResult<PyExpatLikeXmlParserRef> {
+        ) -> PyExpatLikeXmlParserRef {
             let intern_dict = intern.unwrap_or_else(|| vm.ctx.new_dict().into());
-            Ok(Self {
+            Self {
                 namespace_separator,
                 start_element: MutableObject::new(vm.ctx.none()),
                 end_element: MutableObject::new(vm.ctx.none()),
@@ -157,7 +157,7 @@ mod _pyexpat {
                 attlist_decl: MutableObject::new(vm.ctx.none()),
                 skipped_entity: MutableObject::new(vm.ctx.none()),
             }
-            .into_ref(&vm.ctx))
+            .into_ref(&vm.ctx)
         }
 
         #[extend_class]
@@ -353,21 +353,21 @@ mod _pyexpat {
             data: Either<PyStrRef, PyBytesRef>,
             _isfinal: OptionalArg<bool>,
             vm: &VirtualMachine,
-        ) -> PyResult<i32> {
+        ) -> i32 {
             let bytes = match data {
                 Either::A(s) => s.as_bytes().to_vec(),
                 Either::B(b) => b.as_bytes().to_vec(),
             };
             // Empty data is valid - used to finalize parsing
             if bytes.is_empty() {
-                return Ok(1);
+                return 1;
             }
             let reader = Cursor::<Vec<u8>>::new(bytes);
             let parser = self.create_config().create_reader(reader);
             // Note: xml-rs is stricter than libexpat; some errors are silently ignored
             // to maintain compatibility with existing Python code
             let _ = self.do_parse(vm, parser);
-            Ok(1)
+            1
         }
 
         #[pymethod(name = "ParseFile")]
@@ -417,7 +417,7 @@ mod _pyexpat {
         // encoding parameter is currently not used (xml-rs handles encoding from XML declaration)
         let _ = args.encoding;
 
-        PyExpatLikeXmlParser::new(ns_sep, args.intern, vm)
+        Ok(PyExpatLikeXmlParser::new(ns_sep, args.intern, vm))
     }
 
     // TODO: Tie this exception to the module's state.

@@ -104,11 +104,11 @@ mod _warnings {
         let cat_obj = match category {
             Some(c) if !vm.is_none(&c) => c,
             _ => {
-                if message.fast_isinstance(vm.ctx.exceptions.warning) {
-                    return Ok(Some(message.class().to_owned()));
+                return Ok(if message.fast_isinstance(vm.ctx.exceptions.warning) {
+                    Some(message.class().to_owned())
                 } else {
-                    return Ok(None); // will default to UserWarning in warn_explicit
-                }
+                    None // will default to UserWarning in warn_explicit
+                });
             }
         };
 

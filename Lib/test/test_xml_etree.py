@@ -2672,7 +2672,6 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
             e[:] = [E('bar')]
             self.assertRaises(TypeError, copy.deepcopy, e)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cyclic_gc(self):
         class Dummy:
             pass

@@ -239,22 +239,19 @@ fn range_from_object(
 
     if start_row_val > end_row_val {
         return Err(vm.new_value_error(format!(
-            "AST node line range ({}, {}) is not valid",
-            start_row_val, end_row_val
+            "AST node line range ({start_row_val}, {end_row_val}) is not valid"
         )));
     }
     if (start_row_val < 0 && end_row_val != start_row_val)
         || (start_col_val < 0 && end_col_val != start_col_val)
     {
         return Err(vm.new_value_error(format!(
-            "AST node column range ({}, {}) for line range ({}, {}) is not valid",
-            start_col_val, end_col_val, start_row_val, end_row_val
+            "AST node column range ({start_col_val}, {end_col_val}) for line range ({start_row_val}, {end_row_val}) is not valid"
         )));
     }
     if start_row_val == end_row_val && start_col_val > end_col_val {
         return Err(vm.new_value_error(format!(
-            "line {}, column {}-{} is not a valid range",
-            start_row_val, start_col_val, end_col_val
+            "line {start_row_val}, column {start_col_val}-{end_col_val} is not a valid range"
         )));
     }
 
@@ -414,7 +411,7 @@ pub(crate) fn parse(
     };
     let obj = top.ast_to_object(vm, &source_file);
     if type_comments && obj.class().is(pyast::NodeModModule::static_type()) {
-        let type_ignores = type_ignores_from_source(vm, source)?;
+        let type_ignores = type_ignores_from_source(vm, source);
         let dict = obj.as_object().dict().unwrap();
         dict.set_item("type_ignores", vm.ctx.new_list(type_ignores).into(), vm)
             .unwrap();
@@ -512,10 +509,7 @@ pub(crate) fn parse_func_type(
     Ok(func_type.ast_to_object(vm, &source_file))
 }
 
-fn type_ignores_from_source(
-    vm: &VirtualMachine,
-    source: &str,
-) -> Result<Vec<PyObjectRef>, CompileError> {
+fn type_ignores_from_source(vm: &VirtualMachine, source: &str) -> Vec<PyObjectRef> {
     let mut ignores = Vec::new();
     for (idx, line) in source.lines().enumerate() {
         let Some(pos) = line.find("#") else {
@@ -542,7 +536,7 @@ fn type_ignores_from_source(
             .unwrap();
         ignores.push(node.into());
     }
-    Ok(ignores)
+    ignores
 }
 
 #[cfg(feature = "parser")]

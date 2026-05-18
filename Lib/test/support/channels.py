@@ -1,22 +1,18 @@
 """Cross-interpreter Channels High Level Module."""
 
 import time
-from concurrent.interpreters import _crossinterp
-from concurrent.interpreters._crossinterp import (
-    UNBOUND_ERROR,
-    UNBOUND_REMOVE,
-)
-
 import _interpchannels as _channels
+from concurrent.interpreters import _crossinterp
 
 # aliases:
 from _interpchannels import (
-    ChannelClosedError,
-    ChannelEmptyError,
-    ChannelError,
-    ChannelNotEmptyError,
-    ChannelNotFoundError,
+    ChannelError, ChannelNotFoundError, ChannelClosedError,
+    ChannelEmptyError, ChannelNotEmptyError,
 )
+from concurrent.interpreters._crossinterp import (
+    UNBOUND_ERROR, UNBOUND_REMOVE,
+)
+
 
 __all__ = [
     'UNBOUND', 'UNBOUND_ERROR', 'UNBOUND_REMOVE',

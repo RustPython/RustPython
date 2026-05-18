@@ -4339,7 +4339,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         C.__name__ = Nasty("abc")
         C.__name__ = "normal"
 
-    @unittest.expectedFailureIf(support.is_android, "TODO: RUSTPYTHON; AssertionError: 'C.__rfloordiv__' != 'C.__floordiv__'")
     def test_subclass_right_op(self):
         # Testing correct dispatch of subclass overloading __r<op>__...
 
@@ -5017,7 +5016,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         ns = {'__qualname__': 1}
         self.assertRaises(TypeError, type, 'Foo', (), ns)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cycle_through_dict(self):
         # See bug #1469629
         class X(dict):

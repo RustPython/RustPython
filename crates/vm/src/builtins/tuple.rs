@@ -108,9 +108,7 @@ impl PyPayload for PyTuple {
 
     #[inline]
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
-        let len = unsafe { &*(obj as *const crate::Py<PyTuple>) }
-            .elements
-            .len();
+        let len = unsafe { &*(obj as *const crate::Py<Self>) }.elements.len();
         if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
             return false;
         }
@@ -225,7 +223,7 @@ impl Constructor for PyTuple {
         if cls.is(vm.ctx.types.tuple_type) {
             // Return exact tuple as-is
             if let OptionalArg::Present(ref input) = iterable
-                && let Ok(tuple) = input.clone().downcast_exact::<PyTuple>(vm)
+                && let Ok(tuple) = input.clone().downcast_exact::<Self>(vm)
             {
                 return Ok(tuple.into_pyref().into());
             }

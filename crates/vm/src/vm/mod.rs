@@ -48,11 +48,6 @@ use core::{
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
-#[cfg(unix)]
-use nix::{
-    sys::signal::{SaFlags, SigAction, SigSet, Signal::SIGINT, kill, sigaction},
-    unistd::getpid,
-};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
@@ -846,7 +841,7 @@ impl VirtualMachine {
         let codec_info = getregentry.call((), self)?;
         self.state
             .codec_registry
-            .register_manual("ascii", codec_info.try_into_value(self)?)?;
+            .register_manual("ascii", codec_info.try_into_value(self)?);
 
         // Register utf-8 encoding (also as "utf8" alias since normalize_encoding_name
         // maps "utf-8" → "utf_8" but leaves "utf8" as-is)
@@ -857,10 +852,10 @@ impl VirtualMachine {
         let utf8_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
         self.state
             .codec_registry
-            .register_manual("utf-8", utf8_codec.clone())?;
+            .register_manual("utf-8", utf8_codec.clone());
         self.state
             .codec_registry
-            .register_manual("utf8", utf8_codec)?;
+            .register_manual("utf8", utf8_codec);
 
         // Register latin-1 / iso8859-1 aliases needed very early for stdio
         // bootstrap (e.g. PYTHONIOENCODING=latin-1).
@@ -873,7 +868,7 @@ impl VirtualMachine {
             for name in ["latin-1", "latin_1", "latin1", "iso8859-1", "iso8859_1"] {
                 self.state
                     .codec_registry
-                    .register_manual(name, latin1_codec.clone())?;
+                    .register_manual(name, latin1_codec.clone());
             }
         }
         Ok(())
@@ -1164,11 +1159,11 @@ impl VirtualMachine {
         // Get stderr once and reuse it
         let stderr = crate::stdlib::sys::get_stderr(self).ok();
 
-        let write_to_stderr = |s: &str, stderr: &Option<PyObjectRef>, vm: &VirtualMachine| {
+        let write_to_stderr = |s: &str, stderr: &Option<PyObjectRef>, vm: &Self| {
             if let Some(stderr) = stderr {
                 let _ = vm.call_method(stderr, "write", (s.to_owned(),));
             } else {
-                eprint!("{}", s);
+                eprint!("{s}");
             }
         };
 
@@ -1191,7 +1186,7 @@ impl VirtualMachine {
             Ok(exc_str) if !exc_str.as_wtf8().is_empty() => {
                 format!("{}: {}\n", exc_type_name, exc_str.as_wtf8())
             }
-            _ => format!("{}\n", exc_type_name),
+            _ => format!("{exc_type_name}\n"),
         };
         write_to_stderr(&msg, &stderr, self);
 
@@ -1398,7 +1393,7 @@ impl VirtualMachine {
     /// 2-pass module dict clearing (_PyModule_ClearDict algorithm).
     /// Pass 1: Set names starting with '_' (except __builtins__) to None.
     /// Pass 2: Set all remaining names (except __builtins__) to None.
-    pub(crate) fn module_clear_dict(dict: &Py<PyDict>, vm: &VirtualMachine) {
+    pub(crate) fn module_clear_dict(dict: &Py<PyDict>, vm: &Self) {
         let none = vm.ctx.none();
 
         // Pass 1: names starting with '_' (except __builtins__)
@@ -1446,19 +1441,7 @@ impl VirtualMachine {
     /// Returns (base, top) where base is the lowest address and top is the highest.
     #[cfg(all(not(miri), not(target_env = "musl"), windows))]
     fn get_stack_bounds() -> (usize, usize) {
-        use windows_sys::Win32::System::Threading::{
-            GetCurrentThreadStackLimits, SetThreadStackGuarantee,
-        };
-        let mut low: usize = 0;
-        let mut high: usize = 0;
-        unsafe {
-            GetCurrentThreadStackLimits(&mut low as *mut usize, &mut high as *mut usize);
-            // Add the guaranteed stack space (reserved for exception handling)
-            let mut guarantee: u32 = 0;
-            SetThreadStackGuarantee(&mut guarantee);
-            low += guarantee as usize;
-        }
-        (low, high)
+        crate::host_env::windows::current_thread_stack_bounds()
     }
 
     /// Get stack boundaries on non-Windows platforms.
@@ -1886,9 +1869,9 @@ impl VirtualMachine {
                         if i >= elements.len() {
                             results.shrink_to_fit();
                             return Ok(Ok(results));
-                        } else {
-                            elements[i].clone()
                         }
+                        elements[i].clone()
+
                         // free the lock
                     };
                     match f(elem) {
@@ -2149,9 +2132,8 @@ impl VirtualMachine {
                     arg => {
                         if self.is_none(arg) {
                             return 0;
-                        } else {
-                            arg.str(self).ok()
                         }
+                        arg.str(self).ok()
                     }
                 }),
                 _ => args.as_object().repr(self).ok(),
@@ -2168,15 +2150,10 @@ impl VirtualMachine {
             self.print_exception(exc);
             cfg_select! {
                 unix => {
-                    let action = SigAction::new(
-                        nix::sys::signal::SigHandler::SigDfl,
-                        SaFlags::SA_ONSTACK,
-                        SigSet::empty(),
-                    );
-                    let result = unsafe { sigaction(SIGINT, &action) };
-                    if result.is_ok() {
+                    if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
                         self.flush_std();
-                        kill(getpid(), SIGINT).expect("Expect to be killed.");
+                        crate::host_env::signal::send_sigint_to_self()
+                            .expect("Expect to be killed.");
                     }
 
                     (libc::SIGINT as u32) + 128

@@ -6,15 +6,15 @@ use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::function::{FuncArgs, PyMethodFlags};
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
-use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine};
+use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 
 pub type PyTypeObject = Py<PyType>;
 
 macro_rules! define_py_check {
-    ($name:ident, $($ctx_path:ident).+) => {
+    (fn $name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(obj: *mut PyObject) -> core::ffi::c_int {
-            with_vm(|vm| unsafe {
+        pub unsafe extern "C" fn $name(obj: *mut crate::PyObject) -> core::ffi::c_int {
+            crate::pystate::with_vm(|vm| unsafe {
                 obj
                 .as_ref()
                 .map(|obj| obj.class().is_subtype(vm.ctx.$($ctx_path).+))
@@ -22,11 +22,11 @@ macro_rules! define_py_check {
             })
         }
     };
-    (exact $name:ident, $($ctx_path:ident).+) => {
+    (exact fn $name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(obj: *mut PyObject) -> core::ffi::c_int {
+        pub unsafe extern "C" fn $name(obj: *mut crate::PyObject) -> core::ffi::c_int {
             use rustpython_vm::AsObject;
-            with_vm(|vm| unsafe {
+            crate::pystate::with_vm(|vm| unsafe {
                 obj
                 .as_ref()
                 .map(|obj| obj.class().is(vm.ctx.$($ctx_path).+))
@@ -37,8 +37,8 @@ macro_rules! define_py_check {
 }
 
 pub(crate) use define_py_check;
-define_py_check!(PyType_Check, types.type_type);
-define_py_check!(exact PyType_CheckExact, types.type_type);
+define_py_check!(fn PyType_Check, types.type_type);
+define_py_check!(exact fn PyType_CheckExact, types.type_type);
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
@@ -58,6 +58,15 @@ pub unsafe extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) ->
 pub unsafe extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
     let ty = unsafe { &*ptr };
     ty.slots.flags.bits() as u32 as c_ulong
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObject) -> c_int {
+    with_vm(move |_vm| {
+        let a = unsafe { &*a };
+        let b = unsafe { &*b };
+        Ok(a.is_subtype(b))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -84,15 +93,6 @@ pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) -> *mut
             qualname.to_string_lossy()
         );
         vm.ctx.new_str(fully_qualified_name)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObject) -> c_int {
-    with_vm(move |_vm| {
-        let a = unsafe { &*a };
-        let b = unsafe { &*b };
-        Ok(a.is_subtype(b))
     })
 }
 
@@ -370,7 +370,10 @@ pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_GetAttr(obj: *mut PyObject, name: *mut PyObject) -> *mut PyObject {
+pub unsafe extern "C" fn PyObject_GetAttr(
+    obj: *mut PyObject,
+    name: *mut PyObject,
+) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
@@ -379,7 +382,7 @@ pub extern "C" fn PyObject_GetAttr(obj: *mut PyObject, name: *mut PyObject) -> *
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_GetAttrString(
+pub unsafe extern "C" fn PyObject_GetAttrString(
     obj: *mut PyObject,
     attr_name: *const c_char,
 ) -> *mut PyObject {
@@ -395,7 +398,7 @@ pub extern "C" fn PyObject_GetAttrString(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_SetAttrString(
+pub unsafe extern "C" fn PyObject_SetAttrString(
     obj: *mut PyObject,
     attr_name: *const c_char,
     value: *mut PyObject,
@@ -411,7 +414,7 @@ pub extern "C" fn PyObject_SetAttrString(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_SetAttr(
+pub unsafe extern "C" fn PyObject_SetAttr(
     obj: *mut PyObject,
     name: *mut PyObject,
     value: *mut PyObject,
@@ -447,7 +450,7 @@ pub extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         obj.to_owned().is_true(vm)

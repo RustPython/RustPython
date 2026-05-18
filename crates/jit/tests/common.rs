@@ -47,27 +47,27 @@ impl Function {
 enum StackValue {
     String(String),
     None,
-    Map(HashMap<Wtf8Buf, StackValue>),
+    Map(HashMap<Wtf8Buf, Self>),
     Code(Box<CodeObject>),
     Function(Function),
-    Slice(Box<[StackValue; 3]>),
-    Frozenset(Vec<StackValue>),
+    Slice(Box<[Self; 3]>),
+    Frozenset(Vec<Self>),
 }
 
 impl From<ConstantData> for StackValue {
     fn from(value: ConstantData) -> Self {
         match value {
             ConstantData::Str { value } => {
-                StackValue::String(value.into_string().expect("surrogate in test code"))
+                Self::String(value.into_string().expect("surrogate in test code"))
             }
-            ConstantData::None => StackValue::None,
-            ConstantData::Code { code } => StackValue::Code(code),
+            ConstantData::None => Self::None,
+            ConstantData::Code { code } => Self::Code(code),
             ConstantData::Slice { elements } => {
                 let [start, stop, step] = *elements;
-                StackValue::Slice(Box::new([start.into(), stop.into(), step.into()]))
+                Self::Slice(Box::new([start.into(), stop.into(), step.into()]))
             }
             ConstantData::Frozenset { elements } => {
-                StackValue::Frozenset(elements.into_iter().map(Into::into).collect())
+                Self::Frozenset(elements.into_iter().map(Into::into).collect())
             }
             c => unimplemented!("constant {:?} isn't yet supported in py_function!", c),
         }
@@ -123,8 +123,7 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
                                         )
                                     }
                                     Some(other) => panic!(
-                                        "Unsupported annotation const for '{:?}' at idx {}: {:?}",
-                                        param_name, val_idx, other
+                                        "Unsupported annotation const for '{param_name:?}' at idx {val_idx}: {other:?}"
                                     ),
                                     None => panic!(
                                         "Annotation const idx out of bounds for '{:?}': {} (len={})",
@@ -179,8 +178,8 @@ pub(crate) struct StackMachine {
 }
 
 impl StackMachine {
-    pub(crate) fn new() -> StackMachine {
-        StackMachine {
+    pub(crate) fn new() -> Self {
+        Self {
             stack: Vec::new(),
             locals: HashMap::new(),
         }

@@ -3,7 +3,7 @@ use crate::{PyObject, pystate::with_vm};
 use core::ffi::{c_int, c_long};
 use rustpython_vm::AsObject;
 
-define_py_check!(PyBool_Check, types.bool_type);
+define_py_check!(fn PyBool_Check, types.bool_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_IsTrue(obj: *mut PyObject) -> c_int {

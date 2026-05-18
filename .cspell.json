@@ -49,7 +49,8 @@
   "ignorePaths": [
     "**/__pycache__/**",
     "target/**",
-    "Lib/**"
+    "Lib/**",
+    "crates/host_env/**"
   ],
   // words - list of words to be always considered correct
   // (compound words like pyarg, baseclass, microbenchmark are handled by allowCompoundWords)

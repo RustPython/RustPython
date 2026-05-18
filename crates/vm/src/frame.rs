@@ -1,8 +1,7 @@
 // spell-checker: ignore compactlong compactlongs
 
 use crate::anystr::AnyStr;
-#[cfg(feature = "flame")]
-use crate::bytecode::InstructionMetadata;
+
 use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef,
     TryFromObject, VirtualMachine,
@@ -836,7 +835,7 @@ impl Frame {
     }
 
     /// Get the previous frame pointer for signal-safe traceback walking.
-    pub fn previous_frame(&self) -> *const Frame {
+    pub fn previous_frame(&self) -> *const Self {
         self.previous.load(atomic::Ordering::Relaxed)
     }
 
@@ -2096,8 +2095,7 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> FrameResult {
         flame_guard!(format!(
-            "Frame::execute_instruction({})",
-            instruction.display(arg, &self.code.code).to_string()
+            "Frame::execute_instruction({instruction:?} {arg:?})"
         ));
 
         #[cfg(feature = "vm-tracing-logging")]
@@ -2109,10 +2107,7 @@ impl ExecutingFrame<'_> {
             }
             */
             trace!("  {:#?}", self);
-            trace!(
-                "  Executing op code: {}",
-                instruction.display(arg, &self.code.code)
-            );
+            trace!("  Executing opcode: {instruction:?} {arg:?}",);
             trace!("=======");
         }
 
@@ -2199,7 +2194,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(set.into());
                 Ok(None)
             }
-            Instruction::BuildSlice { argc } => self.execute_build_slice(vm, argc.get(arg)),
+            Instruction::BuildSlice { argc } => Ok(self.execute_build_slice(vm, argc.get(arg))),
             /*
              Instruction::ToBool => {
                  dbg!("Shouldn't be called outside of match statements for now")
@@ -3109,8 +3104,7 @@ impl ExecutingFrame<'_> {
                                         .unwrap_or_else(|| String::from("?"));
                                     let match_args_type_name = match_args.class().__name__(vm);
                                     return Err(vm.new_type_error(format!(
-                                        "{}.__match_args__ must be a tuple (got {})",
-                                        type_name, match_args_type_name
+                                        "{type_name}.__match_args__ must be a tuple (got {match_args_type_name})"
                                     )));
                                 }
                             };
@@ -3574,9 +3568,7 @@ impl ExecutingFrame<'_> {
                 // This means swap TOS with the element at index (len - n)
                 debug_assert!(
                     index_val <= len,
-                    "SWAP index {} exceeds stack size {}",
-                    index_val,
-                    len
+                    "SWAP index {index_val} exceeds stack size {len}"
                 );
                 let j = len - index_val;
                 self.localsplus.stack_swap(i, j);
@@ -6476,7 +6468,7 @@ impl ExecutingFrame<'_> {
         &mut self,
         vm: &VirtualMachine,
         argc: bytecode::BuildSliceArgCount,
-    ) -> FrameResult {
+    ) -> Option<ExecutionResult> {
         let step = match argc {
             bytecode::BuildSliceArgCount::Two => None,
             bytecode::BuildSliceArgCount::Three => Some(self.pop_value()),
@@ -6491,7 +6483,7 @@ impl ExecutingFrame<'_> {
         }
         .into_ref(&vm.ctx);
         self.push_value(obj.into());
-        Ok(None)
+        None
     }
 
     fn collect_positional_args(&mut self, nargs: u32) -> FuncArgs {

@@ -23,7 +23,7 @@ const ALIGN: usize = 16;
 #[repr(C)]
 struct DataStackChunk {
     /// Previous chunk in the linked list (NULL for the root chunk).
-    previous: *mut DataStackChunk,
+    previous: *mut Self,
     /// Total allocation size in bytes (including this header).
     size: usize,
     /// Saved `top` offset when a newer chunk was pushed.  Used to restore

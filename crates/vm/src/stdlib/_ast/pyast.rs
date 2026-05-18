@@ -1,5 +1,3 @@
-#![allow(clippy::all)]
-
 use super::*;
 use crate::builtins::{PyGenericAlias, PyTuple, PyTupleRef, PyTypeRef, make_union};
 use crate::common::ascii;

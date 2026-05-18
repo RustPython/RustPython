@@ -1,10 +1,9 @@
 """bytecode_helper - support tools for testing correct bytecode generation"""
 
+import unittest
 import dis
 import io
 import opcode
-import unittest
-
 try:
     import _testinternalcapi
 except ImportError:

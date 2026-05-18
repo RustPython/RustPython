@@ -172,9 +172,8 @@ mod _symtable {
         }
 
         #[pygetset]
-        fn children(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            let children = self
-                .symtable
+        fn children(&self, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            self.symtable
                 .sub_tables
                 .iter()
                 .flat_map(|t| {
@@ -186,8 +185,7 @@ mod _symtable {
                     }
                 })
                 .map(|t| to_py_symbol_table(t.clone()).into_pyobject(vm))
-                .collect();
-            Ok(children)
+                .collect()
         }
 
         #[pygetset]
@@ -196,24 +194,22 @@ mod _symtable {
         }
 
         #[pygetset]
-        fn identifiers(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            let symbols = self
-                .symtable
+        fn identifiers(&self, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            self.symtable
                 .symbols
                 .keys()
                 .map(|s| vm.ctx.new_str(s.as_str()).into())
-                .collect();
-            Ok(symbols)
+                .collect()
         }
 
         #[pygetset]
-        fn symbols(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        fn symbols(&self, vm: &VirtualMachine) -> PyDictRef {
             let dict = vm.ctx.new_dict();
             for (name, symbol) in &self.symtable.symbols {
                 dict.set_item(name, vm.new_pyobj(symbol.flags.bits()), vm)
                     .unwrap();
             }
-            Ok(dict)
+            dict
         }
 
         #[pygetset]
@@ -319,13 +315,11 @@ mod _symtable {
         }
 
         #[pymethod]
-        fn get_namespaces(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            let namespaces = self
-                .namespaces
+        fn get_namespaces(&self, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            self.namespaces
                 .iter()
                 .map(|table| to_py_symbol_table(table.clone()).into_pyobject(vm))
-                .collect();
-            Ok(namespaces)
+                .collect()
         }
 
         #[pymethod]

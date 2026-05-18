@@ -5,11 +5,11 @@ use core::ffi::c_int;
 use rustpython_vm::AsObject;
 use rustpython_vm::builtins::PyDict;
 
-define_py_check!(PyDict_Check, types.dict_type);
-define_py_check!(exact PyDict_CheckExact, types.dict_type);
-define_py_check!(PyDictKeys_Check, types.dict_keys_type);
-define_py_check!(PyDictValues_Check, types.dict_values_type);
-define_py_check!(PyDictItems_Check, types.dict_items_type);
+define_py_check!(fn PyDict_Check, types.dict_type);
+define_py_check!(exact fn PyDict_CheckExact, types.dict_type);
+define_py_check!(fn PyDictKeys_Check, types.dict_keys_type);
+define_py_check!(fn PyDictValues_Check, types.dict_values_type);
+define_py_check!(fn PyDictItems_Check, types.dict_items_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyDict_New() -> *mut PyObject {

@@ -239,7 +239,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
                 _ => alloc::borrow::Cow::Borrowed(Self::TP_NAME),
             }
         };
-        let repr_str = format!("{}({}{})", type_name, body, suffix);
+        let repr_str = format!("{type_name}({body}{suffix})");
         Ok(vm.ctx.new_str(repr_str))
     }
 
@@ -277,7 +277,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         // Check for unexpected keyword arguments
         if !kwargs.is_empty() {
             let names: Vec<&str> = kwargs.keys().map(|k| k.as_str()).collect();
-            return Err(vm.new_type_error(format!("Got unexpected field name(s): {:?}", names)));
+            return Err(vm.new_type_error(format!("Got unexpected field name(s): {names:?}")));
         }
 
         PyTuple::new_unchecked(items.into_boxed_slice())

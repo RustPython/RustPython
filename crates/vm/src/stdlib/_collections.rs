@@ -251,11 +251,11 @@ mod _collections {
         }
 
         #[pymethod]
-        fn __reversed__(zelf: PyRef<Self>) -> PyResult<PyReverseDequeIterator> {
-            Ok(PyReverseDequeIterator {
+        fn __reversed__(zelf: PyRef<Self>) -> PyReverseDequeIterator {
+            PyReverseDequeIterator {
                 state: zelf.state.load(),
                 internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
-            })
+            }
         }
 
         #[pymethod]
@@ -688,7 +688,7 @@ mod _collections {
             (DequeIterArgs { deque, index }, _kwargs): Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let iter = PyDeque::__reversed__(deque)?;
+            let iter = PyDeque::__reversed__(deque);
             if let OptionalArg::Present(index) = index {
                 let index = max(index, 0) as usize;
                 iter.internal.lock().position = index;
@@ -708,20 +708,21 @@ mod _collections {
         fn __reduce__(
             zelf: PyRef<Self>,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyTypeRef, (PyDequeRef, PyObjectRef))> {
+        ) -> (PyTypeRef, (PyDequeRef, PyObjectRef)) {
             let internal = zelf.internal.lock();
             let deque = match &internal.status {
                 Active(obj) => obj.clone(),
                 Exhausted => PyDeque::default().into_ref(&vm.ctx),
             };
-            Ok((
+            (
                 zelf.class().to_owned(),
                 (deque, vm.ctx.new_int(internal.position).into()),
-            ))
+            )
         }
     }
 
     impl SelfIter for PyReverseDequeIterator {}
+
     impl IterNext for PyReverseDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {

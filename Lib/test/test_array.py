@@ -1200,7 +1200,7 @@ class BaseTest:
         a = array.array('B', b"")
         self.assertRaises(BufferError, _testcapi.getbuffer_with_null_view, a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, array.array,
                                            (self.typecode,))

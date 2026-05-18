@@ -214,31 +214,30 @@ impl CodecsRegistry {
         Ok(())
     }
 
-    pub fn unregister(&self, search_function: PyObjectRef) -> PyResult<()> {
+    pub fn unregister(&self, search_function: PyObjectRef) {
         let mut inner = self.inner.write();
         // Do nothing if search_path is not created yet or was cleared.
         if inner.search_path.is_empty() {
-            return Ok(());
+            return;
         }
+
         for (i, item) in inner.search_path.iter().enumerate() {
             if item.get_id() == search_function.get_id() {
                 if !inner.search_cache.is_empty() {
                     inner.search_cache.clear();
                 }
                 inner.search_path.remove(i);
-                return Ok(());
+                return;
             }
         }
-        Ok(())
     }
 
-    pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) -> PyResult<()> {
+    pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) {
         let name = normalize_encoding_name(name);
         self.inner
             .write()
             .search_cache
             .insert(name.into_owned(), codec);
-        Ok(())
     }
 
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {

@@ -40,19 +40,13 @@ Basically reference counting, but then done by rust.
 /// since exceptions are also python objects.
 pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid value, or an exception
 
-impl<T: fmt::Display> fmt::Display for PyRef<T>
-where
-    T: PyPayload + fmt::Display,
-{
+impl<T: PyPayload + fmt::Display> fmt::Display for PyRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 
-impl<T: fmt::Display> fmt::Display for Py<T>
-where
-    T: PyPayload + fmt::Display,
-{
+impl<T: PyPayload + fmt::Display> fmt::Display for Py<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }

@@ -103,7 +103,6 @@ class ModuleTests(unittest.TestCase):
         gc_collect()
         self.assertEqual(f().__dict__["bar"], 4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_clear_dict_in_ref_cycle(self):
         destroyed = []
         m = ModuleType("foo")

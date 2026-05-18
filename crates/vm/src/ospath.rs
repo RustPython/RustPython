@@ -51,7 +51,7 @@ impl PathConverter {
     /// Generate error message prefix like "rename: "
     fn error_prefix(&self) -> String {
         match self.function_name {
-            Some(func) => format!("{}: ", func),
+            Some(func) => format!("{func}: "),
             None => String::new(),
         }
     }

@@ -53,15 +53,17 @@ impl VirtualMachine {
 
     pub(crate) fn flush_std(&self) -> i32 {
         let vm = self;
-        let mut status = 0;
-        if let Ok(stdout) = sys::get_stdout(vm)
+        let status = if let Ok(stdout) = sys::get_stdout(vm)
             && !vm.is_none(&stdout)
             && !vm.file_is_closed(&stdout)
             && let Err(e) = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ())
         {
             vm.run_unraisable(e, None, stdout);
-            status = -1;
-        }
+            -1
+        } else {
+            0
+        };
+
         if let Ok(stderr) = sys::get_stderr(vm)
             && !vm.is_none(&stderr)
             && !vm.file_is_closed(&stderr)
@@ -80,6 +82,7 @@ impl VirtualMachine {
             }
         }
     }
+
     #[track_caller]
     pub fn expect_pyresult<T>(&self, result: PyResult<T>, msg: &str) -> T {
         match result {
@@ -92,9 +95,11 @@ impl VirtualMachine {
     pub fn is_none(&self, obj: &PyObject) -> bool {
         obj.is(&self.ctx.none)
     }
+
     pub fn option_if_none(&self, obj: PyObjectRef) -> Option<PyObjectRef> {
         if self.is_none(&obj) { None } else { Some(obj) }
     }
+
     pub fn unwrap_or_none(&self, obj: Option<PyObjectRef>) -> PyObjectRef {
         obj.unwrap_or_else(|| self.ctx.none())
     }

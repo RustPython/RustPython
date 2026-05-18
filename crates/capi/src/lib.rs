@@ -42,7 +42,7 @@ pub fn get_main_interpreter() -> MutexGuard<'static, Option<Interpreter>> {
 
 /// Set the main interpreter of this process. This method will panic when there is already an
 /// interpreter set.
-pub fn set_main_interpreter(interpreter: Interpreter) {
+pub fn init_main_interpreter(interpreter: Interpreter) {
     let mut interp = get_main_interpreter();
     assert!(interp.is_none(), "Main interpreter is already set");
     // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used

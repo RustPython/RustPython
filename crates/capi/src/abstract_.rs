@@ -127,7 +127,7 @@ pub extern "C" fn PyObject_VectorcallMethod(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_GetItem(obj: *mut PyObject, key: *mut PyObject) -> *mut PyObject {
+pub unsafe extern "C" fn PyObject_GetItem(obj: *mut PyObject, key: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let key = unsafe { &*key };
@@ -136,7 +136,7 @@ pub extern "C" fn PyObject_GetItem(obj: *mut PyObject, key: *mut PyObject) -> *m
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_SetItem(
+pub unsafe extern "C" fn PyObject_SetItem(
     obj: *mut PyObject,
     key: *mut PyObject,
     value: *mut PyObject,
@@ -150,7 +150,7 @@ pub extern "C" fn PyObject_SetItem(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let key = unsafe { &*key };
@@ -159,7 +159,7 @@ pub extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject) -> c_
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_IsSubclass(derived: *mut PyObject, cls: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyObject_IsSubclass(derived: *mut PyObject, cls: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let derived = unsafe { &*derived };
         let cls = unsafe { &*cls };
@@ -168,7 +168,7 @@ pub extern "C" fn PyObject_IsSubclass(derived: *mut PyObject, cls: *mut PyObject
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_IsInstance(inst: *mut PyObject, cls: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyObject_IsInstance(inst: *mut PyObject, cls: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let inst = unsafe { &*inst };
         let cls = unsafe { &*cls };

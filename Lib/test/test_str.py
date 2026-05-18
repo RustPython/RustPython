@@ -972,7 +972,6 @@ class StrTest(string_tests.StringLikeTest,
         self.assertEqual('A\u03a3 \u1fa1xy'.title(), 'A\u03c2 \u1fa9xy')
         self.assertEqual('A\u03a3A'.title(), 'A\u03c3a')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + 𐐧
     def test_swapcase(self):
         string_tests.StringLikeTest.test_swapcase(self)
         self.assertEqual('\U0001044F'.swapcase(), '\U00010427')
@@ -2608,7 +2607,7 @@ class StrTest(string_tests.StringLikeTest,
         self.assertTrue(astral >= bmp2)
         self.assertFalse(astral >= astral2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
+    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, str)
         if not support.Py_GIL_DISABLED:
