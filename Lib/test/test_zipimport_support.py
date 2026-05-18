@@ -187,10 +187,6 @@ class ZipSupportTests(unittest.TestCase):
             finally:
                 del sys.modules["test_zipped_doctest"]
 
-    @unittest.expectedFailureIf(
-        sys.implementation.name == 'rustpython',
-        "TODO: RUSTPYTHON - doctest captures bare string expressions differently"
-    )
     def test_doctest_main_issue4197(self):
         test_src = textwrap.dedent("""\
                     class Test:
