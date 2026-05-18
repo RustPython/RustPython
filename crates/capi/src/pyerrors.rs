@@ -279,8 +279,11 @@ pub unsafe extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut Py
 pub unsafe extern "C" fn PyException_GetCause(exc: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
-        let context = exc.__cause__().map(|context| context.into_object());
-        Ok(vm.unwrap_or_none(context))
+        let cause = exc
+            .__cause__()
+            .map(|cause| cause.into_object().into_raw().as_ptr())
+            .unwrap_or_default();
+        Ok(cause)
     })
 }
 
