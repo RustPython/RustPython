@@ -1163,14 +1163,10 @@ fn handshake_write_loop(
     Ok(made_progress)
 }
 
-/// Read TLS handshake data from socket/BIO
+/// Read at most one TLS record from the TCP socket.
 ///
-/// Waits for and reads TLS records from the peer, handling SNI callback setup.
-/// Returns (made_progress, is_first_sni_read).
-/// TLS record header size (content_type + version + length).
-const TLS_RECORD_HEADER_SIZE: usize = 5;
-
-/// Read exactly one TLS record from the TCP socket.
+/// May return incomplete data but never returns more when completes a
+/// previously incomplete TLS record.
 ///
 /// OpenSSL reads one TLS record at a time (no read-ahead by default).
 /// Rustls, however, consumes all available TCP data when fed via read_tls().
@@ -1183,77 +1179,32 @@ const TLS_RECORD_HEADER_SIZE: usize = 5;
 /// Fix: peek at the TCP buffer to find the first complete TLS record boundary
 /// and recv() only that many bytes.  Any remaining data stays in the kernel
 /// buffer and remains visible to select().
-fn recv_one_tls_record(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<PyObjectRef> {
-    // Peek at what is available without consuming it.
-    let peeked_obj = match socket.sock_peek(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
-        Ok(d) => d,
-        Err(e) => {
-            if is_blocking_io_error(&e, vm) {
-                return Err(SslError::WantRead);
-            }
-            return Err(SslError::Py(e));
-        }
-    };
-
-    let peeked = ArgBytesLike::try_from_object(vm, peeked_obj)
-        .map_err(|_| SslError::Syscall("Expected bytes-like object from peek".to_string()))?;
-    let peeked_bytes = peeked.borrow_buf();
-
-    if peeked_bytes.is_empty() {
-        // Empty peek means the peer has closed the TCP connection (FIN).
-        // Non-blocking sockets would have returned EAGAIN/EWOULDBLOCK
-        // (caught above as WantRead), so empty bytes here always means EOF.
-        return Err(SslError::Eof);
-    }
-
-    if peeked_bytes.len() < TLS_RECORD_HEADER_SIZE {
-        // Not enough data for a TLS record header yet.
-        // Read all available bytes so rustls can buffer the partial header;
-        // this avoids busy-waiting because the kernel buffer is now empty
-        // and select() will only wake us when new data arrives.
-        return socket.sock_recv(peeked_bytes.len(), vm).map_err(|e| {
-            if is_blocking_io_error(&e, vm) {
-                SslError::WantRead
-            } else {
-                SslError::Py(e)
-            }
-        });
-    }
-
-    // Parse the TLS record length from the header.
-    let record_body_len = u16::from_be_bytes([peeked_bytes[3], peeked_bytes[4]]) as usize;
-    let total_record_size = TLS_RECORD_HEADER_SIZE + record_body_len;
-
-    let recv_size = if peeked_bytes.len() >= total_record_size {
-        // Complete record available — consume exactly one record.
-        total_record_size
-    } else {
-        // Incomplete record — consume everything so the kernel buffer is
-        // drained and select() will block until more data arrives.
-        peeked_bytes.len()
-    };
-
-    // Must drop the borrow before calling sock_recv (which re-enters Python).
-    drop(peeked_bytes);
-    drop(peeked);
-
-    socket.sock_recv(recv_size, vm).map_err(|e| {
+fn recv_at_most_one_tls_record(
+    socket: &PySSLSocket,
+    vm: &VirtualMachine,
+) -> SslResult<PyObjectRef> {
+    let bytes = socket.sock_recv_at_most_one_tls_record(vm).map_err(|e| {
         if is_blocking_io_error(&e, vm) {
             SslError::WantRead
         } else {
             SslError::Py(e)
         }
-    })
+    })?;
+    if bytes.is_empty() {
+        Err(SslError::Eof)
+    } else {
+        Ok(bytes.into())
+    }
 }
 
-/// Read a single TLS record for post-handshake I/O while preserving the
+/// Read up to a single TLS record for post-handshake I/O while preserving the
 /// SSL-vs-socket error precedence from the old sock_recv() path.
-fn recv_one_tls_record_for_data(
+fn recv_at_most_one_tls_record_for_data(
     conn: &mut TlsConnection,
     socket: &PySSLSocket,
     vm: &VirtualMachine,
 ) -> SslResult<PyObjectRef> {
-    match recv_one_tls_record(socket, vm) {
+    match recv_at_most_one_tls_record(socket, vm) {
         Ok(data) => Ok(data),
         Err(SslError::Eof) => {
             if let Err(rustls_err) = conn.process_new_packets() {
@@ -1285,9 +1236,10 @@ fn handshake_read_data(
         return Ok((false, false));
     }
 
-    // SERVER-SPECIFIC: Check if this is the first read (for SNI callback)
-    // Must check BEFORE reading data, so we can detect first time
-    let is_first_sni_read = is_server && socket.is_first_sni_read();
+    // SERVER-SPECIFIC: Check if this is before the SNI callback.
+    // sock_recv() may return only part of a TLS record, so keep capturing
+    // ClientHello fragments until process_new_packets() has produced a response.
+    let is_first_sni_read = is_server && socket.has_sni_callback() && socket.is_first_sni_read();
 
     // Wait for data in socket mode
     if !is_bio {
@@ -1308,7 +1260,7 @@ fn handshake_read_data(
         // record.  This matches OpenSSL's default (no read-ahead) behaviour
         // and keeps remaining data in the kernel buffer where select() can
         // detect it.
-        recv_one_tls_record(socket, vm)?
+        recv_at_most_one_tls_record(socket, vm)?
     } else {
         match socket.sock_recv(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
             Ok(d) => d,
@@ -1324,7 +1276,7 @@ fn handshake_read_data(
         }
     };
 
-    // SERVER-SPECIFIC: Save ClientHello on first read for potential connection recreation
+    // SERVER-SPECIFIC: Save ClientHello fragments for potential connection recreation.
     if is_first_sni_read {
         // Extract bytes from PyObjectRef
         use rustpython_vm::builtins::PyBytes;
@@ -1506,10 +1458,10 @@ pub(super) fn ssl_do_handshake(
             return Err(SslError::from_rustls(e));
         }
 
-        // SERVER-SPECIFIC: Check SNI callback after processing packets
-        // SNI name is extracted during process_new_packets()
-        // Invoke callback on FIRST read if callback is configured, regardless of SNI presence
-        if is_server && is_first_sni_read && socket.has_sni_callback() {
+        // SERVER-SPECIFIC: Check SNI callback after processing packets.
+        // A partial TLS record can be read without producing any handshake
+        // response.  Wait until rustls has processed a complete ClientHello.
+        if is_server && is_first_sni_read && socket.has_sni_callback() && conn.wants_write() {
             // IMPORTANT: Do NOT call the callback here!
             // The connection lock is still held, which would cause deadlock.
             // Return SniCallbackRestart to signal do_handshake to:
@@ -1753,7 +1705,7 @@ pub(super) fn ssl_read(
                 // Blocking socket or socket with timeout: try to read more data from socket.
                 // Even though rustls says it doesn't want to read, more TLS records may arrive.
                 // Use single-record reading to avoid consuming close_notify alongside data.
-                let data = recv_one_tls_record_for_data(conn, socket, vm)?;
+                let data = recv_at_most_one_tls_record_for_data(conn, socket, vm)?;
 
                 let bytes_read = data
                     .clone()
@@ -1944,7 +1896,7 @@ pub(super) fn ssl_write(
                     return Err(SslError::WantRead);
                 }
                 // For socket mode, try to read TLS data
-                let recv_result = socket.sock_recv(4096, vm).map_err(SslError::Py)?;
+                let recv_result = recv_at_most_one_tls_record_for_data(conn, socket, vm)?;
                 ssl_read_tls_records(conn, recv_result, false, vm)?;
                 conn.process_new_packets().map_err(SslError::from_rustls)?;
                 // Continue loop
@@ -2157,7 +2109,7 @@ fn ssl_ensure_data_available(
         // consuming a close_notify that arrives alongside application data,
         // keeping it in the kernel buffer where select() can detect it.
         let data = if !is_bio {
-            recv_one_tls_record_for_data(conn, socket, vm)?
+            recv_at_most_one_tls_record_for_data(conn, socket, vm)?
         } else {
             match socket.sock_recv(2048, vm) {
                 Ok(data) => data,
