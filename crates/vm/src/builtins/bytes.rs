@@ -111,7 +111,7 @@ impl Constructor for PyBytes {
             if let OptionalArg::Present(ref obj) = options.source
                 && options.encoding.is_missing()
                 && options.errors.is_missing()
-                && let Ok(b) = obj.clone().downcast_exact::<PyBytes>(vm)
+                && let Ok(b) = obj.clone().downcast_exact::<Self>(vm)
             {
                 return Ok(b.into_pyref().into());
             }
@@ -126,7 +126,7 @@ impl Constructor for PyBytes {
             let bytes = bytes_method?.call((), vm)?;
             // If exact bytes type and __bytes__ returns bytes, use it directly
             if cls.is(vm.ctx.types.bytes_type)
-                && let Ok(b) = bytes.clone().downcast::<PyBytes>()
+                && let Ok(b) = bytes.clone().downcast::<Self>()
             {
                 return Ok(b.into());
             }

@@ -7,8 +7,8 @@ use core::ptr::NonNull;
 use rustpython_vm::function::{FuncArgs, HeapMethodDef, PosArgs, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
-define_py_check!(PyCFunction_Check, types.builtin_function_or_method_type);
-define_py_check!(exact PyCFunction_CheckExact, types.builtin_function_or_method_type);
+define_py_check!(fn PyCFunction_Check, types.builtin_function_or_method_type);
+define_py_check!(exact fn PyCFunction_CheckExact, types.builtin_function_or_method_type);
 
 #[repr(C)]
 pub struct PyMethodDef {

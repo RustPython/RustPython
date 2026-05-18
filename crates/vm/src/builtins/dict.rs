@@ -251,7 +251,6 @@ impl PyDict {
 }
 
 // Python dict methods:
-#[allow(clippy::len_without_is_empty)]
 #[pyclass(
     with(
         Py,
@@ -929,7 +928,6 @@ macro_rules! dict_view {
             }
 
             fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef {
-                #[allow(clippy::redundant_closure_call)]
                 $result_fn(vm, key, value)
             }
 
@@ -1005,7 +1003,6 @@ macro_rules! dict_view {
                 self.internal.lock().length_hint(|_| self.size.entries_size)
             }
 
-            #[allow(clippy::redundant_closure_call)]
             #[pymethod]
             fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
                 let iter = builtins_iter(vm);
@@ -1024,7 +1021,6 @@ macro_rules! dict_view {
         impl SelfIter for $iter_name {}
 
         impl IterNext for $iter_name {
-            #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 let next = if let IterStatus::Active(dict) = &internal.status {
@@ -1076,7 +1072,6 @@ macro_rules! dict_view {
                 }
             }
 
-            #[allow(clippy::redundant_closure_call)]
             #[pymethod]
             fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
                 let iter = builtins_reversed(vm);
@@ -1103,7 +1098,6 @@ macro_rules! dict_view {
         impl SelfIter for $reverse_iter_name {}
 
         impl IterNext for $reverse_iter_name {
-            #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 let next = if let IterStatus::Active(dict) = &internal.status {

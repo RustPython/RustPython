@@ -10,6 +10,7 @@ use crate::vm::{
     PyObject, PyResult, VirtualMachine, builtins::PyStr, convert::TryFromBorrowedObject,
 };
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum NormalizeForm {
     Nfc,
     Nfkc,
@@ -191,9 +192,9 @@ mod unicodedata {
         }
 
         #[pymethod]
-        fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<Wtf8Buf> {
+        fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> Wtf8Buf {
             let text = unistr.as_wtf8();
-            let normalized_text = match form {
+            match form {
                 Nfc => {
                     let normalizer = ComposingNormalizerBorrowed::new_nfc();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
@@ -214,12 +215,11 @@ mod unicodedata {
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()
                 }
-            };
-            Ok(normalized_text)
+            }
         }
 
         #[pymethod]
-        fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<bool> {
+        fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> bool {
             let text = unistr.as_wtf8();
             let normalized: Wtf8Buf = match form {
                 Nfc => {
@@ -243,7 +243,7 @@ mod unicodedata {
                         .collect()
                 }
             };
-            Ok(text == &*normalized)
+            text == &*normalized
         }
 
         #[pymethod]

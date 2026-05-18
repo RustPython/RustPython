@@ -691,20 +691,22 @@ mod decl {
                     out_data.push(RUN_CHAR);
                     out_data.push(0);
                     return Ok(out_data);
-                } else {
-                    let mut in_end = idx + 1;
-                    while in_end < len && buffer[in_end] == ch && in_end < idx + 255 {
-                        in_end += 1;
-                    }
-                    if in_end - idx > 3 {
-                        out_data.push(ch);
-                        out_data.push(RUN_CHAR);
-                        out_data.push(((in_end - idx) % 256) as u8);
-                        idx = in_end - 1;
-                    } else {
-                        out_data.push(ch);
-                    }
                 }
+
+                let mut in_end = idx + 1;
+                while in_end < len && buffer[in_end] == ch && in_end < idx + 255 {
+                    in_end += 1;
+                }
+
+                if in_end - idx > 3 {
+                    out_data.push(ch);
+                    out_data.push(RUN_CHAR);
+                    out_data.push(((in_end - idx) % 256) as u8);
+                    idx = in_end - 1;
+                } else {
+                    out_data.push(ch);
+                }
+
                 idx += 1;
             }
             Ok(out_data)

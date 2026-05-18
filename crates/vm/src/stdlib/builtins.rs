@@ -737,7 +737,7 @@ mod builtins {
                 }
                 ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
                 #[cfg(unix)]
-                ReadlineResult::OsError(num) => Err(vm.new_os_error(num.to_string())),
+                ReadlineResult::OsError(num) => Err(vm.new_os_error(num)),
                 ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
         } else {
@@ -754,9 +754,7 @@ mod builtins {
     /// In this case, rustyline may hang because it uses raw mode.
     #[cfg(unix)]
     fn is_pty_child() -> bool {
-        use nix::unistd::{getpid, getsid};
-        // If this process is a session leader, we're likely in a PTY child
-        getsid(None) == Ok(getpid())
+        crate::host_env::posix::is_session_leader()
     }
 
     #[cfg(not(unix))]
@@ -928,7 +926,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyResult {
+    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyObjectRef {
         let number = number.into_int_ref();
         let n = number.as_bigint();
         let s = if n.is_negative() {
@@ -937,7 +935,7 @@ mod builtins {
             format!("0o{n:o}")
         };
 
-        Ok(vm.ctx.new_str(s).into())
+        vm.ctx.new_str(s).into()
     }
 
     #[pyfunction]
@@ -1121,6 +1119,10 @@ mod builtins {
         start: OptionalArg<PyObjectRef>,
     }
 
+    #[expect(
+        clippy::redundant_else,
+        reason = "match_class! macro expansion arms has a `return` inside"
+    )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
@@ -1130,17 +1132,13 @@ mod builtins {
 
         match_class!(match sum {
             PyStr =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum strings [use ''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]")),
             PyBytes =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytes [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]")),
             PyByteArray =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(
+                    vm.new_type_error("sum() can't sum bytearray [use b''.join(seq) instead]")
+                ),
             _ => (),
         });
 
@@ -1336,15 +1334,13 @@ mod builtins {
         {
             let cell_value = classcell.get().ok_or_else(|| {
                 vm.new_runtime_error(format!(
-                    "__class__ not set defining {:?} as {:?}. Was __classcell__ propagated to type.__new__?",
-                    name, class
+                    "__class__ not set defining {name:?} as {class:?}. Was __classcell__ propagated to type.__new__?"
                 ))
             })?;
 
             if !cell_value.is(&class) {
                 return Err(vm.new_type_error(format!(
-                    "__class__ set to {:?} defining {:?} as {:?}",
-                    cell_value, name, class
+                    "__class__ set to {cell_value:?} defining {name:?} as {class:?}"
                 )));
             }
         }

@@ -32,7 +32,7 @@ impl syn::parse::Parse for WithItem {
             }
         }
         let path = input.parse()?;
-        Ok(WithItem { cfg_attrs, path })
+        Ok(Self { cfg_attrs, path })
     }
 }
 
@@ -75,7 +75,7 @@ impl syn::parse::Parse for PyModuleArgs {
             input.parse::<syn::Token![,]>()?;
         }
 
-        Ok(PyModuleArgs { metas, with_items })
+        Ok(Self { metas, with_items })
     }
 }
 
@@ -816,7 +816,7 @@ impl ModuleItem for ClassItem {
                 #set_attr
             },
             0,
-        )?;
+        );
         Ok(())
     }
 }
@@ -910,7 +910,7 @@ impl ModuleItem for StructSequenceItem {
                 #set_attr
             },
             0,
-        )?;
+        );
         Ok(())
     }
 }
@@ -995,9 +995,9 @@ impl ModuleItem for AttributeItem {
                         cfgs.clone(),
                         tokens,
                         1,
-                    )?;
+                    );
                     Ok(())
-                })?;
+                });
                 return Ok(());
             }
             other => {
@@ -1053,7 +1053,7 @@ impl ModuleItem for AttributeItem {
 
         args.context
             .attribute_items
-            .add_item(ident, py_names, cfgs, tokens, 1)?;
+            .add_item(ident, py_names, cfgs, tokens, 1);
 
         Ok(())
     }

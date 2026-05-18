@@ -450,7 +450,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct CodeFlags: u32 {
         const OPTIMIZED = 0x0001;
         const NEWLOCALS = 0x0002;
@@ -866,7 +866,7 @@ impl CodeUnits {
 #[derive(Debug, Clone)]
 pub enum ConstantData {
     Tuple {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     Integer {
         value: BigInt,
@@ -891,10 +891,10 @@ pub enum ConstantData {
     },
     /// Constant slice(start, stop, step)
     Slice {
-        elements: Box<[ConstantData; 3]>,
+        elements: Box<[Self; 3]>,
     },
     Frozenset {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     None,
     Ellipsis,

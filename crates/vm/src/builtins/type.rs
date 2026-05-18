@@ -506,14 +506,14 @@ impl PyType {
         let subclasses = self.subclasses.read();
         for weak_ref in subclasses.iter() {
             if let Some(sub) = weak_ref.upgrade() {
-                sub.downcast_ref::<PyType>().unwrap().modified();
+                sub.downcast_ref::<Self>().unwrap().modified();
             }
         }
     }
 
     pub fn new_simple_heap(
         name: &str,
-        base: &Py<PyType>,
+        base: &Py<Self>,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
         Self::new_heap(
@@ -2667,10 +2667,10 @@ fn subtype_set_dict(obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine)
 }
 
 // subtype_get_weakref
-fn subtype_get_weakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn subtype_get_weakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
     // Return the first weakref in the weakref list, or None
     let weakref = obj.get_weakrefs();
-    Ok(weakref.unwrap_or_else(|| vm.ctx.none()))
+    weakref.unwrap_or_else(|| vm.ctx.none())
 }
 
 // subtype_set_weakref: __weakref__ is read-only
@@ -2949,7 +2949,7 @@ fn mangle_name(class_name: &str, name: &str) -> String {
     }
     // Strip leading underscores from class name
     let class_name = class_name.trim_start_matches('_');
-    format!("_{}{}", class_name, name)
+    format!("_{class_name}{name}")
 }
 
 #[cfg(test)]

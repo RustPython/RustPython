@@ -45,7 +45,7 @@ impl ItemNursery {
         cfgs: Vec<Attribute>,
         tokens: TokenStream,
         sort_order: usize,
-    ) -> Result<()> {
+    ) {
         self.0.push(NurseryItem {
             attr_name,
             py_names,
@@ -53,7 +53,6 @@ impl ItemNursery {
             tokens,
             sort_order,
         });
-        Ok(())
     }
 
     pub(crate) fn validate(self) -> Result<ValidatedItemNursery> {
@@ -216,8 +215,8 @@ impl ItemMetaInner {
         Ok(value)
     }
 
-    pub(crate) fn _has_key(&self, key: &str) -> Result<bool> {
-        Ok(matches!(self.meta_map.get(key), Some((_, _))))
+    pub(crate) fn _has_key(&self, key: &str) -> bool {
+        matches!(self.meta_map.get(key), Some((_, _)))
     }
 
     pub(crate) fn _bool(&self, key: &str) -> Result<bool> {

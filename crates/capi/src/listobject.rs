@@ -6,8 +6,8 @@ use core::ptr::NonNull;
 use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyList;
 
-define_py_check!(PyList_Check, types.list_type);
-define_py_check!(exact PyList_CheckExact, types.list_type);
+define_py_check!(fn PyList_Check, types.list_type);
+define_py_check!(exact fn PyList_CheckExact, types.list_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyList_New(size: isize) -> *mut PyObject {

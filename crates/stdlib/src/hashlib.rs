@@ -281,7 +281,7 @@ pub(crate) mod _hashlib {
         }
 
         fn dyn_clone(&self) -> Box<dyn DynHmac> {
-            Box::new(TypedHmac(self.0.clone()))
+            Box::new(Self(self.0.clone()))
         }
     }
 

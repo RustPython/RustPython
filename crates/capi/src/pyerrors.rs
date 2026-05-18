@@ -96,7 +96,7 @@ define_exception_statics! {
     PyExc_EncodingWarning => encoding_warning,
 }
 
-define_py_check!(PyExceptionInstance_Check, exceptions.base_exception_type);
+define_py_check!(fn PyExceptionInstance_Check, exceptions.base_exception_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_Occurred() -> *mut PyObject {

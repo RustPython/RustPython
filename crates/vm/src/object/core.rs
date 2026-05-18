@@ -812,7 +812,7 @@ unsafe impl Link for WeakLink {
 #[pyclass(name = "weakref", module = false)]
 #[derive(Debug)]
 pub struct PyWeak {
-    pointers: Pointers<Py<PyWeak>>,
+    pointers: Pointers<Py<Self>>,
     /// Direct pointer to the referent object, null when dead.
     /// Equivalent to wr_object in PyWeakReference.
     wr_object: PyAtomic<*mut PyObject>,
@@ -1376,7 +1376,7 @@ impl PyObject {
     /// Returns the first weakref in the weakref list, if any.
     pub(crate) fn get_weakrefs(&self) -> Option<PyObjectRef> {
         let wrl = self.weak_ref_list()?;
-        let _lock = weakref_lock::lock(self as *const PyObject as usize);
+        let _lock = weakref_lock::lock(self as *const Self as usize);
         let head_ptr = wrl.head.load(Ordering::Relaxed);
         if head_ptr.is_null() {
             None
@@ -1734,7 +1734,7 @@ impl PyObject {
     /// Uses the full traverse including dict and slots.
     pub fn gc_get_referents(&self) -> Vec<PyObjectRef> {
         let mut result = Vec::new();
-        self.0.traverse(&mut |child: &PyObject| {
+        self.0.traverse(&mut |child: &Self| {
             result.push(child.to_owned());
         });
         result
@@ -1782,10 +1782,10 @@ impl PyObject {
     /// # Safety
     /// The returned pointers are only valid as long as the object is alive
     /// and its contents haven't been modified.
-    pub unsafe fn gc_get_referent_ptrs(&self) -> Vec<NonNull<PyObject>> {
+    pub unsafe fn gc_get_referent_ptrs(&self) -> Vec<NonNull<Self>> {
         let mut result = Vec::new();
         // Traverse the entire object including dict and slots
-        self.0.traverse(&mut |child: &PyObject| {
+        self.0.traverse(&mut |child: &Self| {
             result.push(NonNull::from(child));
         });
         result
@@ -1799,7 +1799,7 @@ impl PyObject {
     /// - ptr must be a valid pointer to a PyObject
     /// - The caller must have exclusive access (no other references exist)
     /// - This is only safe during GC when the object is unreachable
-    pub unsafe fn gc_clear_raw(ptr: *mut PyObject) -> Vec<PyObjectRef> {
+    pub unsafe fn gc_clear_raw(ptr: *mut Self) -> Vec<PyObjectRef> {
         let mut result = Vec::new();
         let obj = unsafe { &*ptr };
 
@@ -1849,7 +1849,7 @@ impl PyObject {
         // SAFETY: During GC collection, this object is unreachable (gc_refs == 0),
         // meaning no other code has a reference to it. The only references are
         // internal cycle references which we're about to break.
-        unsafe { Self::gc_clear_raw(self as *const _ as *mut PyObject) }
+        unsafe { Self::gc_clear_raw(self as *const _ as *mut Self) }
     }
 
     /// Check if this object has clear capability (tp_clear)
@@ -2319,7 +2319,7 @@ impl<T: crate::class::PySubclass> Py<T> {
         debug_assert!(self.as_object().downcast_ref::<T::Base>().is_some());
         // SAFETY: T is #[repr(transparent)] over T::Base,
         // so Py<T> and Py<T::Base> have the same layout.
-        unsafe { &*(self as *const Py<T> as *const Py<T::Base>) }
+        unsafe { &*(self as *const Self as *const Py<T::Base>) }
     }
 
     /// Converts `&Py<T>` to `&Py<U>` where U is an ancestor type.
@@ -2330,7 +2330,7 @@ impl<T: crate::class::PySubclass> Py<T> {
     {
         debug_assert!(T::static_type().is_subtype(U::static_type()));
         // SAFETY: T is a subtype of U, so Py<T> can be viewed as Py<U>.
-        unsafe { &*(self as *const Py<T> as *const Py<U>) }
+        unsafe { &*(self as *const Self as *const Py<U>) }
     }
 }
 

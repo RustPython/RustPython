@@ -268,7 +268,7 @@ impl PyFunction {
                     .map_or(0, |d| d.len());
                 let n_required = n_expected_args - n_defaults;
                 let takes_msg = if n_defaults > 0 {
-                    format!("from {} to {}", n_required, n_expected_args)
+                    format!("from {n_required} to {n_expected_args}")
                 } else {
                     n_expected_args.to_string()
                 };
@@ -867,6 +867,7 @@ impl PyFunction {
         *self.name.lock() = name;
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember]
     fn __doc__(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
         // When accessed from instance, obj is the PyFunction instance
@@ -879,6 +880,7 @@ impl PyFunction {
         }
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(setter)]
     fn set___doc__(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
         let zelf: PyRef<Self> = zelf.downcast().unwrap_or_else(|_| unreachable!());

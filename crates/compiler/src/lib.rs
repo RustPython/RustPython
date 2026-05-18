@@ -65,7 +65,7 @@ impl CompileError {
                     line: loc.line,
                     character_offset: loc.character_offset.saturating_add(1),
                 };
-                let msg = format!("'{}' was never closed", bracket_char);
+                let msg = format!("'{bracket_char}' was never closed");
                 is_unclosed_bracket = true;
                 (parser::ParseErrorType::OtherError(msg), loc, end_loc)
             } else {
@@ -137,8 +137,8 @@ impl CompileError {
     #[must_use]
     pub fn python_end_location(&self) -> Option<(usize, usize)> {
         match self {
-            CompileError::Codegen(_) => None,
-            CompileError::Parse(parse_error) => Some((
+            Self::Codegen(_) => None,
+            Self::Parse(parse_error) => Some((
                 parse_error.end_location.line.get(),
                 parse_error.end_location.character_offset.get(),
             )),

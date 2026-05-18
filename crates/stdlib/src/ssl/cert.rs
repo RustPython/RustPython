@@ -292,8 +292,8 @@ pub(super) fn is_ca_certificate(cert_der: &[u8]) -> bool {
 /// Convert an X509Name to Python nested tuple format for SSL certificate dicts
 ///
 /// Format: ((('CN', 'example.com'),), (('O', 'Example Org'),), ...)
-fn name_to_py(vm: &VirtualMachine, name: &x509_parser::x509::X509Name<'_>) -> PyResult {
-    let list: Vec<PyObjectRef> = name
+fn name_to_py(vm: &VirtualMachine, name: &x509_parser::x509::X509Name<'_>) -> PyObjectRef {
+    let list = name
         .iter()
         .flat_map(|rdn| {
             // Each RDN can have multiple attributes
@@ -308,9 +308,9 @@ fn name_to_py(vm: &VirtualMachine, name: &x509_parser::x509::X509Name<'_>) -> Py
                 })
                 .collect::<Vec<_>>()
         })
-        .collect();
+        .collect::<Vec<PyObjectRef>>();
 
-    Ok(vm.ctx.new_tuple(list).into())
+    vm.ctx.new_tuple(list).into()
 }
 
 /// Convert DER-encoded certificate to Python dict (for getpeercert with binary_form=False)
@@ -324,8 +324,8 @@ pub(super) fn cert_to_dict(
     let dict = vm.ctx.new_dict();
 
     // Subject and Issuer
-    dict.set_item("subject", name_to_py(vm, cert.subject())?, vm)?;
-    dict.set_item("issuer", name_to_py(vm, cert.issuer())?, vm)?;
+    dict.set_item("subject", name_to_py(vm, cert.subject()), vm)?;
+    dict.set_item("issuer", name_to_py(vm, cert.issuer()), vm)?;
 
     // Version (X.509 v3 = version 2 in the cert, but Python uses 3)
     dict.set_item(

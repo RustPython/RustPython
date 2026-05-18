@@ -3,8 +3,8 @@ use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_char;
 use rustpython_vm::builtins::PyBytes;
 
-define_py_check!(PyBytes_Check, types.bytes_type);
-define_py_check!(exact PyBytes_CheckExact, types.bytes_type);
+define_py_check!(fn PyBytes_Check, types.bytes_type);
+define_py_check!(exact fn PyBytes_CheckExact, types.bytes_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyBytes_FromStringAndSize(bytes: *mut c_char, len: isize) -> *mut PyObject {

@@ -51,18 +51,18 @@ impl ExprExt for ast::Expr {
     fn is_constant(&self) -> bool {
         matches!(
             self,
-            ast::Expr::NumberLiteral(_)
-                | ast::Expr::StringLiteral(_)
-                | ast::Expr::BytesLiteral(_)
-                | ast::Expr::NoneLiteral(_)
-                | ast::Expr::BooleanLiteral(_)
-                | ast::Expr::EllipsisLiteral(_)
+            Self::NumberLiteral(_)
+                | Self::StringLiteral(_)
+                | Self::BytesLiteral(_)
+                | Self::NoneLiteral(_)
+                | Self::BooleanLiteral(_)
+                | Self::EllipsisLiteral(_)
         )
     }
 
     fn is_constant_slice(&self) -> bool {
         match self {
-            ast::Expr::Slice(s) => {
+            Self::Slice(s) => {
                 let lower_const =
                     s.lower.is_none() || s.lower.as_deref().is_some_and(|e| e.is_constant());
                 let upper_const =
@@ -76,7 +76,7 @@ impl ExprExt for ast::Expr {
     }
 
     fn should_use_slice_optimization(&self) -> bool {
-        !self.is_constant_slice() && matches!(self, ast::Expr::Slice(s) if s.step.is_none())
+        !self.is_constant_slice() && matches!(self, Self::Slice(s) if s.step.is_none())
     }
 }
 
@@ -289,7 +289,7 @@ pub fn compile_program(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_program(ast, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -304,7 +304,7 @@ pub fn compile_program_single(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_program_single(&ast.body, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -318,7 +318,7 @@ pub fn compile_block_expression(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_block_expr(&ast.body, symbol_table)?;
     let code = compiler.exit_scope();
     trace!("Compilation completed: {code:?}");
@@ -332,7 +332,7 @@ pub fn compile_expression(
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_expr(ast, source_file.clone())
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
-    let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+    let mut compiler = Compiler::new(opts, source_file, "<module>");
     compiler.compile_eval(ast, symbol_table)?;
     let code = compiler.exit_scope();
     Ok(code)
@@ -447,13 +447,14 @@ impl PatternContext {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum JumpOp {
     Jump,
     PopJumpIfFalse,
 }
 
 /// Type of collection to build in starunpack_helper
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CollectionType {
     Tuple,
     List,
@@ -541,7 +542,7 @@ impl Compiler {
         }
     }
 
-    fn new(opts: CompileOpts, source_file: SourceFile, code_name: String) -> Self {
+    fn new(opts: CompileOpts, source_file: SourceFile, code_name: &str) -> Self {
         let module_code = ir::CodeInfo {
             // CPython convention: top-level module / interactive /
             // expression code does not carry CO_NEWLOCALS or CO_OPTIMIZED.
@@ -558,8 +559,8 @@ impl Compiler {
             current_block: BlockIdx::new(0),
             annotations_blocks: None,
             metadata: ir::CodeUnitMetadata {
-                name: code_name.clone(),
-                qualname: Some(code_name),
+                name: code_name.to_string(),
+                qualname: Some(code_name.to_string()),
                 consts: IndexSet::default(),
                 names: IndexSet::default(),
                 varnames: IndexSet::default(),
@@ -1231,37 +1232,37 @@ impl Compiler {
 
     /// Get the cell-relative index of a free variable.
     /// Returns ncells + freevar_idx. Fixed up to localsplus index during finalize.
-    fn get_free_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
+    fn get_free_var_index(&mut self, name: &str) -> oparg::VarNum {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .freevars
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.freevars.insert_full(name.to_owned()).0);
-        Ok((idx + info.metadata.cellvars.len()).to_u32().into())
+        (idx + info.metadata.cellvars.len()).to_u32().into()
     }
 
     /// Get the cell-relative index of a cell variable.
     /// Returns cellvar_idx. Fixed up to localsplus index during finalize.
-    fn get_cell_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
+    fn get_cell_var_index(&mut self, name: &str) -> oparg::VarNum {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .cellvars
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.cellvars.insert_full(name.to_owned()).0);
-        Ok(idx.to_u32().into())
+        idx.to_u32().into()
     }
 
     /// Get the index of a local variable.
-    fn get_local_var_index(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
+    fn get_local_var_index(&mut self, name: &str) -> oparg::VarNum {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .varnames
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.varnames.insert_full(name.to_owned()).0);
-        Ok(idx.to_u32().into())
+        idx.to_u32().into()
     }
 
     /// Get the index of a global name.
@@ -1287,8 +1288,7 @@ impl Compiler {
             let name = current_table.name.clone();
             let typ = current_table.typ;
             return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                "no symbol table available in {} (type: {:?})",
-                name, typ
+                "no symbol table available in {name} (type: {typ:?})"
             ))));
         }
 
@@ -1479,8 +1479,8 @@ impl Compiler {
                 // Load __class__ from cell/free variable
                 let scope = self.get_ref_type("__class__").map_err(|e| self.error(e))?;
                 let idx = match scope {
-                    SymbolScope::Cell => self.get_cell_var_index("__class__")?,
-                    SymbolScope::Free => self.get_free_var_index("__class__")?,
+                    SymbolScope::Cell => self.get_cell_var_index("__class__"),
+                    SymbolScope::Free => self.get_free_var_index("__class__"),
                     _ => {
                         return Err(self.error(CodegenErrorType::SyntaxError(
                             "super(): __class__ cell not found".to_owned(),
@@ -1829,7 +1829,7 @@ impl Compiler {
         posonlyarg_count: u32,
         arg_count: u32,
         kwonlyarg_count: u32,
-        obj_name: String,
+        obj_name: &str,
     ) -> CompileResult<()> {
         // First push the symbol table
         let table = self.push_symbol_table()?;
@@ -1842,7 +1842,7 @@ impl Compiler {
         let lineno = self.get_source_line_number().get();
 
         // Call enter_scope which does most of the work
-        self.enter_scope(&obj_name, scope_type, key, lineno.to_u32())?;
+        self.enter_scope(obj_name, scope_type, key, lineno.to_u32())?;
 
         // Override the values that push_output sets explicitly
         // enter_scope sets default values based on scope_type, but push_output
@@ -1929,14 +1929,14 @@ impl Compiler {
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
         // VALUE_WITH_FAKE_GLOBALS = 2 (from annotationlib.Format)
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         Ok(Some(saved_ctx))
     }
 
     /// Emit format parameter validation for annotation scope
     /// if format > VALUE_WITH_FAKE_GLOBALS (2): raise NotImplementedError
-    fn emit_format_validation(&mut self) -> CompileResult<()> {
+    fn emit_format_validation(&mut self) {
         // Load format parameter (first local variable, index 0)
         emit!(
             self,
@@ -1976,8 +1976,6 @@ impl Compiler {
 
         // Body label - continue with annotation evaluation
         self.switch_to_block(body_block);
-
-        Ok(())
     }
 
     /// Push a new fblock
@@ -2228,11 +2226,9 @@ impl Compiler {
         self._name_inner(name, |i| &mut i.metadata.names)
     }
 
-    fn varname(&mut self, name: &str) -> CompileResult<oparg::VarNum> {
-        // Note: __debug__ checks are now handled in symboltable phase
-        Ok(oparg::VarNum::from_u32(
-            self._name_inner(name, |i| &mut i.metadata.varnames),
-        ))
+    fn varname(&mut self, name: &str) -> oparg::VarNum {
+        // NOTE: __debug__ checks are now handled in symboltable phase
+        oparg::VarNum::from_u32(self._name_inner(name, |i| &mut i.metadata.varnames))
     }
 
     fn _name_inner(
@@ -2784,8 +2780,8 @@ impl Compiler {
         match op_type {
             NameOp::Deref => {
                 let i = match actual_scope {
-                    SymbolScope::Free => self.get_free_var_index(&name)?,
-                    SymbolScope::Cell => self.get_cell_var_index(&name)?,
+                    SymbolScope::Free => self.get_free_var_index(&name),
+                    SymbolScope::Cell => self.get_cell_var_index(&name),
                     _ => unreachable!("Invalid scope for Deref operation"),
                 };
 
@@ -2800,7 +2796,7 @@ impl Compiler {
                             emit!(self, Instruction::LoadFromDictOrDeref { i });
                         // can_see_class_scope: LOAD_DEREF(__classdict__) first
                         } else if can_see_class_scope {
-                            let classdict_idx = self.get_free_var_index("__classdict__")?;
+                            let classdict_idx = self.get_free_var_index("__classdict__");
                             emit!(self, Instruction::LoadDeref { i: classdict_idx });
                             emit!(self, Instruction::LoadFromDictOrDeref { i });
                         } else {
@@ -2812,7 +2808,7 @@ impl Compiler {
                 };
             }
             NameOp::Fast => {
-                let var_num = self.get_local_var_index(&name)?;
+                let var_num = self.get_local_var_index(&name);
                 match usage {
                     NameUsage::Load => emit!(self, Instruction::LoadFast { var_num }),
                     NameUsage::Store => emit!(self, Instruction::StoreFast { var_num }),
@@ -2852,7 +2848,7 @@ impl Compiler {
                 match usage {
                     NameUsage::Load => {
                         // Load __classdict__ first (it's a free variable in annotation scope)
-                        let classdict_idx = self.get_free_var_index("__classdict__")?;
+                        let classdict_idx = self.get_free_var_index("__classdict__");
                         emit!(self, Instruction::LoadDeref { i: classdict_idx });
                         emit!(self, Instruction::LoadFromDictOrGlobals { i: idx });
                     }
@@ -3404,7 +3400,7 @@ impl Compiler {
             parameters.posonlyargs.len().to_u32(),
             (parameters.posonlyargs.len() + parameters.args.len()).to_u32(),
             parameters.kwonlyargs.len().to_u32(),
-            name.to_owned(),
+            name,
         )?;
 
         let args_iter = core::iter::empty()
@@ -3414,16 +3410,16 @@ impl Compiler {
             .chain(kw_without_defaults)
             .chain(kw_with_defaults.into_iter().map(|(arg, _)| arg));
         for name in args_iter {
-            self.varname(name.name.as_str())?;
+            self.varname(name.name.as_str());
         }
 
         if let Some(name) = parameters.vararg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::VARARGS;
-            self.varname(name.name.as_str())?;
+            self.varname(name.name.as_str());
         }
         if let Some(name) = parameters.kwarg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::VARKEYWORDS;
-            self.varname(name.name.as_str())?;
+            self.varname(name.name.as_str());
         }
 
         Ok(())
@@ -3472,7 +3468,7 @@ impl Compiler {
             .varnames
             .insert(".format".to_owned());
 
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         // TypeParams scope is function-like
         let prev_ctx = self.ctx;
@@ -3525,7 +3521,7 @@ impl Compiler {
             .metadata
             .varnames
             .insert(".format".to_owned());
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         let prev_ctx = self.ctx;
         self.ctx = CompileContext {
@@ -5108,7 +5104,7 @@ impl Compiler {
             .insert("format".to_owned());
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
-        self.emit_format_validation()?;
+        self.emit_format_validation();
 
         emit!(self, Instruction::BuildMap { count: 0 });
 
@@ -5147,7 +5143,7 @@ impl Compiler {
                     value: simple_idx.into(),
                 });
                 if parent_scope_type == CompilerScope::Class {
-                    let idx = self.get_free_var_index("__conditional_annotations__")?;
+                    let idx = self.get_free_var_index("__conditional_annotations__");
                     emit!(self, Instruction::LoadDeref { i: idx });
                 } else {
                     let cond_annotations_name = self.name("__conditional_annotations__");
@@ -5213,7 +5209,7 @@ impl Compiler {
     }
 
     // = compiler_function
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
     fn compile_function_def(
         &mut self,
         name: &str,
@@ -5262,7 +5258,7 @@ impl Compiler {
                 0,
                 num_typeparam_args as u32,
                 0,
-                type_params_name,
+                &type_params_name,
             )?;
 
             // TypeParams scope is function-like
@@ -5681,7 +5677,7 @@ impl Compiler {
         // setup so nested generic classes match CPython's prologue order.
         if self.current_symbol_table().needs_classdict {
             emit!(self, Instruction::LoadLocals);
-            let classdict_idx = self.get_cell_var_index("__classdict__")?;
+            let classdict_idx = self.get_cell_var_index("__classdict__");
             emit!(self, Instruction::StoreDeref { i: classdict_idx });
         }
 
@@ -5751,7 +5747,7 @@ impl Compiler {
 
         // Store __classdictcell__ if __classdict__ is a cell variable
         if self.current_symbol_table().needs_classdict {
-            let classdict_idx = u32::from(self.get_cell_var_index("__classdict__")?);
+            let classdict_idx = u32::from(self.get_cell_var_index("__classdict__"));
             emit!(self, PseudoInstruction::LoadClosure { i: classdict_idx });
             self.set_no_location();
             let classdictcell = self.name("__classdictcell__");
@@ -5824,7 +5820,7 @@ impl Compiler {
                 0,
                 0,
                 0,
-                type_params_name,
+                &type_params_name,
             )?;
 
             // Set private name for name mangling
@@ -6088,15 +6084,13 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.enter_conditional_block();
 
-        let while_block = self.new_block();
+        let while_block = self.switch_to_new_or_reuse_empty();
         let after_block = self.new_block();
         let else_block = if orelse.is_empty() {
             after_block
         } else {
             self.new_block()
         };
-
-        self.switch_to_block(while_block);
         self.push_fblock(FBlockType::WhileLoop, while_block, after_block)?;
         if matches!(self.constant_expr_truthiness(test)?, Some(false)) {
             self.disable_load_fast_borrow_for_block(else_block);
@@ -6596,24 +6590,23 @@ impl Compiler {
 
     /// Ensures that `pc.fail_pop` has at least `n + 1` entries.
     /// If not, new labels are generated and pushed until the required size is reached.
-    fn ensure_fail_pop(&mut self, pc: &mut PatternContext, n: usize) -> CompileResult<()> {
+    fn ensure_fail_pop(&mut self, pc: &mut PatternContext, n: usize) {
         let required_size = n + 1;
         if required_size <= pc.fail_pop.len() {
-            return Ok(());
+            return;
         }
         while pc.fail_pop.len() < required_size {
             let new_block = self.new_block();
             pc.fail_pop.push(new_block);
         }
-        Ok(())
     }
 
-    fn jump_to_fail_pop(&mut self, pc: &mut PatternContext, op: JumpOp) -> CompileResult<()> {
+    fn jump_to_fail_pop(&mut self, pc: &mut PatternContext, op: JumpOp) {
         // Compute the total number of items to pop:
         // items on top plus the captured objects.
         let pops = pc.on_top + pc.stores.len();
         // Ensure that the fail_pop vector has at least `pops + 1` elements.
-        self.ensure_fail_pop(pc, pops)?;
+        self.ensure_fail_pop(pc, pops);
         // Emit a jump using the jump target stored at index `pops`.
         match op {
             JumpOp::Jump => {
@@ -6622,7 +6615,7 @@ impl Compiler {
                     PseudoInstruction::Jump {
                         delta: pc.fail_pop[pops]
                     }
-                );
+                )
             }
             JumpOp::PopJumpIfFalse => {
                 emit!(
@@ -6630,19 +6623,18 @@ impl Compiler {
                     Instruction::PopJumpIfFalse {
                         delta: pc.fail_pop[pops]
                     }
-                );
+                )
             }
-        }
-        Ok(())
+        };
     }
 
     /// Emits the necessary POP instructions for all failure targets in the pattern context,
     /// then resets the fail_pop vector.
-    fn emit_and_reset_fail_pop(&mut self, pc: &mut PatternContext) -> CompileResult<()> {
+    fn emit_and_reset_fail_pop(&mut self, pc: &mut PatternContext) {
         // If the fail_pop vector is empty, nothing needs to be done.
         if pc.fail_pop.is_empty() {
             debug_assert!(pc.fail_pop.is_empty());
-            return Ok(());
+            return;
         }
         // Iterate over the fail_pop vector in reverse order, skipping the first label.
         for &label in pc.fail_pop.iter().skip(1).rev() {
@@ -6655,11 +6647,10 @@ impl Compiler {
         pc.fail_pop.clear();
         // Free the memory used by the vector.
         pc.fail_pop.shrink_to_fit();
-        Ok(())
     }
 
     /// Duplicate the effect of Python 3.10's ROT_* instructions using SWAPs.
-    fn pattern_helper_rotate(&mut self, mut count: usize) -> CompileResult<()> {
+    fn pattern_helper_rotate(&mut self, mut count: usize) {
         // Rotate TOS (top of stack) to position `count` down
         // This is done by a series of swaps
         // For count=1, no rotation needed (already at top)
@@ -6675,7 +6666,6 @@ impl Compiler {
             );
             count -= 1;
         }
-        Ok(())
     }
 
     /// Helper to store a captured name for a star pattern.
@@ -6711,7 +6701,7 @@ impl Compiler {
 
                 // Calculate how many items to rotate:
                 let rotations = pc.on_top + pc.stores.len() + 1;
-                self.pattern_helper_rotate(rotations)?;
+                self.pattern_helper_rotate(rotations);
 
                 // Append the name to the captured stores.
                 pc.stores.push(name.to_string());
@@ -6993,7 +6983,7 @@ impl Compiler {
 
         // At this point the TOS is a tuple of (nargs + n_attrs) attributes (or None).
         pc.on_top += 1;
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
 
         // Unpack the tuple into (nargs + n_attrs) items.
         let total = nargs + n_attrs;
@@ -7065,7 +7055,7 @@ impl Compiler {
         emit!(self, Instruction::MatchMapping);
         // Stack: [subject, is_mapping]
 
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         // Stack: [subject]
 
         // Special case: empty pattern {} with no rest
@@ -7088,18 +7078,16 @@ impl Compiler {
                     opname: ComparisonOperator::GreaterOrEqual
                 }
             );
-            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
             // Stack: [subject]
         }
 
         // Check for overflow (INT_MAX < size - 1)
-        if size > (i32::MAX as usize + 1) {
-            return Err(self.error(CodegenErrorType::SyntaxError(
+        let size = u32::try_from(size).map_err(|_| {
+            self.error(CodegenErrorType::SyntaxError(
                 "too many sub-patterns in mapping pattern".to_string(),
-            )));
-        }
-        #[allow(clippy::cast_possible_truncation, reason = "checked right before")]
-        let size = size as u32;
+            ))
+        })?;
 
         // Step 2: If we have keys to match
         if size > 0 {
@@ -7163,7 +7151,7 @@ impl Compiler {
         );
 
         // Stack: [subject, keys_tuple, values_tuple, bool]
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         // Stack: [subject, keys_tuple, values_tuple]
 
         // Unpack values (the original values_tuple)
@@ -7302,7 +7290,7 @@ impl Compiler {
                             // Also perform the same rotation on the evaluation stack.
                             self.set_source_range(alt.range());
                             for _ in 0..=i_stores {
-                                self.pattern_helper_rotate(i_control + 1)?;
+                                self.pattern_helper_rotate(i_control + 1);
                             }
                         }
                     }
@@ -7312,7 +7300,7 @@ impl Compiler {
             self.set_source_range(alt.range());
             emit!(self, PseudoInstruction::Jump { delta: end });
             self.set_source_range(alt.range());
-            self.emit_and_reset_fail_pop(pc)?;
+            self.emit_and_reset_fail_pop(pc);
         }
 
         // Restore the original pattern context.
@@ -7325,7 +7313,7 @@ impl Compiler {
         // No alternative matched: pop the subject and fail.
         self.set_source_range(p.range());
         emit!(self, Instruction::PopTop);
-        self.jump_to_fail_pop(pc, JumpOp::Jump)?;
+        self.jump_to_fail_pop(pc, JumpOp::Jump);
 
         // Use the label "end".
         self.switch_to_block(end);
@@ -7336,7 +7324,7 @@ impl Compiler {
         for i in 0..n_stores {
             // Rotate the capture to its proper place.
             self.set_source_range(p.range());
-            self.pattern_helper_rotate(n_rots)?;
+            self.pattern_helper_rotate(n_rots);
             let name = &control.as_ref().unwrap()[i];
             // Check for duplicate binding.
             if pc.stores.contains(name) {
@@ -7384,7 +7372,7 @@ impl Compiler {
         // Keep the subject on top during the sequence and length checks.
         pc.on_top += 1;
         emit!(self, Instruction::MatchSequence);
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
 
         if star.is_none() {
             // No star: len(subject) == size
@@ -7396,7 +7384,7 @@ impl Compiler {
                     opname: ComparisonOperator::Equal
                 }
             );
-            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         } else if size > 1 {
             // Star exists: len(subject) >= size - 1
             emit!(self, Instruction::GetLen);
@@ -7409,7 +7397,7 @@ impl Compiler {
                     opname: ComparisonOperator::GreaterOrEqual
                 }
             );
-            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+            self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         }
 
         // Whatever comes next should consume the subject.
@@ -7441,7 +7429,7 @@ impl Compiler {
             }
         );
         emit!(self, Instruction::ToBool);
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
         Ok(())
     }
 
@@ -7449,7 +7437,7 @@ impl Compiler {
         &mut self,
         p: &ast::PatternMatchSingleton,
         pc: &mut PatternContext,
-    ) -> CompileResult<()> {
+    ) {
         // Load the singleton constant value.
         self.emit_load_const(match p.value {
             ast::Singleton::None => ConstantData::None,
@@ -7459,8 +7447,7 @@ impl Compiler {
         // Compare using the "Is" operator.
         emit!(self, Instruction::IsOp { invert: Invert::No });
         // Jump to the failure label if the comparison is false.
-        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
-        Ok(())
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse);
     }
 
     fn compile_pattern(
@@ -7475,7 +7462,8 @@ impl Compiler {
                 self.compile_pattern_value(pattern_type, pattern_context)
             }
             ast::Pattern::MatchSingleton(pattern_type) => {
-                self.compile_pattern_singleton(pattern_type, pattern_context)
+                self.compile_pattern_singleton(pattern_type, pattern_context);
+                Ok(())
             }
             ast::Pattern::MatchSequence(pattern_type) => {
                 self.compile_pattern_sequence(pattern_type, pattern_context)
@@ -7544,7 +7532,7 @@ impl Compiler {
             }
 
             if let Some(ref guard) = m.guard {
-                self.ensure_fail_pop(pattern_context, 0)?;
+                self.ensure_fail_pop(pattern_context, 0);
                 self.compile_jump_if_inner(
                     guard,
                     false,
@@ -7573,7 +7561,7 @@ impl Compiler {
                 last.match_success_jump = true;
             }
             self.set_source_range(m.pattern.range());
-            self.emit_and_reset_fail_pop(pattern_context)?;
+            self.emit_and_reset_fail_pop(pattern_context);
         }
 
         if has_default {
@@ -7964,21 +7952,20 @@ impl Compiler {
                         if let ast::Expr::Starred(_) = &element {
                             if seen_star {
                                 return Err(self.error(CodegenErrorType::MultipleStarArgs));
-                            } else {
-                                seen_star = true;
-                                let before = i;
-                                let after = elts.len() - i - 1;
-                                let (before, after) = (|| Some((before.to_u8()?, after.to_u8()?)))(
-                                )
+                            }
+
+                            seen_star = true;
+                            let before = i;
+                            let after = elts.len() - i - 1;
+                            let (before, after) = (|| Some((before.to_u8()?, after.to_u8()?)))()
                                 .ok_or_else(|| {
                                     self.error_ranged(
                                         CodegenErrorType::TooManyStarUnpack,
                                         target.range(),
                                     )
                                 })?;
-                                let counts = bytecode::UnpackExArgs { before, after };
-                                emit!(self, Instruction::UnpackEx { counts });
-                            }
+                            let counts = bytecode::UnpackExArgs { before, after };
+                            emit!(self, Instruction::UnpackEx { counts });
                         }
                     }
 
@@ -9704,8 +9691,7 @@ impl Compiler {
                 let name = current_table.name.clone();
                 let typ = current_table.typ;
                 Err(self.error(CodegenErrorType::SyntaxError(format!(
-                    "no symbol table available in {} (type: {:?})",
-                    name, typ
+                    "no symbol table available in {name} (type: {typ:?})"
                 ))))
             }
         })();
@@ -9723,14 +9709,14 @@ impl Compiler {
         posonlyarg_count: u32,
         arg_count: u32,
         kwonlyarg_count: u32,
-        obj_name: String,
+        obj_name: &str,
     ) -> CompileResult<()> {
         let scope_type = table.typ;
         self.symbol_table_stack.push(table);
 
         let key = self.symbol_table_stack.len() - 1;
         let lineno = self.get_source_line_number().get();
-        self.enter_scope(&obj_name, scope_type, key, lineno.to_u32())?;
+        self.enter_scope(obj_name, scope_type, key, lineno.to_u32())?;
 
         if let Some(info) = self.code_stack.last_mut() {
             info.flags = flags | (info.flags & bytecode::CodeFlags::NESTED);
@@ -9741,7 +9727,7 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
     fn compile_comprehension(
         &mut self,
         name: &str,
@@ -9794,7 +9780,7 @@ impl Compiler {
             // and relies on the inlined path itself to handle GET_AITER /
             // async-comprehension cleanup.
             return self.compile_inlined_comprehension(
-                comp_table,
+                &comp_table,
                 init_collection,
                 generators,
                 compile_element,
@@ -9829,12 +9815,12 @@ impl Compiler {
         // scope itself. Peek past those nested scopes so we can enter the
         // correct comprehension table here, then let the real outermost
         // iterator compile consume its nested scopes later in parent scope.
-        self.push_output_with_symbol_table(comp_table, flags, 1, 1, 0, name.to_owned())?;
+        self.push_output_with_symbol_table(comp_table, flags, 1, 1, 0, name)?;
 
         // Set qualname for comprehension
         self.set_qualname();
 
-        let arg0 = self.varname(".0")?;
+        let arg0 = self.varname(".0");
 
         let return_none = init_collection.is_none();
 
@@ -10036,7 +10022,7 @@ impl Compiler {
     /// This generates bytecode inline without creating a new code object
     fn compile_inlined_comprehension(
         &mut self,
-        comp_table: SymbolTable,
+        comp_table: &SymbolTable,
         init_collection: Option<AnyInstruction>,
         generators: &[ast::Comprehension],
         compile_element: &dyn Fn(&mut Self, usize) -> CompileResult<()>,
@@ -10184,7 +10170,7 @@ impl Compiler {
             self.set_source_range(comprehension_range);
             let mut total_stack_items: usize = 0;
             for name in &pushed_locals {
-                let var_num = self.varname(name)?;
+                let var_num = self.varname(name);
                 emit!(self, Instruction::LoadFastAndClear { var_num });
                 total_stack_items += 1;
                 // If the comp symbol is CELL, emit MAKE_CELL to create fresh cell
@@ -10197,9 +10183,9 @@ impl Compiler {
                         .get(name)
                         .is_some_and(|s| s.scope == SymbolScope::Free)
                     {
-                        self.get_free_var_index(name)?
+                        self.get_free_var_index(name)
                     } else {
-                        self.get_cell_var_index(name)?
+                        self.get_cell_var_index(name)
                     };
                     emit!(self, Instruction::MakeCell { i });
                 }
@@ -10375,7 +10361,7 @@ impl Compiler {
                     }
                 );
                 for name in pushed_locals.iter().rev() {
-                    let var_num = self.varname(name)?.as_u32();
+                    let var_num = self.varname(name).as_u32();
                     emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
                 }
                 // Re-raise the exception
@@ -10397,7 +10383,7 @@ impl Compiler {
 
             // Restore saved locals (StoreFast restores the saved cell object for merged cells)
             for name in pushed_locals.iter().rev() {
-                let var_num = self.varname(name)?.as_u32();
+                let var_num = self.varname(name).as_u32();
                 emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
             }
             self.set_source_range(saved_source_range);
@@ -11355,6 +11341,30 @@ impl Compiler {
         &mut info.blocks[info.current_block]
     }
 
+    /// Switch to a fresh block, but reuse the current block when it is empty
+    /// and unlinked, mirroring CPython's USE_LABEL behavior in
+    /// `cfg_builder_maybe_start_new_block` (Python/flowgraph.c): when the
+    /// current block has no instructions and no existing label/next pointer,
+    /// CPython attaches the new label to the current block instead of creating
+    /// a new one. RustPython's plain `switch_to_block(new_block())` always
+    /// creates a fresh block, which leaves a stray empty block in the b_next
+    /// chain (e.g. after compile_try_except's switch_to_block(end_block)).
+    /// That stray empty block then causes optimize_load_fast_borrow to stop
+    /// fall-through propagation at the wrong place. Use this helper for
+    /// "entry to construct" labels (while loop header, for loop header, etc.)
+    /// where reusing the empty current block is semantically safe.
+    fn switch_to_new_or_reuse_empty(&mut self) -> BlockIdx {
+        let cur = self.current_code_info().current_block;
+        let block = &self.current_code_info().blocks[cur.idx()];
+        if block.instructions.is_empty() && block.next == BlockIdx::NULL {
+            cur
+        } else {
+            let b = self.new_block();
+            self.switch_to_block(b);
+            b
+        }
+    }
+
     fn new_block(&mut self) -> BlockIdx {
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
@@ -11481,7 +11491,8 @@ impl Compiler {
             )?;
         }
         self.set_source_range(fstring_range);
-        self.finish_fstring(pending_literal, pending_literal_no_location, element_count)
+        self.finish_fstring(pending_literal, pending_literal_no_location, element_count);
+        Ok(())
     }
 
     fn compile_fstring_parts_joined(&mut self, fstring: &[ast::FStringPart]) -> CompileResult<()> {
@@ -11545,7 +11556,7 @@ impl Compiler {
         mut pending_literal: Option<Wtf8Buf>,
         mut pending_literal_no_location: bool,
         mut element_count: u32,
-    ) -> CompileResult<()> {
+    ) {
         let keep_empty = element_count == 0;
         self.emit_pending_fstring_literal(
             &mut pending_literal,
@@ -11567,8 +11578,6 @@ impl Compiler {
                 }
             );
         }
-
-        Ok(())
     }
 
     fn finish_fstring_join(
@@ -11690,7 +11699,8 @@ impl Compiler {
             &mut element_count,
             false,
         )?;
-        self.finish_fstring(pending_literal, pending_literal_no_location, element_count)
+        self.finish_fstring(pending_literal, pending_literal_no_location, element_count);
+        Ok(())
     }
 
     fn compile_fstring_elements_joined(
@@ -12388,7 +12398,7 @@ mod tests {
         let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
             .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
             .unwrap();
-        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>");
         compiler.compile_program(&ast, symbol_table).unwrap();
         compiler.exit_scope()
     }
@@ -12426,7 +12436,7 @@ mod tests {
         let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
             .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
             .unwrap();
-        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>");
         compiler.compile_program(&ast, symbol_table).unwrap();
         let _table = compiler.pop_symbol_table();
         let stack_top = compiler.code_stack.pop().unwrap();
@@ -12467,7 +12477,7 @@ mod tests {
         let is_async = function.is_async;
         let range = function.range();
 
-        let mut compiler = Compiler::new(opts, source_file, "<module>".to_owned());
+        let mut compiler = Compiler::new(opts, source_file, "<module>");
         compiler.future_annotations = symbol_table.future_annotations;
         compiler.symbol_table_stack.push(symbol_table);
         compiler.set_source_range(range);
@@ -17517,6 +17527,108 @@ def f():
         assert!(
             !normal_tail.iter().any(|unit| load_out_is(unit, false)),
             "handler assignment resume tail should not force strong out loads, got tail={normal_tail:?}"
+        );
+    }
+
+    #[test]
+    fn test_empty_fallthrough_handler_assignment_tail_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(value):
+    obs_local_part = ObsLocalPart()
+    try:
+        token, value = get_word(value)
+    except HeaderParseError:
+        if value[0] not in CFWS_LEADER:
+            raise
+        token, value = get_cfws(value)
+    obs_local_part.append(token)
+    return obs_local_part, value
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_path = &ops[..handler_start];
+        let load_name = |unit: &&CodeUnit, name: &str, borrowed: bool| {
+            let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+            match (unit.op, borrowed) {
+                (Instruction::LoadFastBorrow { var_num }, true)
+                | (Instruction::LoadFast { var_num }, false) => {
+                    f.varnames[usize::from(var_num.get(arg))].as_str() == name
+                }
+                _ => false,
+            }
+        };
+
+        for name in ["obs_local_part", "token"] {
+            assert!(
+                normal_path.iter().any(|unit| load_name(unit, name, true)),
+                "handler assignment tail should keep CPython-style borrowed {name} loads, got path={normal_path:?}"
+            );
+            assert!(
+                !normal_path.iter().any(|unit| load_name(unit, name, false)),
+                "handler assignment tail should not force strong {name}, got path={normal_path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_protected_store_of_preinitialized_local_keeps_return_borrow() {
+        let code = compile_exec(
+            "\
+def f(obj):
+    maybe_routine = obj
+    try:
+        maybe_routine = inspect.unwrap(maybe_routine)
+    except ValueError:
+        pass
+    return inspect.isroutine(maybe_routine)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let handler_start = ops
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::PushExcInfo))
+            .expect("missing handler entry");
+        let normal_path = &ops[..handler_start];
+        let maybe_routine_idx = f
+            .varnames
+            .iter()
+            .position(|name| name == "maybe_routine")
+            .expect("missing maybe_routine local");
+        let loads_maybe_routine = |unit: &&CodeUnit, borrowed: bool| match (unit.op, borrowed) {
+            (Instruction::LoadFastBorrow { var_num }, true)
+            | (Instruction::LoadFast { var_num }, false) => {
+                let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                usize::from(var_num.get(arg)) == maybe_routine_idx
+            }
+            _ => false,
+        };
+
+        assert!(
+            normal_path
+                .iter()
+                .any(|unit| loads_maybe_routine(unit, true)),
+            "preinitialized protected-store tail should keep CPython-style borrowed local, got path={normal_path:?}"
+        );
+        assert!(
+            !normal_path
+                .iter()
+                .any(|unit| loads_maybe_routine(unit, false)),
+            "preinitialized protected-store tail should not force strong local, got path={normal_path:?}"
         );
     }
 
