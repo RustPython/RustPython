@@ -121,8 +121,8 @@ class BasicTest(BaseTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    # TODO: RUSTPYTHON – venv executable creation not fully functional
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON – venv executable creation not fully functional")
+    # TODO: RUSTPYTHON; venv executable creation not fully functional
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; venv executable creation not fully functional")
     def test_defaults_with_str_path(self):
         """
         Test the create function with default arguments and a str path.
@@ -133,8 +133,8 @@ class BasicTest(BaseTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    # TODO: RUSTPYTHON – venv executable creation not fully functional
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON – venv executable creation not fully functional")
+    # TODO: RUSTPYTHON; venv executable creation not fully functional
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; venv executable creation not fully functional")
     def test_defaults_with_pathlike(self):
         """
         Test the create function with default arguments and a path-like path.
@@ -422,8 +422,8 @@ class BasicTest(BaseTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    # TODO: RUSTPYTHON – venv upgrade not yet implemented
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON – venv upgrade not yet implemented")
+    # TODO: RUSTPYTHON; venv upgrade not yet implemented
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; venv upgrade not yet implemented")
     def test_upgrade(self):
         """
         Test upgrading an existing environment directory.
@@ -690,8 +690,8 @@ class BasicTest(BaseTest):
     @requireVenvCreate
     # TODO: RUSTPYTHON
     @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
-    # TODO: RUSTPYTHON – zip path detection broken in RustPython
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON – zip path detection broken in RustPython")
+    # TODO: RUSTPYTHON; zip path detection broken in RustPython
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; zip path detection broken in RustPython")
     def test_zippath_from_non_installed_posix(self):
         """
         Test that when create venv from non-installed python, the zip path
