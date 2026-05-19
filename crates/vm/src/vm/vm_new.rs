@@ -132,6 +132,18 @@ impl SyntaxErrorInfo {
                 "var-positional argument cannot have default value".into()
             }
 
+            ParseErrorType::PositionalAfterKeywordArgument => {
+                "positional argument follows keyword argument".into()
+            }
+
+            ParseErrorType::PositionalAfterKeywordUnpacking => {
+                "positional argument follows keyword argument unpacking".into()
+            }
+
+            ParseErrorType::InvalidArgumentUnpackingOrder => {
+                "iterable argument unpacking follows keyword argument unpacking".into()
+            }
+
             ParseErrorType::OtherError(s)
                 if s.eq_ignore_ascii_case(
                     "bytes literal cannot be mixed with non-bytes literals",
@@ -190,6 +202,12 @@ impl SyntaxErrorInfo {
                 if s.eq_ignore_ascii_case("'/' parameter must appear before '*' parameter") =>
             {
                 "/ must be ahead of *".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("Expected `except` or `finally` after `try` block") =>
+            {
+                "expected 'except' or 'finally' block".into()
             }
 
             _ => return,

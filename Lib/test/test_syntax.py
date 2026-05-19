@@ -1027,7 +1027,7 @@ Misuse of the nonlocal and global statement can lead to a few unique syntax erro
    SyntaxError: no binding for nonlocal 'x' found
 
 From SF bug #1705365
-   >>> nonlocal x  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> nonlocal x
    Traceback (most recent call last):
      ...
    SyntaxError: nonlocal declaration not allowed at module level
@@ -1351,7 +1351,7 @@ Parenthesized arguments in function definitions
 
 Custom error messages for try blocks that are not followed by except/finally
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...    x = 34
    ...
    Traceback (most recent call last):
@@ -2660,7 +2660,7 @@ Invalid expressions in type scopes:
       ...
    SyntaxError: yield expression cannot be used within the definition of a generic
 
-    >>> f(**x, *y)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> f(**x, *y)
     Traceback (most recent call last):
     SyntaxError: iterable argument unpacking follows keyword argument unpacking
 
@@ -2936,18 +2936,15 @@ class SyntaxErrorTestCase(unittest.TestCase):
                           "unindent does not match .* level",
                           subclass=IndentationError)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kwargs_last(self):
         self._check_error("int(base=10, '2')",
                           "positional argument follows keyword argument")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kwargs_last2(self):
         self._check_error("int(**{'base': 10}, '2')",
                           "positional argument follows "
                           "keyword argument unpacking")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kwargs_last3(self):
         self._check_error("int(**{'base': 10}, *['2'])",
                           "iterable argument unpacking follows "
