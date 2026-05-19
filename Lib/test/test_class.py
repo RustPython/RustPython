@@ -887,14 +887,14 @@ class VarSizedSubclass(tuple):
 
 class TestInlineValues(unittest.TestCase):
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; NameError: name 'has_inline_values' is not defined.
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name 'has_inline_values' is not defined.
     def test_no_flags_for_slots_class(self):
         flags = NoManagedDict.__flags__
         self.assertEqual(flags & Py_TPFLAGS_MANAGED_DICT, 0)
         self.assertEqual(flags & Py_TPFLAGS_INLINE_VALUES, 0)
         self.assertFalse(has_inline_values(NoManagedDict()))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 0 != 4
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 4
     def test_both_flags_for_regular_class(self):
         for cls in (Plain, WithAttrs):
             with self.subTest(cls=cls.__name__):
@@ -903,7 +903,7 @@ class TestInlineValues(unittest.TestCase):
                 self.assertEqual(flags & Py_TPFLAGS_INLINE_VALUES, Py_TPFLAGS_INLINE_VALUES)
                 self.assertTrue(has_inline_values(cls()))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: 0 != 4
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 4
     def test_managed_dict_only_for_varsized_subclass(self):
         flags = VarSizedSubclass.__flags__
         self.assertEqual(flags & Py_TPFLAGS_MANAGED_DICT, Py_TPFLAGS_MANAGED_DICT)
@@ -1055,7 +1055,6 @@ class TestInlineValues(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertFalse(out, msg=out.decode('utf-8'))
         self.assertFalse(err, msg=err.decode('utf-8'))
-
 
 if __name__ == '__main__':
     unittest.main()
