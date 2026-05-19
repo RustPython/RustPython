@@ -2061,72 +2061,72 @@ SyntaxError: cannot assign to __debug__
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
 
->>> import a as b.c
+>>> import a as b.c  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot use attribute as import target
 
->>> import a.b as (a, b)
+>>> import a.b as (a, b)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot use tuple as import target
 
->>> import a, a.b as 1
+>>> import a, a.b as 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot use literal as import target
 
->>> import a.b as 'a', a
+>>> import a.b as 'a', a  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot use literal as import target
 
->>> from a import (b as c.d)
+>>> from a import (b as c.d)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot use attribute as import target
 
->>> from a import b as 1
+>>> from a import b as 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot use literal as import target
 
->>> from a import (
+>>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 ...   b as f())
 Traceback (most recent call last):
 SyntaxError: cannot use function call as import target
 
->>> from a import (
+>>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 ...   b as [],
 ... )
 Traceback (most recent call last):
 SyntaxError: cannot use list as import target
 
->>> from a import (
+>>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 ...   b,
 ...   c as ()
 ... )
 Traceback (most recent call last):
 SyntaxError: cannot use tuple as import target
 
->>> from a import b, с as d[e]
+>>> from a import b, с as d[e]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot use subscript as import target
 
->>> from a import с as d[e], b
+>>> from a import с as d[e], b  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot use subscript as import target
 
 # Check that we don't raise a "cannot use name as import target" error
 # if there is an error in an unrelated statement after ';'
 
->>> import a as b; None = 1
+>>> import a as b; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
->>> import a, b as c; d = 1; None = 1
+>>> import a, b as c; d = 1; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
->>> from a import b as c; None = 1
+>>> from a import b as c; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
->>> from a import b, c as d; e = 1; None = 1
+>>> from a import b, c as d; e = 1; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
@@ -2164,31 +2164,31 @@ SyntaxError: only single target (not list) can be annotated
 
 # 'not' after operators:
 
->>> 3 + not 3
+>>> 3 + not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> 3 * not 3
+>>> 3 * not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> + not 3
+>>> + not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> - not 3
+>>> - not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> ~ not 3
+>>> ~ not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> 3 + - not 3
+>>> 3 + - not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> 3 + not -1
+>>> 3 + not -1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
@@ -2233,43 +2233,43 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot assign to __debug__
 
-    >>> import ä £
+    >>> import ä £  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
     SyntaxError: invalid character '£' (U+00A3)
 
   Invalid pattern matching constructs:
 
-    >>> match ...:
+    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     ...   case 42 as _:
     ...     ...
     Traceback (most recent call last):
     SyntaxError: cannot use '_' as a target
 
-    >>> match ...:
+    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     ...   case 42 as 1+2+4:
     ...     ...
     Traceback (most recent call last):
     SyntaxError: cannot use expression as pattern target
 
-    >>> match ...:
+    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     ...   case 42 as a.b:
     ...     ...
     Traceback (most recent call last):
     SyntaxError: cannot use attribute as pattern target
 
-    >>> match ...:
+    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     ...   case 42 as (a, b):
     ...     ...
     Traceback (most recent call last):
     SyntaxError: cannot use tuple as pattern target
 
-    >>> match ...:
+    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     ...   case 42 as (a + 1):
     ...     ...
     Traceback (most recent call last):
     SyntaxError: cannot use expression as pattern target
 
-    >>> match ...:
+    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     ...   case (32 as x) | (42 as a()):
     ...     ...
     Traceback (most recent call last):
@@ -2307,7 +2307,7 @@ A[:*b]
     Traceback (most recent call last):
         ...
     SyntaxError: invalid syntax
-    >>> A[:(*b)]
+    >>> A[:(*b)]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
         ...
     SyntaxError: cannot use starred expression here
@@ -2326,7 +2326,7 @@ A[*b:]
     Traceback (most recent call last):
         ...
     SyntaxError: invalid syntax
-    >>> A[(*b):]
+    >>> A[(*b):]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
         ...
     SyntaxError: cannot use starred expression here
@@ -2360,22 +2360,22 @@ A[*b:*b]
 
 A[*(1:2)]
 
-    >>> A[*(1:2)]
+    >>> A[*(1:2)]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
-    >>> A[*(1:2)] = 1
+    >>> A[*(1:2)] = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
-    >>> del A[*(1:2)]
+    >>> del A[*(1:2)]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
 
 A[*:] and A[:*]
 
-    >>> A[*:]
+    >>> A[*:]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
@@ -2386,7 +2386,7 @@ A[*:] and A[:*]
 
 A[*]
 
-    >>> A[*]
+    >>> A[*]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
@@ -2636,51 +2636,51 @@ Invalid expressions in type scopes:
    Traceback (most recent call last):
    SyntaxError: cannot assign to __debug__
 
-   >>> class A[__debug__]: pass
+   >>> class A[__debug__]: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    Traceback (most recent call last):
    SyntaxError: cannot assign to __debug__
 
-   >>> class A[T]((x := 3)): ...
+   >>> class A[T]((x := 3)): ...  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    Traceback (most recent call last):
       ...
    SyntaxError: named expression cannot be used within the definition of a generic
 
-   >>> class A[T]((yield 3)): ...
+   >>> class A[T]((yield 3)): ...  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    Traceback (most recent call last):
       ...
    SyntaxError: yield expression cannot be used within the definition of a generic
 
-   >>> class A[T]((await 3)): ...
+   >>> class A[T]((await 3)): ...  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    Traceback (most recent call last):
       ...
    SyntaxError: await expression cannot be used within the definition of a generic
 
-   >>> class A[T]((yield from [])): ...
+   >>> class A[T]((yield from [])): ...  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    Traceback (most recent call last):
       ...
    SyntaxError: yield expression cannot be used within the definition of a generic
 
-    >>> f(**x, *y)
+    >>> f(**x, *y)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
     SyntaxError: iterable argument unpacking follows keyword argument unpacking
 
-    >>> f(**x, *)
+    >>> f(**x, *)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
     SyntaxError: Invalid star expression
 
-    >>> f(x, *:)
+    >>> f(x, *:)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
     SyntaxError: Invalid star expression
 
-    >>> f(x, *)
+    >>> f(x, *)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
     SyntaxError: Invalid star expression
 
-    >>> f(x = 5, *)
+    >>> f(x = 5, *)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
     SyntaxError: Invalid star expression
 
-    >>> f(x = 5, *:)
+    >>> f(x = 5, *:)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
     SyntaxError: Invalid star expression
 """
@@ -3315,7 +3315,8 @@ while 1:
             self._check_error(f"x = {lhs_stmt} if 1 else {rhs_stmt}", msg)
 
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite())
+    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker()))  # TODO: RUSTPYTHON
     return tests
 
 

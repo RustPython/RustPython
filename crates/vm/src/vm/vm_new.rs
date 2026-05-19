@@ -610,10 +610,44 @@ impl VirtualMachine {
             }
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::EmptyTypeParams,
+                ..
+            }) => {
+                msg = "Type parameter list cannot be empty".to_owned();
+            },
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::InvalidStarPatternUsage,
+                ..
+            }) => {
+                msg = "cannot use starred expression here".to_owned();
+                narrow_caret = true;
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::ExpectedKeywordParam,
+                ..
+            }) => {
+                msg = "named arguments must follow bare *".to_owned();
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::EmptyImportNames,
+                ..
+            }) => {
+                msg = "Expected one or more names after 'import'".to_owned();
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
                 ..
-            }) if s.starts_with("Expected an identifier, but found a keyword") => {
-                msg = "invalid syntax".to_owned();
+            }) => {
+                if s.starts_with("Expected an identifier, but found a keyword") {
+                    msg = "invalid syntax".to_owned();
+                }
+                else if s.eq_ignore_ascii_case("positional patterns cannot follow keyword patterns") {
+                    msg = "positional patterns follow keyword patterns".to_owned();
+                }
             }
             _ => {}
         }
