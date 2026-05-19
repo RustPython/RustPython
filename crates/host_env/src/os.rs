@@ -223,6 +223,21 @@ pub fn exit(code: i32) -> ! {
     std::process::exit(code)
 }
 
+/// Wrapper around the C `abort()` call: terminates the process abnormally.
+pub fn abort() -> ! {
+    unsafe extern "C" {
+        fn abort() -> !;
+    }
+    unsafe { abort() }
+}
+
+/// Read `size` cryptographically random bytes from the OS.
+pub fn urandom(size: usize) -> io::Result<Vec<u8>> {
+    let mut buf = vec![0u8; size];
+    getrandom::fill(&mut buf).map_err(io::Error::from)?;
+    Ok(buf)
+}
+
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub fn isatty(fd: i32) -> bool {
     unsafe { suppress_iph!(libc::isatty(fd)) != 0 }

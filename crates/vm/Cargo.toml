@@ -51,7 +51,6 @@ crossbeam-utils = { workspace = true }
 chrono = { workspace = true }
 constant_time_eq = { workspace = true }
 flame = { workspace = true, optional = true }
-getrandom = { workspace = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }

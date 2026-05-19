@@ -1206,6 +1206,7 @@ pub fn mkdir(path: &widestring::WideCStr, mode: i32) -> io::Result<()> {
 
 unsafe extern "C" {
     fn _umask(mask: i32) -> i32;
+    fn _wputenv(envstring: *const u16) -> libc::c_int;
 }
 
 pub fn umask(mask: i32) -> io::Result<i32> {
@@ -1214,6 +1215,17 @@ pub fn umask(mask: i32) -> io::Result<i32> {
         Err(crate::os::errno_io_error())
     } else {
         Ok(result)
+    }
+}
+
+/// Update the CRT environment via `_wputenv`.
+/// `envstring` must point to a nul-terminated wide string of the form `KEY=value`.
+pub fn wputenv(envstring: &widestring::WideCStr) -> io::Result<()> {
+    let result = unsafe { crate::suppress_iph!(_wputenv(envstring.as_ptr())) };
+    if result != 0 {
+        Err(crate::os::errno_io_error())
+    } else {
+        Ok(())
     }
 }
 
