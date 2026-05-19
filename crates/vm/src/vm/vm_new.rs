@@ -52,6 +52,7 @@ impl SyntaxErrorInfo {
         self.msg = msg.into();
     }
 
+    #[cfg(feature = "parser")]
     const fn with_narrow_caret(&mut self, narrow_caret: bool) {
         self.narrow_caret = narrow_caret;
     }
@@ -104,6 +105,17 @@ impl SyntaxErrorInfo {
                 "unterminated string".into()
             }
 
+            ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),
+
+            ParseErrorType::InvalidStarPatternUsage => {
+                self.with_narrow_caret(true);
+                "cannot use starred expression here".into()
+            }
+
+            ParseErrorType::ExpectedKeywordParam => "named arguments must follow bare *".into(),
+
+            ParseErrorType::EmptyImportNames => "Expected one or more names after 'import'".into(),
+
             ParseErrorType::OtherError(s)
                 if s.eq_ignore_ascii_case(
                     "bytes literal cannot be mixed with non-bytes literals",
@@ -116,6 +128,12 @@ impl SyntaxErrorInfo {
                 if s.starts_with("Expected an identifier, but found a keyword") =>
             {
                 "invalid syntax".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("positional patterns cannot follow keyword patterns") =>
+            {
+                "positional patterns follow keyword patterns".into()
             }
 
             _ => return,
