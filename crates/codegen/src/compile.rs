@@ -2499,8 +2499,12 @@ impl Compiler {
 
         if let Some(last_statement) = body.last() {
             match last_statement {
-                ast::Stmt::Expr(_) => {
-                    self.current_block().instructions.pop(); // pop Instruction::PopTop
+                ast::Stmt::Expr(ast::StmtExpr { value, .. }) => {
+                    if !self.interactive && Self::is_const_expression(value) {
+                        self.compile_expression(value)?;
+                    } else {
+                        self.current_block().instructions.pop(); // pop Instruction::PopTop
+                    }
                 }
                 ast::Stmt::FunctionDef(_) | ast::Stmt::ClassDef(_) => {
                     let pop_instructions = self.current_block().instructions.pop();
