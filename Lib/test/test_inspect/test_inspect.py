@@ -888,7 +888,6 @@ class TestRetrievingSourceCode(GetSourceBase):
         self.assertRaises(OSError, inspect.getsourcelines, A)
         self.assertIsNone(inspect.getcomments(A))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by getsource
     def test_getsource_on_class_without_firstlineno(self):
         __firstlineno__ = 1
         class C:
