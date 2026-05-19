@@ -1,8 +1,10 @@
 use ruff_python_parser::{InterpolatedStringErrorType, LexicalErrorType, ParseErrorType};
 
 use rustpython_common::wtf8::Wtf8Buf;
-use rustpython_compiler::{CompileError, ParseError};
 use rustpython_compiler_core::SourceLocation;
+
+#[cfg(feature = "parser")]
+use rustpython_compiler::{CompileError, ParseError};
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult,
