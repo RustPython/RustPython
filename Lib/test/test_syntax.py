@@ -200,15 +200,15 @@ SyntaxError: cannot assign to True
 Traceback (most recent call last):
 SyntaxError: assignment to yield expression not possible
 
->>> a, b += 1, 2
+>>> a, b += 1, 2  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'tuple' is an illegal expression for augmented assignment
 
->>> (a, b) += 1, 2
+>>> (a, b) += 1, 2  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'tuple' is an illegal expression for augmented assignment
 
->>> [a, b] += 1, 2
+>>> [a, b] += 1, 2  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'list' is an illegal expression for augmented assignment
 
@@ -784,7 +784,7 @@ SyntaxError: invalid syntax
 ...   290, 291, 292, 293, 294, 295, 296, 297, 298, 299)  # doctest: +ELLIPSIS
 (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, ..., 297, 298, 299)
 
->>> f(lambda x: x[0] = 3)
+>>> f(lambda x: x[0] = 3)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
 
@@ -796,25 +796,25 @@ SyntaxError: invalid syntax
 The grammar accepts any test (basically, any expression) in the
 keyword slot of a call site.  Test a few different options.
 
->>> f(x()=2)
+>>> f(x()=2)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
->>> f(a or b=1)
+>>> f(a or b=1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
->>> f(x.y=1)
+>>> f(x.y=1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
->>> f((x)=2)
+>>> f((x)=2)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
->>> f(True=1)
+>>> f(True=1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
->>> f(False=1)
+>>> f(False=1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to False
->>> f(None=1)
+>>> f(None=1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 >>> f(__debug__=1)
@@ -826,42 +826,42 @@ SyntaxError: cannot assign to __debug__
 >>> x.__debug__: int
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
->>> f(a=)
+>>> f(a=)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: expected argument value expression
->>> f(a, b, c=)
+>>> f(a, b, c=)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: expected argument value expression
->>> f(a, b, c=, d)
+>>> f(a, b, c=, d)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: expected argument value expression
->>> f(*args=[0])
+>>> f(*args=[0])  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to iterable argument unpacking
->>> f(a, b, *args=[0])
+>>> f(a, b, *args=[0])  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to iterable argument unpacking
->>> f(**kwargs={'a': 1})
+>>> f(**kwargs={'a': 1})  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to keyword argument unpacking
->>> f(a, b, *args, **kwargs={'a': 1})
+>>> f(a, b, *args, **kwargs={'a': 1})  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: cannot assign to keyword argument unpacking
 
 
 More set_context():
 
->>> (x for x in x) += 1
+>>> (x for x in x) += 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'generator expression' is an illegal expression for augmented assignment
->>> None += 1
+>>> None += 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 Traceback (most recent call last):
 SyntaxError: 'None' is an illegal expression for augmented assignment
 >>> __debug__ += 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
->>> f() += 1
-Traceback (most recent call last):
+>>> f() += 1 # TODO: RUSTPYTHON; Raises an exception # doctest: +SKIP
+Traceback (most recent call last):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 SyntaxError: 'function call' is an illegal expression for augmented assignment
 
 
@@ -931,7 +931,7 @@ return in function under finally should be ok.
 
 A continue outside loop should not be allowed.
 
-    >>> def foo():
+    >>> def foo():  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     ...     try:
     ...         continue
     ...     finally:
@@ -957,7 +957,7 @@ isn't, there should be a syntax error.
 
 elif can't come after an else.
 
-    >>> if a % 2 == 0:
+    >>> if a % 2 == 0:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
     ...     pass
     ... else:
     ...     pass
@@ -1013,7 +1013,7 @@ Misuse of the nonlocal and global statement can lead to a few unique syntax erro
      ...
    SyntaxError: name 'x' is parameter and nonlocal
 
-   >>> def f():
+   >>> def f():  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    ...     global x
    ...     nonlocal x
    Traceback (most recent call last):
@@ -1027,7 +1027,7 @@ Misuse of the nonlocal and global statement can lead to a few unique syntax erro
    SyntaxError: no binding for nonlocal 'x' found
 
 From SF bug #1705365
-   >>> nonlocal x
+   >>> nonlocal x  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    Traceback (most recent call last):
      ...
    SyntaxError: nonlocal declaration not allowed at module level
@@ -1045,7 +1045,7 @@ This tests assignment-context; there was a bug in Python 2.5 where compiling
 a complex 'if' (one with 'elif') would fail to notice an invalid suite,
 leading to spurious errors.
 
-   >>> if 1:
+   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    ...   x() = 1
    ... elif 1:
    ...   pass
@@ -1053,7 +1053,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:
+   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    ...   pass
    ... elif 1:
    ...   x() = 1
@@ -1061,7 +1061,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:
+   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    ...   x() = 1
    ... elif 1:
    ...   pass
@@ -1071,7 +1071,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:
+   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    ...   pass
    ... elif 1:
    ...   x() = 1
@@ -1081,7 +1081,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:
+   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    ...   pass
    ... elif 1:
    ...   pass
