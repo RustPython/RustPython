@@ -1880,7 +1880,7 @@ SyntaxError: invalid syntax. Did you mean 'for'?
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Did you mean 'in'?
 
->>> f(a=23, a=234)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(a=23, a=234)
 Traceback (most recent call last):
    ...
 SyntaxError: keyword argument repeated: a
@@ -3198,7 +3198,6 @@ case(34)
 """
         compile(code, "<string>", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiline_compiler_error_points_to_the_end(self):
         self._check_error(
             "call(\na=1,\na=1\n)",

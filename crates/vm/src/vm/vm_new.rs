@@ -116,6 +116,10 @@ impl SyntaxErrorInfo {
 
             ParseErrorType::EmptyImportNames => "Expected one or more names after 'import'".into(),
 
+            ParseErrorType::DuplicateKeywordArgumentError(arg_name) => {
+                format!("keyword argument repeated: {arg_name}")
+            }
+
             ParseErrorType::OtherError(s)
                 if s.eq_ignore_ascii_case(
                     "bytes literal cannot be mixed with non-bytes literals",
