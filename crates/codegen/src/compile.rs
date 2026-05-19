@@ -3258,7 +3258,17 @@ impl Compiler {
                     CompilerScope::Annotation | CompilerScope::TypeParams
                 ) {
                     SymbolScope::GlobalImplicit
-                } else if name.starts_with('_') {
+                } else if matches!(
+                    name.as_ref(),
+                    "__name__"
+                        | "__module__"
+                        | "__qualname__"
+                        | "__firstlineno__"
+                        | "__doc__"
+                        | "__static_attributes__"
+                        | "__classdictcell__"
+                        | "__classcell__"
+                ) {
                     SymbolScope::Unknown
                 } else {
                     return Err(self.error(CodegenErrorType::SyntaxError(format!(
@@ -13984,6 +13994,23 @@ def f(buffer, pos, last_char):
         })
     }
 
+    fn localsplus_name(code: &CodeObject, idx: usize) -> Option<&str> {
+        if idx < code.varnames.len() {
+            return Some(code.varnames[idx].as_str());
+        }
+
+        let mut extra_idx = idx - code.varnames.len();
+        for cellvar in &code.cellvars {
+            if !code.varnames.iter().any(|varname| varname == cellvar) {
+                if extra_idx == 0 {
+                    return Some(cellvar.as_str());
+                }
+                extra_idx -= 1;
+            }
+        }
+        code.freevars.get(extra_idx).map(|name| name.as_str())
+    }
+
     fn has_common_constant(code: &CodeObject, expected: bytecode::CommonConstant) -> bool {
         code.instructions.iter().any(|unit| match unit.op {
             Instruction::LoadCommonConstant { idx } => {
@@ -20932,12 +20959,16 @@ def f():
             class_code.freevars
         );
         assert!(
-            class_code
-                .instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::StoreDeref { .. })),
-            "CPython routes __firstlineno__ through name resolution and emits STORE_DEREF, got ops={:?}",
-            class_code.instructions
+            class_code.instructions.iter().any(|unit| match unit.op {
+                Instruction::StoreDeref { i } => {
+                    let idx = i.get(OpArg::new(u32::from(u8::from(unit.arg)))).as_usize();
+                    localsplus_name(class_code, idx) == Some("__firstlineno__")
+                }
+                _ => false,
+            }),
+            "CPython routes __firstlineno__ through name resolution and emits STORE_DEREF for __firstlineno__, got ops={:?} freevars={:?}",
+            class_code.instructions,
+            class_code.freevars
         );
         assert!(
             !class_code.instructions.iter().any(|unit| {
