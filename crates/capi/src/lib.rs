@@ -11,6 +11,7 @@ extern crate alloc;
 pub mod abstract_;
 pub mod bytesobject;
 pub mod ceval;
+pub mod dictobject;
 pub mod import;
 pub mod longobject;
 pub mod object;
