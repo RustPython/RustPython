@@ -33,11 +33,13 @@ fn format_missing_args(
     missing: &mut Vec<impl core::fmt::Display>,
 ) -> String {
     let count = missing.len();
+
     let last = if missing.len() > 1 {
         missing.pop()
     } else {
         None
     };
+
     let (and, right): (&str, String) = if let Some(last) = last {
         (
             if missing.len() == 1 {
@@ -45,11 +47,12 @@ fn format_missing_args(
             } else {
                 "', and '"
             },
-            format!("{last}"),
+            last.to_string(),
         )
     } else {
         ("", String::new())
     };
+
     format!(
         "{qualname}() missing {count} required {kind} argument{}: '{}{}{right}'",
         if count == 1 { "" } else { "s" },
@@ -1268,12 +1271,12 @@ impl PyBoundMethod {
     }
 
     #[inline]
-    pub(crate) fn function_obj(&self) -> &PyObjectRef {
+    pub(crate) const fn function_obj(&self) -> &PyObjectRef {
         &self.function
     }
 
     #[inline]
-    pub(crate) fn self_obj(&self) -> &PyObjectRef {
+    pub(crate) const fn self_obj(&self) -> &PyObjectRef {
         &self.object
     }
 
@@ -1398,6 +1401,7 @@ impl Representable for PyBoundMethod {
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
 }
+
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {
@@ -1426,6 +1430,7 @@ impl PyCell {
     pub(crate) fn get(&self) -> Option<PyObjectRef> {
         self.contents.lock().clone()
     }
+
     pub(crate) fn set(&self, x: Option<PyObjectRef>) {
         *self.contents.lock() = x;
     }
@@ -1435,6 +1440,7 @@ impl PyCell {
         self.get()
             .ok_or_else(|| vm.new_value_error("Cell is empty"))
     }
+
     #[pygetset(setter)]
     fn set_cell_contents(&self, x: PySetterValue) {
         match x {
@@ -1488,6 +1494,7 @@ pub(crate) fn vectorcall_function(
         args.truncate(nargs);
         FuncArgs::from(args)
     };
+
     zelf.invoke(func_args, vm)
 }
 

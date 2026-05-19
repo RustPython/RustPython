@@ -37,8 +37,7 @@ impl PyObjectRef {
     pub fn try_to_bool(self, vm: &VirtualMachine) -> PyResult<bool> {
         if self.is(&vm.ctx.true_value) {
             return Ok(true);
-        }
-        if self.is(&vm.ctx.false_value) {
+        } else if self.is(&vm.ctx.false_value) {
             return Ok(false);
         }
 
@@ -83,10 +82,9 @@ impl Constructor for PyBool {
     fn slot_new(zelf: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let x: Self::Args = args.bind(vm)?;
         if !zelf.fast_isinstance(vm.ctx.types.type_type) {
-            let actual_class = zelf.class();
-            let actual_type = &actual_class.name();
             return Err(vm.new_type_error(format!(
-                "requires a 'type' object but received a '{actual_type}'"
+                "requires a 'type' object but received a '{}'",
+                zelf.class().name()
             )));
         }
         let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;

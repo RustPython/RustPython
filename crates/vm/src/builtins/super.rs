@@ -86,6 +86,7 @@ impl Initializer for PySuper {
             if frame.code.arg_count == 0 {
                 return Err(vm.new_runtime_error("super(): no arguments"));
             }
+
             // SAFETY: Frame is current and not concurrently mutated.
             use rustpython_compiler_core::bytecode::CO_FAST_CELL;
             let obj = unsafe { frame.fastlocals() }[0]
@@ -165,9 +166,9 @@ impl GetAttr for PySuper {
             Some(o) => o.clone(),
             None => return skip(zelf, name),
         };
+
         // We want __class__ to return the class of the super object
         // (i.e. super, or a subclass), not the class of su->obj.
-
         if name.as_bytes() == b"__class__" {
             return skip(zelf, name);
         }
@@ -280,21 +281,23 @@ pub(crate) fn init(context: &'static Context) {
     let super_type = &context.types.super_type;
     PySuper::extend_class(context, super_type);
 
-    let super_doc = "super() -> same as super(__class__, <first argument>)\n\
-                     super(type) -> unbound super object\n\
-                     super(type, obj) -> bound super object; requires isinstance(obj, type)\n\
-                     super(type, type2) -> bound super object; requires issubclass(type2, type)\n\
-                     Typical use to call a cooperative superclass method:\n\
-                     class C(B):\n    \
-                     def meth(self, arg):\n        \
-                     super().meth(arg)\n\
-                     This works for class methods too:\n\
-                     class C(B):\n    \
-                     @classmethod\n    \
-                     def cmeth(cls, arg):\n        \
-                     super().cmeth(arg)\n";
+    const SUPER_DOC: &str = "\
+super() -> same as super(__class__, <first argument>)
+super(type) -> unbound super object
+super(type, obj) -> bound super object; requires isinstance(obj, type)
+super(type, type2) -> bound super object; requires issubclass(type2, type)
+Typical use to call a cooperative superclass method:
+class C(B):
+    def meth(self, arg):
+        super().meth(arg)
+This works for class methods too:
+class C(B):
+    @classmethod
+    def cmeth(cls, arg):
+        super().cmeth(arg)
+";
 
     extend_class!(context, super_type, {
-        "__doc__" => context.new_str(super_doc),
+        "__doc__" => context.new_str(SUPER_DOC),
     });
 }
