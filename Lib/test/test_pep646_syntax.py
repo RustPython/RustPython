@@ -312,7 +312,7 @@ is *not* valid syntax.)
     >>> f4.__annotations__
     {'args': StarredB, 'arg1': <class 'int'>}
 
-    >>> def f5(*args: *b = (1,)): pass # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> def f5(*args: *b = (1,)): pass  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
     Traceback (most recent call last):
         ...
     SyntaxError: invalid syntax
@@ -320,17 +320,9 @@ is *not* valid syntax.)
 
 __test__ = {'doctests' : doctests}
 
-EXPECTED_FAILURE = doctest.register_optionflag('EXPECTED_FAILURE') # TODO: RUSTPYTHON
-class CustomOutputChecker(doctest.OutputChecker): # TODO: RUSTPYTHON
-    def check_output(self, want, got, optionflags): # TODO: RUSTPYTHON
-        if optionflags & EXPECTED_FAILURE: # TODO: RUSTPYTHON
-            if want == got: # TODO: RUSTPYTHON
-                return False # TODO: RUSTPYTHON
-            return True # TODO: RUSTPYTHON
-        return super().check_output(want, got, optionflags) # TODO: RUSTPYTHON
-
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite(checker=CustomOutputChecker())) # TODO: RUSTPYTHON
+    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker())) # TODO: RUSTPYTHON
     return tests
 
 

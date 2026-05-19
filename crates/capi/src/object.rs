@@ -33,6 +33,7 @@ macro_rules! define_py_check {
     };
 }
 
+pub(crate) use define_py_check;
 define_py_check!(fn PyType_Check, types.type_type);
 define_py_check!(exact fn PyType_CheckExact, types.type_type);
 
