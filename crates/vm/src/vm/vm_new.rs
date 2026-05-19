@@ -98,11 +98,11 @@ impl SyntaxErrorInfo {
             ParseErrorType::InvalidDeleteTarget => "invalid syntax".into(),
 
             ParseErrorType::Lexical(LexicalErrorType::LineContinuationError) => {
-                "unexpected character after line continuation".into()
+                "unexpected character after line continuation character".into()
             }
 
             ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError) => {
-                "unterminated string".into()
+                "unterminated string literal".into()
             }
 
             ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),

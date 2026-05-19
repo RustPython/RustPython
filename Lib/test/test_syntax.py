@@ -3125,7 +3125,6 @@ def func2():
                           "unexpected character after line continuation character",
                           lineno=3, offset=4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_line_continuation_left_recursive(self):
         # Check bpo-42218: SyntaxErrors following left-recursive rules
         # (t_primary_raw in this case) need to be tested explicitly
