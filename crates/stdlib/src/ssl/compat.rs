@@ -1740,11 +1740,6 @@ pub(super) fn ssl_read(
                 // Successfully read and processed TLS data
                 // Continue loop to try reading plaintext
             }
-            Err(SslError::Io(ref io_err)) if io_err.to_string().contains("message buffer full") => {
-                // This case should be rare now that ssl_read_tls_records handles buffer full
-                // Just continue loop to try again
-                continue;
-            }
             Err(e) => {
                 // Other errors - check for buffered plaintext before propagating
                 match try_read_plaintext(conn, buf)? {
@@ -2020,6 +2015,9 @@ fn ssl_read_tls_records(
                         }
                         Ok(n) => {
                             offset += n;
+                            if offset < bytes_data.len() {
+                                conn.process_new_packets().map_err(SslError::from_rustls)?;
+                            }
                         }
                         Err(e) => {
                             return Err(SslError::Io(e));
@@ -2027,14 +2025,12 @@ fn ssl_read_tls_records(
                     }
                 } else {
                     offset += read_bytes;
+                    if offset < bytes_data.len() {
+                        conn.process_new_packets().map_err(SslError::from_rustls)?;
+                    }
                 }
             }
             Err(e) => {
-                // Check if it's a buffer full error (unlikely but handle it)
-                if e.to_string().contains("buffer full") {
-                    conn.process_new_packets().map_err(SslError::from_rustls)?;
-                    continue;
-                }
                 // Real error - propagate it
                 return Err(SslError::Io(e));
             }
