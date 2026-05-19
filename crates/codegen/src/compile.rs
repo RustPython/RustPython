@@ -2723,7 +2723,7 @@ impl Compiler {
         let mut parent_idx = stack_size - 2;
         let mut parent = &self.code_stack[parent_idx];
 
-        let parent_scope = self
+        let mut parent_scope = self
             .symbol_table_stack
             .get(parent_idx)
             .map(|table| table.typ);
@@ -2742,6 +2742,10 @@ impl Compiler {
             // Use grandparent
             parent_idx = stack_size - 3;
             parent = &self.code_stack[parent_idx];
+            parent_scope = self
+                .symbol_table_stack
+                .get(parent_idx)
+                .map(|table| table.typ);
         }
 
         // Check if this is a global class/function
@@ -2779,9 +2783,12 @@ impl Compiler {
             let parent_obj_name = &parent.metadata.name;
 
             // Determine if parent is a function-like scope
-            let is_function_parent = parent.flags.contains(bytecode::CodeFlags::OPTIMIZED)
-                && !parent_obj_name.starts_with("<") // Not a special scope like <lambda>, <listcomp>, etc.
-                && parent_obj_name != "<module>"; // Not the module scope
+            let is_function_parent = matches!(
+                parent_scope,
+                Some(
+                    CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
+                )
+            );
 
             if is_function_parent {
                 // For functions, append .<locals> to parent qualname
@@ -3251,6 +3258,8 @@ impl Compiler {
                     CompilerScope::Annotation | CompilerScope::TypeParams
                 ) {
                     SymbolScope::GlobalImplicit
+                } else if name.starts_with('_') {
+                    SymbolScope::Unknown
                 } else {
                     return Err(self.error(CodegenErrorType::SyntaxError(format!(
                         "the symbol '{name}' must be present in the symbol table"
@@ -6613,39 +6622,20 @@ impl Compiler {
         let (doc_str, body) = split_doc(body, &self.opts);
 
         // Load __name__ and store as __module__
-        let dunder_name = self.name("__name__");
-        emit!(self, Instruction::LoadName { namei: dunder_name });
-        let dunder_module = self.name("__module__");
-        emit!(
-            self,
-            Instruction::StoreName {
-                namei: dunder_module
-            }
-        );
+        self.load_name("__name__")?;
+        self.store_name("__module__")?;
 
         // Store __qualname__
         self.emit_load_const(ConstantData::Str {
             value: qualname.into(),
         });
-        let qualname_name = self.name("__qualname__");
-        emit!(
-            self,
-            Instruction::StoreName {
-                namei: qualname_name
-            }
-        );
+        self.store_name("__qualname__")?;
 
         // Store __firstlineno__ before __doc__
         self.emit_load_const(ConstantData::Integer {
             value: BigInt::from(firstlineno),
         });
-        let firstlineno_name = self.name("__firstlineno__");
-        emit!(
-            self,
-            Instruction::StoreName {
-                namei: firstlineno_name
-            }
-        );
+        self.store_name("__firstlineno__")?;
 
         // Set __type_params__ from the enclosing type-params closure when
         // compiling a generic class body.
@@ -6677,8 +6667,7 @@ impl Compiler {
         // Store __doc__ only if there's an explicit docstring.
         if let Some(doc) = doc_str {
             self.emit_load_const(ConstantData::Str { value: doc.into() });
-            let doc_name = self.name("__doc__");
-            emit!(self, Instruction::StoreName { namei: doc_name });
+            self.store_name("__doc__")?;
         }
 
         // 3. Compile the class body
@@ -6716,13 +6705,7 @@ impl Compiler {
                     .collect(),
             });
             self.set_no_location();
-            let static_attrs_name = self.name("__static_attributes__");
-            emit!(
-                self,
-                Instruction::StoreName {
-                    namei: static_attrs_name
-                }
-            );
+            self.store_name("__static_attributes__")?;
             self.set_no_location();
         }
 
@@ -6731,13 +6714,7 @@ impl Compiler {
             let classdict_idx = u32::from(self.get_cell_var_index("__classdict__"));
             emit!(self, PseudoInstruction::LoadClosure { i: classdict_idx });
             self.set_no_location();
-            let classdictcell = self.name("__classdictcell__");
-            emit!(
-                self,
-                Instruction::StoreName {
-                    namei: classdictcell
-                }
-            );
+            self.store_name("__classdictcell__")?;
             self.set_no_location();
         }
 
@@ -6751,8 +6728,7 @@ impl Compiler {
             self.set_no_location();
             emit!(self, Instruction::Copy { i: 1 });
             self.set_no_location();
-            let classcell = self.name("__classcell__");
-            emit!(self, Instruction::StoreName { namei: classcell });
+            self.store_name("__classcell__")?;
             self.set_no_location();
         } else {
             self.emit_load_const(ConstantData::None);
@@ -20932,6 +20908,86 @@ class C:
         } else {
             assert_eq!(u32::from(u8::from(load_firstlineno.arg)), 1);
         }
+    }
+
+    #[test]
+    fn test_class_firstlineno_store_uses_name_resolution() {
+        let code = compile_exec(
+            "\
+def f():
+    __firstlineno__ = 1
+    class C:
+        nonlocal __firstlineno__
+    return C
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+
+        assert!(
+            class_code
+                .freevars
+                .iter()
+                .any(|name| name == "__firstlineno__"),
+            "class should close over nonlocal __firstlineno__, got freevars={:?}",
+            class_code.freevars
+        );
+        assert!(
+            class_code
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::StoreDeref { .. })),
+            "CPython routes __firstlineno__ through name resolution and emits STORE_DEREF, got ops={:?}",
+            class_code.instructions
+        );
+        assert!(
+            !class_code.instructions.iter().any(|unit| {
+                matches!(
+                    unit.op,
+                    Instruction::StoreName { namei }
+                        if class_code.names
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            .as_str()
+                            == "__firstlineno__"
+                )
+            }),
+            "nonlocal __firstlineno__ should not be stored with STORE_NAME, got ops={:?}",
+            class_code.instructions
+        );
+    }
+
+    #[test]
+    fn test_lambda_parent_qualname_includes_locals() {
+        let code = compile_exec(
+            "\
+def f():
+    return lambda: (lambda: None)
+",
+        );
+        let mut lambda_qualnames = Vec::new();
+        fn collect_lambda_qualnames(code: &CodeObject, out: &mut Vec<String>) {
+            if code.obj_name == "<lambda>" {
+                out.push(code.qualname.to_string());
+            }
+            for constant in code.constants.iter() {
+                if let ConstantData::Code { code } = constant {
+                    collect_lambda_qualnames(code, out);
+                }
+            }
+        }
+        collect_lambda_qualnames(&code, &mut lambda_qualnames);
+
+        assert!(
+            lambda_qualnames
+                .iter()
+                .any(|name| name == "f.<locals>.<lambda>"),
+            "missing outer lambda qualname, got {lambda_qualnames:?}"
+        );
+        assert!(
+            lambda_qualnames
+                .iter()
+                .any(|name| name == "f.<locals>.<lambda>.<locals>.<lambda>"),
+            "nested lambda parent should include .<locals> like CPython, got {lambda_qualnames:?}"
+        );
     }
 
     #[test]
