@@ -75,7 +75,8 @@ mod _ssl {
     use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
     use pem_rfc7468::{LineEnding, encode_string};
     use rustls::{
-        ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection,
+        ClientConfig, ClientConnection, Connection, HandshakeKind, RootCertStore, ServerConfig,
+        ServerConnection,
         client::{ClientSessionMemoryCache, ClientSessionStore},
         crypto::SupportedKxGroup,
         pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName},
@@ -94,9 +95,8 @@ mod _ssl {
     // Import compat module (OpenSSL compatibility layer)
     use super::compat::{
         ClientConfigOptions, MultiCertResolver, ProtocolSettings, ServerConfigOptions, SslError,
-        TlsConnection, create_client_config, create_server_config, curve_name_to_kx_group,
-        extract_cipher_info, get_cipher_encryption_desc, is_blocking_io_error,
-        normalize_cipher_name, ssl_do_handshake,
+        create_client_config, create_server_config, curve_name_to_kx_group, extract_cipher_info,
+        get_cipher_encryption_desc, is_blocking_io_error, normalize_cipher_name, ssl_do_handshake,
     };
 
     // Type aliases for better readability
@@ -2337,7 +2337,7 @@ mod _ssl {
         server_hostname: PyRwLock<Option<String>>,
         // TLS connection state
         #[pytraverse(skip)]
-        connection: PyMutex<Option<TlsConnection>>,
+        connection: PyMutex<Option<Connection>>,
         // Handshake completed flag
         #[pytraverse(skip)]
         handshake_done: PyMutex<bool>,
@@ -2578,7 +2578,7 @@ mod _ssl {
                 .connection
                 .lock()
                 .as_ref()
-                .is_some_and(|conn| conn.is_session_resumed());
+                .is_some_and(|conn| conn.handshake_kind() == Some(HandshakeKind::Resumed));
 
             *self.session_was_reused.lock() = was_resumed;
 
@@ -3204,7 +3204,7 @@ mod _ssl {
         /// Returns the configured ServerConnection.
         fn initialize_server_connection(
             &self,
-            conn_guard: &mut Option<TlsConnection>,
+            conn_guard: &mut Option<Connection>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let ctx = self.context.read();
@@ -3374,11 +3374,11 @@ mod _ssl {
                 vm.new_value_error(format!("Failed to create server connection: {e}"))
             })?;
 
-            *conn_guard = Some(TlsConnection::Server(conn));
+            *conn_guard = Some(Connection::Server(conn));
 
             // If ClientHello buffer exists (from SNI callback), re-inject it
             if let Some(ref hello_data) = *self.client_hello_buffer.lock()
-                && let Some(TlsConnection::Server(ref mut server)) = *conn_guard
+                && let Some(Connection::Server(ref mut server)) = *conn_guard
             {
                 let mut cursor = std::io::Cursor::new(hello_data.as_slice());
                 let _ = server.read_tls(&mut cursor);
@@ -3501,14 +3501,14 @@ mod _ssl {
                             vm.new_value_error(format!("Failed to create client connection: {e}"))
                         })?;
 
-                    *conn_guard = Some(TlsConnection::Client(conn));
+                    *conn_guard = Some(Connection::Client(conn));
                 }
             }
 
             // Perform the actual handshake by exchanging data with the socket/BIO
 
             let conn = conn_guard.as_mut().expect("unreachable");
-            let is_client = matches!(conn, TlsConnection::Client(_));
+            let is_client = matches!(conn, Connection::Client(_));
             let handshake_result = ssl_do_handshake(conn, self, vm);
             drop(conn_guard);
 
@@ -4335,7 +4335,7 @@ mod _ssl {
         }
 
         // Helper: Write all pending TLS data (including close_notify) to outgoing buffer/BIO
-        fn write_pending_tls(&self, conn: &mut TlsConnection, vm: &VirtualMachine) -> PyResult<()> {
+        fn write_pending_tls(&self, conn: &mut Connection, vm: &VirtualMachine) -> PyResult<()> {
             // First, flush any previously pending TLS output
             // Must succeed before sending new data to maintain order
             self.flush_pending_tls_output(vm, None)?;
@@ -4365,7 +4365,7 @@ mod _ssl {
         // Returns true if peer closed connection (with or without close_notify)
         fn try_read_close_notify(
             &self,
-            conn: &mut TlsConnection,
+            conn: &mut Connection,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
             // In socket mode, peek first to avoid consuming post-TLS cleartext
@@ -4418,7 +4418,7 @@ mod _ssl {
         /// such knob, so we enforce record-level reads manually via peek.
         fn try_read_close_notify_socket(
             &self,
-            conn: &mut TlsConnection,
+            conn: &mut Connection,
             vm: &VirtualMachine,
         ) -> bool {
             // Consume at most one TLS record from the socket
@@ -4444,11 +4444,7 @@ mod _ssl {
         }
 
         // Helper: Check if peer has sent close_notify
-        fn check_peer_closed(
-            &self,
-            conn: &mut TlsConnection,
-            vm: &VirtualMachine,
-        ) -> PyResult<bool> {
+        fn check_peer_closed(&self, conn: &mut Connection, vm: &VirtualMachine) -> PyResult<bool> {
             // Process any remaining packets and check peer_has_closed
             let io_state = conn
                 .process_new_packets()
@@ -4510,12 +4506,12 @@ mod _ssl {
             let conn_guard = self.connection.lock();
             if let Some(conn) = conn_guard.as_ref() {
                 let version = match conn {
-                    TlsConnection::Client(_) => {
+                    Connection::Client(_) => {
                         return Err(vm.new_value_error(
                             "Post-handshake authentication requires server socket",
                         ));
                     }
-                    TlsConnection::Server(server) => server.protocol_version(),
+                    Connection::Server(server) => server.protocol_version(),
                 };
 
                 // Post-handshake auth is only available in TLS 1.3

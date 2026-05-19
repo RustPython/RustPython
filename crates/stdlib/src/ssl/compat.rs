@@ -19,14 +19,13 @@ use crate::socket::{SelectKind, timeout_error_msg};
 use crate::vm::VirtualMachine;
 use alloc::sync::Arc;
 use parking_lot::RwLock as ParkingRwLock;
+use rustls::Connection;
 use rustls::RootCertStore;
 use rustls::client::ClientConfig;
-use rustls::client::ClientConnection;
 use rustls::crypto::SupportedKxGroup;
 use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
 use rustls::server::ResolvesServerCert;
 use rustls::server::ServerConfig;
-use rustls::server::ServerConnection;
 use rustls::sign::CertifiedKey;
 use rustpython_vm::builtins::{PyBaseException, PyBaseExceptionRef};
 use rustpython_vm::convert::IntoPyException;
@@ -261,126 +260,6 @@ pub(super) fn create_ssl_cert_verification_error(
     )?;
 
     Ok(exc.upcast())
-}
-
-/// Unified TLS connection type (client or server)
-#[derive(Debug)]
-pub(super) enum TlsConnection {
-    Client(ClientConnection),
-    Server(ServerConnection),
-}
-
-impl TlsConnection {
-    /// Check if handshake is in progress
-    pub(super) fn is_handshaking(&self) -> bool {
-        match self {
-            Self::Client(conn) => conn.is_handshaking(),
-            Self::Server(conn) => conn.is_handshaking(),
-        }
-    }
-
-    /// Check if connection wants to read data
-    pub(super) fn wants_read(&self) -> bool {
-        match self {
-            Self::Client(conn) => conn.wants_read(),
-            Self::Server(conn) => conn.wants_read(),
-        }
-    }
-
-    /// Check if connection wants to write data
-    pub(super) fn wants_write(&self) -> bool {
-        match self {
-            Self::Client(conn) => conn.wants_write(),
-            Self::Server(conn) => conn.wants_write(),
-        }
-    }
-
-    /// Read TLS data from socket
-    pub(super) fn read_tls(&mut self, reader: &mut dyn std::io::Read) -> std::io::Result<usize> {
-        match self {
-            Self::Client(conn) => conn.read_tls(reader),
-            Self::Server(conn) => conn.read_tls(reader),
-        }
-    }
-
-    /// Write TLS data to socket
-    pub(super) fn write_tls(&mut self, writer: &mut dyn std::io::Write) -> std::io::Result<usize> {
-        match self {
-            Self::Client(conn) => conn.write_tls(writer),
-            Self::Server(conn) => conn.write_tls(writer),
-        }
-    }
-
-    /// Process new TLS packets
-    pub(super) fn process_new_packets(&mut self) -> Result<rustls::IoState, rustls::Error> {
-        match self {
-            Self::Client(conn) => conn.process_new_packets(),
-            Self::Server(conn) => conn.process_new_packets(),
-        }
-    }
-
-    /// Get reader for plaintext data (rustls native type)
-    pub(super) fn reader(&mut self) -> rustls::Reader<'_> {
-        match self {
-            Self::Client(conn) => conn.reader(),
-            Self::Server(conn) => conn.reader(),
-        }
-    }
-
-    /// Get writer for plaintext data (rustls native type)
-    pub(super) fn writer(&mut self) -> rustls::Writer<'_> {
-        match self {
-            Self::Client(conn) => conn.writer(),
-            Self::Server(conn) => conn.writer(),
-        }
-    }
-
-    /// Check if session was resumed
-    pub(super) fn is_session_resumed(&self) -> bool {
-        use rustls::HandshakeKind;
-        match self {
-            Self::Client(conn) => {
-                matches!(conn.handshake_kind(), Some(HandshakeKind::Resumed))
-            }
-            Self::Server(conn) => {
-                matches!(conn.handshake_kind(), Some(HandshakeKind::Resumed))
-            }
-        }
-    }
-
-    /// Send close_notify alert
-    pub(super) fn send_close_notify(&mut self) {
-        match self {
-            Self::Client(conn) => conn.send_close_notify(),
-            Self::Server(conn) => conn.send_close_notify(),
-        }
-    }
-
-    /// Get negotiated ALPN protocol
-    pub(super) fn alpn_protocol(&self) -> Option<&[u8]> {
-        match self {
-            Self::Client(conn) => conn.alpn_protocol(),
-            Self::Server(conn) => conn.alpn_protocol(),
-        }
-    }
-
-    /// Get negotiated cipher suite
-    pub(super) fn negotiated_cipher_suite(&self) -> Option<rustls::SupportedCipherSuite> {
-        match self {
-            Self::Client(conn) => conn.negotiated_cipher_suite(),
-            Self::Server(conn) => conn.negotiated_cipher_suite(),
-        }
-    }
-
-    /// Get peer certificates
-    pub(super) fn peer_certificates(
-        &self,
-    ) -> Option<&[rustls::pki_types::CertificateDer<'static>]> {
-        match self {
-            Self::Client(conn) => conn.peer_certificates(),
-            Self::Server(conn) => conn.peer_certificates(),
-        }
-    }
 }
 
 /// Error types matching OpenSSL error codes
@@ -1120,7 +999,7 @@ fn send_all_bytes(
 /// Drains all pending TLS data from rustls and sends it to the peer.
 /// Returns whether any progress was made.
 fn handshake_write_loop(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     force_initial_write: bool,
     vm: &VirtualMachine,
@@ -1200,7 +1079,7 @@ fn recv_at_most_one_tls_record(
 /// Read up to a single TLS record for post-handshake I/O while preserving the
 /// SSL-vs-socket error precedence from the old sock_recv() path.
 fn recv_at_most_one_tls_record_for_data(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     vm: &VirtualMachine,
 ) -> SslResult<PyObjectRef> {
@@ -1226,7 +1105,7 @@ fn recv_at_most_one_tls_record_for_data(
 }
 
 fn handshake_read_data(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     is_bio: bool,
     is_server: bool,
@@ -1296,7 +1175,7 @@ fn handshake_read_data(
 /// Tries to send NewSessionTicket in non-blocking mode to avoid deadlocks.
 /// Returns true if handshake is complete and we should exit.
 fn handle_handshake_complete(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     _is_server: bool,
     vm: &VirtualMachine,
@@ -1371,7 +1250,7 @@ fn handle_handshake_complete(
 ///
 /// Returns Ok(Some(n)) if n bytes were read, Ok(None) if would block,
 /// or Err on real errors.
-fn try_read_plaintext(conn: &mut TlsConnection, buf: &mut [u8]) -> SslResult<Option<usize>> {
+fn try_read_plaintext(conn: &mut Connection, buf: &mut [u8]) -> SslResult<Option<usize>> {
     let mut reader = conn.reader();
     match reader.read(buf) {
         Ok(0) => {
@@ -1400,7 +1279,7 @@ fn try_read_plaintext(conn: &mut TlsConnection, buf: &mut [u8]) -> SslResult<Opt
 ///
 /// = SSL_do_handshake()
 pub(super) fn ssl_do_handshake(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     vm: &VirtualMachine,
 ) -> SslResult<()> {
@@ -1410,7 +1289,7 @@ pub(super) fn ssl_do_handshake(
     }
 
     let is_bio = socket.is_bio_mode();
-    let is_server = matches!(conn, TlsConnection::Server(_));
+    let is_server = matches!(conn, Connection::Server(_));
     let mut first_iteration = true; // Track if this is the first loop iteration
     let mut iteration_count = 0;
 
@@ -1567,7 +1446,7 @@ pub(super) fn ssl_do_handshake(
 ///
 /// = SSL_read_ex()
 pub(super) fn ssl_read(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     buf: &mut [u8],
     socket: &PySSLSocket,
     vm: &VirtualMachine,
@@ -1764,7 +1643,7 @@ pub(super) fn ssl_read(
 ///
 /// = SSL_write_ex()
 pub(super) fn ssl_write(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     data: &[u8],
     socket: &PySSLSocket,
     vm: &VirtualMachine,
@@ -1941,7 +1820,7 @@ pub(super) fn ssl_write(
 // Helper functions (private-ish, used by public SSL functions)
 
 /// Write TLS records from rustls to socket
-fn ssl_write_tls_records(conn: &mut TlsConnection) -> SslResult<Vec<u8>> {
+fn ssl_write_tls_records(conn: &mut Connection) -> SslResult<Vec<u8>> {
     let mut buf = Vec::new();
     let n = conn
         .write_tls(&mut buf as &mut dyn std::io::Write)
@@ -1952,7 +1831,7 @@ fn ssl_write_tls_records(conn: &mut TlsConnection) -> SslResult<Vec<u8>> {
 
 /// Read TLS records from socket to rustls
 fn ssl_read_tls_records(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     data: PyObjectRef,
     is_bio: bool,
     vm: &VirtualMachine,
@@ -2066,7 +1945,7 @@ fn is_connection_closed_error(exc: &Py<PyBaseException>, vm: &VirtualMachine) ->
 /// Ensure TLS data is available for reading
 /// Returns the number of bytes read from the socket
 fn ssl_ensure_data_available(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     vm: &VirtualMachine,
 ) -> SslResult<usize> {
