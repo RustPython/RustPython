@@ -398,12 +398,12 @@ SyntaxError: invalid syntax
 
 From ast_for_arguments():
 
->>> def f(x, y=1, z):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def f(x, y=1, z):
 ...     pass
 Traceback (most recent call last):
 SyntaxError: parameter without a default follows parameter with a default
 
->>> def f(x, /, y=1, z):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def f(x, /, y=1, z):
 ...     pass
 Traceback (most recent call last):
 SyntaxError: parameter without a default follows parameter with a default
@@ -423,47 +423,47 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> def foo(/,a,b=,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(/,a,b=,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: at least one argument must precede /
 
->>> def foo(a,/,/,b,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,/,/,b,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> def foo(a,/,a1,/,b,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,/,a1,/,b,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> def foo(a=1,/,/,*b,/,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a=1,/,/,*b,/,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> def foo(a,/,a1=1,/,b,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,/,a1=1,/,b,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> def foo(a,*b,c,/,d,e):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*b,c,/,d,e):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / must be ahead of *
 
->>> def foo(a=1,*b,c=3,/,d,e):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a=1,*b,c=3,/,d,e):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / must be ahead of *
 
->>> def foo(a,*b=3,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*b=3,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: var-positional argument cannot have default value
 
->>> def foo(a,*b: int=,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*b: int=,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: var-positional argument cannot have default value
@@ -543,31 +543,31 @@ SyntaxError: expected default value expression
 Traceback (most recent call last):
 SyntaxError: expected default value expression
 
->>> lambda /,a,b,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda /,a,b,c: None
 Traceback (most recent call last):
 SyntaxError: at least one argument must precede /
 
->>> lambda a,/,/,b,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,/,/,b,c: None
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> lambda a,/,a1,/,b,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,/,a1,/,b,c: None
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> lambda a=1,/,/,*b,/,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a=1,/,/,*b,/,c: None
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> lambda a,/,a1=1,/,b,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,/,a1=1,/,b,c: None
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> lambda a,*b,c,/,d,e: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,*b,c,/,d,e: None
 Traceback (most recent call last):
 SyntaxError: / must be ahead of *
 
->>> lambda a=1,*b,c=3,/,d,e: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a=1,*b,c=3,/,d,e: None
 Traceback (most recent call last):
 SyntaxError: / must be ahead of *
 
@@ -575,7 +575,7 @@ SyntaxError: / must be ahead of *
 Traceback (most recent call last):
 SyntaxError: expected comma between / and *
 
->>> lambda a,*b=3,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,*b=3,c: None
 Traceback (most recent call last):
 SyntaxError: var-positional argument cannot have default value
 
@@ -627,11 +627,11 @@ SyntaxError: expected default value expression
 Traceback (most recent call last):
 SyntaxError: expected default value expression
 
->>> lambda a,d=3,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,d=3,c: None
 Traceback (most recent call last):
 SyntaxError: parameter without a default follows parameter with a default
 
->>> lambda a,/,d=3,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,/,d=3,c: None
 Traceback (most recent call last):
 SyntaxError: parameter without a default follows parameter with a default
 
@@ -661,25 +661,25 @@ From ast_for_call():
 >>> L = range(10)
 >>> f(x for x in L)
 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
->>> f(x for x in L, 1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, 1)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, y=1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, y=1)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, *[])  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, *[])
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, **{})  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, **{})
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(L, x for x in L)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(L, x for x in L)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, y for y in L)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, y for y in L)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L,)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L,)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
 >>> f((x for x in L), 1)
@@ -1027,7 +1027,7 @@ Misuse of the nonlocal and global statement can lead to a few unique syntax erro
    SyntaxError: no binding for nonlocal 'x' found
 
 From SF bug #1705365
-   >>> nonlocal x  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> nonlocal x
    Traceback (most recent call last):
      ...
    SyntaxError: nonlocal declaration not allowed at module level
@@ -1351,7 +1351,7 @@ Parenthesized arguments in function definitions
 
 Custom error messages for try blocks that are not followed by except/finally
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...    x = 34
    ...
    Traceback (most recent call last):
@@ -1705,14 +1705,14 @@ Make sure that the old "raise X, Y[, Z]" form is gone:
 Check that an multiple exception types with missing parentheses
 raise a custom exception only when using 'as'
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...   pass
    ... except A, B, C as blech:
    ...   pass
    Traceback (most recent call last):
    SyntaxError: multiple exception types must be parenthesized when using 'as'
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...   pass
    ... except A, B, C as blech:
    ...   pass
@@ -1722,14 +1722,14 @@ raise a custom exception only when using 'as'
    SyntaxError: multiple exception types must be parenthesized when using 'as'
 
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...   pass
    ... except* A, B, C as blech:
    ...   pass
    Traceback (most recent call last):
    SyntaxError: multiple exception types must be parenthesized when using 'as'
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...   pass
    ... except* A, B, C as blech:
    ...   pass
@@ -1880,7 +1880,7 @@ SyntaxError: invalid syntax. Did you mean 'for'?
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Did you mean 'in'?
 
->>> f(a=23, a=234)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(a=23, a=234)
 Traceback (most recent call last):
    ...
 SyntaxError: keyword argument repeated: a
@@ -2001,11 +2001,11 @@ SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
 
->>> from t import x,  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from t import x,
 Traceback (most recent call last):
 SyntaxError: trailing comma not allowed without surrounding parentheses
 
->>> from t import x,y,  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from t import x,y,
 Traceback (most recent call last):
 SyntaxError: trailing comma not allowed without surrounding parentheses
 
@@ -2164,31 +2164,31 @@ SyntaxError: only single target (not list) can be annotated
 
 # 'not' after operators:
 
->>> 3 + not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 3 + not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> 3 * not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 3 * not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> + not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> + not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> - not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> - not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> ~ not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ~ not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> 3 + - not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 3 + - not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> 3 + not -1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 3 + not -1
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
@@ -2660,7 +2660,7 @@ Invalid expressions in type scopes:
       ...
    SyntaxError: yield expression cannot be used within the definition of a generic
 
-    >>> f(**x, *y)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> f(**x, *y)
     Traceback (most recent call last):
     SyntaxError: iterable argument unpacking follows keyword argument unpacking
 
@@ -2936,24 +2936,20 @@ class SyntaxErrorTestCase(unittest.TestCase):
                           "unindent does not match .* level",
                           subclass=IndentationError)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kwargs_last(self):
         self._check_error("int(base=10, '2')",
                           "positional argument follows keyword argument")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kwargs_last2(self):
         self._check_error("int(**{'base': 10}, '2')",
                           "positional argument follows "
                           "keyword argument unpacking")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kwargs_last3(self):
         self._check_error("int(**{'base': 10}, *['2'])",
                           "iterable argument unpacking follows "
                           "keyword argument unpacking")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_generator_in_function_call(self):
         self._check_error("foo(x,    y for y in range(3) for z in range(2) if z    , p)",
                           "Generator expression must be parenthesized",
@@ -3126,7 +3122,6 @@ def func2():
                           "unexpected character after line continuation character",
                           lineno=3, offset=4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_line_continuation_left_recursive(self):
         # Check bpo-42218: SyntaxErrors following left-recursive rules
         # (t_primary_raw in this case) need to be tested explicitly
@@ -3198,7 +3193,6 @@ case(34)
 """
         compile(code, "<string>", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiline_compiler_error_points_to_the_end(self):
         self._check_error(
             "call(\na=1,\na=1\n)",

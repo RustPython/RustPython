@@ -2941,7 +2941,7 @@ impl SymbolTableBuilder {
             match role {
                 SymbolUsage::Nonlocal if scope_depth < 2 => {
                     return Err(SymbolTableError {
-                        error: format!("cannot define nonlocal '{name}' at top level."),
+                        error: "nonlocal declaration not allowed at module level".into(),
                         location,
                     });
                 }
