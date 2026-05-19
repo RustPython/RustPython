@@ -59,6 +59,18 @@ SyntaxError: cannot assign to __debug__
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
 
+>>> def __debug__(): pass
+Traceback (most recent call last):
+SyntaxError: cannot assign to __debug__
+
+>>> async def __debug__(): pass
+Traceback (most recent call last):
+SyntaxError: cannot assign to __debug__
+
+>>> class __debug__: pass
+Traceback (most recent call last):
+SyntaxError: cannot assign to __debug__
+
 >>> del __debug__
 Traceback (most recent call last):
 SyntaxError: cannot delete __debug__
@@ -155,6 +167,18 @@ SyntaxError: expected 'else' after 'if' expression
 >>> a = [1, 42 if True, 4]
 Traceback (most recent call last):
 SyntaxError: expected 'else' after 'if' expression
+
+>>> x = 1 if 1 else pass
+Traceback (most recent call last):
+SyntaxError: expected expression after 'else', but statement is given
+
+>>> x = pass if 1 else 1
+Traceback (most recent call last):
+SyntaxError: expected expression before 'if', but statement is given
+
+>>> x = pass if 1 else pass
+Traceback (most recent call last):
+SyntaxError: expected expression before 'if', but statement is given
 
 >>> if True:
 ...     print("Hello"
@@ -299,6 +323,12 @@ SyntaxError: did you forget parentheses around the comprehension target?
 >>> {x,y for x,y in range(100)}
 Traceback (most recent call last):
 SyntaxError: did you forget parentheses around the comprehension target?
+
+# Incorrectly closed strings
+
+>>> "The interesting object "The important object" is very important"
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Is this intended to be part of the string?
 
 # Missing commas in literals collections should not
 # produce special error messages regarding missing
@@ -605,8 +635,7 @@ SyntaxError: parameter without a default follows parameter with a default
 Traceback (most recent call last):
 SyntaxError: parameter without a default follows parameter with a default
 
->>> # TODO: RUSTPYTHON
->>> import ast; ast.parse(''' # doctest: +SKIP
+>>> import ast; ast.parse('''
 ... def f(
 ...     *, # type: int
 ...     a, # type: int
@@ -655,8 +684,7 @@ Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
 >>> f((x for x in L), 1)
 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
->>> # TODO: RUSTPYTHON
->>> class C(x for x in L): # doctest: +SKIP
+>>> class C(x for x in L):
 ...     pass
 Traceback (most recent call last):
 SyntaxError: invalid syntax
@@ -777,8 +805,7 @@ SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
 >>> f(x.y=1)
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
->>> # TODO: RUSTPYTHON
->>> f((x)=2) # doctest: +SKIP
+>>> f((x)=2)
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
 >>> f(True=1)
@@ -793,8 +820,10 @@ SyntaxError: cannot assign to None
 >>> f(__debug__=1)
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
->>> # TODO: RUSTPYTHON
->>> __debug__: int # doctest: +SKIP
+>>> __debug__: int
+Traceback (most recent call last):
+SyntaxError: cannot assign to __debug__
+>>> x.__debug__: int
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
 >>> f(a=)
@@ -836,7 +865,7 @@ Traceback (most recent call last):
 SyntaxError: 'function call' is an illegal expression for augmented assignment
 
 
-Test continue in finally in weird combinations.
+Test control flow in finally
 
 continue in for loop under finally should be ok.
 
@@ -850,51 +879,63 @@ continue in for loop under finally should be ok.
     >>> test()
     9
 
-continue in a finally should be ok.
+break in for loop under finally should be ok.
 
     >>> def test():
-    ...    for abc in range(10):
-    ...        try:
-    ...            pass
-    ...        finally:
-    ...            continue
-    ...    print(abc)
+    ...     try:
+    ...         pass
+    ...     finally:
+    ...         for abc in range(10):
+    ...             break
+    ...     print(abc)
     >>> test()
-    9
+    0
+
+return in function under finally should be ok.
 
     >>> def test():
-    ...    for abc in range(10):
-    ...        try:
-    ...            pass
-    ...        finally:
-    ...            try:
-    ...                continue
-    ...            except:
-    ...                pass
-    ...    print(abc)
+    ...     try:
+    ...         pass
+    ...     finally:
+    ...         def f():
+    ...             return 42
+    ...     print(f())
     >>> test()
-    9
+    42
+
+combine for loop and function def
+
+return in function under finally should be ok.
 
     >>> def test():
-    ...    for abc in range(10):
-    ...        try:
-    ...            pass
-    ...        finally:
-    ...            try:
-    ...                pass
-    ...            except:
-    ...                continue
-    ...    print(abc)
+    ...     try:
+    ...         pass
+    ...     finally:
+    ...         for i in range(10):
+    ...             def f():
+    ...                 return 42
+    ...     print(f())
     >>> test()
-    9
+    42
+
+    >>> def test():
+    ...     try:
+    ...         pass
+    ...     finally:
+    ...         def f():
+    ...             for i in range(10):
+    ...                 return 42
+    ...     print(f())
+    >>> test()
+    42
 
 A continue outside loop should not be allowed.
 
     >>> def foo():
     ...     try:
-    ...         pass
-    ...     finally:
     ...         continue
+    ...     finally:
+    ...         pass
     Traceback (most recent call last):
       ...
     SyntaxError: 'continue' not properly in loop
@@ -913,6 +954,18 @@ isn't, there should be a syntax error.
    Traceback (most recent call last):
      ...
    SyntaxError: 'break' outside loop
+
+elif can't come after an else.
+
+    >>> if a % 2 == 0:
+    ...     pass
+    ... else:
+    ...     pass
+    ... elif a % 2 == 1:
+    ...     pass
+    Traceback (most recent call last):
+      ...
+    SyntaxError: 'elif' block follows an 'else' block
 
 Misuse of the nonlocal and global statement can lead to a few unique syntax errors.
 
@@ -1155,7 +1208,7 @@ Missing ':' before suites:
    >>> with block ad something:
    ...   pass
    Traceback (most recent call last):
-   SyntaxError: invalid syntax
+   SyntaxError: invalid syntax. Did you mean 'and'?
 
    >>> try
    ...   pass
@@ -1192,6 +1245,24 @@ Missing ':' before suites:
    ...       pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
+
+   >>> match x:
+   ...   case a, __debug__, b:
+   ...       pass
+   Traceback (most recent call last):
+   SyntaxError: cannot assign to __debug__
+
+   >>> match x:
+   ...   case a, b, *__debug__:
+   ...       pass
+   Traceback (most recent call last):
+   SyntaxError: cannot assign to __debug__
+
+   >>> match x:
+   ...   case Foo(a, __debug__=1, b=2):
+   ...       pass
+   Traceback (most recent call last):
+   SyntaxError: cannot assign to __debug__
 
    >>> if x = 3:
    ...    pass
@@ -1286,6 +1357,15 @@ Custom error messages for try blocks that are not followed by except/finally
    Traceback (most recent call last):
    SyntaxError: expected 'except' or 'finally' block
 
+Custom error message for __debug__ as exception variable
+
+   >>> try:
+   ...    pass
+   ... except TypeError as __debug__:
+   ...    pass
+   Traceback (most recent call last):
+   SyntaxError: cannot assign to __debug__
+
 Custom error message for try block mixing except and except*
 
    >>> try:
@@ -1327,6 +1407,53 @@ Custom error message for try block mixing except and except*
    ...    pass
    Traceback (most recent call last):
    SyntaxError: cannot have both 'except' and 'except*' on the same 'try'
+
+Better error message for using `except as` with not a name:
+
+   >>> try:
+   ...    pass
+   ... except TypeError as obj.attr:
+   ...    pass
+   Traceback (most recent call last):
+   SyntaxError: cannot use except statement with attribute
+
+   >>> try:
+   ...    pass
+   ... except TypeError as obj[1]:
+   ...    pass
+   Traceback (most recent call last):
+   SyntaxError: cannot use except statement with subscript
+
+   >>> try:
+   ...    pass
+   ... except* TypeError as (obj, name):
+   ...    pass
+   Traceback (most recent call last):
+   SyntaxError: cannot use except* statement with tuple
+
+   >>> try:
+   ...    pass
+   ... except* TypeError as 1:
+   ...    pass
+   Traceback (most recent call last):
+   SyntaxError: cannot use except* statement with literal
+
+Regression tests for gh-133999:
+
+   >>> try: pass
+   ... except TypeError as name: raise from None
+   Traceback (most recent call last):
+   SyntaxError: invalid syntax
+
+   >>> try: pass
+   ... except* TypeError as name: raise from None
+   Traceback (most recent call last):
+   SyntaxError: invalid syntax
+
+   >>> match 1:
+   ...     case 1 | 2 as abc: raise from None
+   Traceback (most recent call last):
+   SyntaxError: invalid syntax
 
 Ensure that early = are not matched by the parser as invalid comparisons
    >>> f(2, 4, x=34); 1 $ 2
@@ -1533,6 +1660,19 @@ Specialized indentation errors:
    Traceback (most recent call last):
    IndentationError: expected an indented block after class definition on line 1
 
+   >>> class C(__debug__=42): ...
+   Traceback (most recent call last):
+   SyntaxError: cannot assign to __debug__
+
+   >>> class Meta(type):
+   ...     def __new__(*args, **kwargs):
+   ...         pass
+
+   >>> class C(metaclass=Meta, __debug__=42):
+   ...     pass
+   Traceback (most recent call last):
+   SyntaxError: cannot assign to __debug__
+
    >>> match something:
    ... pass
    Traceback (most recent call last):
@@ -1563,30 +1703,14 @@ Make sure that the old "raise X, Y[, Z]" form is gone:
    SyntaxError: invalid syntax
 
 Check that an multiple exception types with missing parentheses
-raise a custom exception
-
-   >>> # TODO: RUSTPYTHON
-   >>> try: # doctest: +SKIP
-   ...   pass
-   ... except A, B:
-   ...   pass
-   Traceback (most recent call last):
-   SyntaxError: multiple exception types must be parenthesized
-
-   >>> # TODO: RUSTPYTHON
-   >>> try: # doctest: +SKIP
-   ...   pass
-   ... except A, B, C:
-   ...   pass
-   Traceback (most recent call last):
-   SyntaxError: multiple exception types must be parenthesized
+raise a custom exception only when using 'as'
 
    >>> try:
    ...   pass
    ... except A, B, C as blech:
    ...   pass
    Traceback (most recent call last):
-   SyntaxError: multiple exception types must be parenthesized
+   SyntaxError: multiple exception types must be parenthesized when using 'as'
 
    >>> try:
    ...   pass
@@ -1595,29 +1719,15 @@ raise a custom exception
    ... finally:
    ...   pass
    Traceback (most recent call last):
-   SyntaxError: multiple exception types must be parenthesized
+   SyntaxError: multiple exception types must be parenthesized when using 'as'
 
-
-   >>> try:
-   ...   pass
-   ... except* A, B:
-   ...   pass
-   Traceback (most recent call last):
-   SyntaxError: multiple exception types must be parenthesized
-
-   >>> try:
-   ...   pass
-   ... except* A, B, C:
-   ...   pass
-   Traceback (most recent call last):
-   SyntaxError: multiple exception types must be parenthesized
 
    >>> try:
    ...   pass
    ... except* A, B, C as blech:
    ...   pass
    Traceback (most recent call last):
-   SyntaxError: multiple exception types must be parenthesized
+   SyntaxError: multiple exception types must be parenthesized when using 'as'
 
    >>> try:
    ...   pass
@@ -1626,7 +1736,7 @@ raise a custom exception
    ... finally:
    ...   pass
    Traceback (most recent call last):
-   SyntaxError: multiple exception types must be parenthesized
+   SyntaxError: multiple exception types must be parenthesized when using 'as'
 
 Custom exception for 'except*' without an exception type
 
@@ -1639,6 +1749,136 @@ Custom exception for 'except*' without an exception type
    Traceback (most recent call last):
    SyntaxError: expected one or more exception types
 
+Check custom exceptions for keywords with typos
+
+>>> fur a in b:
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'for'?
+
+>>> for a in b:
+...   pass
+... elso:
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'else'?
+
+>>> whille True:
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'while'?
+
+>>> while True:
+...   pass
+... elso:
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'else'?
+
+>>> iff x > 5:
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'if'?
+
+>>> if x:
+...   pass
+... elseif y:
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'elif'?
+
+>>> if x:
+...   pass
+... elif y:
+...   pass
+... elso:
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'else'?
+
+>>> tyo:
+...   pass
+... except y:
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'try'?
+
+>>> classe MyClass:
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'class'?
+
+>>> impor math
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'import'?
+
+>>> form x import y
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'from'?
+
+>>> defn calculate_sum(a, b):
+...   return a + b
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'def'?
+
+>>> def foo():
+...   returm result
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'return'?
+
+>>> lamda x: x ** 2
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'lambda'?
+
+>>> def foo():
+...   yeld i
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'yield'?
+
+>>> def foo():
+...   globel counter
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'global'?
+
+>>> frum math import sqrt
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'from'?
+
+>>> asynch def fetch_data():
+...   pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'async'?
+
+>>> async def foo():
+...   awaid fetch_data()
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'await'?
+
+>>> raisee ValueError("Error")
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'raise'?
+
+>>> [
+... x for x
+... in range(3)
+... of x
+... ]
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'if'?
+
+>>> [
+... 123 fur x
+... in range(3)
+... if x
+... ]
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'for'?
+
+
+>>> for x im n:
+...     pass
+Traceback (most recent call last):
+SyntaxError: invalid syntax. Did you mean 'in'?
 
 >>> f(a=23, a=234)
 Traceback (most recent call last):
@@ -1660,6 +1900,86 @@ SyntaxError: cannot assign to f-string expression here. Maybe you meant '==' ins
 >>> f'{x}-{y}' = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to f-string expression here. Maybe you meant '==' instead of '='?
+
+>>> ub''
+Traceback (most recent call last):
+SyntaxError: 'u' and 'b' prefixes are incompatible
+
+>>> bu"привет"
+Traceback (most recent call last):
+SyntaxError: 'u' and 'b' prefixes are incompatible
+
+>>> ur''
+Traceback (most recent call last):
+SyntaxError: 'u' and 'r' prefixes are incompatible
+
+>>> ru"\t"
+Traceback (most recent call last):
+SyntaxError: 'u' and 'r' prefixes are incompatible
+
+>>> uf'{1 + 1}'
+Traceback (most recent call last):
+SyntaxError: 'u' and 'f' prefixes are incompatible
+
+>>> fu""
+Traceback (most recent call last):
+SyntaxError: 'u' and 'f' prefixes are incompatible
+
+>>> ut'{1}'
+Traceback (most recent call last):
+SyntaxError: 'u' and 't' prefixes are incompatible
+
+>>> tu"234"
+Traceback (most recent call last):
+SyntaxError: 'u' and 't' prefixes are incompatible
+
+>>> bf'{x!r}'
+Traceback (most recent call last):
+SyntaxError: 'b' and 'f' prefixes are incompatible
+
+>>> fb"text"
+Traceback (most recent call last):
+SyntaxError: 'b' and 'f' prefixes are incompatible
+
+>>> bt"text"
+Traceback (most recent call last):
+SyntaxError: 'b' and 't' prefixes are incompatible
+
+>>> tb''
+Traceback (most recent call last):
+SyntaxError: 'b' and 't' prefixes are incompatible
+
+>>> tf"{0.3:.02f}"
+Traceback (most recent call last):
+SyntaxError: 'f' and 't' prefixes are incompatible
+
+>>> ft'{x=}'
+Traceback (most recent call last):
+SyntaxError: 'f' and 't' prefixes are incompatible
+
+>>> tfu"{x=}"
+Traceback (most recent call last):
+SyntaxError: 'u' and 'f' prefixes are incompatible
+
+>>> turf"{x=}"
+Traceback (most recent call last):
+SyntaxError: 'u' and 'r' prefixes are incompatible
+
+>>> burft"{x=}"
+Traceback (most recent call last):
+SyntaxError: 'u' and 'b' prefixes are incompatible
+
+>>> brft"{x=}"
+Traceback (most recent call last):
+SyntaxError: 'b' and 'f' prefixes are incompatible
+
+>>> t'{x}' = 42
+Traceback (most recent call last):
+SyntaxError: cannot assign to t-string expression here. Maybe you meant '==' instead of '='?
+
+>>> t'{x}-{y}' = 42
+Traceback (most recent call last):
+SyntaxError: cannot assign to t-string expression here. Maybe you meant '==' instead of '='?
 
 >>> (x, y, z=3, d, e)
 Traceback (most recent call last):
@@ -1720,6 +2040,95 @@ SyntaxError: Did you mean to use 'from ... import ...' instead?
 >>> import a.y.z, b.y.z, c.y.z from b.y.z as bar
 Traceback (most recent call last):
 SyntaxError: Did you mean to use 'from ... import ...' instead?
+
+>>> import __debug__
+Traceback (most recent call last):
+SyntaxError: cannot assign to __debug__
+
+>>> import a as __debug__
+Traceback (most recent call last):
+SyntaxError: cannot assign to __debug__
+
+>>> import a.b.c as __debug__
+Traceback (most recent call last):
+SyntaxError: cannot assign to __debug__
+
+>>> from a import __debug__
+Traceback (most recent call last):
+SyntaxError: cannot assign to __debug__
+
+>>> from a import b as __debug__
+Traceback (most recent call last):
+SyntaxError: cannot assign to __debug__
+
+>>> import a as b.c
+Traceback (most recent call last):
+SyntaxError: cannot use attribute as import target
+
+>>> import a.b as (a, b)
+Traceback (most recent call last):
+SyntaxError: cannot use tuple as import target
+
+>>> import a, a.b as 1
+Traceback (most recent call last):
+SyntaxError: cannot use literal as import target
+
+>>> import a.b as 'a', a
+Traceback (most recent call last):
+SyntaxError: cannot use literal as import target
+
+>>> from a import (b as c.d)
+Traceback (most recent call last):
+SyntaxError: cannot use attribute as import target
+
+>>> from a import b as 1
+Traceback (most recent call last):
+SyntaxError: cannot use literal as import target
+
+>>> from a import (
+...   b as f())
+Traceback (most recent call last):
+SyntaxError: cannot use function call as import target
+
+>>> from a import (
+...   b as [],
+... )
+Traceback (most recent call last):
+SyntaxError: cannot use list as import target
+
+>>> from a import (
+...   b,
+...   c as ()
+... )
+Traceback (most recent call last):
+SyntaxError: cannot use tuple as import target
+
+>>> from a import b, с as d[e]
+Traceback (most recent call last):
+SyntaxError: cannot use subscript as import target
+
+>>> from a import с as d[e], b
+Traceback (most recent call last):
+SyntaxError: cannot use subscript as import target
+
+# Check that we don't raise a "cannot use name as import target" error
+# if there is an error in an unrelated statement after ';'
+
+>>> import a as b; None = 1
+Traceback (most recent call last):
+SyntaxError: cannot assign to None
+
+>>> import a, b as c; d = 1; None = 1
+Traceback (most recent call last):
+SyntaxError: cannot assign to None
+
+>>> from a import b as c; None = 1
+Traceback (most recent call last):
+SyntaxError: cannot assign to None
+
+>>> from a import b, c as d; e = 1; None = 1
+Traceback (most recent call last):
+SyntaxError: cannot assign to None
 
 # Check that we dont raise the "trailing comma" error if there is more
 # input to the left of the valid part that we parsed.
@@ -1830,8 +2239,7 @@ Corner-cases that used to crash:
 
   Invalid pattern matching constructs:
 
-    >>> # TODO: RUSTPYTHON
-    >>> match ...: # doctest: +SKIP 
+    >>> match ...:
     ...   case 42 as _:
     ...     ...
     Traceback (most recent call last):
@@ -1841,7 +2249,31 @@ Corner-cases that used to crash:
     ...   case 42 as 1+2+4:
     ...     ...
     Traceback (most recent call last):
-    SyntaxError: invalid pattern target
+    SyntaxError: cannot use expression as pattern target
+
+    >>> match ...:
+    ...   case 42 as a.b:
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: cannot use attribute as pattern target
+
+    >>> match ...:
+    ...   case 42 as (a, b):
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: cannot use tuple as pattern target
+
+    >>> match ...:
+    ...   case 42 as (a + 1):
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: cannot use expression as pattern target
+
+    >>> match ...:
+    ...   case (32 as x) | (42 as a()):
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: cannot use function call as pattern target
 
     >>> match ...:
     ...   case Foo(z=1, y=2, x):
@@ -2180,8 +2612,7 @@ Invalid expressions in type scopes:
       ...
    SyntaxError: yield expression cannot be used within a ParamSpec default
 
-   >>> # TODO: RUSTPYTHON
-   >>> type A = (x := 3) # doctest: +SKIP
+   >>> type A = (x := 3)
    Traceback (most recent call last):
       ...
    SyntaxError: named expression cannot be used within a type alias
@@ -2200,6 +2631,14 @@ Invalid expressions in type scopes:
    Traceback (most recent call last):
       ...
    SyntaxError: yield expression cannot be used within a type alias
+
+   >>> type __debug__ = int
+   Traceback (most recent call last):
+   SyntaxError: cannot assign to __debug__
+
+   >>> class A[__debug__]: pass
+   Traceback (most recent call last):
+   SyntaxError: cannot assign to __debug__
 
    >>> class A[T]((x := 3)): ...
    Traceback (most recent call last):
@@ -2253,7 +2692,88 @@ import unittest
 
 from test import support
 
-class SyntaxTestCase(unittest.TestCase):
+class SyntaxWarningTest(unittest.TestCase):
+    def check_warning(self, code, errtext, filename="<testcase>", mode="exec"):
+        """Check that compiling code raises SyntaxWarning with errtext.
+
+        errtest is a regular expression that must be present in the
+        text of the warning raised.
+        """
+        with self.assertWarnsRegex(SyntaxWarning, errtext):
+            compile(code, filename, mode)
+
+    def test_return_in_finally(self):
+        source = textwrap.dedent("""
+            def f():
+                try:
+                    pass
+                finally:
+                    return 42
+            """)
+        self.check_warning(source, "'return' in a 'finally' block")
+
+        source = textwrap.dedent("""
+            def f():
+                try:
+                    pass
+                finally:
+                    try:
+                        return 42
+                    except:
+                        pass
+            """)
+        self.check_warning(source, "'return' in a 'finally' block")
+
+        source = textwrap.dedent("""
+            def f():
+                try:
+                    pass
+                finally:
+                    try:
+                        pass
+                    except:
+                        return 42
+            """)
+        self.check_warning(source, "'return' in a 'finally' block")
+
+    def test_break_and_continue_in_finally(self):
+        for kw in ('break', 'continue'):
+
+            source = textwrap.dedent(f"""
+                for abc in range(10):
+                    try:
+                        pass
+                    finally:
+                        {kw}
+                """)
+            self.check_warning(source, f"'{kw}' in a 'finally' block")
+
+            source = textwrap.dedent(f"""
+                for abc in range(10):
+                    try:
+                        pass
+                    finally:
+                        try:
+                            {kw}
+                        except:
+                            pass
+                """)
+            self.check_warning(source, f"'{kw}' in a 'finally' block")
+
+            source = textwrap.dedent(f"""
+                for abc in range(10):
+                    try:
+                        pass
+                    finally:
+                        try:
+                            pass
+                        except:
+                            {kw}
+                """)
+            self.check_warning(source, f"'{kw}' in a 'finally' block")
+
+
+class SyntaxErrorTestCase(unittest.TestCase):
 
     def _check_error(self, code, errtext,
                      filename="<testcase>", mode="exec", subclass=None,
@@ -2261,7 +2781,7 @@ class SyntaxTestCase(unittest.TestCase):
         """Check that compiling code raises SyntaxError with errtext.
 
         errtest is a regular expression that must be present in the
-        test of the exception raised.  If subclass is specified it
+        text of the exception raised.  If subclass is specified it
         is the expected subclass of SyntaxError (e.g. IndentationError).
         """
         try:
@@ -2285,7 +2805,6 @@ class SyntaxTestCase(unittest.TestCase):
         else:
             self.fail("compile() did not raise SyntaxError")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_expression_with_assignment(self):
         self._check_error(
             "print(end1 + end2 = ' ')",
@@ -2299,7 +2818,6 @@ class SyntaxTestCase(unittest.TestCase):
     def test_assign_call(self):
         self._check_error("f() = 1", "assign")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_assign_del(self):
         self._check_error("del (,)", "invalid syntax")
         self._check_error("del 1", "cannot delete literal")
@@ -2390,7 +2908,6 @@ class SyntaxTestCase(unittest.TestCase):
         self._check_error("with object() as obj:\n break",
                           msg, lineno=2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_continue_outside_loop(self):
         msg = "not properly in loop"
         self._check_error("if 0: continue", msg, lineno=1)
@@ -2415,36 +2932,30 @@ class SyntaxTestCase(unittest.TestCase):
                           "unindent does not match .* level",
                           subclass=IndentationError)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_kwargs_last(self):
         self._check_error("int(base=10, '2')",
                           "positional argument follows keyword argument")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_kwargs_last2(self):
         self._check_error("int(**{'base': 10}, '2')",
                           "positional argument follows "
                           "keyword argument unpacking")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_kwargs_last3(self):
         self._check_error("int(**{'base': 10}, *['2'])",
                           "iterable argument unpacking follows "
                           "keyword argument unpacking")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_generator_in_function_call(self):
         self._check_error("foo(x,    y for y in range(3) for z in range(2) if z    , p)",
                           "Generator expression must be parenthesized",
                           lineno=1, end_lineno=1, offset=11, end_offset=53)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_except_then_except_star(self):
         self._check_error("try: pass\nexcept ValueError: pass\nexcept* TypeError: pass",
                           r"cannot have both 'except' and 'except\*' on the same 'try'",
                           lineno=3, end_lineno=3, offset=1, end_offset=8)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_except_star_then_except(self):
         self._check_error("try: pass\nexcept* ValueError: pass\nexcept TypeError: pass",
                           r"cannot have both 'except' and 'except\*' on the same 'try'",
@@ -2575,7 +3086,6 @@ class A:
             with self.subTest(f"out of range: {n=}"):
                 self._check_error(get_code(n), "too many statically nested blocks")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Wrong error message
     def test_barry_as_flufl_with_syntax_errors(self):
         # The "barry_as_flufl" rule can produce some "bugs-at-a-distance" if
         # is reading the wrong token in the presence of syntax errors later
@@ -2593,7 +3103,6 @@ def func2():
 """
         self._check_error(code, "expected ':'")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_line_continuation_error_position(self):
         self._check_error(r"a = 3 \ 4",
                           "unexpected character after line continuation character",
@@ -2605,7 +3114,6 @@ def func2():
                           "unexpected character after line continuation character",
                           lineno=3, offset=4)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invalid_line_continuation_left_recursive(self):
         # Check bpo-42218: SyntaxErrors following left-recursive rules
         # (t_primary_raw in this case) need to be tested explicitly
@@ -2614,7 +3122,6 @@ def func2():
         self._check_error("A.\u03bc\\\n",
                           "unexpected EOF while parsing")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_parenthesis(self):
         for paren in "([{":
             self._check_error(paren + "1 + 2", f"\\{paren}' was never closed")
@@ -2640,7 +3147,6 @@ func(
         s = b'# coding=latin\n(aaaaaaaaaaaaaaaaa\naaaaaaaaaaa\xb5'
         self._check_error(s, r"'\(' was never closed")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_error_string_literal(self):
 
         self._check_error("'blech", r"unterminated string literal \(.*\)$")
@@ -2654,7 +3160,6 @@ func(
         self._check_error("'''blech", "unterminated triple-quoted string literal")
         self._check_error('"""blech', "unterminated triple-quoted string literal")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_invisible_characters(self):
         self._check_error('print\x17("Hello")', "invalid non-printable character")
         self._check_error(b"with(0,,):\n\x01", "invalid non-printable character")
@@ -2677,7 +3182,6 @@ case(34)
 """
         compile(code, "<string>", "exec")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_multiline_compiler_error_points_to_the_end(self):
         self._check_error(
             "call(\na=1,\na=1\n)",
@@ -2730,6 +3234,7 @@ while 1:
                     compile(source, "<string>", mode)
 
     @support.cpython_only
+    @support.skip_wasi_stack_overflow()
     def test_deep_invalid_rule(self):
         # Check that a very deep invalid rule in the PEG
         # parser doesn't have exponential backtracking.
@@ -2737,10 +3242,80 @@ while 1:
         with self.assertRaises(SyntaxError):
             compile(source, "<string>", "exec")
 
+    def test_except_stmt_invalid_as_expr(self):
+        self._check_error(
+            textwrap.dedent(
+                """
+                try:
+                    pass
+                except ValueError as obj.attr:
+                    pass
+                """
+            ),
+            errtext="cannot use except statement with attribute",
+            lineno=4,
+            end_lineno=4,
+            offset=22,
+            end_offset=22 + len("obj.attr"),
+        )
+
+    def test_match_stmt_invalid_as_expr(self):
+        self._check_error(
+            textwrap.dedent(
+                """
+                match 1:
+                    case x as obj.attr:
+                        ...
+                """
+            ),
+            errtext="cannot use attribute as pattern target",
+            lineno=3,
+            end_lineno=3,
+            offset=15,
+            end_offset=15 + len("obj.attr"),
+        )
+
+    def test_ifexp_else_stmt(self):
+        msg = "expected expression after 'else', but statement is given"
+
+        for stmt in [
+            "pass",
+            "return",
+            "return 2",
+            "raise Exception('a')",
+            "del a",
+            "yield 2",
+            "assert False",
+            "break",
+            "continue",
+            "import",
+            "import ast",
+            "from",
+            "from ast import *"
+        ]:
+            self._check_error(f"x = 1 if 1 else {stmt}", msg)
+
+    def test_ifexp_body_stmt_else_expression(self):
+        msg = "expected expression before 'if', but statement is given"
+
+        for stmt in [
+            "pass",
+            "break",
+            "continue"
+        ]:
+            self._check_error(f"x = {stmt} if 1 else 1", msg)
+
+    def test_ifexp_body_stmt_else_stmt(self):
+        msg = "expected expression before 'if', but statement is given"
+        for lhs_stmt, rhs_stmt in [
+            ("pass", "pass"),
+            ("break", "pass"),
+            ("continue", "import ast")
+        ]:
+            self._check_error(f"x = {lhs_stmt} if 1 else {rhs_stmt}", msg)
 
 def load_tests(loader, tests, pattern):
-    # TODO: RUSTPYTHON Eventually remove the optionflags for ingoring exception details.
-    tests.addTest(doctest.DocTestSuite(optionflags=doctest.IGNORE_EXCEPTION_DETAIL))
+    tests.addTest(doctest.DocTestSuite())
     return tests
 
 
