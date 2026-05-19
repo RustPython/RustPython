@@ -1318,7 +1318,7 @@ Parenthesized arguments in function definitions
    Traceback (most recent call last):
    SyntaxError: Function parameters cannot be parenthesized
 
-   >>> def f((x, y, z, w))  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> def f((x, y, z, w)):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
    ...    pass
    Traceback (most recent call last):
    SyntaxError: Function parameters cannot be parenthesized
