@@ -931,7 +931,7 @@ return in function under finally should be ok.
 
 A continue outside loop should not be allowed.
 
-    >>> def foo():  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> def foo():
     ...     try:
     ...         continue
     ...     finally:
@@ -2912,7 +2912,6 @@ class SyntaxErrorTestCase(unittest.TestCase):
         self._check_error("with object() as obj:\n break",
                           msg, lineno=2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_continue_outside_loop(self):
         msg = "not properly in loop"
         self._check_error("if 0: continue", msg, lineno=1)
