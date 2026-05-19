@@ -18,7 +18,7 @@ type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
 
 static OVERFLOW_MSG: &str = "total struct size too long"; // not a const to reduce code size
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Endianness {
     Native,
     Little,
@@ -40,7 +40,12 @@ impl Endianness {
             Some(b'>' | b'!') => Self::Big,
             _ => return Self::Native,
         };
-        chars.next().unwrap();
+
+        // SAFETY:
+        // We just ensured with `chars.peek()` that this is safe
+        unsafe {
+            let _ = chars.next().unwrap_unchecked();
+        }
         e
     }
 }
@@ -48,13 +53,17 @@ impl Endianness {
 trait ByteOrder {
     fn convert<I: PrimInt>(i: I) -> I;
 }
+
 enum BigEndian {}
+
 impl ByteOrder for BigEndian {
     fn convert<I: PrimInt>(i: I) -> I {
         i.to_be()
     }
 }
+
 enum LittleEndian {}
+
 impl ByteOrder for LittleEndian {
     fn convert<I: PrimInt>(i: I) -> I {
         i.to_le()
@@ -66,7 +75,7 @@ type NativeEndian = cfg_select! {
     target_endian = "little" => LittleEndian,
 };
 
-#[derive(Copy, Clone, num_enum::TryFromPrimitive)]
+#[derive(Copy, Clone, num_enum::TryFromPrimitive, Eq, PartialEq)]
 #[repr(u8)]
 pub(crate) enum FormatType {
     Pad = b'x',
@@ -105,6 +114,7 @@ impl FormatType {
     fn info(self, e: Endianness) -> &'static FormatInfo {
         use FormatType::*;
         use mem::{align_of, size_of};
+
         macro_rules! native_info {
             ($t:ty) => {{
                 &FormatInfo {
@@ -115,6 +125,7 @@ impl FormatType {
                 }
             }};
         }
+
         macro_rules! nonnative_info {
             ($t:ty, $end:ty) => {{
                 &FormatInfo {
@@ -125,6 +136,7 @@ impl FormatType {
                 }
             }};
         }
+
         macro_rules! match_nonnative {
             ($zelf:expr, $end:ty) => {{
                 match $zelf {
@@ -158,6 +170,7 @@ impl FormatType {
                 }
             }};
         }
+
         match e {
             Endianness::Native => match self {
                 Pad | Str | Pascal => &FormatInfo {
@@ -381,6 +394,7 @@ pub(crate) struct FormatInfo {
     pub pack: Option<PackFunc>,
     pub unpack: Option<UnpackFunc>,
 }
+
 impl fmt::Debug for FormatInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FormatInfo")

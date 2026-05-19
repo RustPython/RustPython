@@ -1279,8 +1279,8 @@ pub mod module {
 
     #[pyfunction]
     fn uname(vm: &VirtualMachine) -> PyResult<_os::UnameResultData> {
-        let info =
-            rustpython_host_env::posix::uname_info().map_err(|err| err.into_pyexception(vm))?;
+        let info = rustpython_host_env::posix::uname_info()
+            .map_err(|err| vm.new_unicode_decode_error(err.to_string()))?;
         Ok(_os::UnameResultData {
             sysname: info.sysname,
             nodename: info.nodename,
