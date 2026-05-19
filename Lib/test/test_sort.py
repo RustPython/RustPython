@@ -326,7 +326,7 @@ class TestOptimizedCompares(unittest.TestCase):
         for L in float_int_lists:
             check_against_PyObject_RichCompareBool(self, L)
 
-    @support.cpython_only  # XXX RUSTPYTHON: added by us but it seems like an implementation detail
+    @unittest.skip("TODO: RUSTPYTHON; not really a todo, it seems like an implementation detail")
     def test_unsafe_object_compare(self):
 
         # This test is by ppperry. It ensures that unsafe_object_compare is
