@@ -58,7 +58,12 @@ pub unsafe extern "C" fn PyEval_EvalCode(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_GetBuiltins() -> *mut PyObject {
-    with_vm(|vm| vm.builtins.as_object().as_raw())
+    with_vm(|vm| {
+        vm.current_frame().map_or_else(
+            || vm.builtins.as_object().as_raw(),
+            |frame| frame.builtins.as_object().as_raw(),
+        )
+    })
 }
 
 #[cfg(false)]
