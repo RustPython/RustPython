@@ -124,6 +124,14 @@ impl SyntaxErrorInfo {
                 "Generator expression must be parenthesized".into()
             }
 
+            ParseErrorType::NonDefaultParamAfterDefaultParam => {
+                "parameter without a default follows parameter with a default".into()
+            }
+
+            ParseErrorType::VarParameterWithDefault => {
+                "var-positional argument cannot have default value".into()
+            }
+
             ParseErrorType::OtherError(s)
                 if s.eq_ignore_ascii_case(
                     "bytes literal cannot be mixed with non-bytes literals",
@@ -164,10 +172,27 @@ impl SyntaxErrorInfo {
                 "multiple exception types must be parenthesized when using 'as'".into()
             }
 
-            _ => {
-                dbg!(error);
-                return;
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case(
+                    "position-only parameter separator not allowed as first parameter",
+                ) =>
+            {
+                "at least one argument must precede /".into()
             }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("only one '/' separator allowed") =>
+            {
+                "/ may appear only once".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("'/' parameter must appear before '*' parameter") =>
+            {
+                "/ must be ahead of *".into()
+            }
+
+            _ => return,
         };
 
         self.with_msg(&msg);

@@ -398,12 +398,12 @@ SyntaxError: invalid syntax
 
 From ast_for_arguments():
 
->>> def f(x, y=1, z):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def f(x, y=1, z):
 ...     pass
 Traceback (most recent call last):
 SyntaxError: parameter without a default follows parameter with a default
 
->>> def f(x, /, y=1, z):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def f(x, /, y=1, z):
 ...     pass
 Traceback (most recent call last):
 SyntaxError: parameter without a default follows parameter with a default
@@ -423,47 +423,47 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> def foo(/,a,b=,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(/,a,b=,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: at least one argument must precede /
 
->>> def foo(a,/,/,b,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,/,/,b,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> def foo(a,/,a1,/,b,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,/,a1,/,b,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> def foo(a=1,/,/,*b,/,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a=1,/,/,*b,/,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> def foo(a,/,a1=1,/,b,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,/,a1=1,/,b,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> def foo(a,*b,c,/,d,e):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*b,c,/,d,e):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / must be ahead of *
 
->>> def foo(a=1,*b,c=3,/,d,e):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a=1,*b,c=3,/,d,e):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: / must be ahead of *
 
->>> def foo(a,*b=3,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*b=3,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: var-positional argument cannot have default value
 
->>> def foo(a,*b: int=,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*b: int=,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: var-positional argument cannot have default value
@@ -543,31 +543,31 @@ SyntaxError: expected default value expression
 Traceback (most recent call last):
 SyntaxError: expected default value expression
 
->>> lambda /,a,b,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda /,a,b,c: None
 Traceback (most recent call last):
 SyntaxError: at least one argument must precede /
 
->>> lambda a,/,/,b,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,/,/,b,c: None
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> lambda a,/,a1,/,b,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,/,a1,/,b,c: None
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> lambda a=1,/,/,*b,/,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a=1,/,/,*b,/,c: None
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> lambda a,/,a1=1,/,b,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,/,a1=1,/,b,c: None
 Traceback (most recent call last):
 SyntaxError: / may appear only once
 
->>> lambda a,*b,c,/,d,e: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,*b,c,/,d,e: None
 Traceback (most recent call last):
 SyntaxError: / must be ahead of *
 
->>> lambda a=1,*b,c=3,/,d,e: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a=1,*b,c=3,/,d,e: None
 Traceback (most recent call last):
 SyntaxError: / must be ahead of *
 
@@ -575,7 +575,7 @@ SyntaxError: / must be ahead of *
 Traceback (most recent call last):
 SyntaxError: expected comma between / and *
 
->>> lambda a,*b=3,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,*b=3,c: None
 Traceback (most recent call last):
 SyntaxError: var-positional argument cannot have default value
 
@@ -627,11 +627,11 @@ SyntaxError: expected default value expression
 Traceback (most recent call last):
 SyntaxError: expected default value expression
 
->>> lambda a,d=3,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,d=3,c: None
 Traceback (most recent call last):
 SyntaxError: parameter without a default follows parameter with a default
 
->>> lambda a,/,d=3,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,/,d=3,c: None
 Traceback (most recent call last):
 SyntaxError: parameter without a default follows parameter with a default
 
