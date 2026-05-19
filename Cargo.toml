@@ -42,7 +42,7 @@ log = { workspace = true }
 flame = { workspace = true, optional = true }
 
 lexopt = "0.3"
-dirs = { package = "dirs-next", version = "2.0" }
+dirs = "6"
 env_logger = "0.11"
 flamescope = { version = "0.1.2", optional = true }
 
