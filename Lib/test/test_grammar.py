@@ -1417,9 +1417,8 @@ class GrammarTests(unittest.TestCase):
         else: pass
         try: 1/0
         except (EOFError, TypeError, ZeroDivisionError): pass
-        # TODO: RUSTPYTHON; SyntaxError: multiple exception types must be parenthesized
-        # try: 1/0
-        # except EOFError, TypeError, ZeroDivisionError: pass
+        try: 1/0
+        except EOFError, TypeError, ZeroDivisionError: pass
         try: 1/0
         except (EOFError, TypeError, ZeroDivisionError) as msg: pass
         try: pass
@@ -1443,9 +1442,8 @@ class GrammarTests(unittest.TestCase):
         else: pass
         try: 1/0
         except* (EOFError, TypeError, ZeroDivisionError): pass
-        # TODO: RUSTPYTHON; SyntaxError: multiple exception types must be parenthesized
-        # try: 1/0
-        # except* EOFError, TypeError, ZeroDivisionError: pass
+        try: 1/0
+        except* EOFError, TypeError, ZeroDivisionError: pass
         try: 1/0
         except* (EOFError, TypeError, ZeroDivisionError) as msg: pass
         try: pass
