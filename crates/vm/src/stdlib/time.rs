@@ -8,21 +8,6 @@ pub use decl::time;
 
 pub(crate) use decl::module_def;
 
-#[cfg(not(target_env = "msvc"))]
-#[cfg(not(target_arch = "wasm32"))]
-unsafe extern "C" {
-    #[cfg(not(target_os = "freebsd"))]
-    #[link_name = "daylight"]
-    static c_daylight: core::ffi::c_int;
-    // pub static dstbias: std::ffi::c_int;
-    #[link_name = "timezone"]
-    static c_timezone: core::ffi::c_long;
-    #[link_name = "tzname"]
-    static c_tzname: [*const core::ffi::c_char; 2];
-    #[link_name = "tzset"]
-    fn c_tzset();
-}
-
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
 mod decl {
     #![allow(unreachable_pub)]
@@ -222,7 +207,7 @@ mod decl {
     #[pyattr]
     fn altzone(_vm: &VirtualMachine) -> core::ffi::c_long {
         // TODO: RUSTPYTHON; Add support for using the C altzone
-        unsafe { super::c_timezone - 3600 }
+        crate::host_env::time::tz::timezone() - 3600
     }
 
     #[cfg(target_env = "msvc")]
@@ -238,7 +223,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn timezone(_vm: &VirtualMachine) -> core::ffi::c_long {
-        unsafe { super::c_timezone }
+        crate::host_env::time::tz::timezone()
     }
 
     #[cfg(target_env = "msvc")]
@@ -255,7 +240,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn daylight(_vm: &VirtualMachine) -> core::ffi::c_int {
-        unsafe { super::c_daylight }
+        crate::host_env::time::tz::daylight()
     }
 
     #[cfg(target_env = "msvc")]
@@ -272,13 +257,7 @@ mod decl {
     #[pyattr]
     fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
         use crate::builtins::tuple::IntoPyTuple;
-
-        unsafe fn to_str(s: *const core::ffi::c_char) -> String {
-            unsafe { core::ffi::CStr::from_ptr(s) }
-                .to_string_lossy()
-                .into_owned()
-        }
-        unsafe { (to_str(super::c_tzname[0]), to_str(super::c_tzname[1])) }.into_pytuple(vm)
+        crate::host_env::time::tz::tzname_strings().into_pytuple(vm)
     }
 
     #[cfg(target_env = "msvc")]
@@ -917,9 +896,7 @@ mod decl {
     ) -> PyResult<()> {
         #[cfg(not(target_env = "msvc"))]
         #[cfg(not(target_arch = "wasm32"))]
-        unsafe {
-            super::c_tzset()
-        };
+        crate::host_env::time::tz::tzset();
 
         __module_exec(vm, module);
         Ok(())
