@@ -676,7 +676,7 @@ impl VirtualMachine {
         };
 
         if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            syntax_error_info.with_msg("inconsistent use of tabs and spaces in indentation".into());
+            syntax_error_info.with_msg("inconsistent use of tabs and spaces in indentation");
         }
 
         let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
