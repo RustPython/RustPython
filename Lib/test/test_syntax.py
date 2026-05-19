@@ -661,25 +661,25 @@ From ast_for_call():
 >>> L = range(10)
 >>> f(x for x in L)
 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
->>> f(x for x in L, 1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, 1)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, y=1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, y=1)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, *[])  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, *[])
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, **{})  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, **{})
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(L, x for x in L)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(L, x for x in L)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, y for y in L)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L, y for y in L)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L,)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f(x for x in L,)
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
 >>> f((x for x in L), 1)
@@ -2953,7 +2953,6 @@ class SyntaxErrorTestCase(unittest.TestCase):
                           "iterable argument unpacking follows "
                           "keyword argument unpacking")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_generator_in_function_call(self):
         self._check_error("foo(x,    y for y in range(3) for z in range(2) if z    , p)",
                           "Generator expression must be parenthesized",

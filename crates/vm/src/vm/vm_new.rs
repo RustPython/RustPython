@@ -120,6 +120,10 @@ impl SyntaxErrorInfo {
                 format!("keyword argument repeated: {arg_name}")
             }
 
+            ParseErrorType::UnparenthesizedGeneratorExpression => {
+                "Generator expression must be parenthesized".into()
+            }
+
             ParseErrorType::OtherError(s)
                 if s.eq_ignore_ascii_case(
                     "bytes literal cannot be mixed with non-bytes literals",
