@@ -790,7 +790,7 @@ pub fn start_wsa_recv_from(
 
 pub fn connect_pipe(address: &str) -> io::Result<isize> {
     use windows_sys::Win32::{
-        Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE},
+        Foundation::{GENERIC_READ, GENERIC_WRITE},
         Storage::FileSystem::{CreateFileW, FILE_FLAG_OVERLAPPED, OPEN_EXISTING},
     };
 

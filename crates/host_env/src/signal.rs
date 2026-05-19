@@ -3,7 +3,9 @@ use std::io;
 use std::sync::Once;
 
 #[cfg(any(unix, windows))]
-use crate::os::{CheckLibcResult, CheckLibcZero};
+use crate::os::CheckLibcZero;
+#[cfg(unix)]
+use crate::os::CheckLibcResult;
 
 #[cfg(any(unix, windows))]
 pub use libc::sighandler_t;

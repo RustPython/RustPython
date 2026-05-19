@@ -1433,7 +1433,7 @@ impl IntoPyException for std::io::Error {
     }
 }
 
-#[cfg(any(unix, target_os = "wasi"))]
+#[cfg(all(unix, not(target_os = "redox")))]
 impl ToPyException for rustpython_host_env::fcntl::LockfError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {

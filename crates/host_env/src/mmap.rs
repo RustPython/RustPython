@@ -6,7 +6,7 @@
 use std::io;
 
 #[cfg(windows)]
-use crate::windows::{CheckWin32Bool, CheckWin32Handle, HandleToOwned};
+use crate::windows::{CheckWin32Bool, HandleToOwned};
 #[cfg(unix)]
 use crate::{crt_fd, fileutils, posix};
 use memmap2::{Mmap, MmapMut, MmapOptions};
