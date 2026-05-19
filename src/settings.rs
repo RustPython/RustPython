@@ -199,7 +199,7 @@ fn help(parser: lexopt::Parser) -> ! {
 }
 
 fn version() -> ! {
-    println!("Python {}", rustpython_vm::version::get_version());
+    println!("Python {}", rustpython_vm::version::RUSTPYTHON_VERSION);
     std::process::exit(0);
 }
 

@@ -649,7 +649,7 @@ pub mod sys {
     fn _git(vm: &VirtualMachine) -> PyTupleRef {
         vm.new_tuple((
             ascii!("RustPython"),
-            version::get_git_identifier(),
+            version::GIT_IDENTIFIER,
             version::GIT_REVISION,
         ))
     }
@@ -706,17 +706,13 @@ pub mod sys {
         vm.ctx.none()
     }
 
-    #[pyattr]
-    fn version(_vm: &VirtualMachine) -> String {
-        version::get_version()
-    }
+    #[pyattr(name = "version")]
+    const VERSION: &str = version::RUSTPYTHON_VERSION;
 
+    // Note: This is Python DLL version in CPython, but we arbitrary fill it for compatibility
     #[cfg(windows)]
-    #[pyattr]
-    fn winver(_vm: &VirtualMachine) -> String {
-        // Note: This is Python DLL version in CPython, but we arbitrary fill it for compatibility
-        version::get_winver_number()
-    }
+    #[pyattr(name = "winver")]
+    const WINVER: &str = version::WINVER;
 
     #[pyattr]
     fn _xoptions(vm: &VirtualMachine) -> PyDictRef {

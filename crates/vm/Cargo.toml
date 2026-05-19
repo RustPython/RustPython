@@ -99,6 +99,7 @@ widestring = { workspace = true }
 wasm-bindgen = { workspace = true, optional = true }
 
 [build-dependencies]
+chrono = { workspace = true }
 glob = { workspace = true }
 itertools = { workspace = true }
 
