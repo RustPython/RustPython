@@ -1,5 +1,5 @@
-use crate::PyObject;
-use crate::pystate::with_vm;
+use crate::object::define_py_check;
+use crate::{PyObject, pystate::with_vm};
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
@@ -95,6 +95,8 @@ define_exception_statics! {
     PyExc_ResourceWarning => resource_warning,
     PyExc_EncodingWarning => encoding_warning,
 }
+
+define_py_check!(fn PyExceptionInstance_Check, exceptions.base_exception_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_Occurred() -> *mut PyObject {
@@ -192,6 +194,15 @@ pub unsafe extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyExceptionClass_Check(obj: *mut PyObject) -> c_int {
+    with_vm(|vm| unsafe {
+        obj.as_ref()
+            .and_then(|obj| obj.downcast_ref::<PyType>())
+            .is_some_and(|ty| ty.is_subtype(vm.ctx.exceptions.base_exception_type))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyErr_NewException(
     name: *const c_char,
     base: *mut PyObject,
@@ -249,6 +260,42 @@ pub unsafe extern "C" fn PyErr_GivenExceptionMatches(
         let exc = unsafe { &*exc };
 
         given.is_subclass(exc, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let tb = exc
+            .__traceback__()
+            .map(|tb| tb.into_object().into_raw().as_ptr())
+            .unwrap_or_default();
+        Ok(tb)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_GetCause(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let cause = exc
+            .__cause__()
+            .map(|cause| cause.into_object().into_raw().as_ptr())
+            .unwrap_or_default();
+        Ok(cause)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_GetContext(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let context = exc
+            .__context__()
+            .map(|context| context.into_object().into_raw().as_ptr())
+            .unwrap_or_default();
+        Ok(context)
     })
 }
 
