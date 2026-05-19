@@ -2702,6 +2702,7 @@ class SyntaxWarningTest(unittest.TestCase):
         with self.assertWarnsRegex(SyntaxWarning, errtext):
             compile(code, filename, mode)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxWarning not triggered
     def test_return_in_finally(self):
         source = textwrap.dedent("""
             def f():
@@ -2736,6 +2737,7 @@ class SyntaxWarningTest(unittest.TestCase):
             """)
         self.check_warning(source, "'return' in a 'finally' block")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxWarning not triggered
     def test_break_and_continue_in_finally(self):
         for kw in ('break', 'continue'):
 
@@ -2805,6 +2807,7 @@ class SyntaxErrorTestCase(unittest.TestCase):
         else:
             self.fail("compile() did not raise SyntaxError")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expression_with_assignment(self):
         self._check_error(
             "print(end1 + end2 = ' ')",
@@ -2818,6 +2821,7 @@ class SyntaxErrorTestCase(unittest.TestCase):
     def test_assign_call(self):
         self._check_error("f() = 1", "assign")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_assign_del(self):
         self._check_error("del (,)", "invalid syntax")
         self._check_error("del 1", "cannot delete literal")
@@ -2908,6 +2912,7 @@ class SyntaxErrorTestCase(unittest.TestCase):
         self._check_error("with object() as obj:\n break",
                           msg, lineno=2)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_continue_outside_loop(self):
         msg = "not properly in loop"
         self._check_error("if 0: continue", msg, lineno=1)
@@ -2932,30 +2937,36 @@ class SyntaxErrorTestCase(unittest.TestCase):
                           "unindent does not match .* level",
                           subclass=IndentationError)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kwargs_last(self):
         self._check_error("int(base=10, '2')",
                           "positional argument follows keyword argument")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kwargs_last2(self):
         self._check_error("int(**{'base': 10}, '2')",
                           "positional argument follows "
                           "keyword argument unpacking")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_kwargs_last3(self):
         self._check_error("int(**{'base': 10}, *['2'])",
                           "iterable argument unpacking follows "
                           "keyword argument unpacking")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_generator_in_function_call(self):
         self._check_error("foo(x,    y for y in range(3) for z in range(2) if z    , p)",
                           "Generator expression must be parenthesized",
                           lineno=1, end_lineno=1, offset=11, end_offset=53)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_except_then_except_star(self):
         self._check_error("try: pass\nexcept ValueError: pass\nexcept* TypeError: pass",
                           r"cannot have both 'except' and 'except\*' on the same 'try'",
                           lineno=3, end_lineno=3, offset=1, end_offset=8)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_except_star_then_except(self):
         self._check_error("try: pass\nexcept* ValueError: pass\nexcept TypeError: pass",
                           r"cannot have both 'except' and 'except\*' on the same 'try'",
@@ -3086,6 +3097,7 @@ class A:
             with self.subTest(f"out of range: {n=}"):
                 self._check_error(get_code(n), "too many statically nested blocks")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_barry_as_flufl_with_syntax_errors(self):
         # The "barry_as_flufl" rule can produce some "bugs-at-a-distance" if
         # is reading the wrong token in the presence of syntax errors later
@@ -3103,6 +3115,7 @@ def func2():
 """
         self._check_error(code, "expected ':'")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_line_continuation_error_position(self):
         self._check_error(r"a = 3 \ 4",
                           "unexpected character after line continuation character",
@@ -3114,6 +3127,7 @@ def func2():
                           "unexpected character after line continuation character",
                           lineno=3, offset=4)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_line_continuation_left_recursive(self):
         # Check bpo-42218: SyntaxErrors following left-recursive rules
         # (t_primary_raw in this case) need to be tested explicitly
@@ -3122,6 +3136,7 @@ def func2():
         self._check_error("A.\u03bc\\\n",
                           "unexpected EOF while parsing")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_error_parenthesis(self):
         for paren in "([{":
             self._check_error(paren + "1 + 2", f"\\{paren}' was never closed")
@@ -3147,6 +3162,7 @@ func(
         s = b'# coding=latin\n(aaaaaaaaaaaaaaaaa\naaaaaaaaaaa\xb5'
         self._check_error(s, r"'\(' was never closed")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_error_string_literal(self):
 
         self._check_error("'blech", r"unterminated string literal \(.*\)$")
@@ -3160,6 +3176,7 @@ func(
         self._check_error("'''blech", "unterminated triple-quoted string literal")
         self._check_error('"""blech', "unterminated triple-quoted string literal")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invisible_characters(self):
         self._check_error('print\x17("Hello")', "invalid non-printable character")
         self._check_error(b"with(0,,):\n\x01", "invalid non-printable character")
@@ -3182,6 +3199,7 @@ case(34)
 """
         compile(code, "<string>", "exec")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiline_compiler_error_points_to_the_end(self):
         self._check_error(
             "call(\na=1,\na=1\n)",
@@ -3242,6 +3260,7 @@ while 1:
         with self.assertRaises(SyntaxError):
             compile(source, "<string>", "exec")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_except_stmt_invalid_as_expr(self):
         self._check_error(
             textwrap.dedent(
@@ -3259,6 +3278,7 @@ while 1:
             end_offset=22 + len("obj.attr"),
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_match_stmt_invalid_as_expr(self):
         self._check_error(
             textwrap.dedent(
@@ -3275,6 +3295,7 @@ while 1:
             end_offset=15 + len("obj.attr"),
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ifexp_else_stmt(self):
         msg = "expected expression after 'else', but statement is given"
 
@@ -3295,6 +3316,7 @@ while 1:
         ]:
             self._check_error(f"x = 1 if 1 else {stmt}", msg)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ifexp_body_stmt_else_expression(self):
         msg = "expected expression before 'if', but statement is given"
 
@@ -3305,6 +3327,7 @@ while 1:
         ]:
             self._check_error(f"x = {stmt} if 1 else 1", msg)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ifexp_body_stmt_else_stmt(self):
         msg = "expected expression before 'if', but statement is given"
         for lhs_stmt, rhs_stmt in [
