@@ -537,7 +537,7 @@ pub fn batched_wait_for_multiple_objects(
         };
     }
 
-    let cancel_event = create_event_w(true, false, core::ptr::null())
+    let cancel_event = create_event_w(true, false, None)
         .map_err(|err| BatchedWaitError::Os(err.raw_os_error().unwrap_or_default() as u32))?;
 
     struct BatchData {
