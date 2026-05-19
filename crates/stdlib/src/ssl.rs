@@ -36,7 +36,7 @@ mod _ssl {
             hash::PyHash,
             lock::{PyMutex, PyRwLock},
         },
-        socket::{PySocket, SelectKind, sock_select, timeout_error_msg},
+        socket::{PySocket, SockWaitKind, sock_wait, timeout_error_msg},
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
@@ -2606,7 +2606,7 @@ mod _ssl {
         // Internal implementation with timeout control
         pub(crate) fn sock_wait_for_io_impl(
             &self,
-            kind: SelectKind,
+            wait_kind: SockWaitKind,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
             if self.is_bio_mode() {
@@ -2631,16 +2631,13 @@ mod _ssl {
                 .sock()
                 .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
 
-            let timed_out = sock_select(&socket, kind, timeout)
-                .map_err(|e| vm.new_os_error(format!("select failed: {e}")))?;
-
-            Ok(timed_out)
+            sock_wait(&socket, wait_kind, timeout, vm)
         }
 
         // Internal implementation with explicit timeout override
         pub(crate) fn sock_wait_for_io_with_timeout(
             &self,
-            kind: SelectKind,
+            wait_kind: SockWaitKind,
             timeout: Option<core::time::Duration>,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
@@ -2661,10 +2658,7 @@ mod _ssl {
                 .sock()
                 .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
 
-            let timed_out = sock_select(&socket, kind, timeout)
-                .map_err(|e| vm.new_os_error(format!("select failed: {e}")))?;
-
-            Ok(timed_out)
+            sock_wait(&socket, wait_kind, timeout, vm).map_err(|e| e.into_pyexception(vm))
         }
 
         // SNI (Server Name Indication) Helper Methods:
@@ -2934,13 +2928,12 @@ mod _ssl {
                     socket_timeout
                 };
 
-                // Use sock_select directly with calculated timeout
+                // Use sock_wait directly with calculated timeout
                 let py_socket: PyRef<PySocket> = self.sock.clone().try_into_value(vm)?;
                 let socket = py_socket
                     .sock()
                     .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
-                let timed_out = sock_select(&socket, SelectKind::Write, timeout_to_use)
-                    .map_err(|e| vm.new_os_error(format!("select failed: {e}")))?;
+                let timed_out = sock_wait(&socket, SockWaitKind::Write, timeout_to_use, vm)?;
 
                 if timed_out {
                     // Keep unsent data in pending buffer
@@ -3001,7 +2994,7 @@ mod _ssl {
 
             let mut sent_total = 0;
             while sent_total < buf.len() {
-                let timed_out = self.sock_wait_for_io_impl(SelectKind::Write, vm)?;
+                let timed_out = self.sock_wait_for_io_impl(SockWaitKind::Write, vm)?;
                 if timed_out {
                     // Save unsent data to pending buffer
                     self.pending_tls_output
@@ -3073,8 +3066,7 @@ mod _ssl {
                 let socket = py_socket
                     .sock()
                     .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
-                let timed_out = sock_select(&socket, SelectKind::Write, timeout)
-                    .map_err(|e| vm.new_os_error(format!("select failed: {e}")))?;
+                let timed_out = sock_wait(&socket, SockWaitKind::Write, timeout, vm)?;
 
                 if timed_out {
                     return Err(
@@ -3090,7 +3082,7 @@ mod _ssl {
                             let mut pending = self.pending_tls_output.lock();
                             pending.drain(..sent);
                         }
-                        // If sent == 0, loop will retry with sock_select
+                        // If sent == 0, loop will retry with sock_wait
                     }
                     Err(e) => {
                         if is_blocking_io_error(&e, vm) {
@@ -4264,7 +4256,7 @@ mod _ssl {
 
                                 // Wait for socket to be readable
                                 let timed_out = self.sock_wait_for_io_with_timeout(
-                                    SelectKind::Read,
+                                    SockWaitKind::Read,
                                     remaining_timeout,
                                     vm,
                                 )?;

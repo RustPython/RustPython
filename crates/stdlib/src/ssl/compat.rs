@@ -15,7 +15,7 @@
 #[path = "../openssl/ssl_data_31.rs"]
 mod ssl_data;
 
-use crate::socket::{SelectKind, timeout_error_msg};
+use crate::socket::{SockWaitKind, timeout_error_msg};
 use crate::vm::VirtualMachine;
 use alloc::sync::Arc;
 use parking_lot::RwLock as ParkingRwLock;
@@ -937,11 +937,11 @@ fn send_all_bytes(
                 ));
             }
             socket
-                .sock_wait_for_io_with_timeout(SelectKind::Write, Some(dl - now), vm)
+                .sock_wait_for_io_with_timeout(SockWaitKind::Write, Some(dl - now), vm)
                 .map_err(SslError::Py)?
         } else {
             socket
-                .sock_wait_for_io_impl(SelectKind::Write, vm)
+                .sock_wait_for_io_impl(SockWaitKind::Write, vm)
                 .map_err(SslError::Py)?
         };
         if timed_out {
@@ -1123,7 +1123,7 @@ fn handshake_read_data(
     // Wait for data in socket mode
     if !is_bio {
         let timed_out = socket
-            .sock_wait_for_io_impl(SelectKind::Read, vm)
+            .sock_wait_for_io_impl(SockWaitKind::Read, vm)
             .map_err(SslError::Py)?;
 
         if timed_out {
@@ -1967,7 +1967,7 @@ fn ssl_ensure_data_available(
             {
                 // Socket has timeout - use select to enforce it
                 let timed_out = socket
-                    .sock_wait_for_io_impl(SelectKind::Read, vm)
+                    .sock_wait_for_io_impl(SockWaitKind::Read, vm)
                     .map_err(SslError::Py)?;
                 if timed_out {
                     // Socket not ready within timeout - raise socket.timeout
