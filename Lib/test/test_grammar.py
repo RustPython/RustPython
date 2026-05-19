@@ -1,11 +1,13 @@
 # Python test set -- part 1, grammar.
 # This just tests whether the parser accepts them all.
 
-from test.support import check_syntax_error
+from test.support import check_syntax_error, skip_wasi_stack_overflow
 from test.support import import_helper
+import annotationlib
 import inspect
 import unittest
 import sys
+import textwrap
 import warnings
 # testing import *
 from sys import *
@@ -112,7 +114,7 @@ class TokenTests(unittest.TestCase):
         # Sanity check: no literal begins with an underscore
         self.assertRaises(NameError, eval, "_0")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_numerical_literals(self):
         check = self.check_syntax_error
         check("0b12", "invalid digit '2' in binary literal")
@@ -135,7 +137,7 @@ class TokenTests(unittest.TestCase):
         check("1e2_", "invalid decimal literal")
         check("1e+", "invalid decimal literal")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_end_of_numerical_literals(self):
         def check(test, error=False):
             with self.subTest(expr=test):
@@ -216,6 +218,27 @@ the \'lazy\' dog.\n\
 '
         self.assertEqual(x, y)
 
+    def test_string_prefixes(self):
+        def check(s):
+            parsed = eval(s)
+            self.assertIs(type(parsed), str)
+            self.assertGreater(len(parsed), 0)
+
+        check("u'abc'")
+        check("r'abc\t'")
+        check("rf'abc\a {1 + 1}'")
+        check("fr'abc\a {1 + 1}'")
+
+    def test_bytes_prefixes(self):
+        def check(s):
+            parsed = eval(s)
+            self.assertIs(type(parsed), bytes)
+            self.assertGreater(len(parsed), 0)
+
+        check("b'abc'")
+        check("br'abc\t'")
+        check("rb'abc\a'")
+
     def test_ellipsis(self):
         x = ...
         self.assertTrue(x is Ellipsis)
@@ -228,17 +251,20 @@ the \'lazy\' dog.\n\
                 compile(s, "<test>", "exec")
             self.assertIn("was never closed", str(cm.exception))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
+    @skip_wasi_stack_overflow()
+    def test_max_level(self):
+        # Macro defined in Parser/lexer/state.h
+        MAXLEVEL = 200
+
+        result = eval("(" * MAXLEVEL + ")" * MAXLEVEL)
+        self.assertEqual(result, ())
+
+        with self.assertRaises(SyntaxError) as cm:
+            eval("(" * (MAXLEVEL + 1) + ")" * (MAXLEVEL + 1))
+        self.assertStartsWith(str(cm.exception), 'too many nested parentheses')
+
 var_annot_global: int # a global annotated is necessary for test_var_annot
-
-# custom namespace for testing __annotations__
-
-class CNS:
-    def __init__(self):
-        self._dct = {}
-    def __setitem__(self, item, value):
-        self._dct[item.lower()] = value
-    def __getitem__(self, item):
-        return self._dct[item]
 
 
 class GrammarTests(unittest.TestCase):
@@ -272,7 +298,7 @@ class GrammarTests(unittest.TestCase):
         my_lst[one()-1]: int = 5
         self.assertEqual(my_lst, [5])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_var_annot_syntax_errors(self):
         # parser pass
         check_syntax_error(self, "def f: int")
@@ -371,24 +397,12 @@ class GrammarTests(unittest.TestCase):
         self.assertEqual(E.__annotations__, {})
         self.assertEqual(F.__annotations__, {})
 
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_var_annot_metaclass_semantics(self):
-        class CMeta(type):
-            @classmethod
-            def __prepare__(metacls, name, bases, **kwds):
-                return {'__annotations__': CNS()}
-        class CC(metaclass=CMeta):
-            XX: 'ANNOT'
-        self.assertEqual(CC.__annotations__['xx'], 'ANNOT')
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_var_annot_module_semantics(self):
         self.assertEqual(test.__annotations__, {})
         self.assertEqual(ann_module.__annotations__,
-                     {1: 2, 'x': int, 'y': str, 'f': typing.Tuple[int, int], 'u': int | float})
+                         {'x': int, 'y': str, 'f': typing.Tuple[int, int], 'u': int | float})
         self.assertEqual(ann_module.M.__annotations__,
-                              {'123': 123, 'o': type})
+                         {'o': type})
         self.assertEqual(ann_module2.__annotations__, {})
 
     def test_var_annot_in_module(self):
@@ -402,55 +416,14 @@ class GrammarTests(unittest.TestCase):
         with self.assertRaises(NameError):
             ann_module3.D_bad_ann(5)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_var_annot_simple_exec(self):
-        gns = {}; lns= {}
+        gns = {}; lns = {}
         exec("'docstring'\n"
-             "__annotations__[1] = 2\n"
              "x: int = 5\n", gns, lns)
-        self.assertEqual(lns["__annotations__"], {1: 2, 'x': int})
-        with self.assertRaises(KeyError):
-            gns['__annotations__']
+        self.assertNotIn('__annotate__', gns)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_var_annot_custom_maps(self):
-        # tests with custom locals() and __annotations__
-        ns = {'__annotations__': CNS()}
-        exec('X: int; Z: str = "Z"; (w): complex = 1j', ns)
-        self.assertEqual(ns['__annotations__']['x'], int)
-        self.assertEqual(ns['__annotations__']['z'], str)
-        with self.assertRaises(KeyError):
-            ns['__annotations__']['w']
-        nonloc_ns = {}
-        class CNS2:
-            def __init__(self):
-                self._dct = {}
-            def __setitem__(self, item, value):
-                nonlocal nonloc_ns
-                self._dct[item] = value
-                nonloc_ns[item] = value
-            def __getitem__(self, item):
-                return self._dct[item]
-        exec('x: int = 1', {}, CNS2())
-        self.assertEqual(nonloc_ns['__annotations__']['x'], int)
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
-    def test_var_annot_refleak(self):
-        # complex case: custom locals plus custom __annotations__
-        # this was causing refleak
-        cns = CNS()
-        nonloc_ns = {'__annotations__': cns}
-        class CNS2:
-            def __init__(self):
-                self._dct = {'__annotations__': cns}
-            def __setitem__(self, item, value):
-                nonlocal nonloc_ns
-                self._dct[item] = value
-                nonloc_ns[item] = value
-            def __getitem__(self, item):
-                return self._dct[item]
-        exec('X: str', {}, CNS2())
-        self.assertEqual(nonloc_ns['__annotations__']['x'], str)
+        gns.update(lns)  # __annotate__ looks at globals
+        self.assertEqual(lns["__annotate__"](annotationlib.Format.VALUE), {'x': int})
 
     def test_var_annot_rhs(self):
         ns = {}
@@ -778,7 +751,7 @@ class GrammarTests(unittest.TestCase):
 
     # Check the heuristic for print & exec covers significant cases
     # As well as placing some limits on false positives
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_former_statements_refer_to_builtins(self):
         keywords = "print", "exec"
         # Cases where we want the custom error
@@ -905,188 +878,294 @@ class GrammarTests(unittest.TestCase):
         self.assertEqual(y, (1, 2, 3), "unparenthesized star expr return")
         check_syntax_error(self, "class foo:return 1")
 
-    def test_break_in_finally(self):
-        count = 0
-        while count < 2:
-            count += 1
-            try:
-                pass
-            finally:
-                break
-        self.assertEqual(count, 1)
+    def test_control_flow_in_finally(self):
 
-        count = 0
-        while count < 2:
-            count += 1
-            try:
-                continue
-            finally:
-                break
-        self.assertEqual(count, 1)
+        def run_case(self, src, expected):
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', SyntaxWarning)
+                g, l = {}, { 'self': self }
+                exec(textwrap.dedent(src), g, l)
+                self.assertEqual(expected, l['result'])
 
-        count = 0
-        while count < 2:
-            count += 1
-            try:
-                1/0
-            finally:
-                break
-        self.assertEqual(count, 1)
 
-        for count in [0, 1]:
-            self.assertEqual(count, 0)
-            try:
-                pass
-            finally:
-                break
-        self.assertEqual(count, 0)
+        # *********** Break in finally ***********
 
-        for count in [0, 1]:
-            self.assertEqual(count, 0)
-            try:
-                continue
-            finally:
-                break
-        self.assertEqual(count, 0)
-
-        for count in [0, 1]:
-            self.assertEqual(count, 0)
-            try:
-                1/0
-            finally:
-                break
-        self.assertEqual(count, 0)
-
-    def test_continue_in_finally(self):
-        count = 0
-        while count < 2:
-            count += 1
-            try:
-                pass
-            finally:
-                continue
-            break
-        self.assertEqual(count, 2)
-
-        count = 0
-        while count < 2:
-            count += 1
-            try:
-                break
-            finally:
-                continue
-        self.assertEqual(count, 2)
-
-        count = 0
-        while count < 2:
-            count += 1
-            try:
-                1/0
-            finally:
-                continue
-            break
-        self.assertEqual(count, 2)
-
-        for count in [0, 1]:
-            try:
-                pass
-            finally:
-                continue
-            break
-        self.assertEqual(count, 1)
-
-        for count in [0, 1]:
-            try:
-                break
-            finally:
-                continue
-        self.assertEqual(count, 1)
-
-        for count in [0, 1]:
-            try:
-                1/0
-            finally:
-                continue
-            break
-        self.assertEqual(count, 1)
-
-    def test_return_in_finally(self):
-        def g1():
-            try:
-                pass
-            finally:
-                return 1
-        self.assertEqual(g1(), 1)
-
-        def g2():
-            try:
-                return 2
-            finally:
-                return 3
-        self.assertEqual(g2(), 3)
-
-        def g3():
-            try:
-                1/0
-            finally:
-                return 4
-        self.assertEqual(g3(), 4)
-
-    def test_break_in_finally_after_return(self):
-        # See issue #37830
-        def g1(x):
-            for count in [0, 1]:
-                count2 = 0
-                while count2 < 20:
-                    count2 += 10
+        run_case(
+            self,
+            """
+                result = 0
+                while result < 2:
+                    result += 1
                     try:
-                        return count + count2
+                        pass
+                    finally:
+                        break
+            """,
+            1)
+
+        run_case(
+            self,
+            """
+                result = 0
+                while result < 2:
+                    result += 1
+                    try:
+                        continue
+                    finally:
+                        break
+            """,
+            1)
+
+        run_case(
+            self,
+            """
+            result = 0
+            while result < 2:
+                result += 1
+                try:
+                    1/0
+                finally:
+                    break
+            """,
+            1)
+
+        run_case(
+            self,
+            """
+            for result in [0, 1]:
+                self.assertEqual(result, 0)
+                try:
+                    pass
+                finally:
+                    break
+            """,
+            0)
+
+        run_case(
+            self,
+            """
+            for result in [0, 1]:
+                self.assertEqual(result, 0)
+                try:
+                    continue
+                finally:
+                    break
+            """,
+            0)
+
+        run_case(
+            self,
+            """
+            for result in [0, 1]:
+                self.assertEqual(result, 0)
+                try:
+                    1/0
+                finally:
+                    break
+            """,
+            0)
+
+
+        # *********** Continue in finally ***********
+
+        run_case(
+            self,
+            """
+            result = 0
+            while result < 2:
+                result += 1
+                try:
+                    pass
+                finally:
+                    continue
+                break
+            """,
+            2)
+
+
+        run_case(
+            self,
+            """
+            result = 0
+            while result < 2:
+                result += 1
+                try:
+                    break
+                finally:
+                    continue
+            """,
+            2)
+
+        run_case(
+            self,
+            """
+            result = 0
+            while result < 2:
+                result += 1
+                try:
+                    1/0
+                finally:
+                    continue
+                break
+            """,
+            2)
+
+        run_case(
+            self,
+            """
+            for result in [0, 1]:
+                try:
+                    pass
+                finally:
+                    continue
+                break
+            """,
+            1)
+
+        run_case(
+            self,
+            """
+            for result in [0, 1]:
+                try:
+                    break
+                finally:
+                    continue
+            """,
+            1)
+
+        run_case(
+            self,
+            """
+            for result in [0, 1]:
+                try:
+                    1/0
+                finally:
+                    continue
+                break
+            """,
+            1)
+
+
+        # *********** Return in finally ***********
+
+        run_case(
+            self,
+            """
+            def f():
+                try:
+                    pass
+                finally:
+                    return 1
+            result = f()
+            """,
+            1)
+
+        run_case(
+            self,
+            """
+            def f():
+                try:
+                    return 2
+                finally:
+                    return 3
+            result = f()
+            """,
+            3)
+
+        run_case(
+            self,
+            """
+            def f():
+                try:
+                    1/0
+                finally:
+                    return 4
+            result = f()
+            """,
+            4)
+
+        # See issue #37830
+        run_case(
+            self,
+            """
+            def break_in_finally_after_return1(x):
+                for count in [0, 1]:
+                    count2 = 0
+                    while count2 < 20:
+                        count2 += 10
+                        try:
+                            return count + count2
+                        finally:
+                            if x:
+                                break
+                return 'end', count, count2
+
+            self.assertEqual(break_in_finally_after_return1(False), 10)
+            self.assertEqual(break_in_finally_after_return1(True), ('end', 1, 10))
+            result = True
+            """,
+            True)
+
+
+        run_case(
+            self,
+            """
+            def break_in_finally_after_return2(x):
+                for count in [0, 1]:
+                    for count2 in [10, 20]:
+                        try:
+                            return count + count2
+                        finally:
+                            if x:
+                                break
+                return 'end', count, count2
+
+            self.assertEqual(break_in_finally_after_return2(False), 10)
+            self.assertEqual(break_in_finally_after_return2(True), ('end', 1, 10))
+            result = True
+            """,
+            True)
+
+        # See issue #37830
+        run_case(
+            self,
+            """
+            def continue_in_finally_after_return1(x):
+                count = 0
+                while count < 100:
+                    count += 1
+                    try:
+                        return count
                     finally:
                         if x:
-                            break
-            return 'end', count, count2
-        self.assertEqual(g1(False), 10)
-        self.assertEqual(g1(True), ('end', 1, 10))
+                            continue
+                return 'end', count
 
-        def g2(x):
-            for count in [0, 1]:
-                for count2 in [10, 20]:
+            self.assertEqual(continue_in_finally_after_return1(False), 1)
+            self.assertEqual(continue_in_finally_after_return1(True), ('end', 100))
+            result = True
+            """,
+            True)
+
+        run_case(
+            self,
+            """
+            def continue_in_finally_after_return2(x):
+                for count in [0, 1]:
                     try:
-                        return count + count2
+                        return count
                     finally:
                         if x:
-                            break
-            return 'end', count, count2
-        self.assertEqual(g2(False), 10)
-        self.assertEqual(g2(True), ('end', 1, 10))
+                            continue
+                return 'end', count
 
-    def test_continue_in_finally_after_return(self):
-        # See issue #37830
-        def g1(x):
-            count = 0
-            while count < 100:
-                count += 1
-                try:
-                    return count
-                finally:
-                    if x:
-                        continue
-            return 'end', count
-        self.assertEqual(g1(False), 1)
-        self.assertEqual(g1(True), ('end', 100))
+            self.assertEqual(continue_in_finally_after_return2(False), 0)
+            self.assertEqual(continue_in_finally_after_return2(True), ('end', 1))
+            result = True
+            """,
+            True)
 
-        def g2(x):
-            for count in [0, 1]:
-                try:
-                    return count
-                finally:
-                    if x:
-                        continue
-            return 'end', count
-        self.assertEqual(g2(False), 0)
-        self.assertEqual(g2(True), ('end', 1))
-
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_yield(self):
         # Allowed as standalone statement
         def g(): yield 1
@@ -1126,7 +1205,7 @@ class GrammarTests(unittest.TestCase):
         # Check annotation refleak on SyntaxError
         check_syntax_error(self, "def g(a:(yield)): pass")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_yield_in_comprehensions(self):
         # Check yield in comprehensions
         def g(): [x for x in [(yield 1)]]
@@ -1223,7 +1302,7 @@ class GrammarTests(unittest.TestCase):
         else:
             self.fail("AssertionError not raised by 'assert False'")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_assert_syntax_warnings(self):
         # Ensure that we warn users if they provide a non-zero length tuple as
         # the assertion test.
@@ -1238,7 +1317,7 @@ class GrammarTests(unittest.TestCase):
             compile('assert x, "msg"', '<testcase>', 'exec')
             compile('assert False, "msg"', '<testcase>', 'exec')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_assert_warning_promotes_to_syntax_error(self):
         # If SyntaxWarning is configured to be an error, it actually raises a
         # SyntaxError.
@@ -1339,6 +1418,8 @@ class GrammarTests(unittest.TestCase):
         try: 1/0
         except (EOFError, TypeError, ZeroDivisionError): pass
         try: 1/0
+        except EOFError, TypeError, ZeroDivisionError: pass
+        try: 1/0
         except (EOFError, TypeError, ZeroDivisionError) as msg: pass
         try: pass
         finally: pass
@@ -1346,8 +1427,6 @@ class GrammarTests(unittest.TestCase):
             compile("try:\n    pass\nexcept Exception as a.b:\n    pass", "?", "exec")
             compile("try:\n    pass\nexcept Exception as a[b]:\n    pass", "?", "exec")
 
-    # TODO: RUSTPYTHON
-    '''
     def test_try_star(self):
         ### try_stmt: 'try': suite (except_star_clause : suite) + ['else' ':' suite]
         ### except_star_clause: 'except*' expr ['as' NAME]
@@ -1364,6 +1443,8 @@ class GrammarTests(unittest.TestCase):
         try: 1/0
         except* (EOFError, TypeError, ZeroDivisionError): pass
         try: 1/0
+        except* EOFError, TypeError, ZeroDivisionError: pass
+        try: 1/0
         except* (EOFError, TypeError, ZeroDivisionError) as msg: pass
         try: pass
         finally: pass
@@ -1371,7 +1452,6 @@ class GrammarTests(unittest.TestCase):
             compile("try:\n    pass\nexcept* Exception as a.b:\n    pass", "?", "exec")
             compile("try:\n    pass\nexcept* Exception as a[b]:\n    pass", "?", "exec")
             compile("try:\n    pass\nexcept*:\n    pass", "?", "exec")
-    '''
 
     def test_suite(self):
         # simple_stmt | NEWLINE INDENT NEWLINE* (stmt NEWLINE*)+ DEDENT
@@ -1416,7 +1496,7 @@ class GrammarTests(unittest.TestCase):
         if 1 not in (): pass
         if 1 < 1 > 1 == 1 >= 1 <= 1 != 1 in 1 not in x is x is not x: pass
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_comparison_is_literal(self):
         def check(test, msg):
             self.check_syntax_warning(test, msg)
@@ -1446,7 +1526,7 @@ class GrammarTests(unittest.TestCase):
             compile('True is x', '<testcase>', 'exec')
             compile('... is x', '<testcase>', 'exec')
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_warn_missed_comma(self):
         def check(test):
             self.check_syntax_warning(test, msg)
@@ -1471,6 +1551,8 @@ class GrammarTests(unittest.TestCase):
         check('[None (3, 4)]')
         check('[True (3, 4)]')
         check('[... (3, 4)]')
+        check('[t"{x}" (3, 4)]')
+        check('[t"x={x}" (3, 4)]')
 
         msg=r'is not subscriptable; perhaps you missed a comma\?'
         check('[{1, 2} [i, j]]')
@@ -1483,6 +1565,8 @@ class GrammarTests(unittest.TestCase):
         check('[None [i, j]]')
         check('[True [i, j]]')
         check('[... [i, j]]')
+        check('[t"{x}" [i, j]]')
+        check('[t"x={x}" [i, j]]')
 
         msg=r'indices must be integers or slices, not tuple; perhaps you missed a comma\?'
         check('[(1, 2) [i, j]]')
@@ -1513,6 +1597,9 @@ class GrammarTests(unittest.TestCase):
         check('[[1, 2] [f"{x}"]]')
         check('[[1, 2] [f"x={x}"]]')
         check('[[1, 2] ["abc"]]')
+        msg=r'indices must be integers or slices, not string.templatelib.Template;'
+        check('[[1, 2] [t"{x}"]]')
+        check('[[1, 2] [t"x={x}"]]')
         msg=r'indices must be integers or slices, not'
         check('[[1, 2] [b"abc"]]')
         check('[[1, 2] [12.3]]')
@@ -1623,8 +1710,6 @@ class GrammarTests(unittest.TestCase):
     ### testlist: test (',' test)* [',']
     # These have been exercised enough above
 
-    # TODO: RUSTPYTHON
-    '''
     def test_classdef(self):
         # 'class' NAME ['(' [testlist] ')'] ':' suite
         class B: pass
@@ -1649,7 +1734,8 @@ class GrammarTests(unittest.TestCase):
         class H: pass
         @d := class_decorator
         class I: pass
-        @lambda c: class_decorator(c)
+        # TODO: RUSTPYTHON; SyntaxError: the symbol 'class_decorator' must be present in the symbol table
+        # @lambda c: class_decorator(c)
         class J: pass
         @[..., class_decorator, ...][1]
         class K: pass
@@ -1657,7 +1743,6 @@ class GrammarTests(unittest.TestCase):
         class L: pass
         @[class_decorator][0].__call__.__call__
         class M: pass
-    '''
 
     def test_dictcomps(self):
         # dictorsetmaker: ( (test ':' test (comp_for |
