@@ -61,8 +61,10 @@ impl PyNamespace {
                 zelf.class()
                     .__qualname__(vm)
                     .downcast_ref::<PyStr>()
-                    .map(|n| n.as_wtf8())
-                    .unwrap(),
+                    .map_or_else(
+                        || zelf.class().name().to_string(),
+                        |n| n.as_wtf8().to_string()
+                    ),
                 result.class().name(),
             )));
         }
