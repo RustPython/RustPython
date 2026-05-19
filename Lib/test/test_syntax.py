@@ -1705,14 +1705,14 @@ Make sure that the old "raise X, Y[, Z]" form is gone:
 Check that an multiple exception types with missing parentheses
 raise a custom exception only when using 'as'
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...   pass
    ... except A, B, C as blech:
    ...   pass
    Traceback (most recent call last):
    SyntaxError: multiple exception types must be parenthesized when using 'as'
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...   pass
    ... except A, B, C as blech:
    ...   pass
@@ -1722,14 +1722,14 @@ raise a custom exception only when using 'as'
    SyntaxError: multiple exception types must be parenthesized when using 'as'
 
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...   pass
    ... except* A, B, C as blech:
    ...   pass
    Traceback (most recent call last):
    SyntaxError: multiple exception types must be parenthesized when using 'as'
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...   pass
    ... except* A, B, C as blech:
    ...   pass

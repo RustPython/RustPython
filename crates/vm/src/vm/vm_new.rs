@@ -152,6 +152,14 @@ impl SyntaxErrorInfo {
                 "trailing comma not allowed without surrounding parentheses".into()
             }
 
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case(
+                    "multiple exception types must be parenthesized when using `as`",
+                ) =>
+            {
+                "multiple exception types must be parenthesized when using 'as'".into()
+            }
+
             _ => {
                 dbg!(error);
                 return;
