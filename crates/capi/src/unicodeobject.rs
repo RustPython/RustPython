@@ -11,45 +11,57 @@ define_py_check!(fn PyUnicode_Check, types.str_type);
 define_py_check!(exact fn PyUnicode_CheckExact, types.str_type);
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyUnicode_FromStringAndSize(s: *const c_char, len: isize) -> *mut PyObject {
-    let len = usize::try_from(len).expect("PyUnicode_FromStringAndSize called with negative len");
-    let text = if s.is_null() {
-        if len != 0 {
-            panic!("PyUnicode_FromStringAndSize called with null data and non-zero len");
-        }
-        ""
-    } else {
-        // SAFETY: caller passes a valid C buffer of length `len`.
-        let bytes = unsafe { slice::from_raw_parts(s.cast::<u8>(), len) };
-        str::from_utf8(bytes).expect("PyUnicode_FromStringAndSize got non-UTF8 data")
-    };
+pub unsafe extern "C" fn PyUnicode_FromStringAndSize(
+    s: *const c_char,
+    len: isize,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let len: usize = len
+            .try_into()
+            .map_err(|_| vm.new_system_error("length must be non-negative"))?;
 
-    with_vm(|vm| vm.ctx.new_str(text))
+        let text = if s.is_null() {
+            if len != 0 {
+                return Err(vm.new_system_error(
+                    "PyUnicode_FromStringAndSize called with null data and non-zero len",
+                ));
+            }
+            ""
+        } else {
+            let bytes = unsafe { slice::from_raw_parts(s.cast::<u8>(), len) };
+            str::from_utf8(bytes).expect("PyUnicode_FromStringAndSize got non-UTF8 data")
+        };
+
+        Ok(vm.ctx.new_str(text))
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyUnicode_AsUTF8AndSize(obj: *mut PyObject, size: *mut isize) -> *const c_char {
+pub unsafe extern "C" fn PyUnicode_AsUTF8AndSize(
+    obj: *mut PyObject,
+    size: *mut isize,
+) -> *const c_char {
     with_vm(|vm| {
-        let obj = unsafe {
-            obj.as_ref()
-                .expect("PyUnicode_AsUTF8AndSize called with null pointer")
-        };
+        let unicode = unsafe { &*obj }.try_downcast_ref::<PyStr>(vm)?;
 
-        let unicode = obj.try_downcast_ref::<PyStr>(vm)?;
+        let str = unicode.to_str().ok_or_else(|| {
+            vm.new_system_error("PyUnicode_AsUTF8AndSize only supports UTF-8 or ASCII strings")
+        })?;
 
-        let str = unicode
-            .to_str()
-            .expect("only utf8 or ascii is currently supported in PyUnicode_AsUTF8AndSize");
-
-        if !size.is_null() {
-            unsafe { *size = str.len() as isize };
+        if size.is_null() {
+            // We do not support null size arguments because the returned string is not NULL terminated.
+            return Err(
+                vm.new_system_error("size argument to PyUnicode_AsUTF8AndSize cannot be null")
+            );
         }
+
+        unsafe { *size = str.len() as isize };
         Ok(str.as_ptr())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyUnicode_AsEncodedString(
+pub unsafe extern "C" fn PyUnicode_AsEncodedString(
     unicode: *mut PyObject,
     encoding: *const c_char,
     errors: *const c_char,
@@ -80,7 +92,7 @@ pub extern "C" fn PyUnicode_AsEncodedString(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyUnicode_InternInPlace(string: *mut *mut PyObject) {
+pub unsafe extern "C" fn PyUnicode_InternInPlace(string: *mut *mut PyObject) {
     with_vm(|vm| {
         let old_str = unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(*string)) }
             .downcast_exact::<PyStr>(vm)
@@ -93,15 +105,19 @@ pub extern "C" fn PyUnicode_InternInPlace(string: *mut *mut PyObject) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyUnicode_EqualToUTF8AndSize(
+pub unsafe extern "C" fn PyUnicode_EqualToUTF8AndSize(
     unicode: *mut PyObject,
     string: *const c_char,
     size: isize,
 ) -> c_int {
     with_vm(|vm| {
+        let size = size.try_into().map_err(|_| {
+            vm.new_system_error("Negative size passed to PyUnicode_EqualToUTF8AndSize")
+        })?;
+
         let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
         let result = unsafe {
-            let slice = slice::from_raw_parts(string as _, size as _);
+            let slice = slice::from_raw_parts(string as _, size);
             str::from_utf8(slice)
         }
         .ok()

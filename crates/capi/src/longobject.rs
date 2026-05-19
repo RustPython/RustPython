@@ -38,16 +38,11 @@ pub extern "C" fn PyLong_FromUnsignedLongLong(value: c_ulonglong) -> *mut PyObje
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
+pub unsafe extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
     with_vm::<PyResult<c_long>, _>(|vm| {
-        // SAFETY: non-null checked above; caller promises a valid PyObject pointer.
-        let obj_ref = unsafe { &*obj };
-        let int_obj = obj_ref
+        unsafe { &*obj }
             .to_owned()
-            .try_downcast::<PyInt>(vm)
-            .or_else(|_| obj_ref.try_index(vm))?;
-
-        int_obj
+            .try_index(vm)?
             .as_bigint()
             .try_into()
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))
@@ -55,14 +50,16 @@ pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_longlong {
-    with_vm::<PyResult<c_longlong>, _>(|vm| {
+pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulonglong {
+    with_vm::<PyResult<c_ulonglong>, _>(|vm| {
         unsafe { &*obj }
             .to_owned()
             .try_downcast::<PyInt>(vm)?
             .as_bigint()
             .try_into()
-            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long long"))
+            .map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C unsigned long long")
+            })
     })
 }
 
