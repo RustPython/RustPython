@@ -9,12 +9,14 @@ use std::sync::MutexGuard;
 extern crate alloc;
 
 pub mod abstract_;
+pub mod bytesobject;
 pub mod import;
 pub mod object;
 pub mod pyerrors;
 pub mod pylifecycle;
 pub mod pystate;
 pub mod refcount;
+pub mod unicodeobject;
 mod util;
 
 /// Get main interpreter of this process. Will be None if it has not been initialized yet.
