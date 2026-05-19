@@ -57,6 +57,7 @@
   "words": [
     "aiterable",
     "alnum",
+    "csock",
     "coro",
     "dedentations",
     "dedents",
@@ -80,6 +81,8 @@
     "reraising",
     "significand",
     "summands",
+    "TESTFN",
+    "TZPATH",
     "unraisable",
     "wasi",
     "weaked",
