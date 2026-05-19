@@ -2001,11 +2001,11 @@ SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
 
->>> from t import x,  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from t import x,
 Traceback (most recent call last):
 SyntaxError: trailing comma not allowed without surrounding parentheses
 
->>> from t import x,y,  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from t import x,y,
 Traceback (most recent call last):
 SyntaxError: trailing comma not allowed without surrounding parentheses
 

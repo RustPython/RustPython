@@ -141,9 +141,15 @@ impl SyntaxErrorInfo {
             }
 
             ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("Boolean 'not' expression cannot be used here") =>
+                if s.eq_ignore_ascii_case("boolean 'not' expression cannot be used here") =>
             {
                 "'not' after an operator must be parenthesized".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("trailing comma not allowed") =>
+            {
+                "trailing comma not allowed without surrounding parentheses".into()
             }
 
             _ => {
