@@ -2,10 +2,10 @@ use std::io;
 #[cfg(windows)]
 use std::sync::Once;
 
-#[cfg(any(unix, windows))]
-use crate::os::CheckLibcZero;
 #[cfg(unix)]
 use crate::os::CheckLibcResult;
+#[cfg(any(unix, windows))]
+use crate::os::CheckLibcZero;
 
 #[cfg(any(unix, windows))]
 pub use libc::sighandler_t;

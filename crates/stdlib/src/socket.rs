@@ -8,15 +8,15 @@ pub(super) use _socket::{PySocket, SelectKind, sock_select, timeout_error_msg};
 #[pymodule]
 mod _socket {
     use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
+    #[cfg(all(unix, not(target_os = "redox")))]
+    use crate::vm::convert::ToPyException;
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
             PyUtf8StrRef,
         },
-        convert::{
-            IntoPyException, ToPyException, ToPyObject, TryFromBorrowedObject, TryFromObject,
-        },
+        convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
             OptionalArg, OptionalOption,
