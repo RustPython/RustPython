@@ -32,6 +32,7 @@ impl PyPayload for PyWeak {
 
 impl Callable for PyWeak {
     type Args = ();
+
     #[inline]
     fn call(zelf: &Py<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
         Ok(vm.unwrap_or_none(zelf.upgrade()))
@@ -50,10 +51,10 @@ impl Constructor for PyWeak {
             .ok_or_else(|| vm.new_type_error("__new__ expected at least 1 argument, got 0"))?;
         let callback = positional.next();
         if let Some(_extra) = positional.next() {
-            return Err(vm.new_type_error(format!(
-                "__new__ expected at most 2 arguments, got {}",
-                3 + positional.count()
-            )));
+            let got = positional.count() + 3;
+            return Err(
+                vm.new_type_error(format!("__new__ expected at most 2 arguments, got {got}"))
+            );
         }
         let weak = referent.downgrade_with_typ(callback, cls, vm)?;
         Ok(weak.into())
@@ -151,7 +152,7 @@ impl Representable for PyWeak {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         let id = zelf.get_id();
-        let repr = if let Some(o) = zelf.upgrade() {
+        Ok(if let Some(o) = zelf.upgrade() {
             format!(
                 "<weakref at {:#x}; to '{}' at {:#x}>",
                 id,
@@ -160,8 +161,7 @@ impl Representable for PyWeak {
             )
         } else {
             format!("<weakref at {id:#x}; dead>")
-        };
-        Ok(repr)
+        })
     }
 }
 

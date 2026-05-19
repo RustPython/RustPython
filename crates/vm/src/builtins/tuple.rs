@@ -1,3 +1,5 @@
+// cspell:ignore pyhash
+
 use super::{
     PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
 };
@@ -296,13 +298,13 @@ impl<R> PyTuple<R> {
 
     #[inline]
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.elements.len()
     }
 
     #[inline]
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
 
@@ -725,23 +727,29 @@ pub(crate) fn init(context: &'static Context) {
 }
 
 pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyHash> {
-    #[cfg(target_pointer_width = "64")]
-    const PRIME1: PyUHash = 11400714785074694791;
-    #[cfg(target_pointer_width = "64")]
-    const PRIME2: PyUHash = 14029467366897019727;
-    #[cfg(target_pointer_width = "64")]
-    const PRIME5: PyUHash = 2870177450012600261;
-    #[cfg(target_pointer_width = "64")]
-    const ROTATE: u32 = 31;
+    const PRIME1: PyUHash = cfg_select! {
+        target_pointer_width = "64" => 11400714785074694791,
+        target_pointer_width = "32" => 2654435761,
+        _ => unreachable!(),
+    };
 
-    #[cfg(target_pointer_width = "32")]
-    const PRIME1: PyUHash = 2654435761;
-    #[cfg(target_pointer_width = "32")]
-    const PRIME2: PyUHash = 2246822519;
-    #[cfg(target_pointer_width = "32")]
-    const PRIME5: PyUHash = 374761393;
-    #[cfg(target_pointer_width = "32")]
-    const ROTATE: u32 = 13;
+    const PRIME2: PyUHash = cfg_select! {
+        target_pointer_width = "64" => 14029467366897019727,
+        target_pointer_width = "32" => 2246822519,
+        _ => unreachable!(),
+    };
+
+    const PRIME5: PyUHash = cfg_select! {
+        target_pointer_width = "64" => 2870177450012600261,
+        target_pointer_width = "32" => 374761393,
+        _ => unreachable!(),
+    };
+
+    const ROTATE: u32 = cfg_select! {
+        target_pointer_width = "64" => 31,
+        target_pointer_width = "32" => 13,
+        _ => unreachable!(),
+    };
 
     let mut acc = PRIME5;
     let len = elements.len() as PyUHash;
@@ -755,8 +763,10 @@ pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyRes
 
     acc = acc.wrapping_add(len ^ (PRIME5 ^ 3527539));
 
-    if acc as PyHash == -1 {
+    let acc_pyhash = acc as PyHash;
+    if acc_pyhash == -1 {
         return Ok(1546275796);
     }
-    Ok(acc as PyHash)
+
+    Ok(acc_pyhash)
 }

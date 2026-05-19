@@ -380,14 +380,14 @@ pub fn fchownat(
     .map_err(std::io::Error::from)
 }
 
-pub fn uname_info() -> std::io::Result<UnameInfo> {
-    let info = uname::uname()?;
+pub fn uname_info() -> Result<UnameInfo, core::str::Utf8Error> {
+    let info = rustix::system::uname();
     Ok(UnameInfo {
-        sysname: info.sysname,
-        nodename: info.nodename,
-        release: info.release,
-        version: info.version,
-        machine: info.machine,
+        sysname: info.sysname().to_str()?.into(),
+        nodename: info.nodename().to_str()?.into(),
+        release: info.release().to_str()?.into(),
+        version: info.version().to_str()?.into(),
+        machine: info.machine().to_str()?.into(),
     })
 }
 

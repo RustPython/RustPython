@@ -136,7 +136,7 @@ impl IterNext for PyWeakProxy {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let obj = zelf.try_upgrade(vm)?;
         if obj.class().slots.iternext.load().is_none() {
-            return Err(vm.new_type_error("Weakref proxy referenced a non-iterator".to_owned()));
+            return Err(vm.new_type_error("Weakref proxy referenced a non-iterator"));
         }
         PyIter::new(obj).next(vm)
     }
