@@ -2164,31 +2164,31 @@ SyntaxError: only single target (not list) can be annotated
 
 # 'not' after operators:
 
->>> 3 + not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 3 + not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> 3 * not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 3 * not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> + not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> + not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> - not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> - not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> ~ not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ~ not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> 3 + - not 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 3 + - not 3
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 
->>> 3 + not -1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 3 + not -1
 Traceback (most recent call last):
 SyntaxError: 'not' after an operator must be parenthesized
 

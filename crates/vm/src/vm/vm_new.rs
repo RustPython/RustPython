@@ -140,7 +140,16 @@ impl SyntaxErrorInfo {
                 "positional patterns follow keyword patterns".into()
             }
 
-            _ => return,
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("Boolean 'not' expression cannot be used here") =>
+            {
+                "'not' after an operator must be parenthesized".into()
+            }
+
+            _ => {
+                dbg!(error);
+                return;
+            }
         };
 
         self.with_msg(&msg);
