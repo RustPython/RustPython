@@ -678,7 +678,7 @@ impl VirtualMachine {
             Some(line + "\n")
         }
 
-        let statement = source.map(|src| get_statement(src, error.location()));
+        let statement = source.and_then(|src| get_statement(src, error.location()));
 
         let mut msg = error.to_string();
         if let Some(msg) = msg.get_mut(..1) {
