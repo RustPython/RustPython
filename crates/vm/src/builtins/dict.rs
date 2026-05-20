@@ -205,7 +205,7 @@ impl PyDict {
 
     /// Set item variant which can be called with multiple
     /// key types, such as str to name a notable one.
-    pub(crate) fn inner_setitem<K: DictKey + ?Sized>(
+    pub fn inner_setitem<K: DictKey + ?Sized>(
         &self,
         key: &K,
         value: PyObjectRef,
@@ -251,6 +251,14 @@ impl PyDict {
 
     pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef, PyObjectRef)> {
         self.entries.next_entry(position)
+    }
+
+    pub fn inner_getitem_opt<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        self.entries.get(vm, key)
     }
 }
 

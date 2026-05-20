@@ -27,7 +27,7 @@ pub unsafe extern "C" fn PyDict_SetItem(
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
         let key = unsafe { &*key };
         let value = unsafe { &*val }.to_owned();
-        dict.set_item(key, value, vm)
+        dict.inner_setitem(key, value, vm)
     })
 }
 
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn PyDict_GetItemRef(
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
         let key = unsafe { &*key };
 
-        if let Some(value) = dict.get_item_opt(key, vm)? {
+        if let Some(value) = dict.inner_getitem_opt(key, vm)? {
             unsafe {
                 *result = value.into_raw().as_ptr();
             }
