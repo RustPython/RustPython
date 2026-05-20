@@ -67,6 +67,7 @@
     "emscripten",
     "excs",
     "fnfe",
+    "ifexp",
     "interps",
     "jitted",
     "jitting",
