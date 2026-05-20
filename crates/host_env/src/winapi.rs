@@ -219,11 +219,15 @@ unsafe fn create_process_w_raw(
 /// The buffer is passed `&mut [u16]` because `CreateProcessW` may modify it
 /// in place.
 #[inline]
-fn assert_command_line_terminated(buf: &[u16]) {
-    assert!(
-        buf.last() == Some(&0),
-        "command_line buffer passed to create_process must be NUL-terminated",
-    );
+fn validate_command_line_terminated(buf: &[u16]) -> io::Result<()> {
+    if buf.last() == Some(&0) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "command_line buffer passed to create_process must be NUL-terminated",
+        ))
+    }
 }
 
 /// Win32 `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires
@@ -231,11 +235,15 @@ fn assert_command_line_terminated(buf: &[u16]) {
 /// final terminating `\0` — i.e. the block ends with two consecutive zero
 /// `u16`s.
 #[inline]
-fn assert_environment_block_terminated(buf: &[u16]) {
-    assert!(
-        buf.len() >= 2 && buf[buf.len() - 2..] == [0, 0],
-        "env block passed to create_process must end with a double NUL terminator",
-    );
+fn validate_environment_block_terminated(buf: &[u16]) -> io::Result<()> {
+    if buf.len() >= 2 && buf[buf.len() - 2..] == [0, 0] {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "env block passed to create_process must end with a double NUL terminator",
+        ))
+    }
 }
 
 #[allow(
@@ -253,10 +261,10 @@ pub fn create_process(
     handle_list: Option<Vec<usize>>,
 ) -> io::Result<ProcessInfo> {
     if let Some(cmd) = command_line.as_deref() {
-        assert_command_line_terminated(cmd);
+        validate_command_line_terminated(cmd)?;
     }
     if let Some(env_block) = env {
-        assert_environment_block_terminated(env_block);
+        validate_environment_block_terminated(env_block)?;
     }
 
     let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =

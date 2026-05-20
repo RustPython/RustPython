@@ -156,8 +156,6 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 pub(super) mod _os {
     use super::{DirFd, FollowSymlinks, SupportFunc};
     use crate::host_env::fileutils::StatStruct;
-    #[cfg(windows)]
-    use crate::host_env::windows::ToWideString;
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{

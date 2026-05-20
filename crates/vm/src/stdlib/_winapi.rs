@@ -230,11 +230,8 @@ mod _winapi {
 
         let handle_list = get_handle_list(args.startup_info.get_attr("lpAttributeList", vm)?, vm)?;
 
-        let wcstring = |s: PyStrRef| {
-            widestring::WideCString::from_str(s.expect_str()).map_err(|err| err.to_pyexception(vm))
-        };
-
         // Validate no embedded null bytes in command name and command line
+        // before handing the strings off; to_wide_cstring truncates at NUL.
         if let Some(ref name) = args.name
             && name.as_bytes().contains(&0)
         {
@@ -246,12 +243,13 @@ mod _winapi {
             return Err(crate::exceptions::cstring_error(vm));
         }
 
-        let app_name = args.name.map(wcstring).transpose()?;
-        let current_dir = args.current_dir.map(wcstring).transpose()?;
+        let wcstring = |s: PyStrRef| s.as_wtf8().to_wide_cstring();
+        let app_name = args.name.as_ref().map(|s| wcstring(s.clone()));
+        let current_dir = args.current_dir.as_ref().map(|s| wcstring(s.clone()));
         let mut command_line = args
             .command_line
-            .map(|s| wcstring(s).map(|w| w.into_vec_with_nul()))
-            .transpose()?;
+            .as_ref()
+            .map(|s| wcstring(s.clone()).into_vec_with_nul());
 
         let procinfo = host_winapi::create_process(
             app_name.as_deref(),

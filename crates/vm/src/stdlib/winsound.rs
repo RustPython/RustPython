@@ -74,7 +74,11 @@ mod winsound {
         rustpython_host_env::winsound::PlaySoundError,
     ) -> crate::builtins::PyBaseExceptionRef
     + '_ {
-        |_| vm.new_runtime_error("Failed to play sound")
+        use rustpython_host_env::winsound::PlaySoundError::*;
+        |err| match err {
+            MemoryAsyncRejected => vm.new_runtime_error("Cannot play asynchronously from memory"),
+            MemoryFlagWithoutBuffer | CallFailed => vm.new_runtime_error("Failed to play sound"),
+        }
     }
 
     #[pyfunction]
@@ -87,14 +91,11 @@ mod winsound {
         }
 
         if flags & SND_MEMORY != 0 {
-            if flags & SND_ASYNC != 0 {
-                return Err(vm.new_runtime_error("Cannot play asynchronously from memory"));
-            }
             let buffer = PyBuffer::try_from_borrowed_object(vm, &sound)?;
             let buf = buffer
                 .as_contiguous()
                 .ok_or_else(|| vm.new_type_error("a bytes-like object is required, not 'str'"))?;
-            return play_sound(PlaySoundSource::Memory(&*buf), flags).map_err(map_play_err(vm));
+            return play_sound(PlaySoundSource::Memory(&buf), flags).map_err(map_play_err(vm));
         }
 
         if sound.downcastable::<PyBytes>() {

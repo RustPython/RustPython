@@ -1510,7 +1510,9 @@ impl ToPyException for rustpython_host_env::nt::ReadlinkError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
             Self::Io(err) => err.to_pyexception(vm),
-            Self::NotSymbolicLink => vm.new_os_error("The file or directory is not a reparse point"),
+            Self::NotSymbolicLink => {
+                vm.new_os_error("The file or directory is not a reparse point")
+            }
             Self::InvalidReparseData => vm.new_os_error("Invalid reparse data"),
         }
     }
