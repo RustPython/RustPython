@@ -21,12 +21,12 @@ flame-it = ["rustpython-vm/flame-it", "rustpython-stdlib/flame-it", "flame", "fl
 freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
-sqlite = ["rustpython-stdlib/sqlite"]
-ssl = []
+sqlite = ["host_env", "rustpython-stdlib/sqlite"]
+ssl = ["host_env"]
 ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
-tkinter = ["rustpython-stdlib/tkinter"]
+tkinter = ["host_env", "rustpython-stdlib/tkinter"]
 
 [build-dependencies]
 winresource = "0.1"
