@@ -68,8 +68,12 @@ mod winsound {
         flags: i32,
     }
 
-    fn map_play_err(vm: &VirtualMachine) -> impl FnOnce(rustpython_host_env::winsound::PlaySoundError) -> crate::builtins::PyBaseExceptionRef + '_
-    {
+    fn map_play_err(
+        vm: &VirtualMachine,
+    ) -> impl FnOnce(
+        rustpython_host_env::winsound::PlaySoundError,
+    ) -> crate::builtins::PyBaseExceptionRef
+    + '_ {
         |_| vm.new_runtime_error("Failed to play sound")
     }
 

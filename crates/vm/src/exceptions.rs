@@ -1385,7 +1385,8 @@ impl ToOSErrorBuilder for std::io::Error {
             // Use C runtime's strerror for POSIX errno values.
             // For Windows-specific error codes, fall back to FormatMessage.
             const MAX_POSIX_ERRNO: i32 = 127;
-            if errno > 0 && errno <= MAX_POSIX_ERRNO
+            if errno > 0
+                && errno <= MAX_POSIX_ERRNO
                 && let Some(s) = crate::host_env::errno::strerror_string(errno)
                 && !s.starts_with("Unknown error")
             {
@@ -1394,7 +1395,8 @@ impl ToOSErrorBuilder for std::io::Error {
             self.to_string()
         };
         #[cfg(unix)]
-        let msg = crate::host_env::errno::strerror_string(errno).unwrap_or_else(|| self.to_string());
+        let msg =
+            crate::host_env::errno::strerror_string(errno).unwrap_or_else(|| self.to_string());
         #[cfg(not(any(windows, unix)))]
         let msg = self.to_string();
 

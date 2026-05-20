@@ -538,15 +538,13 @@ pub(super) mod _os {
         }
         // "key=" to unset (empty value removes the variable)
         let env_str = format!("{key_str}=");
-        let wide = env_str.to_wide_with_nul();
-        check_env_var_len(wide.len(), vm)?;
+        // env_str is guaranteed nul-free by the checks above.
+        let wide = widestring::WideCString::from_str(&env_str)
+            .expect("env_str validated to contain no NUL");
+        check_env_var_len(wide.len() + 1, vm)?;
 
-        // Use _wputenv like CPython (not SetEnvironmentVariableW) to update CRT environ
-        let result = unsafe { rustpython_host_env::suppress_iph!(_wputenv(wide.as_ptr())) };
-        if result != 0 {
-            return Err(vm.new_last_errno_error());
-        }
-        Ok(())
+        // Use _wputenv (not SetEnvironmentVariableW) to update CRT environ.
+        rustpython_host_env::nt::wputenv(&wide).map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(not(windows))]

@@ -30,11 +30,7 @@ pub fn play_sound(source: PlaySoundSource<'_>, flags: u32) -> Result<(), PlaySou
         PlaySoundSource::Name(s) => s.as_ptr(),
     };
     let ok = unsafe { PlaySoundW(ptr, 0, flags) };
-    if ok == 0 {
-        Err(PlaySoundError)
-    } else {
-        Ok(())
-    }
+    if ok == 0 { Err(PlaySoundError) } else { Ok(()) }
 }
 
 /// `PlaySoundW` returned 0; there is no documented errno for this path.
