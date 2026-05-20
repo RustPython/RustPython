@@ -9,7 +9,6 @@ from test.support import warnings_helper
 import unittest
 
 class EOFTestCase(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_EOF_single_quote(self):
         expect = "unterminated string literal (detected at line 1) (<string>, line 1)"
         for quote in ("'", "\""):
