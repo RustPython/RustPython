@@ -1,3 +1,6 @@
+#[cfg(feature = "parser")]
+use ruff_python_ast::token::TokenKind;
+
 use ruff_python_parser::{InterpolatedStringErrorType, LexicalErrorType, ParseErrorType};
 
 use rustpython_common::wtf8::Wtf8Buf;
@@ -60,6 +63,22 @@ impl SyntaxErrorInfo {
     }
 
     #[cfg(feature = "parser")]
+    #[must_use]
+    const fn handle_expected_token(expected: &TokenKind, found: &TokenKind) -> &'static str {
+        match (*expected, *found) {
+            (TokenKind::Colon, TokenKind::Newline) => "expected ':'",
+
+            (TokenKind::Lpar, _) => "expected '('",
+
+            (TokenKind::Else, y) if !matches!(y, TokenKind::Colon) => {
+                "expected 'else' after 'if' expression"
+            }
+
+            _ => "invalid syntax",
+        }
+    }
+
+    #[cfg(feature = "parser")]
     fn analyze_compile_error(&mut self, compile_error: &CompileError) {
         let CompileError::Parse(ParseError {
             error, location, ..
@@ -89,11 +108,9 @@ impl SyntaxErrorInfo {
 
             ParseErrorType::UnexpectedExpressionToken => format!("invalid syntax: {}", self.msg),
 
-            ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { .. })
-            | ParseErrorType::SimpleStatementsOnSameLine
-            | ParseErrorType::SimpleAndCompoundStatementOnSameLine
-            | ParseErrorType::ExpectedToken { .. }
-            | ParseErrorType::ExpectedExpression => "invalid syntax".into(),
+            ParseErrorType::ExpectedToken { expected, found } => {
+                Self::handle_expected_token(expected, found).into()
+            }
 
             ParseErrorType::InvalidStarredExpressionUsage => {
                 self.with_narrow_caret(true);
@@ -156,18 +173,23 @@ impl SyntaxErrorInfo {
                 "arguments cannot follow var-keyword argument".into()
             }
 
+            ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { .. })
+            | ParseErrorType::SimpleStatementsOnSameLine
+            | ParseErrorType::SimpleAndCompoundStatementOnSameLine
+            | ParseErrorType::ExpectedExpression => "invalid syntax".into(),
+
+            ParseErrorType::OtherError(s)
+                if s.starts_with("Expected an identifier, but found a keyword") =>
+            {
+                "invalid syntax".into()
+            }
+
             ParseErrorType::OtherError(s)
                 if s.eq_ignore_ascii_case(
                     "bytes literal cannot be mixed with non-bytes literals",
                 ) =>
             {
                 "cannot mix bytes and nonbytes literals".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.starts_with("Expected an identifier, but found a keyword") =>
-            {
-                "invalid syntax".into()
             }
 
             ParseErrorType::OtherError(s)

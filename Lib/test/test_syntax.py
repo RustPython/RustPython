@@ -156,15 +156,15 @@ SyntaxError: cannot assign to expression
 Traceback (most recent call last):
 SyntaxError: cannot assign to conditional expression
 
->>> a = 42 if True  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> a = 42 if True
 Traceback (most recent call last):
 SyntaxError: expected 'else' after 'if' expression
 
->>> a = (42 if True)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> a = (42 if True)
 Traceback (most recent call last):
 SyntaxError: expected 'else' after 'if' expression
 
->>> a = [1, 42 if True, 4]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> a = [1, 42 if True, 4]
 Traceback (most recent call last):
 SyntaxError: expected 'else' after 'if' expression
 
@@ -275,7 +275,7 @@ SyntaxError: cannot assign to function call
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> with a as b  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as b
 Traceback (most recent call last):
 SyntaxError: expected ':'
 
@@ -1093,27 +1093,27 @@ leading to spurious errors.
 
 Missing ':' before suites:
 
-   >>> def f()  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> def f()
    ...     pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> def f[T]()  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> def f[T]()
    ...     pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> class A  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> class A
    ...     pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> class A[T]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> class A[T]
    ...     pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> class A[T]()  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> class A[T]()
    ...     pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1123,7 +1123,7 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> if 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1
    ...   pass
    ... elif 1:
    ...   pass
@@ -1132,7 +1132,7 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1
    ...   pass
@@ -1141,7 +1141,7 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   pass
@@ -1150,7 +1150,7 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> for x in range(10)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> for x in range(10)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1160,47 +1160,47 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> while True  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> while True
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with blech as something  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with blech as something
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with blech  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with blech
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with blech, block as something  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with blech, block as something
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with blech, block as something, bluch  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with blech, block as something, bluch
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech as something)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech as something)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech, block as something)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech, block as something)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech, block as something, bluch)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech, block as something, bluch)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1210,19 +1210,19 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: invalid syntax. Did you mean 'and'?
 
-   >>> try  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> try:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try:
    ...   pass
    ... except
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> match x  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> match x
    ...   case list():
    ...       pass
    Traceback (most recent call last):
@@ -1234,13 +1234,13 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> match x:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> match x:
    ...   case list()
    ...       pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> match x:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> match x:
    ...   case [y] if y > 0
    ...       pass
    Traceback (most recent call last):
@@ -1287,27 +1287,27 @@ Missing ':' before suites:
 
 Missing parens after function definition
 
-   >>> def f:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> def f:
    Traceback (most recent call last):
    SyntaxError: expected '('
 
-   >>> async def f:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> async def f:
    Traceback (most recent call last):
    SyntaxError: expected '('
 
-   >>> def f -> int:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> def f -> int:
    Traceback (most recent call last):
    SyntaxError: expected '('
 
-   >>> async def f -> int:  # type: int  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> async def f -> int:  # type: int
    Traceback (most recent call last):
    SyntaxError: expected '('
 
-   >>> async def f[T]:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> async def f[T]:
    Traceback (most recent call last):
    SyntaxError: expected '('
 
-   >>> def f[T] -> str:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> def f[T] -> str:
    Traceback (most recent call last):
    SyntaxError: expected '('
 
@@ -3092,7 +3092,6 @@ class A:
             with self.subTest(f"out of range: {n=}"):
                 self._check_error(get_code(n), "too many statically nested blocks")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_barry_as_flufl_with_syntax_errors(self):
         # The "barry_as_flufl" rule can produce some "bugs-at-a-distance" if
         # is reading the wrong token in the presence of syntax errors later
