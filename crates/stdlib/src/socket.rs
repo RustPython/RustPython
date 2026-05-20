@@ -45,8 +45,8 @@ mod _socket {
         time::Duration,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use host_socket::raw::Socket;
     use num_traits::ToPrimitive;
-    use socket2::Socket;
     use std::{
         ffi,
         io::{self, Read, Write},
@@ -1109,7 +1109,7 @@ mod _socket {
             addr: PyObjectRef,
             caller: &str,
             vm: &VirtualMachine,
-        ) -> Result<socket2::SockAddr, IoOrPyException> {
+        ) -> Result<host_socket::raw::SockAddr, IoOrPyException> {
             let family = self.family.load();
             match family {
                 #[cfg(unix)]
@@ -1122,7 +1122,7 @@ mod _socket {
                         ArgStrOrBytesLike::Buf(_) => ffi::OsStr::from_bytes(bytes).into(),
                         ArgStrOrBytesLike::Str(s) => vm.fsencode(s)?,
                     };
-                    socket2::SockAddr::unix(path)
+                    host_socket::raw::SockAddr::unix(path)
                         .map_err(|_| vm.new_os_error("AF_UNIX path too long").into())
                 }
                 c::AF_INET => {
@@ -1220,10 +1220,10 @@ mod _socket {
                         (*can_addr).can_family = c::AF_CAN as c::sa_family_t;
                         (*can_addr).can_ifindex = ifindex;
                     }
-                    let storage: socket2::SockAddrStorage =
+                    let storage: host_socket::raw::SockAddrStorage =
                         unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
-                        socket2::SockAddr::new(
+                        host_socket::raw::SockAddr::new(
                             storage,
                             core::mem::size_of::<c::sockaddr_can>() as c::socklen_t,
                         )
@@ -1285,10 +1285,10 @@ mod _socket {
                             (*alg_addr).salg_name[i] = b;
                         }
                     }
-                    let storage: socket2::SockAddrStorage =
+                    let storage: host_socket::raw::SockAddrStorage =
                         unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
-                        socket2::SockAddr::new(
+                        host_socket::raw::SockAddr::new(
                             storage,
                             core::mem::size_of::<c::sockaddr_alg>() as c::socklen_t,
                         )
@@ -1771,7 +1771,7 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let flags = flags.unwrap_or(0);
-            let mut msg = socket2::MsgHdr::new();
+            let mut msg = host_socket::raw::MsgHdr::new();
 
             let sockaddr;
             if let Some(addr) = addr.flatten() {
@@ -1894,9 +1894,9 @@ mod _socket {
 
             // Build address tuple
             let address = if let Some(address) = msg.address {
-                let storage: socket2::SockAddrStorage =
+                let storage: host_socket::raw::SockAddrStorage =
                     unsafe { core::mem::transmute(address.storage) };
-                let addr = unsafe { socket2::SockAddr::new(storage, address.len as _) };
+                let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
                 get_addr_tuple(&addr, vm)
             } else {
                 vm.ctx.none()
@@ -2258,7 +2258,7 @@ mod _socket {
         }
     }
 
-    fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef {
+    fn get_addr_tuple(addr: &host_socket::raw::SockAddr, vm: &VirtualMachine) -> PyObjectRef {
         if let Some(addr) = addr.as_socket() {
             return get_ip_addr_tuple(&addr, vm);
         }
@@ -2591,7 +2591,7 @@ mod _socket {
         opts: GAIOptions,
         vm: &VirtualMachine,
     ) -> Result<Vec<PyObjectRef>, IoOrPyException> {
-        let hints = dns_lookup::AddrInfoHints {
+        let hints = host_socket::dns::AddrInfoHints {
             socktype: opts.ty,
             protocol: opts.proto,
             address: opts.family,
@@ -2644,7 +2644,7 @@ mod _socket {
         };
         let port = port_encoded.as_deref();
 
-        let addrs = dns_lookup::getaddrinfo(host, port, Some(hints))
+        let addrs = host_socket::dns::getaddrinfo(host, port, Some(hints))
             .map_err(|err| convert_socket_error(vm, err, SocketError::GaiError))?;
 
         let list = addrs
@@ -2670,7 +2670,7 @@ mod _socket {
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, addr, c::AF_UNSPEC)?;
-        let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
+        let (hostname, _) = host_socket::dns::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
         Ok((
             hostname,
@@ -2695,7 +2695,7 @@ mod _socket {
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, name, c::AF_INET)?;
-        let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
+        let (hostname, _) = host_socket::dns::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
         Ok((
             hostname,
@@ -2770,7 +2770,7 @@ mod _socket {
             }
         }
         let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&address, vm)?;
-        let hints = dns_lookup::AddrInfoHints {
+        let hints = host_socket::dns::AddrInfoHints {
             address: c::AF_UNSPEC,
             socktype: c::SOCK_DGRAM,
             flags: c::AI_NUMERICHOST,
@@ -2778,7 +2778,7 @@ mod _socket {
         };
         let service = addr.port.to_string();
         let host_str = addr.host.as_str();
-        let mut res = dns_lookup::getaddrinfo(Some(host_str), Some(&service), Some(hints))
+        let mut res = host_socket::dns::getaddrinfo(Some(host_str), Some(&service), Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?
             .filter_map(Result::ok);
         let mut ainfo = res.next().unwrap();
@@ -2798,7 +2798,7 @@ mod _socket {
                 addr.set_scope_id(scopeid);
             }
         }
-        dns_lookup::getnameinfo(&ainfo.sockaddr, flags)
+        host_socket::dns::getnameinfo(&ainfo.sockaddr, flags)
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))
     }
 
@@ -2910,13 +2910,13 @@ mod _socket {
     ) -> Result<SocketAddr, IoOrPyException> {
         let name = pyname.as_str();
         if name.is_empty() {
-            let hints = dns_lookup::AddrInfoHints {
+            let hints = host_socket::dns::AddrInfoHints {
                 address: af,
                 socktype: c::SOCK_DGRAM,
                 flags: c::AI_PASSIVE,
                 protocol: 0,
             };
-            let mut res = dns_lookup::getaddrinfo(None, Some("0"), Some(hints))
+            let mut res = host_socket::dns::getaddrinfo(None, Some("0"), Some(hints))
                 .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
             let ainfo = res.next().unwrap()?;
             if res.next().is_some() {
@@ -2949,7 +2949,7 @@ mod _socket {
         {
             return Ok(SocketAddr::V6(net::SocketAddrV6::new(addr, 0, 0, 0)));
         }
-        let hints = dns_lookup::AddrInfoHints {
+        let hints = host_socket::dns::AddrInfoHints {
             address: af,
             ..Default::default()
         };
@@ -2959,7 +2959,7 @@ mod _socket {
             .encode_text(pyname.into_wtf8(), "idna", None, vm)?;
         let name = core::str::from_utf8(name.as_bytes())
             .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
-        let mut res = dns_lookup::getaddrinfo(Some(name), None, Some(hints))
+        let mut res = host_socket::dns::getaddrinfo(Some(name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
         Ok(res.next().unwrap().map(|ainfo| ainfo.sockaddr)?)
     }
@@ -3025,10 +3025,10 @@ mod _socket {
 
     fn convert_socket_error(
         vm: &VirtualMachine,
-        err: dns_lookup::LookupError,
+        err: host_socket::dns::LookupError,
         err_kind: SocketError,
     ) -> IoOrPyException {
-        if let dns_lookup::LookupErrorKind::System = err.kind() {
+        if let host_socket::dns::LookupErrorKind::System = err.kind() {
             return io::Error::from(err).into();
         }
         let strerr = {

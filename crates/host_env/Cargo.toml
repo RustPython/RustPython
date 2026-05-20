@@ -29,8 +29,10 @@ num_cpus = "1.17.0"
 mac_address = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dns-lookup = { workspace = true }
 gethostname = { workspace = true }
 rustyline = { workspace = true }
+socket2 = { workspace = true, features = ["all"] }
 which = { workspace = true }
 
 [target.'cfg(all(unix, not(target_os = "ios"), not(target_os = "redox")))'.dependencies]

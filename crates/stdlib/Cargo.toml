@@ -101,8 +101,6 @@ uuid = { workspace = true, features = ["v1"] }
 
 # mmap + socket dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-socket2 = { workspace = true, features = ["all"] }
-dns-lookup = { workspace = true }
 
 # OpenSSL dependencies (optional, for ssl-openssl feature)
 openssl = { workspace = true, optional = true }
