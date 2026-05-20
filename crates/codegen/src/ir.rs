@@ -198,6 +198,8 @@ pub struct Block {
     pub load_fast_barrier: bool,
     /// Let optimize_load_fast_borrow pass through this empty compiler artifact.
     pub load_fast_passthrough: bool,
+    /// Continuation label that CPython attaches to a preceding empty block.
+    pub load_fast_label_reuse_passthrough: bool,
 }
 
 impl Default for Block {
@@ -214,6 +216,7 @@ impl Default for Block {
             label: false,
             load_fast_barrier: false,
             load_fast_passthrough: false,
+            load_fast_label_reuse_passthrough: false,
         }
     }
 }
@@ -3366,6 +3369,22 @@ impl CodeInfo {
             }
         }
 
+        fn folded_load_escapes_block(instructions: &[InstructionInfo], idx: usize) -> bool {
+            if !instructions[idx].folded_from_nonliteral_expr {
+                return false;
+            }
+            instructions[idx + 1..]
+                .iter()
+                .filter_map(|info| info.instr.real())
+                .find(|instr| !matches!(instr, Instruction::Cache))
+                .is_some_and(|instr| {
+                    matches!(
+                        instr,
+                        Instruction::ReturnValue | Instruction::YieldValue { .. }
+                    )
+                })
+        }
+
         let mut visited = vec![false; self.blocks.len()];
         let mut worklist = vec![BlockIdx(0)];
         visited[0] = true;
@@ -3600,8 +3619,11 @@ impl CodeInfo {
             if block.disable_load_fast_borrow {
                 continue;
             }
+            let folded_load_escapes: Vec<_> = (0..block.instructions.len())
+                .map(|i| folded_load_escapes_block(&block.instructions, i))
+                .collect();
             for (i, info) in block.instructions.iter_mut().enumerate() {
-                if instr_flags[i] != 0 || info.folded_from_nonliteral_expr {
+                if instr_flags[i] != 0 || folded_load_escapes[i] {
                     continue;
                 }
                 match info.instr.real() {
@@ -5177,6 +5199,40 @@ fn canonicalize_empty_label_blocks(blocks: &mut [Block]) {
             .is_some_and(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump())
     }
 
+    fn has_fallthrough_predecessor_matching<F>(
+        blocks: &[Block],
+        idx: BlockIdx,
+        mut matches_predecessor: F,
+    ) -> bool
+    where
+        F: FnMut(&Block) -> bool,
+    {
+        let mut seen = vec![false; blocks.len()];
+        let mut stack = vec![idx];
+        while let Some(target) = stack.pop() {
+            if target == BlockIdx::NULL {
+                continue;
+            }
+            for (block_idx, block) in blocks.iter().enumerate() {
+                if block.next != target {
+                    continue;
+                }
+                if block_falls_through(block) {
+                    if matches_predecessor(block) {
+                        return true;
+                    }
+                } else if block.instructions.is_empty()
+                    && block.load_fast_passthrough
+                    && !seen[block_idx]
+                {
+                    seen[block_idx] = true;
+                    stack.push(BlockIdx::new(block_idx as u32));
+                }
+            }
+        }
+        false
+    }
+
     fn block_has_exception_setup_or_handler(block: &Block) -> bool {
         block_is_protected(block)
             || block.instructions.iter().any(|info| {
@@ -5428,14 +5484,18 @@ fn canonicalize_empty_label_blocks(blocks: &mut [Block]) {
         if target == BlockIdx::NULL {
             return false;
         }
+        let falls_through_from_finally_cleanup =
+            has_fallthrough_predecessor_matching(blocks, idx, |block| {
+                block_has_finally_cleanup_handler(blocks, block)
+            });
+        if blocks[idx.idx()].load_fast_passthrough && falls_through_from_finally_cleanup {
+            return false;
+        }
         if block_starts_with_make_closure_from_fast_loads(&blocks[target.idx()]) {
             // CPython codegen_make_closure() emits LOAD_CLOSURE/BUILD_TUPLE,
             // LOAD_CONST, MAKE_FUNCTION, SET_FUNCTION_ATTRIBUTE in the
             // continuation block.  A Rust-only empty try-end label before that
             // sequence must not stop optimize_load_fast() from visiting it.
-            return false;
-        }
-        if blocks[target.idx()].load_fast_passthrough {
             return false;
         }
         let handler_resumes_to_target = blocks.iter().any(|block| {
@@ -5475,24 +5535,36 @@ fn canonicalize_empty_label_blocks(blocks: &mut [Block]) {
         if handler_resumes_to_target && falls_through_from_for_cleanup {
             return false;
         }
-        if blocks.iter().any(|block| {
-            !handler_resumes_to_target
-                && block.next == idx
-                && block_falls_through(block)
-                && block_has_exception_setup_or_handler(block)
-                && block_has_fast_load(&blocks[target.idx()])
-                && block_has_exception_match_handler(blocks, block)
-                && !(handler_resumes_to_target
-                    && block_returns_call_with_fast_load(&blocks[target.idx()]))
-        }) {
+        if handler_resumes_to_target
+            && block_has_fast_load(&blocks[target.idx()])
+            && has_fallthrough_predecessor_matching(blocks, idx, |block| {
+                !block.cold && !block.except_handler
+            })
+        {
+            // CPython's codegen_try_except() can leave an empty USE_LABEL(end)
+            // between the normal protected path and the following statement,
+            // while a cold handler resumes directly to that following block.
+            // flowgraph.c::optimize_load_fast() visits the empty end block and
+            // stops because basicblock_last_instr() is NULL, so the following
+            // block's LOAD_FAST instructions are not borrowed.
             return true;
         }
-        if blocks.iter().any(|block| {
-            block.next == idx
-                && block_falls_through(block)
-                && block_has_exception_setup_or_handler(block)
-                && block_has_fast_load(&blocks[target.idx()])
-        }) {
+        if !handler_resumes_to_target
+            && block_has_fast_load(&blocks[target.idx()])
+            && has_fallthrough_predecessor_matching(blocks, idx, |block| {
+                block_has_exception_setup_or_handler(block)
+                    && block_has_exception_match_handler(blocks, block)
+                    && !(handler_resumes_to_target
+                        && block_returns_call_with_fast_load(&blocks[target.idx()]))
+            })
+        {
+            return true;
+        }
+        if block_has_fast_load(&blocks[target.idx()])
+            && has_fallthrough_predecessor_matching(blocks, idx, |block| {
+                block_has_exception_setup_or_handler(block)
+            })
+        {
             // CPython optimize_load_fast() only pushes b_next when
             // basicblock_last_instr(block) is not NULL.  codegen_try_except()
             // can leave the normal try path falling through an empty end label,
@@ -5500,17 +5572,15 @@ fn canonicalize_empty_label_blocks(blocks: &mut [Block]) {
             return true;
         }
         let reaches_backedge = normal_region_reaches_backedge(blocks, target);
-        blocks.iter().any(|block| {
-            block.next == idx
-                && block_falls_through(block)
-                && if reaches_backedge {
-                    block_has_exception_setup_or_handler(block)
-                        || block_has_exception_match_handler(blocks, block)
-                } else {
-                    block_has_finally_cleanup_handler(blocks, block)
-                        && block_has_exception_match_handler(blocks, block)
-                        && block_has_fast_load(&blocks[target.idx()])
-                }
+        has_fallthrough_predecessor_matching(blocks, idx, |block| {
+            if reaches_backedge {
+                block_has_exception_setup_or_handler(block)
+                    || block_has_exception_match_handler(blocks, block)
+            } else {
+                block_has_finally_cleanup_handler(blocks, block)
+                    && block_has_exception_match_handler(blocks, block)
+                    && block_has_fast_load(&blocks[target.idx()])
+            }
         })
     }
 
@@ -5734,7 +5804,8 @@ fn canonicalize_empty_label_blocks(blocks: &mut [Block]) {
     fn canonical_target(blocks: &[Block], mut idx: BlockIdx) -> BlockIdx {
         while idx != BlockIdx::NULL
             && is_plain_empty_label(blocks, idx)
-            && (blocks[idx.idx()].load_fast_passthrough
+            && ((blocks[idx.idx()].load_fast_passthrough
+                && !has_cpython_empty_try_end_barrier(blocks, idx))
                 || (!has_cpython_empty_load_fast_barrier(blocks, idx)
                     && !has_cpython_empty_join_barrier(blocks, idx)
                     && !has_cpython_empty_try_end_barrier(blocks, idx)
@@ -6791,6 +6862,14 @@ fn redirect_empty_block_targets(blocks: &mut [Block]) {
 }
 
 fn redirect_load_fast_passthrough_targets(blocks: &mut [Block]) {
+    fn is_assertion_error_load(info: &InstructionInfo) -> bool {
+        matches!(
+            info.instr.real(),
+            Some(Instruction::LoadCommonConstant { idx })
+                if idx.get(info.arg) == oparg::CommonConstant::AssertionError
+        )
+    }
+
     fn block_returns_call_with_fast_load(block: &Block) -> bool {
         let mut seen_fast_load = false;
         let mut previous_was_call_after_fast_load = false;
@@ -6837,6 +6916,152 @@ fn redirect_load_fast_passthrough_targets(blocks: &mut [Block]) {
         })
     }
 
+    fn has_warm_fallthrough_predecessor(blocks: &[Block], target: BlockIdx) -> bool {
+        let mut seen = vec![false; blocks.len()];
+        let mut stack = vec![target];
+        while let Some(target) = stack.pop() {
+            if target == BlockIdx::NULL {
+                continue;
+            }
+            for (block_idx, block) in blocks.iter().enumerate() {
+                if block.next != target || block.cold || block.except_handler {
+                    continue;
+                }
+                if block.instructions.is_empty()
+                    && (block.load_fast_passthrough || block.load_fast_label_reuse_passthrough)
+                {
+                    if !seen[block_idx] {
+                        seen[block_idx] = true;
+                        stack.push(BlockIdx::new(block_idx as u32));
+                    }
+                    continue;
+                }
+                if block_has_fallthrough(block) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn assertion_success_nop_passthrough(blocks: &[Block], target: BlockIdx) -> bool {
+        let block = &blocks[target.idx()];
+        if !block.instructions.is_empty()
+            || block.next == BlockIdx::NULL
+            || block.except_handler
+            || block.preserve_lasti
+            || block.cold
+            || block.disable_load_fast_borrow
+        {
+            return false;
+        }
+        // CPython's assertion success jump targets the following statement's
+        // NOP block directly.  RustPython can synthesize an empty label before
+        // that NOP while preserving assertion failure layout, so do not let
+        // that synthetic label stop flowgraph.c::optimize_load_fast() parity.
+        if !blocks[block.next.idx()]
+            .instructions
+            .first()
+            .is_some_and(|info| matches!(info.instr.real(), Some(Instruction::Nop)))
+        {
+            return false;
+        }
+        let has_conditional_target = blocks.iter().any(|block| {
+            block
+                .instructions
+                .iter()
+                .any(|info| info.target == target && is_conditional_jump(&info.instr))
+        });
+        let has_assertion_failure_predecessor = blocks.iter().any(|block| {
+            block.next == target
+                && block.instructions.iter().any(is_assertion_error_load)
+                && block
+                    .instructions
+                    .last()
+                    .is_some_and(|info| info.instr.is_scope_exit())
+        });
+        has_conditional_target && has_assertion_failure_predecessor
+    }
+
+    fn assertion_failure_passthrough(blocks: &[Block], target: BlockIdx) -> bool {
+        let block = &blocks[target.idx()];
+        if !block.instructions.is_empty()
+            || block.next == BlockIdx::NULL
+            || block.except_handler
+            || block.preserve_lasti
+            || block.cold
+            || block.disable_load_fast_borrow
+            || blocks.iter().any(|predecessor| {
+                predecessor.instructions.iter().any(|info| {
+                    (info.target == target || info.target == block.next)
+                        && is_conditional_jump(&info.instr)
+                })
+            })
+        {
+            return false;
+        }
+        if !blocks.iter().any(|predecessor| {
+            predecessor.next == target
+                && predecessor.instructions.last().is_some_and(|info| {
+                    matches!(
+                        info.instr.real(),
+                        Some(Instruction::EndFor | Instruction::PopIter)
+                    )
+                })
+        }) {
+            return false;
+        }
+        // CPython codegen_assert() emits LOAD_COMMON_CONSTANT AssertionError
+        // immediately after codegen_jump_if() for a failing assertion.  If
+        // RustPython leaves an empty label before that failure block, do not
+        // let it stop flowgraph.c::optimize_load_fast() from visiting the
+        // AssertionError construction.
+        blocks[block.next.idx()]
+            .instructions
+            .first()
+            .is_some_and(is_assertion_error_load)
+    }
+
+    fn try_else_orelse_entry_passthrough(blocks: &[Block], target: BlockIdx) -> bool {
+        let block = &blocks[target.idx()];
+        if !block.instructions.is_empty()
+            || block.next == BlockIdx::NULL
+            || block.except_handler
+            || block.preserve_lasti
+            || block.cold
+            || block.disable_load_fast_borrow
+        {
+            return false;
+        }
+
+        // CPython codegen_try_except() emits Try.orelse with VISIT_SEQ()
+        // immediately after the normal try-body path.  RustPython can leave
+        // an empty join block immediately before the marked orelse entry,
+        // often from a conditional at the end of the try body.
+        block.try_else_orelse_entry || blocks[block.next.idx()].try_else_orelse_entry
+    }
+
+    fn labeled_passthrough_successor(blocks: &[Block], target: BlockIdx) -> bool {
+        let block = &blocks[target.idx()];
+        if !block.instructions.is_empty()
+            || block.next == BlockIdx::NULL
+            || block.label
+            || block.load_fast_barrier
+            || block.except_handler
+            || block.preserve_lasti
+            || block.cold
+            || block.disable_load_fast_borrow
+        {
+            return false;
+        }
+
+        // CPython flowgraph.c::cfg_builder_current_block_is_terminated()
+        // attaches a pending label to the current empty block instead of
+        // creating an intervening b_next block.  RustPython can leave that
+        // unlabeled empty block immediately before the labeled continuation.
+        blocks[block.next.idx()].load_fast_label_reuse_passthrough
+    }
+
     fn passthrough_target(blocks: &[Block], mut target: BlockIdx) -> BlockIdx {
         while target != BlockIdx::NULL {
             let block = &blocks[target.idx()];
@@ -6845,7 +7070,18 @@ fn redirect_load_fast_passthrough_targets(blocks: &mut [Block]) {
                 && next != BlockIdx::NULL
                 && handler_resumes_to_target(blocks, next)
                 && block_returns_call_with_fast_load(&blocks[next.idx()]);
-            if !(block.load_fast_passthrough || handler_resume_end)
+            let handler_resume_end =
+                handler_resume_end && !has_warm_fallthrough_predecessor(blocks, target);
+            let assertion_success_nop = assertion_success_nop_passthrough(blocks, target);
+            let assertion_failure = assertion_failure_passthrough(blocks, target);
+            let try_else_orelse_entry = try_else_orelse_entry_passthrough(blocks, target);
+            let labeled_passthrough_successor = labeled_passthrough_successor(blocks, target);
+            if !(block.load_fast_passthrough
+                || handler_resume_end
+                || assertion_success_nop
+                || assertion_failure
+                || try_else_orelse_entry
+                || labeled_passthrough_successor)
                 || !block.instructions.is_empty()
             {
                 break;
