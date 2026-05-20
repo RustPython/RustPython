@@ -27,6 +27,9 @@ rustix = { workspace = true }
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.17.0"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+which = { workspace = true }
+
 [target.'cfg(all(unix, not(target_os = "ios"), not(target_os = "redox")))'.dependencies]
 termios = { workspace = true }
 

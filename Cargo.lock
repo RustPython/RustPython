@@ -3427,6 +3427,7 @@ dependencies = [
  "rustpython-wtf8",
  "schannel",
  "termios",
+ "which",
  "widestring",
  "windows-sys 0.61.2",
 ]
@@ -3705,7 +3706,6 @@ dependencies = [
  "thiserror",
  "timsort",
  "wasm-bindgen",
- "which",
  "widestring",
  "writeable",
 ]
