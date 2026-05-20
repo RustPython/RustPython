@@ -934,6 +934,20 @@ impl Compiler {
         })
     }
 
+    fn statements_end_with_try_except_scope_exit_handlers(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::Try(ast::StmtTry {
+                handlers,
+                finalbody,
+                is_star: false,
+                ..
+            }) if !handlers.is_empty() && finalbody.is_empty() => {
+                Self::handlers_end_with_scope_exit(handlers)
+            }
+            _ => false,
+        })
+    }
+
     fn statements_end_with_successor_join(body: &[ast::Stmt]) -> bool {
         body.last().is_some_and(|stmt| match stmt {
             ast::Stmt::If(ast::StmtIf {
@@ -1346,6 +1360,13 @@ impl Compiler {
     fn statements_end_with_direct_break(body: &[ast::Stmt]) -> bool {
         body.last()
             .is_some_and(Self::statement_ends_with_direct_break)
+    }
+
+    fn handlers_end_with_scope_exit(handlers: &[ast::ExceptHandler]) -> bool {
+        handlers.iter().all(|handler| {
+            let ast::ExceptHandler::ExceptHandler(handler) = handler;
+            Self::statements_end_with_scope_exit(&handler.body)
+        })
     }
 
     fn statement_ends_with_direct_break(stmt: &ast::Stmt) -> bool {
@@ -2875,28 +2896,41 @@ impl Compiler {
                 .map(|table| table.typ);
         }
 
-        // Check if this is a global class/function
+        // Check if this is a global class/function.
+        // CPython compiler_set_qualname() only applies this GLOBAL_EXPLICIT
+        // shortcut to function, async-function, and class scopes. Annotation
+        // scopes, including type-alias value scopes, still inherit the parent
+        // function's .<locals> qualname.
         let mut force_global = false;
-        if stack_size > self.symbol_table_stack.len() {
-            // We might be in a situation where symbol table isn't pushed yet
-            // In this case, check the parent symbol table
-            if let Some(parent_table) = self.symbol_table_stack.last()
-                && let Some(symbol) = parent_table.lookup(&current_obj_name)
-                && symbol.scope == SymbolScope::GlobalExplicit
-            {
-                force_global = true;
-            }
-        } else if let Some(_current_table) = self.symbol_table_stack.last() {
-            // Mangle the name if necessary (for private names in classes)
-            let mangled_name = self.mangle(&current_obj_name);
-
-            // Look up in parent symbol table to check scope
-            if self.symbol_table_stack.len() >= 2 {
-                let parent_table = &self.symbol_table_stack[self.symbol_table_stack.len() - 2];
-                if let Some(symbol) = parent_table.lookup(&mangled_name)
+        let current_scope = self
+            .code_stack
+            .last()
+            .map(|code| self.symbol_table_stack[code.symbol_table_index].typ);
+        if matches!(
+            current_scope,
+            Some(CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Class)
+        ) {
+            if stack_size > self.symbol_table_stack.len() {
+                // We might be in a situation where symbol table isn't pushed yet
+                // In this case, check the parent symbol table
+                if let Some(parent_table) = self.symbol_table_stack.last()
+                    && let Some(symbol) = parent_table.lookup(&current_obj_name)
                     && symbol.scope == SymbolScope::GlobalExplicit
                 {
                     force_global = true;
+                }
+            } else if let Some(_current_table) = self.symbol_table_stack.last() {
+                // Mangle the name if necessary (for private names in classes)
+                let mangled_name = self.mangle(&current_obj_name);
+
+                // Look up in parent symbol table to check scope
+                if self.symbol_table_stack.len() >= 2 {
+                    let parent_table = &self.symbol_table_stack[self.symbol_table_stack.len() - 2];
+                    if let Some(symbol) = parent_table.lookup(&mangled_name)
+                        && symbol.scope == SymbolScope::GlobalExplicit
+                    {
+                        force_global = true;
+                    }
                 }
             }
         }
@@ -4400,9 +4434,10 @@ impl Compiler {
             in_try_except_body && self.ctx.func == FunctionContext::AsyncFunction;
         let preserve_finally_exit_empty_label = (self.fallthrough_has_statement_successor
             || preserve_async_try_except_finally_scope_exit)
-            && (!handlers.is_empty()
+            && ((!handlers.is_empty() && Self::handlers_end_with_scope_exit(handlers))
                 || Self::statements_are_single_with(finalbody)
                 || Self::statements_contain_for_with_conditional_body(finalbody)
+                || Self::statements_end_with_conditional(finalbody)
                 || (preserve_async_try_except_finally_scope_exit
                     && Self::statements_contain_conditional_scope_exit(finalbody)));
         let preserve_finally_exit_empty_barrier = preserve_async_try_except_finally_scope_exit
@@ -7457,7 +7492,7 @@ impl Compiler {
         let preserve_while_true_tail_break_successor_load_fast =
             !is_async && self.statements_end_with_while_true_tail_direct_break(body)?;
         let preserve_try_except_tail_successor_load_fast =
-            !is_async && Self::statements_end_with_try_except_no_finally(body);
+            !is_async && Self::statements_end_with_try_except_scope_exit_handlers(body);
         let preserve_try_finally_with_finalbody_successor_load_fast =
             Self::statements_end_with_try_finally_finalbody_with(body);
         let materialize_async_with_outer_cleanup_target_nop = is_async
@@ -14041,6 +14076,46 @@ def f(sys, os, file):
                 eprintln!("=== {label} ===\n{dump}");
             }
         }
+    }
+
+    #[test]
+    fn test_for_try_except_break_keeps_cpython_if_layout() {
+        let code = compile_exec(
+            "\
+def f(support, func, value):
+    for _ in support.sleeping_retry(support.SHORT_TIMEOUT):
+        try:
+            if func() == value:
+                break
+        except NotImplementedError:
+            break
+    sink(value)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect::<Vec<_>>();
+        let cond = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PopJumpIfFalse { .. }))
+            .expect("missing CPython-style false jump for if/break");
+        assert!(
+            matches!(
+                ops.get(cond..cond + 5),
+                Some([
+                    Instruction::PopJumpIfFalse { .. },
+                    Instruction::NotTaken,
+                    Instruction::PopTop,
+                    Instruction::JumpForward { .. },
+                    Instruction::JumpBackward { .. },
+                ])
+            ),
+            "CPython codegen_if() keeps the break cleanup in the true-body fallthrough before the loop backedge, got ops={ops:?}"
+        );
     }
 
     #[test]

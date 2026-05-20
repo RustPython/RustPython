@@ -7684,6 +7684,27 @@ fn is_pop_top_jump_block(block: &Block) -> bool {
         && second.target != BlockIdx::NULL
 }
 
+fn is_for_break_cleanup_block(blocks: &[Block], block_idx: BlockIdx) -> bool {
+    if block_idx == BlockIdx::NULL {
+        return false;
+    }
+    let mut real_instrs = blocks[block_idx.idx()]
+        .instructions
+        .iter()
+        .filter(|info| !matches!(info.instr.real(), Some(Instruction::Nop)));
+    let Some(first) = real_instrs.next() else {
+        return false;
+    };
+    let Some(second) = real_instrs.next() else {
+        return false;
+    };
+    real_instrs.next().is_none()
+        && matches!(first.instr.real(), Some(Instruction::PopTop))
+        && second.instr.is_unconditional_jump()
+        && second.target != BlockIdx::NULL
+        && !comes_before(blocks, second.target, block_idx)
+}
+
 fn is_scope_exit_block(block: &Block) -> bool {
     block
         .instructions
@@ -8601,6 +8622,13 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
             .instructions
             .first()
             .is_some_and(|info| matches!(info.lineno_override, Some(line) if line < 0));
+        if is_generic_false_path_reorder
+            && jump_targets_for_iter(blocks, jump_block)
+            && is_for_break_cleanup_block(blocks, chain_start)
+        {
+            current = next;
+            continue;
+        }
         let after_jump_is_adjacent_scope_exit =
             after_jump != BlockIdx::NULL && is_pop_top_exit_like_block(&blocks[after_jump.idx()]);
         if !is_generic_false_path_reorder
@@ -8804,6 +8832,8 @@ fn reorder_conditional_scope_exit_and_jump_back_blocks(
                 || mismatched_protection
                 || !is_scope_exit_block(&blocks[exit_block.idx()])
                 || !is_jump_back_only_block(blocks, jump_block)
+                || (jump_targets_for_iter(blocks, jump_block)
+                    && is_for_break_cleanup_block(blocks, exit_block))
                 || (!allow_for_iter_jump_targets
                     && is_explicit_continue_to_for_iter(blocks, jump_block))
                     && blocks[exit_block.idx()].instructions.iter().any(|info| {
