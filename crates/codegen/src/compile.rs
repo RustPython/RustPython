@@ -8725,6 +8725,10 @@ impl Compiler {
             num_cases > 1 && is_trailing_wildcard_default(&cases.last().unwrap().pattern);
 
         let case_count = num_cases - if has_default { 1 } else { 0 };
+        let has_match_or_case = cases
+            .iter()
+            .take(case_count)
+            .any(|m| matches!(m.pattern, ast::Pattern::MatchOr(_)));
         for (i, m) in cases.iter().enumerate().take(case_count) {
             // Only copy the subject if not on the last case
             if i != case_count - 1 {
@@ -8758,10 +8762,12 @@ impl Compiler {
                 if let Some(first_stmt) = m.body.first() {
                     self.set_source_range(first_stmt.range());
                 }
-                if matches!(m.pattern, ast::Pattern::MatchOr(_)) {
-                    emit!(self, Instruction::Nop);
-                }
                 emit!(self, Instruction::PopTop);
+                if let Some(last) = self.current_block().instructions.last_mut() {
+                    // CPython emits NEXT_LOCATION here; resolve it after
+                    // redundant NOP removal so a following pass NOP survives.
+                    last.lineno_override = Some(-2);
+                }
                 if matches!(m.body.first(), Some(ast::Stmt::Try(_))) {
                     let body_block = self.new_block();
                     self.switch_to_block(body_block);
@@ -8769,7 +8775,7 @@ impl Compiler {
             }
 
             self.compile_statements(&m.body)?;
-            emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
+            emit!(self, PseudoInstruction::Jump { delta: end });
             if let Some(last) = self.current_block().instructions.last_mut() {
                 last.match_success_jump = true;
             }
@@ -8779,10 +8785,16 @@ impl Compiler {
 
         if has_default {
             let m = &cases[num_cases - 1];
+            if has_match_or_case {
+                // CPython optimize_load_fast() does not borrow loads from the
+                // trailing default block after an OR-pattern subject copy.
+                let current = self.current_code_info().current_block;
+                self.disable_load_fast_borrow_for_block(current);
+            }
             self.set_source_range(m.pattern.range());
             if num_cases == 1 {
                 emit!(self, Instruction::PopTop);
-            } else if m.guard.is_none() {
+            } else {
                 emit!(self, Instruction::Nop);
             }
             if let Some(ref guard) = m.guard {
@@ -8969,9 +8981,10 @@ impl Compiler {
         self.switch_to_block(cleanup);
         emit!(self, Instruction::PopTop);
         if !condition {
+            self.set_no_location();
             emit!(
                 self,
-                PseudoInstruction::Jump {
+                PseudoInstruction::JumpNoInterrupt {
                     delta: target_block
                 }
             );
@@ -14838,6 +14851,104 @@ def f(buffer, pos, last_char):
         non_cache_instructions(code)
             .filter(|unit| matches!(unit.op, Instruction::LoadFast { .. }))
             .count()
+    }
+
+    #[test]
+    fn test_match_or_default_block_keeps_load_fast_strong() {
+        let code = compile_exec(
+            r#"
+def f(format, other):
+    match format:
+        case 1 | 2:
+            return other
+        case _:
+            raise NotImplementedError(other)
+"#,
+        );
+        let function = find_code(&code, "f").expect("missing function code");
+        let loads = load_fast_ops_for_var(function, "other");
+        assert!(
+            matches!(
+                loads.as_slice(),
+                [
+                    Instruction::LoadFastBorrow { .. },
+                    Instruction::LoadFastBorrow { .. },
+                    Instruction::LoadFast { .. },
+                ]
+            ),
+            "CPython optimize_load_fast() keeps trailing OR-pattern default loads strong, got {loads:?}",
+        );
+    }
+
+    #[test]
+    fn test_match_success_next_location_preserves_pass_nop() {
+        let code = compile_exec(
+            r#"
+def f(command):
+    match command:
+        case "":
+            pass
+        case _ as unknown:
+            sink(unknown)
+    return False
+"#,
+        );
+        let function = find_code(&code, "f").expect("missing function code");
+        let ops = non_cache_instructions(function)
+            .map(|unit| unit.op)
+            .collect::<Vec<_>>();
+        assert!(
+            ops.windows(3).any(|window| matches!(
+                window,
+                [
+                    Instruction::PopTop,
+                    Instruction::Nop,
+                    Instruction::LoadConst { .. },
+                ]
+            )),
+            "CPython NEXT_LOCATION keeps the pass NOP after match subject POP_TOP, got {ops:?}",
+        );
+    }
+
+    #[test]
+    fn test_while_try_body_layout_keeps_false_jump_to_anchor() {
+        let code = compile_exec(
+            r#"
+def f(stack, itstack, node_to_stack_index):
+    while True:
+        while stack:
+            try:
+                node = itstack[-1]()
+                break
+            except StopIteration:
+                del node_to_stack_index[stack.pop()]
+                itstack.pop()
+        else:
+            break
+"#,
+        );
+        let function = find_code(&code, "f").expect("missing function code");
+        let ops = non_cache_instructions(function)
+            .map(|unit| unit.op)
+            .collect::<Vec<_>>();
+        let stack_test = ops
+            .windows(5)
+            .find(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                        Instruction::ToBool,
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::Nop,
+                    ]
+                )
+            })
+            .unwrap_or_else(|| {
+                panic!("expected CPython-style while/try false jump to anchor, got {ops:?}")
+            });
+        assert!(matches!(stack_test[2], Instruction::PopJumpIfFalse { .. }));
     }
 
     fn localsplus_name(code: &CodeObject, idx: usize) -> Option<&str> {
@@ -26665,7 +26776,7 @@ async def f():
     }
 
     #[test]
-    fn test_match_async_inlined_comprehension_success_jump_no_interrupt() {
+    fn test_match_async_inlined_comprehension_success_jump_layout() {
         let code = compile_exec(
             "\
 async def f(name_3, name_5):
@@ -26688,30 +26799,18 @@ async def f(name_3, name_5):
             .collect();
 
         assert!(
-            ops.windows(3).any(|window| {
+            ops.windows(4).any(|window| {
                 matches!(
                     window,
                     [
                         Instruction::PopTop,
+                        Instruction::JumpForward { .. },
+                        Instruction::Copy { .. },
                         Instruction::StoreFast { .. },
-                        Instruction::JumpBackwardNoInterrupt { .. },
                     ]
                 )
             }),
-            "expected CPython-style no-interrupt match success backedge after async comprehension cleanup, got ops={ops:?}"
-        );
-        assert!(
-            !ops.windows(3).any(|window| {
-                matches!(
-                    window,
-                    [
-                        Instruction::PopTop,
-                        Instruction::StoreFast { .. },
-                        Instruction::JumpBackward { .. },
-                    ]
-                )
-            }),
-            "match success cleanup backedge should not be a regular interrupting jump, got ops={ops:?}"
+            "expected CPython-style plain match success jump before async comprehension case, got ops={ops:?}"
         );
     }
 

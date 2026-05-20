@@ -573,6 +573,8 @@ impl CodeInfo {
             }
         }
 
+        resolve_next_location_overrides(&mut blocks);
+
         // Pre-compute cache_entries for real (non-pseudo) instructions
         for block in &mut blocks {
             for instr in &mut block.instructions {
@@ -6054,52 +6056,6 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
             if target == BlockIdx::NULL {
                 continue;
             }
-            if include_conditional && is_conditional_jump(&ins.instr) {
-                let next = next_nonempty_block(blocks, blocks[bi].next);
-                let next_is_scope_exit = next != BlockIdx::NULL
-                    && blocks[next.idx()]
-                        .instructions
-                        .last()
-                        .is_some_and(|instr| instr.instr.is_scope_exit());
-                if next_is_scope_exit {
-                    let target_pos = block_order.get(target.idx()).copied().unwrap_or(u32::MAX);
-                    let target_first_jump = blocks[target.idx()].instructions.first().copied();
-                    let threads_match_success_jump_to_forward_nointerrupt =
-                        matches!(ins.instr.real(), Some(Instruction::PopJumpIfNone { .. }))
-                            && target_first_jump
-                                .filter(|target_ins| target_ins.instr.is_unconditional_jump())
-                                .filter(|target_ins| target_ins.target != BlockIdx::NULL)
-                                .is_some_and(|target_ins| {
-                                    let final_target_pos = block_order
-                                        .get(target_ins.target.idx())
-                                        .copied()
-                                        .unwrap_or(u32::MAX);
-                                    jump_thread_kind(target_ins.instr)
-                                        == Some(JumpThreadKind::NoInterrupt)
-                                        && target_ins.match_success_jump
-                                        && final_target_pos > target_pos
-                                });
-                    let next_raises = blocks[next.idx()].instructions.iter().any(|instr| {
-                        matches!(instr.instr.real(), Some(Instruction::RaiseVarargs { .. }))
-                    });
-                    let target_is_loop_backedge = blocks[target.idx()]
-                        .instructions
-                        .first()
-                        .filter(|target_ins| target_ins.instr.is_unconditional_jump())
-                        .map(|target_ins| next_nonempty_block(blocks, target_ins.target))
-                        .is_some_and(|final_target| {
-                            final_target == BlockIdx(bi as u32)
-                                || comes_before(blocks, final_target, BlockIdx(bi as u32))
-                        });
-                    if !(threads_match_success_jump_to_forward_nointerrupt
-                        || block_is_protected(&blocks[bi])
-                            && next_raises
-                            && target_is_loop_backedge)
-                    {
-                        continue;
-                    }
-                }
-            }
             if include_conditional
                 && is_conditional_jump(&ins.instr)
                 && opposite_short_circuit_target(&blocks[target.idx()], ins.instr)
@@ -8564,6 +8520,7 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
         let mut saw_nonempty = false;
         let mut nonempty_blocks = 0usize;
         let mut real_instr_count = 0usize;
+        let mut chain_has_block_push = false;
         let mut cursor = chain_start;
         let mut chain_valid = true;
         while cursor != BlockIdx::NULL && cursor != jump_start {
@@ -8583,11 +8540,19 @@ fn reorder_conditional_chain_and_jump_back_blocks(blocks: &mut Vec<Block>) {
                     .iter()
                     .filter(|info| info.instr.real().is_some())
                     .count();
+                chain_has_block_push |= blocks[cursor.idx()]
+                    .instructions
+                    .iter()
+                    .any(|info| info.instr.is_block_push());
             }
             chain_end = cursor;
             cursor = blocks[cursor.idx()].next;
         }
         if !chain_valid || !saw_nonempty || chain_end == BlockIdx::NULL || cursor != jump_start {
+            current = next;
+            continue;
+        }
+        if is_generic_false_path_reorder && chain_has_block_push {
             current = next;
             continue;
         }
@@ -10295,6 +10260,43 @@ fn resolve_line_numbers(blocks: &mut Vec<Block>) {
     propagate_line_numbers(blocks, &predecessors);
 }
 
+fn resolve_next_location_overrides(blocks: &mut [Block]) {
+    let mut order = Vec::new();
+    let mut current = BlockIdx(0);
+    while current != BlockIdx::NULL {
+        for instr_idx in 0..blocks[current.idx()].instructions.len() {
+            order.push((current, instr_idx));
+        }
+        current = blocks[current.idx()].next;
+    }
+
+    for pos in (0..order.len()).rev() {
+        let (block_idx, instr_idx) = order[pos];
+        if blocks[block_idx.idx()].instructions[instr_idx].lineno_override != Some(-2) {
+            continue;
+        }
+        if blocks[block_idx.idx()].instructions[instr_idx]
+            .instr
+            .is_scope_exit()
+            || blocks[block_idx.idx()].instructions[instr_idx]
+                .instr
+                .is_unconditional_jump()
+            || is_conditional_jump(&blocks[block_idx.idx()].instructions[instr_idx].instr)
+        {
+            blocks[block_idx.idx()].instructions[instr_idx].lineno_override = Some(-1);
+            continue;
+        }
+        if let Some(&(next_block, next_instr)) = order.get(pos + 1) {
+            let next = blocks[next_block.idx()].instructions[next_instr];
+            blocks[block_idx.idx()].instructions[instr_idx].location = next.location;
+            blocks[block_idx.idx()].instructions[instr_idx].end_location = next.end_location;
+            blocks[block_idx.idx()].instructions[instr_idx].lineno_override = next.lineno_override;
+        } else {
+            blocks[block_idx.idx()].instructions[instr_idx].lineno_override = Some(-1);
+        }
+    }
+}
+
 fn find_layout_predecessor(blocks: &[Block], target: BlockIdx) -> BlockIdx {
     if target == BlockIdx::NULL {
         return BlockIdx::NULL;
@@ -10796,7 +10798,7 @@ fn retarget_conditional_jumps_to_empty_while_exit_epilogue(blocks: &mut [Block])
         )
     }
 
-    let retargets: Vec<Vec<BlockIdx>> = blocks
+    let jump_targets: Vec<Vec<BlockIdx>> = blocks
         .iter()
         .map(|block| {
             block
@@ -10822,8 +10824,8 @@ fn retarget_conditional_jumps_to_empty_while_exit_epilogue(blocks: &mut [Block])
         })
         .collect();
 
-    for (block, block_retargets) in blocks.iter_mut().zip(retargets) {
-        for (instr, target) in block.instructions.iter_mut().zip(block_retargets) {
+    for (block, block_jump_targets) in blocks.iter_mut().zip(jump_targets) {
+        for (instr, target) in block.instructions.iter_mut().zip(block_jump_targets) {
             if target != BlockIdx::NULL {
                 instr.target = target;
             }
