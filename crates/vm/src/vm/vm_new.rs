@@ -61,7 +61,10 @@ impl SyntaxErrorInfo {
 
     #[cfg(feature = "parser")]
     fn analyze_compile_error(&mut self, compile_error: &CompileError) {
-        let CompileError::Parse(ParseError { error, .. }) = compile_error else {
+        let CompileError::Parse(ParseError {
+            error, location, ..
+        }) = compile_error
+        else {
             return;
         };
 
@@ -104,7 +107,10 @@ impl SyntaxErrorInfo {
             }
 
             ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError) => {
-                "unterminated string literal".into()
+                format!(
+                    "unterminated string literal (detected at line {})",
+                    location.line
+                )
             }
 
             ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),
@@ -144,6 +150,10 @@ impl SyntaxErrorInfo {
 
             ParseErrorType::InvalidArgumentUnpackingOrder => {
                 "iterable argument unpacking follows keyword argument unpacking".into()
+            }
+
+            ParseErrorType::ParamAfterVarKeywordParam => {
+                "arguments cannot follow var-keyword argument".into()
             }
 
             ParseErrorType::OtherError(s)
@@ -207,9 +217,23 @@ impl SyntaxErrorInfo {
             }
 
             ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("Expected `except` or `finally` after `try` block") =>
+                if s.eq_ignore_ascii_case("expected `except` or `finally` after `try` block") =>
             {
                 "expected 'except' or 'finally' block".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("only one '*' parameter allowed") =>
+            {
+                "* argument may appear only once".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case(
+                    r#"cannot have both 'except' and 'except*' on the same 'try'"#,
+                ) =>
+            {
+                r#"cannot have both 'except' and 'except*' on the same 'try'"#.into()
             }
 
             _ => return,

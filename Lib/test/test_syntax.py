@@ -478,47 +478,47 @@ SyntaxError: var-keyword argument cannot have default value
 Traceback (most recent call last):
 SyntaxError: var-keyword argument cannot have default value
 
->>> def foo(a,*a, b, **c, d):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*a, b, **c, d):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> def foo(a,*a, b, **c, d=4):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*a, b, **c, d=4):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> def foo(a,*a, b, **c, *d):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*a, b, **c, *d):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> def foo(a,*a, b, **c, **d):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*a, b, **c, **d):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> def foo(a=1,/,**b,/,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a=1,/,**b,/,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> def foo(*b,*d):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(*b,*d):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: * argument may appear only once
 
->>> def foo(a,*b,c,*d,*e,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,*b,c,*d,*e,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: * argument may appear only once
 
->>> def foo(a,b,/,c,*b,c,*d,*e,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,b,/,c,*b,c,*d,*e,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: * argument may appear only once
 
->>> def foo(a,b,/,c,*b,c,*d,**e):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(a,b,/,c,*b,c,*d,**e):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: * argument may appear only once
@@ -583,39 +583,39 @@ SyntaxError: var-positional argument cannot have default value
 Traceback (most recent call last):
 SyntaxError: var-keyword argument cannot have default value
 
->>> lambda a, *a, b, **c, d: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a, *a, b, **c, d: None
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> lambda a,*a, b, **c, d=4: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,*a, b, **c, d=4: None
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> lambda a,*a, b, **c, *d: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,*a, b, **c, *d: None
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> lambda a,*a, b, **c, **d: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,*a, b, **c, **d: None
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> lambda a=1,/,**b,/,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a=1,/,**b,/,c: None
 Traceback (most recent call last):
 SyntaxError: arguments cannot follow var-keyword argument
 
->>> lambda *b,*d: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda *b,*d: None
 Traceback (most recent call last):
 SyntaxError: * argument may appear only once
 
->>> lambda a,*b,c,*d,*e,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,*b,c,*d,*e,c: None
 Traceback (most recent call last):
 SyntaxError: * argument may appear only once
 
->>> lambda a,b,/,c,*b,c,*d,*e,c: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,b,/,c,*b,c,*d,*e,c: None
 Traceback (most recent call last):
 SyntaxError: * argument may appear only once
 
->>> lambda a,b,/,c,*b,c,*d,**e: None  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> lambda a,b,/,c,*b,c,*d,**e: None
 Traceback (most recent call last):
 SyntaxError: * argument may appear only once
 
