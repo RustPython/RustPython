@@ -7,6 +7,28 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::{io, os::fd::BorrowedFd};
 
+/// Returns the system's hostname.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn hostname() -> std::ffi::OsString {
+    gethostname::gethostname()
+}
+
+/// Returns the first non-loopback MAC address as 6 bytes, or `None` when no
+/// MAC address is available or the lookup fails.
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_arch = "wasm32",
+    target_os = "redox"
+)))]
+pub fn mac_address() -> Option<[u8; 6]> {
+    mac_address::get_mac_address()
+        .ok()
+        .flatten()
+        .map(|m| m.bytes())
+}
+
 #[cfg(all(unix, not(target_os = "redox")))]
 pub fn sethostname(hostname: &str) -> io::Result<()> {
     nix::unistd::sethostname(hostname).map_err(io::Error::from)
