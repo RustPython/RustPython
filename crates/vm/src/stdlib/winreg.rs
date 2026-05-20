@@ -267,7 +267,7 @@ mod winreg {
         if res == 0 {
             Ok(PyHkey::new(ret_key))
         } else {
-            Err(vm.new_os_error(format!("error code: {res}")))
+            Err(os_error_from_windows_code(vm, res as i32))
         }
     }
 
@@ -279,7 +279,7 @@ mod winreg {
         if res == 0 {
             Ok(PyHkey::new(out_key))
         } else {
-            Err(vm.new_os_error(format!("error code: {res}")))
+            Err(os_error_from_windows_code(vm, res as i32))
         }
     }
 

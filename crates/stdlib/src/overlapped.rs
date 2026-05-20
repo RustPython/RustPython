@@ -11,7 +11,7 @@ mod _overlapped {
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyModule, PyStrRef, PyTupleRef, PyType},
         common::lock::PyMutex,
-        convert::ToPyObject,
+        convert::{ToPyException, ToPyObject},
         function::OptionalArg,
         object::{Traverse, TraverseFn},
         protocol::PyBuffer,
@@ -1251,8 +1251,9 @@ mod _overlapped {
             return Err(vm.new_value_error("EventAttributes must be None"));
         }
 
-        let name_wide: Option<widestring::WideCString> =
-            name.map(|n| widestring::WideCString::from_str_truncate(&n));
+        let name_wide: Option<widestring::WideCString> = name
+            .map(|n| widestring::WideCString::from_str(&n).map_err(|err| err.to_pyexception(vm)))
+            .transpose()?;
         host_winapi::create_event_w(manual_reset, initial_state, name_wide.as_deref())
             .map(|h| h as isize)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
