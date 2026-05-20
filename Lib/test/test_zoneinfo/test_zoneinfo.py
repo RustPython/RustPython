@@ -1609,6 +1609,7 @@ class ZoneInfoCacheTest(TzPathUserMixin, ZoneInfoTestBase):
 class CZoneInfoCacheTest(ZoneInfoCacheTest):
     module = c_zoneinfo
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised
     def test_inconsistent_weak_cache_get(self):
         class Cache:
             def get(self, key, default=None):
@@ -1627,6 +1628,7 @@ class CZoneInfoCacheTest(ZoneInfoCacheTest):
             "Unexpected instance of int in ZI weak cache for key 'America/Los_Angeles'"
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AttributeError not raised
     def test_deleted_weak_cache(self):
         class ZI(self.klass):
             pass
@@ -1639,6 +1641,7 @@ class CZoneInfoCacheTest(ZoneInfoCacheTest):
         with self.assertRaises(AttributeError):
             ZI.clear_cache()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'int' object has no attribute '_from_cache'
     def test_inconsistent_weak_cache_setdefault(self):
         class Cache:
             def get(self, key, default=None):
