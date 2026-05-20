@@ -5488,7 +5488,7 @@ fn canonicalize_empty_label_blocks(blocks: &mut [Block]) {
             has_fallthrough_predecessor_matching(blocks, idx, |block| {
                 block_has_finally_cleanup_handler(blocks, block)
             });
-        if blocks[target.idx()].load_fast_passthrough && falls_through_from_finally_cleanup {
+        if blocks[idx.idx()].load_fast_passthrough && falls_through_from_finally_cleanup {
             return false;
         }
         if block_starts_with_make_closure_from_fast_loads(&blocks[target.idx()]) {
@@ -6917,12 +6917,29 @@ fn redirect_load_fast_passthrough_targets(blocks: &mut [Block]) {
     }
 
     fn has_warm_fallthrough_predecessor(blocks: &[Block], target: BlockIdx) -> bool {
-        blocks.iter().any(|block| {
-            block.next == target
-                && !block.cold
-                && !block.except_handler
-                && block_has_fallthrough(block)
-        })
+        let mut seen = vec![false; blocks.len()];
+        let mut stack = vec![target];
+        while let Some(target) = stack.pop() {
+            if target == BlockIdx::NULL {
+                continue;
+            }
+            for (block_idx, block) in blocks.iter().enumerate() {
+                if block.next != target || block.cold || block.except_handler {
+                    continue;
+                }
+                if block_has_fallthrough(block) {
+                    return true;
+                }
+                if block.instructions.is_empty()
+                    && (block.load_fast_passthrough || block.load_fast_label_reuse_passthrough)
+                    && !seen[block_idx]
+                {
+                    seen[block_idx] = true;
+                    stack.push(BlockIdx::new(block_idx as u32));
+                }
+            }
+        }
+        false
     }
 
     fn assertion_success_nop_passthrough(blocks: &[Block], target: BlockIdx) -> bool {
