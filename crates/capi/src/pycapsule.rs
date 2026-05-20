@@ -72,7 +72,7 @@ pub extern "C" fn PyCapsule_SetPointer(capsule: *mut PyObject, pointer: *mut c_v
 pub extern "C" fn PyCapsule_IsValid(capsule: *mut PyObject, name: *const c_char) -> c_int {
     with_vm(|vm| {
         if capsule.is_null() {
-            return false
+            return false;
         }
 
         checked_capsule(vm, unsafe { &*capsule }, name).is_ok()
