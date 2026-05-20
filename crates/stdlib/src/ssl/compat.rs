@@ -94,74 +94,15 @@ const X509_V_FLAG_CRL_CHECK: i32 = 4;
 // verification. They are used to map rustls certificate errors to OpenSSL
 // error codes for compatibility.
 
-pub(super) use x509::{
-    X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_NOT_YET_VALID, X509_V_ERR_CERT_REVOKED,
-    X509_V_ERR_HOSTNAME_MISMATCH, X509_V_ERR_INVALID_PURPOSE, X509_V_ERR_IP_ADDRESS_MISMATCH,
-    X509_V_ERR_UNABLE_TO_GET_CRL, X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY,
-    X509_V_ERR_UNSPECIFIED,
-};
-
-#[allow(dead_code)]
-mod x509 {
-    pub(super) const X509_V_OK: i32 = 0;
-    pub(crate) const X509_V_ERR_UNSPECIFIED: i32 = 1;
-    pub(super) const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT: i32 = 2;
-    pub(crate) const X509_V_ERR_UNABLE_TO_GET_CRL: i32 = 3;
-    pub(super) const X509_V_ERR_UNABLE_TO_DECRYPT_CERT_SIGNATURE: i32 = 4;
-    pub(super) const X509_V_ERR_UNABLE_TO_DECRYPT_CRL_SIGNATURE: i32 = 5;
-    pub(super) const X509_V_ERR_UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY: i32 = 6;
-    pub(super) const X509_V_ERR_CERT_SIGNATURE_FAILURE: i32 = 7;
-    pub(super) const X509_V_ERR_CRL_SIGNATURE_FAILURE: i32 = 8;
-    pub(crate) const X509_V_ERR_CERT_NOT_YET_VALID: i32 = 9;
-    pub(crate) const X509_V_ERR_CERT_HAS_EXPIRED: i32 = 10;
-    pub(super) const X509_V_ERR_CRL_NOT_YET_VALID: i32 = 11;
-    pub(super) const X509_V_ERR_CRL_HAS_EXPIRED: i32 = 12;
-    pub(super) const X509_V_ERR_ERROR_IN_CERT_NOT_BEFORE_FIELD: i32 = 13;
-    pub(super) const X509_V_ERR_ERROR_IN_CERT_NOT_AFTER_FIELD: i32 = 14;
-    pub(super) const X509_V_ERR_ERROR_IN_CRL_LAST_UPDATE_FIELD: i32 = 15;
-    pub(super) const X509_V_ERR_ERROR_IN_CRL_NEXT_UPDATE_FIELD: i32 = 16;
-    pub(super) const X509_V_ERR_OUT_OF_MEM: i32 = 17;
-    pub(super) const X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT: i32 = 18;
-    pub(super) const X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN: i32 = 19;
-    pub(crate) const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY: i32 = 20;
-    pub(super) const X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE: i32 = 21;
-    pub(super) const X509_V_ERR_CERT_CHAIN_TOO_LONG: i32 = 22;
-    pub(crate) const X509_V_ERR_CERT_REVOKED: i32 = 23;
-    pub(super) const X509_V_ERR_INVALID_CA: i32 = 24;
-    pub(super) const X509_V_ERR_PATH_LENGTH_EXCEEDED: i32 = 25;
-    pub(crate) const X509_V_ERR_INVALID_PURPOSE: i32 = 26;
-    pub(super) const X509_V_ERR_CERT_UNTRUSTED: i32 = 27;
-    pub(super) const X509_V_ERR_CERT_REJECTED: i32 = 28;
-    pub(super) const X509_V_ERR_SUBJECT_ISSUER_MISMATCH: i32 = 29;
-    pub(super) const X509_V_ERR_AKID_SKID_MISMATCH: i32 = 30;
-    pub(super) const X509_V_ERR_AKID_ISSUER_SERIAL_MISMATCH: i32 = 31;
-    pub(super) const X509_V_ERR_KEYUSAGE_NO_CERTSIGN: i32 = 32;
-    pub(super) const X509_V_ERR_UNABLE_TO_GET_CRL_ISSUER: i32 = 33;
-    pub(super) const X509_V_ERR_UNHANDLED_CRITICAL_EXTENSION: i32 = 34;
-    pub(super) const X509_V_ERR_KEYUSAGE_NO_CRL_SIGN: i32 = 35;
-    pub(super) const X509_V_ERR_UNHANDLED_CRITICAL_CRL_EXTENSION: i32 = 36;
-    pub(super) const X509_V_ERR_INVALID_NON_CA: i32 = 37;
-    pub(super) const X509_V_ERR_PROXY_PATH_LENGTH_EXCEEDED: i32 = 38;
-    pub(super) const X509_V_ERR_KEYUSAGE_NO_DIGITAL_SIGNATURE: i32 = 39;
-    pub(super) const X509_V_ERR_PROXY_CERTIFICATES_NOT_ALLOWED: i32 = 40;
-    pub(super) const X509_V_ERR_INVALID_EXTENSION: i32 = 41;
-    pub(super) const X509_V_ERR_INVALID_POLICY_EXTENSION: i32 = 42;
-    pub(super) const X509_V_ERR_NO_EXPLICIT_POLICY: i32 = 43;
-    pub(super) const X509_V_ERR_DIFFERENT_CRL_SCOPE: i32 = 44;
-    pub(super) const X509_V_ERR_UNSUPPORTED_EXTENSION_FEATURE: i32 = 45;
-    pub(super) const X509_V_ERR_UNNESTED_RESOURCE: i32 = 46;
-    pub(super) const X509_V_ERR_PERMITTED_VIOLATION: i32 = 47;
-    pub(super) const X509_V_ERR_EXCLUDED_VIOLATION: i32 = 48;
-    pub(super) const X509_V_ERR_SUBTREE_MINMAX: i32 = 49;
-    pub(super) const X509_V_ERR_APPLICATION_VERIFICATION: i32 = 50;
-    pub(super) const X509_V_ERR_UNSUPPORTED_CONSTRAINT_TYPE: i32 = 51;
-    pub(super) const X509_V_ERR_UNSUPPORTED_CONSTRAINT_SYNTAX: i32 = 52;
-    pub(super) const X509_V_ERR_UNSUPPORTED_NAME_SYNTAX: i32 = 53;
-    pub(super) const X509_V_ERR_CRL_PATH_VALIDATION_ERROR: i32 = 54;
-    pub(crate) const X509_V_ERR_HOSTNAME_MISMATCH: i32 = 62;
-    pub(super) const X509_V_ERR_EMAIL_MISMATCH: i32 = 63;
-    pub(crate) const X509_V_ERR_IP_ADDRESS_MISMATCH: i32 = 64;
-}
+pub(super) const X509_V_ERR_UNSPECIFIED: i32 = 1;
+pub(super) const X509_V_ERR_UNABLE_TO_GET_CRL: i32 = 3;
+pub(super) const X509_V_ERR_CERT_NOT_YET_VALID: i32 = 9;
+pub(super) const X509_V_ERR_CERT_HAS_EXPIRED: i32 = 10;
+pub(super) const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY: i32 = 20;
+pub(super) const X509_V_ERR_CERT_REVOKED: i32 = 23;
+pub(super) const X509_V_ERR_INVALID_PURPOSE: i32 = 26;
+pub(super) const X509_V_ERR_HOSTNAME_MISMATCH: i32 = 62;
+pub(super) const X509_V_ERR_IP_ADDRESS_MISMATCH: i32 = 64;
 
 // Certificate Error Conversion Functions:
 

@@ -75,8 +75,7 @@ mod _ssl {
     use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
     use pem_rfc7468::{LineEnding, encode_string};
     use rustls::{
-        ClientConfig, ClientConnection, Connection, HandshakeKind, RootCertStore, ServerConfig,
-        ServerConnection,
+        ClientConnection, Connection, HandshakeKind, RootCertStore, ServerConfig, ServerConnection,
         client::{ClientSessionMemoryCache, ClientSessionStore},
         crypto::SupportedKxGroup,
         pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName},
@@ -398,8 +397,7 @@ mod _ssl {
     // Session data structure for tracking TLS sessions
     #[derive(Debug, Clone)]
     struct SessionData {
-        #[allow(dead_code)]
-        server_name: String,
+        _server_name: String,
         session_id: Vec<u8>,
         creation_time: SystemTime,
         lifetime: u64,
@@ -477,7 +475,7 @@ mod _ssl {
             let creation_time = SystemTime::now();
             let server_name_str = server_name.to_str();
             let session_data = SessionData {
-                server_name: server_name_str.as_ref().to_string(),
+                _server_name: server_name_str.as_ref().to_string(),
                 session_id: generate_session_id_from_metadata(
                     server_name_str.as_ref(),
                     &creation_time,
@@ -521,7 +519,7 @@ mod _ssl {
             let creation_time = SystemTime::now();
             let server_name_str = server_name.to_str();
             let session_data = SessionData {
-                server_name: server_name_str.to_string(),
+                _server_name: server_name_str.to_string(),
                 session_id: generate_session_id_from_metadata(
                     server_name_str.as_ref(),
                     &creation_time,
@@ -720,10 +718,6 @@ mod _ssl {
         #[pytraverse(skip)]
         verify_flags: PyRwLock<i32>,
         // Rustls configuration (built lazily)
-        #[allow(dead_code)]
-        #[pytraverse(skip)]
-        client_config: PyRwLock<Option<Arc<ClientConfig>>>,
-        #[allow(dead_code)]
         #[pytraverse(skip)]
         server_config: PyRwLock<Option<Arc<ServerConfig>>>,
         // Certificate store
@@ -747,19 +741,11 @@ mod _ssl {
         #[pytraverse(skip)]
         cert_keys: PyRwLock<Vec<CertKeyPair>>,
         // Options
-        #[allow(dead_code)]
         #[pytraverse(skip)]
         options: PyRwLock<i32>,
         // ALPN protocols
-        #[allow(dead_code)]
         #[pytraverse(skip)]
         alpn_protocols: PyRwLock<Vec<Vec<u8>>>,
-        // ALPN strict matching flag
-        // When false (default), mimics OpenSSL behavior: no ALPN negotiation failure
-        // When true, requires ALPN match (Rustls default behavior)
-        #[allow(dead_code)]
-        #[pytraverse(skip)]
-        require_alpn_match: PyRwLock<bool>,
         // TLS 1.3 features
         #[pytraverse(skip)]
         post_handshake_auth: PyRwLock<bool>,
@@ -1895,7 +1881,6 @@ mod _ssl {
                 owner: PyRwLock::new(args.owner.into_option()),
                 // Filter out Python None objects - only store actual SSLSession objects
                 session: PyRwLock::new(args.session.into_option().filter(|s| !vm.is_none(s))),
-                verified_chain: PyRwLock::new(None),
                 incoming_bio: None,
                 outgoing_bio: None,
                 sni_state: PyRwLock::new(None),
@@ -1973,7 +1958,6 @@ mod _ssl {
                 owner: PyRwLock::new(args.owner.into_option()),
                 // Filter out Python None objects - only store actual SSLSession objects
                 session: PyRwLock::new(args.session.into_option().filter(|s| !vm.is_none(s))),
-                verified_chain: PyRwLock::new(None),
                 incoming_bio: Some(args.incoming),
                 outgoing_bio: Some(args.outgoing),
                 sni_state: PyRwLock::new(None),
@@ -2277,7 +2261,6 @@ mod _ssl {
                 check_hostname: PyRwLock::new(protocol == PROTOCOL_TLS_CLIENT),
                 verify_mode: PyRwLock::new(default_verify_mode),
                 verify_flags: PyRwLock::new(default_verify_flags),
-                client_config: PyRwLock::new(None),
                 server_config: PyRwLock::new(None),
                 root_certs: PyRwLock::new(RootCertStore::empty()),
                 ca_certs_der: PyRwLock::new(Vec::new()),
@@ -2286,7 +2269,6 @@ mod _ssl {
                 cert_keys: PyRwLock::new(Vec::new()),
                 options: PyRwLock::new(default_options),
                 alpn_protocols: PyRwLock::new(Vec::new()),
-                require_alpn_match: PyRwLock::new(false),
                 post_handshake_auth: PyRwLock::new(false),
                 num_tickets: PyRwLock::new(2), // TLS 1.3 default
                 minimum_version: PyRwLock::new(min_version),
@@ -2348,10 +2330,6 @@ mod _ssl {
         owner: PyRwLock<Option<PyObjectRef>>,
         // Session for resumption
         session: PyRwLock<Option<PyObjectRef>>,
-        // Verified certificate chain (built during verification)
-        #[allow(dead_code)]
-        #[pytraverse(skip)]
-        verified_chain: PyRwLock<Option<Vec<CertificateDer<'static>>>>,
         // MemoryBIO mode (optional)
         incoming_bio: Option<PyRef<PyMemoryBIO>>,
         outgoing_bio: Option<PyRef<PyMemoryBIO>>,
