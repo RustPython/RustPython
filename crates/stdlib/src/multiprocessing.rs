@@ -350,6 +350,7 @@ mod _multiprocessing {
     use crate::vm::{
         Context, FromArgs, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyDict, PyType, PyTypeRef},
+        convert::ToPyException,
         function::{FuncArgs, KwArgs},
         types::Constructor,
     };
@@ -872,14 +873,7 @@ mod _multiprocessing {
     }
 
     fn os_error(vm: &VirtualMachine, err: SemError) -> PyBaseExceptionRef {
-        // _PyMp_SetError maps to PyErr_SetFromErrno
-        let exc_type = match err {
-            SemError::AlreadyExists => vm.ctx.exceptions.file_exists_error.to_owned(),
-            SemError::NotFound => vm.ctx.exceptions.file_not_found_error.to_owned(),
-            _ => vm.ctx.exceptions.os_error.to_owned(),
-        };
-        vm.new_os_subtype_error(exc_type, Some(err.raw_os_error()), err.description())
-            .upcast()
+        err.to_pyexception(vm)
     }
 }
 

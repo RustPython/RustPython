@@ -412,7 +412,6 @@ pub(crate) mod module {
         vm: &VirtualMachine,
     ) -> PyResult<intptr_t> {
         use crate::function::FsPath;
-        use core::iter::once;
 
         let path = path.to_wide_cstring(vm)?;
 
@@ -429,14 +428,8 @@ pub(crate) mod module {
             return Err(vm.new_value_error("spawnv() arg 3 first element cannot be empty"));
         }
 
-        let argv_spawn: Vec<*const u16> = argv
-            .iter()
-            .map(|v| v.as_ptr())
-            .chain(once(core::ptr::null()))
-            .collect();
-
-        host_nt::spawnv(mode, path.as_ptr(), argv_spawn.as_ptr())
-            .map_err(|_| vm.new_last_errno_error())
+        let argv_refs: Vec<&widestring::WideCStr> = argv.iter().map(|s| s.as_ref()).collect();
+        host_nt::spawnv(mode, &path, &argv_refs).map_err(|_| vm.new_last_errno_error())
     }
 
     #[cfg(target_env = "msvc")]
@@ -449,7 +442,6 @@ pub(crate) mod module {
         vm: &VirtualMachine,
     ) -> PyResult<intptr_t> {
         use crate::function::FsPath;
-        use core::iter::once;
 
         let path = path.to_wide_cstring(vm)?;
 
@@ -465,12 +457,6 @@ pub(crate) mod module {
         if first.is_empty() {
             return Err(vm.new_value_error("spawnve() arg 2 first element cannot be empty"));
         }
-
-        let argv_spawn: Vec<*const u16> = argv
-            .iter()
-            .map(|v| v.as_ptr())
-            .chain(once(core::ptr::null()))
-            .collect();
 
         // Build environment strings as "KEY=VALUE\0" wide strings
         let mut env_strings: Vec<widestring::WideCString> = Vec::new();
@@ -494,14 +480,10 @@ pub(crate) mod module {
             );
         }
 
-        let envp: Vec<*const u16> = env_strings
-            .iter()
-            .map(|s| s.as_ptr())
-            .chain(once(core::ptr::null()))
-            .collect();
-
-        host_nt::spawnve(mode, path.as_ptr(), argv_spawn.as_ptr(), envp.as_ptr())
-            .map_err(|_| vm.new_last_errno_error())
+        let argv_refs: Vec<&widestring::WideCStr> = argv.iter().map(|s| s.as_ref()).collect();
+        let envp_refs: Vec<&widestring::WideCStr> =
+            env_strings.iter().map(|s| s.as_ref()).collect();
+        host_nt::spawnve(mode, &path, &argv_refs, &envp_refs).map_err(|_| vm.new_last_errno_error())
     }
 
     #[cfg(target_env = "msvc")]
@@ -511,8 +493,6 @@ pub(crate) mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        use core::iter::once;
-
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
@@ -531,13 +511,8 @@ pub(crate) mod module {
             return Err(vm.new_value_error("execv() arg 2 first element cannot be empty"));
         }
 
-        let argv_execv: Vec<*const u16> = argv
-            .iter()
-            .map(|v| v.as_ptr())
-            .chain(once(core::ptr::null()))
-            .collect();
-
-        host_nt::execv(path.as_ptr(), argv_execv.as_ptr()).map_err(|_| vm.new_last_errno_error())
+        let argv_refs: Vec<&widestring::WideCStr> = argv.iter().map(|s| s.as_ref()).collect();
+        host_nt::execv(&path, &argv_refs).map_err(|_| vm.new_last_errno_error())
     }
 
     #[cfg(target_env = "msvc")]
@@ -548,8 +523,6 @@ pub(crate) mod module {
         env: ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        use core::iter::once;
-
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
@@ -567,12 +540,6 @@ pub(crate) mod module {
         if first.is_empty() {
             return Err(vm.new_value_error("execve: argv first element cannot be empty"));
         }
-
-        let argv_execve: Vec<*const u16> = argv
-            .iter()
-            .map(|v| v.as_ptr())
-            .chain(once(core::ptr::null()))
-            .collect();
 
         let env = crate::stdlib::os::envobj_to_dict(env, vm)?;
         // Build environment strings as "KEY=VALUE\0" wide strings
@@ -598,14 +565,10 @@ pub(crate) mod module {
             env_strings.push(make_widestring(&env_str)?);
         }
 
-        let envp: Vec<*const u16> = env_strings
-            .iter()
-            .map(|s| s.as_ptr())
-            .chain(once(core::ptr::null()))
-            .collect();
-
-        host_nt::execve(path.as_ptr(), argv_execve.as_ptr(), envp.as_ptr())
-            .map_err(|_| vm.new_last_errno_error())
+        let argv_refs: Vec<&widestring::WideCStr> = argv.iter().map(|s| s.as_ref()).collect();
+        let envp_refs: Vec<&widestring::WideCStr> =
+            env_strings.iter().map(|s| s.as_ref()).collect();
+        host_nt::execve(&path, &argv_refs, &envp_refs).map_err(|_| vm.new_last_errno_error())
     }
 
     #[pyfunction]
@@ -792,7 +755,9 @@ pub(crate) mod module {
             .chain(core::iter::once(0)) // null-terminated
             .collect();
 
-        if let Some(len) = host_nt::path_skip_root(backslashed.as_ptr()) {
+        let backslashed_wide = widestring::WideCStr::from_slice_truncate(&backslashed)
+            .expect("backslashed is null-terminated");
+        if let Some(len) = host_nt::path_skip_root(backslashed_wide) {
             assert!(
                 len < backslashed.len(), // backslashed is null-terminated
                 "path: {:?} {} < {}",
@@ -1107,12 +1072,7 @@ pub(crate) mod module {
             Err(host_nt::ReadlinkError::Io(err)) => {
                 Err(OSErrorBuilder::with_filename(&err, path.clone(), vm))
             }
-            Err(host_nt::ReadlinkError::NotSymbolicLink) => {
-                Err(vm.new_value_error("not a symbolic link"))
-            }
-            Err(host_nt::ReadlinkError::InvalidReparseData) => {
-                Err(vm.new_os_error("Invalid reparse data".to_owned()))
-            }
+            Err(err) => Err(err.to_pyexception(vm)),
         }
     }
 

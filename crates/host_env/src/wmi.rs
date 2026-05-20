@@ -17,7 +17,7 @@ use windows_sys::Win32::System::Threading::{
     CreateEventW, CreateThread, GetExitCodeThread, SetEvent, WaitForSingleObject,
 };
 
-const BUFFER_SIZE: usize = 8192;
+pub const BUFFER_SIZE: usize = 8192;
 
 pub enum ExecQueryError {
     MoreData,

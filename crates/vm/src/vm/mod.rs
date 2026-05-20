@@ -572,9 +572,7 @@ pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
             crate::stdlib::_thread::get_ident(),
             msg
         );
-        unsafe {
-            let _ = libc::write(libc::STDERR_FILENO, out.buf.as_ptr().cast(), out.len);
-        }
+        crate::host_env::io::write_stderr_raw(&out.buf[..out.len]);
     }
 }
 

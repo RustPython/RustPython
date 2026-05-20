@@ -7,7 +7,7 @@ pub(crate) use winreg::module_def;
 mod winreg {
     use crate::builtins::{PyInt, PyStr, PyTuple, PyTypeRef};
     use crate::common::hash::PyHash;
-    use crate::convert::TryFromObject;
+    use crate::convert::{ToPyException, TryFromObject};
     use crate::function::FuncArgs;
     use crate::host_env::windows::ToWideString;
     use crate::object::AsObject;
@@ -27,7 +27,6 @@ mod winreg {
         vm: &VirtualMachine,
         code: i32,
     ) -> crate::PyRef<crate::builtins::PyBaseException> {
-        use crate::convert::ToPyException;
         std::io::Error::from_raw_os_error(code).to_pyexception(vm)
     }
 
@@ -256,45 +255,31 @@ mod winreg {
         key: PyRef<PyHkey>,
         vm: &VirtualMachine,
     ) -> PyResult<PyHkey> {
-        if let Some(computer_name) = computer_name {
-            let mut ret_key = core::ptr::null_mut();
-            let wide_computer_name = computer_name.to_wide_with_nul();
-            let res = unsafe {
-                host_winreg::connect_registry(
-                    wide_computer_name.as_ptr(),
-                    key.hkey.load(),
-                    &mut ret_key,
-                )
-            };
-            if res == 0 {
-                Ok(PyHkey::new(ret_key))
-            } else {
-                Err(vm.new_os_error(format!("error code: {res}")))
-            }
+        let wide_computer_name = computer_name.map(|n| n.to_wide_cstring());
+        let mut ret_key = core::ptr::null_mut();
+        let res = unsafe {
+            host_winreg::connect_registry(
+                wide_computer_name.as_deref(),
+                key.hkey.load(),
+                &mut ret_key,
+            )
+        };
+        if res == 0 {
+            Ok(PyHkey::new(ret_key))
         } else {
-            let mut ret_key = core::ptr::null_mut();
-            let res = unsafe {
-                host_winreg::connect_registry(core::ptr::null_mut(), key.hkey.load(), &mut ret_key)
-            };
-            if res == 0 {
-                Ok(PyHkey::new(ret_key))
-            } else {
-                Err(vm.new_os_error(format!("error code: {res}")))
-            }
+            Err(os_error_from_windows_code(vm, res as i32))
         }
     }
 
     #[pyfunction]
     fn CreateKey(key: PyRef<PyHkey>, sub_key: String, vm: &VirtualMachine) -> PyResult<PyHkey> {
-        let wide_sub_key = sub_key.to_wide_with_nul();
+        let wide_sub_key = sub_key.to_wide_cstring();
         let mut out_key = core::ptr::null_mut();
-        let res = unsafe {
-            host_winreg::create_key(key.hkey.load(), wide_sub_key.as_ptr(), &mut out_key)
-        };
+        let res = unsafe { host_winreg::create_key(key.hkey.load(), &wide_sub_key, &mut out_key) };
         if res == 0 {
             Ok(PyHkey::new(out_key))
         } else {
-            Err(vm.new_os_error(format!("error code: {res}")))
+            Err(os_error_from_windows_code(vm, res as i32))
         }
     }
 
@@ -312,13 +297,13 @@ mod winreg {
 
     #[pyfunction]
     fn CreateKeyEx(args: CreateKeyExArgs, vm: &VirtualMachine) -> PyResult<PyHkey> {
-        let wide_sub_key = args.sub_key.to_wide_with_nul();
+        let wide_sub_key = args.sub_key.to_wide_cstring();
         let mut res: host_winreg::HKEY = core::ptr::null_mut();
         let err = unsafe {
             let key = args.key.hkey.load();
             host_winreg::create_key_ex(
                 key,
-                wide_sub_key.as_ptr(),
+                &wide_sub_key,
                 args.reserved,
                 core::ptr::null_mut(),
                 host_winreg::REG_OPTION_NON_VOLATILE,
@@ -345,8 +330,8 @@ mod winreg {
 
     #[pyfunction]
     fn DeleteKey(key: PyRef<PyHkey>, sub_key: String, vm: &VirtualMachine) -> PyResult<()> {
-        let wide_sub_key = sub_key.to_wide_with_nul();
-        let res = unsafe { host_winreg::delete_key(key.hkey.load(), wide_sub_key.as_ptr()) };
+        let wide_sub_key = sub_key.to_wide_cstring();
+        let res = unsafe { host_winreg::delete_key(key.hkey.load(), &wide_sub_key) };
         if res == 0 {
             Ok(())
         } else {
@@ -356,11 +341,8 @@ mod winreg {
 
     #[pyfunction]
     fn DeleteValue(key: PyRef<PyHkey>, value: Option<String>, vm: &VirtualMachine) -> PyResult<()> {
-        let wide_value = value.map(|v| v.to_wide_with_nul());
-        let value_ptr = wide_value
-            .as_ref()
-            .map_or(core::ptr::null(), |v| v.as_ptr());
-        let res = unsafe { host_winreg::delete_value(key.hkey.load(), value_ptr) };
+        let wide_value = value.map(|v| v.to_wide_cstring());
+        let res = unsafe { host_winreg::delete_value(key.hkey.load(), wide_value.as_deref()) };
         if res == 0 {
             Ok(())
         } else {
@@ -382,11 +364,11 @@ mod winreg {
 
     #[pyfunction]
     fn DeleteKeyEx(args: DeleteKeyExArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let wide_sub_key = args.sub_key.to_wide_with_nul();
+        let wide_sub_key = args.sub_key.to_wide_cstring();
         let res = unsafe {
             host_winreg::delete_key_ex(
                 args.key.hkey.load(),
-                wide_sub_key.as_ptr(),
+                &wide_sub_key,
                 args.access,
                 args.reserved,
             )
@@ -519,10 +501,9 @@ mod winreg {
         file_name: String,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let sub_key = sub_key.to_wide_with_nul();
-        let file_name = file_name.to_wide_with_nul();
-        let res =
-            unsafe { host_winreg::load_key(key.hkey.load(), sub_key.as_ptr(), file_name.as_ptr()) };
+        let sub_key = sub_key.to_wide_cstring();
+        let file_name = file_name.to_wide_cstring();
+        let res = unsafe { host_winreg::load_key(key.hkey.load(), &sub_key, &file_name) };
         if res == 0 {
             Ok(())
         } else {
@@ -545,17 +526,11 @@ mod winreg {
     #[pyfunction]
     #[pyfunction(name = "OpenKeyEx")]
     fn OpenKey(args: OpenKeyArgs, vm: &VirtualMachine) -> PyResult<PyHkey> {
-        let wide_sub_key = args.sub_key.to_wide_with_nul();
+        let wide_sub_key = args.sub_key.to_wide_cstring();
         let mut res: host_winreg::HKEY = core::ptr::null_mut();
         let err = unsafe {
             let key = args.key.hkey.load();
-            host_winreg::open_key_ex(
-                key,
-                wide_sub_key.as_ptr(),
-                args.reserved,
-                args.access,
-                &mut res,
-            )
+            host_winreg::open_key_ex(key, &wide_sub_key, args.reserved, args.access, &mut res)
         };
         if err == 0 {
             Ok(PyHkey {
@@ -592,14 +567,7 @@ mod winreg {
         }
 
         host_winreg::query_default_value(hkey, sub_key.as_deref().map(std::ffi::OsStr::new))
-            .map_err(|err| match err {
-                host_winreg::QueryStringError::Code(err) => {
-                    os_error_from_windows_code(vm, err as i32)
-                }
-                host_winreg::QueryStringError::Utf16(e) => {
-                    vm.new_value_error(format!("UTF16 error: {e}"))
-                }
-            })
+            .map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -614,8 +582,8 @@ mod winreg {
 
     #[pyfunction]
     fn SaveKey(key: PyRef<PyHkey>, file_name: String, vm: &VirtualMachine) -> PyResult<()> {
-        let file_name = file_name.to_wide_with_nul();
-        let res = unsafe { host_winreg::save_key(key.hkey.load(), file_name.as_ptr()) };
+        let file_name = file_name.to_wide_cstring();
+        let res = unsafe { host_winreg::save_key(key.hkey.load(), &file_name) };
         if res == 0 {
             Ok(())
         } else {
@@ -825,17 +793,15 @@ mod winreg {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let wide_value_name = value_name.as_deref().map(|s| s.to_wide_with_nul());
-        let value_name_ptr = wide_value_name
-            .as_deref()
-            .map_or(core::ptr::null(), |s| s.as_ptr());
+        let wide_value_name = value_name.as_deref().map(|s| s.to_wide_cstring());
         let reg_value = py2reg(value, typ, vm)?;
         let (ptr, len) = match &reg_value {
             Some(v) => (v.as_ptr(), v.len() as u32),
             None => (core::ptr::null(), 0),
         };
-        let res =
-            unsafe { host_winreg::set_value_ex(key.hkey.load(), value_name_ptr, typ, ptr, len) };
+        let res = unsafe {
+            host_winreg::set_value_ex(key.hkey.load(), wide_value_name.as_deref(), typ, ptr, len)
+        };
         if res != 0 {
             return Err(os_error_from_windows_code(vm, res as i32));
         }
@@ -875,13 +841,7 @@ mod winreg {
 
     #[pyfunction]
     fn ExpandEnvironmentStrings(i: String, vm: &VirtualMachine) -> PyResult<String> {
-        host_winreg::expand_environment_strings(std::ffi::OsStr::new(&i)).map_err(|err| match err {
-            host_winreg::ExpandEnvironmentStringsError::Os => {
-                vm.new_os_error("ExpandEnvironmentStringsW failed".to_string())
-            }
-            host_winreg::ExpandEnvironmentStringsError::Utf16(e) => {
-                vm.new_value_error(format!("UTF16 error: {e}"))
-            }
-        })
+        host_winreg::expand_environment_strings(std::ffi::OsStr::new(&i))
+            .map_err(|err| err.to_pyexception(vm))
     }
 }

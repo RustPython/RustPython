@@ -128,7 +128,7 @@ Use various combinations of explicit keywords and **kwds.
 
 Check for duplicate keywords.
 
-    >>> class C(metaclass=type, metaclass=type): pass  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> class C(metaclass=type, metaclass=type): pass
     ...
     Traceback (most recent call last):
     [...]

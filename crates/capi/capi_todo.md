@@ -151,8 +151,6 @@ RustPython C API target: `crates/capi/src/capsule.rs`
 
 RustPython C API target: `crates/capi/src/pyerrors.rs`
 
-- `PyException_GetCause`
-- `PyException_GetContext`
 - `PyException_SetContext`
 - `PyUnicodeDecodeError_Create`
 

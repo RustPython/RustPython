@@ -3433,7 +3433,6 @@ class TestTracing(unittest.TestCase):
             sys.settrace(old_trace)
         return actual_linenos
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_default_wildcard(self):
         def f(command):                                         # 0
             match command.split():                              # 1
@@ -3494,7 +3493,6 @@ class TestTracing(unittest.TestCase):
         self.assertListEqual(self._trace(f, "go x"), [1, 2, 3])
         self.assertListEqual(self._trace(f, "spam"), [1, 2, 3])
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_unreachable_code(self):
         def f(command):               # 0
             match command:            # 1

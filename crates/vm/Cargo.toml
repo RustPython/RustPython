@@ -51,7 +51,6 @@ crossbeam-utils = { workspace = true }
 chrono = { workspace = true }
 constant_time_eq = { workspace = true }
 flame = { workspace = true, optional = true }
-getrandom = { workspace = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
@@ -87,7 +86,6 @@ icu_properties = { workspace = true }
 writeable = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { workspace = true }
 exitcode = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -99,6 +97,7 @@ widestring = { workspace = true }
 wasm-bindgen = { workspace = true, optional = true }
 
 [build-dependencies]
+chrono = { workspace = true }
 glob = { workspace = true }
 itertools = { workspace = true }
 

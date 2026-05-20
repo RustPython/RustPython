@@ -101,74 +101,73 @@ impl core::error::Error for CodegenErrorType {}
 
 impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use CodegenErrorType::*;
         match self {
-            Assign(target) => write!(f, "cannot assign to {target}"),
-            Delete(target) => write!(f, "cannot delete {target}"),
-            SyntaxError(err) => write!(f, "{}", err.as_str()),
-            MultipleStarArgs => {
+            Self::Assign(target) => write!(f, "cannot assign to {target}"),
+            Self::Delete(target) => write!(f, "cannot delete {target}"),
+            Self::SyntaxError(err) => write!(f, "{}", err.as_str()),
+            Self::MultipleStarArgs => {
                 write!(f, "multiple starred expressions in assignment")
             }
-            InvalidStarExpr => write!(f, "can't use starred expression here"),
-            InvalidBreak => write!(f, "'break' outside loop"),
-            InvalidContinue => write!(f, "'continue' outside loop"),
-            InvalidReturn => write!(f, "'return' outside function"),
-            InvalidYield => write!(f, "'yield' outside function"),
-            InvalidYieldFrom => write!(f, "'yield from' outside function"),
-            InvalidAwait => write!(f, "'await' outside async function"),
-            InvalidAsyncFor => write!(f, "'async for' outside async function"),
-            InvalidAsyncWith => write!(f, "'async with' outside async function"),
-            InvalidAsyncComprehension => {
+            Self::InvalidStarExpr => write!(f, "can't use starred expression here"),
+            Self::InvalidBreak => write!(f, "'break' outside loop"),
+            Self::InvalidContinue => write!(f, "'continue' not properly in loop"),
+            Self::InvalidReturn => write!(f, "'return' outside function"),
+            Self::InvalidYield => write!(f, "'yield' outside function"),
+            Self::InvalidYieldFrom => write!(f, "'yield from' outside function"),
+            Self::InvalidAwait => write!(f, "'await' outside async function"),
+            Self::InvalidAsyncFor => write!(f, "'async for' outside async function"),
+            Self::InvalidAsyncWith => write!(f, "'async with' outside async function"),
+            Self::InvalidAsyncComprehension => {
                 write!(
                     f,
                     "asynchronous comprehension outside of an asynchronous function"
                 )
             }
-            AsyncYieldFrom => write!(f, "'yield from' inside async function"),
-            AsyncReturnValue => {
+            Self::AsyncYieldFrom => write!(f, "'yield from' inside async function"),
+            Self::AsyncReturnValue => {
                 write!(f, "'return' with value inside async generator")
             }
-            InvalidFuturePlacement => write!(
+            Self::InvalidFuturePlacement => write!(
                 f,
                 "from __future__ imports must occur at the beginning of the file"
             ),
-            InvalidFutureFeature(feat) => {
+            Self::InvalidFutureFeature(feat) => {
                 write!(f, "future feature {feat} is not defined")
             }
-            FunctionImportStar => {
+            Self::FunctionImportStar => {
                 write!(f, "import * only allowed at module level")
             }
-            TooManyStarUnpack => {
+            Self::TooManyStarUnpack => {
                 write!(f, "too many expressions in star-unpacking assignment")
             }
-            EmptyWithItems => {
+            Self::EmptyWithItems => {
                 write!(f, "empty items on With")
             }
-            EmptyWithBody => {
+            Self::EmptyWithBody => {
                 write!(f, "empty body on With")
             }
-            ForbiddenName => {
+            Self::ForbiddenName => {
                 write!(f, "forbidden attribute name")
             }
-            DuplicateStore(s) => {
+            Self::DuplicateStore(s) => {
                 write!(f, "duplicate store {s}")
             }
-            UnreachablePattern(reason) => {
+            Self::UnreachablePattern(reason) => {
                 write!(f, "{reason} makes remaining patterns unreachable")
             }
-            RepeatedAttributePattern => {
+            Self::RepeatedAttributePattern => {
                 write!(f, "attribute name repeated in class pattern")
             }
-            ConflictingNameBindPattern => {
+            Self::ConflictingNameBindPattern => {
                 write!(f, "alternative patterns bind different names")
             }
-            BreakContinueReturnInExceptStar => {
+            Self::BreakContinueReturnInExceptStar => {
                 write!(
                     f,
                     "'break', 'continue' and 'return' cannot appear in an except* block"
                 )
             }
-            NotImplementedYet => {
+            Self::NotImplementedYet => {
                 write!(f, "RustPython does not implement this feature yet")
             }
         }

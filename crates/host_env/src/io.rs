@@ -252,3 +252,13 @@ pub fn write_once(fd: crt_fd::Borrowed<'_>, buf: &[u8]) -> io::Result<usize> {
 pub fn close_owned_fd(fd: crt_fd::Owned) -> io::Result<()> {
     crt_fd::close(fd)
 }
+
+/// Async-signal-safe raw write to the platform stderr file descriptor.
+/// Avoids `std::io::stderr()` locking so it is safe to call from fork
+/// children and signal handlers.
+#[cfg(unix)]
+pub fn write_stderr_raw(buf: &[u8]) {
+    unsafe {
+        let _ = libc::write(libc::STDERR_FILENO, buf.as_ptr().cast(), buf.len());
+    }
+}

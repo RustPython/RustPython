@@ -63,7 +63,6 @@ class NamedExpressionInvalidTest(unittest.TestCase):
         with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_11(self):
         code = """spam(a=1, b := 2)"""
 
@@ -71,7 +70,6 @@ class NamedExpressionInvalidTest(unittest.TestCase):
             "positional argument follows keyword argument"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_12(self):
         code = """spam(a=1, (b := 2))"""
 
@@ -79,7 +77,6 @@ class NamedExpressionInvalidTest(unittest.TestCase):
             "positional argument follows keyword argument"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_13(self):
         code = """spam(a=1, (b := 2))"""
 
