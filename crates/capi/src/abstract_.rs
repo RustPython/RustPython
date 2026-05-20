@@ -2,10 +2,28 @@ use crate::{PyObject, pystate::with_vm};
 use alloc::slice;
 use core::ffi::c_int;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
-use rustpython_vm::function::{FuncArgs, KwArgs};
-use rustpython_vm::{AsObject, PyObjectRef};
+use rustpython_vm::function::{FuncArgs, KwArgs, PosArgs};
+use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
+
+fn tuple_to_args(tuple: &Py<PyTuple>) -> PosArgs {
+    tuple.iter().cloned().collect::<Vec<_>>().into()
+}
+
+fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
+    dict.items_vec()
+        .into_iter()
+        .map(|(key, value)| {
+            let key = key
+                .downcast_ref::<PyStr>()
+                .map(|s| s.to_string())
+                .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+            Ok((key, value))
+        })
+        .collect::<PyResult<_>>()
+        .map(KwArgs::new)
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_Call(
@@ -15,10 +33,10 @@ pub unsafe extern "C" fn PyObject_Call(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let callable = unsafe { &*callable };
-        let args = unsafe { &*args }.try_downcast_ref::<PyTuple>(vm)?;
+        let args = tuple_to_args(unsafe { &*args }.try_downcast_ref::<PyTuple>(vm)?);
 
         let kwargs: Option<KwArgs> = unsafe { kwargs.as_ref() }
-            .map(|kwargs| kwargs.try_downcast_ref::<PyDict>(vm)?.try_into())
+            .map(|kwargs| dict_to_kwargs(vm, kwargs.try_downcast_ref::<PyDict>(vm)?))
             .transpose()?;
 
         callable.call_with_args(FuncArgs::new(args, kwargs.unwrap_or_default()), vm)
