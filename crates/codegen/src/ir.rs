@@ -10787,7 +10787,7 @@ fn retarget_conditional_jumps_to_empty_while_exit_epilogue(blocks: &mut [Block])
     fn ends_with_line_marker_implicit_return(block: &Block) -> bool {
         matches!(
             block.instructions.as_slice(),
-            [.., marker, load, ret]
+            [marker, load, ret]
                 if matches!(marker.instr.real(), Some(Instruction::Nop))
                     && instruction_lineno(marker) > 0
                     && load.no_location_exit
@@ -10879,23 +10879,6 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
     // Get the return instructions to clone
     let return_insts: Vec<InstructionInfo> = last_insts[last_insts.len() - 2..].to_vec();
     let predecessors = compute_predecessors(blocks);
-    let has_nointerrupt_jump_to_last_block = blocks.iter().any(|block| {
-        block.instructions.iter().any(|instr| {
-            matches!(
-                jump_thread_kind(instr.instr),
-                Some(JumpThreadKind::NoInterrupt)
-            ) && instr.target != BlockIdx::NULL
-                && next_nonempty_block(blocks, instr.target) == last_block
-        })
-    });
-    let has_lineful_return_fallthrough_to_last_block = blocks.iter().any(|block| {
-        block.next != BlockIdx::NULL
-            && next_nonempty_block(blocks, block.next) == last_block
-            && block.instructions.last().is_some_and(|instr| {
-                matches!(instr.instr.real(), Some(Instruction::ReturnValue))
-                    && instruction_lineno(instr) > 0
-            })
-    });
 
     // Find non-cold blocks that reach the last return block either by
     // fallthrough or as an unconditional jump target that should get its own
@@ -10910,6 +10893,13 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
             let last_ins = block.instructions.last();
             let has_fallthrough = last_ins
                 .is_none_or(|ins| !ins.instr.is_scope_exit() && !ins.instr.is_unconditional_jump());
+            let has_nointerrupt_jump_to_last_block = block.instructions.iter().any(|instr| {
+                matches!(
+                    jump_thread_kind(instr.instr),
+                    Some(JumpThreadKind::NoInterrupt)
+                ) && instr.target != BlockIdx::NULL
+                    && next_nonempty_block(blocks, instr.target) == last_block
+            });
             // Don't duplicate if block already ends with the same return pattern
             let already_has_return = block.instructions.len() >= 2 && {
                 let n = block.instructions.len();
@@ -10938,6 +10928,12 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
             });
             if let Some(jump_idx) = jump_idx {
                 let jump = &block.instructions[jump_idx];
+                let has_lineful_return_fallthrough_to_last_block = block.next != BlockIdx::NULL
+                    && next_nonempty_block(blocks, block.next) == last_block
+                    && block.instructions.last().is_some_and(|instr| {
+                        matches!(instr.instr.real(), Some(Instruction::ReturnValue))
+                            && instruction_lineno(instr) > 0
+                    });
                 if jump.target != BlockIdx::NULL
                     && !matches!(
                         jump_thread_kind(jump.instr),

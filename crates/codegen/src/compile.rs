@@ -1095,7 +1095,34 @@ impl Compiler {
 
     fn statements_end_with_conditional(body: &[ast::Stmt]) -> bool {
         body.last()
-            .is_some_and(|stmt| matches!(stmt, ast::Stmt::If(_)))
+            .is_some_and(Self::statement_ends_with_conditional)
+    }
+
+    fn statement_ends_with_conditional(stmt: &ast::Stmt) -> bool {
+        match stmt {
+            ast::Stmt::If(_) | ast::Stmt::Match(_) => true,
+            ast::Stmt::With(ast::StmtWith { body, .. }) => {
+                Self::statements_end_with_conditional(body)
+            }
+            ast::Stmt::Try(ast::StmtTry {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+                ..
+            }) => {
+                if !finalbody.is_empty() {
+                    return Self::statements_end_with_conditional(finalbody);
+                }
+                let normal_body = if orelse.is_empty() { body } else { orelse };
+                Self::statements_end_with_conditional(normal_body)
+                    || handlers.iter().any(|handler| {
+                        let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                        Self::statements_end_with_conditional(&handler.body)
+                    })
+            }
+            _ => false,
+        }
     }
 
     fn statements_end_with_conditional_scope_exit(&self, body: &[ast::Stmt]) -> bool {
@@ -8716,6 +8743,32 @@ impl Compiler {
             }
         }
 
+        fn contains_match_or(pattern: &ast::Pattern) -> bool {
+            match pattern {
+                ast::Pattern::MatchSequence(match_sequence) => {
+                    match_sequence.patterns.iter().any(contains_match_or)
+                }
+                ast::Pattern::MatchMapping(match_mapping) => {
+                    match_mapping.patterns.iter().any(contains_match_or)
+                }
+                ast::Pattern::MatchClass(match_class) => {
+                    match_class.arguments.patterns.iter().any(contains_match_or)
+                        || match_class
+                            .arguments
+                            .keywords
+                            .iter()
+                            .any(|keyword| contains_match_or(&keyword.pattern))
+                }
+                ast::Pattern::MatchAs(match_as) => {
+                    match_as.pattern.as_deref().is_some_and(contains_match_or)
+                }
+                ast::Pattern::MatchOr(_) => true,
+                ast::Pattern::MatchValue(_)
+                | ast::Pattern::MatchSingleton(_)
+                | ast::Pattern::MatchStar(_) => false,
+            }
+        }
+
         self.compile_expression(subject)?;
         let end = self.new_block();
 
@@ -8728,7 +8781,7 @@ impl Compiler {
         let has_match_or_case = cases
             .iter()
             .take(case_count)
-            .any(|m| matches!(m.pattern, ast::Pattern::MatchOr(_)));
+            .any(|m| contains_match_or(&m.pattern));
         for (i, m) in cases.iter().enumerate().take(case_count) {
             // Only copy the subject if not on the last case
             if i != case_count - 1 {
@@ -14881,6 +14934,28 @@ def f(format, other):
     }
 
     #[test]
+    fn test_match_nested_or_default_block_keeps_load_fast_strong() {
+        let code = compile_exec(
+            r#"
+def f(format, other):
+    match format:
+        case [1 | 2, value]:
+            return other
+        case _:
+            raise NotImplementedError(other)
+"#,
+        );
+        let function = find_code(&code, "f").expect("missing function code");
+        let loads = load_fast_ops_for_var(function, "other");
+        assert!(
+            loads
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython optimize_load_fast() keeps trailing nested OR-pattern default loads strong, got {loads:?}",
+        );
+    }
+
+    #[test]
     fn test_match_success_next_location_preserves_pass_nop() {
         let code = compile_exec(
             r#"
@@ -14949,6 +15024,36 @@ def f(stack, itstack, node_to_stack_index):
                 panic!("expected CPython-style while/try false jump to anchor, got {ops:?}")
             });
         assert!(matches!(stack_test[2], Instruction::PopJumpIfFalse { .. }));
+    }
+
+    #[test]
+    fn test_while_if_not_break_keeps_body_call() {
+        let code = compile_exec(
+            r#"
+def f(waiters):
+    while waiters:
+        waiter = waiters.popleft()
+        if not waiter.done():
+            waiter.set_result(None)
+            break
+"#,
+        );
+        let function = find_code(&code, "f").expect("missing function code");
+        let ops = non_cache_instructions(function)
+            .map(|unit| unit.op)
+            .collect::<Vec<_>>();
+        assert!(
+            ops.windows(4).any(|window| matches!(
+                window,
+                [
+                    Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
+                    Instruction::LoadAttr { .. },
+                    Instruction::LoadConst { .. },
+                    Instruction::Call { .. },
+                ]
+            )),
+            "CPython keeps waiter.set_result(None) before the break, got {ops:?}",
+        );
     }
 
     fn localsplus_name(code: &CodeObject, idx: usize) -> Option<&str> {
