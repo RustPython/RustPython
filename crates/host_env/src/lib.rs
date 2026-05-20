@@ -68,6 +68,10 @@ pub mod time;
 
 #[cfg(windows)]
 pub mod cert_store;
+#[cfg(target_os = "macos")]
+pub mod system_configuration {
+    pub use ::system_configuration::*;
+}
 #[cfg(any(unix, windows))]
 pub mod faulthandler;
 #[cfg(any(unix, windows))]

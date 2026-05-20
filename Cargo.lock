@@ -3496,6 +3496,7 @@ name = "rustpython-host_env"
 version = "0.5.0"
 dependencies = [
  "bitflags 2.13.0",
+ "dns-lookup",
  "gethostname",
  "getrandom 0.4.3",
  "junction",
@@ -3513,6 +3514,8 @@ dependencies = [
  "rustpython-wtf8",
  "rustyline",
  "schannel",
+ "socket2",
+ "system-configuration",
  "termios",
  "which",
  "widestring",
@@ -3651,7 +3654,6 @@ dependencies = [
  "csv-core",
  "der 0.8.0",
  "digest 0.11.3",
- "dns-lookup",
  "dyn-clone",
  "flame",
  "flate2",
@@ -3702,8 +3704,6 @@ dependencies = [
  "sha2",
  "sha3",
  "shake",
- "socket2",
- "system-configuration",
  "tcl-sys",
  "tk-sys",
  "uuid",

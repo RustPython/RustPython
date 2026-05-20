@@ -9,14 +9,14 @@ mod _scproxy {
         builtins::{PyDict, PyDictRef, PyStr},
         convert::ToPyObject,
     };
-    use system_configuration::core_foundation::{
+    use rustpython_host_env::system_configuration::core_foundation::{
         array::CFArray,
         base::{CFType, FromVoid, TCFType},
         dictionary::CFDictionary,
         number::CFNumber,
         string::{CFString, CFStringRef},
     };
-    use system_configuration::sys::{
+    use rustpython_host_env::system_configuration::sys::{
         dynamic_store_copy_specific::SCDynamicStoreCopyProxies, schema_definitions::*,
     };
 
