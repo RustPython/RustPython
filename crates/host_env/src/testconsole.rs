@@ -1,14 +1,13 @@
 use std::io;
 use windows_sys::Win32::{
-    Foundation::{HANDLE, INVALID_HANDLE_VALUE},
+    Foundation::HANDLE,
     System::Console::{INPUT_RECORD, KEY_EVENT, WriteConsoleInputW},
 };
 
+use crate::windows::{CheckWin32Bool, CheckWin32Handle};
+
 pub fn write_console_input(fd: i32, data: &[u16]) -> io::Result<()> {
-    let handle = unsafe { libc::get_osfhandle(fd) } as HANDLE;
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
+    let handle = (unsafe { libc::get_osfhandle(fd) } as HANDLE).check_valid()?;
 
     let size = data.len() as u32;
     let mut records: Vec<INPUT_RECORD> = Vec::with_capacity(data.len());
@@ -24,17 +23,15 @@ pub fn write_console_input(fd: i32, data: &[u16]) -> io::Result<()> {
     let mut total: u32 = 0;
     while total < size {
         let mut wrote: u32 = 0;
-        let res = unsafe {
+        unsafe {
             WriteConsoleInputW(
                 handle,
                 records[total as usize..].as_ptr(),
                 size - total,
                 &mut wrote,
             )
-        };
-        if res == 0 {
-            return Err(io::Error::last_os_error());
         }
+        .check_win32_bool()?;
         if wrote == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::WriteZero,

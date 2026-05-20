@@ -14,6 +14,8 @@ use std::{
     io,
     sync::{Mutex, OnceLock},
 };
+
+use crate::windows::{CheckWin32Bool, CheckWin32Handle};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS, HANDLE},
     Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6},
@@ -76,10 +78,8 @@ unsafe impl Send for Operation {}
 
 impl Operation {
     pub fn new(handle: HANDLE) -> io::Result<Self> {
-        let event = unsafe { CreateEventW(core::ptr::null(), 1, 0, core::ptr::null()) };
-        if event.is_null() {
-            return Err(io::Error::last_os_error());
-        }
+        let event =
+            unsafe { CreateEventW(core::ptr::null(), 1, 0, core::ptr::null()) }.check_nonnull()?;
 
         let mut overlapped: OVERLAPPED = unsafe { core::mem::zeroed() };
         overlapped.hEvent = event;
@@ -177,9 +177,7 @@ impl Operation {
                 self.pending = true;
             }
             ERROR_PIPE_CONNECTED => {
-                if unsafe { SetEvent(self.overlapped.hEvent) } == 0 {
-                    return Err(io::Error::last_os_error());
-                }
+                unsafe { SetEvent(self.overlapped.hEvent) }.check_win32_bool()?;
             }
             _ => return Err(io::Error::from_raw_os_error(err as i32)),
         }
@@ -792,7 +790,7 @@ pub fn start_wsa_recv_from(
 
 pub fn connect_pipe(address: &str) -> io::Result<isize> {
     use windows_sys::Win32::{
-        Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE},
+        Foundation::{GENERIC_READ, GENERIC_WRITE},
         Storage::FileSystem::{CreateFileW, FILE_FLAG_OVERLAPPED, OPEN_EXISTING},
     };
 
@@ -808,11 +806,8 @@ pub fn connect_pipe(address: &str) -> io::Result<isize> {
             core::ptr::null_mut(),
         )
     };
-    if handle == INVALID_HANDLE_VALUE {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle as isize)
-    }
+    let handle = handle.check_valid()?;
+    Ok(handle as isize)
 }
 
 pub fn create_io_completion_port(
@@ -827,13 +822,10 @@ pub fn create_io_completion_port(
             port as HANDLE,
             key,
             concurrency,
-        ) as isize
-    };
-    if r == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(r)
+        )
     }
+    .check_nonnull()?;
+    Ok(r as isize)
 }
 
 pub fn get_queued_completion_status(port: isize, msecs: u32) -> io::Result<WaitResult> {
@@ -876,19 +868,15 @@ pub fn post_queued_completion_status(
     key: usize,
     address: usize,
 ) -> io::Result<()> {
-    let ret = unsafe {
+    unsafe {
         windows_sys::Win32::System::IO::PostQueuedCompletionStatus(
             port as HANDLE,
             bytes,
             key,
             address as *mut OVERLAPPED,
         )
-    };
-    if ret == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
+    .check_win32_bool()
 }
 
 unsafe impl Send for WaitCallbackData {}
@@ -974,11 +962,7 @@ pub fn unregister_wait(wait_handle: isize) -> io::Result<()> {
     let ret =
         unsafe { windows_sys::Win32::System::Threading::UnregisterWait(wait_handle as HANDLE) };
     cleanup_wait_callback_data(wait_handle);
-    if ret == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    ret.check_win32_bool()
 }
 
 pub fn unregister_wait_ex(wait_handle: isize, event: isize) -> io::Result<()> {
@@ -989,11 +973,7 @@ pub fn unregister_wait_ex(wait_handle: isize, event: isize) -> io::Result<()> {
         )
     };
     cleanup_wait_callback_data(wait_handle);
-    if ret == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    ret.check_win32_bool()
 }
 
 pub fn bind_local(socket: isize, family: i32) -> io::Result<()> {

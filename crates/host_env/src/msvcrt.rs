@@ -2,6 +2,7 @@ use alloc::{string::String, vec::Vec};
 use std::io;
 
 use crate::crt_fd;
+use crate::os::CheckLibcResult;
 use windows_sys::Win32::System::Diagnostics::Debug;
 
 pub type ErrorMode = u32;
@@ -89,39 +90,21 @@ pub fn kbhit() -> i32 {
 }
 
 pub fn locking(fd: i32, mode: i32, nbytes: i64) -> io::Result<()> {
-    let ret = unsafe { suppress_iph!(_locking(fd, mode, nbytes)) };
-    if ret == -1 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { suppress_iph!(_locking(fd, mode, nbytes)) }.check_libc_neg()?;
+    Ok(())
 }
 
 pub fn heapmin() -> io::Result<()> {
-    let ret = unsafe { suppress_iph!(_heapmin()) };
-    if ret == -1 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { suppress_iph!(_heapmin()) }.check_libc_neg()?;
+    Ok(())
 }
 
 pub fn setmode(fd: crt_fd::Borrowed<'_>, flags: i32) -> io::Result<i32> {
-    let ret = unsafe { suppress_iph!(_setmode(fd, flags)) };
-    if ret == -1 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
+    unsafe { suppress_iph!(_setmode(fd, flags)) }.check_libc_neg()
 }
 
 pub fn open_osfhandle(handle: isize, flags: i32) -> io::Result<i32> {
-    let ret = unsafe { suppress_iph!(libc::open_osfhandle(handle, flags)) };
-    if ret == -1 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
+    unsafe { suppress_iph!(libc::open_osfhandle(handle, flags)) }.check_libc_neg()
 }
 
 pub fn get_error_mode() -> u32 {

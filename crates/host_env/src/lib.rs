@@ -83,4 +83,6 @@ pub mod winapi;
 #[cfg(windows)]
 pub mod winreg;
 #[cfg(windows)]
+pub mod winsound;
+#[cfg(windows)]
 pub mod wmi;

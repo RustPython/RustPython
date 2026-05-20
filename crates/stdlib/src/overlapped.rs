@@ -11,7 +11,7 @@ mod _overlapped {
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyModule, PyStrRef, PyTupleRef, PyType},
         common::lock::PyMutex,
-        convert::ToPyObject,
+        convert::{ToPyException, ToPyObject},
         function::OptionalArg,
         object::{Traverse, TraverseFn},
         protocol::PyBuffer,
@@ -1077,7 +1077,7 @@ mod _overlapped {
             let mut event = event.unwrap_or(INVALID_HANDLE_VALUE);
 
             if event == INVALID_HANDLE_VALUE {
-                event = host_winapi::create_event_w(true, false, core::ptr::null())
+                event = host_winapi::create_event_w(true, false, None)
                     .map(|handle| handle as isize)
                     .map_err(|err| {
                         set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm)
@@ -1251,15 +1251,12 @@ mod _overlapped {
             return Err(vm.new_value_error("EventAttributes must be None"));
         }
 
-        let name_wide: Option<Vec<u16>> =
-            name.map(|n| n.encode_utf16().chain(core::iter::once(0)).collect());
-        host_winapi::create_event_w(
-            manual_reset,
-            initial_state,
-            name_wide.as_ref().map_or(core::ptr::null(), |n| n.as_ptr()),
-        )
-        .map(|h| h as isize)
-        .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
+        let name_wide: Option<widestring::WideCString> = name
+            .map(|n| widestring::WideCString::from_str(&n).map_err(|err| err.to_pyexception(vm)))
+            .transpose()?;
+        host_winapi::create_event_w(manual_reset, initial_state, name_wide.as_deref())
+            .map(|h| h as isize)
+            .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]

@@ -5,9 +5,13 @@
 
 use std::io;
 
+#[cfg(windows)]
+use crate::windows::{CheckWin32Bool, HandleToOwned};
 #[cfg(unix)]
 use crate::{crt_fd, fileutils, posix};
 use memmap2::{Mmap, MmapMut, MmapOptions};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, IntoRawHandle};
 #[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::{
@@ -131,7 +135,7 @@ impl Drop for NamedMmap {
 #[cfg(windows)]
 pub fn duplicate_handle(handle: Handle) -> io::Result<Handle> {
     let mut new_handle: Handle = INVALID_HANDLE;
-    let result = unsafe {
+    unsafe {
         DuplicateHandle(
             GetCurrentProcess(),
             handle,
@@ -141,12 +145,9 @@ pub fn duplicate_handle(handle: Handle) -> io::Result<Handle> {
             0,
             DUPLICATE_SAME_ACCESS,
         )
-    };
-    if result == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(new_handle)
     }
+    .check_win32_bool()?;
+    Ok(new_handle)
 }
 
 #[cfg(windows)]
@@ -187,13 +188,9 @@ pub fn is_invalid_handle_value(handle: isize) -> bool {
 
 #[cfg(windows)]
 pub fn extend_file(handle: Handle, size: i64) -> io::Result<()> {
-    if unsafe { SetFilePointerEx(handle, size, core::ptr::null_mut(), FILE_BEGIN) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if unsafe { SetEndOfFile(handle) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
+    unsafe { SetFilePointerEx(handle, size, core::ptr::null_mut(), FILE_BEGIN) }
+        .check_win32_bool()?;
+    unsafe { SetEndOfFile(handle) }.check_win32_bool()
 }
 
 #[cfg(unix)]
@@ -210,11 +207,7 @@ pub fn close_handle(handle: Handle) {
 
 #[cfg(windows)]
 pub fn flush_view(ptr: *const core::ffi::c_void, size: usize) -> io::Result<()> {
-    if unsafe { FlushViewOfFile(ptr, size) } == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { FlushViewOfFile(ptr, size) }.check_win32_bool()
 }
 
 #[cfg(windows)]
@@ -252,21 +245,28 @@ pub fn create_named_mapping(
             size_lo,
             tag_wide.as_ptr(),
         )
-    };
-    if map_handle.is_null() {
-        return Err(io::Error::last_os_error());
     }
+    .into_owned()
+    .ok_or_else(io::Error::last_os_error)?;
 
     let off_hi = (offset as u64 >> 32) as u32;
     let off_lo = offset as u32;
-    let view = unsafe { MapViewOfFile(map_handle, desired_access, off_hi, off_lo, map_size) };
+    let view = unsafe {
+        MapViewOfFile(
+            map_handle.as_raw_handle() as Handle,
+            desired_access,
+            off_hi,
+            off_lo,
+            map_size,
+        )
+    };
     if view.Value.is_null() {
-        unsafe { CloseHandle(map_handle) };
+        // `map_handle` is closed automatically when dropped on this error path.
         return Err(io::Error::last_os_error());
     }
 
     Ok(NamedMmap {
-        map_handle,
+        map_handle: map_handle.into_raw_handle() as Handle,
         view_ptr: view.Value as *mut u8,
         len: map_size,
     })

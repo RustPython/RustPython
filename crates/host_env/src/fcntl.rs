@@ -3,17 +3,14 @@ use std::io;
 #[cfg(unix)]
 use std::os::fd::BorrowedFd;
 
+use crate::os::CheckLibcResult;
+
 pub fn normalize_ioctl_request(request: i64) -> libc::c_ulong {
     (request as u32) as libc::c_ulong
 }
 
 pub fn fcntl_int(fd: i32, cmd: i32, arg: i32) -> io::Result<i32> {
-    let ret = unsafe { libc::fcntl(fd, cmd, arg) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
+    unsafe { libc::fcntl(fd, cmd, arg) }.check_libc_neg()
 }
 
 pub fn validate_fd(fd: i32) -> io::Result<()> {
@@ -56,12 +53,7 @@ pub fn set_blocking(fd: BorrowedFd<'_>, blocking: bool) -> io::Result<()> {
 }
 
 pub fn fcntl_with_bytes(fd: i32, cmd: i32, arg: &mut [u8]) -> io::Result<i32> {
-    let ret = unsafe { libc::fcntl(fd, cmd, arg.as_mut_ptr()) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
+    unsafe { libc::fcntl(fd, cmd, arg.as_mut_ptr()) }.check_libc_neg()
 }
 
 /// # Safety
@@ -73,31 +65,16 @@ pub unsafe fn ioctl_ptr(
     request: libc::c_ulong,
     arg: *mut libc::c_void,
 ) -> io::Result<i32> {
-    let ret = unsafe { libc::ioctl(fd, request as _, arg) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
+    unsafe { libc::ioctl(fd, request as _, arg) }.check_libc_neg()
 }
 
 pub fn ioctl_int(fd: i32, request: libc::c_ulong, arg: i32) -> io::Result<i32> {
-    let ret = unsafe { libc::ioctl(fd, request as _, arg) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
+    unsafe { libc::ioctl(fd, request as _, arg) }.check_libc_neg()
 }
 
 #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
 pub fn flock(fd: i32, operation: i32) -> io::Result<i32> {
-    let ret = unsafe { libc::flock(fd, operation) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
+    unsafe { libc::flock(fd, operation) }.check_libc_neg()
 }
 
 #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
@@ -137,7 +114,7 @@ pub fn lockf(fd: i32, cmd: i32, len: i64, start: i64, whence: i32) -> Result<i32
         ..unsafe { core::mem::zeroed() }
     };
 
-    let ret = unsafe {
+    unsafe {
         libc::fcntl(
             fd,
             if (cmd & libc::LOCK_NB) != 0 {
@@ -147,10 +124,7 @@ pub fn lockf(fd: i32, cmd: i32, len: i64, start: i64, whence: i32) -> Result<i32
             },
             &lock,
         )
-    };
-    if ret < 0 {
-        Err(LockfError::Io(io::Error::last_os_error()))
-    } else {
-        Ok(ret)
     }
+    .check_libc_neg()
+    .map_err(LockfError::Io)
 }

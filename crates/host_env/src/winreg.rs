@@ -101,24 +101,25 @@ pub fn close_key(hkey: Registry::HKEY) -> u32 {
 }
 
 pub unsafe fn connect_registry(
-    computer_name: *const u16,
+    computer_name: Option<&widestring::WideCStr>,
     key: Registry::HKEY,
     out_key: *mut Registry::HKEY,
 ) -> u32 {
-    unsafe { Registry::RegConnectRegistryW(computer_name, key, out_key) }
+    let name_ptr = computer_name.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe { Registry::RegConnectRegistryW(name_ptr, key, out_key) }
 }
 
 pub unsafe fn create_key(
     key: Registry::HKEY,
-    sub_key: *const u16,
+    sub_key: &widestring::WideCStr,
     out_key: *mut Registry::HKEY,
 ) -> u32 {
-    unsafe { Registry::RegCreateKeyW(key, sub_key, out_key) }
+    unsafe { Registry::RegCreateKeyW(key, sub_key.as_ptr(), out_key) }
 }
 
 pub unsafe fn create_key_ex(
     key: Registry::HKEY,
-    sub_key: *const u16,
+    sub_key: &widestring::WideCStr,
     reserved: u32,
     class: *mut u16,
     options: u32,
@@ -130,7 +131,7 @@ pub unsafe fn create_key_ex(
     unsafe {
         Registry::RegCreateKeyExW(
             key,
-            sub_key,
+            sub_key.as_ptr(),
             reserved,
             class,
             options,
@@ -142,21 +143,22 @@ pub unsafe fn create_key_ex(
     }
 }
 
-pub unsafe fn delete_key(key: Registry::HKEY, sub_key: *const u16) -> u32 {
-    unsafe { Registry::RegDeleteKeyW(key, sub_key) }
+pub unsafe fn delete_key(key: Registry::HKEY, sub_key: &widestring::WideCStr) -> u32 {
+    unsafe { Registry::RegDeleteKeyW(key, sub_key.as_ptr()) }
 }
 
 pub unsafe fn delete_key_ex(
     key: Registry::HKEY,
-    sub_key: *const u16,
+    sub_key: &widestring::WideCStr,
     sam: u32,
     reserved: u32,
 ) -> u32 {
-    unsafe { Registry::RegDeleteKeyExW(key, sub_key, sam, reserved) }
+    unsafe { Registry::RegDeleteKeyExW(key, sub_key.as_ptr(), sam, reserved) }
 }
 
-pub unsafe fn delete_value(key: Registry::HKEY, value_name: *const u16) -> u32 {
-    unsafe { Registry::RegDeleteValueW(key, value_name) }
+pub unsafe fn delete_value(key: Registry::HKEY, value_name: Option<&widestring::WideCStr>) -> u32 {
+    let name_ptr = value_name.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe { Registry::RegDeleteValueW(key, name_ptr) }
 }
 
 pub unsafe fn enum_key_ex(
@@ -268,31 +270,36 @@ pub fn flush_key(key: Registry::HKEY) -> u32 {
     unsafe { Registry::RegFlushKey(key) }
 }
 
-pub unsafe fn load_key(key: Registry::HKEY, sub_key: *const u16, file_name: *const u16) -> u32 {
-    unsafe { Registry::RegLoadKeyW(key, sub_key, file_name) }
+pub unsafe fn load_key(
+    key: Registry::HKEY,
+    sub_key: &widestring::WideCStr,
+    file_name: &widestring::WideCStr,
+) -> u32 {
+    unsafe { Registry::RegLoadKeyW(key, sub_key.as_ptr(), file_name.as_ptr()) }
 }
 
 pub unsafe fn open_key_ex(
     key: Registry::HKEY,
-    sub_key: *const u16,
+    sub_key: &widestring::WideCStr,
     options: u32,
     sam: u32,
     out_key: *mut Registry::HKEY,
 ) -> u32 {
-    unsafe { Registry::RegOpenKeyExW(key, sub_key, options, sam, out_key) }
+    unsafe { Registry::RegOpenKeyExW(key, sub_key.as_ptr(), options, sam, out_key) }
 }
 
 pub unsafe fn query_value_ex(
     key: Registry::HKEY,
-    value_name: *const u16,
+    value_name: Option<&widestring::WideCStr>,
     value_type: *mut u32,
     data: *mut u8,
     data_len: *mut u32,
 ) -> u32 {
+    let name_ptr = value_name.map_or(core::ptr::null(), |n| n.as_ptr());
     unsafe {
         Registry::RegQueryValueExW(
             key,
-            value_name,
+            name_ptr,
             core::ptr::null_mut(),
             value_type,
             data,
@@ -301,18 +308,19 @@ pub unsafe fn query_value_ex(
     }
 }
 
-pub unsafe fn save_key(key: Registry::HKEY, file_name: *const u16) -> u32 {
-    unsafe { Registry::RegSaveKeyW(key, file_name, core::ptr::null_mut()) }
+pub unsafe fn save_key(key: Registry::HKEY, file_name: &widestring::WideCStr) -> u32 {
+    unsafe { Registry::RegSaveKeyW(key, file_name.as_ptr(), core::ptr::null_mut()) }
 }
 
 pub unsafe fn set_value_ex(
     key: Registry::HKEY,
-    value_name: *const u16,
+    value_name: Option<&widestring::WideCStr>,
     typ: u32,
     ptr: *const u8,
     len: u32,
 ) -> u32 {
-    unsafe { Registry::RegSetValueExW(key, value_name, 0, typ, ptr, len) }
+    let name_ptr = value_name.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe { Registry::RegSetValueExW(key, name_ptr, 0, typ, ptr, len) }
 }
 
 pub fn disable_reflection_key(key: Registry::HKEY) -> u32 {
@@ -342,12 +350,12 @@ pub fn query_default_value(
     sub_key: Option<&OsStr>,
 ) -> Result<String, QueryStringError> {
     let child_key = if let Some(sub_key) = sub_key.filter(|s| !s.is_empty()) {
-        let wide_sub_key = sub_key.to_wide_with_nul();
+        let wide_sub_key = sub_key.to_wide_cstring();
         let mut out_key = core::ptr::null_mut();
         let res = unsafe {
             open_key_ex(
                 hkey,
-                wide_sub_key.as_ptr(),
+                &wide_sub_key,
                 0,
                 Registry::KEY_QUERY_VALUE,
                 &mut out_key,
@@ -371,7 +379,7 @@ pub fn query_default_value(
         let res = unsafe {
             query_value_ex(
                 target_key,
-                core::ptr::null(),
+                None,
                 &mut reg_type,
                 buffer.as_mut_ptr(),
                 &mut size,
@@ -408,12 +416,12 @@ pub fn query_default_value(
 }
 
 pub fn query_value_bytes(hkey: Registry::HKEY, value_name: &OsStr) -> Result<(Vec<u8>, u32), u32> {
-    let wide_name = value_name.to_wide_with_nul();
+    let wide_name = value_name.to_wide_cstring();
     let mut buf_size: u32 = 0;
     let res = unsafe {
         query_value_ex(
             hkey,
-            wide_name.as_ptr(),
+            Some(&wide_name),
             core::ptr::null_mut(),
             core::ptr::null_mut(),
             &mut buf_size,
@@ -433,7 +441,7 @@ pub fn query_value_bytes(hkey: Registry::HKEY, value_name: &OsStr) -> Result<(Ve
         let res = unsafe {
             query_value_ex(
                 hkey,
-                wide_name.as_ptr(),
+                Some(&wide_name),
                 &mut typ,
                 ret_buf.as_mut_ptr(),
                 &mut ret_size,
@@ -453,12 +461,12 @@ pub fn query_value_bytes(hkey: Registry::HKEY, value_name: &OsStr) -> Result<(Ve
 
 pub fn set_default_value(hkey: Registry::HKEY, sub_key: &OsStr, typ: u32, value: &OsStr) -> u32 {
     let child_key = if !sub_key.is_empty() {
-        let wide_sub_key = sub_key.to_wide_with_nul();
+        let wide_sub_key = sub_key.to_wide_cstring();
         let mut out_key = core::ptr::null_mut();
         let res = unsafe {
             create_key_ex(
                 hkey,
-                wide_sub_key.as_ptr(),
+                &wide_sub_key,
                 0,
                 core::ptr::null_mut(),
                 0,
@@ -481,7 +489,7 @@ pub fn set_default_value(hkey: Registry::HKEY, sub_key: &OsStr, typ: u32, value:
     let res = unsafe {
         set_value_ex(
             target_key,
-            core::ptr::null(),
+            None,
             typ,
             wide_value.as_ptr() as *const u8,
             (wide_value.len() * 2) as u32,

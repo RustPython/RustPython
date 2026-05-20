@@ -15,6 +15,54 @@ pub const SEC_TO_NS: i64 = SEC_TO_MS * MS_TO_NS;
 pub const NS_TO_MS: i64 = 1000 * 1000;
 pub const NS_TO_US: i64 = 1000;
 
+/// Access to the C runtime's `tzset` / `timezone` / `daylight` / `tzname`
+/// globals used by Python's `time` module.
+///
+/// Not available under MSVC (which exposes these only via the
+/// `_get_tzname`-style helpers) or on `wasm32` (no libc tz state).
+#[cfg(all(not(target_env = "msvc"), not(target_arch = "wasm32")))]
+pub mod tz {
+    unsafe extern "C" {
+        #[cfg(not(target_os = "freebsd"))]
+        #[link_name = "daylight"]
+        static c_daylight: core::ffi::c_int;
+        #[link_name = "timezone"]
+        static c_timezone: core::ffi::c_long;
+        #[link_name = "tzname"]
+        static c_tzname: [*const core::ffi::c_char; 2];
+        #[link_name = "tzset"]
+        fn c_tzset();
+    }
+
+    pub fn tzset() {
+        unsafe { c_tzset() }
+    }
+
+    #[must_use]
+    pub fn timezone() -> core::ffi::c_long {
+        unsafe { c_timezone }
+    }
+
+    #[cfg(not(target_os = "freebsd"))]
+    #[must_use]
+    pub fn daylight() -> core::ffi::c_int {
+        unsafe { c_daylight }
+    }
+
+    /// Snapshot of `tzname[0]` / `tzname[1]` as owned `String`s.
+    /// Reads the C globals once and copies the bytes out so callers don't
+    /// have to handle the raw pointers themselves.
+    #[must_use]
+    pub fn tzname_strings() -> (String, String) {
+        unsafe fn to_str(s: *const core::ffi::c_char) -> String {
+            unsafe { core::ffi::CStr::from_ptr(s) }
+                .to_string_lossy()
+                .into_owned()
+        }
+        unsafe { (to_str(c_tzname[0]), to_str(c_tzname[1])) }
+    }
+}
+
 pub fn duration_since_system_now() -> Result<Duration, SystemTimeError> {
     SystemTime::now().duration_since(UNIX_EPOCH)
 }

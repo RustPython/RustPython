@@ -9,6 +9,7 @@ mod fcntl {
     use crate::vm::{
         PyResult, VirtualMachine,
         builtins::PyIntRef,
+        convert::ToPyException,
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
         stdlib::_io,
     };
@@ -167,11 +168,8 @@ mod fcntl {
             OptionalArg::Present(w) => w,
             OptionalArg::Missing => 0,
         };
-        let ret = host_fcntl::lockf(fd, cmd, len, start, whence).map_err(|err| match err {
-            host_fcntl::LockfError::InvalidCmd => vm.new_value_error("unrecognized lockf argument"),
-            host_fcntl::LockfError::Overflow(e) => vm.new_overflow_error(e),
-            host_fcntl::LockfError::Io(_) => vm.new_last_errno_error(),
-        })?;
+        let ret =
+            host_fcntl::lockf(fd, cmd, len, start, whence).map_err(|err| err.to_pyexception(vm))?;
         Ok(vm.ctx.new_int(ret).into())
     }
 }

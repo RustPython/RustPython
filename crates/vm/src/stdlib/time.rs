@@ -8,21 +8,6 @@ pub use decl::time;
 
 pub(crate) use decl::module_def;
 
-#[cfg(not(target_env = "msvc"))]
-#[cfg(not(target_arch = "wasm32"))]
-unsafe extern "C" {
-    #[cfg(not(target_os = "freebsd"))]
-    #[link_name = "daylight"]
-    static c_daylight: core::ffi::c_int;
-    // pub static dstbias: std::ffi::c_int;
-    #[link_name = "timezone"]
-    static c_timezone: core::ffi::c_long;
-    #[link_name = "tzname"]
-    static c_tzname: [*const core::ffi::c_char; 2];
-    #[link_name = "tzset"]
-    fn c_tzset();
-}
-
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
 mod decl {
     #![allow(unreachable_pub)]
@@ -36,7 +21,10 @@ mod decl {
         types::{PyStructSequence, struct_sequence_new},
     };
     #[cfg(any(unix, windows))]
-    use crate::{common::wtf8::Wtf8Buf, convert::ToPyObject};
+    use crate::{
+        common::wtf8::Wtf8Buf,
+        convert::{ToPyException, ToPyObject},
+    };
     #[cfg(not(any(unix, windows)))]
     use chrono::{
         DateTime, Datelike, TimeZone, Timelike,
@@ -219,7 +207,7 @@ mod decl {
     #[pyattr]
     fn altzone(_vm: &VirtualMachine) -> core::ffi::c_long {
         // TODO: RUSTPYTHON; Add support for using the C altzone
-        unsafe { super::c_timezone - 3600 }
+        crate::host_env::time::tz::timezone() - 3600
     }
 
     #[cfg(target_env = "msvc")]
@@ -235,7 +223,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn timezone(_vm: &VirtualMachine) -> core::ffi::c_long {
-        unsafe { super::c_timezone }
+        crate::host_env::time::tz::timezone()
     }
 
     #[cfg(target_env = "msvc")]
@@ -252,7 +240,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn daylight(_vm: &VirtualMachine) -> core::ffi::c_int {
-        unsafe { super::c_daylight }
+        crate::host_env::time::tz::daylight()
     }
 
     #[cfg(target_env = "msvc")]
@@ -269,13 +257,7 @@ mod decl {
     #[pyattr]
     fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
         use crate::builtins::tuple::IntoPyTuple;
-
-        unsafe fn to_str(s: *const core::ffi::c_char) -> String {
-            unsafe { core::ffi::CStr::from_ptr(s) }
-                .to_string_lossy()
-                .into_owned()
-        }
-        unsafe { (to_str(super::c_tzname[0]), to_str(super::c_tzname[1])) }.into_pytuple(vm)
+        crate::host_env::time::tz::tzname_strings().into_pytuple(vm)
     }
 
     #[cfg(target_env = "msvc")]
@@ -411,7 +393,7 @@ mod decl {
                 zone,
                 gmtoff,
             })
-            .map_err(|err| map_checked_tm_error(vm, err))
+            .map_err(|err| err.to_pyexception(vm))
         }
         #[cfg(windows)]
         {
@@ -426,35 +408,7 @@ mod decl {
                 tm_yday,
                 tm_isdst,
             })
-            .map_err(|err| map_checked_tm_error(vm, err))
-        }
-    }
-
-    #[cfg(any(unix, windows))]
-    fn map_checked_tm_error(
-        vm: &VirtualMachine,
-        err: host_time::CheckedTmError,
-    ) -> PyBaseExceptionRef {
-        match err {
-            host_time::CheckedTmError::YearOutOfRange => vm.new_overflow_error("year out of range"),
-            host_time::CheckedTmError::MonthOutOfRange => vm.new_value_error("month out of range"),
-            host_time::CheckedTmError::DayOfMonthOutOfRange => {
-                vm.new_value_error("day of month out of range")
-            }
-            host_time::CheckedTmError::HourOutOfRange => vm.new_value_error("hour out of range"),
-            host_time::CheckedTmError::MinuteOutOfRange => {
-                vm.new_value_error("minute out of range")
-            }
-            host_time::CheckedTmError::SecondsOutOfRange => {
-                vm.new_value_error("seconds out of range")
-            }
-            host_time::CheckedTmError::DayOfWeekOutOfRange => {
-                vm.new_value_error("day of week out of range")
-            }
-            host_time::CheckedTmError::DayOfYearOutOfRange => {
-                vm.new_value_error("day of year out of range")
-            }
-            host_time::CheckedTmError::EmbeddedNul => vm.new_value_error("embedded null character"),
+            .map_err(|err| err.to_pyexception(vm))
         }
     }
 
@@ -942,9 +896,7 @@ mod decl {
     ) -> PyResult<()> {
         #[cfg(not(target_env = "msvc"))]
         #[cfg(not(target_arch = "wasm32"))]
-        unsafe {
-            super::c_tzset()
-        };
+        crate::host_env::time::tz::tzset();
 
         __module_exec(vm, module);
         Ok(())

@@ -17,7 +17,7 @@ const O_TRUNC: i32 = 0x0400;
 const O_EXCL: i32 = 0x0800;
 
 bitflags::bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct FileMode: u8 {
         const CREATED   = 0b0001;
         const READABLE  = 0b0010;

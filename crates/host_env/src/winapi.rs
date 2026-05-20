@@ -9,6 +9,8 @@ use windows_sys::Win32::{
     System::Threading::PROCESS_INFORMATION,
 };
 
+use crate::windows::{CheckWin32Bool, CheckWin32Handle};
+
 pub use windows_sys::Win32::{
     Foundation::{
         DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
@@ -163,7 +165,7 @@ impl Drop for AttrList {
 }
 
 pub fn create_file_w(
-    file_name: *const u16,
+    file_name: &widestring::WideCStr,
     desired_access: u32,
     share_mode: u32,
     creation_disposition: u32,
@@ -171,7 +173,7 @@ pub fn create_file_w(
 ) -> io::Result<HANDLE> {
     let handle = unsafe {
         windows_sys::Win32::Storage::FileSystem::CreateFileW(
-            file_name,
+            file_name.as_ptr(),
             desired_access,
             share_mode,
             core::ptr::null(),
@@ -180,43 +182,67 @@ pub fn create_file_w(
             core::ptr::null_mut(),
         )
     };
-    if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
-    }
+    handle.check_valid()
 }
 
 /// # Safety
-/// The pointer arguments must follow the Win32 `CreateProcessW` contract.
-pub unsafe fn create_process_w(
-    app_name: *const u16,
-    command_line: *mut u16,
+/// `startup_info` must point to a valid `STARTUPINFOW` (or extended).
+unsafe fn create_process_w_raw(
+    app_name: Option<&widestring::WideCStr>,
+    command_line: Option<&mut [u16]>,
     inherit_handles: i32,
     creation_flags: u32,
-    env: *mut u16,
-    current_dir: *mut u16,
+    env: Option<&[u16]>,
+    current_dir: Option<&widestring::WideCStr>,
     startup_info: *mut windows_sys::Win32::System::Threading::STARTUPINFOW,
 ) -> io::Result<PROCESS_INFORMATION> {
     let mut procinfo = core::mem::MaybeUninit::<PROCESS_INFORMATION>::uninit();
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::CreateProcessW(
-            app_name,
-            command_line,
+            app_name.map_or(core::ptr::null(), |s| s.as_ptr()),
+            command_line.map_or(core::ptr::null_mut(), |s| s.as_mut_ptr()),
             core::ptr::null(),
             core::ptr::null(),
             inherit_handles,
             creation_flags,
-            env.cast(),
-            current_dir,
+            env.map_or(core::ptr::null(), |s| s.as_ptr().cast()),
+            current_dir.map_or(core::ptr::null(), |s| s.as_ptr()),
             startup_info,
             procinfo.as_mut_ptr(),
         )
-    };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
+    }
+    .check_win32_bool()?;
+    Ok(unsafe { procinfo.assume_init() })
+}
+
+/// Win32 `CreateProcessW` requires `lpCommandLine` to be NUL-terminated.
+/// The buffer is passed `&mut [u16]` because `CreateProcessW` may modify it
+/// in place.
+#[inline]
+fn validate_command_line_terminated(buf: &[u16]) -> io::Result<()> {
+    if buf.last() == Some(&0) {
+        Ok(())
     } else {
-        Ok(unsafe { procinfo.assume_init() })
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "command_line buffer passed to create_process must be NUL-terminated",
+        ))
+    }
+}
+
+/// Win32 `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires
+/// `lpEnvironment` to be a sequence of `KEY=value\0` strings followed by a
+/// final terminating `\0` — i.e. the block ends with two consecutive zero
+/// `u16`s.
+#[inline]
+fn validate_environment_block_terminated(buf: &[u16]) -> io::Result<()> {
+    if buf.len() >= 2 && buf[buf.len() - 2..] == [0, 0] {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "env block passed to create_process must end with a double NUL terminator",
+        ))
     }
 }
 
@@ -225,15 +251,22 @@ pub unsafe fn create_process_w(
     reason = "This is the semantic host wrapper for Win32 CreateProcess parameters."
 )]
 pub fn create_process(
-    app_name: *const u16,
-    command_line: *mut u16,
+    app_name: Option<&widestring::WideCStr>,
+    command_line: Option<&mut [u16]>,
     inherit_handles: i32,
     creation_flags: u32,
-    env: *mut u16,
-    current_dir: *mut u16,
+    env: Option<&[u16]>,
+    current_dir: Option<&widestring::WideCStr>,
     startup_info: StartupInfoData,
     handle_list: Option<Vec<usize>>,
 ) -> io::Result<ProcessInfo> {
+    if let Some(cmd) = command_line.as_deref() {
+        validate_command_line_terminated(cmd)?;
+    }
+    if let Some(env_block) = env {
+        validate_environment_block_terminated(env_block)?;
+    }
+
     let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
         unsafe { core::mem::zeroed() };
     si.StartupInfo.cb = core::mem::size_of_val(&si) as _;
@@ -249,7 +282,7 @@ pub fn create_process(
         .map_or_else(core::ptr::null_mut, |l| l.as_mut_ptr() as _);
 
     let procinfo = unsafe {
-        create_process_w(
+        create_process_w_raw(
             app_name,
             command_line,
             inherit_handles,
@@ -335,19 +368,17 @@ pub fn create_handle_list_attribute_list(
         handlelist,
         attrlist: vec![0u8; size],
     };
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::InitializeProcThreadAttributeList(
             attrs.attrlist.as_mut_ptr().cast(),
             1,
             0,
             &mut size,
         )
-    };
-    if ok == 0 {
-        return Err(io::Error::last_os_error());
     }
+    .check_win32_bool()?;
 
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::UpdateProcThreadAttribute(
             attrs.attrlist.as_mut_ptr().cast(),
             0,
@@ -357,10 +388,8 @@ pub fn create_handle_list_attribute_list(
             core::ptr::null_mut(),
             core::ptr::null(),
         )
-    };
-    if ok == 0 {
-        return Err(io::Error::last_os_error());
     }
+    .check_win32_bool()?;
 
     Ok(Some(attrs))
 }
@@ -381,74 +410,54 @@ pub fn open_process(
     inherit_handle: bool,
     process_id: u32,
 ) -> io::Result<HANDLE> {
-    let handle = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::OpenProcess(
             desired_access,
             i32::from(inherit_handle),
             process_id,
         )
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_nonnull()
 }
 
 pub fn create_pipe(size: u32) -> io::Result<(HANDLE, HANDLE)> {
-    let (read, write) = unsafe {
+    unsafe {
         let mut read = core::mem::MaybeUninit::<HANDLE>::uninit();
         let mut write = core::mem::MaybeUninit::<HANDLE>::uninit();
-        let ok = windows_sys::Win32::System::Pipes::CreatePipe(
+        windows_sys::Win32::System::Pipes::CreatePipe(
             read.as_mut_ptr(),
             write.as_mut_ptr(),
             core::ptr::null(),
             size,
-        );
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        (read.assume_init(), write.assume_init())
-    };
-    Ok((read, write))
+        )
+        .check_win32_bool()?;
+        Ok((read.assume_init(), write.assume_init()))
+    }
 }
 
 pub fn create_event_w(
     manual_reset: bool,
     initial_state: bool,
-    name: *const u16,
+    name: Option<&widestring::WideCStr>,
 ) -> io::Result<HANDLE> {
-    let handle = unsafe {
+    let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe {
         windows_sys::Win32::System::Threading::CreateEventW(
             core::ptr::null(),
             i32::from(manual_reset),
             i32::from(initial_state),
-            name,
+            name_ptr,
         )
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_nonnull()
 }
 
 pub fn set_event(handle: HANDLE) -> io::Result<()> {
-    let ok = unsafe { windows_sys::Win32::System::Threading::SetEvent(handle) };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { windows_sys::Win32::System::Threading::SetEvent(handle) }.check_win32_bool()
 }
 
 pub fn reset_event(handle: HANDLE) -> io::Result<()> {
-    let ok = unsafe { windows_sys::Win32::System::Threading::ResetEvent(handle) };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { windows_sys::Win32::System::Threading::ResetEvent(handle) }.check_win32_bool()
 }
 
 pub fn wait_for_single_object(handle: HANDLE, milliseconds: u32) -> io::Result<u32> {
@@ -566,7 +575,7 @@ pub fn batched_wait_for_multiple_objects(
         };
     }
 
-    let cancel_event = create_event_w(true, false, core::ptr::null())
+    let cancel_event = create_event_w(true, false, None)
         .map_err(|err| BatchedWaitError::Os(err.raw_os_error().unwrap_or_default() as u32))?;
 
     struct BatchData {
@@ -761,14 +770,11 @@ pub fn get_current_process() -> HANDLE {
 
 pub fn get_exit_code_process(handle: HANDLE) -> io::Result<u32> {
     let mut exit_code = core::mem::MaybeUninit::<u32>::uninit();
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::GetExitCodeProcess(handle, exit_code.as_mut_ptr())
-    };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(unsafe { exit_code.assume_init() })
     }
+    .check_win32_bool()?;
+    Ok(unsafe { exit_code.assume_init() })
 }
 
 pub fn get_file_type(handle: HANDLE) -> io::Result<FileType> {
@@ -798,34 +804,20 @@ pub fn get_version() -> u32 {
     unsafe { windows_sys::Win32::System::SystemInformation::GetVersion() }
 }
 
-pub fn create_job_object_w(name: *const u16) -> io::Result<HANDLE> {
-    let handle = unsafe {
-        windows_sys::Win32::System::JobObjects::CreateJobObjectW(core::ptr::null(), name)
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
-    }
+pub fn create_job_object_w(name: Option<&widestring::WideCStr>) -> io::Result<HANDLE> {
+    let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe { windows_sys::Win32::System::JobObjects::CreateJobObjectW(core::ptr::null(), name_ptr) }
+        .check_nonnull()
 }
 
 pub fn assign_process_to_job_object(job: HANDLE, process: HANDLE) -> io::Result<()> {
-    let ok =
-        unsafe { windows_sys::Win32::System::JobObjects::AssignProcessToJobObject(job, process) };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { windows_sys::Win32::System::JobObjects::AssignProcessToJobObject(job, process) }
+        .check_win32_bool()
 }
 
 pub fn terminate_job_object(job: HANDLE, exit_code: u32) -> io::Result<()> {
-    let ok = unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(job, exit_code) };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(job, exit_code) }
+        .check_win32_bool()
 }
 
 pub fn set_job_object_kill_on_close(job: HANDLE) -> io::Result<()> {
@@ -836,19 +828,15 @@ pub fn set_job_object_kill_on_close(job: HANDLE) -> io::Result<()> {
 
     let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { core::mem::zeroed() };
     info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    let ok = unsafe {
+    unsafe {
         SetInformationJobObject(
             job,
             JobObjectExtendedLimitInformation,
             (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
             core::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
         )
-    };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
+    .check_win32_bool()
 }
 
 pub fn get_module_file_name(module: HMODULE, buffer: &mut [u16]) -> u32 {
@@ -861,14 +849,14 @@ pub fn get_module_file_name(module: HMODULE, buffer: &mut [u16]) -> u32 {
     }
 }
 
-pub fn get_short_path_name_w(path: *const u16) -> io::Result<Vec<u16>> {
+pub fn get_short_path_name_w(path: &widestring::WideCStr) -> io::Result<Vec<u16>> {
     get_path_name_impl(
         path,
         windows_sys::Win32::Storage::FileSystem::GetShortPathNameW,
     )
 }
 
-pub fn get_long_path_name_w(path: *const u16) -> io::Result<Vec<u16>> {
+pub fn get_long_path_name_w(path: &widestring::WideCStr) -> io::Result<Vec<u16>> {
     get_path_name_impl(
         path,
         windows_sys::Win32::Storage::FileSystem::GetLongPathNameW,
@@ -876,16 +864,16 @@ pub fn get_long_path_name_w(path: *const u16) -> io::Result<Vec<u16>> {
 }
 
 fn get_path_name_impl(
-    path: *const u16,
+    path: &widestring::WideCStr,
     api_fn: unsafe extern "system" fn(*const u16, *mut u16, u32) -> u32,
 ) -> io::Result<Vec<u16>> {
-    let size = unsafe { api_fn(path, core::ptr::null_mut(), 0) };
+    let size = unsafe { api_fn(path.as_ptr(), core::ptr::null_mut(), 0) };
     if size == 0 {
         return Err(io::Error::last_os_error());
     }
 
     let mut buffer = vec![0u16; size as usize];
-    let result = unsafe { api_fn(path, buffer.as_mut_ptr(), buffer.len() as u32) };
+    let result = unsafe { api_fn(path.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
     if result == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -896,20 +884,16 @@ fn get_path_name_impl(
 pub fn open_mutex_w(
     desired_access: u32,
     inherit_handle: bool,
-    name: *const u16,
+    name: &widestring::WideCStr,
 ) -> io::Result<HANDLE> {
-    let handle = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::OpenMutexW(
             desired_access,
             i32::from(inherit_handle),
-            name,
+            name.as_ptr(),
         )
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_nonnull()
 }
 
 pub fn release_mutex(handle: HANDLE) -> i32 {
@@ -917,7 +901,7 @@ pub fn release_mutex(handle: HANDLE) -> i32 {
 }
 
 pub fn create_named_pipe_w(
-    name: *const u16,
+    name: &widestring::WideCStr,
     open_mode: u32,
     pipe_mode: u32,
     max_instances: u32,
@@ -925,9 +909,9 @@ pub fn create_named_pipe_w(
     in_buffer_size: u32,
     default_timeout: u32,
 ) -> io::Result<HANDLE> {
-    let handle = unsafe {
+    unsafe {
         windows_sys::Win32::System::Pipes::CreateNamedPipeW(
-            name,
+            name.as_ptr(),
             open_mode,
             pipe_mode,
             max_instances,
@@ -936,12 +920,8 @@ pub fn create_named_pipe_w(
             default_timeout,
             core::ptr::null(),
         )
-    };
-    if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_valid()
 }
 
 pub fn create_file_mapping_w(
@@ -949,42 +929,35 @@ pub fn create_file_mapping_w(
     protect: u32,
     max_size_high: u32,
     max_size_low: u32,
-    name: *const u16,
+    name: Option<&widestring::WideCStr>,
 ) -> io::Result<HANDLE> {
-    let handle = unsafe {
+    let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe {
         windows_sys::Win32::System::Memory::CreateFileMappingW(
             file_handle,
             core::ptr::null(),
             protect,
             max_size_high,
             max_size_low,
-            name,
+            name_ptr,
         )
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_nonnull()
 }
 
 pub fn open_file_mapping_w(
     desired_access: u32,
     inherit_handle: bool,
-    name: *const u16,
+    name: &widestring::WideCStr,
 ) -> io::Result<HANDLE> {
-    let handle = unsafe {
+    unsafe {
         windows_sys::Win32::System::Memory::OpenFileMappingW(
             desired_access,
             i32::from(inherit_handle),
-            name,
+            name.as_ptr(),
         )
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_nonnull()
 }
 
 pub fn map_view_of_file(
@@ -1015,12 +988,7 @@ pub fn unmap_view_of_file(address: isize) -> io::Result<()> {
     let view = windows_sys::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS {
         Value: address as *mut core::ffi::c_void,
     };
-    let ok = unsafe { windows_sys::Win32::System::Memory::UnmapViewOfFile(view) };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { windows_sys::Win32::System::Memory::UnmapViewOfFile(view) }.check_win32_bool()
 }
 
 pub fn virtual_query_size(address: isize) -> io::Result<usize> {
@@ -1040,13 +1008,19 @@ pub fn virtual_query_size(address: isize) -> io::Result<usize> {
     }
 }
 
-pub fn copy_file2(src: *const u16, dst: *const u16, flags: u32) -> io::Result<()> {
+pub fn copy_file2(
+    src: &widestring::WideCStr,
+    dst: &widestring::WideCStr,
+    flags: u32,
+) -> io::Result<()> {
     let mut params: windows_sys::Win32::Storage::FileSystem::COPYFILE2_EXTENDED_PARAMETERS =
         unsafe { core::mem::zeroed() };
     params.dwSize = core::mem::size_of_val(&params) as u32;
     params.dwCopyFlags = flags;
 
-    let hr = unsafe { windows_sys::Win32::Storage::FileSystem::CopyFile2(src, dst, &params) };
+    let hr = unsafe {
+        windows_sys::Win32::Storage::FileSystem::CopyFile2(src.as_ptr(), dst.as_ptr(), &params)
+    };
     if hr < 0 {
         let err = if (hr as u32 >> 16) == 0x8007 {
             (hr as u32) & 0xFFFF
@@ -1161,16 +1135,16 @@ where
 }
 
 pub fn lc_map_string_ex(
-    locale: *const u16,
+    locale: &widestring::WideCStr,
     flags: u32,
-    src: *const u16,
-    src_len: i32,
+    src: &[u16],
 ) -> io::Result<Vec<u16>> {
+    let src_len = src.len() as i32;
     let dest_size = unsafe {
         windows_sys::Win32::Globalization::LCMapStringEx(
-            locale,
+            locale.as_ptr(),
             flags,
-            src,
+            src.as_ptr(),
             src_len,
             core::ptr::null_mut(),
             0,
@@ -1186,9 +1160,9 @@ pub fn lc_map_string_ex(
     let mut dest = vec![0u16; dest_size as usize];
     let nmapped = unsafe {
         windows_sys::Win32::Globalization::LCMapStringEx(
-            locale,
+            locale.as_ptr(),
             flags,
-            src,
+            src.as_ptr(),
             src_len,
             dest.as_mut_ptr(),
             dest_size,
@@ -1217,13 +1191,9 @@ pub fn connect_named_pipe(handle: HANDLE) -> io::Result<()> {
     Ok(())
 }
 
-pub fn wait_named_pipe_w(name: *const u16, timeout: u32) -> io::Result<()> {
-    let ok = unsafe { windows_sys::Win32::System::Pipes::WaitNamedPipeW(name, timeout) };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+pub fn wait_named_pipe_w(name: &widestring::WideCStr, timeout: u32) -> io::Result<()> {
+    unsafe { windows_sys::Win32::System::Pipes::WaitNamedPipeW(name.as_ptr(), timeout) }
+        .check_win32_bool()
 }
 
 pub fn peek_named_pipe(handle: HANDLE, size: Option<u32>) -> io::Result<PeekNamedPipeResult> {
@@ -1233,7 +1203,7 @@ pub fn peek_named_pipe(handle: HANDLE, size: Option<u32>) -> io::Result<PeekName
         Some(size) => {
             let mut data = vec![0u8; size as usize];
             let mut read = 0;
-            let ok = unsafe {
+            unsafe {
                 windows_sys::Win32::System::Pipes::PeekNamedPipe(
                     handle,
                     data.as_mut_ptr().cast(),
@@ -1242,10 +1212,8 @@ pub fn peek_named_pipe(handle: HANDLE, size: Option<u32>) -> io::Result<PeekName
                     &mut available,
                     &mut left_this_message,
                 )
-            };
-            if ok == 0 {
-                return Err(io::Error::last_os_error());
             }
+            .check_win32_bool()?;
             data.truncate(read as usize);
             Ok(PeekNamedPipeResult {
                 data: Some(data),
@@ -1254,7 +1222,7 @@ pub fn peek_named_pipe(handle: HANDLE, size: Option<u32>) -> io::Result<PeekName
             })
         }
         None => {
-            let ok = unsafe {
+            unsafe {
                 windows_sys::Win32::System::Pipes::PeekNamedPipe(
                     handle,
                     core::ptr::null_mut(),
@@ -1263,10 +1231,8 @@ pub fn peek_named_pipe(handle: HANDLE, size: Option<u32>) -> io::Result<PeekName
                     &mut available,
                     &mut left_this_message,
                 )
-            };
-            if ok == 0 {
-                return Err(io::Error::last_os_error());
             }
+            .check_win32_bool()?;
             Ok(PeekNamedPipeResult {
                 data: None,
                 available,
@@ -1347,54 +1313,47 @@ pub fn set_named_pipe_handle_state(
             p_args[index] = &mut dw_args[index];
         }
     }
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::System::Pipes::SetNamedPipeHandleState(
             handle, p_args[0], p_args[1], p_args[2],
         )
-    };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
+    .check_win32_bool()
 }
 
-pub fn create_mutex_w(initial_owner: bool, name: *const u16) -> io::Result<HANDLE> {
-    let handle = unsafe {
+pub fn create_mutex_w(
+    initial_owner: bool,
+    name: Option<&widestring::WideCStr>,
+) -> io::Result<HANDLE> {
+    let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
+    unsafe {
         windows_sys::Win32::System::Threading::CreateMutexW(
             core::ptr::null(),
             i32::from(initial_owner),
-            name,
+            name_ptr,
         )
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_nonnull()
 }
 
 pub fn open_event_w(
     desired_access: u32,
     inherit_handle: bool,
-    name: *const u16,
+    name: &widestring::WideCStr,
 ) -> io::Result<HANDLE> {
-    let handle = unsafe {
+    unsafe {
         windows_sys::Win32::System::Threading::OpenEventW(
             desired_access,
             i32::from(inherit_handle),
-            name,
+            name.as_ptr(),
         )
-    };
-    if handle.is_null() {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(handle)
     }
+    .check_nonnull()
 }
 
-pub fn need_current_directory_for_exe_path_w(exe_name: *const u16) -> bool {
+pub fn need_current_directory_for_exe_path_w(exe_name: &widestring::WideCStr) -> bool {
     unsafe {
-        windows_sys::Win32::System::Environment::NeedCurrentDirectoryForExePathW(exe_name) != 0
+        windows_sys::Win32::System::Environment::NeedCurrentDirectoryForExePathW(exe_name.as_ptr())
+            != 0
     }
 }

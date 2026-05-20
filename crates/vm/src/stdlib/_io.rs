@@ -5843,6 +5843,7 @@ mod winconsoleio {
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_host_env::io as host_io;
     use rustpython_host_env::nt as host_nt;
+    use rustpython_host_env::windows::ToWideString;
     type HANDLE = host_nt::Handle;
 
     const SMALLBUF: usize = 4;
@@ -6013,13 +6014,9 @@ mod winconsoleio {
                 }
 
                 let name_str = nameobj.str(vm)?;
-                let wide = name_str
-                    .as_wtf8()
-                    .encode_wide()
-                    .chain(core::iter::once(0))
-                    .collect::<Vec<u16>>();
+                let wide = name_str.as_wtf8().to_wide_cstring();
 
-                fd = host_nt::open_console_path_fd(wide.as_ptr(), writable)
+                fd = host_nt::open_console_path_fd(&wide, writable)
                     .map_err(|err| err.to_pyexception(vm))?;
             } else {
                 // When opened by fd, never close the fd (user owns it)
@@ -6242,16 +6239,8 @@ mod winconsoleio {
 
             let dest = &mut *buf_ref;
             let mut smallbuf = self.buf.lock();
-            match host_nt::read_console_into(handle, dest, &mut smallbuf) {
-                Ok(read_len) => Ok(read_len),
-                Err(host_nt::ReadConsoleError::BufferTooSmall {
-                    available,
-                    required,
-                }) => Err(vm.new_system_error(format!(
-                    "Buffer had room for {available} bytes but {required} bytes required",
-                ))),
-                Err(host_nt::ReadConsoleError::Io(err)) => Err(err.into_pyexception(vm)),
-            }
+            host_nt::read_console_into(handle, dest, &mut smallbuf)
+                .map_err(|err| err.to_pyexception(vm))
         }
 
         #[pymethod]
@@ -6305,20 +6294,9 @@ mod winconsoleio {
             }
             {
                 let mut ibuf = self.buf.lock();
-                match host_nt::read_console_into(handle, &mut buf[read_len..], &mut ibuf) {
-                    Ok(n) => read_len += n,
-                    Err(host_nt::ReadConsoleError::BufferTooSmall {
-                        available,
-                        required,
-                    }) => {
-                        return Err(vm.new_system_error(format!(
-                            "Buffer had room for {available} bytes but {required} bytes required",
-                        )));
-                    }
-                    Err(host_nt::ReadConsoleError::Io(err)) => {
-                        return Err(err.into_pyexception(vm));
-                    }
-                }
+                let n = host_nt::read_console_into(handle, &mut buf[read_len..], &mut ibuf)
+                    .map_err(|err| err.to_pyexception(vm))?;
+                read_len += n;
             }
 
             buf.truncate(read_len);

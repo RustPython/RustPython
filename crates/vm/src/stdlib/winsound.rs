@@ -3,18 +3,6 @@
 
 pub(crate) use winsound::module_def;
 
-mod win32 {
-    #[link(name = "winmm")]
-    unsafe extern "system" {
-        pub(super) fn PlaySoundW(pszSound: *const u16, hmod: isize, fdwSound: u32) -> i32;
-    }
-
-    unsafe extern "system" {
-        pub(super) fn Beep(dwFreq: u32, dwDuration: u32) -> i32;
-        pub(super) fn MessageBeep(uType: u32) -> i32;
-    }
-}
-
 #[pymodule]
 mod winsound {
     use crate::builtins::{PyBytes, PyStr};
@@ -22,6 +10,7 @@ mod winsound {
     use crate::host_env::windows::ToWideString;
     use crate::protocol::PyBuffer;
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
+    use rustpython_host_env::winsound::{PlaySoundSource, play_sound};
 
     // PlaySound flags
     #[pyattr]
@@ -79,32 +68,34 @@ mod winsound {
         flags: i32,
     }
 
+    fn map_play_err(
+        vm: &VirtualMachine,
+    ) -> impl FnOnce(
+        rustpython_host_env::winsound::PlaySoundError,
+    ) -> crate::builtins::PyBaseExceptionRef
+    + '_ {
+        use rustpython_host_env::winsound::PlaySoundError::*;
+        |err| match err {
+            MemoryAsyncRejected => vm.new_runtime_error("Cannot play asynchronously from memory"),
+            MemoryFlagWithoutBuffer | CallFailed => vm.new_runtime_error("Failed to play sound"),
+        }
+    }
+
     #[pyfunction]
     fn PlaySound(args: PlaySoundArgs, vm: &VirtualMachine) -> PyResult<()> {
         let sound = args.sound;
         let flags = args.flags as u32;
 
         if vm.is_none(&sound) {
-            let ok = unsafe { super::win32::PlaySoundW(core::ptr::null(), 0, flags) };
-            if ok == 0 {
-                return Err(vm.new_runtime_error("Failed to play sound"));
-            }
-            return Ok(());
+            return play_sound(PlaySoundSource::Stop, flags).map_err(map_play_err(vm));
         }
 
         if flags & SND_MEMORY != 0 {
-            if flags & SND_ASYNC != 0 {
-                return Err(vm.new_runtime_error("Cannot play asynchronously from memory"));
-            }
             let buffer = PyBuffer::try_from_borrowed_object(vm, &sound)?;
             let buf = buffer
                 .as_contiguous()
                 .ok_or_else(|| vm.new_type_error("a bytes-like object is required, not 'str'"))?;
-            let ok = unsafe { super::win32::PlaySoundW(buf.as_ptr() as *const u16, 0, flags) };
-            if ok == 0 {
-                return Err(vm.new_runtime_error("Failed to play sound"));
-            }
-            return Ok(());
+            return play_sound(PlaySoundSource::Memory(&buf), flags).map_err(map_play_err(vm));
         }
 
         if sound.downcastable::<PyBytes>() {
@@ -157,11 +148,9 @@ mod winsound {
         }
 
         let wide = path.to_wide_with_nul();
-        let ok = unsafe { super::win32::PlaySoundW(wide.as_ptr(), 0, flags) };
-        if ok == 0 {
-            return Err(vm.new_runtime_error("Failed to play sound"));
-        }
-        Ok(())
+        let wide_cstr = widestring::WideCStr::from_slice_truncate(&wide)
+            .map_err(|_| vm.new_value_error("embedded null character"))?;
+        play_sound(PlaySoundSource::Name(wide_cstr), flags).map_err(map_play_err(vm))
     }
 
     #[derive(FromArgs)]
@@ -178,11 +167,11 @@ mod winsound {
             return Err(vm.new_value_error("frequency must be in 37 thru 32767"));
         }
 
-        let ok = unsafe { super::win32::Beep(args.frequency as u32, args.duration as u32) };
-        if ok == 0 {
-            return Err(vm.new_runtime_error("Failed to beep"));
+        if rustpython_host_env::winsound::beep(args.frequency as u32, args.duration as u32) {
+            Ok(())
+        } else {
+            Err(vm.new_runtime_error("Failed to beep"))
         }
-        Ok(())
     }
 
     #[derive(FromArgs)]
@@ -193,10 +182,6 @@ mod winsound {
 
     #[pyfunction]
     fn MessageBeep(args: MessageBeepArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let ok = unsafe { super::win32::MessageBeep(args.r#type) };
-        if ok == 0 {
-            return Err(std::io::Error::last_os_error().into_pyexception(vm));
-        }
-        Ok(())
+        rustpython_host_env::winsound::message_beep(args.r#type).map_err(|e| e.into_pyexception(vm))
     }
 }
