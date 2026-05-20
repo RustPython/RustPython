@@ -1,30 +1,41 @@
 use crate::pystate::with_vm;
 use core::ffi::{CStr, c_char, c_int};
+use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyCode, PyDict};
 use rustpython_vm::compiler::Mode;
 use rustpython_vm::function::ArgMapping;
 use rustpython_vm::scope::Scope;
-use rustpython_vm::{AsObject, PyObject};
+use rustpython_vm::{AsObject, PyObject, TryFromObject};
+
+const PY_SINGLE_INPUT: c_int = 256;
+const PY_FILE_INPUT: c_int = 257;
+const PY_EVAL_INPUT: c_int = 258;
+const PY_FUNC_TYPE_INPUT: c_int = 345;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_CompileString(
+pub unsafe extern "C" fn Py_CompileString(
     code: *const c_char,
     filename: *const c_char,
     start: c_int,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let code = unsafe { CStr::from_ptr(code) }
-            .to_str()
-            .expect("Invalid UTF-8 in code string");
+        let code = unsafe { CStr::from_ptr(code) }.to_str().map_err(|_| {
+            vm.new_system_error("Py_CompileString called with non UTF-8 code string")
+        })?;
         let filename = unsafe { CStr::from_ptr(filename) }
             .to_str()
-            .expect("Invalid UTF-8 in filename string");
+            .map_err(|_| vm.new_system_error("Py_CompileString called with non UTF-8 filename"))?;
 
         let mode = match start {
-            256 => Mode::Single,
-            257 => Mode::Exec,
-            258 => Mode::Eval,
-            _ => panic!("Invalid start argument to Py_CompileString: {start}"),
+            PY_SINGLE_INPUT => Mode::Single,
+            PY_FILE_INPUT => Mode::Exec,
+            PY_EVAL_INPUT => Mode::Eval,
+            PY_FUNC_TYPE_INPUT => Mode::BlockExpr,
+            _ => {
+                return Err(
+                    vm.new_system_error("Invalid start argument passed to Py_CompileString")
+                );
+            }
         };
 
         vm.compile(code, mode, filename.to_owned())
@@ -33,7 +44,7 @@ pub extern "C" fn Py_CompileString(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyEval_EvalCode(
+pub unsafe extern "C" fn PyEval_EvalCode(
     co: *mut PyObject,
     globals: *mut PyObject,
     locals: *mut PyObject,
@@ -41,13 +52,11 @@ pub extern "C" fn PyEval_EvalCode(
     with_vm(|vm| {
         let code = unsafe { &*co }.try_downcast_ref::<PyCode>(vm)?;
         let globals = unsafe { &*globals }.try_downcast_ref::<PyDict>(vm)?;
-        let locals = unsafe { &*locals }.try_downcast_ref::<PyDict>(vm)?;
+        let locals = NonNull::new(locals)
+            .map(|ptr| ArgMapping::try_from_object(vm, unsafe { ptr.as_ref() }.to_owned()))
+            .transpose()?;
 
-        let scope = Scope::with_builtins(
-            Some(ArgMapping::from_dict_exact(locals.to_owned())),
-            globals.to_owned(),
-            vm,
-        );
+        let scope = Scope::with_builtins(locals, globals.to_owned(), vm);
 
         vm.run_code_obj(code.to_owned(), scope)
     })
@@ -55,7 +64,12 @@ pub extern "C" fn PyEval_EvalCode(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_GetBuiltins() -> *mut PyObject {
-    with_vm(|vm| vm.builtins.as_object().as_raw())
+    with_vm(|vm| {
+        vm.current_frame().map_or_else(
+            || vm.builtins.as_object().as_raw(),
+            |frame| frame.builtins.as_object().as_raw(),
+        )
+    })
 }
 
 #[cfg(test)]
