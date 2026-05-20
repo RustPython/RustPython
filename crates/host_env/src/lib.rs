@@ -30,6 +30,7 @@ pub mod fileutils;
 pub mod fs;
 #[cfg(any(unix, windows))]
 pub mod locale;
+pub mod readline;
 
 #[cfg(windows)]
 pub mod windows;

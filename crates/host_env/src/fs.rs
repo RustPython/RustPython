@@ -1,5 +1,4 @@
 use std::{
-    ffi::OsStr,
     fs::{self, File, Metadata, ReadDir},
     io,
     path::{Path, PathBuf},
@@ -51,7 +50,7 @@ pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
 
 /// Resolve `binary_name` to an absolute path by searching `PATH` (and `PATHEXT` on Windows).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn which<T: AsRef<OsStr>>(binary_name: T) -> Option<PathBuf> {
+pub fn which<T: AsRef<std::ffi::OsStr>>(binary_name: T) -> Option<PathBuf> {
     ::which::which(binary_name).ok()
 }
 
