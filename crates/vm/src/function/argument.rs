@@ -1,9 +1,4 @@
-use crate::{
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
-    convert::ToPyObject,
-    object::{Traverse, TraverseFn},
-};
+use crate::{AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::{PyBaseExceptionRef, PyDict, PyStr, PyTuple, PyTupleRef, PyTypeRef}, convert::ToPyObject, object::{Traverse, TraverseFn}, Py};
 use core::ops::RangeInclusive;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -438,6 +433,29 @@ impl<T> FromIterator<(String, T)> for KwArgs<T> {
     }
 }
 
+impl TryFrom<&Py<PyDict>> for KwArgs<PyObjectRef> {
+    type Error = PyBaseExceptionRef;
+
+    fn try_from(kwargs: &Py<PyDict>) -> Result<Self, Self::Error> {
+        kwargs
+            .items_vec()
+            .into_iter()
+            .map(|(key, value)| {
+                let key = key
+                    .downcast_ref::<PyStr>()
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| {
+                        crate::vm::thread::with_current_vm(|vm| {
+                            vm.new_type_error("keywords must be strings")
+                        })
+                    })?;
+                Ok((key, value))
+            })
+            .collect::<Result<IndexMap<_, _>, _>>()
+            .map(Self)
+    }
+}
+
 impl<T> Default for KwArgs<T> {
     fn default() -> Self {
         Self(IndexMap::new())
@@ -505,6 +523,12 @@ impl<T> PosArgs<T> {
 impl<T> From<Vec<T>> for PosArgs<T> {
     fn from(v: Vec<T>) -> Self {
         Self(v)
+    }
+}
+
+impl From<&Py<PyTuple>> for PosArgs<PyObjectRef> {
+    fn from(args: &Py<PyTuple>) -> Self {
+        Self(args.iter().cloned().collect())
     }
 }
 

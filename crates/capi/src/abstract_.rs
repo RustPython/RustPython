@@ -1,5 +1,96 @@
 use crate::{PyObject, pystate::with_vm};
+use alloc::slice;
 use core::ffi::c_int;
+use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
+use rustpython_vm::function::{FuncArgs, KwArgs};
+use rustpython_vm::{AsObject, PyObjectRef};
+
+const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Call(
+    callable: *mut PyObject,
+    args: *mut PyObject,
+    kwargs: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let callable = unsafe { &*callable };
+        let args = unsafe { &*args }.try_downcast_ref::<PyTuple>(vm)?;
+
+        let kwargs: Option<KwArgs> = unsafe { kwargs.as_ref() }
+            .map(|kwargs| kwargs.try_downcast_ref::<PyDict>(vm)?.try_into())
+            .transpose()?;
+
+        callable.call_with_args(FuncArgs::new(args, kwargs.unwrap_or_default()), vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_CallNoArgs(callable: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { &*callable }.call((), vm))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Vectorcall(
+    callable: *mut PyObject,
+    args: *const *mut PyObject,
+    nargsf: usize,
+    kwnames: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let num_positional_args = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
+
+        let kwnames: Option<&[PyObjectRef]> = unsafe {
+            kwnames
+                .as_ref()
+                .map(|tuple| Ok(&***tuple.try_downcast_ref::<PyTuple>(vm)?))
+                .transpose()?
+        };
+
+        let args_len = num_positional_args + kwnames.map_or(0, <[PyObjectRef]>::len);
+        let args = unsafe { slice::from_raw_parts(args, args_len) }
+            .iter()
+            .map(|arg| unsafe { &**arg }.to_owned())
+            .collect::<Vec<_>>();
+
+        let callable = unsafe { &*callable };
+        callable.vectorcall(args, num_positional_args, kwnames, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_VectorcallMethod(
+    name: *mut PyObject,
+    args: *const *mut PyObject,
+    nargsf: usize,
+    kwnames: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let args_len = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
+
+        if args_len == 0 {
+            return Err(
+                vm.new_system_error("PyObject_VectorcallMethod called with no receiver".to_owned())
+            );
+        }
+
+        let (receiver, args) = unsafe { slice::from_raw_parts(args, args_len) }
+            .split_first()
+            .expect("args_len > 0 should guarantee a receiver");
+
+        let method_name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
+        let callable = unsafe { (&**receiver).get_attr(method_name, vm)? };
+
+        Ok(unsafe {
+            PyObject_Vectorcall(
+                callable.as_object().as_raw().cast_mut(),
+                args.as_ptr(),
+                nargsf - 1,
+                kwnames,
+            )
+        })
+    })
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_GetItem(obj: *mut PyObject, key: *mut PyObject) -> *mut PyObject {
