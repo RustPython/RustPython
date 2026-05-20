@@ -1,4 +1,6 @@
 #[cfg(unix)]
+use crate::os::CheckLibcResult;
+#[cfg(unix)]
 use core::ffi::CStr;
 #[cfg(unix)]
 use core::time::Duration;
@@ -36,7 +38,7 @@ pub fn close_socket_ignore_connreset(socket: libc::c_int) -> io::Result<()> {
 pub fn getsockopt_int(fd: libc::c_int, level: i32, name: i32) -> io::Result<i32> {
     let mut flag: libc::c_int = 0;
     let mut flagsize = core::mem::size_of::<libc::c_int>() as libc::socklen_t;
-    let ret = unsafe {
+    unsafe {
         libc::getsockopt(
             fd,
             level,
@@ -44,12 +46,9 @@ pub fn getsockopt_int(fd: libc::c_int, level: i32, name: i32) -> io::Result<i32>
             &mut flag as *mut libc::c_int as *mut _,
             &mut flagsize,
         )
-    };
-    if ret < 0 {
-        Err(crate::os::errno_io_error())
-    } else {
-        Ok(flag)
     }
+    .check_libc_neg()?;
+    Ok(flag)
 }
 
 #[cfg(unix)]
@@ -61,18 +60,15 @@ pub fn getsockopt_bytes(
 ) -> io::Result<Vec<u8>> {
     let mut buf = vec![0u8; buflen];
     let mut optlen = buflen as libc::socklen_t;
-    let ret = unsafe { libc::getsockopt(fd, level, name, buf.as_mut_ptr() as *mut _, &mut optlen) };
-    if ret < 0 {
-        Err(crate::os::errno_io_error())
-    } else {
-        buf.truncate(optlen as usize);
-        Ok(buf)
-    }
+    unsafe { libc::getsockopt(fd, level, name, buf.as_mut_ptr() as *mut _, &mut optlen) }
+        .check_libc_neg()?;
+    buf.truncate(optlen as usize);
+    Ok(buf)
 }
 
 #[cfg(unix)]
 pub fn setsockopt_bytes(fd: libc::c_int, level: i32, name: i32, value: &[u8]) -> io::Result<()> {
-    let ret = unsafe {
+    unsafe {
         libc::setsockopt(
             fd,
             level,
@@ -80,17 +76,14 @@ pub fn setsockopt_bytes(fd: libc::c_int, level: i32, name: i32, value: &[u8]) ->
             value.as_ptr() as *const _,
             value.len() as libc::socklen_t,
         )
-    };
-    if ret < 0 {
-        Err(crate::os::errno_io_error())
-    } else {
-        Ok(())
     }
+    .check_libc_neg()?;
+    Ok(())
 }
 
 #[cfg(unix)]
 pub fn setsockopt_int(fd: libc::c_int, level: i32, name: i32, value: i32) -> io::Result<()> {
-    let ret = unsafe {
+    unsafe {
         libc::setsockopt(
             fd,
             level,
@@ -98,17 +91,14 @@ pub fn setsockopt_int(fd: libc::c_int, level: i32, name: i32, value: i32) -> io:
             &value as *const i32 as *const _,
             core::mem::size_of::<i32>() as libc::socklen_t,
         )
-    };
-    if ret < 0 {
-        Err(crate::os::errno_io_error())
-    } else {
-        Ok(())
     }
+    .check_libc_neg()?;
+    Ok(())
 }
 
 #[cfg(unix)]
 pub fn setsockopt_none(fd: libc::c_int, level: i32, name: i32, optlen: u32) -> io::Result<()> {
-    let ret = unsafe {
+    unsafe {
         libc::setsockopt(
             fd,
             level,
@@ -116,12 +106,9 @@ pub fn setsockopt_none(fd: libc::c_int, level: i32, name: i32, optlen: u32) -> i
             core::ptr::null(),
             optlen as libc::socklen_t,
         )
-    };
-    if ret < 0 {
-        Err(crate::os::errno_io_error())
-    } else {
-        Ok(())
     }
+    .check_libc_neg()?;
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -367,10 +354,7 @@ pub fn recvmsg(
         msg.msg_controllen = ancbufsize as _;
     }
 
-    let ret = unsafe { libc::recvmsg(fd.as_raw_fd(), &mut msg, flags) };
-    if ret < 0 {
-        return Err(io::Error::last_os_error());
-    }
+    let ret = unsafe { libc::recvmsg(fd.as_raw_fd(), &mut msg, flags) }.check_libc_neg()?;
 
     let data = unsafe {
         data_buf.set_len(ret as usize);
@@ -477,12 +461,8 @@ pub fn sendmsg_afalg(
         msghdr.msg_controllen = control_buf.len() as _;
     }
 
-    let ret = unsafe { libc::sendmsg(fd.as_raw_fd(), &msghdr, flags) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret as usize)
-    }
+    let ret = unsafe { libc::sendmsg(fd.as_raw_fd(), &msghdr, flags) }.check_libc_neg()?;
+    Ok(ret as usize)
 }
 
 #[cfg(windows)]

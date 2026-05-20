@@ -18,7 +18,7 @@ pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyInt, PyListRef, PyTupleRef, PyUtf8Str},
-        convert::{IntoPyException, ToPyObject, TryFromObject},
+        convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{ArgMapping, Either, KwArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
@@ -380,15 +380,8 @@ pub mod module {
 
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        match rustpython_host_env::posix::check_access(path.as_ref(), mode) {
-            Ok(ok) => Ok(ok),
-            Err(rustpython_host_env::posix::AccessError::InvalidMode) => Err(vm.new_value_error(
-                "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK",
-            )),
-            Err(rustpython_host_env::posix::AccessError::Os(err)) => {
-                Err(io::Error::from_raw_os_error(err).into_pyexception(vm))
-            }
-        }
+        rustpython_host_env::posix::check_access(path.as_ref(), mode)
+            .map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyattr]
@@ -1006,16 +999,9 @@ pub mod module {
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
     #[pyfunction]
     fn lchmod(path: OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        unsafe extern "C" {
-            fn lchmod(path: *const libc::c_char, mode: libc::mode_t) -> libc::c_int;
-        }
         let c_path = path.clone().into_cstring(vm)?;
-        if unsafe { lchmod(c_path.as_ptr(), mode as libc::mode_t) } == 0 {
-            Ok(())
-        } else {
-            let err = std::io::Error::last_os_error();
-            Err(OSErrorBuilder::with_filename(&err, path, vm))
-        }
+        rustpython_host_env::posix::lchmod(&c_path, mode as libc::mode_t)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyfunction]
@@ -1667,27 +1653,11 @@ pub mod module {
         Ok(_os::TerminalSizeData { columns, lines })
     }
 
-    // from libstd:
-    // https://github.com/rust-lang/rust/blob/daecab3a784f28082df90cebb204998051f3557d/src/libstd/sys/unix/fs.rs#L1251
-    #[cfg(target_os = "macos")]
-    unsafe extern "C" {
-        fn fcopyfile(
-            in_fd: libc::c_int,
-            out_fd: libc::c_int,
-            state: *mut libc::c_void, // copyfile_state_t (unused)
-            flags: u32,               // copyfile_flags_t
-        ) -> libc::c_int;
-    }
-
     #[cfg(target_os = "macos")]
     #[pyfunction]
     fn _fcopyfile(in_fd: i32, out_fd: i32, flags: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let ret = unsafe { fcopyfile(in_fd, out_fd, core::ptr::null_mut(), flags as u32) };
-        if ret < 0 {
-            Err(vm.new_last_errno_error())
-        } else {
-            Ok(())
-        }
+        rustpython_host_env::posix::fcopyfile(in_fd, out_fd, flags as u32)
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]

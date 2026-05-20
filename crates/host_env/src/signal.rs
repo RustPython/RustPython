@@ -2,6 +2,11 @@ use std::io;
 #[cfg(windows)]
 use std::sync::Once;
 
+#[cfg(unix)]
+use crate::os::CheckLibcResult;
+#[cfg(any(unix, windows))]
+use crate::os::CheckLibcZero;
+
 #[cfg(any(unix, windows))]
 pub use libc::sighandler_t;
 
@@ -81,12 +86,7 @@ pub unsafe fn install_handler(signalnum: i32, handler: sighandler_t) -> io::Resu
 
 #[cfg(any(unix, windows))]
 pub fn raise_signal(signalnum: i32) -> io::Result<()> {
-    let res = unsafe { libc::raise(signalnum) };
-    if res != 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { libc::raise(signalnum) }.check_libc_zero()
 }
 
 #[cfg(unix)]
@@ -104,21 +104,13 @@ pub fn set_sigint_default_onstack() -> io::Result<()> {
     let mut action: libc::sigaction = unsafe { core::mem::zeroed() };
     action.sa_sigaction = libc::SIG_DFL;
     action.sa_flags = libc::SA_ONSTACK;
-    if unsafe { libc::sigemptyset(&mut action.sa_mask) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if unsafe { libc::sigaction(libc::SIGINT, &action, core::ptr::null_mut()) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
+    unsafe { libc::sigemptyset(&mut action.sa_mask) }.check_libc_zero()?;
+    unsafe { libc::sigaction(libc::SIGINT, &action, core::ptr::null_mut()) }.check_libc_zero()
 }
 
 #[cfg(unix)]
 pub fn send_sigint_to_self() -> io::Result<()> {
-    if unsafe { libc::kill(libc::getpid(), libc::SIGINT) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
+    unsafe { libc::kill(libc::getpid(), libc::SIGINT) }.check_libc_zero()
 }
 
 #[cfg(unix)]
@@ -128,11 +120,8 @@ pub fn setitimer(which: i32, new: &libc::itimerval) -> io::Result<libc::itimerva
     let ret = unsafe { ffi::setitimer(which, new, old.as_mut_ptr()) };
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     let ret = unsafe { libc::setitimer(which, new, old.as_mut_ptr()) };
-    if ret != 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(unsafe { old.assume_init() })
-    }
+    ret.check_libc_zero()?;
+    Ok(unsafe { old.assume_init() })
 }
 
 #[cfg(unix)]
@@ -142,30 +131,20 @@ pub fn getitimer(which: i32) -> io::Result<libc::itimerval> {
     let ret = unsafe { ffi::getitimer(which, old.as_mut_ptr()) };
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     let ret = unsafe { libc::getitimer(which, old.as_mut_ptr()) };
-    if ret != 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(unsafe { old.assume_init() })
-    }
+    ret.check_libc_zero()?;
+    Ok(unsafe { old.assume_init() })
 }
 
 #[cfg(unix)]
 pub fn sigemptyset() -> io::Result<libc::sigset_t> {
     let mut set: libc::sigset_t = unsafe { core::mem::zeroed() };
-    if unsafe { libc::sigemptyset(&mut set) } != 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(set)
-    }
+    unsafe { libc::sigemptyset(&mut set) }.check_libc_zero()?;
+    Ok(set)
 }
 
 #[cfg(unix)]
 pub fn sigaddset(set: &mut libc::sigset_t, signum: i32) -> io::Result<()> {
-    if unsafe { libc::sigaddset(set, signum) } != 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { libc::sigaddset(set, signum) }.check_libc_zero()
 }
 
 #[cfg(unix)]
@@ -190,21 +169,14 @@ pub fn pidfd_send_signal(pidfd: i32, sig: i32, flags: u32) -> io::Result<()> {
             flags,
         ) as libc::c_long
     };
-    if ret == -1 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    ret.check_libc_neg()?;
+    Ok(())
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
 pub fn siginterrupt(signalnum: i32, flag: i32) -> io::Result<()> {
-    let res = unsafe { c_siginterrupt(signalnum, flag) };
-    if res < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { c_siginterrupt(signalnum, flag) }.check_libc_neg()?;
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -349,9 +321,7 @@ pub fn strsignal(signalnum: i32) -> Option<String> {
 #[cfg(unix)]
 pub fn valid_signals(max_signum: usize) -> io::Result<Vec<i32>> {
     let mut mask: libc::sigset_t = unsafe { core::mem::zeroed() };
-    if unsafe { libc::sigfillset(&mut mask) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
+    unsafe { libc::sigfillset(&mut mask) }.check_libc_zero()?;
     let mut signals = Vec::new();
     for signum in 1..max_signum {
         if unsafe { libc::sigismember(&mask, signum as i32) } == 1 {

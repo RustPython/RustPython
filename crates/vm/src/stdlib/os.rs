@@ -156,8 +156,6 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 pub(super) mod _os {
     use super::{DirFd, FollowSymlinks, SupportFunc};
     use crate::host_env::fileutils::StatStruct;
-    #[cfg(windows)]
-    use crate::host_env::windows::ToWideString;
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{
@@ -466,11 +464,6 @@ pub(super) mod _os {
         }
     }
 
-    #[cfg(windows)]
-    unsafe extern "C" {
-        fn _wputenv(envstring: *const u16) -> libc::c_int;
-    }
-
     /// Check if wide string length exceeds Windows environment variable limit.
     #[cfg(windows)]
     fn check_env_var_len(wide_len: usize, vm: &VirtualMachine) -> PyResult<()> {
@@ -498,15 +491,13 @@ pub(super) mod _os {
             return Err(vm.new_value_error("illegal environment variable name"));
         }
         let env_str = format!("{key_str}={value_str}");
-        let wide = env_str.to_wide_with_nul();
-        check_env_var_len(wide.len(), vm)?;
+        // env_str is guaranteed nul-free by the checks above.
+        let wide = widestring::WideCString::from_str(&env_str)
+            .expect("env_str validated to contain no NUL");
+        check_env_var_len(wide.len() + 1, vm)?;
 
-        // Use _wputenv like CPython (not SetEnvironmentVariableW) to update CRT environ
-        let result = unsafe { rustpython_host_env::suppress_iph!(_wputenv(wide.as_ptr())) };
-        if result != 0 {
-            return Err(vm.new_last_errno_error());
-        }
-        Ok(())
+        // Use _wputenv (not SetEnvironmentVariableW) to update CRT environ.
+        rustpython_host_env::nt::wputenv(&wide).map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -545,15 +536,13 @@ pub(super) mod _os {
         }
         // "key=" to unset (empty value removes the variable)
         let env_str = format!("{key_str}=");
-        let wide = env_str.to_wide_with_nul();
-        check_env_var_len(wide.len(), vm)?;
+        // env_str is guaranteed nul-free by the checks above.
+        let wide = widestring::WideCString::from_str(&env_str)
+            .expect("env_str validated to contain no NUL");
+        check_env_var_len(wide.len() + 1, vm)?;
 
-        // Use _wputenv like CPython (not SetEnvironmentVariableW) to update CRT environ
-        let result = unsafe { rustpython_host_env::suppress_iph!(_wputenv(wide.as_ptr())) };
-        if result != 0 {
-            return Err(vm.new_last_errno_error());
-        }
-        Ok(())
+        // Use _wputenv (not SetEnvironmentVariableW) to update CRT environ.
+        rustpython_host_env::nt::wputenv(&wide).map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -1434,10 +1423,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn abort() {
-        unsafe extern "C" {
-            fn abort();
-        }
-        unsafe { abort() }
+        crate::host_env::os::abort()
     }
 
     #[pyfunction]
@@ -1445,9 +1431,7 @@ pub(super) mod _os {
         if size < 0 {
             return Err(vm.new_value_error("negative argument not allowed"));
         }
-        let mut buf = vec![0u8; size as usize];
-        getrandom::fill(&mut buf).map_err(|e| io::Error::from(e).into_pyexception(vm))?;
-        Ok(buf)
+        crate::host_env::os::urandom(size as usize).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]

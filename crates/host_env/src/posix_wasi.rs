@@ -2,31 +2,21 @@ use alloc::ffi::CString;
 use core::{ffi::CStr, time::Duration};
 use std::{ffi::OsStr, io};
 
+use crate::os::CheckLibcResult;
+
 pub fn make_dir(path: &CStr, mode: u32) -> io::Result<()> {
-    let ret = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { libc::mkdir(path.as_ptr(), mode as _) }.check_libc_neg()?;
+    Ok(())
 }
 
 pub fn make_dir_at(dir_fd: i32, path: &CStr, mode: u32) -> io::Result<()> {
-    let ret = unsafe { libc::mkdirat(dir_fd, path.as_ptr(), mode as _) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { libc::mkdirat(dir_fd, path.as_ptr(), mode as _) }.check_libc_neg()?;
+    Ok(())
 }
 
 pub fn remove_dir_at(dir_fd: i32, path: &CStr) -> io::Result<()> {
-    let ret = unsafe { libc::unlinkat(dir_fd, path.as_ptr(), libc::AT_REMOVEDIR) };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { libc::unlinkat(dir_fd, path.as_ptr(), libc::AT_REMOVEDIR) }.check_libc_neg()?;
+    Ok(())
 }
 
 pub fn stat_path(
@@ -48,10 +38,8 @@ pub fn stat_path(
         } else {
             libc::AT_SYMLINK_NOFOLLOW
         };
-        let ret = unsafe { libc::fstatat(dir_fd, path.as_ptr(), stat.as_mut_ptr(), flags) };
-        if ret < 0 {
-            return Err(io::Error::last_os_error());
-        }
+        unsafe { libc::fstatat(dir_fd, path.as_ptr(), stat.as_mut_ptr(), flags) }
+            .check_libc_neg()?;
         return Ok(Some(unsafe { stat.assume_init() }));
     }
 
@@ -60,11 +48,8 @@ pub fn stat_path(
     } else {
         unsafe { libc::lstat(path.as_ptr(), stat.as_mut_ptr()) }
     };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(Some(unsafe { stat.assume_init() }))
-    }
+    ret.check_libc_neg()?;
+    Ok(Some(unsafe { stat.assume_init() }))
 }
 
 pub fn stat_fd(fd: crate::crt_fd::Borrowed<'_>) -> io::Result<crate::fileutils::StatStruct> {
@@ -83,7 +68,7 @@ pub fn set_file_times_at(
         tv_nsec: d.subsec_nanos() as _,
     };
     let times = [ts(access), ts(modified)];
-    let ret = unsafe {
+    unsafe {
         libc::utimensat(
             dir_fd,
             path.as_ptr(),
@@ -94,10 +79,7 @@ pub fn set_file_times_at(
                 libc::AT_SYMLINK_NOFOLLOW
             },
         )
-    };
-    if ret < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
+    .check_libc_neg()?;
+    Ok(())
 }
