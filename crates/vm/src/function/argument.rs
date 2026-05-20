@@ -1,4 +1,9 @@
-use crate::{AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::{PyBaseExceptionRef, PyDict, PyStr, PyTuple, PyTupleRef, PyTypeRef}, convert::ToPyObject, object::{Traverse, TraverseFn}, Py};
+use crate::{
+    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyBaseExceptionRef, PyDict, PyStr, PyTuple, PyTupleRef, PyTypeRef},
+    convert::ToPyObject,
+    object::{Traverse, TraverseFn},
+};
 use core::ops::RangeInclusive;
 use indexmap::IndexMap;
 use itertools::Itertools;

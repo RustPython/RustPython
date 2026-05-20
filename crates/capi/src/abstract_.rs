@@ -48,10 +48,14 @@ pub unsafe extern "C" fn PyObject_Vectorcall(
         };
 
         let args_len = num_positional_args + kwnames.map_or(0, <[PyObjectRef]>::len);
-        let args = unsafe { slice::from_raw_parts(args, args_len) }
-            .iter()
-            .map(|arg| unsafe { &**arg }.to_owned())
-            .collect::<Vec<_>>();
+        let args = if args_len == 0 {
+            Vec::new()
+        } else {
+            unsafe { slice::from_raw_parts(args, args_len) }
+                .iter()
+                .map(|arg| unsafe { &**arg }.to_owned())
+                .collect::<Vec<_>>()
+        };
 
         let callable = unsafe { &*callable };
         callable.vectorcall(args, num_positional_args, kwnames, vm)

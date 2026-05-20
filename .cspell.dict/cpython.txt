@@ -133,6 +133,7 @@ mult
 multibytecodec
 nameobj
 nameop
+nargsf
 ncells
 nconsts
 newargs
