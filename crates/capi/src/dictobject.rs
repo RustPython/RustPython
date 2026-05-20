@@ -74,11 +74,10 @@ pub unsafe extern "C" fn PyDict_Next(
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
         let index = unsafe { *pos } as usize;
-        let items = dict.items_vec();
 
-        if let Some((k, v)) = items.get(index) {
+        if let Some((next_pos, k, v)) = dict.next_entry(index) {
             unsafe {
-                *pos += 1;
+                *pos = next_pos as isize;
                 if let Some(key) = NonNull::new(key) {
                     key.write(k.as_object().as_raw().cast_mut());
                 }

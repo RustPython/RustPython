@@ -248,6 +248,10 @@ impl PyDict {
     pub fn size(&self) -> dict_inner::DictSize {
         self.entries.size()
     }
+
+    pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef, PyObjectRef)> {
+        self.entries.next_entry(position)
+    }
 }
 
 // Python dict methods:
