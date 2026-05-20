@@ -6927,15 +6927,17 @@ fn redirect_load_fast_passthrough_targets(blocks: &mut [Block]) {
                 if block.next != target || block.cold || block.except_handler {
                     continue;
                 }
-                if block_has_fallthrough(block) {
-                    return true;
-                }
                 if block.instructions.is_empty()
                     && (block.load_fast_passthrough || block.load_fast_label_reuse_passthrough)
-                    && !seen[block_idx]
                 {
-                    seen[block_idx] = true;
-                    stack.push(BlockIdx::new(block_idx as u32));
+                    if !seen[block_idx] {
+                        seen[block_idx] = true;
+                        stack.push(BlockIdx::new(block_idx as u32));
+                    }
+                    continue;
+                }
+                if block_has_fallthrough(block) {
+                    return true;
                 }
             }
         }
