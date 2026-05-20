@@ -12,6 +12,9 @@
 use alloc::vec::Vec;
 #[cfg(unix)]
 use parking_lot::Mutex;
+
+#[cfg(unix)]
+pub use libc::{SA_NODEFER, SIGFPE, SIGSEGV, c_int};
 #[cfg(windows)]
 use windows_sys::Win32::System::{
     Diagnostics::Debug::{

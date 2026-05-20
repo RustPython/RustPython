@@ -368,7 +368,7 @@ mod decl {
 
     // faulthandler_fatal_error
     #[cfg(unix)]
-    extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
+    extern "C" fn faulthandler_fatal_error(signum: core::ffi::c_int) {
         let save_errno = get_errno();
 
         if !FATAL_ERROR.enabled.load(Ordering::Relaxed) {
@@ -405,7 +405,7 @@ mod decl {
 
     // faulthandler_fatal_error for Windows
     #[cfg(windows)]
-    extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
+    extern "C" fn faulthandler_fatal_error(signum: core::ffi::c_int) {
         let save_errno = get_errno();
 
         if !FATAL_ERROR.enabled.load(Ordering::Relaxed) {
@@ -474,7 +474,7 @@ mod decl {
 
         // Disable SIGSEGV handler for access violations to avoid double output
         if host_faulthandler::is_access_violation(code) {
-            host_faulthandler::disable_fatal_signal(libc::SIGSEGV);
+            host_faulthandler::disable_fatal_signal(host_faulthandler::SIGSEGV);
         }
 
         let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
@@ -490,7 +490,10 @@ mod decl {
             return true;
         }
 
-        if !host_faulthandler::enable_fatal_handlers(faulthandler_fatal_error, libc::SA_NODEFER) {
+        if !host_faulthandler::enable_fatal_handlers(
+            faulthandler_fatal_error,
+            host_faulthandler::SA_NODEFER,
+        ) {
             return false;
         }
 
@@ -764,7 +767,7 @@ mod decl {
     }
 
     #[cfg(unix)]
-    extern "C" fn faulthandler_user_signal(signum: libc::c_int) {
+    extern "C" fn faulthandler_user_signal(signum: core::ffi::c_int) {
         let save_errno = get_errno();
 
         let user = match host_faulthandler::get_user_signal(signum as usize) {
@@ -895,7 +898,7 @@ mod decl {
         #[cfg(not(target_arch = "wasm32"))]
         {
             suppress_crash_report();
-            host_faulthandler::raise_signal(libc::SIGFPE);
+            host_faulthandler::raise_signal(host_faulthandler::SIGFPE);
         }
     }
 
