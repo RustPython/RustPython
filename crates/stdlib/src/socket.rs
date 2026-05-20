@@ -885,9 +885,9 @@ mod _socket {
 
     fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
         #[cfg(unix)]
-        type CastFrom = libc::c_long;
+        type CastFrom = core::ffi::c_long;
         #[cfg(windows)]
-        type CastFrom = libc::c_longlong;
+        type CastFrom = core::ffi::c_longlong;
 
         // should really just be to_index() but test_socket tests the error messages explicitly
         if obj.fast_isinstance(vm.ctx.types.float_type) {
@@ -1214,11 +1214,10 @@ mod _socket {
                     };
 
                     // Create sockaddr_can
-                    let mut storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
-                    let can_addr =
-                        &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_can;
+                    let mut storage: c::sockaddr_storage = unsafe { core::mem::zeroed() };
+                    let can_addr = &mut storage as *mut c::sockaddr_storage as *mut c::sockaddr_can;
                     unsafe {
-                        (*can_addr).can_family = libc::AF_CAN as libc::sa_family_t;
+                        (*can_addr).can_family = c::AF_CAN as c::sa_family_t;
                         (*can_addr).can_ifindex = ifindex;
                     }
                     let storage: socket2::SockAddrStorage =
@@ -1226,7 +1225,7 @@ mod _socket {
                     Ok(unsafe {
                         socket2::SockAddr::new(
                             storage,
-                            core::mem::size_of::<libc::sockaddr_can>() as libc::socklen_t,
+                            core::mem::size_of::<c::sockaddr_can>() as c::socklen_t,
                         )
                     })
                 }
@@ -1273,11 +1272,10 @@ mod _socket {
                     }
 
                     // Create sockaddr_alg
-                    let mut storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
-                    let alg_addr =
-                        &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_alg;
+                    let mut storage: c::sockaddr_storage = unsafe { core::mem::zeroed() };
+                    let alg_addr = &mut storage as *mut c::sockaddr_storage as *mut c::sockaddr_alg;
                     unsafe {
-                        (*alg_addr).salg_family = libc::AF_ALG as libc::sa_family_t;
+                        (*alg_addr).salg_family = c::AF_ALG as c::sa_family_t;
                         // Copy type string
                         for (i, b) in type_str.bytes().enumerate() {
                             (*alg_addr).salg_type[i] = b;
@@ -1292,7 +1290,7 @@ mod _socket {
                     Ok(unsafe {
                         socket2::SockAddr::new(
                             storage,
-                            core::mem::size_of::<libc::sockaddr_alg>() as libc::socklen_t,
+                            core::mem::size_of::<c::sockaddr_alg>() as c::socklen_t,
                         )
                     })
                 }
@@ -2280,9 +2278,9 @@ mod _socket {
         #[cfg(target_os = "linux")]
         {
             let family = addr.family();
-            if family == libc::AF_CAN as libc::sa_family_t {
+            if family == c::AF_CAN as c::sa_family_t {
                 // AF_CAN address: (interface_name,) or (interface_name, can_id)
-                let can_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_can) };
+                let can_addr = unsafe { &*(addr.as_ptr() as *const c::sockaddr_can) };
                 let ifindex = can_addr.can_ifindex;
                 let ifname = if ifindex == 0 {
                     String::new()
@@ -2291,9 +2289,9 @@ mod _socket {
                 };
                 return vm.ctx.new_tuple(vec![vm.ctx.new_str(ifname).into()]).into();
             }
-            if family == libc::AF_ALG as libc::sa_family_t {
+            if family == c::AF_ALG as c::sa_family_t {
                 // AF_ALG address: (type, name)
-                let alg_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_alg) };
+                let alg_addr = unsafe { &*(addr.as_ptr() as *const c::sockaddr_alg) };
                 let type_bytes = &alg_addr.salg_type;
                 let name_bytes = &alg_addr.salg_name;
                 let type_nul = memchr::memchr(b'\0', type_bytes).unwrap_or(type_bytes.len());
@@ -2348,7 +2346,7 @@ mod _socket {
         Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
     }
 
-    fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
+    fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const core::ffi::c_char {
         x.as_ref().map_or_else(core::ptr::null, |s| s.as_ptr())
     }
 
@@ -2811,8 +2809,8 @@ mod _socket {
         socket_kind: OptionalArg<i32>,
         proto: OptionalArg<i32>,
     ) -> Result<(PySocket, PySocket), IoOrPyException> {
-        let family = family.unwrap_or(libc::AF_UNIX);
-        let socket_kind = socket_kind.unwrap_or(libc::SOCK_STREAM);
+        let family = family.unwrap_or(c::AF_UNIX);
+        let socket_kind = socket_kind.unwrap_or(c::SOCK_STREAM);
         let proto = proto.unwrap_or(0);
         let (a, b) = Socket::pair(family.into(), socket_kind.into(), Some(proto.into()))?;
         let py_a = PySocket::default();
@@ -2839,7 +2837,7 @@ mod _socket {
         {
             let name = name.to_cstring(vm)?;
             // in case 'if_nametoindex' does not set errno
-            rustpython_host_env::os::set_errno(libc::ENODEV);
+            rustpython_host_env::os::set_errno(c::ENODEV);
             let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
             if ret == 0 {
                 Err(vm.new_last_errno_error())
@@ -2860,7 +2858,7 @@ mod _socket {
         {
             let mut buf = [0; c::IF_NAMESIZE + 1];
             // in case 'if_indextoname' does not set errno
-            rustpython_host_env::os::set_errno(libc::ENXIO);
+            rustpython_host_env::os::set_errno(c::ENXIO);
             let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
             if ret.is_null() {
                 Err(vm.new_last_errno_error())
