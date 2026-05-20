@@ -348,6 +348,7 @@ impl CodeInfo {
         // later jump normalization / block reordering can create adjacencies
         // that never exist at this stage in flowgraph.c.
         self.insert_superinstructions();
+        self.remove_redundant_const_pop_top_pairs();
         inline_single_predecessor_artificial_expr_exit_blocks(&mut self.blocks);
         push_cold_blocks_to_end(&mut self.blocks);
         // CPython resolves line numbers again after cold-block extraction.
@@ -381,11 +382,11 @@ impl CodeInfo {
         canonicalize_empty_label_blocks(&mut self.blocks);
         inline_small_fast_return_blocks(&mut self.blocks);
         duplicate_end_returns(&mut self.blocks, &self.metadata);
+        retarget_conditional_jumps_to_empty_while_exit_epilogue(&mut self.blocks);
         duplicate_fallthrough_jump_back_targets(&mut self.blocks);
         duplicate_shared_jump_back_targets(&mut self.blocks);
         self.dce(); // truncate after terminal in blocks that got return duplicated
         self.eliminate_unreachable_blocks(); // remove now-unreachable last block
-        self.remove_redundant_const_pop_top_pairs();
         remove_redundant_nops_and_jumps(&mut self.blocks);
         // Some jump-only blocks only appear after late CFG cleanup. Thread them
         // once more so loop backedges stay direct instead of becoming
@@ -653,7 +654,7 @@ impl CodeInfo {
                             let updated_cache = op.cache_entries() as u32;
                             recompile |= updated_cache != old_cache_entries;
                             info.cache_entries = updated_cache;
-                            let new_arg = if matches!(op, Instruction::EndAsyncFor) {
+                            let mut new_arg = if matches!(op, Instruction::EndAsyncFor) {
                                 let arg = offset_after
                                     .checked_sub(target_offset + END_SEND_OFFSET)
                                     .expect("END_ASYNC_FOR target must be before instruction");
@@ -672,6 +673,22 @@ impl CodeInfo {
                                     .expect("forward jump target must be after instruction");
                                 OpArg::new(arg)
                             };
+                            if matches!(
+                                op.into(),
+                                Opcode::JumpBackward | Opcode::JumpBackwardNoInterrupt
+                            ) && u32::from(new_arg) == 0xff
+                                && target_offset > 0xff
+                            {
+                                // CPython assemble.c::resolve_jump_offsets()
+                                // bootstraps jump sizing from the unresolved
+                                // target index stored in i_oparg.  When a
+                                // backward jump lands exactly on the 255-code
+                                // unit boundary and the target is already
+                                // beyond one-byte range, that preliminary
+                                // EXTENDED_ARG increases the resolved backward
+                                // delta to 256 and the fixed point keeps it.
+                                new_arg = OpArg::new(0x100);
+                            }
                             recompile |= new_arg.instr_size() != old_arg_size;
                             info.arg = new_arg;
                         }
@@ -932,8 +949,15 @@ impl CodeInfo {
             }
         }
 
-        for (i, block) in self.blocks.iter_mut().enumerate() {
-            if !reachable[i] {
+        for i in 0..self.blocks.len() {
+            if !reachable[i]
+                && !preserves_cpython_unreachable_fallthrough_return_epilogue(
+                    &self.blocks,
+                    &reachable,
+                    BlockIdx(i as u32),
+                )
+            {
+                let block = &mut self.blocks[i];
                 block.instructions.clear();
             }
         }
@@ -4327,6 +4351,7 @@ impl CodeInfo {
         ));
         self.add_checks_for_loads_of_uninitialized_variables();
         self.insert_superinstructions();
+        self.remove_redundant_const_pop_top_pairs();
         inline_single_predecessor_artificial_expr_exit_blocks(&mut self.blocks);
         push_cold_blocks_to_end(&mut self.blocks);
         trace.push((
@@ -4395,6 +4420,7 @@ impl CodeInfo {
         ));
 
         duplicate_end_returns(&mut self.blocks, &self.metadata);
+        retarget_conditional_jumps_to_empty_while_exit_epilogue(&mut self.blocks);
         duplicate_fallthrough_jump_back_targets(&mut self.blocks);
         duplicate_shared_jump_back_targets(&mut self.blocks);
         trace.push((
@@ -4415,7 +4441,6 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
 
-        self.remove_redundant_const_pop_top_pairs();
         remove_redundant_nops_and_jumps(&mut self.blocks);
         trace.push((
             "after_remove_redundant_nops_and_jumps".to_owned(),
@@ -6859,6 +6884,56 @@ fn redirect_empty_block_targets(blocks: &mut [Block]) {
             }
         }
     }
+}
+
+fn preserves_cpython_unreachable_fallthrough_return_epilogue(
+    blocks: &[Block],
+    reachable: &[bool],
+    idx: BlockIdx,
+) -> bool {
+    let block = &blocks[idx.idx()];
+    if !matches!(
+        block.instructions.as_slice(),
+        [load, ret]
+            if load.no_location_exit
+                && ret.no_location_exit
+                && instruction_lineno(load) < 0
+                && instruction_lineno(ret) < 0
+                && matches!(load.instr.real(), Some(Instruction::LoadConst { .. }))
+                && matches!(ret.instr.real(), Some(Instruction::ReturnValue))
+    ) {
+        return false;
+    }
+
+    let mut seen = vec![false; blocks.len()];
+    let mut stack = vec![idx];
+    while let Some(target) = stack.pop() {
+        if target == BlockIdx::NULL {
+            continue;
+        }
+        for (source_idx, source) in blocks.iter().enumerate() {
+            if source.next != target || seen[source_idx] {
+                continue;
+            }
+            seen[source_idx] = true;
+            if reachable[source_idx] {
+                let [.., load, ret] = source.instructions.as_slice() else {
+                    continue;
+                };
+                if load.no_location_exit
+                    && ret.no_location_exit
+                    && matches!(load.instr.real(), Some(Instruction::LoadConst { .. }))
+                    && matches!(ret.instr.real(), Some(Instruction::ReturnValue))
+                    && instruction_lineno(ret) > 0
+                {
+                    return true;
+                }
+            } else if source.instructions.is_empty() {
+                stack.push(BlockIdx(source_idx as u32));
+            }
+        }
+    }
+    false
 }
 
 fn redirect_load_fast_passthrough_targets(blocks: &mut [Block]) {
@@ -10534,6 +10609,17 @@ fn duplicate_shared_jump_back_targets(blocks: &mut Vec<Block>) {
 }
 
 fn reorder_lineful_jump_back_runs_by_descending_line(blocks: &mut [Block]) {
+    fn follows_while_body_anchor_order(blocks: &[Block], body: BlockIdx, anchor: BlockIdx) -> bool {
+        blocks.iter().any(|block| {
+            next_nonempty_block(blocks, block.next) == body
+                && block.instructions.iter().any(|info| {
+                    is_conditional_jump(&info.instr)
+                        && info.target != BlockIdx::NULL
+                        && next_nonempty_block(blocks, info.target) == anchor
+                })
+        })
+    }
+
     let mut prev = BlockIdx::NULL;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -10570,6 +10656,11 @@ fn reorder_lineful_jump_back_runs_by_descending_line(blocks: &mut [Block]) {
         if run.len() < 2 {
             prev = current;
             current = blocks[current.idx()].next;
+            continue;
+        }
+        if follows_while_body_anchor_order(blocks, run[0], run[1]) {
+            prev = *run.last().expect("non-empty jump-back run");
+            current = scan;
             continue;
         }
 
@@ -10677,6 +10768,69 @@ fn duplicate_fallthrough_jump_back_targets(blocks: &mut Vec<Block>) {
     }
 }
 
+fn retarget_conditional_jumps_to_empty_while_exit_epilogue(blocks: &mut [Block]) {
+    fn is_no_location_return_epilogue(block: &Block) -> bool {
+        matches!(
+            block.instructions.as_slice(),
+            [load, ret]
+                if load.no_location_exit
+                    && ret.no_location_exit
+                    && instruction_lineno(load) < 0
+                    && instruction_lineno(ret) < 0
+                    && matches!(load.instr.real(), Some(Instruction::LoadConst { .. }))
+                    && matches!(ret.instr.real(), Some(Instruction::ReturnValue))
+        )
+    }
+
+    fn ends_with_line_marker_implicit_return(block: &Block) -> bool {
+        matches!(
+            block.instructions.as_slice(),
+            [.., marker, load, ret]
+                if matches!(marker.instr.real(), Some(Instruction::Nop))
+                    && instruction_lineno(marker) > 0
+                    && load.no_location_exit
+                    && ret.no_location_exit
+                    && instruction_lineno(ret) > 0
+                    && matches!(load.instr.real(), Some(Instruction::LoadConst { .. }))
+                    && matches!(ret.instr.real(), Some(Instruction::ReturnValue))
+        )
+    }
+
+    let retargets: Vec<Vec<BlockIdx>> = blocks
+        .iter()
+        .map(|block| {
+            block
+                .instructions
+                .iter()
+                .map(|instr| {
+                    if instr.target == BlockIdx::NULL || !is_conditional_jump(&instr.instr) {
+                        return instr.target;
+                    }
+                    let target = instr.target;
+                    if !ends_with_line_marker_implicit_return(&blocks[target.idx()]) {
+                        return target;
+                    }
+                    let next = next_nonempty_block(blocks, blocks[target.idx()].next);
+                    if next != BlockIdx::NULL && is_no_location_return_epilogue(&blocks[next.idx()])
+                    {
+                        next
+                    } else {
+                        target
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    for (block, block_retargets) in blocks.iter_mut().zip(retargets) {
+        for (instr, target) in block.instructions.iter_mut().zip(block_retargets) {
+            if target != BlockIdx::NULL {
+                instr.target = target;
+            }
+        }
+    }
+}
+
 /// Duplicate `LOAD_CONST None + RETURN_VALUE` for blocks that fall through
 /// to the final return block.
 fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
@@ -10723,6 +10877,23 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
     // Get the return instructions to clone
     let return_insts: Vec<InstructionInfo> = last_insts[last_insts.len() - 2..].to_vec();
     let predecessors = compute_predecessors(blocks);
+    let has_nointerrupt_jump_to_last_block = blocks.iter().any(|block| {
+        block.instructions.iter().any(|instr| {
+            matches!(
+                jump_thread_kind(instr.instr),
+                Some(JumpThreadKind::NoInterrupt)
+            ) && instr.target != BlockIdx::NULL
+                && next_nonempty_block(blocks, instr.target) == last_block
+        })
+    });
+    let has_lineful_return_fallthrough_to_last_block = blocks.iter().any(|block| {
+        block.next != BlockIdx::NULL
+            && next_nonempty_block(blocks, block.next) == last_block
+            && block.instructions.last().is_some_and(|instr| {
+                matches!(instr.instr.real(), Some(Instruction::ReturnValue))
+                    && instruction_lineno(instr) > 0
+            })
+    });
 
     // Find non-cold blocks that reach the last return block either by
     // fallthrough or as an unconditional jump target that should get its own
@@ -10752,6 +10923,7 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
                 && next == last_block
                 && has_fallthrough
                 && trailing_conditional_jump_index(block).is_none()
+                && !has_nointerrupt_jump_to_last_block
                 && !already_has_return
             {
                 fallthrough_blocks_to_fix.push(current);
@@ -10765,6 +10937,12 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
             if let Some(jump_idx) = jump_idx {
                 let jump = &block.instructions[jump_idx];
                 if jump.target != BlockIdx::NULL
+                    && !matches!(
+                        jump_thread_kind(jump.instr),
+                        Some(JumpThreadKind::NoInterrupt)
+                    )
+                    && !(has_lineful_return_fallthrough_to_last_block
+                        && is_conditional_jump(&jump.instr))
                     && next_nonempty_block(blocks, jump.target) == last_block
                     && (is_conditional_jump(&jump.instr) || predecessors[last_block.idx()] > 1)
                 {
@@ -10972,6 +11150,7 @@ fn duplicate_named_except_cleanup_returns(blocks: &mut Vec<Block>, metadata: &Co
             continue;
         }
 
+        let mut conditional_sources = Vec::new();
         for block_idx in 0..blocks.len() {
             if block_idx == target.idx() {
                 continue;
@@ -10984,7 +11163,10 @@ fn duplicate_named_except_cleanup_returns(blocks: &mut Vec<Block>, metadata: &Co
             {
                 continue;
             }
-            clones.push((BlockIdx(block_idx as u32), instr_idx, target));
+            conditional_sources.push((BlockIdx(block_idx as u32), instr_idx));
+        }
+        if let [(block_idx, instr_idx)] = conditional_sources.as_slice() {
+            clones.push((*block_idx, *instr_idx, target));
         }
     }
 
@@ -11029,6 +11211,12 @@ fn inline_pop_except_return_blocks(blocks: &mut [Block]) {
         };
         let jump = blocks[block_idx].instructions[jump_idx];
         if !jump.instr.is_unconditional_jump() || jump.target == BlockIdx::NULL {
+            continue;
+        }
+        if matches!(
+            jump_thread_kind(jump.instr),
+            Some(JumpThreadKind::NoInterrupt)
+        ) {
             continue;
         }
 
