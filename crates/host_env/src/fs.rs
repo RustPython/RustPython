@@ -1,7 +1,8 @@
 use std::{
+    ffi::OsStr,
     fs::{self, File, Metadata, ReadDir},
     io,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 pub fn open(path: impl AsRef<Path>) -> io::Result<File> {
@@ -44,8 +45,14 @@ pub fn open_write(path: impl AsRef<Path>) -> io::Result<File> {
     fs::OpenOptions::new().write(true).open(path)
 }
 
-pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<std::path::PathBuf> {
+pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
     fs::canonicalize(path)
+}
+
+/// Resolve `binary_name` to an absolute path by searching `PATH` (and `PATHEXT` on Windows).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn which<T: AsRef<OsStr>>(binary_name: T) -> Option<PathBuf> {
+    ::which::which(binary_name).ok()
 }
 
 #[cfg(windows)]

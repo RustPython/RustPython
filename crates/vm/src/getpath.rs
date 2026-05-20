@@ -359,7 +359,7 @@ fn get_executable_path() -> Option<PathBuf> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let exec_arg = env::args_os().next()?;
-        which::which(exec_arg).ok()
+        crate::host_env::fs::which(exec_arg)
     }
     #[cfg(target_arch = "wasm32")]
     {
