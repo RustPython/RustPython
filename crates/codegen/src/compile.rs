@@ -14764,6 +14764,54 @@ def f(buffer, pos, last_char):
         })
     }
 
+    fn non_cache_instructions(code: &CodeObject) -> impl Iterator<Item = &CodeUnit> {
+        code.instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+    }
+
+    fn varname_index(code: &CodeObject, name: &str) -> usize {
+        code.varnames
+            .iter()
+            .position(|varname| varname.as_str() == name)
+            .unwrap_or_else(|| panic!("missing {name} local"))
+    }
+
+    fn load_fast_ops_for_var(code: &CodeObject, name: &str) -> Vec<Instruction> {
+        let var_idx = varname_index(code, name);
+        non_cache_instructions(code)
+            .filter_map(|unit| match unit.op {
+                Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
+                    let var_num = var_num.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    (usize::from(var_num) == var_idx).then_some(unit.op)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn count_strong_loads_for_vars(code: &CodeObject, names: &[&str]) -> usize {
+        let var_indices = names
+            .iter()
+            .map(|name| varname_index(code, name))
+            .collect::<Vec<_>>();
+        non_cache_instructions(code)
+            .filter(|unit| match unit.op {
+                Instruction::LoadFast { var_num } => {
+                    let var_num = var_num.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                    var_indices.contains(&usize::from(var_num))
+                }
+                _ => false,
+            })
+            .count()
+    }
+
+    fn count_strong_loads(code: &CodeObject) -> usize {
+        non_cache_instructions(code)
+            .filter(|unit| matches!(unit.op, Instruction::LoadFast { .. }))
+            .count()
+    }
+
     fn localsplus_name(code: &CodeObject, idx: usize) -> Option<&str> {
         if idx < code.varnames.len() {
             return Some(code.varnames[idx].as_str());
@@ -15241,23 +15289,7 @@ def f(running, errors):
 ",
         );
         let f = find_code(&code, "f").expect("missing function code");
-        let errors_idx = f
-            .varnames
-            .iter()
-            .position(|name| name.as_str() == "errors")
-            .expect("missing errors local");
-        let errors_loads = f
-            .instructions
-            .iter()
-            .filter(|unit| !matches!(unit.op, Instruction::Cache))
-            .filter_map(|unit| match unit.op {
-                Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
-                    let var_num = var_num.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    (usize::from(var_num) == errors_idx).then_some(unit.op)
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let errors_loads = load_fast_ops_for_var(f, "errors");
         assert!(
             errors_loads
                 .iter()
@@ -15284,23 +15316,7 @@ def f(self, cm, value):
 ",
         );
         let f = find_code(&code, "f").expect("missing function code");
-        let value_idx = f
-            .varnames
-            .iter()
-            .position(|name| name.as_str() == "value")
-            .expect("missing value local");
-        let value_loads = f
-            .instructions
-            .iter()
-            .filter(|unit| !matches!(unit.op, Instruction::Cache))
-            .filter_map(|unit| match unit.op {
-                Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num } => {
-                    let var_num = var_num.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    (usize::from(var_num) == value_idx).then_some(unit.op)
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let value_loads = load_fast_ops_for_var(f, "value");
         assert!(
             value_loads
                 .iter()
@@ -15336,28 +15352,7 @@ def f(test_cases):
 ",
         );
         let f = find_code(&code, "f").expect("missing function code");
-        let src_idx = f
-            .varnames
-            .iter()
-            .position(|name| name.as_str() == "src")
-            .expect("missing src local");
-        let dest_idx = f
-            .varnames
-            .iter()
-            .position(|name| name.as_str() == "dest")
-            .expect("missing dest local");
-        let strong_src_dest_loads = f
-            .instructions
-            .iter()
-            .filter(|unit| !matches!(unit.op, Instruction::Cache))
-            .filter(|unit| match unit.op {
-                Instruction::LoadFast { var_num } => {
-                    let var_num = var_num.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    usize::from(var_num) == src_idx || usize::from(var_num) == dest_idx
-                }
-                _ => false,
-            })
-            .count();
+        let strong_src_dest_loads = count_strong_loads_for_vars(f, &["src", "dest"]);
         assert!(
             strong_src_dest_loads >= 2,
             "CPython codegen_try_except() emits orelse then USE_LABEL(end) before the following loop try, so optimize_load_fast() leaves fsencode arguments strong; got {strong_src_dest_loads} strong src/dest loads"
@@ -15387,28 +15382,7 @@ def f(self, f, cm):
 ",
         );
         let f_code = find_code(&code, "f").expect("missing function code");
-        let self_idx = f_code
-            .varnames
-            .iter()
-            .position(|name| name.as_str() == "self")
-            .expect("missing self local");
-        let f_idx = f_code
-            .varnames
-            .iter()
-            .position(|name| name.as_str() == "f")
-            .expect("missing f local");
-        let strong_self_or_f_loads = f_code
-            .instructions
-            .iter()
-            .filter(|unit| !matches!(unit.op, Instruction::Cache))
-            .filter(|unit| match unit.op {
-                Instruction::LoadFast { var_num } => {
-                    let var_num = var_num.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    usize::from(var_num) == self_idx || usize::from(var_num) == f_idx
-                }
-                _ => false,
-            })
-            .count();
+        let strong_self_or_f_loads = count_strong_loads_for_vars(f_code, &["self", "f"]);
         assert!(
             strong_self_or_f_loads >= 2,
             "CPython codegen_try_except() emits orelse with nested with cleanup before USE_LABEL(end), so optimize_load_fast() leaves loads in the following try/else strong; got {strong_self_or_f_loads} strong self/f loads"
@@ -15432,12 +15406,7 @@ def f(self, cm):
 ",
         );
         let f = find_code(&code, "f").expect("missing function code");
-        let strong_loads = f
-            .instructions
-            .iter()
-            .filter(|unit| !matches!(unit.op, Instruction::Cache))
-            .filter(|unit| matches!(unit.op, Instruction::LoadFast { .. }))
-            .count();
+        let strong_loads = count_strong_loads(f);
         assert!(
             strong_loads >= 3,
             "CPython codegen_try_finally() inlines a finalbody with codegen_with_inner() cleanup before the with exit label, so optimize_load_fast() leaves successor loads strong; got {strong_loads} strong loads"
