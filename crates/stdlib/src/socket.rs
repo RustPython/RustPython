@@ -2319,7 +2319,7 @@ mod _socket {
             audit.call((vm.ctx.new_str("socket.gethostname"),), vm)?;
         }
 
-        gethostname::gethostname()
+        rustpython_host_env::socket::hostname()
             .into_string()
             .map(|hostname| vm.ctx.new_str(hostname))
             .map_err(|err| vm.new_os_error(err.into_string().unwrap()))

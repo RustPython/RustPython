@@ -25,7 +25,11 @@ rustix = { workspace = true }
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.17.0"
 
+[target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
+mac_address = { workspace = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+gethostname = { workspace = true }
 rustyline = { workspace = true }
 which = { workspace = true }
 
