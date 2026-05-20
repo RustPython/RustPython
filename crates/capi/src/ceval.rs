@@ -7,6 +7,11 @@ use rustpython_vm::function::ArgMapping;
 use rustpython_vm::scope::Scope;
 use rustpython_vm::{AsObject, PyObject, TryFromObject};
 
+const PY_SINGLE_INPUT: c_int = 256;
+const PY_FILE_INPUT: c_int = 257;
+const PY_EVAL_INPUT: c_int = 258;
+const PY_FUNC_TYPE_INPUT: c_int = 345;
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_CompileString(
     code: *const c_char,
@@ -22,9 +27,10 @@ pub unsafe extern "C" fn Py_CompileString(
             .map_err(|_| vm.new_system_error("Py_CompileString called with non UTF-8 filename"))?;
 
         let mode = match start {
-            256 => Mode::Single,
-            257 => Mode::Exec,
-            258 => Mode::Eval,
+            PY_SINGLE_INPUT => Mode::Single,
+            PY_FILE_INPUT => Mode::Exec,
+            PY_EVAL_INPUT => Mode::Eval,
+            PY_FUNC_TYPE_INPUT => Mode::BlockExpr,
             _ => {
                 return Err(
                     vm.new_system_error("Invalid start argument passed to Py_CompileString")
