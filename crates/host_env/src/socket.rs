@@ -29,6 +29,12 @@ pub fn mac_address() -> Option<[u8; 6]> {
         .map(|m| m.bytes())
 }
 
+#[cfg(unix)]
+pub use libc::{AF_UNIX, SOCK_STREAM, sa_family_t, sockaddr_storage, socklen_t};
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub use libc::{AF_ALG, AF_CAN, sockaddr_alg, sockaddr_can};
+
 #[cfg(all(unix, not(target_os = "redox")))]
 pub fn sethostname(hostname: &str) -> io::Result<()> {
     nix::unistd::sethostname(hostname).map_err(io::Error::from)
