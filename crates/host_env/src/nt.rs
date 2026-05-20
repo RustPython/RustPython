@@ -19,7 +19,7 @@ use crate::{
         StatStruct,
         windows::{FILE_INFO_BY_NAME_CLASS, get_file_information_by_name, stat_basic_info_to_stat},
     },
-    windows::ToWideString,
+    windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, HandleToOwned, ToWideString},
 };
 use libc::intptr_t;
 use windows_sys::Win32::{
@@ -257,16 +257,12 @@ pub fn remove(path: &Path) -> io::Result<()> {
         }
     }
 
-    let ok = if is_directory && is_link {
+    if is_directory && is_link {
         unsafe { RemoveDirectoryW(wide_path.as_ptr()) }
     } else {
         unsafe { DeleteFileW(wide_path.as_ptr()) }
-    };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
+    .check_win32_bool()
 }
 
 pub fn supports_virtual_terminal() -> bool {
@@ -351,17 +347,15 @@ pub fn symlink(
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn win32_hchmod(handle: HANDLE, mode: u32, write_bit: u32) -> io::Result<()> {
     let mut info: FILE_BASIC_INFO = unsafe { core::mem::zeroed() };
-    let ret = unsafe {
+    unsafe {
         GetFileInformationByHandleEx(
             handle,
             FileBasicInfo,
             (&mut info as *mut FILE_BASIC_INFO).cast(),
             core::mem::size_of::<FILE_BASIC_INFO>() as u32,
         )
-    };
-    if ret == 0 {
-        return Err(io::Error::last_os_error());
     }
+    .check_win32_bool()?;
 
     if mode & write_bit != 0 {
         info.FileAttributes &= !FILE_ATTRIBUTE_READONLY;
@@ -369,19 +363,15 @@ pub fn win32_hchmod(handle: HANDLE, mode: u32, write_bit: u32) -> io::Result<()>
         info.FileAttributes |= FILE_ATTRIBUTE_READONLY;
     }
 
-    let ret = unsafe {
+    unsafe {
         SetFileInformationByHandle(
             handle,
             FileBasicInfo,
             (&info as *const FILE_BASIC_INFO).cast(),
             core::mem::size_of::<FILE_BASIC_INFO>() as u32,
         )
-    };
-    if ret == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
     }
+    .check_win32_bool()
 }
 
 pub fn fchmod(fd: i32, mode: u32, write_bit: u32) -> io::Result<()> {
@@ -392,21 +382,13 @@ pub fn fchmod(fd: i32, mode: u32, write_bit: u32) -> io::Result<()> {
 
 pub fn win32_lchmod(path: &OsStr, mode: u32, write_bit: u32) -> io::Result<()> {
     let wide = path.to_wide_with_nul();
-    let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
-    if attr == INVALID_FILE_ATTRIBUTES {
-        return Err(io::Error::last_os_error());
-    }
+    let attr = unsafe { GetFileAttributesW(wide.as_ptr()) }.check_ne(INVALID_FILE_ATTRIBUTES)?;
     let new_attr = if mode & write_bit != 0 {
         attr & !FILE_ATTRIBUTE_READONLY
     } else {
         attr | FILE_ATTRIBUTE_READONLY
     };
-    let ret = unsafe { SetFileAttributesW(wide.as_ptr(), new_attr) };
-    if ret == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    unsafe { SetFileAttributesW(wide.as_ptr(), new_attr) }.check_win32_bool()
 }
 
 pub fn chmod_follow(path: &widestring::WideCStr, mode: u32, write_bit: u32) -> io::Result<()> {
@@ -426,22 +408,16 @@ pub fn chmod_follow(path: &widestring::WideCStr, mode: u32, write_bit: u32) -> i
             core::ptr::null_mut(),
         )
     };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-    let result = win32_hchmod(handle, mode, write_bit);
-    unsafe { CloseHandle(handle) };
-    result
+    use std::os::windows::io::AsRawHandle;
+    let handle = handle.into_owned().ok_or_else(io::Error::last_os_error)?;
+    win32_hchmod(handle.as_raw_handle() as HANDLE, mode, write_bit)
 }
 
 pub fn find_first_file_name(path: &Path) -> io::Result<OsString> {
     let wide_path = path.as_os_str().to_wide_with_nul();
     let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
-    let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
+    let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) }.check_valid()?;
     unsafe { FindClose(handle) };
 
     let len = find_data
@@ -472,11 +448,8 @@ pub fn path_isdevdrive(path: &Path) -> io::Result<bool> {
 
     let wide_path = path.as_os_str().to_wide_with_nul();
     let mut volume = [0u16; MAX_PATH as usize];
-    let ok =
-        unsafe { GetVolumePathNameW(wide_path.as_ptr(), volume.as_mut_ptr(), volume.len() as _) };
-    if ok == 0 {
-        return Err(io::Error::last_os_error());
-    }
+    unsafe { GetVolumePathNameW(wide_path.as_ptr(), volume.as_mut_ptr(), volume.len() as _) }
+        .check_win32_bool()?;
     if unsafe { GetDriveTypeW(volume.as_ptr()) } != DRIVE_FIXED {
         return Ok(false);
     }
@@ -491,10 +464,8 @@ pub fn path_isdevdrive(path: &Path) -> io::Result<bool> {
             FILE_FLAG_BACKUP_SEMANTICS,
             core::ptr::null_mut(),
         )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
     }
+    .check_valid()?;
 
     let mut volume_state = FileFsPersistentVolumeInformation {
         volume_flags: 0,
@@ -645,10 +616,7 @@ fn win32_xstat_attributes_from_dir(
     let wide: Vec<u16> = path.to_wide_with_nul();
     let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
-    let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut find_data) };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
+    let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut find_data) }.check_valid()?;
     unsafe { FindClose(handle) };
 
     let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { core::mem::zeroed() };
@@ -1138,6 +1106,7 @@ pub fn fd_exists(fd: crate::crt_fd::Borrowed<'_>) -> bool {
 }
 
 pub fn pipe() -> io::Result<(i32, i32)> {
+    use std::os::windows::io::{AsRawHandle, IntoRawHandle};
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
     use windows_sys::Win32::System::Pipes::CreatePipe;
 
@@ -1150,34 +1119,39 @@ pub fn pipe() -> io::Result<(i32, i32)> {
     let (read_handle, write_handle) = unsafe {
         let mut read = core::mem::MaybeUninit::<isize>::uninit();
         let mut write = core::mem::MaybeUninit::<isize>::uninit();
-        let ok = CreatePipe(
+        CreatePipe(
             read.as_mut_ptr() as *mut _,
             write.as_mut_ptr() as *mut _,
             &mut attr as *mut _,
             0,
-        );
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        (read.assume_init(), write.assume_init())
+        )
+        .check_win32_bool()?;
+        (read.assume_init() as HANDLE, write.assume_init() as HANDLE)
     };
+    // RAII wrappers: both handles are auto-closed on any early return below.
+    let read_handle = read_handle
+        .into_owned()
+        .expect("CreatePipe returned valid read handle");
+    let write_handle = write_handle
+        .into_owned()
+        .expect("CreatePipe returned valid write handle");
 
     const O_NOINHERIT: i32 = 0x80;
-    let read_fd = match crate::msvcrt::open_osfhandle(read_handle, O_NOINHERIT) {
-        Ok(fd) => fd,
-        Err(err) => {
-            unsafe {
-                CloseHandle(read_handle as _);
-                CloseHandle(write_handle as _);
-            }
-            return Err(err);
+    let read_fd = crate::msvcrt::open_osfhandle(read_handle.as_raw_handle() as isize, O_NOINHERIT)?;
+    // Ownership of the read handle now belongs to the CRT fd.
+    let _ = read_handle.into_raw_handle();
+
+    let write_fd = match crate::msvcrt::open_osfhandle(
+        write_handle.as_raw_handle() as isize,
+        libc::O_WRONLY | O_NOINHERIT,
+    ) {
+        Ok(fd) => {
+            let _ = write_handle.into_raw_handle();
+            fd
         }
-    };
-    let write_fd = match crate::msvcrt::open_osfhandle(write_handle, libc::O_WRONLY | O_NOINHERIT) {
-        Ok(fd) => fd,
         Err(err) => {
+            // Close the CRT fd we already created; `write_handle` auto-closes via Drop.
             let _ = unsafe { crt_fd::Owned::from_raw(read_fd) };
-            unsafe { CloseHandle(write_handle as _) };
             return Err(err);
         }
     };
@@ -1201,17 +1175,15 @@ pub fn mkdir(path: &widestring::WideCStr, mode: i32) -> io::Result<()> {
         let sddl: Vec<u16> = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)\0"
             .encode_utf16()
             .collect();
-        let convert_ok = unsafe {
+        unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
                 sddl.as_ptr(),
                 SDDL_REVISION_1,
                 &mut sec_attr.lpSecurityDescriptor,
                 core::ptr::null_mut(),
             )
-        };
-        if convert_ok == 0 {
-            return Err(io::Error::last_os_error());
         }
+        .check_win32_bool()?;
         let ok = unsafe {
             windows_sys::Win32::Storage::FileSystem::CreateDirectoryW(
                 path.as_ptr(),
@@ -1229,15 +1201,12 @@ pub fn mkdir(path: &widestring::WideCStr, mode: i32) -> io::Result<()> {
         }
     };
 
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    ok.check_win32_bool()
 }
 
 unsafe extern "C" {
     fn _umask(mask: i32) -> i32;
+    fn _wputenv(envstring: *const u16) -> libc::c_int;
 }
 
 pub fn umask(mask: i32) -> io::Result<i32> {
@@ -1246,6 +1215,17 @@ pub fn umask(mask: i32) -> io::Result<i32> {
         Err(crate::os::errno_io_error())
     } else {
         Ok(result)
+    }
+}
+
+/// Update the CRT environment via `_wputenv`.
+/// `envstring` must point to a nul-terminated wide string of the form `KEY=value`.
+pub fn wputenv(envstring: &widestring::WideCStr) -> io::Result<()> {
+    let result = unsafe { crate::suppress_iph!(_wputenv(envstring.as_ptr())) };
+    if result != 0 {
+        Err(crate::os::errno_io_error())
+    } else {
+        Ok(())
     }
 }
 
@@ -1378,18 +1358,11 @@ pub fn kill(pid: u32, sig: u32) -> io::Result<()> {
             Ok(())
         }
     } else {
-        let handle = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) };
-        if handle.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        let ok = unsafe { Threading::TerminateProcess(handle, sig) };
-        let err = if ok == 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        };
+        let handle = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) }
+            .check_nonnull()?;
+        let result = unsafe { Threading::TerminateProcess(handle, sig) }.check_win32_bool();
         unsafe { CloseHandle(handle) };
-        err
+        result
     }
 }
 
@@ -1407,10 +1380,8 @@ pub fn getfinalpathname(path: &Path) -> io::Result<OsString> {
             FILE_FLAG_BACKUP_SEMANTICS,
             core::ptr::null_mut(),
         )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
     }
+    .check_valid()?;
 
     let mut buffer = vec![0u16; MAX_PATH as usize];
     let result = loop {
@@ -1445,10 +1416,8 @@ pub fn getfullpathname(path: &Path) -> io::Result<OsString> {
             buffer.as_mut_ptr(),
             core::ptr::null_mut(),
         )
-    };
-    if ret == 0 {
-        return Err(io::Error::last_os_error());
     }
+    .check_ne(0)?;
     if ret as usize > buffer.len() {
         buffer.resize(ret as usize, 0);
         ret = unsafe {
@@ -1458,11 +1427,10 @@ pub fn getfullpathname(path: &Path) -> io::Result<OsString> {
                 buffer.as_mut_ptr(),
                 core::ptr::null_mut(),
             )
-        };
-        if ret == 0 {
-            return Err(io::Error::last_os_error());
         }
+        .check_ne(0)?;
     }
+    let _ = ret;
     Ok(widestring::WideCString::from_vec_truncate(buffer).to_os_string())
 }
 
@@ -1470,18 +1438,15 @@ pub fn getvolumepathname(path: &Path) -> io::Result<OsString> {
     let wide = path.as_os_str().to_wide_with_nul();
     let buflen = core::cmp::max(wide.len(), MAX_PATH as usize);
     let mut buffer = vec![0u16; buflen];
-    let ok = unsafe {
+    unsafe {
         windows_sys::Win32::Storage::FileSystem::GetVolumePathNameW(
             wide.as_ptr(),
             buffer.as_mut_ptr(),
             buflen as u32,
         )
-    };
-    if ok == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(widestring::WideCString::from_vec_truncate(buffer).to_os_string())
     }
+    .check_win32_bool()?;
+    Ok(widestring::WideCString::from_vec_truncate(buffer).to_os_string())
 }
 
 pub fn getdiskusage(path: &Path) -> io::Result<(u64, u64)> {
@@ -1709,13 +1674,13 @@ pub fn getppid() -> u32 {
     }
 }
 
-pub fn path_skip_root(path: *const u16) -> Option<usize> {
+pub fn path_skip_root(path: &widestring::WideCStr) -> Option<usize> {
     let mut end: *const u16 = core::ptr::null();
-    let hr = unsafe { windows_sys::Win32::UI::Shell::PathCchSkipRoot(path, &mut end) };
+    let hr = unsafe { windows_sys::Win32::UI::Shell::PathCchSkipRoot(path.as_ptr(), &mut end) };
     if hr >= 0 {
         assert!(!end.is_null());
         Some(
-            unsafe { end.offset_from(path) }
+            unsafe { end.offset_from(path.as_ptr()) }
                 .try_into()
                 .expect("len must be non-negative"),
         )
@@ -2150,7 +2115,7 @@ pub fn write_console_utf8(handle: HANDLE, data: &[u8], max_bytes: usize) -> io::
     Ok(len)
 }
 
-pub fn open_console_path_fd(path: *const u16, writable: bool) -> io::Result<i32> {
+pub fn open_console_path_fd(path: &widestring::WideCStr, writable: bool) -> io::Result<i32> {
     use windows_sys::Win32::{
         Foundation::{GENERIC_READ, GENERIC_WRITE},
         Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE},
@@ -2164,7 +2129,7 @@ pub fn open_console_path_fd(path: *const u16, writable: bool) -> io::Result<i32>
 
     let mut handle = unsafe {
         CreateFileW(
-            path,
+            path.as_ptr(),
             GENERIC_READ | GENERIC_WRITE,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             core::ptr::null(),
@@ -2176,7 +2141,7 @@ pub fn open_console_path_fd(path: *const u16, writable: bool) -> io::Result<i32>
     if handle == INVALID_HANDLE_VALUE {
         handle = unsafe {
             CreateFileW(
-                path,
+                path.as_ptr(),
                 access,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 core::ptr::null(),
@@ -2216,8 +2181,22 @@ pub fn cwait(pid: intptr_t, opt: i32) -> io::Result<(intptr_t, i32)> {
 }
 
 #[cfg(target_env = "msvc")]
-pub fn spawnv(mode: i32, path: *const u16, argv: *const *const u16) -> io::Result<intptr_t> {
-    let result = unsafe { crate::suppress_iph!(_wspawnv(mode, path, argv)) };
+fn null_terminated_ptrs(strings: &[&widestring::WideCStr]) -> Vec<*const u16> {
+    strings
+        .iter()
+        .map(|s| s.as_ptr())
+        .chain(core::iter::once(core::ptr::null()))
+        .collect()
+}
+
+#[cfg(target_env = "msvc")]
+pub fn spawnv(
+    mode: i32,
+    path: &widestring::WideCStr,
+    argv: &[&widestring::WideCStr],
+) -> io::Result<intptr_t> {
+    let argv_ptrs = null_terminated_ptrs(argv);
+    let result = unsafe { crate::suppress_iph!(_wspawnv(mode, path.as_ptr(), argv_ptrs.as_ptr())) };
     if result == -1 {
         Err(crate::os::errno_io_error())
     } else {
@@ -2228,11 +2207,20 @@ pub fn spawnv(mode: i32, path: *const u16, argv: *const *const u16) -> io::Resul
 #[cfg(target_env = "msvc")]
 pub fn spawnve(
     mode: i32,
-    path: *const u16,
-    argv: *const *const u16,
-    envp: *const *const u16,
+    path: &widestring::WideCStr,
+    argv: &[&widestring::WideCStr],
+    envp: &[&widestring::WideCStr],
 ) -> io::Result<intptr_t> {
-    let result = unsafe { crate::suppress_iph!(_wspawnve(mode, path, argv, envp)) };
+    let argv_ptrs = null_terminated_ptrs(argv);
+    let envp_ptrs = null_terminated_ptrs(envp);
+    let result = unsafe {
+        crate::suppress_iph!(_wspawnve(
+            mode,
+            path.as_ptr(),
+            argv_ptrs.as_ptr(),
+            envp_ptrs.as_ptr()
+        ))
+    };
     if result == -1 {
         Err(crate::os::errno_io_error())
     } else {
@@ -2241,8 +2229,9 @@ pub fn spawnve(
 }
 
 #[cfg(target_env = "msvc")]
-pub fn execv(path: *const u16, argv: *const *const u16) -> io::Result<()> {
-    let result = unsafe { crate::suppress_iph!(_wexecv(path, argv)) };
+pub fn execv(path: &widestring::WideCStr, argv: &[&widestring::WideCStr]) -> io::Result<()> {
+    let argv_ptrs = null_terminated_ptrs(argv);
+    let result = unsafe { crate::suppress_iph!(_wexecv(path.as_ptr(), argv_ptrs.as_ptr())) };
     if result == -1 {
         Err(crate::os::errno_io_error())
     } else {
@@ -2252,11 +2241,19 @@ pub fn execv(path: *const u16, argv: *const *const u16) -> io::Result<()> {
 
 #[cfg(target_env = "msvc")]
 pub fn execve(
-    path: *const u16,
-    argv: *const *const u16,
-    envp: *const *const u16,
+    path: &widestring::WideCStr,
+    argv: &[&widestring::WideCStr],
+    envp: &[&widestring::WideCStr],
 ) -> io::Result<()> {
-    let result = unsafe { crate::suppress_iph!(_wexecve(path, argv, envp)) };
+    let argv_ptrs = null_terminated_ptrs(argv);
+    let envp_ptrs = null_terminated_ptrs(envp);
+    let result = unsafe {
+        crate::suppress_iph!(_wexecve(
+            path.as_ptr(),
+            argv_ptrs.as_ptr(),
+            envp_ptrs.as_ptr()
+        ))
+    };
     if result == -1 {
         Err(crate::os::errno_io_error())
     } else {

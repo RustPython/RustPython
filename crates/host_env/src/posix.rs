@@ -144,6 +144,36 @@ pub fn unlinkat(dir_fd: i32, path: &CStr) -> std::io::Result<()> {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
+pub fn lchmod(path: &CStr, mode: libc::mode_t) -> std::io::Result<()> {
+    unsafe extern "C" {
+        fn lchmod(path: *const libc::c_char, mode: libc::mode_t) -> libc::c_int;
+    }
+    if unsafe { lchmod(path.as_ptr(), mode) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn fcopyfile(in_fd: i32, out_fd: i32, flags: u32) -> std::io::Result<()> {
+    unsafe extern "C" {
+        fn fcopyfile(
+            in_fd: libc::c_int,
+            out_fd: libc::c_int,
+            state: *mut libc::c_void,
+            flags: u32,
+        ) -> libc::c_int;
+    }
+    let ret = unsafe { fcopyfile(in_fd, out_fd, core::ptr::null_mut(), flags) };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(not(windows))]
 pub fn make_dir(path: &CStr, mode: u32) -> std::io::Result<()> {
     let ret = unsafe { libc::mkdir(path.as_ptr(), mode as _) };

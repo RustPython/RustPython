@@ -3348,6 +3348,7 @@ name = "rustpython-host_env"
 version = "0.5.0"
 dependencies = [
  "bitflags 2.11.1",
+ "getrandom 0.3.4",
  "junction",
  "libc",
  "libffi",
@@ -3592,7 +3593,6 @@ dependencies = [
  "exitcode",
  "flame",
  "flamer",
- "getrandom 0.3.4",
  "glob",
  "half",
  "hex",
@@ -3615,7 +3615,6 @@ dependencies = [
  "paste",
  "psm",
  "result-like",
- "rustix",
  "rustpython-codegen",
  "rustpython-common",
  "rustpython-compiler",

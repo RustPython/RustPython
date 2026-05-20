@@ -159,13 +159,11 @@ impl SemHandle {
 #[cfg(windows)]
 impl SemHandle {
     pub fn create(value: i32, maxvalue: i32) -> io::Result<Self> {
+        use crate::windows::CheckWin32Handle;
         let handle =
-            unsafe { CreateSemaphoreW(core::ptr::null(), value, maxvalue, core::ptr::null()) };
-        if handle == 0 as HANDLE {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(Self { raw: handle })
-        }
+            unsafe { CreateSemaphoreW(core::ptr::null(), value, maxvalue, core::ptr::null()) }
+                .check_nonnull()?;
+        Ok(Self { raw: handle })
     }
 
     #[inline]

@@ -23,7 +23,6 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(SyntaxError, regex):
             compile(codestr + "\n", "<test>", "single")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_invalid_syntax_errors(self):
         check_syntax_error(self, "def f(a, b = 5, /, c): pass", "parameter without a default follows parameter with a default")
         check_syntax_error(self, "def f(a = 5, b, /, c): pass", "parameter without a default follows parameter with a default")
@@ -46,7 +45,6 @@ class PositionalOnlyTestCase(unittest.TestCase):
         check_syntax_error(self, "def f(a, /, c, /, d, *, e): pass")
         check_syntax_error(self, "def f(a, *, c, /, d, e): pass")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_invalid_syntax_errors_async(self):
         check_syntax_error(self, "async def f(a, b = 5, /, c): pass", "parameter without a default follows parameter with a default")
         check_syntax_error(self, "async def f(a = 5, b, /, c): pass", "parameter without a default follows parameter with a default")
@@ -235,7 +233,6 @@ class PositionalOnlyTestCase(unittest.TestCase):
         x = lambda a, b, /, : a + b
         self.assertEqual(x(1, 2), 3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_invalid_syntax_lambda(self):
         check_syntax_error(self, "lambda a, b = 5, /, c: None", "parameter without a default follows parameter with a default")
         check_syntax_error(self, "lambda a = 5, b, /, c: None", "parameter without a default follows parameter with a default")

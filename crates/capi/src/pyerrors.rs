@@ -194,12 +194,11 @@ pub unsafe extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyExceptionClass_Check(obj: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyExceptionClass_Check(obj: *mut PyObject) -> c_int {
     with_vm(|vm| unsafe {
         obj.as_ref()
             .and_then(|obj| obj.downcast_ref::<PyType>())
-            .map(|ty| ty.is_subtype(vm.ctx.exceptions.base_exception_type))
-            .unwrap_or_default()
+            .is_some_and(|ty| ty.is_subtype(vm.ctx.exceptions.base_exception_type))
     })
 }
 
@@ -252,10 +251,51 @@ pub unsafe extern "C" fn PyErr_NewExceptionWithDoc(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut PyObject {
+pub unsafe extern "C" fn PyErr_GivenExceptionMatches(
+    given: *mut PyObject,
+    exc: *mut PyObject,
+) -> c_int {
     with_vm(|vm| {
+        let given = unsafe { &*given };
         let exc = unsafe { &*exc };
-        exc.get_attr("__traceback__", vm)
+
+        given.is_subclass(exc, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let tb = exc
+            .__traceback__()
+            .map(|tb| tb.into_object().into_raw().as_ptr())
+            .unwrap_or_default();
+        Ok(tb)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_GetCause(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let cause = exc
+            .__cause__()
+            .map(|cause| cause.into_object().into_raw().as_ptr())
+            .unwrap_or_default();
+        Ok(cause)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_GetContext(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let context = exc
+            .__context__()
+            .map(|context| context.into_object().into_raw().as_ptr())
+            .unwrap_or_default();
+        Ok(context)
     })
 }
 
@@ -274,19 +314,6 @@ pub extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject
         let exc = unsafe { &*exc };
         let traceback = unsafe { tb.as_ref() }.map(|obj| obj.to_owned());
         exc.set_attr("__traceback__", vm.unwrap_or_none(traceback), vm)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyErr_GivenExceptionMatches(
-    given: *mut PyObject,
-    exc: *mut PyObject,
-) -> c_int {
-    with_vm(|vm| {
-        let given = unsafe { &*given };
-        let exc = unsafe { &*exc };
-
-        given.is_subclass(exc, vm)
     })
 }
 

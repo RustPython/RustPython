@@ -1,5 +1,7 @@
 use std::io;
 
+use crate::os::CheckLibcResult;
+
 #[derive(Debug, Clone, Copy)]
 pub struct RUsage {
     pub ru_utime: libc::timeval,
@@ -44,35 +46,20 @@ impl From<libc::rusage> for RUsage {
 }
 
 pub fn getrusage(who: i32) -> io::Result<RUsage> {
-    unsafe {
-        let mut rusage = core::mem::MaybeUninit::<libc::rusage>::uninit();
-        if libc::getrusage(who, rusage.as_mut_ptr()) == -1 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(rusage.assume_init().into())
-        }
-    }
+    let mut rusage = core::mem::MaybeUninit::<libc::rusage>::uninit();
+    unsafe { libc::getrusage(who, rusage.as_mut_ptr()) }.check_libc_neg()?;
+    Ok(unsafe { rusage.assume_init() }.into())
 }
 
 pub fn getrlimit(resource: libc::rlim_t) -> io::Result<libc::rlimit> {
-    unsafe {
-        let mut rlimit = core::mem::MaybeUninit::<libc::rlimit>::uninit();
-        if libc::getrlimit(resource as _, rlimit.as_mut_ptr()) == -1 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(rlimit.assume_init())
-        }
-    }
+    let mut rlimit = core::mem::MaybeUninit::<libc::rlimit>::uninit();
+    unsafe { libc::getrlimit(resource as _, rlimit.as_mut_ptr()) }.check_libc_neg()?;
+    Ok(unsafe { rlimit.assume_init() })
 }
 
 pub fn setrlimit(resource: libc::rlim_t, limits: libc::rlimit) -> io::Result<()> {
-    unsafe {
-        if libc::setrlimit(resource as _, &limits) == -1 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        }
-    }
+    unsafe { libc::setrlimit(resource as _, &limits) }.check_libc_neg()?;
+    Ok(())
 }
 
 #[cfg(not(any(target_os = "redox", target_os = "wasi")))]

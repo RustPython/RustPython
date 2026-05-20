@@ -7,7 +7,7 @@ use rustpython_vm::function::{FuncArgs, KwArgs};
 define_py_check!(exact fn PyTraceBack_Check, types.traceback_type);
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyTraceBack_Print(tb: *mut PyObject, file: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyTraceBack_Print(tb: *mut PyObject, file: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let tb = unsafe { &*tb };
         let file = unsafe { &*file };
