@@ -13,6 +13,11 @@ pub fn hostname() -> std::ffi::OsString {
     gethostname::gethostname()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use ::dns_lookup as dns;
+#[cfg(not(target_arch = "wasm32"))]
+pub use ::socket2 as raw;
+
 /// Returns the first non-loopback MAC address as 6 bytes, or `None` when no
 /// MAC address is available or the lookup fails.
 #[cfg(not(any(
