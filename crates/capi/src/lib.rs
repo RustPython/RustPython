@@ -12,7 +12,7 @@ extern crate alloc;
 pub mod abstract_;
 pub mod boolobject;
 pub mod bytesobject;
-pub mod capsule;
+pub mod pycapsule;
 pub mod ceval;
 pub mod complexobject;
 pub mod dictobject;
