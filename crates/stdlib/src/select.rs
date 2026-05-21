@@ -5,7 +5,7 @@ pub(crate) use decl::module_def;
 use crate::vm::{
     PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
 };
-use rustpython_host_env::select::{self as host_select, FdSet, RawFd};
+use rustpython_host_env::select::{self as host_select, FdSet, RawFd, platform::FD_SETSIZE};
 use std::io;
 
 #[derive(Traverse)]
@@ -81,8 +81,22 @@ mod decl {
 
         let seq2set = |list: &PyObject| -> PyResult<(Vec<Selectable>, FdSet)> {
             let v: Vec<Selectable> = list.try_to_value(vm)?;
+
+            let too_many_fds = cfg_select! {
+                windows => v.len() > FD_SETSIZE as usize,
+                _ => v.len() > FD_SETSIZE,
+            };
+            if too_many_fds {
+                return Err(vm.new_value_error("too many file descriptors in select()"));
+            }
+
             let mut fds = FdSet::new();
             for fd in &v {
+                #[cfg(unix)]
+                if fd.fno as usize >= FD_SETSIZE {
+                    return Err(vm.new_value_error("file descriptor out of range in select()"));
+                }
+
                 fds.insert(fd.fno);
             }
             Ok((v, fds))
@@ -97,11 +111,15 @@ mod decl {
             return Ok((empty.clone(), empty.clone(), empty));
         }
 
-        let nfds: i32 = [&mut r, &mut w, &mut x]
-            .iter_mut()
-            .filter_map(|set| set.highest())
-            .max()
-            .map_or(0, |n| n + 1) as _;
+        let nfds = cfg_select! {
+            windows => 0, // value is ignored on windows
+
+            _ => [&mut r, &mut w, &mut x]
+                .iter_mut()
+                .filter_map(|set| set.highest())
+                .max()
+                .map_or(0, |n| n + 1) as _,
+        };
 
         loop {
             let mut tv = timeout.map(host_select::sec_to_timeval);
