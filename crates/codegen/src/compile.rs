@@ -836,6 +836,82 @@ impl Compiler {
         })
     }
 
+    fn statements_contain_nested_with(body: &[ast::Stmt]) -> bool {
+        body.iter().any(|stmt| match stmt {
+            ast::Stmt::With(ast::StmtWith { body, .. }) => Self::statements_contain_with(body),
+            ast::Stmt::If(ast::StmtIf {
+                body,
+                elif_else_clauses,
+                ..
+            }) => {
+                Self::statements_contain_nested_with(body)
+                    || elif_else_clauses
+                        .iter()
+                        .any(|clause| Self::statements_contain_nested_with(&clause.body))
+            }
+            ast::Stmt::Try(ast::StmtTry {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+                ..
+            }) => {
+                Self::statements_contain_nested_with(body)
+                    || handlers.iter().any(|handler| {
+                        let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                        Self::statements_contain_nested_with(&handler.body)
+                    })
+                    || Self::statements_contain_nested_with(orelse)
+                    || Self::statements_contain_nested_with(finalbody)
+            }
+            ast::Stmt::For(ast::StmtFor { body, orelse, .. })
+            | ast::Stmt::While(ast::StmtWhile { body, orelse, .. }) => {
+                Self::statements_contain_nested_with(body)
+                    || Self::statements_contain_nested_with(orelse)
+            }
+            ast::Stmt::Match(ast::StmtMatch { cases, .. }) => cases
+                .iter()
+                .any(|case| Self::statements_contain_nested_with(&case.body)),
+            _ => false,
+        })
+    }
+
+    fn statements_contain_async_comprehension(body: &[ast::Stmt]) -> bool {
+        use ast::visitor::Visitor;
+
+        #[derive(Default)]
+        struct AsyncComprehensionVisitor {
+            found: bool,
+        }
+
+        impl ast::visitor::Visitor<'_> for AsyncComprehensionVisitor {
+            fn visit_expr(&mut self, expr: &ast::Expr) {
+                if self.found {
+                    return;
+                }
+                match expr {
+                    ast::Expr::ListComp(ast::ExprListComp { generators, .. })
+                    | ast::Expr::SetComp(ast::ExprSetComp { generators, .. })
+                    | ast::Expr::DictComp(ast::ExprDictComp { generators, .. })
+                        if generators.iter().any(|generator| generator.is_async) =>
+                    {
+                        self.found = true;
+                    }
+                    _ => ast::visitor::walk_expr(self, expr),
+                }
+            }
+        }
+
+        let mut visitor = AsyncComprehensionVisitor::default();
+        for stmt in body {
+            visitor.visit_stmt(stmt);
+            if visitor.found {
+                return true;
+            }
+        }
+        false
+    }
+
     fn statements_are_single_with(body: &[ast::Stmt]) -> bool {
         matches!(body, [ast::Stmt::With(_)])
     }
@@ -5417,13 +5493,17 @@ impl Compiler {
         let preserve_next_try_after_bare_handler_end = self.fallthrough_next_statement_is_try
             && handlers_have_fallthrough
             && !handlers_are_typed;
+        let preserve_next_if_after_bare_handler_end = self.fallthrough_next_statement_is_if
+            && orelse.is_empty()
+            && handlers_have_fallthrough
+            && !handlers_are_typed;
         let preserve_loop_next_try_after_nested_try_orelse_end = self.ctx.loop_data.is_some()
             && self.fallthrough_next_statement_is_try
             && !orelse.is_empty()
             && Self::statements_contain_try_except(orelse);
         let preserve_next_try_after_with_orelse_end = self.fallthrough_next_statement_is_try
             && !orelse.is_empty()
-            && Self::statements_contain_with(orelse);
+            && Self::statements_contain_nested_with(orelse);
         let preserve_final_with_try_except_end =
             orelse.is_empty() && Self::statements_end_with_nonterminal_with_cleanup(body);
         let preserve_inherited_load_fast_barrier_end = starts_in_load_fast_barrier_block
@@ -5447,6 +5527,7 @@ impl Compiler {
             || preserve_conditional_method_probe_end
             || preserve_next_try_after_handler_fallthrough_end
             || preserve_next_try_after_bare_handler_end
+            || preserve_next_if_after_bare_handler_end
             || preserve_loop_next_try_after_nested_try_orelse_end
             || preserve_next_try_after_with_orelse_end
             || preserve_final_with_try_except_end
@@ -5461,6 +5542,7 @@ impl Compiler {
                 || preserve_conditional_method_probe_end
                 || preserve_next_try_after_handler_fallthrough_end
                 || preserve_next_try_after_bare_handler_end
+                || preserve_next_if_after_bare_handler_end
                 || preserve_loop_next_try_after_nested_try_orelse_end
                 || preserve_next_try_after_with_orelse_end
                 || preserve_final_with_try_except_end
@@ -9036,8 +9118,14 @@ impl Compiler {
                 }
             }
 
+            let body_contains_async_comprehension =
+                Self::statements_contain_async_comprehension(&m.body);
             self.compile_statements(&m.body)?;
-            emit!(self, PseudoInstruction::Jump { delta: end });
+            if body_contains_async_comprehension {
+                emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
+            } else {
+                emit!(self, PseudoInstruction::Jump { delta: end });
+            }
             if let Some(last) = self.current_block().instructions.last_mut() {
                 last.match_success_jump = true;
             }
@@ -16626,6 +16714,57 @@ def f(self, f, cm):
         assert!(
             strong_self_or_f_loads >= 2,
             "CPython codegen_try_except() emits orelse with nested with cleanup before USE_LABEL(end), so optimize_load_fast() leaves loads in the following try/else strong; got {strong_self_or_f_loads} strong self/f loads"
+        );
+    }
+
+    #[test]
+    fn test_try_orelse_single_with_before_next_try_keeps_borrows() {
+        let code = compile_exec(
+            "\
+def f(self, cm):
+    try:
+        import _testcapi
+    except ImportError:
+        pass
+    else:
+        code = 'x'
+        with cm:
+            out = self.run_xdev('-c', code)
+        self.assertEqual(out, 'x')
+    try:
+        import faulthandler
+    except ImportError:
+        pass
+    else:
+        code = 'y'
+        out = self.run_xdev('-c', code)
+        self.assertEqual(out, 'y')
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let final_return = instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .expect("missing return");
+        let tail = &instructions[..final_return];
+        let borrowed_self_loads = tail
+            .iter()
+            .filter(|unit| match unit.op {
+                Instruction::LoadFastBorrow { var_num } => {
+                    let arg = OpArg::new(u32::from(u8::from(unit.arg)));
+                    f.varnames[usize::from(var_num.get(arg))] == "self"
+                }
+                _ => false,
+            })
+            .count();
+        assert!(
+            borrowed_self_loads >= 4,
+            "CPython codegen_with() for a single with in try/else does not make the following try/else a load-fast barrier; expected borrowed self loads, got instructions={instructions:?}"
         );
     }
 
@@ -24466,6 +24605,50 @@ def f(self):
     }
 
     #[test]
+    fn test_bare_except_before_if_deopts_successor_load_fast_borrow() {
+        let code = compile_exec(
+            "\
+def f(self, x):
+    try:
+        x = g()
+    except:
+        self.fail('raised')
+    if x:
+        self.fail('unexpected')
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let instructions: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let fail_loads = instructions
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, unit)| {
+                let Instruction::LoadAttr { namei } = unit.op else {
+                    return None;
+                };
+                let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                (f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "fail")
+                    .then_some(idx)
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            fail_loads.len() >= 2,
+            "expected handler and successor fail calls, got instructions={instructions:?}"
+        );
+        assert!(
+            matches!(
+                instructions.get(fail_loads[1] - 1).map(|unit| unit.op),
+                Some(Instruction::LoadFast { .. })
+            ),
+            "CPython codegen_try_except() sends a fallthrough bare handler through USE_LABEL(end); flowgraph.c::optimize_load_fast() stops at that empty end label before the following if, got instructions={instructions:?}"
+        );
+    }
+
+    #[test]
     fn test_typed_except_keeps_post_handler_load_fast_borrow() {
         let code = compile_exec(
             "\
@@ -27962,6 +28145,19 @@ async def f(name_3, name_5):
                 )
             }),
             "expected CPython-style plain match success jump before async comprehension case, got ops={ops:?}"
+        );
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::StoreFast { .. },
+                        Instruction::JumpBackwardNoInterrupt { .. },
+                        Instruction::CallIntrinsic1 { .. },
+                    ]
+                )
+            }),
+            "CPython codegen_pop_inlined_comprehension_locals() emits JUMP_NO_INTERRUPT before the cleanup path; after flowgraph reordering it remains a backward no-interrupt jump before the StopIteration handler, got ops={ops:?}"
         );
     }
 
