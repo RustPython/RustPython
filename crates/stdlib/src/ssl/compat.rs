@@ -35,23 +35,13 @@ use std::io::Read;
 use std::sync::Once;
 
 // Import PySSLSocket from parent module
-use super::_ssl::PySSLSocket;
+use super::_ssl::{PySSLSocket, SSL3_RT_MAX_PACKET_SIZE, VERIFY_X509_STRICT};
 
 // Import error types and helper functions from error module
 use super::error::{
     PySSLCertVerificationError, PySSLError, create_ssl_eof_error, create_ssl_syscall_error,
     create_ssl_want_read_error, create_ssl_want_write_error, create_ssl_zero_return_error,
 };
-
-// SSL Verification Flags
-/// VERIFY_X509_STRICT flag for RFC 5280 strict compliance
-/// When set, performs additional validation including AKI extension checks
-pub(super) const VERIFY_X509_STRICT: i32 = 0x20;
-
-/// VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
-/// When set, accept certificates if any certificate in the chain is in the trust store
-/// (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
-pub(super) const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
 
 // CryptoProvider Initialization:
 
@@ -71,10 +61,6 @@ fn ensure_default_provider() {
 }
 
 // OpenSSL Constants:
-
-// OpenSSL TLS record maximum plaintext size (ssl/ssl_local.h)
-// #define SSL3_RT_MAX_PLAIN_LENGTH 16384
-const SSL3_RT_MAX_PLAIN_LENGTH: usize = 16384;
 
 // OpenSSL error library codes (include/openssl/err.h)
 // #define ERR_LIB_SSL 20
@@ -1092,7 +1078,7 @@ fn handshake_read_data(
         // detect it.
         recv_at_most_one_tls_record(socket, vm)?
     } else {
-        match socket.sock_recv(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
+        match socket.sock_recv(SSL3_RT_MAX_PACKET_SIZE, vm) {
             Ok(d) => d,
             Err(e) => {
                 if is_blocking_io_error(&e, vm) {
@@ -1312,7 +1298,7 @@ pub(super) fn ssl_do_handshake(
             if conn.wants_write() {
                 // Write all pending TLS data to outgoing BIO
                 loop {
-                    let mut buf = vec![0u8; SSL3_RT_MAX_PLAIN_LENGTH];
+                    let mut buf = vec![0u8; SSL3_RT_MAX_PACKET_SIZE];
                     let n = match conn.write_tls(&mut buf.as_mut_slice()) {
                         Ok(n) => n,
                         Err(_) => break,
@@ -1929,7 +1915,7 @@ fn ssl_ensure_data_available(
         let data = if !is_bio {
             recv_at_most_one_tls_record_for_data(conn, socket, vm)?
         } else {
-            match socket.sock_recv(2048, vm) {
+            match socket.sock_recv(SSL3_RT_MAX_PACKET_SIZE, vm) {
                 Ok(data) => data,
                 Err(e) => {
                     if is_blocking_io_error(&e, vm) {

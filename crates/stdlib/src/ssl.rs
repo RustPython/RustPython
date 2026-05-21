@@ -153,8 +153,28 @@ mod _ssl {
 
     // Buffer sizes and limits (OpenSSL/CPython compatibility)
     const PEM_BUFSIZE: usize = 1024;
+
     // OpenSSL: ssl/ssl_local.h
+    const SSL3_RT_HEADER_LENGTH: usize = 5;
+    // This is the maximum MAC (digest) size used by the SSL library. Currently
+    // maximum of 20 is used by SHA1, but we reserve for future extension for
+    // 512-bit hashes.
+    const SSL3_RT_MAX_MD_SIZE: usize = 64;
+    // Maximum plaintext length: defined by SSL/TLS standards
     const SSL3_RT_MAX_PLAIN_LENGTH: usize = 16384;
+    // Maximum compression overhead: defined by SSL/TLS standards
+    const SSL3_RT_MAX_COMPRESSED_OVERHEAD: usize = 1024;
+    // The standards give a maximum encryption overhead of 1024 bytes. In
+    // practice the value is lower than this. The overhead is the maximum number
+    // of padding bytes (256) plus the mac size.
+    const SSL3_RT_MAX_ENCRYPTED_OVERHEAD: usize = 256 + SSL3_RT_MAX_MD_SIZE;
+    const SSL3_RT_MAX_COMPRESSED_LENGTH: usize =
+        SSL3_RT_MAX_PLAIN_LENGTH + SSL3_RT_MAX_COMPRESSED_OVERHEAD;
+    const SSL3_RT_MAX_ENCRYPTED_LENGTH: usize =
+        SSL3_RT_MAX_ENCRYPTED_OVERHEAD + SSL3_RT_MAX_COMPRESSED_LENGTH;
+    pub(crate) const SSL3_RT_MAX_PACKET_SIZE: usize =
+        SSL3_RT_MAX_ENCRYPTED_LENGTH + SSL3_RT_HEADER_LENGTH;
+
     // SSL session cache size (common practice, similar to OpenSSL defaults)
     const SSL_SESSION_CACHE_SIZE: usize = 256;
 
@@ -166,21 +186,26 @@ mod _ssl {
     #[pyattr]
     const CERT_REQUIRED: i32 = 2;
 
-    // Certificate requirements
+    // SSL Verification Flags / Certificate requirements
     #[pyattr]
     const VERIFY_DEFAULT: i32 = 0;
     #[pyattr]
     const VERIFY_CRL_CHECK_LEAF: i32 = 4;
     #[pyattr]
     const VERIFY_CRL_CHECK_CHAIN: i32 = 12;
+    /// VERIFY_X509_STRICT flag for RFC 5280 strict compliance
+    /// When set, performs additional validation including AKI extension checks
     #[pyattr]
-    const VERIFY_X509_STRICT: i32 = 32;
+    pub(crate) const VERIFY_X509_STRICT: i32 = 32;
     #[pyattr]
     const VERIFY_ALLOW_PROXY_CERTS: i32 = 64;
     #[pyattr]
     const VERIFY_X509_TRUSTED_FIRST: i32 = 32768;
+    /// VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
+    /// When set, accept certificates if any certificate in the chain is in the trust store
+    /// (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
     #[pyattr]
-    const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
+    pub(crate) const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
 
     // Options (OpenSSL-compatible flags, mostly no-op in rustls)
     #[pyattr]
@@ -4315,7 +4340,7 @@ mod _ssl {
                     break;
                 }
 
-                let mut buf = vec![0u8; SSL3_RT_MAX_PLAIN_LENGTH];
+                let mut buf = vec![0u8; SSL3_RT_MAX_PACKET_SIZE];
                 let written = conn
                     .write_tls(&mut buf.as_mut_slice())
                     .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
@@ -4347,7 +4372,7 @@ mod _ssl {
             }
 
             // BIO mode: read from incoming BIO
-            match self.sock_recv(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
+            match self.sock_recv(SSL3_RT_MAX_PACKET_SIZE, vm) {
                 Ok(bytes_obj) => {
                     let bytes = ArgBytesLike::try_from_object(vm, bytes_obj)?;
                     let data = bytes.borrow_buf();
@@ -4386,11 +4411,7 @@ mod _ssl {
         ///
         /// Equivalent to OpenSSL's `SSL_set_read_ahead(ssl, 0)` — rustls has no
         /// such knob, so we enforce record-level reads manually via peek.
-        fn try_read_close_notify_socket(
-            &self,
-            conn: &mut Connection,
-            vm: &VirtualMachine,
-        ) -> bool {
+        fn try_read_close_notify_socket(&self, conn: &mut Connection, vm: &VirtualMachine) -> bool {
             // Consume at most one TLS record from the socket
             match self.sock_recv_at_most_one_tls_record(vm) {
                 Ok(data) => {
