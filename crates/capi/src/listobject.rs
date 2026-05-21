@@ -11,7 +11,12 @@ define_py_check!(exact fn PyList_CheckExact, types.list_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyList_New(size: isize) -> *mut PyObject {
-    with_vm(|vm| vm.ctx.new_list(Vec::with_capacity(size as usize)))
+    with_vm(|vm| {
+        let capacity = size
+            .try_into()
+            .map_err(|_| vm.new_system_error("Negative size passed to PyList_New"))?;
+        Ok(vm.ctx.new_list(Vec::with_capacity(capacity)))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -26,11 +31,11 @@ pub unsafe extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
 pub unsafe extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> *mut PyObject {
     with_vm(|vm| {
         let list = unsafe { &*obj }.try_downcast_ref::<PyList>(vm)?;
-
-        list.borrow_vec()
-            .get(index as usize)
+        index
+            .try_into()
+            .ok()
+            .and_then(|index: usize| list.borrow_vec().get(index).map(ToOwned::to_owned))
             .ok_or_else(|| vm.new_index_error(format!("list index out of range: {index}")))
-            .map(ToOwned::to_owned)
     })
 }
 
@@ -43,6 +48,11 @@ pub unsafe extern "C" fn PyList_SetItem(
     with_vm(|vm| {
         let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
         let item = unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(item)) };
+        let index_error =
+            || vm.new_index_error(format!("list assignment index out of range: {index}"));
+        if index < 0 {
+            return Err(index_error());
+        }
 
         let mut list_mut = list.borrow_vec_mut();
         match index - list_mut.len() as isize {
@@ -55,7 +65,7 @@ pub unsafe extern "C" fn PyList_SetItem(
                 list_mut.push(item);
                 Ok(())
             }
-            0.. => Err(vm.new_index_error(format!("list assignment index out of range: {index}"))),
+            0.. => Err(index_error()),
         }
     })
 }
