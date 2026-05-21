@@ -1242,10 +1242,7 @@ pub(super) fn ssl_do_handshake(
     let is_bio = socket.is_bio_mode();
     let is_server = matches!(conn, Connection::Server(_));
     let mut first_iteration = true; // Track if this is the first loop iteration
-    let mut iteration_count = 0;
-
     loop {
-        iteration_count += 1;
         let mut made_progress = false;
 
         // IMPORTANT: In BIO mode, force initial write even if wants_write() is false
@@ -1363,11 +1360,6 @@ pub(super) fn ssl_do_handshake(
         if !should_continue {
             break;
         }
-
-        // Safety check: prevent truly infinite loops (should never happen)
-        if iteration_count > 1000 {
-            break;
-        }
     }
 
     // If we exit the loop without completing handshake, return appropriate error
@@ -1381,9 +1373,9 @@ pub(super) fn ssl_do_handshake(
             return Err(SslError::WantRead);
         }
         // Neither wants_read nor wants_write - this is a real error
-        Err(SslError::Syscall(format!(
-            "SSL handshake failed: incomplete after {iteration_count} iterations",
-        )))
+        Err(SslError::Syscall(
+            "SSL handshake failed: incomplete handshake".to_string(),
+        ))
     } else {
         // Handshake completed successfully (shouldn't reach here normally)
         Ok(())
