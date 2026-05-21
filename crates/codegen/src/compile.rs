@@ -858,6 +858,15 @@ impl Compiler {
         })
     }
 
+    fn statements_end_with_try_finally_conditional_finalbody(body: &[ast::Stmt]) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::Try(ast::StmtTry { finalbody, .. }) if !finalbody.is_empty() => {
+                Self::statements_end_with_conditional(finalbody)
+            }
+            _ => false,
+        })
+    }
+
     fn statements_contain_for_with_conditional_body(body: &[ast::Stmt]) -> bool {
         body.iter().any(|stmt| match stmt {
             ast::Stmt::For(ast::StmtFor { body, orelse, .. }) => {
@@ -943,6 +952,24 @@ impl Compiler {
                 ..
             }) if !handlers.is_empty() && finalbody.is_empty() => {
                 Self::handlers_end_with_scope_exit(handlers)
+            }
+            _ => false,
+        })
+    }
+
+    fn statements_end_with_try_except_scope_exit_handlers_nonconditional_body(
+        body: &[ast::Stmt],
+    ) -> bool {
+        body.last().is_some_and(|stmt| match stmt {
+            ast::Stmt::Try(ast::StmtTry {
+                body,
+                handlers,
+                finalbody,
+                is_star: false,
+                ..
+            }) if !handlers.is_empty() && finalbody.is_empty() => {
+                Self::handlers_end_with_scope_exit(handlers)
+                    && !Self::statements_end_with_conditional(body)
             }
             _ => false,
         })
@@ -5005,6 +5032,10 @@ impl Compiler {
         let handlers_stop_before_try_end = handlers_end_with_scope_exit
             || (handlers_end_with_continue && self.ctx.loop_data.is_some());
         let body_exits_scope = Self::statements_end_with_scope_exit(body);
+        let starts_in_load_fast_barrier_block = {
+            let code_info = self.current_code_info();
+            code_info.blocks[code_info.current_block.idx()].disable_load_fast_borrow
+        };
         emit!(
             self,
             PseudoInstruction::SetupFinally {
@@ -5025,6 +5056,10 @@ impl Compiler {
             && Self::has_cpython_try_else_attribute_probe_end_barrier(body, handlers, orelse);
         let preserve_try_else_after_nested_handler_exit =
             !orelse.is_empty() && Self::statements_end_with_try_except_scope_exit_handlers(body);
+        let preserve_try_else_after_inherited_barrier =
+            !orelse.is_empty() && starts_in_load_fast_barrier_block;
+        let preserve_try_else_after_try_finally_conditional_finalbody =
+            !orelse.is_empty() && Self::statements_end_with_try_finally_conditional_finalbody(body);
         let previous_split_for_normal_exit_from_break = self.split_next_for_normal_exit_from_break;
         self.split_next_for_normal_exit_from_break =
             previous_split_for_normal_exit_from_break || split_for_normal_exit_from_break;
@@ -5053,12 +5088,19 @@ impl Compiler {
             }
             let current = self.current_code_info().current_block;
             self.mark_try_else_orelse_entry_block(current);
-            if preserve_try_else_after_nested_handler_exit {
+            if preserve_try_else_after_nested_handler_exit
+                || preserve_try_else_after_inherited_barrier
+                || preserve_try_else_after_try_finally_conditional_finalbody
+            {
                 // CPython codegen_try_except() emits USE_LABEL(end) for the
                 // nested try/except before the outer POP_BLOCK and orelse.
+                // It can also start this try from a preceding empty end label,
+                // such as an earlier loop try whose handlers continue, or
+                // from codegen_try_finally()'s exit label after a conditional
+                // finalbody.
                 // flowgraph.c::optimize_load_fast() then starts the orelse
-                // entry from that nested label state instead of borrowing
-                // through the preceding protected body.
+                // entry from that label state instead of borrowing through the
+                // preceding protected body.
                 self.disable_load_fast_borrow_for_block(current);
             }
         }
@@ -5304,6 +5346,13 @@ impl Compiler {
                             ) = handler;
                             Self::statements_end_with_finally_entry_scope_exit(body)
                         })));
+        // CPython codegen_try_except() sends fallthrough handler exits through
+        // JUMP_NO_INTERRUPT to USE_LABEL(end).  A bare handler followed by
+        // another try keeps that end label as the next try's entry barrier in
+        // flowgraph.c::optimize_load_fast().
+        let preserve_next_try_after_bare_handler_end = self.fallthrough_next_statement_is_try
+            && handlers_have_fallthrough
+            && !handlers_are_typed;
         let preserve_loop_next_try_after_nested_try_orelse_end = self.ctx.loop_data.is_some()
             && self.fallthrough_next_statement_is_try
             && !orelse.is_empty()
@@ -5313,6 +5362,17 @@ impl Compiler {
             && Self::statements_contain_with(orelse);
         let preserve_final_with_try_except_end =
             orelse.is_empty() && Self::statements_end_with_nonterminal_with_cleanup(body);
+        let preserve_inherited_load_fast_barrier_end = starts_in_load_fast_barrier_block
+            && self.fallthrough_has_statement_successor
+            && orelse.is_empty();
+        // CPython codegen_try_except() emits USE_LABEL(end) after the normal
+        // try path even when every handler continues to the loop header.
+        // flowgraph.c::optimize_load_fast() stops at that empty label before
+        // the following statement.
+        let preserve_continue_handler_end = self.fallthrough_has_statement_successor
+            && orelse.is_empty()
+            && handlers_end_with_continue
+            && self.ctx.loop_data.is_some();
         if preserve_terminal_raise_end
             || preserve_loop_terminal_raise_end
             || preserve_post_nested_try_end
@@ -5321,9 +5381,12 @@ impl Compiler {
             || preserve_try_else_end
             || preserve_handler_scope_exit_end
             || preserve_next_try_after_handler_fallthrough_end
+            || preserve_next_try_after_bare_handler_end
             || preserve_loop_next_try_after_nested_try_orelse_end
             || preserve_next_try_after_with_orelse_end
             || preserve_final_with_try_except_end
+            || preserve_inherited_load_fast_barrier_end
+            || preserve_continue_handler_end
         {
             let end_is_load_fast_barrier = preserve_post_nested_try_end
                 || preserve_handler_nested_try_end
@@ -5331,9 +5394,12 @@ impl Compiler {
                 || preserve_try_else_end
                 || preserve_handler_scope_exit_end
                 || preserve_next_try_after_handler_fallthrough_end
+                || preserve_next_try_after_bare_handler_end
                 || preserve_loop_next_try_after_nested_try_orelse_end
                 || preserve_next_try_after_with_orelse_end
-                || preserve_final_with_try_except_end;
+                || preserve_final_with_try_except_end
+                || preserve_inherited_load_fast_barrier_end
+                || preserve_continue_handler_end;
             let in_active_finally_try = self
                 .current_code_info()
                 .fblock
@@ -5366,7 +5432,9 @@ impl Compiler {
                 // USE_LABEL(end).  flowgraph.c::optimize_load_fast() visits the
                 // empty end block reached by JUMP_NO_INTERRUPT, then stops
                 // before the following block because basicblock_last_instr() is
-                // NULL.
+                // NULL.  When this try starts in a block that already models
+                // such a barrier, keep the same state across this try's own
+                // USE_LABEL(end).
                 self.disable_load_fast_borrow_for_block(continuation_block);
             }
             self.switch_to_block(continuation_block);
@@ -7502,8 +7570,13 @@ impl Compiler {
                 || self.statements_end_with_while_true_without_break(body)?);
         let preserve_while_true_tail_break_successor_load_fast =
             !is_async && self.statements_end_with_while_true_tail_direct_break(body)?;
-        let preserve_try_except_tail_successor_load_fast =
-            !is_async && Self::statements_end_with_try_except_scope_exit_handlers(body);
+        let preserve_try_except_tail_successor_load_fast = !is_async
+            // CPython codegen_try_except() leaves a USE_LABEL(end) before the
+            // with normal __exit__ cleanup when scope-exiting handlers are the
+            // only shape at the tail.  If the protected body itself ends with
+            // a conditional, that inner end label lets flowgraph.c continue
+            // borrowing through the with successor, as in xmlrpc.client.
+            && Self::statements_end_with_try_except_scope_exit_handlers_nonconditional_body(body);
         let preserve_try_finally_with_finalbody_successor_load_fast =
             Self::statements_end_with_try_finally_finalbody_with(body);
         let materialize_async_with_outer_cleanup_target_nop = is_async
@@ -14444,6 +14517,141 @@ def f(self):
     }
 
     #[test]
+    fn test_try_after_inherited_try_barrier_keeps_successor_loads_strong() {
+        let code = compile_exec(
+            "\
+def f(self, x):
+    try:
+        1 / 0
+    except EOFError:
+        pass
+    except TypeError as msg:
+        pass
+    except:
+        pass
+    else:
+        pass
+    try:
+        x
+    except (EOFError, TypeError, ZeroDivisionError):
+        pass
+    with self.assertRaises(SyntaxError):
+        pass
+
+def g(self):
+    try:
+        1 / 0
+    except:
+        pass
+    try:
+        1 / 0
+    except (EOFError, TypeError, ZeroDivisionError):
+        pass
+    with self.assertRaises(SyntaxError):
+        pass
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let x_loads = load_fast_ops_for_var(f, "x");
+        assert!(
+            x_loads
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython codegen_try_except() reaches the first try end through USE_LABEL(end); flowgraph.c keeps that barrier state through the following try end, got x loads {x_loads:?}"
+        );
+        let self_loads = load_fast_ops_for_var(f, "self");
+        assert!(
+            self_loads
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython keeps successor with-statement loads strong after a try that started from an inherited try barrier, got self loads {self_loads:?}"
+        );
+        let g = find_code(&code, "g").expect("missing g code");
+        let g_self_loads = load_fast_ops_for_var(g, "self");
+        assert!(
+            g_self_loads
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython keeps a bare-handler try end label as a barrier when the next statement is another try, got self loads {g_self_loads:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_continue_try_before_try_else_keeps_orelse_loads_strong() {
+        let code = compile_exec(
+            "\
+def f(candidate_locales, locales):
+    for loc in candidate_locales:
+        try:
+            work(loc)
+        except Error:
+            continue
+        encoding = getencoding()
+        try:
+            localeconv()
+        except Exception as err:
+            print(loc, encoding, type(err), err)
+        else:
+            locales.append(loc)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let locales_loads = load_fast_ops_for_var(f, "locales");
+        assert!(
+            locales_loads
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython codegen_try_except() leaves an empty end label after a loop try whose handlers continue; optimize_load_fast() keeps the following try/else append receiver strong, got {locales_loads:?}"
+        );
+        let loc_loads = load_fast_ops_for_var(f, "loc");
+        assert!(
+            loc_loads
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython keeps the try/else append argument strong after the inherited end-label barrier, got {loc_loads:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_after_try_finally_conditional_finalbody_keeps_store_attr_loads_strong() {
+        let code = compile_exec(
+            "\
+def f(self, w, pid, prev):
+    try:
+        try:
+            if cond:
+                prev = call()
+            pid = spawn()
+        finally:
+            if prev is not None:
+                reset(prev)
+    except:
+        close(w)
+        raise
+    else:
+        self._fd = w
+        self._pid = pid
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops = non_cache_instructions(f)
+            .map(|unit| unit.op)
+            .collect::<Vec<_>>();
+        assert!(
+            ops.windows(2).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::LoadFastLoadFast { .. },
+                        Instruction::StoreAttr { .. }
+                    ]
+                )
+            }),
+            "CPython codegen_try_finally() emits an exit label after the conditional finalbody before the outer try/else; optimize_load_fast() keeps the store-attr pair strong, got {ops:?}"
+        );
+    }
+
+    #[test]
     fn test_try_finally_closed_conditional_exit_allows_cpython_borrow() {
         let code = compile_exec(
             "\
@@ -16008,6 +16216,34 @@ def f(self, cm, value):
     }
 
     #[test]
+    fn test_with_try_except_conditional_body_allows_successor_borrow() {
+        let code = compile_exec(
+            "\
+def f(max_decode, gzf, cm, decoded):
+    with cm:
+        try:
+            if max_decode < 0:
+                decoded = gzf.read()
+            else:
+                decoded = gzf.read(max_decode + 1)
+        except OSError:
+            raise ValueError('invalid data')
+    if max_decode >= 0 and len(decoded) > max_decode:
+        raise ValueError('too large')
+    return decoded
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let max_decode_loads = load_fast_ops_for_var(f, "max_decode");
+        assert!(
+            max_decode_loads
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+            "CPython codegen_try_except() keeps borrowing through a with tail when the protected try body ends with a conditional label, got {max_decode_loads:?}"
+        );
+    }
+
+    #[test]
     fn test_loop_try_orelse_nested_try_before_next_try_keeps_load_fast_strong() {
         let code = compile_exec(
             "\
@@ -16204,6 +16440,56 @@ def or_false(x):
                 "folded bool-op tail should not introduce borrow loads in {name}, got ops={ops:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_folded_nonliteral_bool_op_direct_tail_load_keeps_plain_load_fast() {
+        let code = compile_exec(
+            "\
+def return_tail(x):
+    return False or x
+
+def assign_tail(x):
+    y = False or x
+    return y
+
+def call_arg(x, g):
+    return g(False or x)
+
+def attr_tail(x):
+    return False or x.y
+
+def class_tail(class_decorator):
+    @False or class_decorator
+    class H:
+        pass
+",
+        );
+
+        for name in ["return_tail", "assign_tail", "call_arg", "class_tail"] {
+            let function = find_code(&code, name).unwrap_or_else(|| panic!("missing {name} code"));
+            let local = if name == "class_tail" {
+                "class_decorator"
+            } else {
+                "x"
+            };
+            let loads = load_fast_ops_for_var(function, local);
+            assert!(
+                loads
+                    .iter()
+                    .any(|op| matches!(op, Instruction::LoadFast { .. })),
+                "CPython codegen_boolop() emits USE_LABEL(end) after the folded BoolOp tail, so optimize_load_fast() leaves the direct tail load strong in {name}; got {loads:?}"
+            );
+        }
+
+        let attr_tail = find_code(&code, "attr_tail").expect("missing attr_tail code");
+        let attr_receiver_loads = load_fast_ops_for_var(attr_tail, "x");
+        assert!(
+            attr_receiver_loads
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+            "CPython only keeps direct folded tail local loads strong; an attribute receiver is consumed before the BoolOp end label, got {attr_receiver_loads:?}"
+        );
     }
 
     #[test]

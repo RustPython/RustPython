@@ -3403,16 +3403,15 @@ impl CodeInfo {
             if !instructions[idx].folded_from_nonliteral_expr {
                 return false;
             }
-            instructions[idx + 1..]
-                .iter()
-                .filter_map(|info| info.instr.real())
-                .find(|instr| !matches!(instr, Instruction::Cache))
-                .is_some_and(|instr| {
-                    matches!(
-                        instr,
-                        Instruction::ReturnValue | Instruction::YieldValue { .. }
-                    )
-                })
+            // CPython codegen_boolop() always emits USE_LABEL(end) after the
+            // selected tail expression.  When flowgraph.c folds away a
+            // constant head such as "False or x", optimize_load_fast() still
+            // sees a direct local tail load as unconsumed at that basic-block
+            // boundary, so it must remain a strong LOAD_FAST.
+            matches!(
+                instructions[idx].instr.real(),
+                Some(Instruction::LoadFast { .. } | Instruction::LoadFastLoadFast { .. })
+            )
         }
 
         let mut visited = vec![false; self.blocks.len()];
