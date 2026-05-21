@@ -7007,6 +7007,19 @@ fn redirect_load_fast_passthrough_targets(blocks: &mut [Block]) {
         false
     }
 
+    fn has_protected_warm_fallthrough_predecessor(blocks: &[Block], target: BlockIdx) -> bool {
+        blocks.iter().any(|block| {
+            block.next == target
+                && !block.cold
+                && !block.except_handler
+                && block_has_fallthrough(block)
+                && block
+                    .instructions
+                    .iter()
+                    .any(|info| info.except_handler.is_some())
+        })
+    }
+
     fn assertion_success_nop_passthrough(blocks: &[Block], target: BlockIdx) -> bool {
         let block = &blocks[target.idx()];
         if !block.instructions.is_empty()
@@ -7135,12 +7148,31 @@ fn redirect_load_fast_passthrough_targets(blocks: &mut [Block]) {
                 && block_returns_call_with_fast_load(&blocks[next.idx()]);
             let handler_resume_end =
                 handler_resume_end && !has_warm_fallthrough_predecessor(blocks, target);
+            // CPython codegen_try_except() emits USE_LABEL(end), then the
+            // following statement directly into that end block.  After
+            // RustPython pushes cold handlers to the end, a protected normal
+            // path can still fall through an empty synthetic block before the
+            // handler and normal path rejoin at a return-call block.  Treat
+            // that split as a label-reuse passthrough for optimize_load_fast()
+            // parity.
+            let try_except_return_end = block.instructions.is_empty()
+                && next != BlockIdx::NULL
+                && !block.label
+                && !block.load_fast_barrier
+                && !block.except_handler
+                && !block.preserve_lasti
+                && !block.cold
+                && !block.disable_load_fast_borrow
+                && handler_resumes_to_target(blocks, next)
+                && block_returns_call_with_fast_load(&blocks[next.idx()])
+                && has_protected_warm_fallthrough_predecessor(blocks, target);
             let assertion_success_nop = assertion_success_nop_passthrough(blocks, target);
             let assertion_failure = assertion_failure_passthrough(blocks, target);
             let try_else_orelse_entry = try_else_orelse_entry_passthrough(blocks, target);
             let labeled_passthrough_successor = labeled_passthrough_successor(blocks, target);
             if !(block.load_fast_passthrough
                 || handler_resume_end
+                || try_except_return_end
                 || assertion_success_nop
                 || assertion_failure
                 || try_else_orelse_entry

@@ -1082,6 +1082,15 @@ impl Compiler {
         })
     }
 
+    fn statements_contain_try_finally(body: &[ast::Stmt]) -> bool {
+        body.iter().any(|stmt| {
+            matches!(
+                stmt,
+                ast::Stmt::Try(ast::StmtTry { finalbody, .. }) if !finalbody.is_empty()
+            )
+        })
+    }
+
     fn statements_end_with_try_except_handler_fallthrough(body: &[ast::Stmt]) -> bool {
         body.last().is_some_and(|stmt| match stmt {
             ast::Stmt::Try(ast::StmtTry {
@@ -4670,6 +4679,8 @@ impl Compiler {
         }
 
         // try:
+        let preserve_try_else_after_try_finally_conditional_finalbody =
+            !orelse.is_empty() && Self::statements_end_with_try_finally_conditional_finalbody(body);
         emit!(
             self,
             PseudoInstruction::SetupFinally {
@@ -4685,6 +4696,20 @@ impl Compiler {
         let cleanup_block = self.new_block();
         // We successfully ran the try block:
         // else:
+        if !orelse.is_empty() {
+            let current = self.current_code_info().current_block;
+            self.mark_try_else_orelse_entry_block(current);
+            if preserve_try_else_after_try_finally_conditional_finalbody {
+                // CPython codegen_try_finally() compiles try/except/else by
+                // calling codegen_try_except() inside the active finally try.
+                // If the protected body ends with another try/finally whose
+                // finalbody exits through a conditional, codegen_try_except()
+                // starts the else suite from that inner exit label state, so
+                // flowgraph.c::optimize_load_fast() keeps the store-attr
+                // source pair strong.
+                self.disable_load_fast_borrow_for_block(current);
+            }
+        }
         self.compile_statements(orelse)?;
 
         let normal_finally_entry = try_except_end_block.unwrap_or(finally_block);
@@ -5294,6 +5319,7 @@ impl Compiler {
                     body, ..
                 }) = handler;
                 Self::statements_contain_try_except(body)
+                    || Self::statements_contain_try_finally(body)
             });
         let preserve_try_else_end = self.fallthrough_has_statement_successor
             && !orelse.is_empty()
@@ -7383,9 +7409,22 @@ impl Compiler {
         self.pop_fblock(FBlockType::WhileLoop);
         self.switch_to_block(else_block);
         self.compile_statements(orelse)?;
-        self.switch_to_block(after_block);
+        let reuse_empty_while_end_label =
+            orelse.is_empty() && !matches!(body.last(), Some(ast::Stmt::Break(_)));
+        let effective_after_block = if reuse_empty_while_end_label {
+            // CPython codegen_while() emits USE_LABEL(anchor), then immediately
+            // USE_LABEL(end) when there is no orelse.  flowgraph.c reuses that
+            // current empty anchor block for the end label when the loop body
+            // still has a normal backedge path, so the function epilogue is
+            // not duplicated once more for the loop-false edge.
+            self.use_label_block(after_block);
+            else_block
+        } else {
+            self.switch_to_block(after_block);
+            after_block
+        };
         if (preserve_while_true_break_end || preserve_next_empty_test_prefix_end)
-            && self.current_code_info().blocks[after_block.idx()]
+            && self.current_code_info().blocks[effective_after_block.idx()]
                 .instructions
                 .is_empty()
         {
@@ -7395,7 +7434,7 @@ impl Compiler {
             // that path as an empty block, and optimize_load_fast() stops at
             // basicblock_last_instr(block) == NULL before the following
             // statement.
-            self.mark_load_fast_barrier_block(after_block);
+            self.mark_load_fast_barrier_block(effective_after_block);
             let continuation_block = self.new_block();
             self.switch_to_block(continuation_block);
         }
@@ -14631,23 +14670,140 @@ def f(self, w, pid, prev):
     else:
         self._fd = w
         self._pid = pid
+    finally:
+        close(r)
 ",
         );
         let f = find_code(&code, "f").expect("missing f code");
-        let ops = non_cache_instructions(f)
-            .map(|unit| unit.op)
-            .collect::<Vec<_>>();
+        let w_self_pairs = load_fast_pair_ops_for_vars(f, "w", "self");
+        let pid_self_pairs = load_fast_pair_ops_for_vars(f, "pid", "self");
         assert!(
-            ops.windows(2).any(|window| {
-                matches!(
-                    window,
-                    [
-                        Instruction::LoadFastLoadFast { .. },
-                        Instruction::StoreAttr { .. }
-                    ]
+            w_self_pairs
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFastLoadFast { .. }))
+                && !w_self_pairs.is_empty(),
+            "CPython codegen_try_finally() calls codegen_try_except() inside the active finally try; the else suite starts from the inner try/finally exit label and keeps w/self strong, got {w_self_pairs:?}"
+        );
+        assert!(
+            pid_self_pairs
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFastLoadFast { .. }))
+                && !pid_self_pairs.is_empty(),
+            "CPython keeps the second store-attr source pair strong in the same try/except/else/finally else suite, got {pid_self_pairs:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_fallthrough_before_return_call_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(obj, lock, ctx, cls, class_cache):
+    if cond1(obj):
+        return Synchronized(obj, lock, ctx)
+    elif cond2(obj):
+        return SynchronizedArray(obj, lock, ctx)
+    else:
+        try:
+            scls = class_cache[cls]
+        except KeyError:
+            scls = make_synchronized(cls)
+        return scls(obj, lock, ctx)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let scls_loads = load_fast_ops_for_var(f, "scls");
+        assert!(
+            scls_loads
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+            "CPython codegen_try_except() emits USE_LABEL(end) and the following return call into the same basic block; flowgraph.c borrows the callable local, got {scls_loads:?}"
+        );
+        let obj_lock_pairs = load_fast_pair_ops_for_vars(f, "obj", "lock");
+        assert!(
+            obj_lock_pairs
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFastBorrowLoadFastBorrow { .. })),
+            "CPython flowgraph.c borrows the return call argument pair after a typed fallthrough handler, got {obj_lock_pairs:?}"
+        );
+        let ctx_loads = load_fast_ops_for_var(f, "ctx");
+        assert!(
+            ctx_loads
+                .iter()
+                .all(|op| matches!(op, Instruction::LoadFastBorrow { .. })),
+            "CPython flowgraph.c borrows the trailing return call argument after the try-end label, got {ctx_loads:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_comprehension_handler_before_return_call_keeps_borrow() {
+        let code = compile_exec(
+            "\
+def f(obj, lock, ctx):
+    assert not isinstance(obj, SynchronizedBase), 'object already synchronized'
+    ctx = ctx or get_context()
+
+    if isinstance(obj, ctypes._SimpleCData):
+        return Synchronized(obj, lock, ctx)
+    elif isinstance(obj, ctypes.Array):
+        if obj._type_ is ctypes.c_char:
+            return SynchronizedString(obj, lock, ctx)
+        return SynchronizedArray(obj, lock, ctx)
+    else:
+        cls = type(obj)
+        try:
+            scls = class_cache[cls]
+        except KeyError:
+            names = [field[0] for field in cls._fields_]
+            d = {name: make_property(name) for name in names}
+            classname = 'Synchronized' + cls.__name__
+            scls = class_cache[cls] = type(classname, (SynchronizedBase,), d)
+        return scls(obj, lock, ctx)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let scls_loads = load_fast_ops_for_var(f, "scls");
+        assert!(
+            scls_loads
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFastBorrow { .. }))
+                && scls_loads
+                    .iter()
+                    .all(|op| !matches!(op, Instruction::LoadFast { .. })),
+            "CPython codegen_try_except() keeps the return call in the end-label block even when the handler contains comprehensions, got {scls_loads:?}"
+        );
+        let obj_lock_pairs = load_fast_pair_ops_for_vars(f, "obj", "lock");
+        assert!(
+            obj_lock_pairs
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFastBorrowLoadFastBorrow { .. }))
+                && obj_lock_pairs
+                    .iter()
+                    .all(|op| !matches!(op, Instruction::LoadFastLoadFast { .. })),
+            "CPython flowgraph.c borrows the return call argument pair after the try-end label and cold handler reordering, got {obj_lock_pairs:?}"
+        );
+        let instructions = non_cache_instructions(f).collect::<Vec<_>>();
+        let ctx_idx = varname_index(f, "ctx");
+        let has_borrowed_return_tail = instructions.windows(6).any(|window| {
+            matches!(window[0].op, Instruction::LoadFastBorrow { .. })
+                && matches!(window[1].op, Instruction::PushNull)
+                && matches!(
+                    window[2].op,
+                    Instruction::LoadFastBorrowLoadFastBorrow { .. }
                 )
-            }),
-            "CPython codegen_try_finally() emits an exit label after the conditional finalbody before the outer try/else; optimize_load_fast() keeps the store-attr pair strong, got {ops:?}"
+                && matches!(window[3].op, Instruction::LoadFastBorrow { .. })
+                && {
+                    let Instruction::LoadFastBorrow { var_num } = window[3].op else {
+                        return false;
+                    };
+                    usize::from(var_num.get(OpArg::new(u32::from(u8::from(window[3].arg)))))
+                        == ctx_idx
+                }
+                && matches!(window[4].op, Instruction::Call { .. })
+                && matches!(window[5].op, Instruction::ReturnValue)
+        });
+        assert!(
+            has_borrowed_return_tail,
+            "CPython flowgraph.c borrows the full final return-call tail after the protected try body, got instructions={instructions:?}"
         );
     }
 
@@ -15526,6 +15682,29 @@ def f(buffer, pos, last_char):
                     (usize::from(var_num) == var_idx).then_some(unit.op)
                 }
                 _ => None,
+            })
+            .collect()
+    }
+
+    fn load_fast_pair_ops_for_vars(
+        code: &CodeObject,
+        left_name: &str,
+        right_name: &str,
+    ) -> Vec<Instruction> {
+        let left_idx = varname_index(code, left_name);
+        let right_idx = varname_index(code, right_name);
+        non_cache_instructions(code)
+            .filter_map(|unit| {
+                let var_nums = match unit.op {
+                    Instruction::LoadFastLoadFast { var_nums }
+                    | Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => var_nums,
+                    _ => return None,
+                };
+                let (left, right) = var_nums
+                    .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                    .indexes();
+                (usize::from(left) == left_idx && usize::from(right) == right_idx)
+                    .then_some(unit.op)
             })
             .collect()
     }
@@ -33681,6 +33860,34 @@ def f(j, n):
         assert!(
             return_idx < jump_back_idx,
             "expected return block before explicit continue backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_while_break_tail_does_not_duplicate_loop_false_return_epilogue() {
+        let code = compile_exec(
+            "\
+def f(waiters):
+    while waiters:
+        waiter = waiters.popleft()
+        if not waiter.done():
+            waiter.set_result(None)
+            break
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect();
+        let returns = ops
+            .iter()
+            .filter(|unit| matches!(unit.op, Instruction::ReturnValue))
+            .count();
+        assert_eq!(
+            returns, 2,
+            "CPython codegen_while() reuses the empty anchor block for USE_LABEL(end) when orelse is empty, so only the break fallthrough and loop-false epilogues remain, got ops={ops:?}",
         );
     }
 
