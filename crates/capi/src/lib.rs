@@ -12,6 +12,7 @@ pub mod abstract_;
 pub mod boolobject;
 pub mod bytesobject;
 pub mod ceval;
+pub mod complexobject;
 pub mod dictobject;
 pub mod import;
 pub mod longobject;
