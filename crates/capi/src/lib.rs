@@ -9,6 +9,7 @@ use std::sync::MutexGuard;
 extern crate alloc;
 
 pub mod abstract_;
+pub mod boolobject;
 pub mod bytesobject;
 pub mod ceval;
 pub mod dictobject;
