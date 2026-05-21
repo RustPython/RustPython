@@ -404,6 +404,16 @@ impl SslError {
                 // Use the proper cert verification error creator
                 create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")
             }
+            Self::Io(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
+                create_ssl_eof_error(vm).upcast()
+            }
+            Self::Io(err) if err.raw_os_error().is_none() => vm
+                .new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    format!("SSL error: {err}"),
+                )
+                .upcast(),
             Self::Io(err) => err.into_pyexception(vm),
             Self::SniCallbackRestart => {
                 // This should be handled at PySSLSocket level
