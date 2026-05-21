@@ -6227,7 +6227,7 @@ fn jump_threading_impl(blocks: &mut [Block], include_conditional: bool) {
     }
 }
 
-fn is_conditional_jump(instr: &AnyInstruction) -> bool {
+pub(crate) fn is_conditional_jump(instr: &AnyInstruction) -> bool {
     matches!(
         instr.real().map(Into::into),
         Some(
@@ -10110,7 +10110,7 @@ fn maybe_propagate_location(
     location: SourceLocation,
     end_location: SourceLocation,
 ) {
-    if !instruction_has_lineno(instr) {
+    if instr.lineno_override != Some(-2) && !instruction_has_lineno(instr) {
         instr.location = location;
         instr.end_location = end_location;
         instr.lineno_override = None;

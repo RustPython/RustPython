@@ -8845,6 +8845,10 @@ impl Compiler {
                     pattern_context.fail_pop[0],
                     Some(m.pattern.range()),
                 )?;
+                if self.current_block_ends_with_conditional_jump() {
+                    let success = self.new_block();
+                    self.switch_to_block(success);
+                }
             }
 
             if i != case_count - 1 {
@@ -12695,6 +12699,14 @@ impl Compiler {
         &mut info.blocks[info.current_block]
     }
 
+    fn current_block_ends_with_conditional_jump(&mut self) -> bool {
+        let info = self.current_code_info();
+        info.blocks[info.current_block]
+            .instructions
+            .last()
+            .is_some_and(|info| ir::is_conditional_jump(&info.instr))
+    }
+
     /// Switch to a fresh block, but reuse the current block when it is empty
     /// and unlinked, mirroring CPython's USE_LABEL behavior in
     /// `cfg_builder_maybe_start_new_block` (Python/flowgraph.c): when the
@@ -14245,6 +14257,47 @@ def f(items, T):
                 )
             }),
             "CPython codegen_break() threads the match-case inner for break through the empty end label to the outer loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_match_constant_guard_keeps_cpython_guard_nop_before_subject_pop() {
+        let code = compile_exec(
+            "\
+def f(self):
+    x = 0
+    match x:
+        case 0 if True:
+            y = 0
+        case 0 if True:
+            y = 1
+    self.assertEqual(x, 0)
+    self.assertEqual(y, 0)
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect::<Vec<_>>();
+        assert!(
+            ops.windows(7).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::Nop,
+                        Instruction::PopTop,
+                        Instruction::LoadSmallInt { .. } | Instruction::LoadConst { .. },
+                        Instruction::StoreFast { .. },
+                    ]
+                )
+            }),
+            "CPython codegen_match_inner() emits the guard through codegen_jump_if(), and flowgraph.c keeps the folded constant-guard NOP in a separate success block before POP_TOP, got ops={ops:?}"
         );
     }
 
