@@ -6,21 +6,13 @@ use rustpython_vm::AsObject;
 define_py_check!(fn PyBool_Check, types.bool_type);
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_IsTrue(obj: *mut PyObject) -> c_int {
-    with_vm(|vm| unsafe {
-        obj.as_ref()
-            .map(|obj| obj.is(&vm.ctx.true_value))
-            .unwrap_or_default()
-    })
+pub unsafe extern "C" fn Py_IsTrue(obj: *mut PyObject) -> c_int {
+    with_vm(|vm| unsafe { obj.as_ref().is_some_and(|obj| obj.is(&vm.ctx.true_value)) })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_IsFalse(obj: *mut PyObject) -> c_int {
-    with_vm(|vm| unsafe {
-        obj.as_ref()
-            .map(|obj| obj.is(&vm.ctx.false_value))
-            .unwrap_or_default()
-    })
+pub unsafe extern "C" fn Py_IsFalse(obj: *mut PyObject) -> c_int {
+    with_vm(|vm| unsafe { obj.as_ref().is_some_and(|obj| obj.is(&vm.ctx.false_value)) })
 }
 
 #[unsafe(no_mangle)]
