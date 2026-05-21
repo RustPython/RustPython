@@ -2369,6 +2369,7 @@ impl Compiler {
             preserve_block_start_no_location_nop: false,
             match_success_jump: false,
             break_continue_cleanup_jump: false,
+            for_loop_break_cleanup_jump: false,
         });
     }
 
@@ -11784,6 +11785,7 @@ impl Compiler {
             preserve_block_start_no_location_nop: false,
             match_success_jump: false,
             break_continue_cleanup_jump: false,
+            for_loop_break_cleanup_jump: false,
         });
     }
 
@@ -11835,6 +11837,12 @@ impl Compiler {
     fn mark_last_break_continue_cleanup_jump(&mut self) {
         if let Some(last) = self.current_block().instructions.last_mut() {
             last.break_continue_cleanup_jump = true;
+        }
+    }
+
+    fn mark_last_for_loop_break_cleanup_jump(&mut self) {
+        if let Some(last) = self.current_block().instructions.last_mut() {
+            last.for_loop_break_cleanup_jump = true;
         }
     }
 
@@ -12670,6 +12678,7 @@ impl Compiler {
         emit!(self, PseudoInstruction::Jump { delta: target });
         self.mark_last_break_continue_cleanup_jump();
         if is_break && is_for_loop {
+            self.mark_last_for_loop_break_cleanup_jump();
             self.mark_load_fast_barrier_block(exit_block);
         }
         if jump_no_location {
@@ -14115,6 +14124,127 @@ def f(support, func, value):
                 ])
             ),
             "CPython codegen_if() keeps the break cleanup in the true-body fallthrough before the loop backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_else_loop_break_keeps_body_before_protected_backedge() {
+        let code = compile_exec(
+            "\
+def f(input):
+    while 1:
+        try:
+            pass
+        except IndexError:
+            break
+        else:
+            key = None
+            while key is None:
+                key = input()
+                if key not in ('', 'q'):
+                    key = None
+            if key == 'q':
+                break
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect::<Vec<_>>();
+        assert!(
+            ops.windows(6).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::CompareOp { .. },
+                        Instruction::PopJumpIfFalse { .. },
+                        Instruction::NotTaken,
+                        Instruction::LoadConst { .. },
+                        Instruction::ReturnValue,
+                        Instruction::JumpBackward { .. },
+                    ]
+                )
+            }),
+            "CPython codegen_if() keeps the break body before the false backedge into the protected try/except loop, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_loop_nested_if_tail_keeps_duplicate_jump_back_label() {
+        let code = compile_exec(
+            "\
+def f(value, digits):
+    for digit in value:
+        if isinstance(digit, int) and 0 <= digit <= 9:
+            if digits or digit != 0:
+                digits.append(digit)
+        else:
+            raise ValueError('x')
+    return digits
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache | Instruction::Nop))
+            .collect::<Vec<_>>();
+        assert!(
+            ops.windows(4).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. },
+                        Instruction::JumpBackward { .. },
+                        Instruction::LoadGlobal { .. },
+                    ]
+                )
+            }),
+            "CPython codegen_if() leaves a distinct no-location end label before the loop else/raise path, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn test_match_for_break_threads_empty_end_label_to_outer_backedge() {
+        let code = compile_exec(
+            "\
+def f(items, T):
+    for st in items:
+        match st.type:
+            case T.TYPE:
+                for c in st.children:
+                    if c.name == st.name:
+                        x = 1
+                        break
+    return x
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache | Instruction::Nop))
+            .collect::<Vec<_>>();
+        assert!(
+            ops.windows(5).any(|window| {
+                matches!(
+                    window,
+                    [
+                        Instruction::PopTop,
+                        Instruction::JumpBackward { .. },
+                        Instruction::EndFor,
+                        Instruction::PopIter,
+                        Instruction::JumpBackward { .. },
+                    ]
+                )
+            }),
+            "CPython codegen_break() threads the match-case inner for break through the empty end label to the outer loop backedge, got ops={ops:?}"
         );
     }
 
