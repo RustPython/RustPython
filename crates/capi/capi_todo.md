@@ -138,15 +138,6 @@ RustPython C API target: `crates/capi/src/pybuffer.rs` (not present yet)
 - `PyBuffer_ToContiguous`
 - `PyObject_GetBuffer`
 
-## `pycapsule.h`
-
-RustPython C API target: `crates/capi/src/capsule.rs`
-
-- `PyCapsule_GetContext`
-- `PyCapsule_Import`
-- `PyCapsule_SetContext`
-- `PyCapsule_SetPointer`
-
 ## `pyerrors.h`
 
 RustPython C API target: `crates/capi/src/pyerrors.rs`
