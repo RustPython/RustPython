@@ -500,7 +500,10 @@ impl Compiler {
     fn constant_expr_truthiness(&mut self, expr: &ast::Expr) -> CompileResult<Option<bool>> {
         Ok(self
             .try_fold_constant_expr(expr)?
-            .map(|constant| Self::constant_truthiness(&constant)))
+            .and_then(|constant| match constant {
+                ConstantData::Tuple { .. } => None,
+                constant => Some(Self::constant_truthiness(&constant)),
+            }))
     }
 
     fn current_block_stack_depth(&self) -> Option<u32> {
@@ -4582,6 +4585,12 @@ impl Compiler {
             && Self::statements_contain_conditional_scope_exit(finalbody);
         let preserve_finally_exit_try_except_barrier = self.fallthrough_has_statement_successor
             && Self::statements_end_with_try_except_no_finally(finalbody);
+        let handlers_have_bare_except = handlers.iter().any(|handler| {
+            let ast::ExceptHandler::ExceptHandler(handler) = handler;
+            handler.type_.is_none()
+        });
+        let preserve_finally_bare_handler_exit_label =
+            self.fallthrough_has_statement_successor && handlers_have_bare_except;
         let preserve_finally_bare_scope_exit_handler_barrier = self
             .fallthrough_has_statement_successor
             && handlers.iter().any(|handler| {
@@ -4759,6 +4768,7 @@ impl Compiler {
             if preserve_finally_exit_empty_label
                 || preserve_finally_exit_empty_barrier
                 || preserve_finally_exit_try_except_barrier
+                || preserve_finally_bare_handler_exit_label
                 || preserve_finally_bare_scope_exit_handler_barrier
             {
                 self.mark_load_fast_barrier_block(end_block);
@@ -4768,6 +4778,7 @@ impl Compiler {
             self.switch_to_block(end_block);
             if preserve_finally_exit_empty_label
                 || preserve_finally_exit_try_except_barrier
+                || preserve_finally_bare_handler_exit_label
                 || preserve_finally_bare_scope_exit_handler_barrier
             {
                 let continuation_block = self.new_block();
@@ -5074,6 +5085,7 @@ impl Compiler {
         if preserve_finally_exit_empty_label
             || preserve_finally_exit_empty_barrier
             || preserve_finally_exit_try_except_barrier
+            || preserve_finally_bare_handler_exit_label
             || preserve_finally_bare_scope_exit_handler_barrier
         {
             self.mark_load_fast_barrier_block(end_block);
@@ -5083,6 +5095,7 @@ impl Compiler {
         self.switch_to_block(end_block);
         if preserve_finally_exit_empty_label
             || preserve_finally_exit_try_except_barrier
+            || preserve_finally_bare_handler_exit_label
             || preserve_finally_bare_scope_exit_handler_barrier
         {
             let continuation_block = self.new_block();
@@ -12515,6 +12528,7 @@ impl Compiler {
                     (ast::UnaryOp::Invert, ConstantData::Integer { value }) => {
                         ConstantData::Integer { value: !value }
                     }
+                    (ast::UnaryOp::Not, ConstantData::Tuple { .. }) => return Ok(None),
                     (ast::UnaryOp::Not, value) => ConstantData::Boolean {
                         value: !Self::constant_truthiness(&value),
                     },
@@ -15238,6 +15252,157 @@ def f():
                 .iter()
                 .map(|unit| unit.op)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_bare_except_finally_exit_label_keeps_successor_load_fast_strong() {
+        let code = compile_exec(
+            r#"
+def f(self):
+    hit = False
+    try:
+        pass
+    except:
+        hit = True
+    finally:
+        done = True
+    self.assertFalse(hit)
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect::<Vec<_>>();
+        let assert_false = ops
+            .windows(3)
+            .find(|window| {
+                let self_arg = OpArg::new(u32::from(u8::from(window[0].arg)));
+                let attr_arg = OpArg::new(u32::from(u8::from(window[1].arg)));
+                matches!(
+                    window[0].op,
+                    Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num }
+                        if f.varnames[usize::from(var_num.get(self_arg))] == "self"
+                ) && matches!(
+                    window[1].op,
+                    Instruction::LoadAttr { namei }
+                        if f.names[usize::try_from(namei.get(attr_arg).name_idx()).unwrap()]
+                            == "assertFalse"
+                ) && matches!(
+                    window[2].op,
+                    Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. }
+                )
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing assertFalse call: {:?}",
+                    ops.iter().map(|unit| unit.op).collect::<Vec<_>>()
+                )
+            });
+
+        assert!(
+            matches!(assert_false[0].op, Instruction::LoadFast { .. })
+                && matches!(assert_false[2].op, Instruction::LoadFast { .. }),
+            "CPython codegen_try_finally() wraps codegen_try_except(); with a bare handler, the normal finally body jumps to an empty exit label, and flowgraph.c::optimize_load_fast() does not fall through that empty block: {:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_typed_except_finally_fallthrough_keeps_successor_load_fast_borrow() {
+        let code = compile_exec(
+            r#"
+def f(self):
+    hit = False
+    try:
+        pass
+    except Exception:
+        hit = True
+    finally:
+        done = True
+    self.assertFalse(hit)
+"#,
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let ops = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect::<Vec<_>>();
+        let assert_false = ops
+            .windows(3)
+            .find(|window| {
+                let self_arg = OpArg::new(u32::from(u8::from(window[0].arg)));
+                let attr_arg = OpArg::new(u32::from(u8::from(window[1].arg)));
+                matches!(
+                    window[0].op,
+                    Instruction::LoadFast { var_num } | Instruction::LoadFastBorrow { var_num }
+                        if f.varnames[usize::from(var_num.get(self_arg))] == "self"
+                ) && matches!(
+                    window[1].op,
+                    Instruction::LoadAttr { namei }
+                        if f.names[usize::try_from(namei.get(attr_arg).name_idx()).unwrap()]
+                            == "assertFalse"
+                ) && matches!(
+                    window[2].op,
+                    Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. }
+                )
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing assertFalse call: {:?}",
+                    ops.iter().map(|unit| unit.op).collect::<Vec<_>>()
+                )
+            });
+
+        assert!(
+            matches!(assert_false[0].op, Instruction::LoadFastBorrow { .. })
+                && matches!(assert_false[2].op, Instruction::LoadFastBorrow { .. }),
+            "CPython typed-handler fallthrough keeps this successor reachable for optimize_load_fast(), so the loads remain borrowed: {:?}",
+            f.instructions
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_bare_except_finally_no_exception_shares_return_target() {
+        let code = compile_exec(
+            "\
+def func():
+    try:
+        2
+    except:
+        4
+    finally:
+        6
+",
+        );
+        let f = find_code(&code, "func").expect("missing func code");
+        let ops = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect::<Vec<_>>();
+        let first_push_exc = ops
+            .iter()
+            .position(|op| matches!(op, Instruction::PushExcInfo))
+            .expect("missing PushExcInfo");
+        let returns_before_handler = ops[..first_push_exc]
+            .iter()
+            .filter(|op| matches!(op, Instruction::ReturnValue))
+            .count();
+
+        assert_eq!(
+            returns_before_handler, 1,
+            "CPython codegen_try_finally() wraps codegen_try_except(); the bare handler jumps back to the normal finally return target instead of forcing duplicate_end_returns() to create a Rust-only return copy, got ops={ops:?}"
         );
     }
 
@@ -27605,6 +27770,66 @@ def f():
                         .all(|elt| matches!(elt, ConstantData::Integer { value } if *value == BigInt::from(1)))
                     && matches!(&elements[17], ConstantData::Str { value } if value.to_string() == "spam")
         )));
+    }
+
+    #[test]
+    fn test_tuple_not_keeps_to_bool_unary_not_like_cpython() {
+        let code = compile_exec(
+            "\
+def f():
+    return not ()
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect::<Vec<_>>();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(window[0].op, Instruction::LoadConst { consti }
+                if matches!(
+                    &f.constants[consti.get(OpArg::new(u32::from(u8::from(window[0].arg))))],
+                    ConstantData::Tuple { elements } if elements.is_empty()
+                )) && matches!(window[1].op, Instruction::ToBool)
+                    && matches!(window[2].op, Instruction::UnaryNot)
+            }),
+            "CPython codegen emits TO_BOOL; UNARY_NOT for UnaryOp(Not), while flowgraph.c folds tuple literals only after the LOAD_CONST+TO_BOOL pass, got instructions={:?}",
+            f.instructions
+        );
+    }
+
+    #[test]
+    fn test_tuple_if_test_keeps_to_bool_jump_like_cpython() {
+        let code = compile_exec(
+            "\
+def f():
+    if ():
+        return 1
+    return 2
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops = f
+            .instructions
+            .iter()
+            .filter(|unit| !matches!(unit.op, Instruction::Cache))
+            .collect::<Vec<_>>();
+
+        assert!(
+            ops.windows(3).any(|window| {
+                matches!(window[0].op, Instruction::LoadConst { consti }
+                if matches!(
+                    &f.constants[consti.get(OpArg::new(u32::from(u8::from(window[0].arg))))],
+                    ConstantData::Tuple { elements } if elements.is_empty()
+                )) && matches!(window[1].op, Instruction::ToBool)
+                    && matches!(window[2].op, Instruction::PopJumpIfFalse { .. })
+            }),
+            "CPython leaves tuple literal truth tests as LOAD_CONST tuple; TO_BOOL; POP_JUMP_IF_FALSE because tuple folding happens after constant jump folding, got instructions={:?}",
+            f.instructions
+        );
     }
 
     #[test]

@@ -592,18 +592,49 @@ impl CodeInfo {
         // block_to_index: maps block idx to instruction index (for exception table)
         // This is the index into the final instructions array, including EXTENDED_ARG and CACHE
         let mut block_to_index = vec![0u32; blocks.len()];
+        // CPython's jump resolver starts from the target instruction index in
+        // the instruction sequence, before CACHE and EXTENDED_ARG code units.
+        let mut block_to_instr_index = vec![0u32; blocks.len()];
         // The offset (in code units) of END_SEND from SEND in the yield-from sequence.
         const END_SEND_OFFSET: u32 = 5;
         loop {
             let mut num_instructions = 0;
+            let mut instr_index = 0;
             for (idx, block) in iter_blocks(&blocks) {
                 block_to_offset[idx.idx()] = Label::from_u32(num_instructions as u32);
                 // block_to_index uses the same value as block_to_offset but as u32
                 // because lasti in frame.rs is the index into instructions array
                 // and instructions array index == byte offset (each instruction is 1 CodeUnit)
                 block_to_index[idx.idx()] = num_instructions as u32;
+                block_to_instr_index[idx.idx()] = instr_index;
+                instr_index += block.instructions.len() as u32;
                 for instr in &block.instructions {
                     num_instructions += instr.arg.instr_size() + instr.cache_entries as usize;
+                }
+            }
+            let mut extended_forward_jumps = Vec::new();
+            for (idx, block) in iter_blocks(&blocks) {
+                let mut current_offset = block_to_offset[idx.idx()].as_u32();
+                for info in &block.instructions {
+                    let instr_size = info.arg.instr_size();
+                    let cache_entries = info.cache_entries;
+                    let offset_after = current_offset + instr_size as u32 + cache_entries;
+                    if info.target != BlockIdx::NULL
+                        && instr_size > 1
+                        && let Some(op) = info.instr.real()
+                        && !matches!(
+                            op,
+                            Instruction::JumpBackward { .. }
+                                | Instruction::JumpBackwardNoInterrupt { .. }
+                                | Instruction::EndAsyncFor
+                        )
+                    {
+                        let target_offset = block_to_offset[info.target.idx()].as_u32();
+                        if target_offset >= offset_after {
+                            extended_forward_jumps.push((current_offset, target_offset));
+                        }
+                    }
+                    current_offset = offset_after;
                 }
             }
 
@@ -683,16 +714,24 @@ impl CodeInfo {
                                 op.into(),
                                 Opcode::JumpBackward | Opcode::JumpBackwardNoInterrupt
                             ) && u32::from(new_arg) == 0xff
-                                && target_offset > 0xff
+                                && (block_to_instr_index[target.idx()] > 0xff
+                                    || extended_forward_jumps.iter().any(
+                                        |&(jump_offset, jump_target_offset)| {
+                                            target_offset < jump_offset
+                                                && jump_offset < current_offset
+                                                && current_offset < jump_target_offset
+                                        },
+                                    ))
                             {
                                 // CPython assemble.c::resolve_jump_offsets()
                                 // bootstraps jump sizing from the unresolved
-                                // target index stored in i_oparg.  When a
-                                // backward jump lands exactly on the 255-code
-                                // unit boundary and the target is already
-                                // beyond one-byte range, that preliminary
-                                // EXTENDED_ARG increases the resolved backward
-                                // delta to 256 and the fixed point keeps it.
+                                // target instruction index in i_oparg and loops
+                                // until EXTENDED_ARG sizes stop changing.  A
+                                // backward jump exactly on the one-byte boundary
+                                // can therefore remain at 256 if either its
+                                // target index initially needed EXTENDED_ARG, or
+                                // an already-extended forward jump between the
+                                // target and jump crosses past it.
                                 new_arg = OpArg::new(0x100);
                             }
                             recompile |= new_arg.instr_size() != old_arg_size;
@@ -2708,20 +2747,20 @@ impl CodeInfo {
             |instr: Instruction, arg: OpArg, metadata: &CodeUnitMetadata| match instr {
                 Instruction::LoadConst { consti } => {
                     let constant = &metadata.consts[consti.get(arg).as_usize()];
-                    Some(match constant {
-                        ConstantData::Tuple { elements } => !elements.is_empty(),
-                        ConstantData::Integer { value } => !value.is_zero(),
-                        ConstantData::Float { value } => *value != 0.0,
-                        ConstantData::Complex { value } => value.re != 0.0 || value.im != 0.0,
-                        ConstantData::Boolean { value } => *value,
-                        ConstantData::Str { value } => !value.is_empty(),
-                        ConstantData::Bytes { value } => !value.is_empty(),
-                        ConstantData::Code { .. } => true,
-                        ConstantData::Slice { .. } => true,
-                        ConstantData::Frozenset { elements } => !elements.is_empty(),
-                        ConstantData::None => false,
-                        ConstantData::Ellipsis => true,
-                    })
+                    match constant {
+                        ConstantData::Tuple { .. } => None,
+                        ConstantData::Integer { value } => Some(!value.is_zero()),
+                        ConstantData::Float { value } => Some(*value != 0.0),
+                        ConstantData::Complex { value } => Some(value.re != 0.0 || value.im != 0.0),
+                        ConstantData::Boolean { value } => Some(*value),
+                        ConstantData::Str { value } => Some(!value.is_empty()),
+                        ConstantData::Bytes { value } => Some(!value.is_empty()),
+                        ConstantData::Code { .. } => Some(true),
+                        ConstantData::Slice { .. } => Some(true),
+                        ConstantData::Frozenset { elements } => Some(!elements.is_empty()),
+                        ConstantData::None => Some(false),
+                        ConstantData::Ellipsis => Some(true),
+                    }
                 }
                 Instruction::LoadSmallInt { i } => Some(i.get(arg) != 0),
                 _ => None,
@@ -11073,6 +11112,16 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
     // Get the return instructions to clone
     let return_insts: Vec<InstructionInfo> = last_insts[last_insts.len() - 2..].to_vec();
     let predecessors = compute_predecessors(blocks);
+    let has_exception_nointerrupt_jump_to_last_block = blocks.iter().any(|block| {
+        (block.cold || block.except_handler)
+            && block.instructions.iter().any(|instr| {
+                matches!(
+                    jump_thread_kind(instr.instr),
+                    Some(JumpThreadKind::NoInterrupt)
+                ) && instr.target != BlockIdx::NULL
+                    && next_nonempty_block(blocks, instr.target) == last_block
+            })
+    });
 
     // Find non-cold blocks that reach the last return block either by
     // fallthrough or as an unconditional jump target that should get its own
@@ -11110,6 +11159,7 @@ fn duplicate_end_returns(blocks: &mut Vec<Block>, metadata: &CodeUnitMetadata) {
                 && has_fallthrough
                 && trailing_conditional_jump_index(block).is_none()
                 && !has_nointerrupt_jump_to_last_block
+                && !has_exception_nointerrupt_jump_to_last_block
                 && !already_has_return
             {
                 fallthrough_blocks_to_fix.push(current);

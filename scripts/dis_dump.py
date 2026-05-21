@@ -18,6 +18,7 @@ import dis
 import json
 import os
 import re
+import struct
 import sys
 import types
 
@@ -108,6 +109,22 @@ def _normalize_argrepr(argrepr):
     return argrepr
 
 
+def _normalize_const_repr(value):
+    """Return a cross-interpreter representation for LOAD_CONST values."""
+    if isinstance(value, float):
+        return f"float:{struct.pack('>d', value).hex()}"
+    if isinstance(value, tuple):
+        if not value:
+            return "()"
+        parts = [_normalize_const_repr(item) for item in value]
+        trailing = "," if len(parts) == 1 else ""
+        return f"({', '.join(parts)}{trailing})"
+    if isinstance(value, frozenset):
+        parts = sorted(_normalize_const_repr(item) for item in value)
+        return f"frozenset({{{', '.join(parts)}}})"
+    return _normalize_argrepr(repr(value))
+
+
 _IS_RUSTPYTHON = (
     hasattr(sys, "implementation") and sys.implementation.name == "rustpython"
 )
@@ -151,7 +168,7 @@ def _resolve_arg_fallback(code, opname, arg):
             return _resolve_localsplus_name(code, arg)
         elif opname == "LOAD_CONST":
             if 0 <= arg < len(code.co_consts):
-                return _normalize_argrepr(repr(code.co_consts[arg]))
+                return _normalize_const_repr(code.co_consts[arg])
         elif opname in (
             "LOAD_DEREF",
             "STORE_DEREF",
@@ -294,7 +311,10 @@ def _extract_instructions(code):
         elif inst.arg is not None and inst.argrepr:
             # If argrepr is just a number, try to resolve it via fallback
             # (RustPython may return raw index instead of variable name)
-            argrepr = inst.argrepr
+            if opname == "LOAD_CONST" and 0 <= inst.arg < len(code.co_consts):
+                argrepr = _normalize_const_repr(code.co_consts[inst.arg])
+            else:
+                argrepr = inst.argrepr
             if argrepr.isdigit() or (argrepr.startswith("-") and argrepr[1:].isdigit()):
                 resolved = _resolve_arg_fallback(code, opname, inst.arg)
                 if isinstance(resolved, str) and not resolved.isdigit():
