@@ -3046,6 +3046,9 @@ pub(crate) fn mangle_name<'a>(class_name: Option<&str>, name: &'a str) -> Cow<'a
     }
     // Strip leading underscores from class name
     let class_name = class_name.trim_start_matches('_');
+    if class_name.is_empty() {
+        return name.into();
+    }
     let mut ret = String::with_capacity(1 + class_name.len() + name.len());
     ret.push('_');
     ret.push_str(class_name);
@@ -3067,4 +3070,22 @@ pub(crate) fn maybe_mangle_name<'a>(
         return name.into();
     }
     mangle_name(class_name, name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mangle_name;
+
+    #[test]
+    fn mangle_name_leaves_private_name_in_underscore_only_class() {
+        assert_eq!(mangle_name(Some("_"), "__a"), "__a");
+        assert_eq!(mangle_name(Some("__"), "__a"), "__a");
+        assert_eq!(mangle_name(Some("___"), "__a"), "__a");
+    }
+
+    #[test]
+    fn mangle_name_strips_leading_class_underscores() {
+        assert_eq!(mangle_name(Some("_a"), "__a"), "_a__a");
+        assert_eq!(mangle_name(Some("__a"), "__a"), "_a__a");
+    }
 }
