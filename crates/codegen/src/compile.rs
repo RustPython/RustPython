@@ -1016,6 +1016,31 @@ impl Compiler {
             )
     }
 
+    fn statements_are_name_store_then_same_name_method_call(body: &[ast::Stmt]) -> bool {
+        let [
+            ast::Stmt::Assign(ast::StmtAssign { targets, .. }),
+            ast::Stmt::Expr(ast::StmtExpr { value, .. }),
+        ] = body
+        else {
+            return false;
+        };
+        let [ast::Expr::Name(ast::ExprName { id: stored, .. })] = targets.as_slice() else {
+            return false;
+        };
+        matches!(
+            value.as_ref(),
+            ast::Expr::Call(ast::ExprCall { func, .. })
+                if matches!(
+                    func.as_ref(),
+                    ast::Expr::Attribute(ast::ExprAttribute { value, .. })
+                        if matches!(
+                            value.as_ref(),
+                            ast::Expr::Name(ast::ExprName { id, .. }) if id == stored
+                        )
+                )
+        )
+    }
+
     fn statements_are_single_unpack_store_from_call(body: &[ast::Stmt]) -> bool {
         let [ast::Stmt::Assign(ast::StmtAssign { targets, value, .. })] = body else {
             return false;
@@ -5346,6 +5371,8 @@ impl Compiler {
                     && Self::statements_are_single_name_store_from_attr_call_or_subscript(body))
                 || (self.fallthrough_next_statement_is_try
                     && Self::statements_are_name_stores_from_calls(body))
+                || (self.fallthrough_next_statement_is_try
+                    && Self::statements_are_name_store_then_same_name_method_call(body))
                 || ((!handlers_have_alias
                     || !has_terminal_raise_handlers
                     || self.ctx.loop_data.is_some()
@@ -5354,12 +5381,23 @@ impl Compiler {
                 || (has_terminal_raise_handlers
                     && self.fallthrough_has_local_statement_successor
                     && Self::statements_are_single_bound_method_call_expr(body))
+                || (handlers_end_with_scope_exit
+                    && !has_terminal_raise_handlers
+                    && self.fallthrough_has_local_statement_successor
+                    && Self::statements_are_single_bound_method_call_expr(body))
                 || (handlers_end_with_continue
                     && self.ctx.loop_data.is_some()
                     && Self::statements_are_single_for_loop(body))
                 || (handlers_end_with_scope_exit
                     && !has_terminal_raise_handlers
                     && Self::statements_end_with_for_loop(body)));
+        let preserve_conditional_method_probe_end = self.current_code_info().in_conditional_block
+            > 0
+            && orelse.is_empty()
+            && handlers_are_typed
+            && handlers_end_with_scope_exit
+            && !has_terminal_raise_handlers
+            && Self::statements_are_single_bound_method_call_expr(body);
         let preserve_next_try_after_handler_fallthrough_end =
             self.fallthrough_next_statement_is_try
                 && orelse.is_empty()
@@ -5406,6 +5444,7 @@ impl Compiler {
             || preserve_try_else_attribute_probe_end
             || preserve_try_else_end
             || preserve_handler_scope_exit_end
+            || preserve_conditional_method_probe_end
             || preserve_next_try_after_handler_fallthrough_end
             || preserve_next_try_after_bare_handler_end
             || preserve_loop_next_try_after_nested_try_orelse_end
@@ -5419,6 +5458,7 @@ impl Compiler {
                 || preserve_try_else_attribute_probe_end
                 || preserve_try_else_end
                 || preserve_handler_scope_exit_end
+                || preserve_conditional_method_probe_end
                 || preserve_next_try_after_handler_fallthrough_end
                 || preserve_next_try_after_bare_handler_end
                 || preserve_loop_next_try_after_nested_try_orelse_end
@@ -14690,6 +14730,109 @@ def f(self, w, pid, prev):
                 .all(|op| matches!(op, Instruction::LoadFastLoadFast { .. }))
                 && !pid_self_pairs.is_empty(),
             "CPython keeps the second store-attr source pair strong in the same try/except/else/finally else suite, got {pid_self_pairs:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_end_before_following_try_keeps_protected_attr_loads_strong() {
+        let code = compile_exec(
+            "\
+def f(f, dotlock=True):
+    dotlock_done = False
+    try:
+        if dotlock:
+            try:
+                pre_lock = _create_temporary(f.name + '.lock')
+                pre_lock.close()
+            except OSError as e:
+                if e.errno in (errno.EACCES, errno.EROFS):
+                    return
+                else:
+                    raise
+            try:
+                try:
+                    os.link(pre_lock.name, f.name + '.lock')
+                    dotlock_done = True
+                except (AttributeError, PermissionError):
+                    os.rename(pre_lock.name, f.name + '.lock')
+                    dotlock_done = True
+                else:
+                    os.unlink(pre_lock.name)
+            except FileExistsError:
+                os.remove(pre_lock.name)
+                raise ExternalClashError('dot lock unavailable: %s' %
+                                         f.name)
+    except:
+        if dotlock_done:
+            os.remove(f.name + '.lock')
+        raise
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let pre_lock_loads = load_fast_ops_for_var(f, "pre_lock");
+        let strong_pre_lock_loads = pre_lock_loads
+            .iter()
+            .filter(|op| matches!(op, Instruction::LoadFast { .. }))
+            .count();
+        assert!(
+            strong_pre_lock_loads >= 2,
+            "CPython codegen_try_except() emits USE_LABEL(end) before the following try; flowgraph.c::optimize_load_fast() does not push fallthrough through the empty end label, so protected pre_lock attr receivers stay strong, got {pre_lock_loads:?}"
+        );
+        let f_loads = load_fast_ops_for_var(f, "f");
+        assert!(
+            f_loads
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython keeps the f.name receiver inside the following protected try strong after the preceding try/except end label, got {f_loads:?}"
+        );
+    }
+
+    #[test]
+    fn test_try_except_method_probe_end_before_if_keeps_loads_strong() {
+        let code = compile_exec(
+            "\
+def f(param, value=None, quote=True):
+    if value is not None and len(value) > 0:
+        if isinstance(value, tuple):
+            param += '*'
+            value = encode(value[2], value[0], value[1])
+            return f'{param}={value}'
+        else:
+            try:
+                value.encode('ascii')
+            except UnicodeEncodeError:
+                param += '*'
+                value = encode(value, 'utf-8', '')
+                return f'{param}={value}'
+        if quote or tspecials.search(value):
+            return f'{param}=\"{quote_value(value)}\"'
+        else:
+            return f'{param}={value}'
+    else:
+        return param
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let quote_loads = load_fast_ops_for_var(f, "quote");
+        assert!(
+            quote_loads
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython codegen_try_except() emits USE_LABEL(end) after a handled method probe; flowgraph.c::optimize_load_fast() leaves the following if-test local strong, got {quote_loads:?}"
+        );
+        let param_loads = load_fast_ops_for_var(f, "param");
+        assert!(
+            param_loads
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython keeps the return f-string local loads strong after the protected method-probe end label, got {param_loads:?}"
+        );
+        let value_loads = load_fast_ops_for_var(f, "value");
+        assert!(
+            value_loads
+                .iter()
+                .any(|op| matches!(op, Instruction::LoadFast { .. })),
+            "CPython keeps the post-try value loads strong after the protected method-probe end label, got {value_loads:?}"
         );
     }
 
