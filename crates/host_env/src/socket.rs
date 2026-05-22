@@ -3,19 +3,9 @@ use crate::os::CheckLibcResult;
 #[cfg(unix)]
 use core::ffi::CStr;
 #[cfg(unix)]
-use core::time::Duration;
-#[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::{io, os::fd::BorrowedFd};
-
-#[cfg(unix)]
-#[derive(Copy, Clone)]
-pub enum PollKind {
-    Read,
-    Write,
-    Connect,
-}
 
 #[cfg(all(unix, not(target_os = "redox")))]
 pub fn sethostname(hostname: &str) -> io::Result<()> {
@@ -109,29 +99,6 @@ pub fn setsockopt_none(fd: libc::c_int, level: i32, name: i32, optlen: u32) -> i
     }
     .check_libc_neg()?;
     Ok(())
-}
-
-#[cfg(unix)]
-pub fn poll_socket(
-    fd: BorrowedFd<'_>,
-    kind: PollKind,
-    interval: Option<Duration>,
-) -> io::Result<bool> {
-    use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
-
-    let events = match kind {
-        PollKind::Read => PollFlags::POLLIN,
-        PollKind::Write => PollFlags::POLLOUT,
-        PollKind::Connect => PollFlags::POLLOUT | PollFlags::POLLERR,
-    };
-    let mut pollfd = [PollFd::new(fd, events)];
-    let timeout = match interval {
-        Some(d) => d.try_into().unwrap_or(PollTimeout::MAX),
-        None => PollTimeout::NONE,
-    };
-    poll(&mut pollfd, timeout)
-        .map(|ret| ret == 0)
-        .map_err(io::Error::from)
 }
 
 #[cfg(any(
