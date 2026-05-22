@@ -52,7 +52,10 @@ pub unsafe extern "C" fn PyCapsule_GetContext(capsule: *mut PyObject) -> *mut c_
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyCapsule_SetContext(capsule: *mut PyObject, context: *mut c_void) -> c_int {
+pub unsafe extern "C" fn PyCapsule_SetContext(
+    capsule: *mut PyObject,
+    context: *mut c_void,
+) -> c_int {
     with_vm(|vm| {
         let capsule = unsafe { &*capsule }
             .downcast_ref_if_exact::<PyCapsule>(vm)
@@ -63,7 +66,10 @@ pub unsafe extern "C" fn PyCapsule_SetContext(capsule: *mut PyObject, context: *
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyCapsule_SetPointer(capsule: *mut PyObject, pointer: *mut c_void) -> c_int {
+pub unsafe extern "C" fn PyCapsule_SetPointer(
+    capsule: *mut PyObject,
+    pointer: *mut c_void,
+) -> c_int {
     with_vm(|vm| {
         let capsule = unsafe { &*capsule }
             .downcast_ref_if_exact::<PyCapsule>(vm)
