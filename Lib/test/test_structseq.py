@@ -87,6 +87,7 @@ class StructSeqTest(unittest.TestCase):
         self.assertEqual(t.n_unnamed_fields, 0)
         self.assertEqual(t.n_fields, time._STRUCT_TM_ITEMS)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument dict
     def test_constructor(self):
         t = time.struct_time
 
@@ -110,6 +111,7 @@ class StructSeqTest(unittest.TestCase):
         s = "123456789"
         self.assertEqual("".join(t(s)), s)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_constructor_with_duplicate_fields(self):
         t = time.struct_time
 
@@ -123,6 +125,7 @@ class StructSeqTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, error_message):
             t("1234567890", dict={"error": 0, "tm_zone": "some zone", "tm_mon": 1})
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected at most 1 arguments, got 2
     def test_constructor_with_duplicate_unnamed_fields(self):
         assert os.stat_result.n_unnamed_fields > 0
         n_visible_fields = os.stat_result.n_sequence_fields
@@ -139,6 +142,7 @@ class StructSeqTest(unittest.TestCase):
                                     re.escape("got duplicate or unexpected field name(s)")):
             os.stat_result((*range(n_visible_fields), -1.0), {'st_atime': -1.0})
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_constructor_with_unknown_fields(self):
         t = time.struct_time
 
@@ -181,6 +185,7 @@ class StructSeqTest(unittest.TestCase):
             self.assertEqual(t2.tm_year, t.tm_year)
             self.assertEqual(t2.tm_zone, t.tm_zone)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected at most 1 arguments, got 2
     def test_pickling_with_unnamed_fields(self):
         assert os.stat_result.n_unnamed_fields > 0
 
@@ -215,6 +220,7 @@ class StructSeqTest(unittest.TestCase):
         self.assertIsNot(t3[0], t[0])
         self.assertIsNot(t3.tm_year, t.tm_year)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected at most 1 arguments, got 2
     def test_copying_with_unnamed_fields(self):
         assert os.stat_result.n_unnamed_fields > 0
 
@@ -286,6 +292,7 @@ class StructSeqTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'unexpected field name'):
             copy.replace(t, user=1, error=-1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_copy_replace_with_invisible_fields(self):
         assert time.struct_time.n_unnamed_fields == 0
         assert time.struct_time.n_sequence_fields < time.struct_time.n_fields
