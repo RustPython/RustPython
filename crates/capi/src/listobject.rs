@@ -90,12 +90,14 @@ pub unsafe extern "C" fn PyList_Insert(
         let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
         let item = unsafe { &*item }.to_owned();
         let mut vec = list.borrow_vec_mut();
-        if index as usize > vec.len() {
-            Err(vm.new_index_error(format!("list index out of range: {index}")))
+        let index = if index < 0 {
+            index + vec.len() as isize
         } else {
-            vec.insert(index as _, item);
-            Ok(())
+            index
         }
+        .clamp(0, vec.len() as isize) as usize;
+        vec.insert(index, item);
+        Ok(())
     })
 }
 
@@ -167,7 +169,8 @@ mod tests {
             assert_eq!(list.len(), 0);
             list.insert(0, 1).unwrap();
             assert_eq!(list.len(), 1);
-            assert!(list.insert(2, 3).is_err());
+            list.insert(2, 3).unwrap();
+            assert_eq!(list.get_item(1).unwrap().extract::<u32>().unwrap(), 3);
         })
     }
 
