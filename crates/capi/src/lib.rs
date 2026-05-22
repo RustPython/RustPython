@@ -18,6 +18,7 @@ pub mod floatobject;
 pub mod import;
 pub mod listobject;
 pub mod longobject;
+pub mod methodobject;
 pub mod object;
 pub mod pycapsule;
 pub mod pyerrors;
