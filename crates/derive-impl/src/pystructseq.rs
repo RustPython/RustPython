@@ -205,7 +205,7 @@ pub(crate) fn impl_pystruct_sequence_data(
     let n_unnamed_fields = field_info.n_unnamed_fields();
 
     // Generate field index constants for visible fields (with cfg guards)
-    let field_indices: Vec<_> = visible_fields
+    let field_indices = visible_fields
         .iter()
         .enumerate()
         .map(|(i, field)| {
@@ -216,10 +216,10 @@ pub(crate) fn impl_pystruct_sequence_data(
                 pub const #const_name: usize = #i;
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     // Generate field name entries with cfg guards for named fields
-    let named_field_names: Vec<_> = named_fields
+    let named_field_names = named_fields
         .iter()
         .map(|f| {
             let ident = &f.ident;
@@ -233,10 +233,10 @@ pub(crate) fn impl_pystruct_sequence_data(
                 }
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     // Generate field name entries with cfg guards for skipped fields
-    let skipped_field_names: Vec<_> = skipped_fields
+    let skipped_field_names = skipped_fields
         .iter()
         .map(|f| {
             let ident = &f.ident;
@@ -250,10 +250,10 @@ pub(crate) fn impl_pystruct_sequence_data(
                 }
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     // Generate into_tuple items with cfg guards
-    let visible_tuple_items: Vec<_> = visible_fields
+    let visible_tuple_items = visible_fields
         .iter()
         .map(|f| {
             let ident = &f.ident;
@@ -269,9 +269,9 @@ pub(crate) fn impl_pystruct_sequence_data(
                 }
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
-    let skipped_tuple_items: Vec<_> = skipped_fields
+    let skipped_tuple_items = skipped_fields
         .iter()
         .map(|f| {
             let ident = &f.ident;
@@ -287,7 +287,7 @@ pub(crate) fn impl_pystruct_sequence_data(
                 }
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     // Generate TryFromObject impl only when try_from_object=true
     let try_from_object_impl = if try_from_object {
@@ -426,6 +426,7 @@ impl ItemMeta for PyStructSequenceMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self { inner }
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.inner
     }
