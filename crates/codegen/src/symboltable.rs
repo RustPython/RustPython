@@ -32,6 +32,9 @@ pub struct SymbolTable {
     // Return True if the block is a nested class or function
     pub is_nested: bool,
 
+    /// Whether this function-like scope was created directly in a class block.
+    pub is_method: bool,
+
     /// A set of symbols present on this scope level.
     pub symbols: IndexMap<String, Symbol>,
 
@@ -90,6 +93,7 @@ impl SymbolTable {
             typ,
             line_number,
             is_nested,
+            is_method: false,
             symbols: IndexMap::default(),
             sub_tables: vec![],
             next_sub_table: 0,
@@ -1103,6 +1107,7 @@ impl SymbolTableBuilder {
                 | CompilerScope::Lambda
                 | CompilerScope::Comprehension
                 | CompilerScope::Annotation
+                | CompilerScope::TypeParams
         )
     }
 
@@ -1118,11 +1123,17 @@ impl SymbolTableBuilder {
     }
 
     fn enter_scope(&mut self, name: &str, typ: CompilerScope, line_number: u32) {
-        let is_nested = self.tables.last().is_some_and(|table| {
-            table.is_nested
-                || matches!(
-                    table.typ,
-                    CompilerScope::Function | CompilerScope::AsyncFunction
+        let parent = self.tables.last();
+        let is_nested =
+            parent.is_some_and(|table| table.is_nested || Self::is_function_like_scope(table.typ));
+        let is_method = parent.is_some_and(|table| {
+            table.typ == CompilerScope::Class
+                && matches!(
+                    typ,
+                    CompilerScope::Function
+                        | CompilerScope::AsyncFunction
+                        | CompilerScope::Lambda
+                        | CompilerScope::Comprehension
                 )
         });
         // Inherit mangled_names from parent for non-class scopes
@@ -1132,6 +1143,7 @@ impl SymbolTableBuilder {
             .and_then(|t| t.mangled_names.clone())
             .filter(|_| typ != CompilerScope::Class);
         let mut table = SymbolTable::new(name.to_owned(), typ, line_number, is_nested);
+        table.is_method = is_method;
         table.future_annotations = self.future_annotations;
         table.mangled_names = inherited_mangled_names;
         self.tables.push(table);
@@ -1145,6 +1157,8 @@ impl SymbolTableBuilder {
         name: &str,
         line_number: u32,
         for_class: bool,
+        has_defaults: bool,
+        has_kwdefaults: bool,
     ) -> SymbolTableResult {
         // Check if we're in a class scope
         let in_class = self
@@ -1174,6 +1188,12 @@ impl SymbolTableBuilder {
         if for_class {
             self.register_name(".generic_base", SymbolUsage::Assigned, TextRange::default())?;
         }
+        if has_defaults {
+            self.register_name(".defaults", SymbolUsage::Parameter, TextRange::default())?;
+        }
+        if has_kwdefaults {
+            self.register_name(".kwdefaults", SymbolUsage::Parameter, TextRange::default())?;
+        }
 
         Ok(())
     }
@@ -1195,6 +1215,7 @@ impl SymbolTableBuilder {
         let can_see_class_scope =
             current.typ == CompilerScope::Class || current.can_see_class_scope;
         let has_conditional = current.has_conditional_annotations;
+        let is_nested = current.is_nested || Self::is_function_like_scope(current.typ);
 
         // Create annotation block if not exists
         if current.annotation_block.is_none() {
@@ -1202,7 +1223,7 @@ impl SymbolTableBuilder {
                 "__annotate__".to_owned(),
                 CompilerScope::Annotation,
                 line_number,
-                true, // is_nested
+                is_nested,
             );
             // Annotation scope in class can see class scope
             annotation_table.can_see_class_scope = can_see_class_scope;
@@ -1488,6 +1509,8 @@ impl SymbolTableBuilder {
                         &format!("<generic parameters of {}>", name.as_str()),
                         self.line_index_start(type_params.range),
                         false,
+                        true,
+                        Self::has_kwonlydefaults(parameters),
                     )?;
                     self.scan_type_params(type_params)?;
                 }
@@ -1536,6 +1559,8 @@ impl SymbolTableBuilder {
                         &format!("<generic parameters of {}>", name.as_str()),
                         self.line_index_start(type_params.range),
                         true, // for_class: enable selective mangling
+                        false,
+                        false,
                     )?;
                     // Set class_name for mangling in type param scope
                     self.class_name = Some(name.to_string());
@@ -1846,6 +1871,8 @@ impl SymbolTableBuilder {
                     self.enter_type_param_block(
                         &format!("<generic parameters of {alias_name}>"),
                         self.line_index_start(type_params.range),
+                        false,
+                        false,
                         false,
                     )?;
                     self.scan_type_params(type_params)?;
@@ -2583,6 +2610,13 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
+    fn has_kwonlydefaults(parameters: &ast::Parameters) -> bool {
+        parameters
+            .kwonlyargs
+            .iter()
+            .any(|arg| arg.default.is_some())
+    }
+
     fn enter_scope_with_parameters(
         &mut self,
         name: &str,
@@ -2704,17 +2738,6 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    fn add_varname_to_scope(&mut self, table_idx: usize, name: &str) {
-        let varnames = if table_idx + 1 == self.tables.len() {
-            &mut self.current_varnames
-        } else {
-            &mut self.varnames_stack[table_idx + 1]
-        };
-        if !varnames.iter().any(|existing| existing == name) {
-            varnames.push(name.to_owned());
-        }
-    }
-
     // Mirrors CPython symtable_extend_namedexpr_scope(): assignment expressions
     // inside comprehensions bind in the nearest function/module-like scope, not
     // in the synthetic comprehension scope itself.
@@ -2752,9 +2775,6 @@ impl SymbolTableBuilder {
 
             match table_type {
                 CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda => {
-                    let current_comp_inlined = self.tables.last().is_some_and(|table| {
-                        table.typ == CompilerScope::Comprehension && table.comp_inlined
-                    });
                     let parent_is_global = self.tables[table_idx]
                         .symbols
                         .get(mangled.as_str())
@@ -2777,9 +2797,6 @@ impl SymbolTableBuilder {
                         .entry(mangled.clone())
                         .or_insert_with(|| Symbol::new(mangled.as_str()));
                     symbol.flags.insert(SymbolFlags::ASSIGNED);
-                    if !parent_is_global && current_comp_inlined {
-                        self.add_varname_to_scope(table_idx, mangled.as_str());
-                    }
                     return Ok(());
                 }
                 CompilerScope::Module => {
