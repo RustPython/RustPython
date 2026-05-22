@@ -102,12 +102,12 @@ fn parse_fields(input: &mut DeriveInput) -> Result<FieldInfo> {
                 bail_span!(input, "Only #[pystruct_sequence(...)] form is allowed");
             };
 
-            let idents: Vec<_> = l
+            let idents = l
                 .nested
                 .iter()
                 .filter_map(|n| n.get_ident())
                 .cloned()
-                .collect();
+                .collect::<Vec<_>>();
 
             for ident in idents {
                 match ident.to_string().as_str() {
