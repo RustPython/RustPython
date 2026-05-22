@@ -13,6 +13,7 @@ pub mod boolobject;
 pub mod bytesobject;
 pub mod ceval;
 pub mod dictobject;
+pub mod floatobject;
 pub mod import;
 pub mod longobject;
 pub mod object;
