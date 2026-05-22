@@ -224,13 +224,9 @@ pub(crate) fn impl_pystruct_sequence_data(
         .map(|f| {
             let ident = &f.ident;
             let cfg_attrs = &f.cfg_attrs;
-            if cfg_attrs.is_empty() {
-                quote! { stringify!(#ident), }
-            } else {
-                quote! {
-                    #(#cfg_attrs)*
-                    { stringify!(#ident) },
-                }
+            quote! {
+                #(#cfg_attrs)*
+                { stringify!(#ident) },
             }
         })
         .collect::<Vec<_>>();
@@ -241,13 +237,9 @@ pub(crate) fn impl_pystruct_sequence_data(
         .map(|f| {
             let ident = &f.ident;
             let cfg_attrs = &f.cfg_attrs;
-            if cfg_attrs.is_empty() {
-                quote! { stringify!(#ident), }
-            } else {
-                quote! {
-                    #(#cfg_attrs)*
-                    { stringify!(#ident) },
-                }
+            quote! {
+                #(#cfg_attrs)*
+                { stringify!(#ident) },
             }
         })
         .collect::<Vec<_>>();
@@ -258,15 +250,9 @@ pub(crate) fn impl_pystruct_sequence_data(
         .map(|f| {
             let ident = &f.ident;
             let cfg_attrs = &f.cfg_attrs;
-            if cfg_attrs.is_empty() {
-                quote! {
-                    ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm),
-                }
-            } else {
-                quote! {
-                    #(#cfg_attrs)*
-                    { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
-                }
+            quote! {
+                #(#cfg_attrs)*
+                { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
             }
         })
         .collect::<Vec<_>>();
@@ -276,15 +262,9 @@ pub(crate) fn impl_pystruct_sequence_data(
         .map(|f| {
             let ident = &f.ident;
             let cfg_attrs = &f.cfg_attrs;
-            if cfg_attrs.is_empty() {
-                quote! {
-                    ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm),
-                }
-            } else {
-                quote! {
-                    #(#cfg_attrs)*
-                    { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
-                }
+            quote! {
+                #(#cfg_attrs)*
+                { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
             }
         })
         .collect::<Vec<_>>();
@@ -317,44 +297,33 @@ pub(crate) fn impl_pystruct_sequence_data(
 
     // Generate try_from_elements trait override only when try_from_object=true
     let try_from_elements_trait_override = if try_from_object {
-        let visible_field_inits: Vec<_> = visible_fields
+        let visible_field_inits = visible_fields
             .iter()
             .map(|f| {
                 let ident = &f.ident;
                 let cfg_attrs = &f.cfg_attrs;
-                if cfg_attrs.is_empty() {
-                    quote! { #ident: iter.next().unwrap().clone().try_into_value(vm)?, }
-                } else {
-                    quote! {
-                        #(#cfg_attrs)*
-                        #ident: iter.next().unwrap().clone().try_into_value(vm)?,
-                    }
+                quote! {
+                    #(#cfg_attrs)*
+                    #ident: iter.next().unwrap().clone().try_into_value(vm)?,
                 }
             })
-            .collect();
-        let skipped_field_inits: Vec<_> = skipped_fields
+            .collect::<Vec<_>>();
+
+        let skipped_field_inits = skipped_fields
             .iter()
             .map(|f| {
                 let ident = &f.ident;
                 let cfg_attrs = &f.cfg_attrs;
-                if cfg_attrs.is_empty() {
-                    quote! {
-                        #ident: match iter.next() {
-                            Some(v) => v.clone().try_into_value(vm)?,
-                            None => vm.ctx.none(),
-                        },
-                    }
-                } else {
-                    quote! {
-                        #(#cfg_attrs)*
-                        #ident: match iter.next() {
-                            Some(v) => v.clone().try_into_value(vm)?,
-                            None => vm.ctx.none(),
-                        },
-                    }
+                quote! {
+                    #(#cfg_attrs)*
+                    #ident: match iter.next() {
+                        Some(v) => v.clone().try_into_value(vm)?,
+                        None => vm.ctx.none(),
+                    },
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+
         quote! {
             fn try_from_elements(
                 elements: Vec<::rustpython_vm::PyObjectRef>,
