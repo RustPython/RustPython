@@ -22,7 +22,7 @@ use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
 use std::collections::HashSet;
 use x509_parser::prelude::*;
 
-use super::compat::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT};
+use super::_ssl::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT};
 
 // Certificate Verification Constants
 

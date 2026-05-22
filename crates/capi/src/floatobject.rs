@@ -12,7 +12,7 @@ pub extern "C" fn PyFloat_FromDouble(value: c_double) -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyFloat_AsDouble(obj: *mut PyObject) -> c_double {
+pub unsafe extern "C" fn PyFloat_AsDouble(obj: *mut PyObject) -> c_double {
     with_vm(|vm| {
         let obj_ref = unsafe { &*obj };
         let float_obj = obj_ref

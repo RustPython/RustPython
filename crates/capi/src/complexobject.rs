@@ -27,12 +27,12 @@ fn try_to_complex(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Complex64> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyComplex_RealAsDouble(obj: *mut PyObject) -> c_double {
+pub unsafe extern "C" fn PyComplex_RealAsDouble(obj: *mut PyObject) -> c_double {
     with_vm(|vm| try_to_complex(vm, unsafe { &*obj }).map(|complex| complex.re))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyComplex_ImagAsDouble(obj: *mut PyObject) -> c_double {
+pub unsafe extern "C" fn PyComplex_ImagAsDouble(obj: *mut PyObject) -> c_double {
     with_vm(|vm| try_to_complex(vm, unsafe { &*obj }).map(|complex| complex.im))
 }
 
