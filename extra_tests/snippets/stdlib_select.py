@@ -62,6 +62,16 @@ if sys.platform != "win32":
         resource.setrlimit(resource.RLIMIT_NOFILE, (soft_max_fds, hard_max_fds))
 sockets = [s for _ in range(TOO_MANY_SELECT_FDS // 2) for s in socket.socketpair()]
 assert_raises(ValueError, select.select, sockets, [], [], 0)
+if sys.platform != "win32":
+    # Try to overflow descriptor bit mask on *nix with a single item
+    max_fd = -1
+    max_fd_sock = None
+    sockets.reverse()
+    for sock in sockets:
+        if sock.fileno() > max_fd:
+            max_fd = sock.fileno()
+            max_fd_sock = sock
+    assert_raises(ValueError, select.select, [max_fd_sock], [], [], 0)
 del sockets
 a, b = socket.socketpair()
 # CPython disallows this on *nix systems too.
