@@ -324,7 +324,7 @@ mod decl {
             buf.write_u8(b'c');
             marshal::serialize_code(buf, &co.code);
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
-            if version < 5 {
+            if version < 4 {
                 return Err(vm.new_value_error("unmarshallable object".to_string()));
             }
             buf.write_u8(b':');
