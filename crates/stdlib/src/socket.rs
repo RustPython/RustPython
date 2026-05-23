@@ -1563,15 +1563,15 @@ mod _socket {
         fn bind(&self, address: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
             let sock_addr = self.extract_address(address, "bind", vm)?;
 
-            if let Some(addr) = sock_addr.as_socket() {
-                if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-                    let (ip, port) = match addr {
-                        SocketAddr::V4(addr) => (addr.ip().to_string(), addr.port()),
-                        SocketAddr::V6(addr) => (addr.ip().to_string(), addr.port()),
-                    };
+            if let Some(addr) = sock_addr.as_socket()
+                && let Ok(audit) = vm.sys_module.get_attr("audit", vm)
+            {
+                let (ip, port) = match addr {
+                    SocketAddr::V4(addr) => (addr.ip().to_string(), addr.port()),
+                    SocketAddr::V6(addr) => (addr.ip().to_string(), addr.port()),
+                };
 
-                    audit.call((vm.ctx.new_str("socket.bind"), (ip, port)), vm)?;
-                }
+                audit.call((vm.ctx.new_str("socket.bind"), (ip, port)), vm)?;
             }
 
             Ok(self.sock()?.bind(&sock_addr)?)
