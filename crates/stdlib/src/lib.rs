@@ -27,6 +27,9 @@ mod lzma;
 
 mod zlib;
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+mod zstd;
+
 mod blake2;
 mod hashlib;
 mod md5;
@@ -275,5 +278,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         ))]
         uuid::module_def(ctx),
         zlib::module_def(ctx),
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        zstd::module_def(ctx),
     ]
 }

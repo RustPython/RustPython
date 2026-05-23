@@ -307,6 +307,8 @@ x509-cert = "0.2.5"
 x509-parser = "0.18"
 xml = "1.2"
 writeable = "0.6"
+zstd = { version = "0.13", default-features = false, features = ["zdict_builder"] }
+zstd-safe = { version = "7", default-features = false, features = ["zdict_builder"] }
 
 # Lints
 
