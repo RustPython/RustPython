@@ -5,7 +5,7 @@ use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use rustpython_wtf8::Wtf8;
 
-pub const FORMAT_VERSION: u32 = 5;
+pub const FORMAT_VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug)]
 pub enum MarshalError {
