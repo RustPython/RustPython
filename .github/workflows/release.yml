@@ -196,7 +196,11 @@ jobs:
             git log --oneline --no-merges | head -n 50 >> /tmp/release_notes.md
           fi
           echo "" >> /tmp/release_notes.md
-          echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${tag}" >> /tmp/release_notes.md
+          if [ -n "$PREV_TAG" ]; then
+            echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${tag}" >> /tmp/release_notes.md
+          else
+            echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/commits/${tag}" >> /tmp/release_notes.md
+          fi
 
           gh release create "$today-$tag-$run" \
             --repo="$GITHUB_REPOSITORY" \
