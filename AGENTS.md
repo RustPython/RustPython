@@ -81,6 +81,35 @@ The `Lib/` directory contains Python standard library files copied from the CPyt
   - `unittest.skip("TODO: RustPython <reason>")`
   - `unittest.expectedFailure` with `# TODO: RUSTPYTHON <reason>` comment
 
+#### Choosing the right marker
+
+When marking a test that fails on RustPython, prefer one of the following forms:
+
+```python
+@unittest.expectedFailure  # TODO: RUSTPYTHON; <reason>
+# or
+@unittest.expectedFailureIf(<condition>, "TODO: RUSTPYTHON; <reason>")
+```
+
+If the test would crash the interpreter (segfault, Rust panic, abort, infinite loop), use `skip` instead so the rest of the suite can still run:
+
+```python
+@unittest.skip("TODO: RUSTPYTHON; <reason>")
+# or
+@unittest.skipIf(<condition>, "TODO: RUSTPYTHON; <reason>")
+```
+
+**When to use which:**
+
+- **Prefer `expectedFailure` / `expectedFailureIf`** by default. The test body still runs, so if RustPython is later fixed, the unexpected pass surfaces immediately and the decorator can be removed. Use the conditional `*If` form when the failure is environment-specific (e.g., a platform or build flag).
+- **Use `skip` / `skipIf` only when running the test would take down the test process** — segfaults, Rust panics, aborts, or hangs that block subsequent tests. Skipping keeps the suite usable; `expectedFailure` cannot help here, because the test body still executes.
+
+To find WIP entries that are partly modified and may need follow-up:
+
+```bash
+grep -d recurse 'TODO: RUSTPYTHON' Lib/test/
+```
+
 ### Clean Build
 
 When you modify bytecode instructions, a full clean is required:
@@ -258,9 +287,37 @@ See DEVELOPMENT.md "CPython Version Upgrade Checklist" section.
 - Document that it requires PEP 695 support
 - Focus on tests that can be fixed through Rust code changes only
 
+## CI Workflows and Security Audits
+
+PR CI runs [zizmor](https://docs.zizmor.sh/) to audit `.github/workflows/*.yaml` for security issues. The most common failure for contributors editing workflows is the `impostor-commit` audit, which can reject a PR even when the SHA pin "looks correct".
+
+### Avoiding the `impostor-commit` audit
+
+GitHub's fork network lets a commit that exists only on a fork be referenced via the parent repo's `owner/repo` slug. A malicious fork could publish a backdoored commit and reference it as if it lived on the canonical upstream — a hash-pinned `uses:` line that visually matches best practice but actually points into a fork. zizmor's [`impostor-commit` audit](https://docs.zizmor.sh/audits/#impostor-commit) detects this by querying whether the commit really exists in the claimed repo.
+
+**Rule:** when adding or updating a `uses:` line, always pin to a SHA that exists in the **canonical** upstream repo for that action, never one that only exists on a fork.
+
+Verify a pin before pushing:
+
+```bash
+# For: uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+gh api repos/actions/checkout/commits/de0fac2e4500dabe0009e67214ff5f5447ce83dd --jq .sha
+```
+
+If the response is the same SHA, the commit is canonical and the pin is safe. A `404` means the SHA does not exist in `actions/checkout` (it lives only on a fork) — zizmor will flag it as an impostor and CI will fail.
+
+**Repo convention:** every third-party action is pinned to a full 40-char SHA with the human-readable tag in a trailing comment, e.g. `actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2`. Use the same style when adding new actions.
+
+To find the canonical SHA for a tag, use the canonical repo's release/tag page on github.com (the SHA shown next to the tag) or:
+
+```bash
+gh api repos/<owner>/<repo>/git/refs/tags/<tag> --jq .object.sha
+```
+
 ## Documentation
 
 - Check the [architecture document](/architecture/architecture.md) for a high-level overview
 - Read the [development guide](/DEVELOPMENT.md) for detailed setup instructions
 - Generate documentation with `cargo doc --no-deps --all`
 - Online documentation is available at [docs.rs/rustpython](https://docs.rs/rustpython/)
+- [How to update test files](https://github.com/RustPython/RustPython/wiki/How-to-update-test-files#checkout-cpython-source-code-initial-setup) — guide for syncing test cases from upstream CPython into the `Lib/` directory
