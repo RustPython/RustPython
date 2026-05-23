@@ -184,16 +184,27 @@ jobs:
             RELEASE_TYPE_NAME=Pre-Release
             PRERELEASE_ARG=--prerelease
           fi
-          
+
           today=$(date '+%Y-%m-%d')
+
+          # Generate a concise changelog (last 50 commits) to stay under the 125k character limit
+          echo "## What's Changed" > /tmp/release_notes.md
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            git log --oneline --no-merges ${PREV_TAG}..HEAD | head -n 50 >> /tmp/release_notes.md
+          else
+            git log --oneline --no-merges | head -n 50 >> /tmp/release_notes.md
+          fi
+          echo "" >> /tmp/release_notes.md
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ github.ref_name }}" >> /tmp/release_notes.md
+
           gh release create "$today-$tag-$run" \
-              --repo="$GITHUB_REPOSITORY" \
-              --title="RustPython $RELEASE_TYPE_NAME $today-$tag #$run" \
-              --target="$tag" \
-              --notes "⚠️ **Important**: To run RustPython, you must download both the binary for your platform AND the \`rustpython-lib.zip\` archive. Extract the Lib directory from the archive to the same location as the binary, or set the \`RUSTPYTHONPATH\` environment variable to point to the Lib directory." \
-              --generate-notes \
-              $PRERELEASE_ARG \
-              bin/rustpython-release-*
+            --repo="$GITHUB_REPOSITORY" \
+            --title="RustPython $RELEASE_TYPE_NAME $today-$tag #$run" \
+            --target="$tag" \
+            --notes-file /tmp/release_notes.md \
+            $PRERELEASE_ARG \
+            bin/rustpython-release-*
         env:
           GH_TOKEN: ${{ github.token }}
           tag: ${{ github.ref_name }}
