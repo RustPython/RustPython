@@ -1777,9 +1777,8 @@ pub mod sys {
             };
             if exc.class().fast_issubclass(vm.ctx.exceptions.runtime_error) {
                 return Ok(());
-            } else {
-                return Err(exc);
             }
+            return Err(exc);
         }
 
         vm.audit_hooks.borrow_mut().push(hook);
