@@ -337,8 +337,9 @@ fn read_marshal_bytes<R: Read, Bag: ConstantBag>(
     let len = rdr.read_u32()?;
     let bytes = rdr.read_slice(len)?.to_vec();
     if let Some(idx) = slot {
-        refs[idx] =
-            Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Bytes { value: &bytes }));
+        refs[idx] = Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Bytes {
+            value: &bytes,
+        }));
     }
     Ok(bytes)
 }
@@ -482,8 +483,9 @@ fn read_marshal_const_tuple<R: Read, Bag: ConstantBag>(
         .map(|_| read_const_value(rdr, bag, child_depth, refs))
         .collect::<Result<_>>()?;
     if let Some(idx) = slot {
-        refs[idx] =
-            Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Tuple { elements: &items }));
+        refs[idx] = Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Tuple {
+            elements: &items,
+        }));
     }
     Ok(items.into_iter().collect())
 }
@@ -730,8 +732,8 @@ fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
     // Code-objects keep their own inner ref table because Bag::Value (the
     // outer marshal value) and the constant-bag's Constant type are not
     // in general the same. When the outer header carried FLAG_REF, the
-    // code object occupies slot 0 of the single global ref space, so we
-    // mirror that by reserving slot 0 of the inner table.
+    // code object occupies slot 0 of CPython's single global ref space,
+    // so we mirror that by reserving slot 0 of the inner table.
     let value = if matches!(typ, Type::Code) {
         let mut inner_refs: Vec<Option<<Bag::ConstantBag as ConstantBag>::Constant>> = Vec::new();
         if flag {
