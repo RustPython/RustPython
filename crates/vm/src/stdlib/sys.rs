@@ -967,25 +967,40 @@ pub mod sys {
     #[pyfunction]
     fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
         let offset = offset.into_option().unwrap_or(0);
-        let frames = vm.frames.borrow();
-        if offset >= frames.len() {
-            return Err(vm.new_value_error("call stack is not deep enough"));
+        let frame_ref = {
+            let frames = vm.frames.borrow();
+            if offset >= frames.len() {
+                return Err(vm.new_value_error("call stack is not deep enough"));
+            }
+
+            let idx = frames.len() - offset - 1;
+            // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
+            let py: &crate::Py<Frame> = unsafe { frames[idx].as_ref() };
+            py.to_owned()
+        };
+
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
         }
-        let idx = frames.len() - offset - 1;
-        // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
-        let py: &crate::Py<Frame> = unsafe { frames[idx].as_ref() };
-        Ok(py.to_owned())
+
+        Ok(frame_ref)
     }
 
     #[pyfunction]
-    fn _getframemodulename(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyObjectRef {
+    fn _getframemodulename(
+        depth: OptionalArg<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         let depth = depth.into_option().unwrap_or(0);
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call((vm.ctx.new_str("sys._getframemodulename"), depth), vm)?;
+        }
 
         // Get the frame at the specified depth
         let func_obj = {
             let frames = vm.frames.borrow();
             if depth >= frames.len() {
-                return vm.ctx.none();
+                return Ok(vm.ctx.none());
             }
             let idx = frames.len() - depth - 1;
             // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
@@ -994,7 +1009,7 @@ pub mod sys {
         };
 
         // If the frame has a function object, return its __module__ attribute
-        if let Some(func_obj) = func_obj {
+        Ok(if let Some(func_obj) = func_obj {
             func_obj
                 .get_attr(identifier!(vm, __module__), vm)
                 .unwrap_or_else(
@@ -1003,7 +1018,7 @@ pub mod sys {
                 )
         } else {
             vm.ctx.none()
-        }
+        })
     }
 
     /// Return a dictionary mapping each thread's identifier to the topmost stack frame
