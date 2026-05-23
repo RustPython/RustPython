@@ -337,9 +337,8 @@ fn read_marshal_bytes<R: Read, Bag: ConstantBag>(
     let len = rdr.read_u32()?;
     let bytes = rdr.read_slice(len)?.to_vec();
     if let Some(idx) = slot {
-        refs[idx] = Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Bytes {
-            value: &bytes,
-        }));
+        refs[idx] =
+            Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Bytes { value: &bytes }));
     }
     Ok(bytes)
 }
@@ -483,9 +482,8 @@ fn read_marshal_const_tuple<R: Read, Bag: ConstantBag>(
         .map(|_| read_const_value(rdr, bag, child_depth, refs))
         .collect::<Result<_>>()?;
     if let Some(idx) = slot {
-        refs[idx] = Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Tuple {
-            elements: &items,
-        }));
+        refs[idx] =
+            Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Tuple { elements: &items }));
     }
     Ok(items.into_iter().collect())
 }
