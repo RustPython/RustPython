@@ -196,14 +196,14 @@ jobs:
             git log --oneline --no-merges | head -n 50 >> /tmp/release_notes.md
           fi
           echo "" >> /tmp/release_notes.md
-          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ github.ref_name }}" >> /tmp/release_notes.md
+          echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${tag}" >> /tmp/release_notes.md
 
           gh release create "$today-$tag-$run" \
             --repo="$GITHUB_REPOSITORY" \
             --title="RustPython $RELEASE_TYPE_NAME $today-$tag #$run" \
             --target="$tag" \
             --notes-file /tmp/release_notes.md \
-            $PRERELEASE_ARG \
+            "$PRERELEASE_ARG" \
             bin/rustpython-release-*
         env:
           GH_TOKEN: ${{ github.token }}
