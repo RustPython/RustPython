@@ -33,7 +33,7 @@ mod _zstd {
     use rustpython_vm::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
-    use std::ffi::c_int;
+    use core::ffi::c_int;
     use zstd_safe::zstd_sys;
     use zstd_safe::{CCtx, CParameter, DCtx, DParameter, InBuffer, OutBuffer};
 
@@ -428,10 +428,13 @@ mod _zstd {
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<(PyRef<ZstdDict>, i32)> {
+        // The first downcast clones `obj` because we fall through to the
+        // tuple branch if it fails. The second downcast (the tuple one) is
+        // the last use of `obj`, so we let it move directly.
         if let Ok(d) = obj.clone().downcast::<ZstdDict>() {
             return Ok((d, DICT_TYPE_DIGESTED));
         }
-        if let Ok(tuple) = obj.clone().downcast::<rustpython_vm::builtins::PyTuple>() {
+        if let Ok(tuple) = obj.downcast::<rustpython_vm::builtins::PyTuple>() {
             let items = tuple.as_slice();
             // Reject any tuple shape that is not (ZstdDict, int_marker) so the
             // test suite's bad-args coverage (`(zd, 1.0)`, `(zd,)`, `(zd, 3)`,
@@ -495,8 +498,8 @@ mod _zstd {
         dict_id: u32,
     }
 
-    impl std::fmt::Debug for ZstdDict {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for ZstdDict {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(
                 f,
                 "<ZstdDict dict_id={} dict_size={}>",
@@ -516,9 +519,8 @@ mod _zstd {
             // does not carry the dictionary magic. Both are runtime errors
             // when `is_raw=False`, matching CPython's behavior of raising
             // `ValueError` on a non-conformant dictionary.
-            let parsed_id = zstd_safe::get_dict_id_from_dict(&dict_content)
-                .map(|n| n.get())
-                .unwrap_or(0);
+            let parsed_id =
+                zstd_safe::get_dict_id_from_dict(&dict_content).map_or(0, |n| n.get());
             if !args.is_raw && parsed_id == 0 {
                 return Err(vm.new_value_error(
                     "ZSTD_DICT_MAGIC_NUMBER not found, dict_content cannot be a 'raw content' \
@@ -671,8 +673,8 @@ mod _zstd {
         state: PyMutex<CompressorState>,
     }
 
-    impl std::fmt::Debug for ZstdCompressor {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for ZstdCompressor {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "_zstd.ZstdCompressor")
         }
     }
@@ -873,6 +875,11 @@ mod _zstd {
         }
     }
 
+    /// Return value of `load_dict`: the digested `CDict`/`DDict` (if any)
+    /// and the `PyRef<ZstdDict>` we hold to keep the dictionary bytes alive
+    /// while `ref_prefix` may point into them.
+    type DictLoadResult<D> = PyResult<(Option<D>, Option<PyRef<ZstdDict>>)>;
+
     /// Common path for attaching a dictionary to either context type. Returns
     /// the digested `CDict`/`DDict` (if the caller used digested mode) plus
     /// the `PyRef<ZstdDict>` we hold to keep the bytes alive for `ref_prefix`.
@@ -880,7 +887,7 @@ mod _zstd {
         ctx: &mut L,
         dict_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<(Option<L::Digested>, Option<PyRef<ZstdDict>>)> {
+    ) -> DictLoadResult<L::Digested> {
         let Some(dict_obj) = dict_obj else {
             return Ok((None, None));
         };
@@ -904,7 +911,7 @@ mod _zstd {
                 // `dict_bytes`; as long as the (de)compressor outlives no
                 // longer than the held PyRef, the pointer stays valid.
                 let static_bytes: &'static [u8] = unsafe {
-                    std::slice::from_raw_parts(dict_bytes.as_ptr(), dict_bytes.len())
+                    core::slice::from_raw_parts(dict_bytes.as_ptr(), dict_bytes.len())
                 };
                 ctx.ref_prefix_static(static_bytes)
                     .map_err(|_| bad_dict_err())?;
@@ -930,7 +937,7 @@ mod _zstd {
         cctx: &mut CCtx<'static>,
         dict_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<(Option<zstd_safe::CDict<'static>>, Option<PyRef<ZstdDict>>)> {
+    ) -> DictLoadResult<zstd_safe::CDict<'static>> {
         load_dict::<CCtx<'static>>(cctx, dict_obj, vm)
     }
 
@@ -938,7 +945,7 @@ mod _zstd {
         dctx: &mut DCtx<'static>,
         dict_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<(Option<zstd_safe::DDict<'static>>, Option<PyRef<ZstdDict>>)> {
+    ) -> DictLoadResult<zstd_safe::DDict<'static>> {
         load_dict::<DCtx<'static>>(dctx, dict_obj, vm)
     }
 
@@ -1169,8 +1176,8 @@ mod _zstd {
         state: PyMutex<DecompressorState>,
     }
 
-    impl std::fmt::Debug for ZstdDecompressor {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for ZstdDecompressor {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             write!(f, "_zstd.ZstdDecompressor")
         }
     }
@@ -1239,16 +1246,16 @@ mod _zstd {
         // Combine any buffered leftover input with the new data so the
         // decompressor sees one contiguous stream. `Cow` avoids the
         // allocation when there is no leftover.
-        let work_data: std::borrow::Cow<'_, [u8]> = if state.input_buffer.is_empty() {
-            std::borrow::Cow::Borrowed(new_data)
+        let work_data: alloc::borrow::Cow<'_, [u8]> = if state.input_buffer.is_empty() {
+            alloc::borrow::Cow::Borrowed(new_data)
         } else {
             let mut combined = Vec::with_capacity(state.input_buffer.len() + new_data.len());
             combined.extend_from_slice(&state.input_buffer);
             combined.extend_from_slice(new_data);
-            std::borrow::Cow::Owned(combined)
+            alloc::borrow::Cow::Owned(combined)
         };
 
-        let mut input = InBuffer::around(&*work_data);
+        let mut input = InBuffer::around(&work_data);
         let mut output: Vec<u8> = Vec::new();
         let chunk_size = DCtx::out_size().max(1);
         // Reusable scratch buffer for each decompress_stream call. We need an
@@ -1463,9 +1470,7 @@ mod _zstd {
             Some(n) => vm.ctx.new_int(n).into(),
             None => vm.ctx.none(),
         };
-        let dict_id = zstd_safe::get_dict_id_from_frame(&buf)
-            .map(|n| n.get())
-            .unwrap_or(0);
+        let dict_id = zstd_safe::get_dict_id_from_frame(&buf).map_or(0, |n| n.get());
         Ok((content_size_obj, dict_id))
     }
 
@@ -1621,7 +1626,7 @@ mod _zstd {
             let msg = if err_ptr.is_null() {
                 "zstd dictionary finalization failed".to_string()
             } else {
-                unsafe { std::ffi::CStr::from_ptr(err_ptr) }
+                unsafe { core::ffi::CStr::from_ptr(err_ptr) }
                     .to_string_lossy()
                     .into_owned()
             };
@@ -1648,24 +1653,25 @@ mod _zstd {
     /// in the pure-Python wrapper.
     #[pyfunction]
     fn get_param_bounds(args: ParamBoundsArgs, vm: &VirtualMachine) -> PyResult<(c_int, c_int)> {
+        let unknown = || -> PyBaseExceptionRef {
+            let kind = if args.is_compress { "compression" } else { "decompression" };
+            vm.new_value_error(format!(
+                "invalid {kind} parameter 'unknown parameter (key {})'",
+                args.parameter
+            ))
+        };
+        // Validate the id via the same safe enum-lookup helpers used in
+        // `lookup_param_bounds`, then call libzstd directly so we can
+        // distinguish a libzstd-reported error from our own "unknown".
         let bounds = if args.is_compress {
-            // Validate by mapping the int to a CParameter variant first; if
-            // the int is not a known parameter id we surface a clear error
-            // instead of letting libzstd return a generic "parameter unsupported".
-            let _ = cparameter_from_int(args.parameter, 0, vm)?;
-            // SAFETY: we just confirmed `args.parameter` is a value of the
-            // `ZSTD_cParameter` enum.
-            let param_enum = unsafe {
-                std::mem::transmute::<u32, zstd_sys::ZSTD_cParameter>(args.parameter as u32)
-            };
-            unsafe { zstd_sys::ZSTD_cParam_getBounds(param_enum) }
+            let p = c_param_enum(args.parameter).ok_or_else(unknown)?;
+            // SAFETY: `c_param_enum` returned `Some`, so `p` is a real
+            // `ZSTD_cParameter` discriminant.
+            unsafe { zstd_sys::ZSTD_cParam_getBounds(p) }
         } else {
-            let _ = dparameter_from_int(args.parameter, 0, vm)?;
-            // SAFETY: same justification as the compress branch above.
-            let param_enum = unsafe {
-                std::mem::transmute::<u32, zstd_sys::ZSTD_dParameter>(args.parameter as u32)
-            };
-            unsafe { zstd_sys::ZSTD_dParam_getBounds(param_enum) }
+            let p = d_param_enum(args.parameter).ok_or_else(unknown)?;
+            // SAFETY: same as above.
+            unsafe { zstd_sys::ZSTD_dParam_getBounds(p) }
         };
         // SAFETY: ZSTD_isError just inspects the integer error code.
         if unsafe { zstd_sys::ZSTD_isError(bounds.error) } != 0 {
