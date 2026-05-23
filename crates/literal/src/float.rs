@@ -3,7 +3,7 @@ use alloc::borrow::ToOwned;
 use alloc::format;
 use alloc::string::{String, ToString};
 use core::f64;
-use num_traits::{Float, Zero};
+use num_traits::Zero;
 
 pub fn parse_str(literal: &str) -> Option<f64> {
     parse_inner(literal.trim().as_bytes())
@@ -209,6 +209,111 @@ pub fn format_general(
     }
 }
 
+fn prefer_cpython_tie_repr(s: String, value: f64) -> String {
+    let Some(exponent_pos) = s.find('e') else {
+        return s;
+    };
+    let Some(digit_pos) = s[..exponent_pos].bytes().rposition(|b| b.is_ascii_digit()) else {
+        return s;
+    };
+
+    let digit = s.as_bytes()[digit_pos];
+    if digit == b'0' {
+        return s;
+    }
+    let decremented = digit - 1;
+    if !(decremented - b'0').is_multiple_of(2) {
+        return s;
+    }
+
+    let mut candidate = s.clone();
+    candidate.replace_range(
+        digit_pos..digit_pos + 1,
+        core::str::from_utf8(&[decremented]).unwrap(),
+    );
+    if parse_str(&candidate).is_none_or(|parsed| parsed.to_bits() != value.to_bits()) {
+        return s;
+    }
+
+    let Some(current_distance) = decimal_distance_to_f64(&s, value) else {
+        return s;
+    };
+    let Some(candidate_distance) = decimal_distance_to_f64(&candidate, value) else {
+        return s;
+    };
+
+    if candidate_distance <= current_distance {
+        candidate
+    } else {
+        s
+    }
+}
+
+fn checked_pow_u128(base: u128, exp: u32) -> Option<u128> {
+    let mut result = 1u128;
+    for _ in 0..exp {
+        result = result.checked_mul(base)?;
+    }
+    Some(result)
+}
+
+fn parse_decimal_rational(s: &str) -> Option<(u128, u32)> {
+    let exponent_pos = s.find('e')?;
+    let exponent = s[exponent_pos + 1..].parse::<i32>().ok()?;
+    let significand = s[..exponent_pos]
+        .strip_prefix('-')
+        .unwrap_or(&s[..exponent_pos]);
+    let dot_pos = significand.find('.');
+    let frac_digits = dot_pos
+        .map(|pos| significand.len().saturating_sub(pos + 1))
+        .unwrap_or(0);
+    let mut digits = String::with_capacity(significand.len());
+    for ch in significand.chars() {
+        if ch != '.' {
+            digits.push(ch);
+        }
+    }
+    let mut int = digits.parse::<u128>().ok()?;
+    let mut scale = i32::try_from(frac_digits).ok()? - exponent;
+    if scale < 0 {
+        int = int.checked_mul(checked_pow_u128(10, (-scale) as u32)?)?;
+        scale = 0;
+    }
+    Some((int, scale as u32))
+}
+
+fn f64_mantissa_exponent(value: f64) -> Option<(u128, i32)> {
+    let bits = value.abs().to_bits();
+    let exponent = ((bits >> 52) & 0x7ff) as i32;
+    let fraction = bits & ((1u64 << 52) - 1);
+    if exponent == 0 {
+        Some((u128::from(fraction), 1 - 1023 - 52))
+    } else if exponent < 0x7ff {
+        Some((u128::from((1u64 << 52) | fraction), exponent - 1023 - 52))
+    } else {
+        None
+    }
+}
+
+fn decimal_distance_to_f64(s: &str, value: f64) -> Option<u128> {
+    let (decimal_int, decimal_scale) = parse_decimal_rational(s)?;
+    let (mantissa, binary_exponent) = f64_mantissa_exponent(value)?;
+    if binary_exponent >= 0 || decimal_scale > 38 {
+        return None;
+    }
+
+    let binary_scale = u32::try_from(-binary_exponent).ok()?;
+    let common_twos = decimal_scale.max(binary_scale);
+    let decimal_scaled =
+        decimal_int.checked_mul(checked_pow_u128(2, common_twos - decimal_scale)?)?;
+    let five_power = checked_pow_u128(5, decimal_scale)?;
+    let binary_scaled = mantissa
+        .checked_mul(checked_pow_u128(2, common_twos - binary_scale)?)?
+        .checked_mul(five_power)?;
+
+    Some(decimal_scaled.abs_diff(binary_scaled))
+}
+
 // TODO: rewrite using format_general
 pub fn to_string(value: f64) -> String {
     let lit = format!("{value:e}");
@@ -223,12 +328,28 @@ pub fn to_string(value: f64) -> String {
                 value.to_string()
             }
         } else {
-            format!("{significand}e{exponent:+#03}")
+            prefer_cpython_tie_repr(format!("{significand}e{exponent:+#03}"), value)
         }
     } else {
         let mut s = value.to_string();
         s.make_ascii_lowercase();
         s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_string;
+
+    #[test]
+    fn repr_uses_cpython_tie_digit_for_power_of_two() {
+        assert_eq!(to_string(2.0f64.powi(-25)), "2.9802322387695312e-08");
+        assert_eq!(to_string((-2.0f64).powi(-25)), "-2.9802322387695312e-08");
+        assert_eq!(to_string(2.0f64.powi(-26)), "1.4901161193847656e-08");
+        assert_eq!(
+            to_string(2.0f64.powi(-14) - 2.0f64.powi(-25)),
+            "6.1005353927612305e-05"
+        );
     }
 }
 
@@ -281,22 +402,23 @@ pub fn from_hex(s: &str) -> Option<f64> {
 }
 
 pub fn to_hex(value: f64) -> String {
-    let (mantissa, exponent, sign) = value.integer_decode();
-    let sign_fmt = if sign < 0 { "-" } else { "" };
+    let bits = value.to_bits();
+    let sign_fmt = if bits >> 63 != 0 { "-" } else { "" };
     match value {
         value if value.is_zero() => format!("{sign_fmt}0x0.0p+0"),
         value if value.is_infinite() => format!("{sign_fmt}inf"),
         value if value.is_nan() => "nan".to_owned(),
         _ => {
-            const BITS: i16 = 52;
-            const FRACT_MASK: u64 = 0xf_ffff_ffff_ffff;
-            format!(
-                "{}{:#x}.{:013x}p{:+}",
-                sign_fmt,
-                mantissa >> BITS,
-                mantissa & FRACT_MASK,
-                exponent + BITS
-            )
+            const FRACT_MASK: u64 = (1u64 << 52) - 1;
+            const EXP_MASK: u64 = 0x7ff;
+            let exponent = (bits >> 52) & EXP_MASK;
+            let fraction = bits & FRACT_MASK;
+            if exponent == 0 {
+                format!("{sign_fmt}0x0.{fraction:013x}p-1022")
+            } else {
+                let exponent = i32::try_from(exponent).unwrap() - 1023;
+                format!("{sign_fmt}0x1.{fraction:013x}p{exponent:+}")
+            }
         }
     }
 }
@@ -304,6 +426,10 @@ pub fn to_hex(value: f64) -> String {
 #[test]
 fn test_to_hex() {
     use rand::Rng;
+    assert_eq!(to_hex(f64::from_bits(1)), "0x0.0000000000001p-1022");
+    assert_eq!(to_hex(f64::from_bits(2)), "0x0.0000000000002p-1022");
+    assert_eq!(to_hex(-f64::from_bits(1)), "-0x0.0000000000001p-1022");
+    assert_eq!(to_hex(f64::MIN_POSITIVE), "0x1.0000000000000p-1022");
     for _ in 0..20000 {
         let bytes = rand::rng().random::<u64>();
         let f = f64::from_bits(bytes);

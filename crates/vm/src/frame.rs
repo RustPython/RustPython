@@ -710,10 +710,11 @@ impl Frame {
         // For generators/coroutines, initialize prev_line to the def line
         // so that preamble instructions (RETURN_GENERATOR, POP_TOP) don't
         // fire spurious LINE events.
-        let prev_line = if code
-            .flags
-            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
-        {
+        let prev_line = if code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        ) {
             code.first_line_number.map_or(0, |line| line.get() as u32)
         } else {
             0
@@ -9523,9 +9524,7 @@ impl ExecutingFrame<'_> {
                 // Returns the exception object; RERAISE will re-raise it
                 if arg.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
                     let flags = &self.code.flags;
-                    let msg = if flags
-                        .contains(bytecode::CodeFlags::COROUTINE | bytecode::CodeFlags::GENERATOR)
-                    {
+                    let msg = if flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR) {
                         "async generator raised StopIteration"
                     } else if flags.contains(bytecode::CodeFlags::COROUTINE) {
                         "coroutine raised StopIteration"

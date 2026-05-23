@@ -13,9 +13,9 @@ expression: "dis(r#\"\nasync def test():\n    for stop_exc in (StopIteration('sp
 Disassembly of <code object test at 0xdeadbeef file "<?>", line 1>:
    1            RETURN_GENERATOR
                 POP_TOP
-                RESUME                   0
+        L1:     RESUME                   0
 
-   2    L1:     LOAD_GLOBAL              1 (StopIteration + NULL)
+   2            LOAD_GLOBAL              1 (StopIteration + NULL)
                 LOAD_CONST               0 ('spam')
                 CALL                     1
                 LOAD_GLOBAL              3 (StopAsyncIteration + NULL)
@@ -90,10 +90,12 @@ Disassembly of <code object test at 0xdeadbeef file "<?>", line 1>:
                 POP_TOP
                 POP_TOP
                 JUMP_FORWARD             3 (to L25)
-       L24:     COPY                     3
+
+  --   L24:     COPY                     3
                 POP_EXCEPT
                 RERAISE                  1
-       L25:     NOP
+
+   5   L25:     NOP
 
   10   L26:     LOAD_GLOBAL              4 (self)
                 LOAD_ATTR               13 (fail + NULL|self)
@@ -153,11 +155,11 @@ Disassembly of <code object test at 0xdeadbeef file "<?>", line 1>:
                 POP_TOP
                 POP_TOP
                 JUMP_BACKWARD          205 (to L2)
-       L39:     COPY                     3
+
+  --   L39:     COPY                     3
                 POP_EXCEPT
                 RERAISE                  1
-
-  --   L40:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+       L40:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
                 RERAISE                  1
 ExceptionTable:
   L1 to L3 -> L40 [0] lasti
