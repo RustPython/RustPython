@@ -755,11 +755,6 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn audit(_args: FuncArgs) {
-        // TODO: sys.audit implementation
-    }
-
-    #[pyfunction]
     const fn _is_gil_enabled() -> bool {
         false // RustPython has no GIL (like free-threaded Python)
     }
@@ -1720,6 +1715,61 @@ pub mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl PyUnraisableHookArgs {}
+
+    pub(crate) fn run_audit_hooks(
+        event: PyStrRef,
+        args: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let hooks = vm.audit_hooks.borrow().clone();
+
+        if hooks.is_empty() {
+            return Ok(());
+        }
+
+        for hook in hooks {
+            hook.call((event.clone(), args.clone()), vm)?;
+        }
+
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn audit(event: PyStrRef, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
+        if vm.audit_hooks.borrow().is_empty() {
+            return Ok(());
+        }
+
+        let args_tup = vm.ctx.new_tuple(args.into_vec()).into();
+        run_audit_hooks(event, &args_tup, vm)
+    }
+
+    #[pyfunction]
+    fn addaudithook(hook: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let hooks = vm.audit_hooks.borrow().clone();
+
+        if hooks.is_empty() {
+            vm.audit_hooks.borrow_mut().push(hook);
+            return Ok(());
+        }
+
+        let args: PyObjectRef = vm.ctx.new_tuple(vec![]).into();
+        let event: PyObjectRef = vm.ctx.new_str("sys.addaudithook").into();
+
+        for existing_hook in hooks {
+            let Err(exc) = existing_hook.call((event.clone(), args.clone()), vm) else {
+                continue;
+            };
+            if exc.class().fast_issubclass(vm.ctx.exceptions.runtime_error) {
+                return Ok(());
+            } else {
+                return Err(exc);
+            }
+        }
+
+        vm.audit_hooks.borrow_mut().push(hook);
+        Ok(())
+    }
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {
