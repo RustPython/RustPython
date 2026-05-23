@@ -460,9 +460,12 @@ bitflags! {
         const GENERATOR = 0x0020;
         const COROUTINE = 0x0080;
         const ITERABLE_COROUTINE = 0x0100;
+        const ASYNC_GENERATOR = 0x0200;
+        const FUTURE_ANNOTATIONS = 0x1000000;
         /// If a code object represents a function and has a docstring,
         /// this bit is set and the first item in co_consts is the docstring.
         const HAS_DOCSTRING = 0x4000000;
+        const METHOD = 0x8000000;
     }
 }
 
@@ -906,8 +909,6 @@ impl PartialEq for ConstantData {
 
         match (self, other) {
             (Integer { value: a }, Integer { value: b }) => a == b,
-            // we want to compare floats *by actual value* - if we have the *exact same* float
-            // already in a constant cache, we want to use that
             (Float { value: a }, Float { value: b }) => a.to_bits() == b.to_bits(),
             (Complex { value: a }, Complex { value: b }) => {
                 a.re.to_bits() == b.re.to_bits() && a.im.to_bits() == b.im.to_bits()
