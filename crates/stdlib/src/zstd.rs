@@ -3,6 +3,8 @@
 // spell-checker:ignore btlazy dfast nbworkers windowlogmax windowlog overlap targetcblock
 // spell-checker:ignore srcsize zdict refprefix refcdict refddict pledgedsrcsize getframecontentsize
 // spell-checker:ignore Zstd Zstandard pylib RFC
+// spell-checker:ignore CLEVEL zstdmodule cparameter dparameter maxl
+// spell-checker:ignore cctx dctx CCTX DCTX ldm cdict ddict windowlog hashlog chainlog searchlog CLEVEL
 
 //! The `_zstd` extension module. Backs the pure-Python `compression.zstd`
 //! package by exposing the same classes, functions and constants that
@@ -24,6 +26,7 @@ pub(crate) use _zstd::module_def;
 #[allow(non_upper_case_globals)]
 #[pymodule]
 mod _zstd {
+    use core::ffi::c_int;
     use rustpython_common::lock::PyMutex;
     use rustpython_vm::builtins::{
         PyBaseExceptionRef, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
@@ -33,7 +36,6 @@ mod _zstd {
     use rustpython_vm::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
-    use core::ffi::c_int;
     use zstd_safe::zstd_sys;
     use zstd_safe::{CCtx, CParameter, DCtx, DParameter, InBuffer, OutBuffer};
 
@@ -279,9 +281,11 @@ mod _zstd {
             ZSTD_c_searchLog => CParameter::SearchLog(value as u32),
             ZSTD_c_minMatch => CParameter::MinMatch(value as u32),
             ZSTD_c_targetLength => CParameter::TargetLength(value as u32),
-            ZSTD_c_strategy => CParameter::Strategy(strategy_from_int(value).ok_or_else(
-                || new_zstd_error(format!("invalid strategy value: {value}"), vm),
-            )?),
+            ZSTD_c_strategy => {
+                CParameter::Strategy(strategy_from_int(value).ok_or_else(|| {
+                    new_zstd_error(format!("invalid strategy value: {value}"), vm)
+                })?)
+            }
             ZSTD_c_enableLongDistanceMatching => CParameter::EnableLongDistanceMatching(value != 0),
             ZSTD_c_ldmHashLog => CParameter::LdmHashLog(value as u32),
             ZSTD_c_ldmMinMatch => CParameter::LdmMinMatch(value as u32),
@@ -323,7 +327,11 @@ mod _zstd {
         is_compress: bool,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
-        let kind = if is_compress { "compression" } else { "decompression" };
+        let kind = if is_compress {
+            "compression"
+        } else {
+            "decompression"
+        };
         let name = parameter_name(param, is_compress);
         match lookup_param_bounds(param, is_compress) {
             Some((lo, hi)) => vm.new_value_error(format!(
@@ -519,8 +527,7 @@ mod _zstd {
             // does not carry the dictionary magic. Both are runtime errors
             // when `is_raw=False`, matching CPython's behavior of raising
             // `ValueError` on a non-conformant dictionary.
-            let parsed_id =
-                zstd_safe::get_dict_id_from_dict(&dict_content).map_or(0, |n| n.get());
+            let parsed_id = zstd_safe::get_dict_id_from_dict(&dict_content).map_or(0, |n| n.get());
             if !args.is_raw && parsed_id == 0 {
                 return Err(vm.new_value_error(
                     "ZSTD_DICT_MAGIC_NUMBER not found, dict_content cannot be a 'raw content' \
@@ -910,9 +917,8 @@ mod _zstd {
                 // context. libzstd `ref_prefix` stores a raw pointer into
                 // `dict_bytes`; as long as the (de)compressor outlives no
                 // longer than the held PyRef, the pointer stays valid.
-                let static_bytes: &'static [u8] = unsafe {
-                    core::slice::from_raw_parts(dict_bytes.as_ptr(), dict_bytes.len())
-                };
+                let static_bytes: &'static [u8] =
+                    unsafe { core::slice::from_raw_parts(dict_bytes.as_ptr(), dict_bytes.len()) };
                 ctx.ref_prefix_static(static_bytes)
                     .map_err(|_| bad_dict_err())?;
             }
@@ -927,7 +933,8 @@ mod _zstd {
             _ => {
                 // Undigested: copy the bytes into the context. Validation
                 // happens lazily at the first stream call in this mode.
-                ctx.load_undigested(dict_bytes).map_err(|_| bad_dict_err())?;
+                ctx.load_undigested(dict_bytes)
+                    .map_err(|_| bad_dict_err())?;
             }
         }
         Ok((digested, Some(zdict)))
@@ -949,7 +956,6 @@ mod _zstd {
         load_dict::<DCtx<'static>>(dctx, dict_obj, vm)
     }
 
-
     /// Drive `compress_stream2` until the input is fully consumed and, for
     /// flush/end directives, the internal buffers report zero remaining bytes.
     /// Grows the output `Vec` by `CStreamOutSize` chunks as needed.
@@ -969,7 +975,9 @@ mod _zstd {
             output.reserve(chunk_size);
             let remaining = {
                 let mut out_buf = OutBuffer::around_pos(&mut output, prev_len);
-                state.cctx.compress_stream2(&mut out_buf, &mut input, end_op)
+                state
+                    .cctx
+                    .compress_stream2(&mut out_buf, &mut input, end_op)
             }
             .map_err(|c| catch_zstd_error(c, vm))?;
             let consumed_all = input.pos == input.src.len();
@@ -1654,7 +1662,11 @@ mod _zstd {
     #[pyfunction]
     fn get_param_bounds(args: ParamBoundsArgs, vm: &VirtualMachine) -> PyResult<(c_int, c_int)> {
         let unknown = || -> PyBaseExceptionRef {
-            let kind = if args.is_compress { "compression" } else { "decompression" };
+            let kind = if args.is_compress {
+                "compression"
+            } else {
+                "decompression"
+            };
             vm.new_value_error(format!(
                 "invalid {kind} parameter 'unknown parameter (key {})'",
                 args.parameter
