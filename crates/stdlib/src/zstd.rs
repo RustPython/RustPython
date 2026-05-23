@@ -37,23 +37,15 @@ mod _zstd {
     use zstd_safe::zstd_sys;
     use zstd_safe::{CCtx, CParameter, DCtx, DParameter, InBuffer, OutBuffer};
 
-    /// Stores the `CompressionParameter` and `DecompressionParameter` enum
-    /// types that the pure-Python `compression.zstd` wrapper passes through
-    /// `set_parameter_types`. They let us produce CPython-compatible
-    /// `TypeError`s when callers pass the wrong enum kind to a (de)compressor
-    /// (a `CompressionParameter` key to a decompressor, or vice versa). Stored
-    /// in a `PyMutex` so the module init can set them once and constructors
-    /// can read them later from any thread.
-    static REGISTERED_PARAM_TYPES: PyMutex<RegisteredParamTypes> =
-        PyMutex::new(RegisteredParamTypes {
-            compression: None,
-            decompression: None,
-        });
-
-    struct RegisteredParamTypes {
-        compression: Option<PyTypeRef>,
-        decompression: Option<PyTypeRef>,
-    }
+    /// Class names of the `CompressionParameter` and `DecompressionParameter`
+    /// `IntEnum`s defined by the pure-Python wrapper at
+    /// `Lib/compression/zstd/__init__.py`. We identify these by name rather
+    /// than identity because storing `PyTypeRef` in a Rust `static` requires
+    /// `Sync`, which `PyMutex` does not provide on single-threaded targets
+    /// (Android, iOS, wasm32). Name comparison is sufficient since both names
+    /// originate from a module we ship and control.
+    const C_PARAMETER_TYPE_NAME: &str = "CompressionParameter";
+    const D_PARAMETER_TYPE_NAME: &str = "DecompressionParameter";
 
     // =========================================================================
     // Module-level constants
@@ -207,29 +199,29 @@ mod _zstd {
         arg.into_option().filter(|o| !vm.is_none(o))
     }
 
-    /// If `key` is a registered `CompressionParameter` or `DecompressionParameter`
-    /// enum member and its kind does not match the caller's context, return a
-    /// `TypeError`. Used by both (de)compressor option-dict loops so passing a
-    /// `CompressionParameter` to a `ZstdDecompressor` (or vice versa) is
-    /// rejected with the CPython-compatible "must not be a XParameter"
-    /// message. If `set_parameter_types` has not been called yet, this is a
-    /// no-op.
+    /// If `key`'s class is the wrong kind of parameter enum for the caller's
+    /// context (a `CompressionParameter` passed to a decompressor, or vice
+    /// versa), return a `TypeError`. Used by both (de)compressor option-dict
+    /// loops so the resulting message names the actual type rather than the
+    /// generic "out of range" wording.
+    ///
+    /// We identify the enums by class name (see [`C_PARAMETER_TYPE_NAME`]),
+    /// which avoids storing a `PyTypeRef` in a Rust `static` (impossible on
+    /// single-threaded builds whose `PyMutex` is not `Sync`).
     fn check_wrong_param_kind(
         key: &PyObjectRef,
         is_compress: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let guard = REGISTERED_PARAM_TYPES.lock();
-        let (forbidden_type, forbidden_name, kind) = if is_compress {
-            (&guard.decompression, "DecompressionParameter", "compression")
+        let class_name = key.class().name();
+        let (forbidden, kind) = if is_compress {
+            (D_PARAMETER_TYPE_NAME, "compression")
         } else {
-            (&guard.compression, "CompressionParameter", "decompression")
+            (C_PARAMETER_TYPE_NAME, "decompression")
         };
-        if let Some(ref t) = *forbidden_type
-            && key.fast_isinstance(t)
-        {
+        if &*class_name == forbidden {
             return Err(vm.new_type_error(format!(
-                "{kind} options dictionary key must not be a {forbidden_name}"
+                "{kind} options dictionary key must not be a {forbidden}"
             )));
         }
         Ok(())
@@ -1684,29 +1676,30 @@ mod _zstd {
 
     /// set_parameter_types(c_parameter_type, d_parameter_type, /)
     ///
-    /// Register the `CompressionParameter` and `DecompressionParameter`
-    /// `IntEnum` types defined in the pure-Python wrapper. Once registered,
-    /// the (de)compressor constructors validate that callers do not mix the
-    /// two enum kinds (e.g. passing a `CompressionParameter` key to a
-    /// `ZstdDecompressor`), raising `TypeError` if they do.
+    /// Validate that the `CompressionParameter` and `DecompressionParameter`
+    /// types passed in by the pure-Python wrapper are actual type objects.
+    /// The (de)compressor constructors use the *names* of these classes
+    /// (see [`check_wrong_param_kind`]) rather than identity, so this
+    /// function does not need to retain the type objects beyond the call.
     ///
-    /// The Python wrapper at `Lib/compression/zstd/__init__.py:242` calls
-    /// this exactly once at import time.
+    /// CPython retains them and uses them for nicer error messages naming
+    /// the specific enum member; matching that behavior would require a
+    /// `Sync` cell-of-`PyTypeRef`, which is not available on single-threaded
+    /// targets. The pure-Python wrapper at
+    /// `Lib/compression/zstd/__init__.py:242` calls this exactly once at
+    /// import time.
     #[pyfunction]
     fn set_parameter_types(
         c_parameter_type: PyObjectRef,
         d_parameter_type: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let c_type = c_parameter_type
+        let _ = c_parameter_type
             .downcast::<PyType>()
             .map_err(|_| vm.new_type_error("c_parameter_type must be a type object"))?;
-        let d_type = d_parameter_type
+        let _ = d_parameter_type
             .downcast::<PyType>()
             .map_err(|_| vm.new_type_error("d_parameter_type must be a type object"))?;
-        let mut guard = REGISTERED_PARAM_TYPES.lock();
-        guard.compression = Some(c_type);
-        guard.decompression = Some(d_type);
         Ok(())
     }
 }
