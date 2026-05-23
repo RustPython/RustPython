@@ -173,7 +173,6 @@ class StrtodTests(unittest.TestCase):
             s = '{}e{}'.format(digits, exponent)
             self.check_strtod(s)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_boundaries(self):
         # boundaries expressed as triples (n, e, u), where
         # n*10**e is an approximation to the boundary value and
@@ -194,7 +193,6 @@ class StrtodTests(unittest.TestCase):
                 u *= 10
                 e -= 1
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_underflow_boundary(self):
         # test values close to 2**-1075, the underflow boundary; similar
         # to boundary_tests, except that the random error doesn't scale
@@ -206,7 +204,6 @@ class StrtodTests(unittest.TestCase):
                 s = '{}e{}'.format(digits, exponent)
                 self.check_strtod(s)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bigcomp(self):
         for ndigs in 5, 10, 14, 15, 16, 17, 18, 19, 20, 40, 41, 50:
             dig10 = 10**ndigs
@@ -284,7 +281,6 @@ class StrtodTests(unittest.TestCase):
         self.assertEqual(float(negative_exp(20000)), 1.0)
         self.assertEqual(float(negative_exp(30000)), 1.0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_particular(self):
         # inputs that produced crashes or incorrectly rounded results with
         # previous versions of dtoa.c, for various reasons

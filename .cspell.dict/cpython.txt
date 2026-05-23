@@ -5,6 +5,7 @@ argtypes
 asdl
 asname
 atopen
+atext
 attro
 augassign
 badcert
@@ -104,6 +105,7 @@ inlinedepth
 inplace
 inpos
 isbytecode
+ishidden
 ismine
 ISPOINTER
 isoctal
@@ -113,6 +115,7 @@ keeped
 kwnames
 kwonlyarg
 kwonlyargs
+kwonlydefaults
 lasti
 libffi
 linearise
@@ -164,6 +167,7 @@ patma
 peepholer
 phcount
 platstdlib
+ploc
 posonlyarg
 posonlyargs
 prec
@@ -209,6 +213,7 @@ staticbase
 stginfo
 storefast
 stringlib
+stringized
 structseq
 subkwargs
 subparams
