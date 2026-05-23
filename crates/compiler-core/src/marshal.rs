@@ -1479,3 +1479,87 @@ fn lt_read_signed_varint(data: &[u8], pos: &mut usize) -> i32 {
         (val >> 1) as i32
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytecode::{BasicBag, ConstantData};
+
+    fn hex_to_bytes(hex: &str) -> Vec<u8> {
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    fn decode_code(hex: &str) -> CodeObject<ConstantData> {
+        let bytes = hex_to_bytes(hex);
+        let value = deserialize_value(&mut &bytes[..], BasicBag).expect("decode failed");
+        match value {
+            ConstantData::Code { code } => *code,
+            other => panic!("expected Code, got {other:?}"),
+        }
+    }
+
+    /// CPython 3.14 marshal output for: `compile("x = 1", "<t>", "exec")`.
+    /// Exercises FLAG_REF on the code object and TYPE_REF for qualname
+    /// pointing back at the obj_name slot.
+    #[test]
+    fn cpython_314_trivial_assignment() {
+        let hex = "e30000000000000000000000000100000000000000f30a00000080005e017400520123002902\
+                   e9010000004e2901da0178a900f300000000da033c743eda083c6d6f64756c653e72070000000100\
+                   0000730a000000f003010101d8040582017205000000";
+        let code = decode_code(hex);
+        assert_eq!(code.obj_name.as_str(), "<module>");
+        assert_eq!(code.qualname.as_str(), "<module>");
+        assert_eq!(code.source_path.as_str(), "<t>");
+        assert_eq!(code.arg_count, 0);
+        assert_eq!(code.max_stackdepth, 1);
+        assert_eq!(code.names.len(), 1);
+        assert_eq!(code.names[0].as_str(), "x");
+        assert_eq!(code.constants.len(), 2);
+        // (1, None)
+        let consts: &[ConstantData] = &code.constants;
+        assert!(matches!(
+            consts[0],
+            ConstantData::Integer { ref value } if *value == 1.into(),
+        ));
+        assert!(matches!(consts[1], ConstantData::None));
+    }
+
+    /// CPython 3.14 marshal output for a module with a nested function
+    /// and a string constant. Verifies that nested code objects inside
+    /// a const tuple share the surrounding code's ref space.
+    #[test]
+    fn cpython_314_nested_code_and_string_const() {
+        let hex = "e30000000000000000000000000100000000000000f310000000800052001700740052017401\
+                   520223002903630200000000000000000000000200000003000000f3120000008000570\
+                   12c0000000000000000000000230029014ea9002902da0161da016273020000002626da033c743e\
+                   da0361646472070000000200000073090000008000d80b0c8d35804cf300000000da0568656c6c\
+                   6f4e29027207000000da084752454554494e47720300000072080000007206000000da083c6d6f\
+                   64756c653e720b000000010000007311000000f003010101f204010111f006000c1382087208000000";
+        let code = decode_code(hex);
+        assert_eq!(code.obj_name.as_str(), "<module>");
+        assert_eq!(code.names.len(), 2);
+        assert_eq!(code.names[0].as_str(), "add");
+        assert_eq!(code.names[1].as_str(), "GREETING");
+        assert_eq!(code.constants.len(), 3);
+        // Inner code, "hello", None
+        let consts: &[ConstantData] = &code.constants;
+        let inner = match &consts[0] {
+            ConstantData::Code { code } => code,
+            other => panic!("expected nested Code, got {other:?}"),
+        };
+        assert_eq!(inner.obj_name.as_str(), "add");
+        assert_eq!(inner.qualname.as_str(), "add");
+        assert_eq!(inner.arg_count, 2);
+        assert_eq!(inner.varnames.len(), 2);
+        assert_eq!(inner.varnames[0].as_str(), "a");
+        assert_eq!(inner.varnames[1].as_str(), "b");
+        assert!(matches!(
+            consts[1],
+            ConstantData::Str { ref value } if value.as_str().ok() == Some("hello"),
+        ));
+        assert!(matches!(consts[2], ConstantData::None));
+    }
+}
