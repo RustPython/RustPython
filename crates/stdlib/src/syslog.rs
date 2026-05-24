@@ -53,11 +53,28 @@ mod syslog {
     fn openlog(args: OpenLogArgs, vm: &VirtualMachine) -> PyResult<()> {
         let logoption = args.logoption.unwrap_or(0);
         let facility = args.facility.unwrap_or(LOG_USER);
-        let ident = match args.ident.flatten() {
+        let ident = match args.ident.clone().flatten() {
             Some(args) => Some(args.to_cstring(vm)?),
             None => get_argv(vm).map(|argv| argv.to_cstring(vm)).transpose()?,
         }
         .map(|ident| ident.into_boxed_c_str());
+
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            let audit_ident: PyObjectRef = args.ident.flatten().map_or_else(
+                || get_argv(vm).map_or_else(|| vm.ctx.none(), Into::into),
+                Into::into,
+            );
+
+            audit.call(
+                (
+                    vm.ctx.new_str("syslog.openlog"),
+                    audit_ident,
+                    logoption,
+                    facility,
+                ),
+                vm,
+            )?;
+        }
 
         host_syslog::openlog(ident, logoption, facility);
         Ok(())
@@ -78,6 +95,10 @@ mod syslog {
             None => (LOG_INFO, args.priority.try_into_value(vm)?),
         };
 
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call((vm.ctx.new_str("syslog.syslog"), priority, msg.clone()), vm)?;
+        }
+
         if !host_syslog::is_open() {
             openlog(OpenLogArgs::default(), vm)?;
         }
@@ -88,13 +109,22 @@ mod syslog {
     }
 
     #[pyfunction]
-    fn closelog() {
+    fn closelog(vm: &VirtualMachine) -> PyResult<()> {
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call((vm.ctx.new_str("syslog.closelog"),), vm)?;
+        }
+
         host_syslog::closelog();
+        Ok(())
     }
 
     #[pyfunction]
-    fn setlogmask(maskpri: i32) -> i32 {
-        host_syslog::setlogmask(maskpri)
+    fn setlogmask(maskpri: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call((vm.ctx.new_str("syslog.setlogmask"), maskpri), vm)?;
+        }
+
+        Ok(host_syslog::setlogmask(maskpri))
     }
 
     #[inline]

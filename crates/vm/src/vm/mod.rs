@@ -100,6 +100,7 @@ pub struct VirtualMachine {
     /// Current running asyncio task for this thread
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
     pub(crate) callable_cache: CallableCache,
+    pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
 }
 
 /// Non-owning frame pointer for the frames stack.
@@ -750,6 +751,7 @@ impl VirtualMachine {
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
             callable_cache: CallableCache::default(),
+            audit_hooks: RefCell::new(vec![]),
         };
 
         if vm.state.hash_secret.hash_str("")
