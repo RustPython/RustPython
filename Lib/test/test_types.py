@@ -431,7 +431,6 @@ class TypesTests(unittest.TestCase):
         test(123456, "1=20", '11111111111111123456')
         test(123456, "*=20", '**************123456')
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: '1,234.57' != '1234.57'")
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8', '')
     def test_float__format__locale(self):
         # test locale support for __format__ code 'n'
@@ -441,7 +440,6 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(locale.format_string('%g', x, grouping=True), format(x, 'n'))
             self.assertEqual(locale.format_string('%.10g', x, grouping=True), format(x, '.10n'))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: '123,456,789,012,345,678,901,234,567,890' != '123456789012345678901234567890'")
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8', '')
     def test_int__format__locale(self):
         # test locale support for __format__ code 'n' for integers
@@ -700,8 +698,7 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(exc.__traceback__, types.TracebackType)
         self.assertIsInstance(exc.__traceback__.tb_frame, types.FrameType)
 
-    # XXX: RUSTPYTHON
-    @unittest.skipUnless(_datetime, "requires _datetime module")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'datetime_CAPI'
     def test_capsule_type(self):
         self.assertIsInstance(_datetime.datetime_CAPI, types.CapsuleType)
 
@@ -2126,6 +2123,21 @@ class SimpleNamespaceTests(unittest.TestCase):
 
         self.assertIs(type(spam2), Spam)
         self.assertEqual(vars(spam2), {'ham': 5, 'eggs': 9})
+
+    def test_replace_invalid_subtype(self):
+        # See https://github.com/python/cpython/issues/143636.
+        class MyNS(types.SimpleNamespace):
+            def __new__(cls, *args, **kwargs):
+                if created:
+                    return 12345
+                return super().__new__(cls)
+
+        created = False
+        ns = MyNS()
+        created = True
+        err = (r"^expect types\.SimpleNamespace type, "
+               r"but .+\.MyNS\(\) returned 'int' object")
+        self.assertRaisesRegex(TypeError, err, copy.replace, ns)
 
     def test_fake_namespace_compare(self):
         # Issue #24257: Incorrect use of PyObject_IsInstance() caused

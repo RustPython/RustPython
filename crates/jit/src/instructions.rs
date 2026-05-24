@@ -29,32 +29,32 @@ enum JitValue {
     Bool(Value),
     None,
     Null,
-    Tuple(Vec<JitValue>),
+    Tuple(Vec<Self>),
     FuncRef(FuncRef),
 }
 
 impl JitValue {
-    fn from_type_and_value(ty: JitType, val: Value) -> JitValue {
+    fn from_type_and_value(ty: JitType, val: Value) -> Self {
         match ty {
-            JitType::Int => JitValue::Int(val),
-            JitType::Float => JitValue::Float(val),
-            JitType::Bool => JitValue::Bool(val),
+            JitType::Int => Self::Int(val),
+            JitType::Float => Self::Float(val),
+            JitType::Bool => Self::Bool(val),
         }
     }
 
     fn to_jit_type(&self) -> Option<JitType> {
         match self {
-            JitValue::Int(_) => Some(JitType::Int),
-            JitValue::Float(_) => Some(JitType::Float),
-            JitValue::Bool(_) => Some(JitType::Bool),
-            JitValue::None | JitValue::Null | JitValue::Tuple(_) | JitValue::FuncRef(_) => None,
+            Self::Int(_) => Some(JitType::Int),
+            Self::Float(_) => Some(JitType::Float),
+            Self::Bool(_) => Some(JitType::Bool),
+            Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
         }
     }
 
     fn into_value(self) -> Option<Value> {
         match self {
-            JitValue::Int(val) | JitValue::Float(val) | JitValue::Bool(val) => Some(val),
-            JitValue::None | JitValue::Null | JitValue::Tuple(_) | JitValue::FuncRef(_) => None,
+            Self::Int(val) | Self::Float(val) | Self::Bool(val) => Some(val),
+            Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
         }
     }
 }
@@ -80,8 +80,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         arg_types: &[JitType],
         ret_type: Option<JitType>,
         entry_block: Block,
-    ) -> FunctionCompiler<'a, 'b> {
-        let mut compiler = FunctionCompiler {
+    ) -> Self {
+        let mut compiler = Self {
             builder,
             stack: Vec::new(),
             variables: vec![None; num_variables].into_boxed_slice(),

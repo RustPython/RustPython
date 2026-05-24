@@ -43,7 +43,7 @@ mod _abc {
     #[pyclass(with(Constructor))]
     impl AbcData {
         fn new() -> Self {
-            AbcData {
+            Self {
                 registry: PyRwLock::new(None),
                 cache: PyRwLock::new(None),
                 negative_cache: PyRwLock::new(None),
@@ -68,7 +68,7 @@ mod _abc {
             _args: Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            Ok(AbcData::new())
+            Ok(Self::new())
         }
     }
 

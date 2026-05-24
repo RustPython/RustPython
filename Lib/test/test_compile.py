@@ -1249,7 +1249,6 @@ class TestSpecifics(unittest.TestCase):
                 last_line = line
         return res
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lineno_attribute(self):
         def load_attr():
             return (
@@ -1294,7 +1293,6 @@ class TestSpecifics(unittest.TestCase):
                 code_lines = self.get_code_lines(func.__code__)
                 self.assertEqual(lines, code_lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + [0]
     def test_line_number_genexp(self):
 
         def return_genexp():

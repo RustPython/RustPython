@@ -107,6 +107,14 @@ mod decl {
             _version,
         } = args;
         let version = _version.unwrap_or(marshal::FORMAT_VERSION as i32);
+
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call(
+                (vm.ctx.new_str("marshal.dumps"), value.clone(), version),
+                vm,
+            )?;
+        }
+
         if !allow_code {
             check_no_code(&value, vm)?;
         }
@@ -293,7 +301,7 @@ mod decl {
             }
         } else if let Some(d) = obj.downcast_ref::<PyDict>() {
             buf.write_u8(b'{');
-            for (k, v) in d.into_iter() {
+            for (k, v) in d {
                 write_object_depth(buf, &k, refs, version, vm, depth - 1)?;
                 write_object_depth(buf, &v, refs, version, vm, depth - 1)?;
             }
@@ -572,7 +580,7 @@ mod decl {
                 check_no_code(&elem, vm)?;
             }
         } else if let Some(dict) = obj.downcast_ref::<PyDict>() {
-            for (k, v) in dict.into_iter() {
+            for (k, v) in dict {
                 check_no_code(&k, vm)?;
                 check_no_code(&v, vm)?;
             }

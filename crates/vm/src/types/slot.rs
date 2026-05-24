@@ -579,7 +579,8 @@ fn bool_wrapper(num: PyNumber<'_>, vm: &VirtualMachine) -> PyResult<bool> {
     Ok(crate::builtins::bool_::get_value(&result))
 }
 
-// PyObject_SelfIter in CPython
+/// PyObject_SelfIter in CPython
+#[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
 const fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
     Ok(zelf)
 }
@@ -677,7 +678,7 @@ impl PyType {
             let Some(subclass) = weak_ref.upgrade() else {
                 continue;
             };
-            let Some(subclass) = subclass.downcast_ref::<PyType>() else {
+            let Some(subclass) = subclass.downcast_ref::<Self>() else {
                 continue;
             };
 
@@ -1526,14 +1527,14 @@ impl PyType {
         use crate::builtins::descriptor::PyWrapper;
 
         // Helper to check if a class is a subclass of another by checking MRO
-        let is_subclass_of = |subclass_mro: &[PyRef<PyType>], superclass: &Py<PyType>| -> bool {
+        let is_subclass_of = |subclass_mro: &[PyRef<Self>], superclass: &Py<Self>| -> bool {
             subclass_mro.iter().any(|c| c.is(superclass))
         };
 
         // Helper to extract slot from an attribute if it's a wrapper descriptor
         // and the wrapper's type is compatible with the given class.
         // bpo-37619: wrapper descriptor from wrong class should not be used directly.
-        let try_extract = |attr: &PyObjectRef, for_class_mro: &[PyRef<PyType>]| -> Option<T> {
+        let try_extract = |attr: &PyObjectRef, for_class_mro: &[PyRef<Self>]| -> Option<T> {
             if attr.class().is(ctx.types.wrapper_descriptor_type) {
                 attr.downcast_ref::<PyWrapper>().and_then(|wrapper| {
                     // Only extract slot if for_class is a subclass of wrapper.typ
@@ -1663,8 +1664,7 @@ pub trait Initializer: PyPayload {
                             == 2;
                         if double_appearance {
                             panic!(
-                                "This type `{}` doesn't seem to support `init`. Override `slot_init` instead: {}",
-                                class_name_for_debug, msg
+                                "This type `{class_name_for_debug}` doesn't seem to support `init`. Override `slot_init` instead: {msg}"
                             );
                         }
                     }

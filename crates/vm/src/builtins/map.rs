@@ -61,24 +61,23 @@ impl PyMap {
     }
 
     #[pymethod]
-    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
         let cls = zelf.class().to_owned();
         let mut vec = vec![zelf.mapper.clone()];
         vec.extend(zelf.iterators.iter().map(|o| o.clone().into()));
         let tuple_args = vm.ctx.new_tuple(vec);
-        Ok(if zelf.strict.load(atomic::Ordering::Acquire) {
+        if zelf.strict.load(atomic::Ordering::Acquire) {
             vm.new_tuple((cls, tuple_args, true))
         } else {
             vm.new_tuple((cls, tuple_args))
-        })
+        }
     }
 
     #[pymethod]
-    fn __setstate__(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) {
         if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
             zelf.strict.store(obj.into(), atomic::Ordering::Release);
         }
-        Ok(())
     }
 }
 

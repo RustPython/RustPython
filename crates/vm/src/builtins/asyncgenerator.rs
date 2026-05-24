@@ -766,12 +766,11 @@ impl PyAnextAwaitable {
     }
 
     #[pymethod]
-    fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+    fn close(&self, vm: &VirtualMachine) {
         self.state.store(AwaitableState::Closed);
         if let Ok(awaitable) = self.get_awaitable_iter(vm) {
             let _ = vm.call_method(&awaitable, "close", ());
         }
-        Ok(())
     }
 
     /// Convert StopAsyncIteration to StopIteration(default_value)

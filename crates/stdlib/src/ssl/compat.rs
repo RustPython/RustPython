@@ -8,21 +8,24 @@
 
 // SSL error code data tables (shared with OpenSSL backend for compatibility)
 // These map OpenSSL error codes to human-readable strings
+#[allow(
+    clippy::duplicate_mod,
+    reason = "This is duplicated only when running clippy. The two features are mutually exclusive"
+)]
 #[path = "../openssl/ssl_data_31.rs"]
 mod ssl_data;
 
-use crate::socket::{SelectKind, timeout_error_msg};
+use crate::socket::{SockWaitKind, timeout_error_msg};
 use crate::vm::VirtualMachine;
 use alloc::sync::Arc;
 use parking_lot::RwLock as ParkingRwLock;
+use rustls::Connection;
 use rustls::RootCertStore;
 use rustls::client::ClientConfig;
-use rustls::client::ClientConnection;
 use rustls::crypto::SupportedKxGroup;
 use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
 use rustls::server::ResolvesServerCert;
 use rustls::server::ServerConfig;
-use rustls::server::ServerConnection;
 use rustls::sign::CertifiedKey;
 use rustpython_vm::builtins::{PyBaseException, PyBaseExceptionRef};
 use rustpython_vm::convert::IntoPyException;
@@ -32,23 +35,13 @@ use std::io::Read;
 use std::sync::Once;
 
 // Import PySSLSocket from parent module
-use super::_ssl::PySSLSocket;
+use super::_ssl::{PySSLSocket, SSL3_RT_MAX_PACKET_SIZE, VERIFY_X509_STRICT};
 
 // Import error types and helper functions from error module
 use super::error::{
     PySSLCertVerificationError, PySSLError, create_ssl_eof_error, create_ssl_syscall_error,
     create_ssl_want_read_error, create_ssl_want_write_error, create_ssl_zero_return_error,
 };
-
-// SSL Verification Flags
-/// VERIFY_X509_STRICT flag for RFC 5280 strict compliance
-/// When set, performs additional validation including AKI extension checks
-pub(super) const VERIFY_X509_STRICT: i32 = 0x20;
-
-/// VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
-/// When set, accept certificates if any certificate in the chain is in the trust store
-/// (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
-pub(super) const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
 
 // CryptoProvider Initialization:
 
@@ -69,10 +62,6 @@ fn ensure_default_provider() {
 
 // OpenSSL Constants:
 
-// OpenSSL TLS record maximum plaintext size (ssl/ssl_local.h)
-// #define SSL3_RT_MAX_PLAIN_LENGTH 16384
-const SSL3_RT_MAX_PLAIN_LENGTH: usize = 16384;
-
 // OpenSSL error library codes (include/openssl/err.h)
 // #define ERR_LIB_SSL 20
 const ERR_LIB_SSL: i32 = 20;
@@ -91,74 +80,15 @@ const X509_V_FLAG_CRL_CHECK: i32 = 4;
 // verification. They are used to map rustls certificate errors to OpenSSL
 // error codes for compatibility.
 
-pub(super) use x509::{
-    X509_V_ERR_CERT_HAS_EXPIRED, X509_V_ERR_CERT_NOT_YET_VALID, X509_V_ERR_CERT_REVOKED,
-    X509_V_ERR_HOSTNAME_MISMATCH, X509_V_ERR_INVALID_PURPOSE, X509_V_ERR_IP_ADDRESS_MISMATCH,
-    X509_V_ERR_UNABLE_TO_GET_CRL, X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY,
-    X509_V_ERR_UNSPECIFIED,
-};
-
-#[allow(dead_code)]
-mod x509 {
-    pub(super) const X509_V_OK: i32 = 0;
-    pub(crate) const X509_V_ERR_UNSPECIFIED: i32 = 1;
-    pub(super) const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT: i32 = 2;
-    pub(crate) const X509_V_ERR_UNABLE_TO_GET_CRL: i32 = 3;
-    pub(super) const X509_V_ERR_UNABLE_TO_DECRYPT_CERT_SIGNATURE: i32 = 4;
-    pub(super) const X509_V_ERR_UNABLE_TO_DECRYPT_CRL_SIGNATURE: i32 = 5;
-    pub(super) const X509_V_ERR_UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY: i32 = 6;
-    pub(super) const X509_V_ERR_CERT_SIGNATURE_FAILURE: i32 = 7;
-    pub(super) const X509_V_ERR_CRL_SIGNATURE_FAILURE: i32 = 8;
-    pub(crate) const X509_V_ERR_CERT_NOT_YET_VALID: i32 = 9;
-    pub(crate) const X509_V_ERR_CERT_HAS_EXPIRED: i32 = 10;
-    pub(super) const X509_V_ERR_CRL_NOT_YET_VALID: i32 = 11;
-    pub(super) const X509_V_ERR_CRL_HAS_EXPIRED: i32 = 12;
-    pub(super) const X509_V_ERR_ERROR_IN_CERT_NOT_BEFORE_FIELD: i32 = 13;
-    pub(super) const X509_V_ERR_ERROR_IN_CERT_NOT_AFTER_FIELD: i32 = 14;
-    pub(super) const X509_V_ERR_ERROR_IN_CRL_LAST_UPDATE_FIELD: i32 = 15;
-    pub(super) const X509_V_ERR_ERROR_IN_CRL_NEXT_UPDATE_FIELD: i32 = 16;
-    pub(super) const X509_V_ERR_OUT_OF_MEM: i32 = 17;
-    pub(super) const X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT: i32 = 18;
-    pub(super) const X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN: i32 = 19;
-    pub(crate) const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY: i32 = 20;
-    pub(super) const X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE: i32 = 21;
-    pub(super) const X509_V_ERR_CERT_CHAIN_TOO_LONG: i32 = 22;
-    pub(crate) const X509_V_ERR_CERT_REVOKED: i32 = 23;
-    pub(super) const X509_V_ERR_INVALID_CA: i32 = 24;
-    pub(super) const X509_V_ERR_PATH_LENGTH_EXCEEDED: i32 = 25;
-    pub(crate) const X509_V_ERR_INVALID_PURPOSE: i32 = 26;
-    pub(super) const X509_V_ERR_CERT_UNTRUSTED: i32 = 27;
-    pub(super) const X509_V_ERR_CERT_REJECTED: i32 = 28;
-    pub(super) const X509_V_ERR_SUBJECT_ISSUER_MISMATCH: i32 = 29;
-    pub(super) const X509_V_ERR_AKID_SKID_MISMATCH: i32 = 30;
-    pub(super) const X509_V_ERR_AKID_ISSUER_SERIAL_MISMATCH: i32 = 31;
-    pub(super) const X509_V_ERR_KEYUSAGE_NO_CERTSIGN: i32 = 32;
-    pub(super) const X509_V_ERR_UNABLE_TO_GET_CRL_ISSUER: i32 = 33;
-    pub(super) const X509_V_ERR_UNHANDLED_CRITICAL_EXTENSION: i32 = 34;
-    pub(super) const X509_V_ERR_KEYUSAGE_NO_CRL_SIGN: i32 = 35;
-    pub(super) const X509_V_ERR_UNHANDLED_CRITICAL_CRL_EXTENSION: i32 = 36;
-    pub(super) const X509_V_ERR_INVALID_NON_CA: i32 = 37;
-    pub(super) const X509_V_ERR_PROXY_PATH_LENGTH_EXCEEDED: i32 = 38;
-    pub(super) const X509_V_ERR_KEYUSAGE_NO_DIGITAL_SIGNATURE: i32 = 39;
-    pub(super) const X509_V_ERR_PROXY_CERTIFICATES_NOT_ALLOWED: i32 = 40;
-    pub(super) const X509_V_ERR_INVALID_EXTENSION: i32 = 41;
-    pub(super) const X509_V_ERR_INVALID_POLICY_EXTENSION: i32 = 42;
-    pub(super) const X509_V_ERR_NO_EXPLICIT_POLICY: i32 = 43;
-    pub(super) const X509_V_ERR_DIFFERENT_CRL_SCOPE: i32 = 44;
-    pub(super) const X509_V_ERR_UNSUPPORTED_EXTENSION_FEATURE: i32 = 45;
-    pub(super) const X509_V_ERR_UNNESTED_RESOURCE: i32 = 46;
-    pub(super) const X509_V_ERR_PERMITTED_VIOLATION: i32 = 47;
-    pub(super) const X509_V_ERR_EXCLUDED_VIOLATION: i32 = 48;
-    pub(super) const X509_V_ERR_SUBTREE_MINMAX: i32 = 49;
-    pub(super) const X509_V_ERR_APPLICATION_VERIFICATION: i32 = 50;
-    pub(super) const X509_V_ERR_UNSUPPORTED_CONSTRAINT_TYPE: i32 = 51;
-    pub(super) const X509_V_ERR_UNSUPPORTED_CONSTRAINT_SYNTAX: i32 = 52;
-    pub(super) const X509_V_ERR_UNSUPPORTED_NAME_SYNTAX: i32 = 53;
-    pub(super) const X509_V_ERR_CRL_PATH_VALIDATION_ERROR: i32 = 54;
-    pub(crate) const X509_V_ERR_HOSTNAME_MISMATCH: i32 = 62;
-    pub(super) const X509_V_ERR_EMAIL_MISMATCH: i32 = 63;
-    pub(crate) const X509_V_ERR_IP_ADDRESS_MISMATCH: i32 = 64;
-}
+pub(super) const X509_V_ERR_UNSPECIFIED: i32 = 1;
+pub(super) const X509_V_ERR_UNABLE_TO_GET_CRL: i32 = 3;
+pub(super) const X509_V_ERR_CERT_NOT_YET_VALID: i32 = 9;
+pub(super) const X509_V_ERR_CERT_HAS_EXPIRED: i32 = 10;
+pub(super) const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY: i32 = 20;
+pub(super) const X509_V_ERR_CERT_REVOKED: i32 = 23;
+pub(super) const X509_V_ERR_INVALID_PURPOSE: i32 = 26;
+pub(super) const X509_V_ERR_HOSTNAME_MISMATCH: i32 = 62;
+pub(super) const X509_V_ERR_IP_ADDRESS_MISMATCH: i32 = 64;
 
 // Certificate Error Conversion Functions:
 
@@ -259,126 +189,6 @@ pub(super) fn create_ssl_cert_verification_error(
     Ok(exc.upcast())
 }
 
-/// Unified TLS connection type (client or server)
-#[derive(Debug)]
-pub(super) enum TlsConnection {
-    Client(ClientConnection),
-    Server(ServerConnection),
-}
-
-impl TlsConnection {
-    /// Check if handshake is in progress
-    pub(super) fn is_handshaking(&self) -> bool {
-        match self {
-            TlsConnection::Client(conn) => conn.is_handshaking(),
-            TlsConnection::Server(conn) => conn.is_handshaking(),
-        }
-    }
-
-    /// Check if connection wants to read data
-    pub(super) fn wants_read(&self) -> bool {
-        match self {
-            TlsConnection::Client(conn) => conn.wants_read(),
-            TlsConnection::Server(conn) => conn.wants_read(),
-        }
-    }
-
-    /// Check if connection wants to write data
-    pub(super) fn wants_write(&self) -> bool {
-        match self {
-            TlsConnection::Client(conn) => conn.wants_write(),
-            TlsConnection::Server(conn) => conn.wants_write(),
-        }
-    }
-
-    /// Read TLS data from socket
-    pub(super) fn read_tls(&mut self, reader: &mut dyn std::io::Read) -> std::io::Result<usize> {
-        match self {
-            TlsConnection::Client(conn) => conn.read_tls(reader),
-            TlsConnection::Server(conn) => conn.read_tls(reader),
-        }
-    }
-
-    /// Write TLS data to socket
-    pub(super) fn write_tls(&mut self, writer: &mut dyn std::io::Write) -> std::io::Result<usize> {
-        match self {
-            TlsConnection::Client(conn) => conn.write_tls(writer),
-            TlsConnection::Server(conn) => conn.write_tls(writer),
-        }
-    }
-
-    /// Process new TLS packets
-    pub(super) fn process_new_packets(&mut self) -> Result<rustls::IoState, rustls::Error> {
-        match self {
-            TlsConnection::Client(conn) => conn.process_new_packets(),
-            TlsConnection::Server(conn) => conn.process_new_packets(),
-        }
-    }
-
-    /// Get reader for plaintext data (rustls native type)
-    pub(super) fn reader(&mut self) -> rustls::Reader<'_> {
-        match self {
-            TlsConnection::Client(conn) => conn.reader(),
-            TlsConnection::Server(conn) => conn.reader(),
-        }
-    }
-
-    /// Get writer for plaintext data (rustls native type)
-    pub(super) fn writer(&mut self) -> rustls::Writer<'_> {
-        match self {
-            TlsConnection::Client(conn) => conn.writer(),
-            TlsConnection::Server(conn) => conn.writer(),
-        }
-    }
-
-    /// Check if session was resumed
-    pub(super) fn is_session_resumed(&self) -> bool {
-        use rustls::HandshakeKind;
-        match self {
-            TlsConnection::Client(conn) => {
-                matches!(conn.handshake_kind(), Some(HandshakeKind::Resumed))
-            }
-            TlsConnection::Server(conn) => {
-                matches!(conn.handshake_kind(), Some(HandshakeKind::Resumed))
-            }
-        }
-    }
-
-    /// Send close_notify alert
-    pub(super) fn send_close_notify(&mut self) {
-        match self {
-            TlsConnection::Client(conn) => conn.send_close_notify(),
-            TlsConnection::Server(conn) => conn.send_close_notify(),
-        }
-    }
-
-    /// Get negotiated ALPN protocol
-    pub(super) fn alpn_protocol(&self) -> Option<&[u8]> {
-        match self {
-            TlsConnection::Client(conn) => conn.alpn_protocol(),
-            TlsConnection::Server(conn) => conn.alpn_protocol(),
-        }
-    }
-
-    /// Get negotiated cipher suite
-    pub(super) fn negotiated_cipher_suite(&self) -> Option<rustls::SupportedCipherSuite> {
-        match self {
-            TlsConnection::Client(conn) => conn.negotiated_cipher_suite(),
-            TlsConnection::Server(conn) => conn.negotiated_cipher_suite(),
-        }
-    }
-
-    /// Get peer certificates
-    pub(super) fn peer_certificates(
-        &self,
-    ) -> Option<&[rustls::pki_types::CertificateDer<'static>]> {
-        match self {
-            TlsConnection::Client(conn) => conn.peer_certificates(),
-            TlsConnection::Server(conn) => conn.peer_certificates(),
-        }
-    }
-}
-
 /// Error types matching OpenSSL error codes
 #[derive(Debug)]
 pub(super) enum SslError {
@@ -423,19 +233,19 @@ impl SslError {
     /// Convert rustls error to SslError
     pub(super) fn from_rustls(err: rustls::Error) -> Self {
         match err {
-            rustls::Error::InvalidCertificate(cert_err) => SslError::CertVerification(cert_err),
+            rustls::Error::InvalidCertificate(cert_err) => Self::CertVerification(cert_err),
             rustls::Error::AlertReceived(alert_desc) => {
                 // Map TLS alerts to OpenSSL-compatible error codes
                 // lib = 20 (ERR_LIB_SSL), reason = 1000 + alert_code
                 match alert_desc {
                     rustls::AlertDescription::CloseNotify => {
                         // Special case: close_notify is handled as ZeroReturn
-                        SslError::ZeroReturn
+                        Self::ZeroReturn
                     }
                     _ => {
                         // All other alerts: convert to OpenSSL error code
                         // This includes InternalError (80 -> reason 1080)
-                        SslError::AlertReceived {
+                        Self::AlertReceived {
                             lib: ERR_LIB_SSL,
                             reason: Self::alert_to_openssl_reason(alert_desc),
                         }
@@ -448,7 +258,7 @@ impl SslError {
             rustls::Error::InvalidMessage(_) => {
                 // UnexpectedMessage, CorruptMessage, etc. → SSLEOFError
                 // Matches CPython's "EOF occurred in violation of protocol"
-                SslError::Eof
+                Self::Eof
             }
             rustls::Error::PeerIncompatible(peer_err) => {
                 // Check for specific incompatibility types
@@ -456,15 +266,15 @@ impl SslError {
                 match peer_err {
                     PeerIncompatible::NoCipherSuitesInCommon => {
                         // Maps to OpenSSL SSL_R_NO_SHARED_CIPHER (lib=20, reason=193)
-                        SslError::NoCipherSuites
+                        Self::NoCipherSuites
                     }
                     _ => {
                         // Other protocol incompatibilities → SSLEOFError
-                        SslError::Eof
+                        Self::Eof
                     }
                 }
             }
-            _ => SslError::Ssl(format!("{err}")),
+            _ => Self::Ssl(format!("{err}")),
         }
     }
 
@@ -551,23 +361,23 @@ impl SslError {
     /// Convert to Python exception
     pub(super) fn into_py_err(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
-            SslError::WantRead => create_ssl_want_read_error(vm).upcast(),
-            SslError::WantWrite => create_ssl_want_write_error(vm).upcast(),
-            SslError::Timeout(msg) => timeout_error_msg(vm, msg).upcast(),
-            SslError::Syscall(msg) => {
+            Self::WantRead => create_ssl_want_read_error(vm).upcast(),
+            Self::WantWrite => create_ssl_want_write_error(vm).upcast(),
+            Self::Timeout(msg) => timeout_error_msg(vm, msg).upcast(),
+            Self::Syscall(msg) => {
                 // SSLSyscallError with errno=SSL_ERROR_SYSCALL (5)
                 create_ssl_syscall_error(vm, msg).upcast()
             }
-            SslError::Ssl(msg) => vm
+            Self::Ssl(msg) => vm
                 .new_os_subtype_error(
                     PySSLError::class(&vm.ctx).to_owned(),
                     None,
                     format!("SSL error: {msg}"),
                 )
                 .upcast(),
-            SslError::ZeroReturn => create_ssl_zero_return_error(vm).upcast(),
-            SslError::Eof => create_ssl_eof_error(vm).upcast(),
-            SslError::PreauthData => {
+            Self::ZeroReturn => create_ssl_zero_return_error(vm).upcast(),
+            Self::Eof => create_ssl_eof_error(vm).upcast(),
+            Self::PreauthData => {
                 // Non-TLS data received before handshake
                 Self::create_ssl_error_with_reason(
                     vm,
@@ -576,20 +386,30 @@ impl SslError {
                     "before TLS handshake with data",
                 )
             }
-            SslError::CertVerification(cert_err) => {
+            Self::CertVerification(cert_err) => {
                 // Use the proper cert verification error creator
                 create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")
             }
-            SslError::Io(err) => err.into_pyexception(vm),
-            SslError::SniCallbackRestart => {
+            Self::Io(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
+                create_ssl_eof_error(vm).upcast()
+            }
+            Self::Io(err) if err.raw_os_error().is_none() => vm
+                .new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    format!("SSL error: {err}"),
+                )
+                .upcast(),
+            Self::Io(err) => err.into_pyexception(vm),
+            Self::SniCallbackRestart => {
                 // This should be handled at PySSLSocket level
                 unreachable!("SniCallbackRestart should not reach Python layer")
             }
-            SslError::Py(exc) => exc,
-            SslError::AlertReceived { lib, reason } => {
+            Self::Py(exc) => exc,
+            Self::AlertReceived { lib, reason } => {
                 Self::create_ssl_error_from_codes(vm, lib, reason)
             }
-            SslError::NoCipherSuites => {
+            Self::NoCipherSuites => {
                 // OpenSSL error: lib=20 (ERR_LIB_SSL), reason=193 (SSL_R_NO_SHARED_CIPHER)
                 Self::create_ssl_error_from_codes(vm, ERR_LIB_SSL, SSL_R_NO_SHARED_CIPHER)
             }
@@ -1054,11 +874,11 @@ fn send_all_bytes(
                 ));
             }
             socket
-                .sock_wait_for_io_with_timeout(SelectKind::Write, Some(dl - now), vm)
+                .sock_wait_for_io_with_timeout(SockWaitKind::Write, Some(dl - now), vm)
                 .map_err(SslError::Py)?
         } else {
             socket
-                .sock_wait_for_io_impl(SelectKind::Write, vm)
+                .sock_wait_for_io_impl(SockWaitKind::Write, vm)
                 .map_err(SslError::Py)?
         };
         if timed_out {
@@ -1116,7 +936,7 @@ fn send_all_bytes(
 /// Drains all pending TLS data from rustls and sends it to the peer.
 /// Returns whether any progress was made.
 fn handshake_write_loop(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     force_initial_write: bool,
     vm: &VirtualMachine,
@@ -1159,14 +979,10 @@ fn handshake_write_loop(
     Ok(made_progress)
 }
 
-/// Read TLS handshake data from socket/BIO
+/// Read at most one TLS record from the TCP socket.
 ///
-/// Waits for and reads TLS records from the peer, handling SNI callback setup.
-/// Returns (made_progress, is_first_sni_read).
-/// TLS record header size (content_type + version + length).
-const TLS_RECORD_HEADER_SIZE: usize = 5;
-
-/// Read exactly one TLS record from the TCP socket.
+/// May return incomplete data but never returns more when completes a
+/// previously incomplete TLS record.
 ///
 /// OpenSSL reads one TLS record at a time (no read-ahead by default).
 /// Rustls, however, consumes all available TCP data when fed via read_tls().
@@ -1179,77 +995,32 @@ const TLS_RECORD_HEADER_SIZE: usize = 5;
 /// Fix: peek at the TCP buffer to find the first complete TLS record boundary
 /// and recv() only that many bytes.  Any remaining data stays in the kernel
 /// buffer and remains visible to select().
-fn recv_one_tls_record(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<PyObjectRef> {
-    // Peek at what is available without consuming it.
-    let peeked_obj = match socket.sock_peek(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
-        Ok(d) => d,
-        Err(e) => {
-            if is_blocking_io_error(&e, vm) {
-                return Err(SslError::WantRead);
-            }
-            return Err(SslError::Py(e));
-        }
-    };
-
-    let peeked = ArgBytesLike::try_from_object(vm, peeked_obj)
-        .map_err(|_| SslError::Syscall("Expected bytes-like object from peek".to_string()))?;
-    let peeked_bytes = peeked.borrow_buf();
-
-    if peeked_bytes.is_empty() {
-        // Empty peek means the peer has closed the TCP connection (FIN).
-        // Non-blocking sockets would have returned EAGAIN/EWOULDBLOCK
-        // (caught above as WantRead), so empty bytes here always means EOF.
-        return Err(SslError::Eof);
-    }
-
-    if peeked_bytes.len() < TLS_RECORD_HEADER_SIZE {
-        // Not enough data for a TLS record header yet.
-        // Read all available bytes so rustls can buffer the partial header;
-        // this avoids busy-waiting because the kernel buffer is now empty
-        // and select() will only wake us when new data arrives.
-        return socket.sock_recv(peeked_bytes.len(), vm).map_err(|e| {
-            if is_blocking_io_error(&e, vm) {
-                SslError::WantRead
-            } else {
-                SslError::Py(e)
-            }
-        });
-    }
-
-    // Parse the TLS record length from the header.
-    let record_body_len = u16::from_be_bytes([peeked_bytes[3], peeked_bytes[4]]) as usize;
-    let total_record_size = TLS_RECORD_HEADER_SIZE + record_body_len;
-
-    let recv_size = if peeked_bytes.len() >= total_record_size {
-        // Complete record available — consume exactly one record.
-        total_record_size
-    } else {
-        // Incomplete record — consume everything so the kernel buffer is
-        // drained and select() will block until more data arrives.
-        peeked_bytes.len()
-    };
-
-    // Must drop the borrow before calling sock_recv (which re-enters Python).
-    drop(peeked_bytes);
-    drop(peeked);
-
-    socket.sock_recv(recv_size, vm).map_err(|e| {
+fn recv_at_most_one_tls_record(
+    socket: &PySSLSocket,
+    vm: &VirtualMachine,
+) -> SslResult<PyObjectRef> {
+    let bytes = socket.sock_recv_at_most_one_tls_record(vm).map_err(|e| {
         if is_blocking_io_error(&e, vm) {
             SslError::WantRead
         } else {
             SslError::Py(e)
         }
-    })
+    })?;
+    if bytes.is_empty() {
+        Err(SslError::Eof)
+    } else {
+        Ok(bytes.into())
+    }
 }
 
-/// Read a single TLS record for post-handshake I/O while preserving the
+/// Read up to a single TLS record for post-handshake I/O while preserving the
 /// SSL-vs-socket error precedence from the old sock_recv() path.
-fn recv_one_tls_record_for_data(
-    conn: &mut TlsConnection,
+fn recv_at_most_one_tls_record_for_data(
+    conn: &mut Connection,
     socket: &PySSLSocket,
     vm: &VirtualMachine,
 ) -> SslResult<PyObjectRef> {
-    match recv_one_tls_record(socket, vm) {
+    match recv_at_most_one_tls_record(socket, vm) {
         Ok(data) => Ok(data),
         Err(SslError::Eof) => {
             if let Err(rustls_err) = conn.process_new_packets() {
@@ -1271,7 +1042,7 @@ fn recv_one_tls_record_for_data(
 }
 
 fn handshake_read_data(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     is_bio: bool,
     is_server: bool,
@@ -1281,14 +1052,15 @@ fn handshake_read_data(
         return Ok((false, false));
     }
 
-    // SERVER-SPECIFIC: Check if this is the first read (for SNI callback)
-    // Must check BEFORE reading data, so we can detect first time
-    let is_first_sni_read = is_server && socket.is_first_sni_read();
+    // SERVER-SPECIFIC: Check if this is before the SNI callback.
+    // sock_recv() may return only part of a TLS record, so keep capturing
+    // ClientHello fragments until process_new_packets() has produced a response.
+    let is_first_sni_read = is_server && socket.has_sni_callback() && socket.is_first_sni_read();
 
     // Wait for data in socket mode
     if !is_bio {
         let timed_out = socket
-            .sock_wait_for_io_impl(SelectKind::Read, vm)
+            .sock_wait_for_io_impl(SockWaitKind::Read, vm)
             .map_err(SslError::Py)?;
 
         if timed_out {
@@ -1304,9 +1076,9 @@ fn handshake_read_data(
         // record.  This matches OpenSSL's default (no read-ahead) behaviour
         // and keeps remaining data in the kernel buffer where select() can
         // detect it.
-        recv_one_tls_record(socket, vm)?
+        recv_at_most_one_tls_record(socket, vm)?
     } else {
-        match socket.sock_recv(SSL3_RT_MAX_PLAIN_LENGTH, vm) {
+        match socket.sock_recv(SSL3_RT_MAX_PACKET_SIZE, vm) {
             Ok(d) => d,
             Err(e) => {
                 if is_blocking_io_error(&e, vm) {
@@ -1320,7 +1092,7 @@ fn handshake_read_data(
         }
     };
 
-    // SERVER-SPECIFIC: Save ClientHello on first read for potential connection recreation
+    // SERVER-SPECIFIC: Save ClientHello fragments for potential connection recreation.
     if is_first_sni_read {
         // Extract bytes from PyObjectRef
         use rustpython_vm::builtins::PyBytes;
@@ -1340,7 +1112,7 @@ fn handshake_read_data(
 /// Tries to send NewSessionTicket in non-blocking mode to avoid deadlocks.
 /// Returns true if handshake is complete and we should exit.
 fn handle_handshake_complete(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     _is_server: bool,
     vm: &VirtualMachine,
@@ -1415,7 +1187,7 @@ fn handle_handshake_complete(
 ///
 /// Returns Ok(Some(n)) if n bytes were read, Ok(None) if would block,
 /// or Err on real errors.
-fn try_read_plaintext(conn: &mut TlsConnection, buf: &mut [u8]) -> SslResult<Option<usize>> {
+fn try_read_plaintext(conn: &mut Connection, buf: &mut [u8]) -> SslResult<Option<usize>> {
     let mut reader = conn.reader();
     match reader.read(buf) {
         Ok(0) => {
@@ -1444,7 +1216,7 @@ fn try_read_plaintext(conn: &mut TlsConnection, buf: &mut [u8]) -> SslResult<Opt
 ///
 /// = SSL_do_handshake()
 pub(super) fn ssl_do_handshake(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     vm: &VirtualMachine,
 ) -> SslResult<()> {
@@ -1454,12 +1226,9 @@ pub(super) fn ssl_do_handshake(
     }
 
     let is_bio = socket.is_bio_mode();
-    let is_server = matches!(conn, TlsConnection::Server(_));
+    let is_server = matches!(conn, Connection::Server(_));
     let mut first_iteration = true; // Track if this is the first loop iteration
-    let mut iteration_count = 0;
-
     loop {
-        iteration_count += 1;
         let mut made_progress = false;
 
         // IMPORTANT: In BIO mode, force initial write even if wants_write() is false
@@ -1502,10 +1271,10 @@ pub(super) fn ssl_do_handshake(
             return Err(SslError::from_rustls(e));
         }
 
-        // SERVER-SPECIFIC: Check SNI callback after processing packets
-        // SNI name is extracted during process_new_packets()
-        // Invoke callback on FIRST read if callback is configured, regardless of SNI presence
-        if is_server && is_first_sni_read && socket.has_sni_callback() {
+        // SERVER-SPECIFIC: Check SNI callback after processing packets.
+        // A partial TLS record can be read without producing any handshake
+        // response.  Wait until rustls has processed a complete ClientHello.
+        if is_server && is_first_sni_read && socket.has_sni_callback() && conn.wants_write() {
             // IMPORTANT: Do NOT call the callback here!
             // The connection lock is still held, which would cause deadlock.
             // Return SniCallbackRestart to signal do_handshake to:
@@ -1529,7 +1298,7 @@ pub(super) fn ssl_do_handshake(
             if conn.wants_write() {
                 // Write all pending TLS data to outgoing BIO
                 loop {
-                    let mut buf = vec![0u8; SSL3_RT_MAX_PLAIN_LENGTH];
+                    let mut buf = vec![0u8; SSL3_RT_MAX_PACKET_SIZE];
                     let n = match conn.write_tls(&mut buf.as_mut_slice()) {
                         Ok(n) => n,
                         Err(_) => break,
@@ -1577,11 +1346,6 @@ pub(super) fn ssl_do_handshake(
         if !should_continue {
             break;
         }
-
-        // Safety check: prevent truly infinite loops (should never happen)
-        if iteration_count > 1000 {
-            break;
-        }
     }
 
     // If we exit the loop without completing handshake, return appropriate error
@@ -1595,9 +1359,9 @@ pub(super) fn ssl_do_handshake(
             return Err(SslError::WantRead);
         }
         // Neither wants_read nor wants_write - this is a real error
-        Err(SslError::Syscall(format!(
-            "SSL handshake failed: incomplete after {iteration_count} iterations",
-        )))
+        Err(SslError::Syscall(
+            "SSL handshake failed: incomplete handshake".to_string(),
+        ))
     } else {
         // Handshake completed successfully (shouldn't reach here normally)
         Ok(())
@@ -1611,7 +1375,7 @@ pub(super) fn ssl_do_handshake(
 ///
 /// = SSL_read_ex()
 pub(super) fn ssl_read(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     buf: &mut [u8],
     socket: &PySSLSocket,
     vm: &VirtualMachine,
@@ -1749,7 +1513,7 @@ pub(super) fn ssl_read(
                 // Blocking socket or socket with timeout: try to read more data from socket.
                 // Even though rustls says it doesn't want to read, more TLS records may arrive.
                 // Use single-record reading to avoid consuming close_notify alongside data.
-                let data = recv_one_tls_record_for_data(conn, socket, vm)?;
+                let data = recv_at_most_one_tls_record_for_data(conn, socket, vm)?;
 
                 let bytes_read = data
                     .clone()
@@ -1784,11 +1548,6 @@ pub(super) fn ssl_read(
                 // Successfully read and processed TLS data
                 // Continue loop to try reading plaintext
             }
-            Err(SslError::Io(ref io_err)) if io_err.to_string().contains("message buffer full") => {
-                // This case should be rare now that ssl_read_tls_records handles buffer full
-                // Just continue loop to try again
-                continue;
-            }
             Err(e) => {
                 // Other errors - check for buffered plaintext before propagating
                 match try_read_plaintext(conn, buf)? {
@@ -1813,7 +1572,7 @@ pub(super) fn ssl_read(
 ///
 /// = SSL_write_ex()
 pub(super) fn ssl_write(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     data: &[u8],
     socket: &PySSLSocket,
     vm: &VirtualMachine,
@@ -1940,7 +1699,7 @@ pub(super) fn ssl_write(
                     return Err(SslError::WantRead);
                 }
                 // For socket mode, try to read TLS data
-                let recv_result = socket.sock_recv(4096, vm).map_err(SslError::Py)?;
+                let recv_result = recv_at_most_one_tls_record_for_data(conn, socket, vm)?;
                 ssl_read_tls_records(conn, recv_result, false, vm)?;
                 conn.process_new_packets().map_err(SslError::from_rustls)?;
                 // Continue loop
@@ -1990,7 +1749,7 @@ pub(super) fn ssl_write(
 // Helper functions (private-ish, used by public SSL functions)
 
 /// Write TLS records from rustls to socket
-fn ssl_write_tls_records(conn: &mut TlsConnection) -> SslResult<Vec<u8>> {
+fn ssl_write_tls_records(conn: &mut Connection) -> SslResult<Vec<u8>> {
     let mut buf = Vec::new();
     let n = conn
         .write_tls(&mut buf as &mut dyn std::io::Write)
@@ -2001,7 +1760,7 @@ fn ssl_write_tls_records(conn: &mut TlsConnection) -> SslResult<Vec<u8>> {
 
 /// Read TLS records from socket to rustls
 fn ssl_read_tls_records(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     data: PyObjectRef,
     is_bio: bool,
     vm: &VirtualMachine,
@@ -2064,6 +1823,9 @@ fn ssl_read_tls_records(
                         }
                         Ok(n) => {
                             offset += n;
+                            if offset < bytes_data.len() {
+                                conn.process_new_packets().map_err(SslError::from_rustls)?;
+                            }
                         }
                         Err(e) => {
                             return Err(SslError::Io(e));
@@ -2071,14 +1833,12 @@ fn ssl_read_tls_records(
                     }
                 } else {
                     offset += read_bytes;
+                    if offset < bytes_data.len() {
+                        conn.process_new_packets().map_err(SslError::from_rustls)?;
+                    }
                 }
             }
             Err(e) => {
-                // Check if it's a buffer full error (unlikely but handle it)
-                if e.to_string().contains("buffer full") {
-                    conn.process_new_packets().map_err(SslError::from_rustls)?;
-                    continue;
-                }
                 // Real error - propagate it
                 return Err(SslError::Io(e));
             }
@@ -2114,7 +1874,7 @@ fn is_connection_closed_error(exc: &Py<PyBaseException>, vm: &VirtualMachine) ->
 /// Ensure TLS data is available for reading
 /// Returns the number of bytes read from the socket
 fn ssl_ensure_data_available(
-    conn: &mut TlsConnection,
+    conn: &mut Connection,
     socket: &PySSLSocket,
     vm: &VirtualMachine,
 ) -> SslResult<usize> {
@@ -2136,7 +1896,7 @@ fn ssl_ensure_data_available(
             {
                 // Socket has timeout - use select to enforce it
                 let timed_out = socket
-                    .sock_wait_for_io_impl(SelectKind::Read, vm)
+                    .sock_wait_for_io_impl(SockWaitKind::Read, vm)
                     .map_err(SslError::Py)?;
                 if timed_out {
                     // Socket not ready within timeout - raise socket.timeout
@@ -2153,9 +1913,9 @@ fn ssl_ensure_data_available(
         // consuming a close_notify that arrives alongside application data,
         // keeping it in the kernel buffer where select() can detect it.
         let data = if !is_bio {
-            recv_one_tls_record_for_data(conn, socket, vm)?
+            recv_at_most_one_tls_record_for_data(conn, socket, vm)?
         } else {
-            match socket.sock_recv(2048, vm) {
+            match socket.sock_recv(SSL3_RT_MAX_PACKET_SIZE, vm) {
                 Ok(data) => data,
                 Err(e) => {
                     if is_blocking_io_error(&e, vm) {

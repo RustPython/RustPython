@@ -15,7 +15,7 @@ mod _contextvars {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyGenericAlias, PyList, PyStrRef, PyType, PyTypeRef},
         class::StaticType,
-        common::{hash::PyHash, wtf8::Wtf8Buf},
+        common::{hash::PyHash, lock::LazyLock, wtf8::Wtf8Buf},
         function::{ArgCallable, FuncArgs, OptionalArg},
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{AsMapping, AsSequence, Constructor, Hashable, Iterable, Representable},
@@ -26,7 +26,6 @@ mod _contextvars {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use indexmap::IndexMap;
-    use rustpython_common::lock::LazyLock;
 
     // TODO: Real hamt implementation
     type Hamt = IndexMap<PyRef<ContextVar>, PyObjectRef, ahash::RandomState>;
@@ -89,11 +88,10 @@ mod _contextvars {
 
         fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.inner.entered.get() {
-                let msg = format!(
+                return Err(vm.new_runtime_error(format!(
                     "cannot enter context: {} is already entered",
                     zelf.as_object().repr(vm)?
-                );
-                return Err(vm.new_runtime_error(msg));
+                )));
             }
 
             super::CONTEXTS.with_borrow_mut(|ctxs| {
@@ -107,19 +105,20 @@ mod _contextvars {
 
         fn exit(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             if !zelf.inner.entered.get() {
-                let msg = format!(
+                return Err(vm.new_runtime_error(format!(
                     "cannot exit context: {} is not entered",
                     zelf.as_object().repr(vm)?
-                );
-                return Err(vm.new_runtime_error(msg));
+                )));
             }
 
             super::CONTEXTS.with_borrow_mut(|ctxs| {
-                let err_msg =
-                    "cannot exit context: thread state references a different context object";
                 ctxs.pop_if(|ctx| ctx.get_id() == zelf.get_id())
                     .map(drop)
-                    .ok_or_else(|| vm.new_runtime_error(err_msg))
+                    .ok_or_else(|| {
+                        vm.new_runtime_error(
+                            "cannot exit context: thread state references a different context object"
+                        )
+                    })
             })?;
             zelf.inner.entered.set(false);
 
@@ -141,9 +140,9 @@ mod _contextvars {
             })
         }
 
-        fn contains(&self, needle: &Py<ContextVar>) -> PyResult<bool> {
+        fn contains(&self, needle: &Py<ContextVar>) -> bool {
             let vars = self.borrow_vars();
-            Ok(vars.get(needle).is_some())
+            vars.get(needle).is_some()
         }
 
         fn get_inner(&self, needle: &Py<ContextVar>) -> Option<PyObjectRef> {
@@ -203,14 +202,13 @@ mod _contextvars {
             &self,
             key: PyRef<ContextVar>,
             default: OptionalArg<PyObjectRef>,
-        ) -> PyResult<Option<PyObjectRef>> {
+        ) -> Option<PyObjectRef> {
             let found = self.get_inner(&key);
-            let result = if let Some(found) = found {
-                Some(found)
+            if found.is_some() {
+                found
             } else {
                 default.into_option()
-            };
-            Ok(result)
+            }
         }
 
         // TODO: wrong return type
@@ -252,12 +250,9 @@ mod _contextvars {
                 )),
                 subscript: atomic_func!(|mapping, needle, vm| {
                     let needle = needle.try_to_value(vm)?;
-                    let found = PyContext::mapping_downcast(mapping).get_inner(needle);
-                    if let Some(found) = found {
-                        Ok(found)
-                    } else {
-                        Err(vm.new_key_error(needle.to_owned().into()))
-                    }
+                    PyContext::mapping_downcast(mapping)
+                        .get_inner(needle)
+                        .ok_or_else(|| vm.new_key_error(needle.to_owned().into()))
                 }),
                 ass_subscript: None,
             };
@@ -270,7 +265,7 @@ mod _contextvars {
             static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
                 contains: atomic_func!(|seq, target, vm| {
                     let target = target.try_to_value(vm)?;
-                    PyContext::sequence_downcast(seq).contains(target)
+                    Ok(PyContext::sequence_downcast(seq).contains(target))
                 }),
                 ..PySequenceMethods::NOT_IMPLEMENTED
             });
@@ -333,15 +328,14 @@ mod _contextvars {
             if vars.swap_remove(zelf).is_none() {
                 // TODO:
                 // PyErr_SetObject(PyExc_LookupError, (PyObject *)var);
-                let msg = zelf.as_object().repr(vm)?.as_wtf8().to_owned();
-                return Err(vm.new_lookup_error(msg));
+                return Err(vm.new_lookup_error(zelf.as_object().repr(vm)?.as_wtf8().to_owned()));
             }
 
             Ok(())
         }
 
         // contextvar_set in CPython
-        fn set_inner(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_inner(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) {
             let ctx = PyContext::current(vm);
 
             let mut vars = ctx.borrow_vars_mut();
@@ -354,8 +348,6 @@ mod _contextvars {
                 idx: ctx.inner.idx.get(),
             };
             zelf.cached.store(Some(cache));
-
-            Ok(())
         }
 
         fn generate_hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyHash {
@@ -408,18 +400,13 @@ mod _contextvars {
             } else if let Some(default) = zelf.default.as_ref() {
                 default.clone()
             } else {
-                let msg = zelf.as_object().repr(vm)?;
-                return Err(vm.new_lookup_error(msg.as_wtf8().to_owned()));
+                return Err(vm.new_lookup_error(zelf.as_object().repr(vm)?.as_wtf8().to_owned()));
             };
             Ok(Some(value))
         }
 
         #[pymethod]
-        fn set(
-            zelf: &Py<Self>,
-            value: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyRef<ContextToken>> {
+        fn set(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyRef<ContextToken> {
             let ctx = PyContext::current(vm);
 
             let old_value = ctx.borrow_vars().get(zelf).map(|v| v.to_owned());
@@ -431,39 +418,39 @@ mod _contextvars {
             };
 
             // ctx.vars borrow must be released
-            Self::set_inner(zelf, value, vm)?;
+            Self::set_inner(zelf, value, vm);
 
-            Ok(token.into_ref(&vm.ctx))
+            token.into_ref(&vm.ctx)
         }
 
         #[pymethod]
         fn reset(zelf: &Py<Self>, token: PyRef<ContextToken>, vm: &VirtualMachine) -> PyResult<()> {
             if token.used.get() {
-                let msg = format!("{} has already been used once", token.as_object().repr(vm)?);
-                return Err(vm.new_runtime_error(msg));
+                return Err(vm.new_runtime_error(format!(
+                    "{} has already been used once",
+                    token.as_object().repr(vm)?
+                )));
             }
 
             if !zelf.is(&token.var) {
-                let msg = format!(
+                return Err(vm.new_value_error(format!(
                     "{} was created by a different ContextVar",
                     token.var.as_object().repr(vm)?
-                );
-                return Err(vm.new_value_error(msg));
+                )));
             }
 
             let ctx = PyContext::current(vm);
             if !ctx.is(&token.ctx) {
-                let msg = format!(
+                return Err(vm.new_value_error(format!(
                     "{} was created in a different Context",
                     token.var.as_object().repr(vm)?
-                );
-                return Err(vm.new_value_error(msg));
+                )));
             }
 
             token.used.set(true);
 
             if let Some(old_value) = &token.old_value {
-                Self::set_inner(zelf, old_value.clone(), vm)?;
+                Self::set_inner(zelf, old_value.clone(), vm);
             } else {
                 Self::delete(zelf, vm)?;
             }
@@ -602,6 +589,7 @@ mod _contextvars {
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_runtime_error("Tokens can only be created by ContextVars"))
         }
+
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             unimplemented!("use slot_new")
         }

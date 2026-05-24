@@ -485,7 +485,7 @@ impl TryFrom<u32> for MakeFunctionFlag {
 impl From<MakeFunctionFlag> for u32 {
     /// Encode as CPython-compatible power-of-two value
     fn from(flag: MakeFunctionFlag) -> Self {
-        1u32 << (flag as u32)
+        1u32 << (flag as Self)
     }
 }
 

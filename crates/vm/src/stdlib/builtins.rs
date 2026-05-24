@@ -160,7 +160,11 @@ mod builtins {
                 .map(|&b| b as char)
                 .collect();
 
-            if name.is_empty() { None } else { Some(name) }
+            if name.is_empty() {
+                None
+            } else {
+                Some(normalize_source_encoding(&name))
+            }
         }
 
         // Split into lines (first two only)
@@ -186,15 +190,39 @@ mod builtins {
         lines.next().and_then(find_encoding_in_line)
     }
 
+    /// Match CPython's Parser/tokenizer/helpers.c:get_normal_name().
+    #[cfg(feature = "parser")]
+    fn normalize_source_encoding(name: &str) -> String {
+        let mut normalized = String::with_capacity(name.len().min(12));
+        for ch in name.chars().take(12) {
+            if ch == '_' {
+                normalized.push('-');
+            } else {
+                normalized.push(ch.to_ascii_lowercase());
+            }
+        }
+
+        if normalized == "utf-8" || normalized.starts_with("utf-8-") {
+            "utf-8".to_owned()
+        } else if normalized == "latin-1"
+            || normalized == "iso-8859-1"
+            || normalized == "iso-latin-1"
+            || normalized.starts_with("latin-1-")
+            || normalized.starts_with("iso-8859-1-")
+            || normalized.starts_with("iso-latin-1-")
+        {
+            "iso-8859-1".to_owned()
+        } else {
+            name.to_owned()
+        }
+    }
+
     /// Decode source bytes to a string, handling PEP 263 encoding declarations
     /// and BOM. Raises SyntaxError for invalid UTF-8 without an encoding
     /// declaration.
-    /// Check if an encoding name is a UTF-8 variant after normalization.
-    /// Matches: utf-8, utf_8, utf8, UTF-8, etc.
     #[cfg(feature = "parser")]
     fn is_utf8_encoding(name: &str) -> bool {
-        let normalized: String = name.chars().filter(|&c| c != '-' && c != '_').collect();
-        normalized.eq_ignore_ascii_case("utf8")
+        name == "utf-8"
     }
 
     #[cfg(feature = "parser")]
@@ -206,9 +234,10 @@ mod builtins {
 
         // Validate BOM + encoding combination
         if has_bom && !is_utf8 {
+            let enc = encoding.as_deref().unwrap_or("utf-8");
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.syntax_error.to_owned(),
-                format!("encoding problem for '{filename}': utf-8").into(),
+                format!("encoding problem: {enc} with BOM").into(),
             ));
         }
 
@@ -737,7 +766,7 @@ mod builtins {
                 }
                 ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
                 #[cfg(unix)]
-                ReadlineResult::OsError(num) => Err(vm.new_os_error(num.to_string())),
+                ReadlineResult::OsError(num) => Err(vm.new_os_error(num)),
                 ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
         } else {
@@ -754,9 +783,7 @@ mod builtins {
     /// In this case, rustyline may hang because it uses raw mode.
     #[cfg(unix)]
     fn is_pty_child() -> bool {
-        use nix::unistd::{getpid, getsid};
-        // If this process is a session leader, we're likely in a PTY child
-        getsid(None) == Ok(getpid())
+        crate::host_env::posix::is_session_leader()
     }
 
     #[cfg(not(unix))]
@@ -928,7 +955,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyResult {
+    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyObjectRef {
         let number = number.into_int_ref();
         let n = number.as_bigint();
         let s = if n.is_negative() {
@@ -937,7 +964,7 @@ mod builtins {
             format!("0o{n:o}")
         };
 
-        Ok(vm.ctx.new_str(s).into())
+        vm.ctx.new_str(s).into()
     }
 
     #[pyfunction]
@@ -1121,6 +1148,10 @@ mod builtins {
         start: OptionalArg<PyObjectRef>,
     }
 
+    #[expect(
+        clippy::redundant_else,
+        reason = "match_class! macro expansion arms has a `return` inside"
+    )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
@@ -1130,17 +1161,13 @@ mod builtins {
 
         match_class!(match sum {
             PyStr =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum strings [use ''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]")),
             PyBytes =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytes [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]")),
             PyByteArray =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(
+                    vm.new_type_error("sum() can't sum bytearray [use b''.join(seq) instead]")
+                ),
             _ => (),
         });
 
@@ -1336,15 +1363,13 @@ mod builtins {
         {
             let cell_value = classcell.get().ok_or_else(|| {
                 vm.new_runtime_error(format!(
-                    "__class__ not set defining {:?} as {:?}. Was __classcell__ propagated to type.__new__?",
-                    name, class
+                    "__class__ not set defining {name:?} as {class:?}. Was __classcell__ propagated to type.__new__?"
                 ))
             })?;
 
             if !cell_value.is(&class) {
                 return Err(vm.new_type_error(format!(
-                    "__class__ set to {:?} defining {:?} as {:?}",
-                    cell_value, name, class
+                    "__class__ set to {cell_value:?} defining {name:?} as {class:?}"
                 )));
             }
         }
@@ -1449,6 +1474,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "TimeoutError" => ctx.exceptions.timeout_error.to_owned(),
         "ReferenceError" => ctx.exceptions.reference_error.to_owned(),
         "RuntimeError" => ctx.exceptions.runtime_error.to_owned(),
+        "PythonFinalizationError" => ctx.exceptions.python_finalization_error.to_owned(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.to_owned(),
         "RecursionError" => ctx.exceptions.recursion_error.to_owned(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.to_owned(),

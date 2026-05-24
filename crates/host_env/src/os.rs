@@ -1,13 +1,32 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
+#[cfg(any(unix, windows, target_os = "wasi"))]
+use crate::crt_fd;
+#[cfg(windows)]
+use crate::fs;
+#[cfg(any(unix, windows))]
+use core::ffi::CStr;
 use core::str::Utf8Error;
+#[cfg(windows)]
+use core::time::Duration;
 use std::{
     env,
     ffi::{OsStr, OsString},
     io,
     path::PathBuf,
     process::ExitCode,
+};
+#[cfg(windows)]
+use {
+    std::{os::windows::io::AsRawHandle, path::Path},
+    windows_sys::Win32::{
+        Foundation::FILETIME,
+        Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, INVALID_SET_FILE_POINTER, SetFilePointer, SetFileTime,
+        },
+        System::SystemInformation::{GetSystemInfo, SYSTEM_INFO},
+    },
 };
 
 /// Convert exit code to std::process::ExitCode
@@ -71,7 +90,32 @@ pub unsafe fn remove_var(key: impl AsRef<OsStr>) {
 }
 
 pub fn set_current_dir(path: impl AsRef<std::path::Path>) -> io::Result<()> {
-    env::set_current_dir(path)
+    env::set_current_dir(&path)?;
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
+
+        if let Ok(cwd) = env::current_dir() {
+            let cwd_str = cwd.as_os_str();
+            let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
+
+            let is_unc_like_path = cwd_wide.len() >= 2
+                && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
+                    || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
+
+            if !is_unc_like_path {
+                let env_name: [u16; 4] = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
+                cwd_wide.push(0);
+                unsafe {
+                    SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr());
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[must_use]
@@ -79,8 +123,234 @@ pub fn process_id() -> u32 {
     std::process::id()
 }
 
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+pub fn cpu_count() -> usize {
+    num_cpus::get()
+}
+
+#[cfg(not(any(not(target_arch = "wasm32"), target_os = "wasi")))]
+pub fn cpu_count() -> usize {
+    1
+}
+
+#[cfg(unix)]
+pub fn page_size() -> usize {
+    rustix::param::page_size()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub const fn page_size() -> usize {
+    // WebAssembly's page size is a constant defined by the spec.
+    1024 * 64
+}
+
+#[cfg(windows)]
+pub fn page_size() -> usize {
+    let mut info = SYSTEM_INFO::default();
+    unsafe {
+        GetSystemInfo(&mut info);
+    }
+    info.dwPageSize as _
+}
+
+#[cfg(unix)]
+pub fn alloc_granularity() -> usize {
+    // On Unix-likes, the page size is the smallest allocation unit rather than a separate concept
+    // of allocation granularity.
+    page_size()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub const fn alloc_granularity() -> usize {
+    // Like Unix, WebAssembly doesn't separate page size and alloc granularity.
+    page_size()
+}
+
+#[cfg(windows)]
+pub fn alloc_granularity() -> usize {
+    let mut info = SYSTEM_INFO::default();
+    unsafe {
+        GetSystemInfo(&mut info);
+    }
+    info.dwAllocationGranularity as _
+}
+
+pub fn device_encoding(_fd: i32) -> Option<String> {
+    #[cfg(any(
+        target_os = "android",
+        target_os = "redox",
+        all(target_arch = "wasm32", not(target_os = "wasi"))
+    ))]
+    {
+        Some("UTF-8".to_owned())
+    }
+
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Console;
+        let cp = match _fd {
+            0 => unsafe { Console::GetConsoleCP() },
+            1 | 2 => unsafe { Console::GetConsoleOutputCP() },
+            _ => 0,
+        };
+
+        Some(format!("cp{cp}"))
+    }
+
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "redox",
+        windows,
+        all(target_arch = "wasm32", not(target_os = "wasi"))
+    )))]
+    {
+        let encoding = unsafe {
+            let encoding = libc::nl_langinfo(libc::CODESET);
+            if encoding.is_null() || encoding.read() == b'\0' as libc::c_char {
+                "UTF-8".to_owned()
+            } else {
+                core::ffi::CStr::from_ptr(encoding)
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        };
+
+        Some(encoding)
+    }
+}
+
 pub fn exit(code: i32) -> ! {
     std::process::exit(code)
+}
+
+/// Wrapper around the C `abort()` call: terminates the process abnormally.
+pub fn abort() -> ! {
+    unsafe extern "C" {
+        fn abort() -> !;
+    }
+    unsafe { abort() }
+}
+
+/// Read `size` cryptographically random bytes from the OS.
+pub fn urandom(size: usize) -> io::Result<Vec<u8>> {
+    let mut buf = vec![0u8; size];
+    getrandom::fill(&mut buf).map_err(io::Error::from)?;
+    Ok(buf)
+}
+
+#[cfg(any(unix, windows, target_os = "wasi"))]
+pub fn isatty(fd: i32) -> bool {
+    unsafe { suppress_iph!(libc::isatty(fd)) != 0 }
+}
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn isatty(_fd: i32) -> bool {
+    false
+}
+
+#[cfg(any(unix, windows))]
+pub fn system(command: &CStr) -> libc::c_int {
+    unsafe { libc::system(command.as_ptr()) }
+}
+
+#[cfg(target_os = "linux")]
+pub fn copy_file_range(
+    src: crt_fd::Borrowed<'_>,
+    offset_src: Option<&mut crt_fd::Offset>,
+    dst: crt_fd::Borrowed<'_>,
+    offset_dst: Option<&mut crt_fd::Offset>,
+    count: usize,
+) -> io::Result<usize> {
+    #[allow(clippy::unnecessary_option_map_or_else)]
+    let p_offset_src = offset_src.map_or_else(core::ptr::null_mut, |x| x as *mut _);
+    #[allow(clippy::unnecessary_option_map_or_else)]
+    let p_offset_dst = offset_dst.map_or_else(core::ptr::null_mut, |x| x as *mut _);
+
+    // Why not use `libc::copy_file_range`: On musl, the libc wrapper may be missing.
+    let ret = unsafe {
+        libc::syscall(
+            libc::SYS_copy_file_range,
+            src.as_raw(),
+            p_offset_src,
+            dst.as_raw(),
+            p_offset_dst,
+            count,
+            0u32,
+        )
+    };
+
+    usize::try_from(ret).map_err(|_| io::Error::last_os_error())
+}
+
+pub fn rename(
+    from: impl AsRef<std::path::Path>,
+    to: impl AsRef<std::path::Path>,
+) -> io::Result<()> {
+    std::fs::rename(from, to)
+}
+
+#[cfg(windows)]
+pub fn seek_fd(
+    fd: crt_fd::Borrowed<'_>,
+    position: crt_fd::Offset,
+    how: i32,
+) -> io::Result<crt_fd::Offset> {
+    let handle = crt_fd::as_handle(fd)?;
+    let mut distance_to_move: [i32; 2] = unsafe { core::mem::transmute(position) };
+    let ret = unsafe {
+        SetFilePointer(
+            handle.as_raw_handle(),
+            distance_to_move[0],
+            &mut distance_to_move[1],
+            how as _,
+        )
+    };
+    if ret == INVALID_SET_FILE_POINTER {
+        Err(io::Error::last_os_error())
+    } else {
+        distance_to_move[0] = ret as _;
+        Ok(unsafe { core::mem::transmute::<[i32; 2], i64>(distance_to_move) })
+    }
+}
+
+#[cfg(any(unix, target_os = "wasi"))]
+pub fn seek_fd(
+    fd: crt_fd::Borrowed<'_>,
+    position: crt_fd::Offset,
+    how: i32,
+) -> io::Result<crt_fd::Offset> {
+    unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) }.check_libc_neg()
+}
+
+#[cfg(windows)]
+fn filetime_from_duration(duration: Duration) -> FILETIME {
+    let intervals = ((duration.as_secs() as i64 + 11644473600) * 10_000_000)
+        + (duration.subsec_nanos() as i64 / 100);
+    FILETIME {
+        dwLowDateTime: intervals as u32,
+        dwHighDateTime: (intervals >> 32) as u32,
+    }
+}
+
+#[cfg(windows)]
+pub fn set_file_times(
+    path: impl AsRef<Path>,
+    access: Duration,
+    modified: Duration,
+) -> io::Result<()> {
+    use crate::windows::CheckWin32Bool;
+    let access = filetime_from_duration(access);
+    let modified = filetime_from_duration(modified);
+    let file = fs::open_write_with_custom_flags(path, FILE_FLAG_BACKUP_SEMANTICS)?;
+    unsafe {
+        SetFileTime(
+            file.as_raw_handle() as _,
+            core::ptr::null(),
+            &access,
+            &modified,
+        )
+    }
+    .check_win32_bool()
 }
 
 pub trait ErrorExt {
@@ -115,6 +385,52 @@ pub fn errno_io_error() -> io::Error {
     std::io::Error::last_os_error()
 }
 
+/// Convert a libc-style return value into an `io::Result`.
+///
+/// Negative values are treated as errors; errno is read via [`errno_io_error`].
+/// Modeled after PyPy's `rposix.handle_posix_error`.
+pub trait CheckLibcResult: Sized {
+    /// Returns `Ok(self)` if non-negative, otherwise `Err` with the current errno.
+    fn check_libc_neg(self) -> io::Result<Self>;
+}
+
+macro_rules! impl_check_libc_result {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl CheckLibcResult for $ty {
+                #[inline]
+                fn check_libc_neg(self) -> io::Result<Self> {
+                    if self < 0 { Err(errno_io_error()) } else { Ok(self) }
+                }
+            }
+        )*
+    };
+}
+
+impl_check_libc_result!(i16, i32, i64, isize);
+
+/// libc convention where `0` means success and any non-zero value indicates failure
+/// (with errno set). Used by APIs like `sigemptyset`, `sigaction`, `pthread_*`, etc.
+pub trait CheckLibcZero {
+    /// Returns `Ok(())` if `self == 0`, otherwise the current errno as an `io::Error`.
+    fn check_libc_zero(self) -> io::Result<()>;
+}
+
+macro_rules! impl_check_libc_zero {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl CheckLibcZero for $ty {
+                #[inline]
+                fn check_libc_zero(self) -> io::Result<()> {
+                    if self == 0 { Ok(()) } else { Err(errno_io_error()) }
+                }
+            }
+        )*
+    };
+}
+
+impl_check_libc_zero!(i32, i64, isize);
+
 #[cfg(windows)]
 pub fn get_errno() -> i32 {
     unsafe extern "C" {
@@ -131,6 +447,10 @@ pub fn get_errno() -> i32 {
     std::io::Error::last_os_error().posix_errno()
 }
 
+pub fn clear_errno() {
+    set_errno(0);
+}
+
 /// Set errno to the specified value.
 #[cfg(windows)]
 pub fn set_errno(value: i32) {
@@ -144,6 +464,16 @@ pub fn set_errno(value: i32) {
 pub fn set_errno(value: i32) {
     nix::errno::Errno::from_raw(value).set();
 }
+
+#[cfg(target_os = "wasi")]
+pub fn set_errno(value: i32) {
+    unsafe {
+        *libc::__errno_location() = value;
+    }
+}
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn set_errno(_value: i32) {}
 
 #[cfg(unix)]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {

@@ -450,7 +450,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct CodeFlags: u32 {
         const OPTIMIZED = 0x0001;
         const NEWLOCALS = 0x0002;
@@ -460,9 +460,12 @@ bitflags! {
         const GENERATOR = 0x0020;
         const COROUTINE = 0x0080;
         const ITERABLE_COROUTINE = 0x0100;
+        const ASYNC_GENERATOR = 0x0200;
+        const FUTURE_ANNOTATIONS = 0x1000000;
         /// If a code object represents a function and has a docstring,
         /// this bit is set and the first item in co_consts is the docstring.
         const HAS_DOCSTRING = 0x4000000;
+        const METHOD = 0x8000000;
     }
 }
 
@@ -652,7 +655,7 @@ impl CodeUnits {
     /// Disable adaptive specialization by setting all counters to unreachable.
     /// Used for CPython-compiled bytecode where specialization may not be safe.
     pub fn disable_specialization(&self) {
-        for counter in self.adaptive_counters.iter() {
+        for counter in &self.adaptive_counters {
             counter.store(UNREACHABLE_BACKOFF, Ordering::Relaxed);
         }
     }
@@ -866,7 +869,7 @@ impl CodeUnits {
 #[derive(Debug, Clone)]
 pub enum ConstantData {
     Tuple {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     Integer {
         value: BigInt,
@@ -891,10 +894,10 @@ pub enum ConstantData {
     },
     /// Constant slice(start, stop, step)
     Slice {
-        elements: Box<[ConstantData; 3]>,
+        elements: Box<[Self; 3]>,
     },
     Frozenset {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     None,
     Ellipsis,
@@ -906,8 +909,6 @@ impl PartialEq for ConstantData {
 
         match (self, other) {
             (Integer { value: a }, Integer { value: b }) => a == b,
-            // we want to compare floats *by actual value* - if we have the *exact same* float
-            // already in a constant cache, we want to use that
             (Float { value: a }, Float { value: b }) => a.to_bits() == b.to_bits(),
             (Complex { value: a }, Complex { value: b }) => {
                 a.re.to_bits() == b.re.to_bits() && a.im.to_bits() == b.im.to_bits()

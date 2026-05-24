@@ -43,19 +43,19 @@ pub(crate) mod stack_analysis {
     }
 
     impl Kind {
-        fn from_i64(v: i64) -> Option<Self> {
-            match v {
-                1 => Some(Kind::Iterator),
-                2 => Some(Kind::Except),
-                3 => Some(Kind::Object),
-                4 => Some(Kind::Null),
-                5 => Some(Kind::Lasti),
-                _ => None,
-            }
+        const fn from_i64(v: i64) -> Option<Self> {
+            Some(match v {
+                1 => Self::Iterator,
+                2 => Self::Except,
+                3 => Self::Object,
+                4 => Self::Null,
+                5 => Self::Lasti,
+                _ => return None,
+            })
         }
     }
 
-    pub(crate) fn push_value(stack: i64, kind: i64) -> i64 {
+    pub(crate) const fn push_value(stack: i64, kind: i64) -> i64 {
         if (stack as u64) >= WILL_OVERFLOW {
             OVERFLOWED
         } else {
@@ -63,20 +63,20 @@ pub(crate) mod stack_analysis {
         }
     }
 
-    pub(crate) fn pop_value(stack: i64) -> i64 {
+    pub(crate) const fn pop_value(stack: i64) -> i64 {
         stack >> BITS_PER_BLOCK
     }
 
-    pub(crate) fn top_of_stack(stack: i64) -> i64 {
+    pub(crate) const fn top_of_stack(stack: i64) -> i64 {
         stack & MASK
     }
 
-    fn peek(stack: i64, n: u32) -> i64 {
+    const fn peek(stack: i64, n: u32) -> i64 {
         debug_assert!(n >= 1);
         (stack >> (BITS_PER_BLOCK * (n - 1))) & MASK
     }
 
-    fn stack_swap(stack: i64, n: u32) -> i64 {
+    const fn stack_swap(stack: i64, n: u32) -> i64 {
         debug_assert!(n >= 1);
         let to_swap = peek(stack, n);
         let top = top_of_stack(stack);
@@ -85,7 +85,7 @@ pub(crate) mod stack_analysis {
         (replaced_low & !MASK) | to_swap
     }
 
-    fn pop_to_level(mut stack: i64, level: u32) -> i64 {
+    const fn pop_to_level(mut stack: i64, level: u32) -> i64 {
         if level == 0 {
             return EMPTY_STACK;
         }
@@ -97,20 +97,21 @@ pub(crate) mod stack_analysis {
         stack
     }
 
-    fn compatible_kind(from: i64, to: i64) -> bool {
+    #[must_use]
+    const fn compatible_kind(from: i64, to: i64) -> bool {
         if to == 0 {
-            return false;
+            false
+        } else if to == Kind::Object as i64 {
+            from != Kind::Null as i64
+        } else if to == Kind::Null as i64 {
+            true
+        } else {
+            from == to
         }
-        if to == Kind::Object as i64 {
-            return from != Kind::Null as i64;
-        }
-        if to == Kind::Null as i64 {
-            return true;
-        }
-        from == to
     }
 
-    pub(crate) fn compatible_stack(from_stack: i64, to_stack: i64) -> bool {
+    #[must_use]
+    pub(crate) const fn compatible_stack(from_stack: i64, to_stack: i64) -> bool {
         if from_stack < 0 || to_stack < 0 {
             return false;
         }
@@ -131,14 +132,17 @@ pub(crate) mod stack_analysis {
         to == 0
     }
 
-    pub(crate) fn explain_incompatible_stack(to_stack: i64) -> &'static str {
+    pub(crate) const fn explain_incompatible_stack(to_stack: i64) -> &'static str {
         debug_assert!(to_stack != 0);
+
         if to_stack == OVERFLOWED {
             return "stack is too deep to analyze";
         }
+
         if to_stack == UNINITIALIZED {
             return "can't jump into an exception handler, or code may be unreachable";
         }
+
         match Kind::from_i64(top_of_stack(to_stack)) {
             Some(Kind::Except) => "can't jump into an 'except' block as there's no exception",
             Some(Kind::Lasti) => "can't jump into a re-raising block as there's no location",
@@ -595,6 +599,7 @@ impl Frame {
         *storage = value.unwrap_or_none(vm);
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
@@ -626,6 +631,7 @@ impl Frame {
         }
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
@@ -720,7 +726,7 @@ impl Py<Frame> {
             .iter()
             .find(|fp| {
                 // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
-                let py: &crate::Py<Frame> = unsafe { fp.as_ref() };
+                let py: &Self = unsafe { fp.as_ref() };
                 let ptr: *const Frame = &**py;
                 core::ptr::eq(ptr, previous)
             })

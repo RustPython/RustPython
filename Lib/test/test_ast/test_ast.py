@@ -114,7 +114,6 @@ class AST_Tests(unittest.TestCase):
         with self.assertRaisesRegex(AttributeError, msg):
             ast.AST()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <test.test_ast.test_ast.AST_Tests.test_AST_garbage_collection.<locals>.X object at 0x7e85c3a80> is not None
     def test_AST_garbage_collection(self):
         class X:
             pass
@@ -1984,7 +1983,6 @@ Module(
         exec(code, ns)
         self.assertIn('sleep', ns)
 
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     @skip_if_unlimited_stack_size
     @skip_emscripten_stack_overflow()
     def test_recursion_direct(self):
@@ -1994,7 +1992,6 @@ Module(
             with support.infinite_recursion():
                 compile(ast.Expression(e), "<test>", "eval")
 
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     @skip_if_unlimited_stack_size
     @skip_emscripten_stack_overflow()
     def test_recursion_indirect(self):
@@ -2357,7 +2354,6 @@ class ASTValidatorTests(unittest.TestCase):
         self.expr(ast.Yield(ast.Name("x", ast.Store())), "must have Load")
         self.expr(ast.YieldFrom(ast.Name("x", ast.Store())), "must have Load")
 
-    @unittest.skip("TODO: RUSTPYTHON; thread 'main' panicked")
     def test_compare(self):
         left = ast.Name("x", ast.Load())
         comp = ast.Compare(left, [ast.In()], [])

@@ -1,3 +1,14 @@
+#[cfg(feature = "parser")]
+use ruff_python_ast::token::TokenKind;
+
+use ruff_python_parser::{InterpolatedStringErrorType, LexicalErrorType, ParseErrorType};
+
+use rustpython_common::wtf8::Wtf8Buf;
+use rustpython_compiler_core::SourceLocation;
+
+#[cfg(feature = "parser")]
+use rustpython_compiler::{CompileError, ParseError};
+
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult,
     builtins::{
@@ -13,8 +24,6 @@ use crate::{
     scope::Scope,
     vm::VirtualMachine,
 };
-use rustpython_common::wtf8::Wtf8Buf;
-use rustpython_compiler_core::SourceLocation;
 
 macro_rules! define_exception_fn {
     (
@@ -25,12 +34,235 @@ macro_rules! define_exception_fn {
                     stringify!($python_repr),
                     " object.\nUseful for raising errors from python functions implemented in rust."
                 )]
-        pub fn $fn_name(&self, msg: impl Into<Wtf8Buf>) -> PyBaseExceptionRef
-        {
+        pub fn $fn_name(&self, msg: impl Into<Wtf8Buf>) -> $crate::builtins::PyBaseExceptionRef {
             let err = self.ctx.exceptions.$attr.to_owned();
             self.new_exception_msg(err, msg.into())
         }
     };
+}
+
+#[derive(Clone, Debug)]
+struct SyntaxErrorInfo {
+    msg: String,
+    narrow_caret: bool,
+}
+
+impl SyntaxErrorInfo {
+    #[must_use]
+    const fn new(msg: String, narrow_caret: bool) -> Self {
+        Self { msg, narrow_caret }
+    }
+
+    fn with_msg(&mut self, msg: &str) {
+        self.msg = msg.into();
+    }
+
+    #[cfg(feature = "parser")]
+    const fn with_narrow_caret(&mut self, narrow_caret: bool) {
+        self.narrow_caret = narrow_caret;
+    }
+
+    #[cfg(feature = "parser")]
+    #[must_use]
+    const fn handle_expected_token(expected: &TokenKind, found: &TokenKind) -> &'static str {
+        match (*expected, *found) {
+            (TokenKind::Colon, TokenKind::Newline) => "expected ':'",
+
+            (TokenKind::Lpar, _) => "expected '('",
+
+            (TokenKind::Else, y) if !matches!(y, TokenKind::Colon) => {
+                "expected 'else' after 'if' expression"
+            }
+
+            _ => "invalid syntax",
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    fn analyze_compile_error(&mut self, compile_error: &CompileError) {
+        let CompileError::Parse(ParseError {
+            error, location, ..
+        }) = compile_error
+        else {
+            return;
+        };
+
+        let msg = match error {
+            ParseErrorType::FStringError(InterpolatedStringErrorType::UnterminatedString)
+            | ParseErrorType::Lexical(LexicalErrorType::FStringError(
+                InterpolatedStringErrorType::UnterminatedString,
+            )) => "unterminated f-string literal".into(),
+
+            ParseErrorType::FStringError(
+                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+            )
+            | ParseErrorType::Lexical(LexicalErrorType::FStringError(
+                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+            )) => "unterminated triple-quoted f-string literal".into(),
+
+            ParseErrorType::FStringError(_)
+            | ParseErrorType::Lexical(LexicalErrorType::FStringError(_)) => {
+                // Replace backticks with single quotes to match CPython's error messages
+                format!("invalid syntax: {}", self.msg.replace('`', "'"))
+            }
+
+            ParseErrorType::UnexpectedExpressionToken => format!("invalid syntax: {}", self.msg),
+
+            ParseErrorType::ExpectedToken { expected, found } => {
+                Self::handle_expected_token(expected, found).into()
+            }
+
+            ParseErrorType::InvalidStarredExpressionUsage => {
+                self.with_narrow_caret(true);
+                "invalid syntax".into()
+            }
+
+            ParseErrorType::InvalidDeleteTarget => "invalid syntax".into(),
+
+            ParseErrorType::Lexical(LexicalErrorType::LineContinuationError) => {
+                "unexpected character after line continuation character".into()
+            }
+
+            ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError) => {
+                format!(
+                    "unterminated string literal (detected at line {})",
+                    location.line
+                )
+            }
+
+            ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),
+
+            ParseErrorType::InvalidStarPatternUsage => {
+                self.with_narrow_caret(true);
+                "cannot use starred expression here".into()
+            }
+
+            ParseErrorType::ExpectedKeywordParam => "named arguments must follow bare *".into(),
+
+            ParseErrorType::EmptyImportNames => "Expected one or more names after 'import'".into(),
+
+            ParseErrorType::DuplicateKeywordArgumentError(arg_name) => {
+                format!("keyword argument repeated: {arg_name}")
+            }
+
+            ParseErrorType::UnparenthesizedGeneratorExpression => {
+                "Generator expression must be parenthesized".into()
+            }
+
+            ParseErrorType::NonDefaultParamAfterDefaultParam => {
+                "parameter without a default follows parameter with a default".into()
+            }
+
+            ParseErrorType::VarParameterWithDefault => {
+                "var-positional argument cannot have default value".into()
+            }
+
+            ParseErrorType::PositionalAfterKeywordArgument => {
+                "positional argument follows keyword argument".into()
+            }
+
+            ParseErrorType::PositionalAfterKeywordUnpacking => {
+                "positional argument follows keyword argument unpacking".into()
+            }
+
+            ParseErrorType::InvalidArgumentUnpackingOrder => {
+                "iterable argument unpacking follows keyword argument unpacking".into()
+            }
+
+            ParseErrorType::ParamAfterVarKeywordParam => {
+                "arguments cannot follow var-keyword argument".into()
+            }
+
+            ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { .. })
+            | ParseErrorType::SimpleStatementsOnSameLine
+            | ParseErrorType::SimpleAndCompoundStatementOnSameLine
+            | ParseErrorType::ExpectedExpression => "invalid syntax".into(),
+
+            ParseErrorType::OtherError(s)
+                if s.starts_with("Expected an identifier, but found a keyword") =>
+            {
+                "invalid syntax".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case(
+                    "bytes literal cannot be mixed with non-bytes literals",
+                ) =>
+            {
+                "cannot mix bytes and nonbytes literals".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("positional patterns cannot follow keyword patterns") =>
+            {
+                "positional patterns follow keyword patterns".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("boolean 'not' expression cannot be used here") =>
+            {
+                "'not' after an operator must be parenthesized".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("trailing comma not allowed") =>
+            {
+                "trailing comma not allowed without surrounding parentheses".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case(
+                    "multiple exception types must be parenthesized when using `as`",
+                ) =>
+            {
+                "multiple exception types must be parenthesized when using 'as'".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case(
+                    "position-only parameter separator not allowed as first parameter",
+                ) =>
+            {
+                "at least one argument must precede /".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("only one '/' separator allowed") =>
+            {
+                "/ may appear only once".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("'/' parameter must appear before '*' parameter") =>
+            {
+                "/ must be ahead of *".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("expected `except` or `finally` after `try` block") =>
+            {
+                "expected 'except' or 'finally' block".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case("only one '*' parameter allowed") =>
+            {
+                "* argument may appear only once".into()
+            }
+
+            ParseErrorType::OtherError(s)
+                if s.eq_ignore_ascii_case(
+                    r#"cannot have both 'except' and 'except*' on the same 'try'"#,
+                ) =>
+            {
+                r#"cannot have both 'except' and 'except*' on the same 'try'"#.into()
+            }
+
+            _ => return,
+        };
+
+        self.with_msg(&msg);
+    }
 }
 
 /// Collection of object creation helpers
@@ -492,135 +724,31 @@ impl VirtualMachine {
             Some(line + "\n")
         }
 
-        let statement = if let Some(source) = source {
-            get_statement(source, error.location())
-        } else {
-            None
-        };
+        let statement = source.and_then(|src| get_statement(src, error.location()));
 
         let mut msg = error.to_string();
         if let Some(msg) = msg.get_mut(..1) {
             msg.make_ascii_lowercase();
         }
-        let mut narrow_caret = false;
-        match error {
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error:
-                    ruff_python_parser::ParseErrorType::FStringError(
-                        ruff_python_parser::InterpolatedStringErrorType::UnterminatedString,
-                    )
-                    | ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::FStringError(
-                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedString,
-                        ),
-                    ),
-                ..
-            }) => {
-                msg = "unterminated f-string literal".to_owned();
+
+        cfg_select! {
+            feature = "parser" => {
+                let mut syntax_error_info = SyntaxErrorInfo::new(msg, false);
+                syntax_error_info.analyze_compile_error(error);
             }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error:
-                    ruff_python_parser::ParseErrorType::FStringError(
-                        ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-                    )
-                    | ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::FStringError(
-                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-                        ),
-                    ),
-                ..
-            }) => {
-                msg = "unterminated triple-quoted f-string literal".to_owned();
+            _ => {
+                let syntax_error_info = SyntaxErrorInfo::new(msg, false);
             }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error:
-                    ruff_python_parser::ParseErrorType::FStringError(_)
-                    | ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::FStringError(_),
-                    ),
-                ..
-            }) => {
-                // Replace backticks with single quotes to match CPython's error messages
-                msg = msg.replace('`', "'");
-                msg.insert_str(0, "invalid syntax: ");
-            }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error: ruff_python_parser::ParseErrorType::UnexpectedExpressionToken,
-                ..
-            }) => msg.insert_str(0, "invalid syntax: "),
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error:
-                    ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::UnrecognizedToken { .. },
-                    )
-                    | ruff_python_parser::ParseErrorType::SimpleStatementsOnSameLine
-                    | ruff_python_parser::ParseErrorType::SimpleAndCompoundStatementOnSameLine
-                    | ruff_python_parser::ParseErrorType::ExpectedToken { .. }
-                    | ruff_python_parser::ParseErrorType::ExpectedExpression,
-                ..
-            }) => {
-                msg = "invalid syntax".to_owned();
-            }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error: ruff_python_parser::ParseErrorType::InvalidStarredExpressionUsage,
-                ..
-            }) => {
-                msg = "invalid syntax".to_owned();
-                narrow_caret = true;
-            }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error: ruff_python_parser::ParseErrorType::InvalidDeleteTarget,
-                ..
-            }) => {
-                msg = "invalid syntax".to_owned();
-            }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error:
-                    ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::LineContinuationError,
-                    ),
-                ..
-            }) => {
-                msg = "unexpected character after line continuation".to_owned();
-            }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error:
-                    ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::UnclosedStringError,
-                    ),
-                ..
-            }) => {
-                msg = "unterminated string".to_owned();
-            }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error: ruff_python_parser::ParseErrorType::OtherError(s),
-                ..
-            }) if s.eq_ignore_ascii_case("bytes literal cannot be mixed with non-bytes literals") => {
-                msg = "cannot mix bytes and nonbytes literals".to_owned();
-            }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error: ruff_python_parser::ParseErrorType::OtherError(s),
-                ..
-            }) if s.starts_with("Expected an identifier, but found a keyword") => {
-                msg = "invalid syntax".to_owned();
-            }
-            _ => {}
-        }
+        };
+
         if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            msg = "inconsistent use of tabs and spaces in indentation".to_owned();
+            syntax_error_info.with_msg("inconsistent use of tabs and spaces in indentation");
         }
+
+        let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
+
         let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
+
         let (lineno, offset) = error.python_location();
         let lineno = self.ctx.new_int(lineno);
         let offset = self.ctx.new_int(offset);

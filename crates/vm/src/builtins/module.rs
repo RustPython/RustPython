@@ -82,10 +82,6 @@ impl PyModuleDef {
     }
 }
 
-#[allow(
-    clippy::new_without_default,
-    reason = "avoid a misleading Default implementation"
-)]
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
 pub struct PyModule {
@@ -112,7 +108,10 @@ pub struct ModuleInitArgs {
 }
 
 impl PyModule {
-    #[allow(clippy::new_without_default)]
+    #[expect(
+        clippy::new_without_default,
+        reason = "avoid a misleading Default implementation"
+    )]
     #[must_use]
     pub const fn new() -> Self {
         Self {

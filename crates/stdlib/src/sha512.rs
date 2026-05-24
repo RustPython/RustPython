@@ -13,6 +13,7 @@ mod _sha512 {
         Ok(local_sha512(args, vm)?.into_pyobject(vm))
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         let _ = vm.import("_hashlib", 0);
         __module_exec(vm, module);

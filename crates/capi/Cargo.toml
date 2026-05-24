@@ -12,7 +12,8 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rustpython-vm = { workspace = true, features = ["threading"] }
+num-complex = { workspace = true }
+rustpython-vm = { workspace = true, features = ["threading", "compiler"] }
 rustpython-stdlib = {workspace = true, features = ["threading"] }
 
 [dev-dependencies]

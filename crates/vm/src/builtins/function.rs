@@ -33,11 +33,13 @@ fn format_missing_args(
     missing: &mut Vec<impl core::fmt::Display>,
 ) -> String {
     let count = missing.len();
+
     let last = if missing.len() > 1 {
         missing.pop()
     } else {
         None
     };
+
     let (and, right): (&str, String) = if let Some(last) = last {
         (
             if missing.len() == 1 {
@@ -45,11 +47,12 @@ fn format_missing_args(
             } else {
                 "', and '"
             },
-            format!("{last}"),
+            last.to_string(),
         )
     } else {
         ("", String::new())
     };
+
     format!(
         "{qualname}() missing {count} required {kind} argument{}: '{}{}{right}'",
         if count == 1 { "" } else { "s" },
@@ -268,7 +271,7 @@ impl PyFunction {
                     .map_or(0, |d| d.len());
                 let n_required = n_expected_args - n_defaults;
                 let takes_msg = if n_defaults > 0 {
-                    format!("from {} to {}", n_required, n_expected_args)
+                    format!("from {n_required} to {n_expected_args}")
                 } else {
                     n_expected_args.to_string()
                 };
@@ -561,7 +564,8 @@ impl Py<PyFunction> {
 
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
-        let use_datastack = !(is_gen || is_coro);
+        let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
+        let use_datastack = !(is_gen || is_coro || is_async_gen);
 
         // Construct frame:
         let frame = Frame::new(
@@ -576,35 +580,30 @@ impl Py<PyFunction> {
         .into_ref(&vm.ctx);
 
         self.fill_locals_from_args(&frame, func_args, vm)?;
-        match (is_gen, is_coro) {
-            (true, false) => {
-                let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm);
-                frame.set_generator(&obj);
-                Ok(obj)
-            }
-            (false, true) => {
-                let obj = PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm);
-                frame.set_generator(&obj);
-                Ok(obj)
-            }
-            (true, true) => {
-                let obj = PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm);
-                frame.set_generator(&obj);
-                Ok(obj)
-            }
-            (false, false) => {
-                let result = vm.run_frame(frame.clone());
-                // Release data stack memory after frame execution completes.
-                unsafe {
-                    if let Some(base) = frame.materialize_localsplus() {
-                        vm.datastack_pop(base);
-                    }
+        if is_async_gen {
+            let obj = PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
+                .into_pyobject(vm);
+            frame.set_generator(&obj);
+            Ok(obj)
+        } else if is_gen {
+            let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
+                .into_pyobject(vm);
+            frame.set_generator(&obj);
+            Ok(obj)
+        } else if is_coro {
+            let obj = PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
+                .into_pyobject(vm);
+            frame.set_generator(&obj);
+            Ok(obj)
+        } else {
+            let result = vm.run_frame(frame.clone());
+            // Release data stack memory after frame execution completes.
+            unsafe {
+                if let Some(base) = frame.materialize_localsplus() {
+                    vm.datastack_pop(base);
                 }
-                result
             }
+            result
         }
     }
 
@@ -686,11 +685,11 @@ impl Py<PyFunction> {
                 .intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
         );
         debug_assert_eq!(code.kwonlyarg_count, 0);
-        debug_assert!(
-            !code
-                .flags
-                .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
-        );
+        debug_assert!(!code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        ));
 
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             None
@@ -738,10 +737,11 @@ impl Py<PyFunction> {
         // Generator/coroutine code objects are SIMPLE_FUNCTION in call
         // specialization classification, but their call path must still
         // go through invoke() to produce generator/coroutine objects.
-        if code
-            .flags
-            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
-        {
+        if code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        ) {
             return self.invoke(FuncArgs::from(args), vm);
         }
         let frame = self.prepare_exact_args_frame(args, vm);
@@ -757,10 +757,11 @@ impl Py<PyFunction> {
 }
 
 pub(crate) fn datastack_frame_size_bytes_for_code(code: &Py<PyCode>) -> Option<usize> {
-    if code
-        .flags
-        .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
-    {
+    if code.flags.intersects(
+        bytecode::CodeFlags::GENERATOR
+            | bytecode::CodeFlags::COROUTINE
+            | bytecode::CodeFlags::ASYNC_GENERATOR,
+    ) {
         return None;
     }
     let nlocalsplus = code.localspluskinds.len();
@@ -867,6 +868,7 @@ impl PyFunction {
         *self.name.lock() = name;
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember]
     fn __doc__(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
         // When accessed from instance, obj is the PyFunction instance
@@ -879,6 +881,7 @@ impl PyFunction {
         }
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(setter)]
     fn set___doc__(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
         let zelf: PyRef<Self> = zelf.downcast().unwrap_or_else(|_| unreachable!());
@@ -1266,12 +1269,12 @@ impl PyBoundMethod {
     }
 
     #[inline]
-    pub(crate) fn function_obj(&self) -> &PyObjectRef {
+    pub(crate) const fn function_obj(&self) -> &PyObjectRef {
         &self.function
     }
 
     #[inline]
-    pub(crate) fn self_obj(&self) -> &PyObjectRef {
+    pub(crate) const fn self_obj(&self) -> &PyObjectRef {
         &self.object
     }
 
@@ -1396,6 +1399,7 @@ impl Representable for PyBoundMethod {
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
 }
+
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {
@@ -1424,6 +1428,7 @@ impl PyCell {
     pub(crate) fn get(&self) -> Option<PyObjectRef> {
         self.contents.lock().clone()
     }
+
     pub(crate) fn set(&self, x: Option<PyObjectRef>) {
         *self.contents.lock() = x;
     }
@@ -1433,6 +1438,7 @@ impl PyCell {
         self.get()
             .ok_or_else(|| vm.new_value_error("Cell is empty"))
     }
+
     #[pygetset(setter)]
     fn set_cell_contents(&self, x: PySetterValue) {
         match x {
@@ -1460,9 +1466,11 @@ pub(crate) fn vectorcall_function(
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
         && !code.flags.contains(bytecode::CodeFlags::VARKEYWORDS)
         && code.kwonlyarg_count == 0
-        && !code
-            .flags
-            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE);
+        && !code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        );
 
     if is_simple && nargs == code.arg_count as usize {
         // FAST PATH: simple positional-only call, exact arg count.
@@ -1486,6 +1494,7 @@ pub(crate) fn vectorcall_function(
         args.truncate(nargs);
         FuncArgs::from(args)
     };
+
     zelf.invoke(func_args, vm)
 }
 

@@ -37,18 +37,25 @@ mod _js {
     extern "C" {
         #[wasm_bindgen(catch)]
         fn has_prop(target: &JsValue, prop: &JsValue) -> Result<bool, JsValue>;
+
         #[wasm_bindgen(catch)]
         fn get_prop(target: &JsValue, prop: &JsValue) -> Result<JsValue, JsValue>;
+
         #[wasm_bindgen(catch)]
         fn set_prop(target: &JsValue, prop: &JsValue, value: &JsValue) -> Result<(), JsValue>;
+
         #[wasm_bindgen]
         fn type_of(a: &JsValue) -> String;
+
         #[wasm_bindgen(catch)]
         fn instance_of(lhs: &JsValue, rhs: &JsValue) -> Result<bool, JsValue>;
+
         #[wasm_bindgen(catch)]
         fn call_func(func: &JsValue, args: &Array) -> Result<JsValue, JsValue>;
+
         #[wasm_bindgen(catch)]
         fn call_method(obj: &JsValue, method: &JsValue, args: &Array) -> Result<JsValue, JsValue>;
+
         #[wasm_bindgen]
         fn wrap_closure(closure: &JsValue) -> JsValue;
     }
@@ -76,16 +83,16 @@ mod _js {
     impl TryFromObject for JsProperty {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             PyStrRef::try_from_object(vm, obj.clone())
-                .map(JsProperty::Str)
-                .or_else(|_| PyJsValueRef::try_from_object(vm, obj).map(JsProperty::Js))
+                .map(Self::Str)
+                .or_else(|_| PyJsValueRef::try_from_object(vm, obj).map(Self::Js))
         }
     }
 
     impl JsProperty {
         fn into_js_value(self) -> JsValue {
             match self {
-                JsProperty::Str(s) => s.expect_str().into(),
-                JsProperty::Js(value) => value.value.clone(),
+                Self::Str(s) => s.expect_str().into(),
+                Self::Js(value) => value.value.clone(),
             }
         }
     }
@@ -93,29 +100,29 @@ mod _js {
     #[pyclass(with(Representable))]
     impl PyJsValue {
         #[inline]
-        pub(crate) fn new(value: impl Into<JsValue>) -> PyJsValue {
+        pub(crate) fn new(value: impl Into<JsValue>) -> Self {
             let value = value.into();
-            PyJsValue { value }
+            Self { value }
         }
 
         #[pymethod]
-        fn null(&self) -> PyJsValue {
-            PyJsValue::new(JsValue::NULL)
+        fn null(&self) -> Self {
+            Self::new(JsValue::NULL)
         }
 
         #[pymethod]
-        fn undefined(&self) -> PyJsValue {
-            PyJsValue::new(JsValue::UNDEFINED)
+        fn undefined(&self) -> Self {
+            Self::new(JsValue::UNDEFINED)
         }
 
         #[pymethod]
-        fn new_from_str(&self, s: PyStrRef) -> PyJsValue {
-            PyJsValue::new(s.expect_str())
+        fn new_from_str(&self, s: PyStrRef) -> Self {
+            Self::new(s.expect_str())
         }
 
         #[pymethod]
-        fn new_from_float(&self, n: PyRef<PyFloat>) -> PyJsValue {
-            PyJsValue::new(n.to_f64())
+        fn new_from_float(&self, n: PyRef<PyFloat>) -> Self {
+            Self::new(n.to_f64())
         }
 
         #[pymethod]
@@ -129,7 +136,7 @@ mod _js {
         }
 
         #[pymethod]
-        fn new_object(&self, opts: NewObjectOptions, vm: &VirtualMachine) -> PyResult<PyJsValue> {
+        fn new_object(&self, opts: NewObjectOptions, vm: &VirtualMachine) -> PyResult<Self> {
             let value = if let Some(proto) = opts.prototype {
                 if let Some(proto) = proto.value.dyn_ref::<Object>() {
                     Object::create(proto)
@@ -141,7 +148,8 @@ mod _js {
             } else {
                 Object::new()
             };
-            Ok(PyJsValue::new(value))
+
+            Ok(Self::new(value))
         }
 
         #[pymethod]
@@ -150,11 +158,11 @@ mod _js {
         }
 
         #[pymethod]
-        fn get_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<PyJsValue> {
+        fn get_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<Self> {
             let name = &name.into_js_value();
             if has_prop(&self.value, name).map_err(|err| new_js_error(vm, err))? {
                 get_prop(&self.value, name)
-                    .map(PyJsValue::new)
+                    .map(Self::new)
                     .map_err(|err| new_js_error(vm, err))
             } else {
                 Err(vm.new_attribute_error(format!("No attribute {name:?} on JS value")))
@@ -178,17 +186,17 @@ mod _js {
             args: PosArgs<PyJsValueRef>,
             opts: CallOptions,
             vm: &VirtualMachine,
-        ) -> PyResult<PyJsValue> {
+        ) -> PyResult<Self> {
             let func = self
                 .value
                 .dyn_ref::<js_sys::Function>()
                 .ok_or_else(|| vm.new_type_error("JS value is not callable"))?;
-            let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
+            let js_args = args.iter().map(|x| -> &Self { x }).collect::<Array>();
             let res = match opts.this {
                 Some(this) => Reflect::apply(func, &this.value, &js_args),
                 None => call_func(func, &js_args),
             };
-            res.map(PyJsValue::new).map_err(|err| new_js_error(vm, err))
+            res.map(Self::new).map_err(|err| new_js_error(vm, err))
         }
 
         #[pymethod]
@@ -197,10 +205,10 @@ mod _js {
             name: JsProperty,
             args: PosArgs<PyJsValueRef>,
             vm: &VirtualMachine,
-        ) -> PyResult<PyJsValue> {
-            let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
+        ) -> PyResult<Self> {
+            let js_args = args.iter().map(|x| -> &Self { x }).collect::<Array>();
             call_method(&self.value, &name.into_js_value(), &js_args)
-                .map(PyJsValue::new)
+                .map(Self::new)
                 .map_err(|err| new_js_error(vm, err))
         }
 
@@ -210,7 +218,7 @@ mod _js {
             args: PosArgs<PyJsValueRef>,
             opts: NewObjectOptions,
             vm: &VirtualMachine,
-        ) -> PyResult<PyJsValue> {
+        ) -> PyResult<Self> {
             let ctor = self
                 .value
                 .dyn_ref::<js_sys::Function>()
@@ -219,7 +227,7 @@ mod _js {
                 .prototype
                 .as_ref()
                 .and_then(|proto| proto.value.dyn_ref::<js_sys::Function>());
-            let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
+            let js_args = args.iter().map(|x| -> &Self { x }).collect::<Array>();
             let constructed_result = if let Some(proto) = proto {
                 Reflect::construct_with_new_target(ctor, &js_args, proto)
             } else {
@@ -227,7 +235,7 @@ mod _js {
             };
 
             constructed_result
-                .map(PyJsValue::new)
+                .map(Self::new)
                 .map_err(|err| new_js_error(vm, err))
         }
 
@@ -333,7 +341,7 @@ mod _js {
                 Closure::once(Box::new(f))
             };
             let wrapped = PyJsValue::new(wrap_closure(closure.as_ref())).into_ref(&vm.ctx);
-            Ok(JsClosure {
+            Ok(Self {
                 closure: Some((closure, wrapped)).into(),
                 destroyed: false.into(),
                 detached: false.into(),
@@ -347,10 +355,12 @@ mod _js {
                 .as_ref()
                 .map(|(_, js_val)| js_val.clone())
         }
+
         #[pygetset]
         fn destroyed(&self) -> bool {
             self.destroyed.get()
         }
+
         #[pygetset]
         fn detached(&self) -> bool {
             self.detached.get()
@@ -365,6 +375,7 @@ mod _js {
             self.destroyed.set(true);
             Ok(())
         }
+
         #[pymethod]
         fn detach(&self, vm: &VirtualMachine) -> PyResult<PyJsValueRef> {
             let (closure, js_val) = self.closure.replace(None).ok_or_else(|| {
@@ -393,17 +404,17 @@ mod _js {
 
     #[pyclass]
     impl PyPromise {
-        pub(crate) fn new(value: Promise) -> PyPromise {
-            PyPromise {
+        pub(crate) fn new(value: Promise) -> Self {
+            Self {
                 value: PromiseKind::Js(value),
             }
         }
 
-        pub(crate) fn from_future<F>(future: F) -> PyPromise
+        pub(crate) fn from_future<F>(future: F) -> Self
         where
             F: future::Future<Output = Result<JsValue, JsValue>> + 'static,
         {
-            PyPromise::new(future_to_promise(future))
+            Self::new(future_to_promise(future))
         }
 
         pub(crate) fn as_js(&self, vm: &VirtualMachine) -> Promise {
@@ -476,7 +487,7 @@ mod _js {
             on_fulfill: OptionalOption<ArgCallable>,
             on_reject: OptionalOption<ArgCallable>,
             vm: &VirtualMachine,
-        ) -> PyResult<PyPromise> {
+        ) -> PyResult<Self> {
             let (on_fulfill, on_reject) = (on_fulfill.flatten(), on_reject.flatten());
             if on_fulfill.is_none() && on_reject.is_none() {
                 return Ok(self.clone());
@@ -511,7 +522,7 @@ mod _js {
                         }
                     };
 
-                    Ok(PyPromise::from_future(ret_future))
+                    Ok(Self::from_future(ret_future))
                 }
                 PromiseKind::PyProm { then } => Self::cast_result(
                     then.call(
@@ -539,7 +550,7 @@ mod _js {
             &self,
             on_reject: OptionalOption<ArgCallable>,
             vm: &VirtualMachine,
-        ) -> PyResult<PyPromise> {
+        ) -> PyResult<Self> {
             self.then(OptionalArg::Present(None), on_reject, vm)
         }
 

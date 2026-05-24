@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub(crate) fn check_pyc_magic_number_bytes(buf: &[u8]) -> bool {
-    buf.starts_with(&crate::version::PYC_MAGIC_NUMBER_BYTES[..2])
+    buf.starts_with(&crate::version::PYC_MAGIC_NUMBER_BYTES)
 }
 
 pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
@@ -390,10 +390,10 @@ pub(crate) fn import_module_level(
             if level == 0 {
                 let sys_modules = vm.sys_module.get_attr("modules", vm)?;
                 return sys_modules.get_item(name, vm).map_err(|_| {
-                    vm.new_import_error(format!("No module named '{}'", name), name.to_owned())
+                    vm.new_import_error(format!("No module named '{name}'"), name.to_owned())
                 });
             }
-            return Err(vm.new_import_error(format!("No module named '{}'", name), name.to_owned()));
+            return Err(vm.new_import_error(format!("No module named '{name}'"), name.to_owned()));
         }
     };
 

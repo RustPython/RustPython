@@ -177,7 +177,6 @@ class PyclbrTest(TestCase):
                                                 "DocTestCase", '_DocTestSuite'))
         self.checkModule('difflib', ignore=("Match",))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cases(self):
         # see test.pyclbr_input for the rationale behind the ignored symbols
         self.checkModule('test.pyclbr_input', ignore=['om', 'f'])
