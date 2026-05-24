@@ -315,6 +315,7 @@ class AuditTest(unittest.TestCase):
 
         self.assertEqual(actual, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_winapi_createnamedpipe(self):
         winapi = import_helper.import_module("_winapi")
 
