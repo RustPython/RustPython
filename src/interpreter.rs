@@ -35,6 +35,7 @@ fn install_default_tls_provider(_vm: &mut crate::VirtualMachine) {
 
     let ext = CryptoExt {
         all_cipher_suites: Some(aws_lc_rs::ALL_CIPHER_SUITES),
+        default_cipher_suites: Some(aws_lc_rs::DEFAULT_CIPHER_SUITES),
         all_kx_groups: Some(aws_lc_rs::ALL_KX_GROUPS),
         any_supported_key: Some(aws_lc_rs::sign::any_supported_type),
         ticketer: aws_lc_rs::Ticketer::new,

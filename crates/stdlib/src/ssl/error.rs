@@ -136,19 +136,4 @@ pub(crate) mod ssl_error {
             "TLS/SSL connection has been closed (EOF)",
         )
     }
-
-    #[cfg_attr(
-        all(feature = "ssl-openssl", not(feature = "ssl-rustls")),
-        expect(dead_code)
-    )]
-    pub(crate) fn create_ssl_syscall_error(
-        vm: &VirtualMachine,
-        msg: impl Into<String>,
-    ) -> PyRef<PyOSError> {
-        vm.new_os_subtype_error(
-            PySSLSyscallError::class(&vm.ctx).to_owned(),
-            Some(SSL_ERROR_SYSCALL),
-            msg.into(),
-        )
-    }
 }
