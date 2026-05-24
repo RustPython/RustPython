@@ -13,7 +13,11 @@ use crate::common::wtf8::{Wtf8, Wtf8Buf};
 #[cfg(any(unix, windows))]
 pub(crate) fn get_locale_info() -> LocaleInfo {
     let lc = crate::host_env::locale::localeconv_data();
-    let mut grouping: Vec<u8> = lc.grouping.iter().map(|&c| c as u8).collect();
+    #[allow(
+        clippy::unnecessary_cast,
+        reason = "libc::c_char is not u8 on all platforms"
+    )]
+    let mut grouping = lc.grouping.iter().map(|&c| c as u8).collect::<Vec<u8>>();
     if !grouping.is_empty() {
         grouping.push(0);
     }
