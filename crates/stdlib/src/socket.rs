@@ -3,7 +3,9 @@
 pub(crate) use _socket::module_def;
 
 #[cfg(feature = "ssl")]
-pub(super) use _socket::{PySocket, SockWaitKind, sock_wait, timeout_error_msg};
+pub(super) use _socket::timeout_error_msg;
+#[cfg(feature = "ssl-openssl")]
+pub(super) use _socket::{PySocket, SockWaitKind, sock_wait};
 
 #[pymodule]
 mod _socket {
@@ -2452,6 +2454,7 @@ mod _socket {
     }
 
     /// returns Ok(true) on timeout
+    #[cfg(feature = "ssl-openssl")]
     pub(crate) fn sock_wait(
         sock: &Socket,
         wait_kind: SockWaitKind,

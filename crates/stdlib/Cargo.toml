@@ -19,12 +19,14 @@ sqlite = ["dep:libsqlite3-sys"]
 # SSL backends
 ssl = ["host_env"]
 ssl-rustls = ["__ssl-rustls", "rustls/custom-provider"]
+ssl-rustls-aws-lc = ["ssl-rustls", "rustls/aws_lc_rs"]
+ssl-rustls-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
 ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
 tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
 flame-it = ["flame"]
 
-__ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustls-platform-verifier", "x509-cert", "x509-parser", "der", "pem-rfc7468", "webpki-roots", "oid-registry", "pkcs8"]
+__ssl-rustls = ["ssl", "rustls", "rustls-pki-types", "rustls-platform-verifier", "webpki", "x509-parser", "oid-registry", "pkcs8", "serde", "rustpython-vm/serde"]
 
 [dependencies]
 # rustpython crates
@@ -116,16 +118,13 @@ foreign-types-shared = { workspace = true, optional = true }
 
 # Rustls dependencies (optional, for ssl-rustls feature)
 rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
-rustls-native-certs = { workspace = true, optional = true }
-rustls-pemfile = { workspace = true, optional = true }
+rustls-pki-types = { workspace = true, optional = true }
 rustls-platform-verifier = { workspace = true, optional = true }
-x509-cert = { workspace = true, features = ["pem", "builder"], optional = true }
+webpki = { workspace = true, optional = true }
 x509-parser = { workspace = true, optional = true }
-der = { workspace = true, optional = true }
-pem-rfc7468 = { workspace = true, features = ["alloc"], optional = true }
-webpki-roots = { workspace = true, optional = true }
-oid-registry = { workspace = true, features = ["x509", "pkcs1", "nist_algs"], optional = true }
-pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
+pkcs8 = { workspace = true, features = ["encryption", "pkcs5"], optional = true }
+oid-registry = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { workspace = true, features = ["bundled"], optional = true }
@@ -141,6 +140,7 @@ system-configuration = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+rustls = { workspace = true, default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 rustpython-pylib = { workspace = true, features = [ "freeze-stdlib" ] }
 
 

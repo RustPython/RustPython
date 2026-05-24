@@ -24,7 +24,7 @@ threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["host_env"]
 ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
-ssl-rustls-aws-lc = ["ssl-rustls", "dep:rustls", "rustls/aws_lc_rs"]
+ssl-rustls-aws-lc = ["ssl-rustls", "dep:rustls", "rustls/aws_lc_rs", "rustpython-stdlib/ssl-rustls-aws-lc"]
 ssl-rustls-aws-lc-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-openssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-openssl-vendor"]
@@ -197,7 +197,6 @@ ruff_source_file = { package = "rustpython-ruff_source_file", version = "0.15.8"
 # ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", rev = "c2a8815842f9dc5d24ec19385eae0f1a7188b0d9" }
 # ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", rev = "c2a8815842f9dc5d24ec19385eae0f1a7188b0d9" }
 
-der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
 approx = "0.5.1"
@@ -273,7 +272,6 @@ optional = "0.5"
 parking_lot = "0.12.3"
 paste = "1.0.15"
 pbkdf2 = "0.13"
-pem-rfc7468 = "1.0"
 pkcs8 = "0.11"
 proc-macro2 = "1.0.105"
 psm = "0.1"
@@ -287,9 +285,9 @@ result-like = "0.5.0"
 rustix = { version = "1.1", features = ["event", "param", "system"] }
 rustls = { version = "0.23.39", default-features = false }
 rustls-graviola = "0.3"
-rustls-native-certs = "0.8"
-rustls-pemfile = "2.2"
+rustls-pki-types = { version = "1.14.1", default-features = false }
 rustls-platform-verifier = "0.7"
+webpki = { package = "rustls-webpki", version = "0.103.13", default-features = false }
 rustyline = "18"
 serde = { version = "1.0.225", default-features = false, features = ["alloc", "derive"] }
 serde_bytes = { version = "0.11.19", default-features = false, features = ["std"] }
@@ -327,9 +325,7 @@ windows-sys = "0.61.2"
 wasm-bindgen = "0.2.106"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
-webpki-roots = "1.0"
 which = "8"
-x509-cert = "0.2.5"
 x509-parser = "0.18"
 xml = "1.3"
 writeable = "0.6"

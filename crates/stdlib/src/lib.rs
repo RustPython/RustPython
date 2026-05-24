@@ -131,6 +131,7 @@ mod openssl;
     not(target_arch = "wasm32"),
     feature = "__ssl-rustls"
 ))]
+#[path = "rustls.rs"]
 pub mod ssl;
 
 #[cfg(all(feature = "ssl-openssl", feature = "__ssl-rustls", not(clippy)))]
