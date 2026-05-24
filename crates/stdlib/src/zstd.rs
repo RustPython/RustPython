@@ -53,8 +53,6 @@ mod _zstd {
     // Module-level constants
     // =========================================================================
 
-    /// Default compression level used when none is requested. Matches
-    /// libzstd's `ZSTD_CLEVEL_DEFAULT`.
     #[pyattr]
     const ZSTD_CLEVEL_DEFAULT: i32 = zstd_sys::ZSTD_CLEVEL_DEFAULT as i32;
 
@@ -127,21 +125,16 @@ mod _zstd {
     #[pyattr]
     const ZSTD_btultra2: i32 = zstd_sys::ZSTD_strategy::ZSTD_btultra2 as i32;
 
-    /// Runtime version string of the linked libzstd, like `"1.5.7"`.
     #[pyattr(once, name = "zstd_version")]
     fn zstd_version(_vm: &VirtualMachine) -> String {
         zstd_safe::version_string().to_string()
     }
 
-    /// Packed integer version: `MAJOR * 10000 + MINOR * 100 + RELEASE`.
-    /// The Python wrapper unpacks this into a `zstd_version_info` tuple.
     #[pyattr(once, name = "zstd_version_number")]
     fn zstd_version_number(_vm: &VirtualMachine) -> u32 {
         zstd_safe::version_number()
     }
 
-    /// Recommended output buffer size for decompression. The `ZstdFile.read1`
-    /// wrapper uses this as its default read size.
     #[pyattr(once, name = "ZSTD_DStreamOutSize")]
     fn zstd_dstream_out_size(_vm: &VirtualMachine) -> usize {
         DCtx::out_size()
@@ -159,8 +152,6 @@ mod _zstd {
     // ZstdError exception
     // =========================================================================
 
-    /// `_zstd.ZstdError`: the exception type raised for libzstd errors and for
-    /// invalid usage (calling `decompress` on a closed decompressor, etc.).
     #[pyattr(once, name = "ZstdError")]
     fn zstd_error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
@@ -487,17 +478,6 @@ mod _zstd {
         is_raw: bool,
     }
 
-    /// ZstdDict(dict_content, /, *, is_raw=False)
-    ///
-    /// Represents a Zstandard dictionary. Hold the raw dictionary bytes and
-    /// the parsed `dict_id`. The same instance may be shared by many
-    /// compressors and decompressors.
-    ///
-    /// *dict_content* is a bytes-like object containing the dictionary
-    /// content. If *is_raw* is False (the default), the content is expected
-    /// to start with the Zstandard dictionary magic number and have a valid
-    /// header. If *is_raw* is True, arbitrary bytes are accepted and the
-    /// dictionary is treated as raw back-reference content.
     #[pyattr]
     #[pyclass(name = "ZstdDict")]
     #[derive(PyPayload)]
@@ -571,41 +551,22 @@ mod _zstd {
 
     #[pyclass(with(Constructor, Representable, AsMapping))]
     impl ZstdDict {
-        /// The content of a Zstandard dictionary, as a bytes object.
         #[pygetset]
         fn dict_content(&self) -> PyBytesRef {
             self.dict_content.clone()
         }
 
-        /// The Zstandard dictionary ID.
-        ///
-        /// A non-zero value identifies a standard-format dictionary. A value
-        /// of zero either means the dictionary is in raw-content form or
-        /// that the dictionary ID was deliberately omitted from the header.
-        /// Dictionary IDs fall in the range 0 to 2**32 - 1.
         #[pygetset]
         fn dict_id(&self) -> u32 {
             self.dict_id
         }
 
-        /// Load this ZstdDict as a digested dictionary.
-        ///
-        /// Returns a `(self, DICT_TYPE_DIGESTED)` tuple that can be passed
-        /// as the `zstd_dict=` argument of `ZstdCompressor` or
-        /// `ZstdDecompressor`. Digested form lets libzstd cache the parsed
-        /// dictionary for reuse across compression contexts.
         #[pygetset]
         fn as_digested_dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
             vm.ctx
                 .new_tuple(vec![zelf.into(), vm.ctx.new_int(DICT_TYPE_DIGESTED).into()])
         }
 
-        /// Load this ZstdDict as an undigested dictionary.
-        ///
-        /// Returns a `(self, DICT_TYPE_UNDIGESTED)` tuple. In undigested
-        /// form the raw dictionary bytes are copied into each
-        /// (de)compressor, which is slower than digested but preserves the
-        /// original dictionary parameters across loads.
         #[pygetset]
         fn as_undigested_dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
             vm.ctx.new_tuple(vec![
@@ -614,11 +575,6 @@ mod _zstd {
             ])
         }
 
-        /// Load this ZstdDict as a prefix dictionary.
-        ///
-        /// Returns a `(self, DICT_TYPE_PREFIX)` tuple. Prefix loading treats
-        /// the dictionary bytes as a one-shot back-reference window for the
-        /// next frame only; subsequent frames will not see the prefix.
         #[pygetset]
         fn as_prefix(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
             vm.ctx
@@ -655,24 +611,6 @@ mod _zstd {
         last_mode: i32,
     }
 
-    /// ZstdCompressor(level=None, options=None, zstd_dict=None)
-    ///
-    /// Create a compressor object for incremental compression of data into
-    /// the Zstandard format.
-    ///
-    /// *level* is an int specifying the compression level. Valid range is
-    /// roughly [-(1<<17), 22]; 0 means "use the default level". Cannot be
-    /// combined with *options*.
-    ///
-    /// *options* is a dict mapping `CompressionParameter` enum members to
-    /// integer values for fine-grained control. Cannot be combined with
-    /// *level*.
-    ///
-    /// *zstd_dict* is an optional `ZstdDict` (or one of its `as_*`
-    /// variants) for dictionary-assisted compression.
-    ///
-    /// Use `compress()` to feed data into the compressor and `flush()` to
-    /// finalize the current frame.
     #[pyattr]
     #[pyclass(name = "ZstdCompressor")]
     #[derive(PyPayload)]
@@ -994,20 +932,6 @@ mod _zstd {
 
     #[pyclass(with(Constructor))]
     impl ZstdCompressor {
-        /// compress(data, mode=ZstdCompressor.CONTINUE)
-        ///
-        /// Provide data to the compressor and return a chunk of compressed
-        /// output bytes (which may be empty if not enough data has been
-        /// buffered yet).
-        ///
-        /// *mode* controls when to flush the output:
-        ///   * `CONTINUE` (default) keeps buffering, producing the densest
-        ///     compression. The compressor may return an empty byte string.
-        ///   * `FLUSH_BLOCK` closes the current zstd block so all data
-        ///     provided so far can be immediately decompressed. Frequent
-        ///     use reduces the compression ratio.
-        ///   * `FLUSH_FRAME` closes the current frame entirely. The next
-        ///     `compress()` call starts a new frame.
         #[pymethod]
         fn compress(&self, args: CompressMethodArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let mode = args.mode.unwrap_or(COMP_MODE_CONTINUE);
@@ -1019,13 +943,6 @@ mod _zstd {
             Ok(out)
         }
 
-        /// flush(mode=ZstdCompressor.FLUSH_FRAME)
-        ///
-        /// Finish the compression process and return all the remaining
-        /// compressed bytes. *mode* must be one of `FLUSH_FRAME` (close the
-        /// current frame; new frames may be started afterward) or
-        /// `FLUSH_BLOCK` (close the current block but stay inside the
-        /// frame). `CONTINUE` is not a valid value for `flush()`.
         #[pymethod]
         fn flush(&self, args: FlushMethodArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let mode = args.mode.unwrap_or(COMP_MODE_FLUSH_FRAME);
@@ -1043,16 +960,6 @@ mod _zstd {
             Ok(out)
         }
 
-        /// set_pledged_input_size(size, /)
-        ///
-        /// Set the uncompressed content size to be written into the frame
-        /// header of the next frame. Useful when the size is known up front:
-        /// libzstd writes it into the header (unless the content-size flag
-        /// is disabled) and verifies that the actual input matches at frame
-        /// end. Pass `None` to mean "unknown".
-        ///
-        /// May only be called when `last_mode == FLUSH_FRAME` (i.e. between
-        /// frames; not in the middle of one).
         #[pymethod]
         fn set_pledged_input_size(&self, size: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut state = self.state.lock();
@@ -1093,13 +1000,6 @@ mod _zstd {
             Ok(())
         }
 
-        /// The mode argument passed to the most recent `compress()` or
-        /// `flush()` call.
-        ///
-        /// The value is one of `CONTINUE`, `FLUSH_BLOCK`, or `FLUSH_FRAME`.
-        /// The initial value is `FLUSH_FRAME`, which signals that no frame
-        /// is currently in progress (it is safe to call
-        /// `set_pledged_input_size()` in this state).
         #[pygetset]
         fn last_mode(&self) -> i32 {
             self.state.lock().last_mode
@@ -1164,19 +1064,6 @@ mod _zstd {
         input_buffer: Vec<u8>,
     }
 
-    /// ZstdDecompressor(zstd_dict=None, options=None)
-    ///
-    /// Create a decompressor object for incremental decompression of a
-    /// single Zstandard frame. Once the frame is fully decompressed the
-    /// decompressor is at EOF; trailing bytes are exposed via
-    /// `unused_data`. For multi-frame input use the module-level
-    /// `compression.zstd.decompress()` or `ZstdFile`.
-    ///
-    /// *zstd_dict* is an optional `ZstdDict` (or one of its `as_*`
-    /// variants) matching the dictionary used during compression.
-    ///
-    /// *options* is a dict mapping `DecompressionParameter` enum members
-    /// to integer values for fine-grained control.
     #[pyattr]
     #[pyclass(name = "ZstdDecompressor")]
     #[derive(PyPayload)]
@@ -1372,19 +1259,6 @@ mod _zstd {
 
     #[pyclass(with(Constructor))]
     impl ZstdDecompressor {
-        /// decompress(data, max_length=-1)
-        ///
-        /// Decompress *data* and return at most *max_length* bytes of
-        /// uncompressed output. A *max_length* of -1 (the default) means
-        /// "no limit". After the current frame is fully decompressed, `eof`
-        /// becomes `True` and any further `decompress()` calls raise
-        /// `EOFError`; bytes that arrived after the frame go into
-        /// `unused_data` for the caller to forward.
-        ///
-        /// If the output cap is reached with input still pending, the
-        /// remaining input is buffered internally and `needs_input` is set
-        /// to `False`, signalling that the next call can be made with an
-        /// empty *data* argument to keep draining.
         #[pymethod]
         fn decompress(&self, args: DecompressMethodArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let data_vec = args.data.with_ref(|b| b.to_vec());
@@ -1403,26 +1277,16 @@ mod _zstd {
             do_decompress(&mut state, &data_vec, max_length, vm)
         }
 
-        /// True if the end-of-frame marker has been reached.
         #[pygetset]
         fn eof(&self) -> bool {
             self.state.lock().eof
         }
 
-        /// True when the decompressor expects more compressed input.
-        ///
-        /// Becomes False after a `decompress()` call that hits its
-        /// `max_length` cap with input still buffered internally; in that
-        /// state the caller should call `decompress(b'', max_length=...)`
-        /// to drain the buffered output before providing more input.
         #[pygetset]
         fn needs_input(&self) -> bool {
             self.state.lock().needs_input
         }
 
-        /// Bytes left over after the end-of-frame marker.
-        ///
-        /// Empty until the decompressor reaches EOF. Read-only.
         #[pygetset]
         fn unused_data(&self) -> PyBytesRef {
             self.state.lock().unused_data.clone()
@@ -1433,12 +1297,6 @@ mod _zstd {
     // Module-level functions
     // =========================================================================
 
-    /// get_frame_size(frame_buffer, /)
-    ///
-    /// Return the size in bytes of the first complete Zstandard frame in
-    /// *frame_buffer* (which must contain the entire frame, header through
-    /// trailer). Raises `ZstdError` if *frame_buffer* is shorter than the
-    /// complete frame.
     #[pyfunction]
     fn get_frame_size(frame_buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
         let buf = frame_buffer.with_ref(|b| b.to_vec());
@@ -1452,14 +1310,6 @@ mod _zstd {
         })
     }
 
-    /// get_frame_info(frame_buffer, /)
-    ///
-    /// Return `(decompressed_size, dictionary_id)` for the first Zstandard
-    /// frame in *frame_buffer*. `decompressed_size` is `None` when the
-    /// frame header does not record it (small or streaming frames).
-    /// `dictionary_id` is 0 if no dictionary was used. *frame_buffer* must
-    /// contain at least the 6-18 byte frame header. The pure-Python
-    /// wrapper boxes this tuple into a `FrameInfo` named tuple.
     #[pyfunction]
     fn get_frame_info(
         frame_buffer: ArgBytesLike,
@@ -1511,9 +1361,9 @@ mod _zstd {
         let mut out = Vec::with_capacity(items.len());
         for item in items {
             let idx = item.try_index(vm)?;
-            let v: usize = idx.try_to_primitive(vm).map_err(|_| {
-                vm.new_value_error("sample size out of range for size_t")
-            })?;
+            let v: usize = idx
+                .try_to_primitive(vm)
+                .map_err(|_| vm.new_value_error("sample size out of range for size_t"))?;
             out.push(v);
         }
         Ok(out)
@@ -1536,16 +1386,6 @@ mod _zstd {
         Ok(v as usize)
     }
 
-    /// train_dict(samples_bytes, samples_sizes, dict_size, /)
-    ///
-    /// Train a Zstandard dictionary from sample data and return the raw
-    /// dictionary bytes. The pure-Python `train_dict` wrapper then wraps
-    /// the result in a `ZstdDict`.
-    ///
-    /// `samples_bytes` is the concatenation of all sample contents.
-    /// `samples_sizes` is a tuple giving the length of each sample, in the
-    /// same order they appear in `samples_bytes`. `dict_size` is the
-    /// maximum size of the dictionary in bytes.
     #[pyfunction]
     fn train_dict(args: TrainDictArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let dict_size = parse_positive_dict_size(&args.dict_size, vm)?;
@@ -1584,12 +1424,8 @@ mod _zstd {
         compression_level: PyObjectRef,
     }
 
-    /// finalize_dict(custom_dict_bytes, samples_bytes, samples_sizes, dict_size, compression_level, /)
-    ///
-    /// Take a hand-crafted custom dictionary plus a set of samples and
-    /// produce a standard-format Zstandard dictionary by appending the
-    /// header and statistics tables. `zstd_safe` does not wrap this
-    /// function, so we drop down to raw `zstd_sys` FFI for it.
+    // `zstd_safe` does not wrap `ZDICT_finalizeDictionary`, so we drop down to
+    // raw `zstd_sys` FFI for it.
     #[pyfunction]
     fn finalize_dict(args: FinalizeDictArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let dict_size = parse_positive_dict_size(&args.dict_size, vm)?;
@@ -1652,13 +1488,6 @@ mod _zstd {
         is_compress: bool,
     }
 
-    /// get_param_bounds(parameter, /, *, is_compress)
-    ///
-    /// Return the inclusive `(lower, upper)` integer bounds for a
-    /// compression parameter (when *is_compress* is True) or a
-    /// decompression parameter (when False). Used by
-    /// `CompressionParameter.bounds()` and `DecompressionParameter.bounds()`
-    /// in the pure-Python wrapper.
     #[pyfunction]
     fn get_param_bounds(args: ParamBoundsArgs, vm: &VirtualMachine) -> PyResult<(c_int, c_int)> {
         let unknown = || -> PyBaseExceptionRef {
@@ -1692,20 +1521,14 @@ mod _zstd {
         Ok((bounds.lowerBound, bounds.upperBound))
     }
 
-    /// set_parameter_types(c_parameter_type, d_parameter_type, /)
-    ///
-    /// Validate that the `CompressionParameter` and `DecompressionParameter`
-    /// types passed in by the pure-Python wrapper are actual type objects.
-    /// The (de)compressor constructors use the *names* of these classes
-    /// (see [`check_wrong_param_kind`]) rather than identity, so this
-    /// function does not need to retain the type objects beyond the call.
-    ///
-    /// CPython retains them and uses them for nicer error messages naming
-    /// the specific enum member; matching that behavior would require a
-    /// `Sync` cell-of-`PyTypeRef`, which is not available on single-threaded
-    /// targets. The pure-Python wrapper at
-    /// `Lib/compression/zstd/__init__.py:242` calls this exactly once at
-    /// import time.
+    // The (de)compressor constructors identify the parameter enums by class
+    // *name* (see [`check_wrong_param_kind`]) rather than identity, so this
+    // function does not need to retain the type objects beyond the call.
+    // CPython retains them to produce nicer error messages naming the specific
+    // enum member; matching that would require a `Sync` cell-of-`PyTypeRef`,
+    // which is not available on single-threaded targets. The pure-Python
+    // wrapper at `Lib/compression/zstd/__init__.py:242` calls this exactly
+    // once at import time.
     #[pyfunction]
     fn set_parameter_types(
         c_parameter_type: PyObjectRef,
