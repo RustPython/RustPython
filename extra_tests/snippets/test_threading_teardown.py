@@ -2,8 +2,8 @@ import threading
 import time
 
 def runner():
-    print('runner done')
+    print("runner done")
 
 threading.Thread(target=runner).start()
 time.sleep(1)
-print('main done')
+print("main done")
