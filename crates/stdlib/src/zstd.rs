@@ -1512,7 +1512,7 @@ mod _zstd {
         for item in items {
             let idx = item.try_index(vm)?;
             let v: usize = idx.try_to_primitive(vm).map_err(|_| {
-                vm.new_value_error("sample size out of range for size_t".to_owned())
+                vm.new_value_error("sample size out of range for size_t")
             })?;
             out.push(v);
         }
