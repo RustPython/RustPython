@@ -187,7 +187,7 @@ jobs:
 
           today=$(date '+%Y-%m-%d')
 
-          # Generate a concise changelog (last 50 commits) to stay under the 125k character limit
+          # Generate a concise changelog (last 50 non-merge commits) to stay under the 125k character limit
           echo "## What's Changed" > /tmp/release_notes.md
           PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           if [ -n "$PREV_TAG" ]; then
