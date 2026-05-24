@@ -157,6 +157,36 @@ macro_rules! define_opcodes {
             }
 
             #[must_use]
+            $instr_vis const fn is_terminator(&self) -> bool {
+                self.as_opcode().is_terminator()
+            }
+
+            #[must_use]
+            $instr_vis const fn is_no_fallthrough(&self) -> bool {
+                self.as_opcode().is_no_fallthrough()
+            }
+
+            #[must_use]
+            $instr_vis const fn has_target(&self) -> bool {
+                self.as_opcode().has_target()
+            }
+
+            #[must_use]
+            $instr_vis const fn has_jump(&self) -> bool {
+                self.as_opcode().has_jump()
+            }
+
+            #[must_use]
+            $instr_vis const fn has_eval_break(&self) -> bool {
+                self.as_opcode().has_eval_break()
+            }
+
+            #[must_use]
+            $instr_vis const fn is_assembler(&self) -> bool {
+                self.as_opcode().is_assembler()
+            }
+
+            #[must_use]
             $instr_vis const fn cache_entries(&self) -> usize{
                 self.as_opcode().cache_entries()
             }
@@ -673,9 +703,66 @@ impl Opcode {
         )
     }
 
+    /// CPython's `IS_ASSEMBLER_OPCODE`.
+    #[must_use]
+    pub const fn is_assembler(&self) -> bool {
+        matches!(
+            self,
+            Self::JumpForward | Self::JumpBackward | Self::JumpBackwardNoInterrupt
+        )
+    }
+
     #[must_use]
     pub const fn is_scope_exit(&self) -> bool {
         matches!(self, Self::ReturnValue | Self::RaiseVarargs | Self::Reraise)
+    }
+
+    /// CPython's `IS_TERMINATOR_OPCODE`.
+    #[must_use]
+    pub const fn is_terminator(&self) -> bool {
+        self.has_jump() || self.is_scope_exit()
+    }
+
+    /// CPython's `IS_SCOPE_EXIT_OPCODE || IS_UNCONDITIONAL_JUMP_OPCODE`.
+    #[must_use]
+    pub const fn is_no_fallthrough(&self) -> bool {
+        self.is_scope_exit() || self.is_unconditional_jump()
+    }
+
+    /// CPython's `HAS_TARGET`.
+    #[must_use]
+    pub const fn has_target(&self) -> bool {
+        self.has_jump() || self.is_block_push()
+    }
+
+    /// Does this opcode have CPython's `HAS_EVAL_BREAK_FLAG` set.
+    #[must_use]
+    pub const fn has_eval_break(&self) -> bool {
+        matches!(
+            self,
+            Self::Call
+                | Self::CallBuiltinClass
+                | Self::CallBuiltinFast
+                | Self::CallBuiltinFastWithKeywords
+                | Self::CallBuiltinO
+                | Self::CallFunctionEx
+                | Self::CallKwNonPy
+                | Self::CallMethodDescriptorFast
+                | Self::CallMethodDescriptorFastWithKeywords
+                | Self::CallMethodDescriptorNoargs
+                | Self::CallMethodDescriptorO
+                | Self::CallNonPyGeneral
+                | Self::CallStr1
+                | Self::CallTuple1
+                | Self::InstrumentedCall
+                | Self::InstrumentedCallFunctionEx
+                | Self::InstrumentedJumpBackward
+                | Self::InstrumentedResume
+                | Self::JumpBackward
+                | Self::JumpBackwardJit
+                | Self::JumpBackwardNoJit
+                | Self::Resume
+        )
     }
 
     #[must_use]
@@ -712,6 +799,35 @@ impl PseudoOpcode {
     #[must_use]
     pub const fn is_unconditional_jump(&self) -> bool {
         matches!(self, Self::Jump | Self::JumpNoInterrupt)
+    }
+
+    /// Does this pseudo opcode have CPython's `HAS_EVAL_BREAK_FLAG` set.
+    #[must_use]
+    pub const fn has_eval_break(&self) -> bool {
+        matches!(self, Self::Jump)
+    }
+
+    #[must_use]
+    pub const fn is_assembler(&self) -> bool {
+        false
+    }
+
+    /// CPython's `IS_TERMINATOR_OPCODE`.
+    #[must_use]
+    pub const fn is_terminator(&self) -> bool {
+        self.has_jump()
+    }
+
+    /// CPython's `IS_SCOPE_EXIT_OPCODE || IS_UNCONDITIONAL_JUMP_OPCODE`.
+    #[must_use]
+    pub const fn is_no_fallthrough(&self) -> bool {
+        self.is_unconditional_jump()
+    }
+
+    /// CPython's `HAS_TARGET`.
+    #[must_use]
+    pub const fn has_target(&self) -> bool {
+        self.has_jump() || self.is_block_push()
     }
 
     /// Handler entry effect for SETUP_* pseudo ops.
@@ -776,6 +892,36 @@ impl AnyInstruction {
     either_real_pseudo!(
         #[must_use]
         pub const fn is_scope_exit(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn is_terminator(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn is_no_fallthrough(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_target(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_jump(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_eval_break(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn is_assembler(&self) -> bool
     );
 
     either_real_pseudo!(
@@ -1179,3 +1325,80 @@ impl<T: OpArgType> fmt::Debug for Arg<T> {
 // breaks the VM:/
 const _: () = assert!(core::mem::size_of::<Instruction>() == 1);
 const _: () = assert!(core::mem::size_of::<PseudoInstruction>() == 2);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eval_break_flags_match_cpython_jump_metadata() {
+        assert!(Opcode::JumpBackward.has_eval_break());
+        assert!(!Opcode::JumpBackwardNoInterrupt.has_eval_break());
+        assert!(!Opcode::JumpForward.has_eval_break());
+
+        assert!(PseudoOpcode::Jump.has_eval_break());
+        assert!(!PseudoOpcode::JumpIfFalse.has_eval_break());
+        assert!(!PseudoOpcode::JumpIfTrue.has_eval_break());
+        assert!(!PseudoOpcode::JumpNoInterrupt.has_eval_break());
+
+        assert!(AnyInstruction::from(PseudoOpcode::Jump).has_eval_break());
+    }
+
+    #[test]
+    fn terminator_flags_match_cpython_opcode_utils() {
+        assert!(Opcode::JumpForward.is_terminator());
+        assert!(Opcode::PopJumpIfFalse.is_terminator());
+        assert!(Opcode::ReturnValue.is_terminator());
+        assert!(!Opcode::Nop.is_terminator());
+
+        assert!(PseudoOpcode::JumpIfTrue.is_terminator());
+        assert!(PseudoOpcode::JumpNoInterrupt.is_terminator());
+        assert!(!PseudoOpcode::SetupWith.is_terminator());
+        assert!(!PseudoOpcode::PopBlock.is_terminator());
+
+        assert!(AnyInstruction::from(PseudoOpcode::JumpIfFalse).is_terminator());
+    }
+
+    #[test]
+    fn assembler_flags_match_cpython_opcode_utils() {
+        assert!(Opcode::JumpForward.is_assembler());
+        assert!(Opcode::JumpBackward.is_assembler());
+        assert!(Opcode::JumpBackwardNoInterrupt.is_assembler());
+        assert!(!Opcode::PopJumpIfFalse.is_assembler());
+        assert!(!Opcode::Nop.is_assembler());
+
+        assert!(!PseudoOpcode::Jump.is_assembler());
+        assert!(!PseudoOpcode::JumpNoInterrupt.is_assembler());
+        assert!(!AnyInstruction::from(PseudoOpcode::Jump).is_assembler());
+    }
+
+    #[test]
+    fn target_flags_match_cpython_opcode_utils() {
+        assert!(Opcode::JumpForward.has_target());
+        assert!(Opcode::ForIter.has_target());
+        assert!(!Opcode::ReturnValue.has_target());
+        assert!(!Opcode::Nop.has_target());
+
+        assert!(PseudoOpcode::Jump.has_target());
+        assert!(PseudoOpcode::SetupWith.has_target());
+        assert!(PseudoOpcode::SetupCleanup.has_target());
+        assert!(!PseudoOpcode::PopBlock.has_target());
+
+        assert!(AnyInstruction::from(PseudoOpcode::SetupFinally).has_target());
+    }
+
+    #[test]
+    fn no_fallthrough_flags_match_cpython_basicblock_nofallthrough() {
+        assert!(Opcode::JumpForward.is_no_fallthrough());
+        assert!(Opcode::ReturnValue.is_no_fallthrough());
+        assert!(!Opcode::PopJumpIfFalse.is_no_fallthrough());
+        assert!(!Opcode::Nop.is_no_fallthrough());
+
+        assert!(PseudoOpcode::Jump.is_no_fallthrough());
+        assert!(PseudoOpcode::JumpNoInterrupt.is_no_fallthrough());
+        assert!(!PseudoOpcode::JumpIfFalse.is_no_fallthrough());
+        assert!(!PseudoOpcode::SetupWith.is_no_fallthrough());
+
+        assert!(AnyInstruction::from(PseudoOpcode::Jump).is_no_fallthrough());
+    }
+}
