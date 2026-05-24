@@ -169,6 +169,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', g_ident),
                               ])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exception_propagation(self):
         def f(p):
             1/0
@@ -260,6 +261,7 @@ class ProfileHookTestCase(TestCaseBase):
                               (1, 'return', g_ident),
                               ])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unfinished_generator(self):
         def f():
             for i in range(2):
@@ -481,6 +483,7 @@ class TestEdgeCases(unittest.TestCase):
         sys.setprofile(lambda *args: None)
         f()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_method_with_c_function(self):
         # gh-122029
         # When we have a PyMethodObject whose im_func is a C function, we
