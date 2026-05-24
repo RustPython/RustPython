@@ -114,7 +114,8 @@ mod syslog {
             audit.call((vm.ctx.new_str("syslog.closelog"),), vm)?;
         }
 
-        Ok(host_syslog::closelog())
+        host_syslog::closelog();
+        Ok(())
     }
 
     #[pyfunction]
