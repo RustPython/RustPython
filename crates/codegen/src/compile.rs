@@ -19407,7 +19407,7 @@ def f(self):
     }
 
     #[test]
-    fn untaken_constant_boolop_jump_keeps_following_borrows() {
+    fn not_taken_constant_boolop_jump_keeps_following_borrows() {
         for source in [
             "\
 def f(self):
