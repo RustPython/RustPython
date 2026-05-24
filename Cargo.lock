@@ -3507,7 +3507,6 @@ name = "rustpython-stdlib"
 version = "0.5.0"
 dependencies = [
  "adler32",
- "ahash",
  "ascii",
  "aws-lc-rs",
  "base64",
@@ -3558,6 +3557,7 @@ dependencies = [
  "pkcs8",
  "pymath",
  "rand_core 0.9.5",
+ "rapidhash",
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile",
