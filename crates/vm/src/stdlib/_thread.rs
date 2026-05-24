@@ -537,16 +537,14 @@ pub(crate) mod _thread {
         // would panic in push_thread_frame.
         {
             let func = func;
-            match func.invoke(args, vm) {
-                Ok(_obj) => {}
-                Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
-                Err(exc) => {
-                    vm.run_unraisable(
-                        exc,
-                        Some("Exception ignored in thread started by".to_owned()),
-                        func.into(),
-                    );
-                }
+            if let Err(exc) = func.invoke(args, vm)
+                && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
+            {
+                vm.run_unraisable(
+                    exc,
+                    Some("Exception ignored in thread started by".to_owned()),
+                    func.into(),
+                );
             }
         }
         for lock in SENTINELS.take() {
@@ -1680,16 +1678,14 @@ pub(crate) mod _thread {
                 {
                     let func = func;
                     // Run the function
-                    match func.invoke((), vm) {
-                        Ok(_) => {}
-                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
-                        Err(exc) => {
-                            vm.run_unraisable(
-                                exc,
-                                Some("Exception ignored in thread started by".to_owned()),
-                                func.into(),
-                            );
-                        }
+                    if let Err(exc) = func.invoke((), vm)
+                        && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
+                    {
+                        vm.run_unraisable(
+                            exc,
+                            Some("Exception ignored in thread started by".to_owned()),
+                            func.into(),
+                        );
                     }
                 }
             }))
