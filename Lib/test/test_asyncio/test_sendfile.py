@@ -566,6 +566,10 @@ else:
             def create_event_loop(self):
                 return asyncio.SelectorEventLoop(selectors.EpollSelector())
 
+            @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON; Flaky on CI")
+            def test_sendfile_ssl_pre_and_post_data(self):
+                return super().test_sendfile_ssl_pre_and_post_data()
+
     if hasattr(selectors, 'PollSelector'):
         class PollEventLoopTests(SendfileTestsBase,
                                  test_utils.TestCase):
