@@ -391,7 +391,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_init_path_config() {
+    fn init_path_config_basic() {
         let settings = Settings::default();
         let paths = init_path_config(&settings);
         // Just verify it doesn't panic and returns valid paths
@@ -399,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn test_search_up() {
+    fn search_up() {
         // Test with a path that doesn't have any landmarks
         let result = search_up_file(
             crate::host_env::os::temp_dir(),
@@ -409,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn test_default_prefix() {
+    fn default_prefix_basic() {
         let prefix = default_prefix();
         assert!(!prefix.is_empty());
     }

@@ -570,7 +570,7 @@ mod tests {
     use malachite_bigint::ToBigInt;
 
     #[test]
-    fn test_add_py_integers() {
+    fn add_py_integers() {
         Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let a: PyObjectRef = vm.ctx.new_int(33_i32).into();
             let b: PyObjectRef = vm.ctx.new_int(12_i32).into();
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiply_str() {
+    fn multiply_str() {
         Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let a = vm.new_pyobj(crate::common::ascii!("Hello "));
             let b = vm.new_pyobj(4_i32);
