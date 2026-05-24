@@ -195,7 +195,7 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     bag: Bag,
 ) -> Result<CodeObject<Bag::Constant>> {
     let mut refs: Vec<Option<Bag::Constant>> = Vec::new();
-    deserialize_code_inner(rdr, bag, &mut refs)
+    deserialize_code_inner(rdr, bag, MAX_MARSHAL_STACK_DEPTH, &mut refs)
 }
 
 /// Inner code-object deserializer that shares a ref table with caller.
@@ -204,8 +204,12 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
 fn deserialize_code_inner<R: Read, Bag: ConstantBag>(
     rdr: &mut R,
     bag: Bag,
+    depth: usize,
     refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<CodeObject<Bag::Constant>> {
+    if depth == 0 {
+        return Err(MarshalError::InvalidBytecode);
+    }
     // 1–5: scalar fields
     let arg_count = rdr.read_u32()?;
     let posonlyarg_count = rdr.read_u32()?;
@@ -217,7 +221,7 @@ fn deserialize_code_inner<R: Read, Bag: ConstantBag>(
     let code_bytes = read_marshal_bytes(rdr, &bag, refs)?;
 
     // 7: co_consts
-    let constants = read_marshal_const_tuple(rdr, bag, refs)?;
+    let constants = read_marshal_const_tuple(rdr, bag, depth, refs)?;
 
     // 8: co_names
     let names = read_marshal_name_tuple(rdr, &bag, refs)?;
@@ -448,8 +452,12 @@ fn read_marshal_name_tuple<R: Read, Bag: ConstantBag>(
 fn read_marshal_const_tuple<R: Read, Bag: ConstantBag>(
     rdr: &mut R,
     bag: Bag,
+    depth: usize,
     refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<Constants<Bag::Constant>> {
+    if depth == 0 {
+        return Err(MarshalError::InvalidBytecode);
+    }
     let raw = rdr.read_u8()?;
     let type_byte = raw & !FLAG_REF;
     let has_flag = raw & FLAG_REF != 0;
@@ -469,8 +477,9 @@ fn read_marshal_const_tuple<R: Read, Bag: ConstantBag>(
         _ => return Err(MarshalError::BadType),
     };
     let slot = reserve_ref_slot(has_flag, refs);
+    let child_depth = depth - 1;
     let items: Vec<Bag::Constant> = (0..n)
-        .map(|_| read_const_value(rdr, bag, MAX_MARSHAL_STACK_DEPTH, refs))
+        .map(|_| read_const_value(rdr, bag, child_depth, refs))
         .collect::<Result<_>>()?;
     if let Some(idx) = slot {
         refs[idx] =
@@ -505,7 +514,7 @@ fn read_const_value<R: Read, Bag: ConstantBag>(
     let slot = reserve_ref_slot(flag, refs);
     let typ = Type::try_from(type_code)?;
     let value = if matches!(typ, Type::Code) {
-        let code = deserialize_code_inner(rdr, bag, refs)?;
+        let code = deserialize_code_inner(rdr, bag, depth - 1, refs)?;
         bag.make_code(code)
     } else {
         deserialize_value_typed(rdr, bag, depth, refs, typ)?
@@ -679,6 +688,23 @@ fn deserialize_value_depth<R: Read, Bag: MarshalBag>(
         return Err(MarshalError::InvalidBytecode);
     }
     let raw = rdr.read_u8()?;
+    deserialize_value_after_header(rdr, bag, depth, refs, raw)
+}
+
+/// Continue deserializing a value after the header byte has already been
+/// consumed. Shared by `deserialize_value_depth` and the dict-key branch,
+/// where the header byte is read up front to detect the TYPE_NULL
+/// terminator.
+fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
+    rdr: &mut R,
+    bag: Bag,
+    depth: usize,
+    refs: &mut Vec<Option<Bag::Value>>,
+    raw: u8,
+) -> Result<Bag::Value> {
+    if depth == 0 {
+        return Err(MarshalError::InvalidBytecode);
+    }
     let flag = raw & FLAG_REF != 0;
     let type_code = raw & !FLAG_REF;
 
@@ -704,14 +730,14 @@ fn deserialize_value_depth<R: Read, Bag: MarshalBag>(
     // Code-objects keep their own inner ref table because Bag::Value (the
     // outer marshal value) and the constant-bag's Constant type are not
     // in general the same. When the outer header carried FLAG_REF, the
-    // code object occupies slot 0 of CPython's single global ref space,
-    // so we mirror that by reserving slot 0 of the inner table.
+    // code object occupies slot 0 of the single global ref space, so we
+    // mirror that by reserving slot 0 of the inner table.
     let value = if matches!(typ, Type::Code) {
         let mut inner_refs: Vec<Option<<Bag::ConstantBag as ConstantBag>::Constant>> = Vec::new();
         if flag {
             inner_refs.push(None);
         }
-        let code = deserialize_code_inner(rdr, bag.constant_bag(), &mut inner_refs)?;
+        let code = deserialize_code_inner(rdr, bag.constant_bag(), depth - 1, &mut inner_refs)?;
         bag.make_code(code)
     } else {
         deserialize_value_typed(rdr, bag, depth, refs, typ)?
@@ -817,32 +843,10 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             let mut pairs = Vec::new();
             loop {
                 let raw = rdr.read_u8()?;
-                let type_code = raw & !FLAG_REF;
-                if type_code == b'0' {
+                if raw & !FLAG_REF == b'0' {
                     break;
                 }
-                // TYPE_REF for key
-                let k = if type_code == Type::Ref as u8 {
-                    let idx = rdr.read_u32()? as usize;
-                    refs.get(idx)
-                        .and_then(|v| v.clone())
-                        .ok_or(MarshalError::InvalidBytecode)?
-                } else {
-                    let flag = raw & FLAG_REF != 0;
-                    let key_slot = if flag {
-                        let idx = refs.len();
-                        refs.push(None);
-                        Some(idx)
-                    } else {
-                        None
-                    };
-                    let key_type = Type::try_from(type_code)?;
-                    let k = deserialize_value_typed(rdr, bag, d, refs, key_type)?;
-                    if let Some(idx) = key_slot {
-                        refs[idx] = Some(k.clone());
-                    }
-                    k
-                };
+                let k = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
                 let v = deserialize_value_depth(rdr, bag, d, refs)?;
                 pairs.push((k, v));
             }
