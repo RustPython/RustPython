@@ -38,6 +38,12 @@ RustPython is a Python 3 interpreter written in Rust, implementing Python 3.14.0
 - Always ask the user before performing any git operations that affect the remote repository
 - Commits can be created locally when requested, but pushing and PR creation require explicit approval
 
+**CRITICAL: Pre-commit Checks**
+- Before creating ANY commit, you MUST run `prek run --all-files` (or `pre-commit run --all-files`) AND the full test suite. Both must pass — do not commit if either fails.
+- Test commands are documented in the [Testing](#testing) section below. At minimum run `cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher`; if the change touches `extra_tests/snippets/` run `pytest -v` there too, and if it touches `Lib/` or interpreter behavior, run the relevant `cargo run --release -- -m test <module>` modules.
+- If a hook auto-fixes files (e.g. `ruff-format`, `rustfmt`), re-stage the fixes, re-run `prek` until it reports a clean pass, then re-run the tests, then commit.
+- NEVER bypass these checks with `--no-verify`, `--no-gpg-sign`, or by skipping tests "because the change is small". If a hook or test fails, fix the underlying issue and create a new commit — do not amend or force the failing commit through.
+
 ## Important Development Notes
 
 ### Running Python Code
@@ -287,32 +293,9 @@ See DEVELOPMENT.md "CPython Version Upgrade Checklist" section.
 - Document that it requires PEP 695 support
 - Focus on tests that can be fixed through Rust code changes only
 
-## CI Workflows and Security Audits
+## CI Workflows
 
-PR CI runs [zizmor](https://docs.zizmor.sh/) to audit `.github/workflows/*.yaml` for security issues. The most common failure for contributors editing workflows is the `impostor-commit` audit, which can reject a PR even when the SHA pin "looks correct".
-
-### Avoiding the `impostor-commit` audit
-
-GitHub's fork network lets a commit that exists only on a fork be referenced via the parent repo's `owner/repo` slug. A malicious fork could publish a backdoored commit and reference it as if it lived on the canonical upstream — a hash-pinned `uses:` line that visually matches best practice but actually points into a fork. zizmor's [`impostor-commit` audit](https://docs.zizmor.sh/audits/#impostor-commit) detects this by querying whether the commit really exists in the claimed repo.
-
-**Rule:** when adding or updating a `uses:` line, always pin to a SHA that exists in the **canonical** upstream repo for that action, never one that only exists on a fork.
-
-Verify a pin before pushing:
-
-```bash
-# For: uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-gh api repos/actions/checkout/commits/de0fac2e4500dabe0009e67214ff5f5447ce83dd --jq .sha
-```
-
-If the response is the same SHA, the commit is canonical and the pin is safe. A `404` means the SHA does not exist in `actions/checkout` (it lives only on a fork) — zizmor will flag it as an impostor and CI will fail.
-
-**Repo convention:** every third-party action is pinned to a full 40-char SHA with the human-readable tag in a trailing comment, e.g. `actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2`. Use the same style when adding new actions.
-
-To find the canonical SHA for a tag, use the canonical repo's release/tag page on github.com (the SHA shown next to the tag) or:
-
-```bash
-gh api repos/<owner>/<repo>/git/refs/tags/<tag> --jq .object.sha
-```
+If you modify any file under `.github/workflows/`, the change must pass a [zizmor](https://docs.zizmor.sh/) scan in CI.
 
 ## Documentation
 
