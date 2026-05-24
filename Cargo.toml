@@ -176,7 +176,6 @@ ruff_source_file = { package = "rustpython-ruff_source_file", version = "0.15.8"
 der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
-ahash = "0.8.12"
 approx = "0.5.1"
 ascii = "1.1"
 aws-lc-rs = "1.16.3"
