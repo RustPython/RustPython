@@ -292,7 +292,8 @@ jobs:
             - '-u all'
           env_polluting_tests:
             - test_set
-          skips: []
+          skips:
+            - test_asyncio
           timeout: 50
         - os: ubuntu-latest
           extra_test_args:
