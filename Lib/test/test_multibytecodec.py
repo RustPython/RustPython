@@ -3,12 +3,16 @@
 #   Unit test for multibytecodec itself
 #
 
-import _multibytecodec
 import codecs
 import io
 import sys
 import textwrap
 import unittest
+try:
+    import _multibytecodec
+except ImportError:
+    # TODO: RUSTPYTHON; _multibytecodec not implemented
+    raise unittest.SkipTest('_multibytecodec not available')
 from test import support
 from test.support import os_helper
 from test.support.os_helper import TESTFN
