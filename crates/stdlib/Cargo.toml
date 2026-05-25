@@ -37,7 +37,6 @@ ruff_python_ast = { workspace = true }
 ruff_text_size = { workspace = true }
 ruff_source_file = { workspace = true }
 
-ahash = { workspace = true }
 ascii = { workspace = true }
 crossbeam-utils = { workspace = true }
 flame = { workspace = true, optional = true }
@@ -51,6 +50,7 @@ num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
 phf = { workspace = true, default-features = true, features = ["macros"] }
+rapidhash = { workspace = true }
 
 memchr = { workspace = true }
 base64 = { workspace = true }
