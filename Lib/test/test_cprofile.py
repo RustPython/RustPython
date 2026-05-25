@@ -4,7 +4,11 @@ import sys
 import unittest
 
 # rip off all interesting stuff from test_profile
-import cProfile
+try:
+    import cProfile
+except ImportError:
+    # TODO: RUSTPYTHON; _lsprof not implemented
+    raise unittest.SkipTest('cProfile requires _lsprof')
 import tempfile
 import textwrap
 from test.test_profile import ProfileTest, regenerate_expected_output
