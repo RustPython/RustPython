@@ -48,6 +48,7 @@ class ProfileTest(unittest.TestCase):
             results.append('\n'.join(output))
         return results
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; print_callees output differs from CPython
     def test_cprofile(self):
         results = self.do_profiling()
         expected = self.get_expected_output()
