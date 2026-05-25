@@ -31,7 +31,7 @@ mod _zstd {
     use rustpython_vm::builtins::{
         PyBaseExceptionRef, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
     };
-    use rustpython_vm::function::{ArgBytesLike, OptionalArg};
+    use rustpython_vm::function::{ArgBytesLike, OptionalOption};
     use rustpython_vm::types::{AsMapping, Constructor, Representable};
     use rustpython_vm::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -176,21 +176,6 @@ mod _zstd {
     // =========================================================================
     // Parameter helpers
     // =========================================================================
-
-    /// Convert any int-like Python value to an `i32`, rejecting floats. CPython
-    /// uses `PyLong_AsInt` here which only accepts integers; `try_index` is
-    /// the equivalent of CPython's `__index__` slot lookup (rejects floats).
-    fn pyobj_to_i32(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
-        obj.try_index(vm)?.try_to_primitive(vm)
-    }
-
-    /// Normalize an `OptionalArg<PyObjectRef>` constructor parameter to an
-    /// `Option<PyObjectRef>`. Treats both "argument missing" and "argument
-    /// explicitly None" the same way (consistent with CPython, which uses
-    /// `None` defaults throughout the `_zstd` API).
-    fn arg_or_none(arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        arg.into_option().filter(|o| !vm.is_none(o))
-    }
 
     /// If `key`'s class is the wrong kind of parameter enum for the caller's
     /// context (a `CompressionParameter` passed to a decompressor, or vice
@@ -449,7 +434,7 @@ mod _zstd {
             // The marker must be a plain int (not float/etc); overflow on
             // `2**1000` propagates as OverflowError via `try_index`.
             let marker_obj = &items[1];
-            let marker = pyobj_to_i32(marker_obj, vm).map_err(|e| {
+            let marker: i32 = marker_obj.try_to_value(vm).map_err(|e| {
                 // Preserve OverflowError; everything else becomes TypeError so
                 // callers see a consistent "should be a ZstdDict" message.
                 if e.fast_isinstance(vm.ctx.exceptions.overflow_error) {
@@ -627,11 +612,11 @@ mod _zstd {
     #[derive(FromArgs)]
     pub(super) struct ZstdCompressorArgs {
         #[pyarg(any, optional)]
-        level: OptionalArg<PyObjectRef>,
+        level: OptionalOption<PyObjectRef>,
         #[pyarg(any, optional)]
-        options: OptionalArg<PyObjectRef>,
+        options: OptionalOption<PyObjectRef>,
         #[pyarg(any, optional)]
-        zstd_dict: OptionalArg<PyObjectRef>,
+        zstd_dict: OptionalOption<PyObjectRef>,
     }
 
     /// Translate the public `mode` int to the libzstd `ZSTD_EndDirective`
@@ -657,9 +642,9 @@ mod _zstd {
         type Args = ZstdCompressorArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let level_opt = arg_or_none(args.level, vm);
-            let options_opt = arg_or_none(args.options, vm);
-            let dict_opt = arg_or_none(args.zstd_dict, vm);
+            let level_opt = args.level.flatten();
+            let options_opt = args.options.flatten();
+            let dict_opt = args.zstd_dict.flatten();
 
             if level_opt.is_some() && options_opt.is_some() {
                 return Err(vm.new_runtime_error("Only one of level or options should be used"));
@@ -677,15 +662,9 @@ mod _zstd {
                 apply_options(&mut cctx, options_obj, true, vm)?;
             }
 
-            let (held_cdict, held_dict) = load_compressor_dict(&mut cctx, dict_opt, vm)?;
-
+            let state = build_compressor_state(cctx, dict_opt, COMP_MODE_FLUSH_FRAME, vm)?;
             Ok(Self {
-                state: PyMutex::new(CompressorState {
-                    cctx,
-                    _cdict: held_cdict,
-                    _dict: held_dict,
-                    last_mode: COMP_MODE_FLUSH_FRAME,
-                }),
+                state: PyMutex::new(state),
             })
         }
     }
@@ -697,7 +676,7 @@ mod _zstd {
     /// conversions so the constructor stays linear.
     fn parse_compression_level(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
         let (lo, hi) = level_bounds();
-        let level = pyobj_to_i32(obj, vm).map_err(|e| {
+        let level: i32 = obj.try_to_value(vm).map_err(|e| {
             if e.fast_isinstance(vm.ctx.exceptions.overflow_error) {
                 vm.new_value_error(format!(
                     "illegal compression level; the valid range is [{lo}, {hi}]"
@@ -732,8 +711,8 @@ mod _zstd {
             // so the error carries the documented type name rather than a
             // generic out-of-range message.
             check_wrong_param_kind(&k, is_compress, vm)?;
-            let key_int = pyobj_to_i32(&k, vm)?;
-            let val_int = pyobj_to_i32(&v, vm)?;
+            let key_int: i32 = k.try_to_value(vm)?;
+            let val_int: i32 = v.try_to_value(vm)?;
             // libzstd silently clamps out-of-range values for some
             // parameters (notably compression_level) rather than rejecting
             // them, so validate against the documented bounds upfront.
@@ -827,13 +806,23 @@ mod _zstd {
 
     /// Common path for attaching a dictionary to either context type. Returns
     /// the digested `CDict`/`DDict` (if the caller used digested mode) plus
-    /// the `PyRef<ZstdDict>` we hold to keep the bytes alive for `ref_prefix`.
+    /// the `PyRef<ZstdDict>` whose bytes libzstd's `ref_prefix` may point into.
+    ///
     /// # Safety
     ///
-    /// The caller must ensure that the returned `PyRef<ZstdDict>` (if any)
-    /// outlives the context `ctx`. In `ref_prefix` mode, libzstd stores a
-    /// raw pointer into the dictionary bytes; the `PyRef` keeps those bytes
-    /// alive for the required lifetime.
+    /// libzstd stores the dictionary as a raw pointer that bypasses Rust's
+    /// lifetime tracking. The caller must keep both returned values alive at
+    /// least as long as `ctx`:
+    ///
+    /// - In `digested` mode, `ctx` holds a raw pointer to the returned
+    ///   `L::Digested`; dropping it before `ctx` is use-after-free.
+    /// - In `prefix` mode, `ctx` holds a raw pointer into the bytes owned by
+    ///   the returned `PyRef<ZstdDict>`; dropping the `PyRef` before `ctx`
+    ///   is use-after-free.
+    ///
+    /// In `undigested` mode the bytes are copied into `ctx`, so neither
+    /// return value carries a safety obligation — but the caller cannot tell
+    /// the modes apart, so it must keep both alive regardless.
     unsafe fn load_dict<L: DictLoader<'static>>(
         ctx: &mut L,
         dict_obj: Option<PyObjectRef>,
@@ -856,11 +845,13 @@ mod _zstd {
         let mut digested = None;
         match marker {
             DICT_TYPE_PREFIX => {
-                // SAFETY: the returned `PyRef<ZstdDict>` keeps `zdict` alive
-                // (and therefore `dict_bytes`) for the lifetime of the
-                // context. libzstd `ref_prefix` stores a raw pointer into
-                // `dict_bytes`; as long as the (de)compressor outlives no
-                // longer than the held PyRef, the pointer stays valid.
+                // SAFETY: we extend `dict_bytes`' lifetime to `'static` only
+                // to thread it through `ref_prefix_static`'s signature.
+                // `load_dict`'s own safety contract requires the caller to
+                // keep the returned `PyRef<ZstdDict>` (which owns
+                // `dict_bytes`) alive at least as long as `ctx`, so the
+                // raw pointer libzstd stores stays valid for the required
+                // window.
                 let static_bytes: &'static [u8] =
                     unsafe { core::slice::from_raw_parts(dict_bytes.as_ptr(), dict_bytes.len()) };
                 ctx.ref_prefix_static(static_bytes)
@@ -884,24 +875,53 @@ mod _zstd {
         Ok((digested, Some(zdict)))
     }
 
-    fn load_compressor_dict(
-        cctx: &mut CCtx<'static>,
+    /// Build a fully-initialized `CompressorState` from a freshly-created
+    /// `CCtx` and an optional dictionary argument. This is the safe interface
+    /// that `unsafe fn load_dict` was waiting for: by assembling the struct
+    /// here, both invariants `load_dict` documents become structural and a
+    /// safe-Rust caller cannot split the pieces apart.
+    fn build_compressor_state(
+        mut cctx: CCtx<'static>,
         dict_obj: Option<PyObjectRef>,
+        last_mode: i32,
         vm: &VirtualMachine,
-    ) -> DictLoadResult<zstd_safe::CDict<'static>> {
-        // SAFETY: The returned `PyRef<ZstdDict>` is stored alongside the
-        // `CCtx` in `CompressorState`, so it outlives the context.
-        unsafe { load_dict::<CCtx<'static>>(cctx, dict_obj, vm) }
+    ) -> PyResult<CompressorState> {
+        // SAFETY: `load_dict` requires its two return values to outlive `ctx`.
+        // We satisfy that by moving `cctx` and both return values into
+        // `CompressorState` in one expression — Rust drops the struct's
+        // fields in declaration order, so on teardown `cctx` is dropped
+        // first, releasing its raw pointers before `_cdict` (digested mode)
+        // and `_dict` (prefix mode) are freed. `CompressorState` is private
+        // to this module and is never destructured, so no safe caller can
+        // reorder the drops.
+        let (cdict, dict) = unsafe { load_dict::<CCtx<'static>>(&mut cctx, dict_obj, vm) }?;
+        Ok(CompressorState {
+            cctx,
+            _cdict: cdict,
+            _dict: dict,
+            last_mode,
+        })
     }
 
-    fn load_decompressor_dict(
-        dctx: &mut DCtx<'static>,
+    /// Build a fully-initialized `DecompressorState`. See
+    /// [`build_compressor_state`] for the safety reasoning;
+    /// `DecompressorState`'s field order plays the same role here.
+    fn build_decompressor_state(
+        mut dctx: DCtx<'static>,
         dict_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> DictLoadResult<zstd_safe::DDict<'static>> {
-        // SAFETY: The returned `PyRef<ZstdDict>` is stored alongside the
-        // `DCtx` in `DecompressorState`, so it outlives the context.
-        unsafe { load_dict::<DCtx<'static>>(dctx, dict_obj, vm) }
+    ) -> PyResult<DecompressorState> {
+        // SAFETY: see [`build_compressor_state`].
+        let (ddict, dict) = unsafe { load_dict::<DCtx<'static>>(&mut dctx, dict_obj, vm) }?;
+        Ok(DecompressorState {
+            dctx,
+            _ddict: ddict,
+            _dict: dict,
+            eof: false,
+            needs_input: true,
+            unused_data: vm.ctx.empty_bytes.clone(),
+            input_buffer: Vec::new(),
+        })
     }
 
     /// Drive `compress_stream2` until the input is fully consumed and, for
@@ -913,31 +933,39 @@ mod _zstd {
         end_op: zstd_sys::ZSTD_EndDirective,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let mut output = Vec::new();
-        let mut input = InBuffer::around(data);
-        let chunk_size = CCtx::out_size().max(1);
+        // Release the GIL for the duration of the compression loop. Safety:
+        // `data` is an immutable borrow of a local `Vec` in the caller,
+        // `state` is held under the compressor's `PyMutex` (no other Python
+        // thread can touch it), the `_dict` bytes referenced by libzstd are
+        // an immutable `Vec` inside a `PyRef<ZstdDict>` (other readers fine),
+        // and the output `Vec` is local to this function. No Python object
+        // access happens inside the closure — error codes are surfaced as
+        // `usize` and converted into exceptions after re-attaching.
         let is_end = end_op != zstd_sys::ZSTD_EndDirective::ZSTD_e_continue;
-
-        loop {
-            let prev_len = output.len();
-            output.reserve(chunk_size);
-            let remaining = {
-                let mut out_buf = OutBuffer::around_pos(&mut output, prev_len);
-                state
-                    .cctx
-                    .compress_stream2(&mut out_buf, &mut input, end_op)
+        let chunk_size = CCtx::out_size().max(1);
+        let result: Result<Vec<u8>, usize> = vm.allow_threads(|| {
+            let mut output = Vec::new();
+            let mut input = InBuffer::around(data);
+            loop {
+                let prev_len = output.len();
+                output.reserve(chunk_size);
+                let remaining = {
+                    let mut out_buf = OutBuffer::around_pos(&mut output, prev_len);
+                    state
+                        .cctx
+                        .compress_stream2(&mut out_buf, &mut input, end_op)
+                }?;
+                let consumed_all = input.pos == input.src.len();
+                // Stop when input is fully consumed and, for flush/end
+                // directives, libzstd reports that all internal buffers have
+                // been drained (remaining == 0). Otherwise loop; the next
+                // `reserve` will grow the output if we hit the previous cap.
+                if consumed_all && (!is_end || remaining == 0) {
+                    break Ok(output);
+                }
             }
-            .map_err(|c| catch_zstd_error(c, vm))?;
-            let consumed_all = input.pos == input.src.len();
-            // Stop when input is fully consumed and, for flush/end directives,
-            // libzstd reports that all internal buffers have been drained
-            // (remaining == 0). Otherwise loop; the next `reserve` will grow
-            // the output buffer if we hit the previous capacity.
-            if consumed_all && (!is_end || remaining == 0) {
-                break;
-            }
-        }
-        Ok(output)
+        });
+        result.map_err(|c| catch_zstd_error(c, vm))
     }
 
     #[pyclass(with(Constructor))]
@@ -1090,17 +1118,17 @@ mod _zstd {
     #[derive(FromArgs)]
     pub(super) struct ZstdDecompressorArgs {
         #[pyarg(any, optional)]
-        zstd_dict: OptionalArg<PyObjectRef>,
+        zstd_dict: OptionalOption<PyObjectRef>,
         #[pyarg(any, optional)]
-        options: OptionalArg<PyObjectRef>,
+        options: OptionalOption<PyObjectRef>,
     }
 
     impl Constructor for ZstdDecompressor {
         type Args = ZstdDecompressorArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let dict_opt = arg_or_none(args.zstd_dict, vm);
-            let options_opt = arg_or_none(args.options, vm);
+            let dict_opt = args.zstd_dict.flatten();
+            let options_opt = args.options.flatten();
 
             let mut dctx = DCtx::<'static>::create();
 
@@ -1108,18 +1136,9 @@ mod _zstd {
                 apply_options(&mut dctx, options_obj, false, vm)?;
             }
 
-            let (held_ddict, held_dict) = load_decompressor_dict(&mut dctx, dict_opt, vm)?;
-
+            let state = build_decompressor_state(dctx, dict_opt, vm)?;
             Ok(Self {
-                state: PyMutex::new(DecompressorState {
-                    dctx,
-                    _ddict: held_ddict,
-                    _dict: held_dict,
-                    eof: false,
-                    needs_input: true,
-                    unused_data: vm.ctx.empty_bytes.clone(),
-                    input_buffer: Vec::new(),
-                }),
+                state: PyMutex::new(state),
             })
         }
     }
@@ -1160,70 +1179,81 @@ mod _zstd {
             alloc::borrow::Cow::Owned(combined)
         };
 
-        let mut input = InBuffer::around(&work_data);
-        let mut output: Vec<u8> = Vec::new();
         let chunk_size = DCtx::out_size().max(1);
-        // Reusable scratch buffer for each decompress_stream call. We need an
-        // exact-size output buffer because `Vec::reserve` may over-allocate;
-        // OutBuffer reports the full Vec capacity to libzstd, which would
-        // then happily write past `max_length`.
-        let mut scratch: Vec<u8> = vec![0u8; chunk_size];
-        let mut hit_max = false;
-        let mut iteration = 0usize;
+        // Release the GIL for the streaming loop. Safety: see `do_compress`;
+        // the closure captures only Rust-owned buffers and `&mut state` (held
+        // under the decompressor's `PyMutex`), and surfaces error codes as
+        // `usize` so we can build the exception after re-attaching.
+        let loop_result: Result<(Vec<u8>, bool, usize), usize> = vm.allow_threads(|| {
+            let mut input = InBuffer::around(&work_data);
+            let mut output: Vec<u8> = Vec::new();
+            // Reusable scratch buffer for each decompress_stream call. We need
+            // an exact-size output buffer because `Vec::reserve` may
+            // over-allocate; `OutBuffer` reports the full Vec capacity to
+            // libzstd, which would then happily write past `max_length`.
+            let mut scratch: Vec<u8> = vec![0u8; chunk_size];
+            let mut hit_max = false;
+            let mut iteration = 0usize;
 
-        loop {
-            iteration += 1;
-            // Honor `max_length`: stop growing the output buffer once we have
-            // produced enough. Special-case the first iteration when the cap
-            // is zero so a zero-output frame (skippable frame, empty content
-            // frame) can still complete; we hand libzstd a 1-byte scratch
-            // and discard the byte if it ends up writing one.
-            let grow = match max_length {
-                Some(maxl) if output.len() >= maxl && iteration > 1 => {
-                    hit_max = true;
-                    break;
-                }
-                Some(maxl) if output.len() >= maxl => 1,
-                Some(maxl) => (maxl - output.len()).min(chunk_size),
-                None => chunk_size,
-            };
-            let result;
-            let written;
-            {
-                let slot = &mut scratch[..grow];
-                let mut out_buf = OutBuffer::around(slot as &mut [u8]);
-                result = state.dctx.decompress_stream(&mut out_buf, &mut input);
-                written = out_buf.pos();
-            }
-            output.extend_from_slice(&scratch[..written]);
-            match result {
-                Ok(0) => {
-                    // Frame fully decompressed; the decompressor is at EOF.
-                    state.eof = true;
-                    break;
-                }
-                Ok(_) => {
-                    let output_was_full = written == grow;
-                    let input_consumed = input.pos == input.src.len();
-
-                    if let Some(maxl) = max_length
-                        && output.len() >= maxl
-                        && iteration > 1
-                    {
+            let outcome = loop {
+                iteration += 1;
+                // Honor `max_length`: stop growing the output buffer once
+                // we have produced enough. Special-case the first iteration
+                // when the cap is zero so a zero-output frame (skippable
+                // frame, empty content frame) can still complete; we hand
+                // libzstd a 1-byte scratch and discard the byte if it ends
+                // up writing one.
+                let grow = match max_length {
+                    Some(maxl) if output.len() >= maxl && iteration > 1 => {
                         hit_max = true;
-                        break;
+                        break Ok(());
                     }
-
-                    // Input is gone and libzstd had room to write but did not,
-                    // which means the frame is incomplete and the caller has
-                    // to supply more input.
-                    if input_consumed && !output_was_full {
-                        break;
-                    }
+                    Some(maxl) if output.len() >= maxl => 1,
+                    Some(maxl) => (maxl - output.len()).min(chunk_size),
+                    None => chunk_size,
+                };
+                let result;
+                let written;
+                {
+                    let slot = &mut scratch[..grow];
+                    let mut out_buf = OutBuffer::around(slot as &mut [u8]);
+                    result = state.dctx.decompress_stream(&mut out_buf, &mut input);
+                    written = out_buf.pos();
                 }
-                Err(code) => return Err(catch_zstd_error(code, vm)),
-            }
-        }
+                output.extend_from_slice(&scratch[..written]);
+                match result {
+                    Ok(0) => {
+                        // Frame fully decompressed; the decompressor is at EOF.
+                        state.eof = true;
+                        break Ok(());
+                    }
+                    Ok(_) => {
+                        let output_was_full = written == grow;
+                        let input_consumed = input.pos == input.src.len();
+
+                        if let Some(maxl) = max_length
+                            && output.len() >= maxl
+                            && iteration > 1
+                        {
+                            hit_max = true;
+                            break Ok(());
+                        }
+
+                        // Input is gone and libzstd had room to write but did
+                        // not, which means the frame is incomplete and the
+                        // caller has to supply more input.
+                        if input_consumed && !output_was_full {
+                            break Ok(());
+                        }
+                    }
+                    Err(code) => break Err(code),
+                }
+            };
+            outcome.map(|()| (output, hit_max, input.pos))
+        });
+
+        let (mut output, mut hit_max, consumed) =
+            loop_result.map_err(|c| catch_zstd_error(c, vm))?;
 
         // If `max_length == 0` opened a courtesy iteration that produced more
         // bytes than the caller asked for, truncate. Should not happen with
@@ -1235,7 +1265,6 @@ mod _zstd {
             hit_max = true;
         }
 
-        let consumed = input.pos;
         let remaining = &work_data[consumed..];
 
         if state.eof {
@@ -1396,17 +1425,34 @@ mod _zstd {
         Ok(v as usize)
     }
 
+    /// Sum the per-sample sizes and check they exactly cover `expected_total`,
+    /// rejecting overflow. A safe-fn interface that calls into libzstd with
+    /// these sizes must not let a wrapping sum sneak past the equality check,
+    /// since libzstd would then read past the samples buffer.
+    fn check_sample_sizes_match(
+        sizes: &[usize],
+        expected_total: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let mismatch = || -> PyBaseExceptionRef {
+            vm.new_value_error("The samples size tuple doesn't match the concatenation's size")
+        };
+        let total = sizes
+            .iter()
+            .try_fold(0usize, |a, &b| a.checked_add(b))
+            .ok_or_else(mismatch)?;
+        if total != expected_total {
+            return Err(mismatch());
+        }
+        Ok(())
+    }
+
     #[pyfunction]
     fn train_dict(args: TrainDictArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let dict_size = parse_positive_dict_size(&args.dict_size, vm)?;
         let samples_buffer = args.samples_bytes.as_bytes().to_vec();
         let sizes = parse_sample_sizes(args.samples_sizes, vm)?;
-        let total: usize = sizes.iter().sum();
-        if total != samples_buffer.len() {
-            return Err(
-                vm.new_value_error("The samples size tuple doesn't match the concatenation's size")
-            );
-        }
+        check_sample_sizes_match(&sizes, samples_buffer.len(), vm)?;
         let mut dict_buffer: Vec<u8> = Vec::with_capacity(dict_size);
         zstd_safe::train_from_buffer(&mut dict_buffer, &samples_buffer, &sizes)
             .map_err(|c| catch_zstd_error(c, vm))?;
@@ -1439,16 +1485,11 @@ mod _zstd {
     #[pyfunction]
     fn finalize_dict(args: FinalizeDictArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let dict_size = parse_positive_dict_size(&args.dict_size, vm)?;
-        let compression_level = pyobj_to_i32(&args.compression_level, vm)?;
+        let compression_level: i32 = args.compression_level.try_to_value(vm)?;
         let custom_dict = args.custom_dict_bytes.as_bytes().to_vec();
         let samples_buffer = args.samples_bytes.as_bytes().to_vec();
         let sizes = parse_sample_sizes(args.samples_sizes, vm)?;
-        let total: usize = sizes.iter().sum();
-        if total != samples_buffer.len() {
-            return Err(
-                vm.new_value_error("The samples size tuple doesn't match the concatenation's size")
-            );
-        }
+        check_sample_sizes_match(&sizes, samples_buffer.len(), vm)?;
 
         let mut dict_buffer: Vec<u8> = vec![0u8; dict_size];
         let params = zstd_sys::ZDICT_params_t {
