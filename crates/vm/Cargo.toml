@@ -44,7 +44,6 @@ rustpython-literal = { workspace = true }
 rustpython-sre_engine = { workspace = true }
 
 ascii = { workspace = true }
-ahash = { workspace = true }
 bitflags = { workspace = true }
 bstr = { workspace = true }
 crossbeam-utils = { workspace = true }
@@ -64,6 +63,7 @@ num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
+rapidhash = { workspace = true }
 scopeguard = { workspace = true }
 serde = { workspace = true, optional = true }
 static_assertions = { workspace = true }

@@ -1474,6 +1474,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "TimeoutError" => ctx.exceptions.timeout_error.to_owned(),
         "ReferenceError" => ctx.exceptions.reference_error.to_owned(),
         "RuntimeError" => ctx.exceptions.runtime_error.to_owned(),
+        "PythonFinalizationError" => ctx.exceptions.python_finalization_error.to_owned(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.to_owned(),
         "RecursionError" => ctx.exceptions.recursion_error.to_owned(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.to_owned(),

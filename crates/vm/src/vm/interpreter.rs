@@ -95,8 +95,11 @@ where
     } as usize);
 
     // Initialize frozen modules (core + user-provided)
-    let mut frozen: std::collections::HashMap<&'static str, FrozenModule, ahash::RandomState> =
-        core_frozen_inits().collect();
+    let mut frozen: std::collections::HashMap<
+        &'static str,
+        FrozenModule,
+        rapidhash::quality::RandomState,
+    > = core_frozen_inits().collect();
     frozen.extend(frozen_modules);
 
     // Create PyGlobalState

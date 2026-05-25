@@ -176,7 +176,6 @@ ruff_source_file = { package = "rustpython-ruff_source_file", version = "0.15.8"
 der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
-ahash = "0.8.12"
 approx = "0.5.1"
 ascii = "1.1"
 aws-lc-rs = "1.16.3"
@@ -260,6 +259,7 @@ quote = "1.0.45"
 radium = "1.1.1"
 rand = "0.9"
 rand_core = { version = "0.9", features = ["os_rng"] }
+rapidhash = "4.4.1"
 result-like = "0.5.0"
 rustix = { version = "1.1", features = ["event", "param", "system"] }
 rustls = { version = "0.23.39", default-features = false }
