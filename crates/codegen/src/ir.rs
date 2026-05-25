@@ -373,40 +373,6 @@ impl InstructionSequence {
         ));
     }
 
-    fn debug_check_pop_preserves_cpython_label_map(&self) {
-        let Some((popped_index, entry)) = self.instrs.len().checked_sub(1).and_then(|index| {
-            self.instrs.last().map(|entry| {
-                (
-                    isize::try_from(index).expect("too many instructions"),
-                    entry,
-                )
-            })
-        }) else {
-            return;
-        };
-        debug_assert!(
-            !entry.info.instr.has_target()
-                && entry.info.target == BlockIdx::NULL
-                && entry.target_label.is_none()
-                && entry.target_offset.is_none()
-                && entry.except_handler.is_none(),
-            "RustPython-only instruction-sequence pop must not remove CPython label/target state"
-        );
-        let InstructionSequenceLabelOffsets::Active(label_map) = &self.label_map else {
-            debug_assert!(false, "cannot pop after CPython label map application");
-            return;
-        };
-        debug_assert!(
-            label_map.iter().all(|&target| target < popped_index),
-            "RustPython-only instruction-sequence pop must not change CPython label offsets"
-        );
-    }
-
-    fn pop(&mut self) -> Option<InstructionInfo> {
-        self.debug_check_pop_preserves_cpython_label_map();
-        self.instrs.pop().map(|entry| entry.info)
-    }
-
     fn last_info_mut(&mut self) -> Option<&mut InstructionInfo> {
         self.instrs.last_mut().map(|entry| &mut entry.info)
     }
@@ -611,7 +577,7 @@ impl Block {
 #[derive(Clone, Debug)]
 pub(crate) struct InstructionSequenceLabelMap {
     next_free_label: usize,
-    block_labels: Vec<InstructionSequenceLabel>,
+    block_labels: Vec<Option<InstructionSequenceLabel>>,
     /// Direct-CFG shadow for CPython labels that map to the same instruction
     /// offset in `_PyInstructionSequence_UseLabel()`.
     direct_block_by_label: Vec<Option<BlockIdx>>,
@@ -621,8 +587,8 @@ impl InstructionSequenceLabelMap {
     pub(crate) fn new() -> Self {
         Self {
             next_free_label: 0,
-            block_labels: vec![InstructionSequenceLabel(0)],
-            direct_block_by_label: vec![Some(BlockIdx::new(0))],
+            block_labels: vec![None],
+            direct_block_by_label: Vec::new(),
         }
     }
 
@@ -636,6 +602,10 @@ impl InstructionSequenceLabelMap {
         label
     }
 
+    pub(crate) fn push_unlabeled_block(&mut self) {
+        self.block_labels.push(None);
+    }
+
     pub(crate) fn push_unmapped_label(&mut self) {
         let label = self.new_label();
         let block = BlockIdx(
@@ -645,15 +615,23 @@ impl InstructionSequenceLabelMap {
                 .expect("too many direct-CFG blocks"),
         );
         self.direct_block_by_label[label.idx()] = Some(block);
-        self.block_labels.push(label);
+        self.block_labels.push(Some(label));
     }
 
-    fn label_for_block(&self, block: BlockIdx) -> InstructionSequenceLabel {
+    fn ensure_label_for_block(&mut self, block: BlockIdx) -> InstructionSequenceLabel {
         debug_assert_ne!(block, BlockIdx::NULL);
-        self.block_labels
-            .get(block.idx())
-            .copied()
-            .expect("basic block must have an instruction-sequence label")
+        if let Some(label) = self.block_labels[block.idx()] {
+            return label;
+        }
+        let label = self.new_label();
+        self.direct_block_by_label[label.idx()] = Some(block);
+        self.block_labels[block.idx()] = Some(label);
+        label
+    }
+
+    fn label_for_block(&self, block: BlockIdx) -> Option<InstructionSequenceLabel> {
+        debug_assert_ne!(block, BlockIdx::NULL);
+        self.block_labels.get(block.idx()).copied().flatten()
     }
 
     fn block_for_label(&self, label: InstructionSequenceLabel) -> Option<BlockIdx> {
@@ -667,11 +645,13 @@ impl InstructionSequenceLabelMap {
         if block == BlockIdx::NULL {
             return BlockIdx::NULL;
         }
-        self.block_for_label(self.label_for_block(block))
-            .unwrap_or_else(|| {
-                debug_assert!(false, "CPython label must map to a direct-CFG block");
-                BlockIdx::NULL
-            })
+        let Some(label) = self.label_for_block(block) else {
+            return block;
+        };
+        self.block_for_label(label).unwrap_or_else(|| {
+            debug_assert!(false, "CPython label must map to a direct-CFG block");
+            BlockIdx::NULL
+        })
     }
 
     pub(crate) fn resolve_label_to_block(
@@ -691,7 +671,7 @@ impl InstructionSequenceLabelMap {
         if from == BlockIdx::NULL || from == to {
             return;
         }
-        let from_label = self.label_for_block(from);
+        let from_label = self.ensure_label_for_block(from);
         let to_block = self.resolve_label(to);
         if to_block == BlockIdx::NULL {
             debug_assert!(false, "CPython label target must map to a direct-CFG block");
@@ -704,12 +684,11 @@ impl InstructionSequenceLabelMap {
         debug_assert_eq!(
             self.block_labels.len(),
             blocks_len,
-            "every direct-CFG block must have a CPython instruction-sequence label"
+            "every direct-CFG block must have an instruction-sequence label slot"
         );
-        debug_assert_eq!(self.block_labels[0], InstructionSequenceLabel(0));
-        debug_assert!(self.next_free_label + 1 >= self.block_labels.len());
+        debug_assert!(self.direct_block_by_label.len() <= self.next_free_label + 1);
         let mut seen_labels = vec![false; self.next_free_label + 1];
-        for &label in &self.block_labels {
+        for &label in self.block_labels.iter().flatten() {
             debug_assert!(
                 label.idx() <= self.next_free_label,
                 "direct-CFG block labels must come from _PyInstructionSequence_NewLabel()"
@@ -728,7 +707,7 @@ impl InstructionSequenceLabelMap {
                 );
             }
         }
-        for &label in &self.block_labels {
+        for &label in self.block_labels.iter().flatten() {
             debug_assert!(
                 self.block_for_label(label)
                     .is_some_and(|block| block.idx() < blocks_len),
@@ -758,7 +737,7 @@ impl InstructionSequenceLabelMap {
             if label_offset < 0 {
                 continue;
             }
-            let Some(block_label) = self.block_labels.get(block.idx()).copied() else {
+            let Some(block_label) = self.block_labels.get(block.idx()).copied().flatten() else {
                 debug_assert!(
                     false,
                     "CPython label must map to an existing direct-CFG block"
@@ -819,7 +798,9 @@ impl CodeInfo {
         mut info: InstructionInfo,
     ) -> crate::InternalResult<()> {
         let target_label = if info.instr.has_target() && info.target != BlockIdx::NULL {
-            let label = self.instr_sequence_label_map.label_for_block(info.target);
+            let label = self
+                .instr_sequence_label_map
+                .ensure_label_for_block(info.target);
             info.arg = OpArg::new(
                 label
                     .idx()
@@ -854,10 +835,6 @@ impl CodeInfo {
         Ok(())
     }
 
-    pub(crate) fn pop_instr_sequence(&mut self) -> Option<InstructionInfo> {
-        self.instr_sequence.pop()
-    }
-
     pub(crate) fn set_last_instr_sequence_lineno_override(&mut self, lineno_override: i32) {
         if let Some(last) = self.instr_sequence.last_info_mut() {
             last.lineno_override = Some(lineno_override);
@@ -865,12 +842,20 @@ impl CodeInfo {
     }
 
     pub(crate) fn use_instr_sequence_label(&mut self, block: BlockIdx) {
-        let label = self.instr_sequence_label_map.label_for_block(block);
+        let label = self.instr_sequence_label_map.ensure_label_for_block(block);
+        self.instr_sequence.use_label(label);
+    }
+
+    pub(crate) fn new_instr_sequence_label(&mut self) -> InstructionSequenceLabel {
+        self.instr_sequence_label_map.new_label()
+    }
+
+    pub(crate) fn use_raw_instr_sequence_label(&mut self, label: InstructionSequenceLabel) {
         self.instr_sequence.use_label(label);
     }
 
     pub(crate) fn mark_cpython_cfg_label(&mut self, block: BlockIdx) {
-        let label = self.instr_sequence_label_map.label_for_block(block);
+        let label = self.instr_sequence_label_map.ensure_label_for_block(block);
         self.blocks[block.idx()].cpython_label_id = Some(label);
     }
 
@@ -890,18 +875,20 @@ impl CodeInfo {
     }
 
     pub(crate) fn instr_sequence_label_for_block(
-        &self,
+        &mut self,
         block: BlockIdx,
     ) -> Option<InstructionSequenceLabel> {
         if block == BlockIdx::NULL {
             None
         } else {
-            Some(self.instr_sequence_label_map.label_for_block(block))
+            Some(self.instr_sequence_label_map.ensure_label_for_block(block))
         }
     }
 
     pub(crate) fn insert_start_setup_cleanup(&mut self, handler_block: BlockIdx) {
-        let handler_label = self.instr_sequence_label_map.label_for_block(handler_block);
+        let handler_label = self
+            .instr_sequence_label_map
+            .ensure_label_for_block(handler_block);
         self.instr_sequence.insert_instruction(
             0,
             InstructionInfo {
