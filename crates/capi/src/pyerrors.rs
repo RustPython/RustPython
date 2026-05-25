@@ -305,7 +305,7 @@ mod tests {
     use pyo3::prelude::*;
 
     #[test]
-    fn test_raised_exception() {
+    fn raised_exception() {
         Python::attach(|py| {
             PyTypeError::new_err(py.None()).restore(py);
             assert!(PyErr::occurred(py));
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_is_instance() {
+    fn error_is_instance() {
         Python::attach(|py| {
             let err = PyTypeError::new_err(py.None());
             assert!(err.is_instance_of::<PyTypeError>(py));

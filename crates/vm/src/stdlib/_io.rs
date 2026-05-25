@@ -5261,7 +5261,7 @@ mod _io {
         use super::*;
 
         #[test]
-        fn test_buffered_read() {
+        fn buffered_read() {
             let data = vec![1, 2, 3, 4];
             let bytes = None;
             let mut buffered = BufferedIO {
@@ -5272,7 +5272,7 @@ mod _io {
         }
 
         #[test]
-        fn test_buffered_seek() {
+        fn buffered_seek() {
             let data = vec![1, 2, 3, 4];
             let count: u64 = 2;
             let mut buffered = BufferedIO {
@@ -5284,7 +5284,7 @@ mod _io {
         }
 
         #[test]
-        fn test_buffered_value() {
+        fn buffered_value() {
             let data = vec![1, 2, 3, 4];
             let buffered = BufferedIO {
                 cursor: Cursor::new(data.clone()),

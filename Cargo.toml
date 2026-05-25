@@ -333,8 +333,11 @@ similar_names = "allow"
 
 # restriction lints
 alloc_instead_of_core = "warn"
+cfg_not_test = "warn"
+redundant_test_prefix = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
+tests_outside_test_module = "warn"
 
 # nursery lints to enforce gradually
 debug_assert_with_mut_call = "warn"

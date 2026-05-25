@@ -2266,52 +2266,57 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
     }
 }
 
-#[test]
-fn test_nested_frozen() {
-    use rustpython_vm as vm;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    vm::Interpreter::builder(Default::default())
-        .add_frozen_modules(rustpython_vm::py_freeze!(
-            dir = "../../../../extra_tests/snippets"
-        ))
-        .build()
-        .enter(|vm| {
-            let scope = vm.new_scope_with_builtins();
+    #[test]
+    fn nested_frozen() {
+        use rustpython_vm as vm;
 
-            let source = "from dir_module.dir_module_inner import value2";
-            let code_obj = vm
-                .compile(source, vm::compiler::Mode::Exec, "<embedded>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err, Some(source)))
-                .unwrap();
+        vm::Interpreter::builder(Default::default())
+            .add_frozen_modules(rustpython_vm::py_freeze!(
+                dir = "../../../../extra_tests/snippets"
+            ))
+            .build()
+            .enter(|vm| {
+                let scope = vm.new_scope_with_builtins();
 
-            if let Err(e) = vm.run_code_obj(code_obj, scope) {
-                vm.print_exception(e);
-                panic!();
-            }
-        })
-}
-
-#[test]
-fn frozen_origname_matches() {
-    use rustpython_vm as vm;
-
-    vm::Interpreter::builder(Default::default())
-        .build()
-        .enter(|vm| {
-            let check = |name, expected| {
-                let module = import::import_frozen(vm, name).unwrap();
-                let origname: PyStrRef = module
-                    .get_attr("__origname__", vm)
-                    .unwrap()
-                    .try_into_value(vm)
+                let source = "from dir_module.dir_module_inner import value2";
+                let code_obj = vm
+                    .compile(source, vm::compiler::Mode::Exec, "<embedded>".to_owned())
+                    .map_err(|err| vm.new_syntax_error(&err, Some(source)))
                     .unwrap();
-                assert_eq!(origname.as_wtf8(), expected);
-            };
 
-            check("_frozen_importlib", "importlib._bootstrap");
-            check(
-                "_frozen_importlib_external",
-                "importlib._bootstrap_external",
-            );
-        });
+                if let Err(e) = vm.run_code_obj(code_obj, scope) {
+                    vm.print_exception(e);
+                    panic!();
+                }
+            })
+    }
+
+    #[test]
+    fn frozen_origname_matches() {
+        use rustpython_vm as vm;
+
+        vm::Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                let check = |name, expected| {
+                    let module = import::import_frozen(vm, name).unwrap();
+                    let origname: PyStrRef = module
+                        .get_attr("__origname__", vm)
+                        .unwrap()
+                        .try_into_value(vm)
+                        .unwrap();
+                    assert_eq!(origname.as_wtf8(), expected);
+                };
+
+                check("_frozen_importlib", "importlib._bootstrap");
+                check(
+                    "_frozen_importlib_external",
+                    "importlib._bootstrap_external",
+                );
+            });
+    }
 }

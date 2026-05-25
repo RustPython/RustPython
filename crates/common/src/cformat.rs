@@ -866,7 +866,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fill_and_align() {
+    fn fill_and_align() {
         assert_eq!(
             "%10s"
                 .parse::<CFormatSpec>()
@@ -898,7 +898,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_key() {
+    fn parse_key() {
         let expected = Ok(CFormatSpecKeyed {
             mapping_key: Some("amount".to_owned()),
             spec: CFormatSpec {
@@ -926,7 +926,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_parse_key_fail() {
+    fn format_parse_key_fail() {
         assert_eq!(
             "%(aged".parse::<CFormatString>(),
             Err(CFormatError {
@@ -937,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_parse_type_fail() {
+    fn format_parse_type_fail() {
         assert_eq!(
             "Hello %n".parse::<CFormatString>(),
             Err(CFormatError {
@@ -948,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn test_incomplete_format_fail() {
+    fn incomplete_format_fail() {
         assert_eq!(
             "Hello %".parse::<CFormatString>(),
             Err(CFormatError {
@@ -959,7 +959,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_flags() {
+    fn parse_flags() {
         let expected = Ok(CFormatSpec {
             format_type: CFormatType::Number(CNumberType::DecimalD),
             min_field_width: Some(CFormatQuantity::Amount(10)),
@@ -975,7 +975,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_and_format_string() {
+    fn parse_and_format_string() {
         assert_eq!(
             "%5.4s"
                 .parse::<CFormatSpec>()
@@ -1007,7 +1007,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_and_format_unicode_string() {
+    fn parse_and_format_unicode_string() {
         assert_eq!(
             "%.2s"
                 .parse::<CFormatSpec>()
@@ -1018,7 +1018,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_and_format_number() {
+    fn parse_and_format_number() {
         assert_eq!(
             "%5d"
                 .parse::<CFormatSpec>()
@@ -1092,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_and_format_float() {
+    fn parse_and_format_float() {
         assert_eq!(
             "%f".parse::<CFormatSpec>().unwrap().format_float(1.2345),
             "1.234500"
@@ -1130,7 +1130,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_parse() {
+    fn format_parse() {
         let fmt = "Hello, my name is %s and I'm %d years old";
         let expected = Ok(CFormatString {
             parts: vec![

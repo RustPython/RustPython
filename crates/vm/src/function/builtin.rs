@@ -221,7 +221,7 @@ mod tests {
     use core::mem::size_of_val;
 
     #[test]
-    fn test_into_native_fn_noalloc() {
+    fn into_native_fn_noalloc() {
         fn py_func(_b: bool, _vm: &crate::VirtualMachine) -> i32 {
             1
         }

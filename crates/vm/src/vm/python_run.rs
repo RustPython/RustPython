@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn test_block_expr_return_const() {
+    fn block_expr_return_const() {
         interpreter().enter(|vm| {
             let scope = vm.new_scope_with_builtins();
             let value = vm.unwrap_pyresult(vm.run_block_expr(scope, "1"));
@@ -195,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn test_block_expr_return_nonconst() {
+    fn block_expr_return_nonconst() {
         interpreter().enter(|vm| {
             let scope = vm.new_scope_with_builtins();
             vm.unwrap_pyresult(scope.globals.set_item("x", vm.new_pyobj(3), vm));

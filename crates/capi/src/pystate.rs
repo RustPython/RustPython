@@ -58,7 +58,7 @@ mod tests {
     use rustpython_vm::vm::thread::{current_vm_is_set, with_current_vm};
 
     #[test]
-    fn test_new_thread() {
+    fn new_thread() {
         Python::attach(|_py| {
             with_current_vm(|_vm| {
                 assert!(
@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn test_current_vm_main_thread() {
+    fn current_vm_main_thread() {
         Python::initialize();
 
         // let RustPython create a vm for this thread.
@@ -105,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gilstate_release_detaches_external_thread() {
+    fn gilstate_release_detaches_external_thread() {
         Python::initialize();
 
         std::thread::spawn(|| {

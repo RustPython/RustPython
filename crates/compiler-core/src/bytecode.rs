@@ -1287,7 +1287,7 @@ mod tests {
     use alloc::{vec, vec::Vec};
 
     #[test]
-    fn test_exception_table_encode_decode() {
+    fn exception_table_encode_decode() {
         let entries = vec![
             ExceptionTableEntry::new(0, 10, 20, 2, false),
             ExceptionTableEntry::new(15, 25, 30, 1, true),
@@ -1325,7 +1325,7 @@ mod tests {
     }
 
     #[test]
-    fn test_exception_table_empty() {
+    fn exception_table_empty() {
         let entries: Vec<ExceptionTableEntry> = vec![];
         let encoded = encode_exception_table(&entries);
         assert!(encoded.is_empty());
@@ -1333,7 +1333,7 @@ mod tests {
     }
 
     #[test]
-    fn test_exception_table_single_entry() {
+    fn exception_table_single_entry() {
         let entries = vec![ExceptionTableEntry::new(5, 15, 100, 3, true)];
         let encoded = encode_exception_table(&entries);
 

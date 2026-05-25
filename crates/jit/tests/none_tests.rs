@@ -1,16 +1,18 @@
-#[test]
-fn test_not() {
-    let not_ = jit_function! { not_(x: i64) -> bool => r##"
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn basic_not() {
+        let not_ = jit_function! { not_(x: i64) -> bool => r##"
         def not_(x: int):
             return not None
     "## };
 
-    assert_eq!(not_(0), Ok(true));
-}
+        assert_eq!(not_(0), Ok(true));
+    }
 
-#[test]
-fn test_if_not() {
-    let if_not = jit_function! { if_not(x: i64) -> i64 => r##"
+    #[test]
+    fn basic_if_not() {
+        let if_not = jit_function! { if_not(x: i64) -> i64 => r##"
         def if_not(x: int):
             if not None:
                 return 1
@@ -20,5 +22,6 @@ fn test_if_not() {
             return -1
     "## };
 
-    assert_eq!(if_not(0), Ok(1));
+        assert_eq!(if_not(0), Ok(1));
+    }
 }

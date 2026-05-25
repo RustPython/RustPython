@@ -874,7 +874,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_gc_state_default() {
+    fn gc_state_default() {
         let state = GcState::new();
         assert!(state.is_enabled());
         assert_eq!(state.get_debug(), GcDebugFlags::empty());
@@ -883,7 +883,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gc_enable_disable() {
+    fn gc_enable_disable() {
         let state = GcState::new();
         assert!(state.is_enabled());
         state.disable();
@@ -893,14 +893,14 @@ mod tests {
     }
 
     #[test]
-    fn test_gc_threshold() {
+    fn gc_threshold() {
         let state = GcState::new();
         state.set_threshold(100, Some(20), Some(30));
         assert_eq!(state.get_threshold(), (100, 20, 30));
     }
 
     #[test]
-    fn test_gc_debug_flags() {
+    fn gc_debug_flags() {
         let state = GcState::new();
         state.set_debug(GcDebugFlags::STATS | GcDebugFlags::COLLECTABLE);
         assert_eq!(
