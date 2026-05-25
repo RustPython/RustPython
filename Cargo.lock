@@ -26,19 +26,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahash"
-version = "0.8.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
-dependencies = [
- "cfg-if",
- "getrandom 0.3.4",
- "once_cell",
- "version_check",
- "zerocopy",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2929,6 +2916,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rapidhash"
+version = "4.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5e48930979c155e2f33aa36ab3119b5ee81332beb6482199a8ecd6029b80b59"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "rayon"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3241,7 +3237,6 @@ dependencies = [
 name = "rustpython-codegen"
 version = "0.5.0"
 dependencies = [
- "ahash",
  "bitflags 2.11.1",
  "indexmap",
  "itertools 0.14.0",
@@ -3250,6 +3245,7 @@ dependencies = [
  "memchr",
  "num-complex",
  "num-traits",
+ "rapidhash",
  "rustpython-compiler-core",
  "rustpython-literal",
  "rustpython-ruff_python_ast",
@@ -3498,7 +3494,6 @@ name = "rustpython-stdlib"
 version = "0.5.0"
 dependencies = [
  "adler32",
- "ahash",
  "ascii",
  "aws-lc-rs",
  "base64",
@@ -3549,6 +3544,7 @@ dependencies = [
  "pkcs8",
  "pymath",
  "rand_core 0.9.5",
+ "rapidhash",
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile",
@@ -3588,7 +3584,6 @@ version = "0.5.0"
 name = "rustpython-vm"
 version = "0.5.0"
 dependencies = [
- "ahash",
  "ascii",
  "bitflags 2.11.1",
  "bstr",
@@ -3619,6 +3614,7 @@ dependencies = [
  "parking_lot",
  "paste",
  "psm",
+ "rapidhash",
  "result-like",
  "rustpython-codegen",
  "rustpython-common",

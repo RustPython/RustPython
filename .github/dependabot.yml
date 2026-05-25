@@ -85,7 +85,6 @@ updates:
           - "quote-use*"
       random:
         patterns:
-          - "ahash"
           - "getrandom"
           - "mt19937"
           - "rand*"

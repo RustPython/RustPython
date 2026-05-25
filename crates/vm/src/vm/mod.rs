@@ -589,7 +589,7 @@ pub(crate) struct CallableCache {
 pub struct PyGlobalState {
     pub config: PyConfig,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
-    pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
+    pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,

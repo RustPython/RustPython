@@ -408,7 +408,8 @@ cfg_select! {
 /// For attributes we do not use a dict, but an IndexMap, which is an Hash Table
 /// that maintains order and is compatible with the standard HashMap  This is probably
 /// faster and only supports strings as keys.
-pub(crate) type PyAttributes = IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState>;
+pub(crate) type PyAttributes =
+    IndexMap<&'static PyStrInterned, PyObjectRef, rapidhash::quality::RandomState>;
 
 unsafe impl Traverse for PyAttributes {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
