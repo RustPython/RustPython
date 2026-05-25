@@ -2,8 +2,12 @@ import contextlib
 import os
 import sys
 import textwrap
-import tracemalloc
 import unittest
+try:
+    import tracemalloc
+except ImportError:
+    # TODO: RUSTPYTHON; _tracemalloc not implemented
+    raise unittest.SkipTest('tracemalloc requires _tracemalloc')
 from unittest.mock import patch
 from test.support.script_helper import (assert_python_ok, assert_python_failure,
                                         interpreter_requires_environment)
