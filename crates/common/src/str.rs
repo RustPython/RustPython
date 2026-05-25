@@ -664,7 +664,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_chars() {
+    fn get_chars_basic() {
         let s = "0123456789";
         assert_eq!(get_chars(s, 3..7), "3456");
         assert_eq!(get_chars(s, 3..7), &s[3..7]);

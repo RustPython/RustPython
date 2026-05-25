@@ -2962,7 +2962,7 @@ mod tests {
     }
 
     #[test]
-    fn test_linearise() {
+    fn linearise() {
         let context = Context::genesis();
         let object = context.types.object_type.to_owned();
         let type_type = context.types.type_type.to_owned();

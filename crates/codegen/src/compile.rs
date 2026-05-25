@@ -14946,7 +14946,7 @@ mod ruff_tests {
 
     /// Test if the compiler can correctly identify fstrings containing an `await` expression.
     #[test]
-    fn test_fstring_contains_await() {
+    fn fstring_contains_await() {
         let range = TextRange::default();
         let flags = ast::FStringFlags::empty();
 
@@ -15143,7 +15143,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_module_implicit_return_inherits_resume_location_like_cpython() {
+    fn empty_module_implicit_return_inherits_resume_location_like_cpython() {
         let code = compile_exec("");
         // CPython 3.14 codegen emits the implicit LOAD_CONST/RETURN_VALUE with
         // NO_LOCATION, then flowgraph.c::propagate_line_numbers() propagates
@@ -15152,7 +15152,7 @@ mod tests {
     }
 
     #[test]
-    fn test_redundant_nop_location_copies_full_location_like_cpython() {
+    fn redundant_nop_location_copies_full_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(x, y, z):
@@ -15445,7 +15445,7 @@ def f(sys, os, file):
     }
 
     #[test]
-    fn test_for_try_except_break_keeps_cpython_if_layout() {
+    fn for_try_except_break_keeps_cpython_if_layout() {
         let code = compile_exec(
             "\
 def f(support, func, value):
@@ -15485,7 +15485,7 @@ def f(support, func, value):
     }
 
     #[test]
-    fn test_try_else_loop_break_keeps_body_before_protected_backedge() {
+    fn try_else_loop_break_keeps_body_before_protected_backedge() {
         let code = compile_exec(
             "\
 def f(input):
@@ -15530,7 +15530,7 @@ def f(input):
     }
 
     #[test]
-    fn test_loop_nested_if_tail_keeps_duplicate_jump_back_label() {
+    fn loop_nested_if_tail_keeps_duplicate_jump_back_label() {
         let code = compile_exec(
             "\
 def f(value, digits):
@@ -15567,7 +15567,7 @@ def f(value, digits):
     }
 
     #[test]
-    fn test_match_for_break_threads_empty_end_label_to_outer_backedge() {
+    fn match_for_break_threads_empty_end_label_to_outer_backedge() {
         let code = compile_exec(
             "\
 def f(items, T):
@@ -15606,7 +15606,7 @@ def f(items, T):
     }
 
     #[test]
-    fn test_match_constant_guard_keeps_cpython_guard_nop_before_subject_pop() {
+    fn match_constant_guard_keeps_cpython_guard_nop_before_subject_pop() {
         let code = compile_exec(
             "\
 def f(self):
@@ -15647,7 +15647,7 @@ def f(self):
     }
 
     #[test]
-    fn test_match_or_default_tail_uses_cpython_load_fast_borrow() {
+    fn match_or_default_tail_uses_cpython_load_fast_borrow() {
         let code = compile_exec(
             "\
 def f(format, annotationlib, cls, annotation_fields, return_type, MISSING):
@@ -15696,7 +15696,7 @@ def f(format, annotationlib, cls, annotation_fields, return_type, MISSING):
     }
 
     #[test]
-    fn test_preceding_match_or_default_tail_keeps_cpython_strong_load_fast() {
+    fn preceding_match_or_default_tail_keeps_cpython_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(format):
@@ -15730,7 +15730,7 @@ def f(format):
     }
 
     #[test]
-    fn test_try_else_after_nested_try_except_exit_keeps_cpython_strong_load_fast() {
+    fn try_else_after_nested_try_except_exit_keeps_cpython_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(self):
@@ -15768,7 +15768,7 @@ def f(self):
     }
 
     #[test]
-    fn test_try_after_inherited_try_barrier_keeps_successor_loads_strong() {
+    fn try_after_inherited_try_barrier_keeps_successor_loads_strong() {
         let code = compile_exec(
             "\
 def f(self, x):
@@ -15828,7 +15828,7 @@ def g(self):
     }
 
     #[test]
-    fn test_loop_continue_try_before_try_else_keeps_orelse_loads_strong() {
+    fn loop_continue_try_before_try_else_keeps_orelse_loads_strong() {
         let code = compile_exec(
             "\
 def f(candidate_locales, locales):
@@ -15864,7 +15864,7 @@ def f(candidate_locales, locales):
     }
 
     #[test]
-    fn test_try_else_after_try_finally_conditional_finalbody_keeps_store_attr_loads_strong() {
+    fn try_else_after_try_finally_conditional_finalbody_keeps_store_attr_loads_strong() {
         let code = compile_exec(
             "\
 def f(self, w, pid, prev):
@@ -15906,7 +15906,7 @@ def f(self, w, pid, prev):
     }
 
     #[test]
-    fn test_try_except_end_before_following_try_keeps_protected_attr_loads_strong() {
+    fn try_except_end_before_following_try_keeps_protected_attr_loads_strong() {
         let code = compile_exec(
             "\
 def f(f, dotlock=True):
@@ -15960,7 +15960,7 @@ def f(f, dotlock=True):
     }
 
     #[test]
-    fn test_try_except_method_probe_end_before_if_keeps_loads_strong() {
+    fn try_except_method_probe_end_before_if_keeps_loads_strong() {
         let code = compile_exec(
             "\
 def f(param, value=None, quote=True):
@@ -16009,7 +16009,7 @@ def f(param, value=None, quote=True):
     }
 
     #[test]
-    fn test_try_except_fallthrough_before_return_call_keeps_borrow() {
+    fn try_except_fallthrough_before_return_call_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(obj, lock, ctx, cls, class_cache):
@@ -16050,7 +16050,7 @@ def f(obj, lock, ctx, cls, class_cache):
     }
 
     #[test]
-    fn test_try_except_comprehension_handler_before_return_call_keeps_borrow() {
+    fn try_except_comprehension_handler_before_return_call_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(obj, lock, ctx):
@@ -16123,7 +16123,7 @@ def f(obj, lock, ctx):
     }
 
     #[test]
-    fn test_try_finally_closed_conditional_exit_allows_cpython_borrow() {
+    fn try_finally_closed_conditional_exit_allows_cpython_borrow() {
         let code = compile_exec(
             "\
 def f(self, os, tempfile, oldmode):
@@ -16161,7 +16161,7 @@ def f(self, os, tempfile, oldmode):
     }
 
     #[test]
-    fn test_handler_resume_after_nested_try_keeps_successor_load_fast_strong() {
+    fn handler_resume_after_nested_try_keeps_successor_load_fast_strong() {
         let code = compile_exec(
             r#"
 def f(x):
@@ -16216,7 +16216,7 @@ def f(x):
     }
 
     #[test]
-    fn test_nested_finally_handler_try_end_keeps_return_load_fast_strong() {
+    fn nested_finally_handler_try_end_keeps_return_load_fast_strong() {
         let code = compile_exec(
             r#"
 def f(sys):
@@ -16270,7 +16270,7 @@ def f(sys):
     }
 
     #[test]
-    fn test_try_except_finally_exit_label_keeps_return_load_fast_strong() {
+    fn try_except_finally_exit_label_keeps_return_load_fast_strong() {
         let code = compile_exec(
             r#"
 def f():
@@ -16326,7 +16326,7 @@ def f():
     }
 
     #[test]
-    fn test_bare_except_finally_exit_label_keeps_successor_load_fast_strong() {
+    fn bare_except_finally_exit_label_keeps_successor_load_fast_strong() {
         let code = compile_exec(
             r#"
 def f(self):
@@ -16384,7 +16384,7 @@ def f(self):
     }
 
     #[test]
-    fn test_typed_except_finally_fallthrough_keeps_successor_load_fast_borrow() {
+    fn typed_except_finally_fallthrough_keeps_successor_load_fast_borrow() {
         let code = compile_exec(
             r#"
 def f(self):
@@ -16442,7 +16442,7 @@ def f(self):
     }
 
     #[test]
-    fn test_bare_except_finally_no_exception_shares_return_target() {
+    fn bare_except_finally_no_exception_shares_return_target() {
         let code = compile_exec(
             "\
 def func():
@@ -16477,7 +16477,7 @@ def func():
     }
 
     #[test]
-    fn test_for_exhaustion_assert_false_message_borrows_load_fast() {
+    fn for_exhaustion_assert_false_message_borrows_load_fast() {
         let code = compile_exec(
             r#"
 def f(arg, opcode):
@@ -16521,7 +16521,7 @@ def f(arg, opcode):
     }
 
     #[test]
-    fn test_try_except_else_conditional_join_borrows_else_receiver() {
+    fn try_except_else_conditional_join_borrows_else_receiver() {
         let code = compile_exec(
             r#"
 def f(self):
@@ -16581,7 +16581,7 @@ def f(self):
     }
 
     #[test]
-    fn test_try_finally_exit_label_reuses_empty_block_for_borrow() {
+    fn try_finally_exit_label_reuses_empty_block_for_borrow() {
         let code = compile_exec(
             r#"
 def f(self, exc):
@@ -16660,7 +16660,7 @@ def f(self, exc):
     }
 
     #[test]
-    fn test_with_tail_while_true_break_successor_uses_strong_load() {
+    fn with_tail_while_true_break_successor_uses_strong_load() {
         let code = compile_exec(
             r#"
 def f(self, cm):
@@ -16703,7 +16703,7 @@ def f(self, cm):
     }
 
     #[test]
-    fn test_folded_ifexp_nested_in_call_keeps_successor_load_fast_strong() {
+    fn folded_ifexp_nested_in_call_keeps_successor_load_fast_strong() {
         let code = compile_exec(
             r#"
 def f(self, g):
@@ -16742,7 +16742,7 @@ def f(self, g):
     }
 
     #[test]
-    fn test_folded_ifexp_assignment_before_with_keeps_context_load_fast_strong() {
+    fn folded_ifexp_assignment_before_with_keeps_context_load_fast_strong() {
         let code = compile_exec(
             r#"
 def f(self, cm):
@@ -16789,7 +16789,7 @@ def f(self, cm):
     }
 
     #[test]
-    fn test_folded_ifexp_assignment_keeps_later_statement_load_fast_strong() {
+    fn folded_ifexp_assignment_keeps_later_statement_load_fast_strong() {
         let code = compile_exec(
             r#"
 def f(self, x):
@@ -16826,7 +16826,7 @@ def f(self, x):
     }
 
     #[test]
-    fn test_const_assignment_before_with_keeps_context_load_fast_borrowed() {
+    fn const_assignment_before_with_keeps_context_load_fast_borrowed() {
         let code = compile_exec(
             r#"
 def f(self, cm):
@@ -16873,7 +16873,7 @@ def f(self, cm):
     }
 
     #[test]
-    fn test_if_end_label_reuse_allows_following_return_borrow() {
+    fn if_end_label_reuse_allows_following_return_borrow() {
         let code = compile_exec(
             r#"
 def f(data):
@@ -16934,7 +16934,7 @@ def f(data):
     }
 
     #[test]
-    fn test_named_except_continue_resume_try_body_keeps_method_borrows() {
+    fn named_except_continue_resume_try_body_keeps_method_borrows() {
         let code = compile_exec(
             r#"
 def f(self, block=True):
@@ -16998,7 +16998,7 @@ def f(self, block=True):
     }
 
     #[test]
-    fn test_boolop_or_shared_body_keeps_false_jump_before_loop_backedge() {
+    fn boolop_or_shared_body_keeps_false_jump_before_loop_backedge() {
         let code = compile_exec(
             r#"
 def f(value):
@@ -17061,7 +17061,7 @@ def f(value):
     }
 
     #[test]
-    fn test_single_if_loop_backedge_keeps_true_body_fallthrough_backedge_shape() {
+    fn single_if_loop_backedge_keeps_true_body_fallthrough_backedge_shape() {
         let code = compile_exec(
             r##"
 def f(buffer, pos, last_char):
@@ -17137,7 +17137,7 @@ def f(buffer, pos, last_char):
     }
 
     #[test]
-    fn test_annotated_multiline_function_body_keeps_def_firstlineno_like_cpython() {
+    fn annotated_multiline_function_body_keeps_def_firstlineno_like_cpython() {
         let code = compile_exec(
             r#"
 a = 1
@@ -17154,7 +17154,7 @@ def f(
     }
 
     #[test]
-    fn test_annotation_scope_return_uses_function_location_like_cpython() {
+    fn annotation_scope_return_uses_function_location_like_cpython() {
         let code = compile_exec(
             r#"
 def g():
@@ -17177,7 +17177,7 @@ def g():
     }
 
     #[test]
-    fn test_module_deferred_annotations_use_start_location_like_cpython() {
+    fn module_deferred_annotations_use_start_location_like_cpython() {
         let code = compile_exec(
             "\
 import os
@@ -17202,7 +17202,7 @@ Y: str
     }
 
     #[test]
-    fn test_super_method_call_kw_names_use_attribute_location_like_cpython() {
+    fn super_method_call_kw_names_use_attribute_location_like_cpython() {
         let code = compile_exec(
             "\
 class C:
@@ -17239,7 +17239,7 @@ class C:
     }
 
     #[test]
-    fn test_lambda_return_uses_body_location_like_cpython() {
+    fn lambda_return_uses_body_location_like_cpython() {
         let code = compile_exec(
             "\
 def outer():
@@ -17269,7 +17269,7 @@ def outer():
     }
 
     #[test]
-    fn test_not_compare_uses_unary_location_like_cpython() {
+    fn not_compare_uses_unary_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(self, other):
@@ -17290,7 +17290,7 @@ def f(self, other):
     }
 
     #[test]
-    fn test_not_chained_compare_keeps_compare_location_like_cpython() {
+    fn not_chained_compare_keeps_compare_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(c):
@@ -17314,7 +17314,7 @@ def f(c):
     }
 
     #[test]
-    fn test_type_param_scopes_use_cpython_locations() {
+    fn type_param_scopes_use_cpython_locations() {
         let code = compile_exec("type BoundGenericAlias[X: int] = set[X]\n");
         let type_params = find_code(&code, "<generic parameters of BoundGenericAlias>")
             .expect("missing generic parameters code");
@@ -17346,7 +17346,7 @@ def f(c):
     }
 
     #[test]
-    fn test_generic_function_annotation_scope_uses_function_location_like_cpython() {
+    fn generic_function_annotation_scope_uses_function_location_like_cpython() {
         let code = compile_exec("def f[T](x: int): ...\n");
         let type_params =
             find_code(&code, "<generic parameters of f>").expect("missing type params code");
@@ -17365,7 +17365,7 @@ def f(c):
     }
 
     #[test]
-    fn test_generic_class_type_params_store_uses_class_location_like_cpython() {
+    fn generic_class_type_params_store_uses_class_location_like_cpython() {
         let code = compile_exec(
             "\
 def outer():
@@ -17386,7 +17386,7 @@ def outer():
     }
 
     #[test]
-    fn test_generic_class_wrapper_ops_use_class_location_like_cpython() {
+    fn generic_class_wrapper_ops_use_class_location_like_cpython() {
         let code = compile_exec(
             "\
 def f():
@@ -17456,7 +17456,7 @@ def f():
     }
 
     #[test]
-    fn test_class_deferred_annotations_use_class_body_location_like_cpython() {
+    fn class_deferred_annotations_use_class_body_location_like_cpython() {
         let code = compile_exec(
             r#"
 class C:
@@ -17480,7 +17480,7 @@ class C:
     }
 
     #[test]
-    fn test_future_annotation_string_uses_annotation_location_like_cpython() {
+    fn future_annotation_string_uses_annotation_location_like_cpython() {
         let code = compile_exec("from __future__ import annotations\nclass Bar:\n    foo: Foo\n");
         let class_code = find_code(&code, "Bar").expect("missing class code");
 
@@ -17494,7 +17494,7 @@ class C:
     }
 
     #[test]
-    fn test_lambda_dict_literal_ops_use_dict_location_like_cpython() {
+    fn lambda_dict_literal_ops_use_dict_location_like_cpython() {
         let code = compile_exec(
             "\
 f = lambda data: {'x': data}
@@ -17529,7 +17529,7 @@ g = lambda i: {**i}
     }
 
     #[test]
-    fn test_class_function_like_scopes_set_method_flag_like_cpython() {
+    fn class_function_like_scopes_set_method_flag_like_cpython() {
         let code = compile_exec_with_options(
             r#"
 class C:
@@ -17568,7 +17568,7 @@ def f():
     }
 
     #[test]
-    fn test_inlined_comprehension_lambda_in_class_is_not_method_like_cpython() {
+    fn inlined_comprehension_lambda_in_class_is_not_method_like_cpython() {
         let code = compile_exec(
             "\
 class C:
@@ -17591,7 +17591,7 @@ class C:
     }
 
     #[test]
-    fn test_genexpr_implicit_iterator_is_not_posonly_like_cpython() {
+    fn genexpr_implicit_iterator_is_not_posonly_like_cpython() {
         let code = compile_exec("x = (i for i in ())");
         let genexpr = find_code(&code, "<genexpr>").expect("missing genexpr code");
 
@@ -17603,7 +17603,7 @@ class C:
     }
 
     #[test]
-    fn test_async_generator_uses_cpython_async_generator_flag() {
+    fn async_generator_uses_cpython_async_generator_flag() {
         let code = compile_exec_with_options(
             r#"
 def g():
@@ -17655,7 +17655,7 @@ async def ag():
     }
 
     #[test]
-    fn test_is_none_jump_preserves_cpython_const_order() {
+    fn is_none_jump_preserves_cpython_const_order() {
         let code = compile_exec_with_options(
             r#"
 def f(self, payload):
@@ -17682,7 +17682,7 @@ def f(self, payload):
     }
 
     #[test]
-    fn test_stop_iteration_handler_starts_at_scope_start_resume_like_cpython() {
+    fn stop_iteration_handler_starts_at_scope_start_resume_like_cpython() {
         let code = compile_exec_with_options(
             r#"
 def g():
@@ -17731,7 +17731,7 @@ x = (i for i in ())
     }
 
     #[test]
-    fn test_inlined_comprehension_cleanup_starts_at_result_build_like_cpython() {
+    fn inlined_comprehension_cleanup_starts_at_result_build_like_cpython() {
         let code = compile_exec_with_options(
             r#"
 def f(self):
@@ -17758,7 +17758,7 @@ def f(self):
     }
 
     #[test]
-    fn test_or_return_not_taken_before_jump_target_splits_exception_table_like_cpython() {
+    fn or_return_not_taken_before_jump_target_splits_exception_table_like_cpython() {
         let code = compile_exec_with_options(
             r#"
 def f(self, maintype):
@@ -17814,7 +17814,7 @@ def f(self, maintype):
     }
 
     #[test]
-    fn test_loop_break_condition_splits_exception_table_like_cpython() {
+    fn loop_break_condition_splits_exception_table_like_cpython() {
         let code = compile_exec_with_options(
             r#"
 def f(start, items):
@@ -17880,7 +17880,7 @@ def f(start, items):
     }
 
     #[test]
-    fn test_nested_ifexp_not_taken_splits_exception_table_like_cpython() {
+    fn nested_ifexp_not_taken_splits_exception_table_like_cpython() {
         let code = compile_exec_with_options(
             r#"
 def f(flag, subparts):
@@ -17936,7 +17936,7 @@ def f(flag, subparts):
     }
 
     #[test]
-    fn test_bool_not_taken_after_conditional_yield_splits_like_cpython() {
+    fn bool_not_taken_after_conditional_yield_splits_like_cpython() {
         let code = compile_exec_with_options(
             r#"
 def f(a, b, c):
@@ -18054,7 +18054,7 @@ def f(a, b, c):
     }
 
     #[test]
-    fn test_match_or_default_block_keeps_load_fast_strong() {
+    fn match_or_default_block_keeps_load_fast_strong() {
         let code = compile_exec(
             r#"
 def f(format, other):
@@ -18081,7 +18081,7 @@ def f(format, other):
     }
 
     #[test]
-    fn test_match_nested_or_default_block_keeps_load_fast_strong() {
+    fn match_nested_or_default_block_keeps_load_fast_strong() {
         let code = compile_exec(
             r#"
 def f(format, other):
@@ -18103,7 +18103,7 @@ def f(format, other):
     }
 
     #[test]
-    fn test_match_success_next_location_preserves_pass_nop() {
+    fn match_success_next_location_preserves_pass_nop() {
         let code = compile_exec(
             r#"
 def f(command):
@@ -18133,7 +18133,7 @@ def f(command):
     }
 
     #[test]
-    fn test_match_subject_copy_uses_case_pattern_location_like_cpython() {
+    fn match_subject_copy_uses_case_pattern_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(x):
@@ -18164,7 +18164,7 @@ def f(x):
     }
 
     #[test]
-    fn test_match_or_alternative_copies_use_alternative_locations_like_cpython() {
+    fn match_or_alternative_copies_use_alternative_locations_like_cpython() {
         let code = compile_exec(
             "\
 def f():
@@ -18188,7 +18188,7 @@ def f():
     }
 
     #[test]
-    fn test_match_success_jump_uses_no_location_like_cpython() {
+    fn match_success_jump_uses_no_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(self):
@@ -18213,7 +18213,7 @@ def f(self):
     }
 
     #[test]
-    fn test_match_mapping_keys_scaffolding_uses_mapping_location_like_cpython() {
+    fn match_mapping_keys_scaffolding_uses_mapping_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(self):
@@ -18239,7 +18239,7 @@ def f(self):
     }
 
     #[test]
-    fn test_match_class_scaffolding_uses_class_pattern_location_like_cpython() {
+    fn match_class_scaffolding_uses_class_pattern_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(x):
@@ -18262,7 +18262,7 @@ def f(x):
     }
 
     #[test]
-    fn test_while_try_body_layout_keeps_false_jump_to_anchor() {
+    fn while_try_body_layout_keeps_false_jump_to_anchor() {
         let code = compile_exec(
             r#"
 def f(stack, itstack, node_to_stack_index):
@@ -18303,7 +18303,7 @@ def f(stack, itstack, node_to_stack_index):
     }
 
     #[test]
-    fn test_while_if_not_break_keeps_body_call() {
+    fn while_if_not_break_keeps_body_call() {
         let code = compile_exec(
             r#"
 def f(waiters):
@@ -18368,7 +18368,7 @@ def f(waiters):
     }
 
     #[test]
-    fn test_trace_assert_true_try_pair() {
+    fn trace_assert_true_try_pair() {
         let trace = compile_exec_late_cfg_trace(
             "\
 try:
@@ -18387,7 +18387,7 @@ except AssertionError as e:
     }
 
     #[test]
-    fn test_trace_for_unpack_list_literal() {
+    fn trace_for_unpack_list_literal() {
         let trace = compile_exec_late_cfg_trace(
             "\
 result = []
@@ -18401,7 +18401,7 @@ for x, in [(1,), (2,), (3,)]:
     }
 
     #[test]
-    fn test_trace_break_in_finally_function() {
+    fn trace_break_in_finally_function() {
         let trace = compile_single_function_late_cfg_trace(
             "\
 def f(self):
@@ -18422,7 +18422,7 @@ def f(self):
     }
 
     #[test]
-    fn test_import_originated_name_disables_method_call_optimization_even_with_local_import() {
+    fn import_originated_name_disables_method_call_optimization_even_with_local_import() {
         let code = compile_exec(
             "\
 import warnings
@@ -18467,7 +18467,7 @@ def f(ch):
     }
 
     #[test]
-    fn test_trace_constant_false_elif_chain() {
+    fn trace_constant_false_elif_chain() {
         let trace = compile_exec_late_cfg_trace(
             "\
 if 0: pass
@@ -18483,7 +18483,7 @@ else: pass
     }
 
     #[test]
-    fn test_trace_multi_pass_suite() {
+    fn trace_multi_pass_suite() {
         let trace = compile_exec_late_cfg_trace(
             "\
 if 1:
@@ -18503,7 +18503,7 @@ if 1:
     }
 
     #[test]
-    fn test_trace_single_compare_if() {
+    fn trace_single_compare_if() {
         let trace = compile_exec_late_cfg_trace(
             "\
 if 1 == 1:
@@ -18516,7 +18516,7 @@ if 1 == 1:
     }
 
     #[test]
-    fn test_trace_comparison_suite() {
+    fn trace_comparison_suite() {
         let trace = compile_exec_late_cfg_trace(
             "\
 if 1: pass
@@ -18539,7 +18539,7 @@ if 1 not in (): pass
     }
 
     #[test]
-    fn test_trace_if_for_except_layout() {
+    fn trace_if_for_except_layout() {
         let trace = compile_exec_late_cfg_trace(
             "\
 from sys import maxsize
@@ -18559,7 +18559,7 @@ elif maxsize == 9223372036854775807:
     }
 
     #[test]
-    fn test_break_in_finally_tail_loads_borrow_through_empty_fallthrough_block() {
+    fn break_in_finally_tail_loads_borrow_through_empty_fallthrough_block() {
         let code = compile_exec(
             "\
 def f(self):
@@ -18602,7 +18602,7 @@ def f(self):
     }
 
     #[test]
-    fn test_plain_constant_bool_op_folds_to_selected_operand() {
+    fn plain_constant_bool_op_folds_to_selected_operand() {
         let code = compile_exec(
             "\
 x = 1 or 2 or 3
@@ -18651,7 +18651,7 @@ x = 1 or 2 or 3
     }
 
     #[test]
-    fn test_taken_constant_boolop_load_const_uses_literal_location_like_cpython() {
+    fn taken_constant_boolop_load_const_uses_literal_location_like_cpython() {
         let code = compile_exec(
             "\
 def and_false(x):
@@ -18678,7 +18678,7 @@ def or_true(x):
     }
 
     #[test]
-    fn test_assert_false_message_call_uses_assert_location_like_cpython() {
+    fn assert_false_message_call_uses_assert_location_like_cpython() {
         let code = compile_exec(
             "\
 def f():
@@ -18698,7 +18698,7 @@ def f():
     }
 
     #[test]
-    fn test_static_swap_implicit_return_keeps_preswap_store_location_like_cpython() {
+    fn static_swap_implicit_return_keeps_preswap_store_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(a, b):
@@ -18722,7 +18722,7 @@ def f(a, b):
     }
 
     #[test]
-    fn test_unpack_store_pair_jump_uses_second_target_location_like_cpython() {
+    fn unpack_store_pair_jump_uses_second_target_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(value):
@@ -18758,7 +18758,7 @@ def f(value):
     }
 
     #[test]
-    fn test_chained_store_pair_jump_keeps_copy_target_location_like_cpython() {
+    fn chained_store_pair_jump_keeps_copy_target_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(flag):
@@ -18796,7 +18796,7 @@ def f(flag):
     }
 
     #[test]
-    fn test_tuple_store_pair_jump_keeps_fused_store_location_like_cpython() {
+    fn tuple_store_pair_jump_keeps_fused_store_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(flag, n, exp):
@@ -18833,7 +18833,7 @@ def f(flag, n, exp):
     }
 
     #[test]
-    fn test_genexpr_make_closure_and_call_use_genexpr_location_like_cpython() {
+    fn genexpr_make_closure_and_call_use_genexpr_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(parameters):
@@ -18862,7 +18862,7 @@ def f(parameters):
     }
 
     #[test]
-    fn test_implicit_call_genexpr_range_includes_call_parens_like_cpython() {
+    fn implicit_call_genexpr_range_includes_call_parens_like_cpython() {
         let code = compile_exec(
             "\
 def implicit():
@@ -18906,7 +18906,7 @@ def explicit():
     }
 
     #[test]
-    fn test_implicit_call_genexpr_parenthesized_element_range_like_cpython() {
+    fn implicit_call_genexpr_parenthesized_element_range_like_cpython() {
         let code = compile_exec(
             "\
 def bytes_binop():
@@ -18996,7 +18996,7 @@ def explicit_gen(xs):
     }
 
     #[test]
-    fn test_genexpr_filter_cleanup_jumps_use_element_location_like_cpython() {
+    fn genexpr_filter_cleanup_jumps_use_element_location_like_cpython() {
         let code = compile_exec(
             "\
 def simple(names):
@@ -19033,7 +19033,7 @@ def boolop(fields):
     }
 
     #[test]
-    fn test_try_finally_exception_scaffolding_uses_no_location_like_cpython() {
+    fn try_finally_exception_scaffolding_uses_no_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(self, node):
@@ -19061,7 +19061,7 @@ def f(self, node):
     }
 
     #[test]
-    fn test_adjacent_no_location_entries_merge_like_cpython() {
+    fn adjacent_no_location_entries_merge_like_cpython() {
         let code = compile_exec(
             "\
 def f(file):
@@ -19101,7 +19101,7 @@ def f(file):
     }
 
     #[test]
-    fn test_fstring_format_ops_use_formatted_value_location_like_cpython() {
+    fn fstring_format_ops_use_formatted_value_location_like_cpython() {
         let code = compile_exec(
             "\
 def simple(self):
@@ -19131,7 +19131,7 @@ def spec(x):
     }
 
     #[test]
-    fn test_debug_fstring_literal_location_like_cpython() {
+    fn debug_fstring_literal_location_like_cpython() {
         fn string_load_position(code: &CodeObject, expected: &str) -> (usize, usize, usize, usize) {
             code.instructions
                 .iter()
@@ -19178,7 +19178,7 @@ def prefixed(x):
     }
 
     #[test]
-    fn test_fstring_format_spec_build_string_location_like_cpython() {
+    fn fstring_format_spec_build_string_location_like_cpython() {
         let code = compile_exec(
             "\
 def simple(lbl, label_width):
@@ -19219,7 +19219,7 @@ def padded(digits, int_len):
     }
 
     #[test]
-    fn test_joined_string_literals_extend_pending_literal_location_like_cpython() {
+    fn joined_string_literals_extend_pending_literal_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(a):
@@ -19242,7 +19242,7 @@ def f(a):
     }
 
     #[test]
-    fn test_starred_call_preserves_bool_op_short_circuit_shape() {
+    fn starred_call_preserves_bool_op_short_circuit_shape() {
         let code = compile_exec(
             "\
 def f(g):
@@ -19273,7 +19273,7 @@ def f(g):
     }
 
     #[test]
-    fn test_partial_constant_bool_op_folds_prefix_in_value_context() {
+    fn partial_constant_bool_op_folds_prefix_in_value_context() {
         let code = compile_exec(
             "\
 def outer(null):
@@ -19314,7 +19314,7 @@ def outer(null):
     }
 
     #[test]
-    fn test_decorated_definitions_use_cpython_locations() {
+    fn decorated_definitions_use_cpython_locations() {
         let code = compile_exec(
             "\
 def dec(f): return f
@@ -19368,7 +19368,7 @@ class E:
     }
 
     #[test]
-    fn test_taken_constant_boolop_jump_disables_following_borrows() {
+    fn taken_constant_boolop_jump_disables_following_borrows() {
         for source in [
             "\
 def f(self):
@@ -19407,7 +19407,7 @@ def f(self):
     }
 
     #[test]
-    fn test_untaken_constant_boolop_jump_keeps_following_borrows() {
+    fn not_taken_constant_boolop_jump_keeps_following_borrows() {
         for source in [
             "\
 def f(self):
@@ -19439,7 +19439,7 @@ def f(self):
     }
 
     #[test]
-    fn test_while_before_folded_boolop_if_keeps_successor_load_fast_strong() {
+    fn while_before_folded_boolop_if_keeps_successor_load_fast_strong() {
         let code = compile_exec(
             "\
 def f(running, errors):
@@ -19464,7 +19464,7 @@ def f(running, errors):
     }
 
     #[test]
-    fn test_with_try_except_tail_keeps_successor_load_fast_strong() {
+    fn with_try_except_tail_keeps_successor_load_fast_strong() {
         let code = compile_exec(
             "\
 def f(self, cm, value):
@@ -19491,7 +19491,7 @@ def f(self, cm, value):
     }
 
     #[test]
-    fn test_with_try_except_conditional_body_allows_successor_borrow() {
+    fn with_try_except_conditional_body_allows_successor_borrow() {
         let code = compile_exec(
             "\
 def f(max_decode, gzf, cm, decoded):
@@ -19519,7 +19519,7 @@ def f(max_decode, gzf, cm, decoded):
     }
 
     #[test]
-    fn test_loop_try_orelse_nested_try_before_next_try_keeps_load_fast_strong() {
+    fn loop_try_orelse_nested_try_before_next_try_keeps_load_fast_strong() {
         let code = compile_exec(
             "\
 def f(test_cases):
@@ -19553,7 +19553,7 @@ def f(test_cases):
     }
 
     #[test]
-    fn test_try_orelse_with_before_next_try_keeps_load_fast_strong() {
+    fn try_orelse_with_before_next_try_keeps_load_fast_strong() {
         let code = compile_exec(
             "\
 def f(self, f, cm):
@@ -19583,7 +19583,7 @@ def f(self, f, cm):
     }
 
     #[test]
-    fn test_try_orelse_single_with_before_next_try_keeps_borrows() {
+    fn try_orelse_single_with_before_next_try_keeps_borrows() {
         let code = compile_exec(
             "\
 def f(self, cm):
@@ -19634,7 +19634,7 @@ def f(self, cm):
     }
 
     #[test]
-    fn test_with_try_finally_nested_with_keeps_successor_load_fast_strong() {
+    fn with_try_finally_nested_with_keeps_successor_load_fast_strong() {
         let code = compile_exec(
             "\
 def f(self, cm):
@@ -19658,7 +19658,7 @@ def f(self, cm):
     }
 
     #[test]
-    fn test_nonliteral_constant_bool_op_preserves_short_circuit_shape() {
+    fn nonliteral_constant_bool_op_preserves_short_circuit_shape() {
         let code = compile_exec(
             "\
 x = (\"a\"[0]) or 2
@@ -19696,7 +19696,7 @@ x = (\"a\"[0]) or 2
     }
 
     #[test]
-    fn test_unary_positive_complex_constant_folds_to_load_const() {
+    fn unary_positive_complex_constant_folds_to_load_const() {
         let code = compile_exec(
             "\
 x = +0.0j
@@ -19730,7 +19730,7 @@ x = +0.0j
     }
 
     #[test]
-    fn test_folded_nonliteral_bool_op_tail_keeps_plain_load_fast() {
+    fn folded_nonliteral_bool_op_tail_keeps_plain_load_fast() {
         let code = compile_exec(
             "\
 def and_true(x):
@@ -19769,7 +19769,7 @@ def or_false(x):
     }
 
     #[test]
-    fn test_folded_nonliteral_bool_op_direct_tail_load_keeps_plain_load_fast() {
+    fn folded_nonliteral_bool_op_direct_tail_load_keeps_plain_load_fast() {
         let code = compile_exec(
             "\
 def return_tail(x):
@@ -19819,7 +19819,7 @@ def class_tail(class_decorator):
     }
 
     #[test]
-    fn test_folded_nonliteral_tuple_unpack_tail_keeps_plain_load_fast() {
+    fn folded_nonliteral_tuple_unpack_tail_keeps_plain_load_fast() {
         let code = compile_exec(
             "\
 def f(self, mod):
@@ -19860,7 +19860,7 @@ def f(self, mod):
     }
 
     #[test]
-    fn test_scope_exit_instructions_keep_line_numbers() {
+    fn scope_exit_instructions_keep_line_numbers() {
         let code = compile_exec(
             "\
 async def test():
@@ -19879,7 +19879,7 @@ async def test():
     }
 
     #[test]
-    fn test_attribute_ex_call_uses_plain_load_attr() {
+    fn attribute_ex_call_uses_plain_load_attr() {
         let code = compile_exec(
             "\
 def f(cls, args, kwargs):
@@ -19915,7 +19915,7 @@ def f(cls, args, kwargs):
     }
 
     #[test]
-    fn test_large_plain_call_uses_direct_call_until_stack_guideline() {
+    fn large_plain_call_uses_direct_call_until_stack_guideline() {
         let code = compile_exec(
             "\
 def f(g):
@@ -19947,7 +19947,7 @@ def f(g):
     }
 
     #[test]
-    fn test_simple_attribute_call_keeps_method_load() {
+    fn simple_attribute_call_keeps_method_load() {
         let code = compile_exec(
             "\
 def f(obj, arg):
@@ -19973,7 +19973,7 @@ def f(obj, arg):
     }
 
     #[test]
-    fn test_starred_super_call_keeps_attr_line_nop() {
+    fn starred_super_call_keeps_attr_line_nop() {
         let code = compile_exec(
             "\
 def outer(log):
@@ -20009,7 +20009,7 @@ def outer(log):
     }
 
     #[test]
-    fn test_builtin_any_genexpr_call_is_optimized() {
+    fn builtin_any_genexpr_call_is_optimized() {
         let code = compile_exec(
             "\
 def f(xs):
@@ -20059,7 +20059,7 @@ def f(xs):
     }
 
     #[test]
-    fn test_builtin_tuple_genexpr_call_is_optimized_but_list_set_are_not() {
+    fn builtin_tuple_genexpr_call_is_optimized_but_list_set_are_not() {
         let code = compile_exec(
             "\
 def tuple_f(xs):
@@ -20125,7 +20125,7 @@ def set_f(xs):
     }
 
     #[test]
-    fn test_builtin_tuple_genexpr_try_assignment_uses_shared_tail() {
+    fn builtin_tuple_genexpr_try_assignment_uses_shared_tail() {
         let code = compile_exec(
             "\
 def f(xs):
@@ -20167,7 +20167,7 @@ def f(xs):
     }
 
     #[test]
-    fn test_builtin_tuple_genexpr_unprotected_assignment_return_duplicates_tail() {
+    fn builtin_tuple_genexpr_unprotected_assignment_return_duplicates_tail() {
         let code = compile_exec(
             "\
 def f(arg):
@@ -20202,7 +20202,7 @@ def f(arg):
     }
 
     #[test]
-    fn test_unprotected_builtin_any_prefix_before_returning_try_keeps_borrow() {
+    fn unprotected_builtin_any_prefix_before_returning_try_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(template):
@@ -20254,7 +20254,7 @@ def f(template):
     }
 
     #[test]
-    fn test_module_store_uses_store_global_when_nested_scope_declares_global() {
+    fn module_store_uses_store_global_when_nested_scope_declares_global() {
         let code = compile_exec(
             "\
 _address_fmt_re = None
@@ -20277,7 +20277,7 @@ class C:
     }
 
     #[test]
-    fn test_conditional_return_epilogue_is_duplicated() {
+    fn conditional_return_epilogue_is_duplicated() {
         let code = compile_exec(
             "\
 def f(base, cls, state):
@@ -20299,7 +20299,7 @@ def f(base, cls, state):
     }
 
     #[test]
-    fn test_loop_store_subscr_threads_direct_backedge() {
+    fn loop_store_subscr_threads_direct_backedge() {
         let code = compile_exec(
             "\
 def f(kwonlyargs, kw_only_defaults, arg2value):
@@ -20339,7 +20339,7 @@ def f(kwonlyargs, kw_only_defaults, arg2value):
     }
 
     #[test]
-    fn test_protected_store_subscr_tail_uses_strong_loads() {
+    fn protected_store_subscr_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(cache, lock, format):
@@ -20421,7 +20421,7 @@ def g(lock, format):
     }
 
     #[test]
-    fn test_try_except_inner_for_cleanup_allows_try_end_borrow() {
+    fn try_except_inner_for_cleanup_allows_try_end_borrow() {
         let code = compile_exec(
             "\
 def f(self, futures, already_completed, future, short_timeout):
@@ -20454,7 +20454,7 @@ def f(self, futures, already_completed, future, short_timeout):
     }
 
     #[test]
-    fn test_augassign_two_part_slice_uses_slice_opcodes() {
+    fn augassign_two_part_slice_uses_slice_opcodes() {
         let code = compile_exec(
             "\
 def aug(x, a, b, y):
@@ -20515,7 +20515,7 @@ def aug(x, a, b, y):
     }
 
     #[test]
-    fn test_augassign_constant_slice_copy_uses_subscript_location_like_cpython() {
+    fn augassign_constant_slice_copy_uses_subscript_location_like_cpython() {
         let code = compile_exec(
             "\
 def aug_const(x, y):
@@ -20536,7 +20536,7 @@ def aug_const(x, y):
     }
 
     #[test]
-    fn test_loop_return_reorders_backedge_before_exit_cleanup() {
+    fn loop_return_reorders_backedge_before_exit_cleanup() {
         let code = compile_exec(
             "\
 def f(obj):
@@ -20606,12 +20606,12 @@ def f(obj):
     }
 
     #[test]
-    fn test_nested_try_finally_cleanup_reorder_does_not_invert_forward_jumps() {
+    fn nested_try_finally_cleanup_reorder_does_not_invert_forward_jumps() {
         compile_exec(include_str!("../../../Lib/poplib.py"));
     }
 
     #[test]
-    fn test_conditional_body_is_preserved_before_final_return() {
+    fn conditional_body_is_preserved_before_final_return() {
         let code = compile_exec(
             "\
 def f(x, y):
@@ -20645,7 +20645,7 @@ def f(x, y):
     }
 
     #[test]
-    fn test_nested_conditional_body_is_preserved_before_final_return() {
+    fn nested_conditional_body_is_preserved_before_final_return() {
         let code = compile_exec(
             "\
 def outer():
@@ -20684,7 +20684,7 @@ def outer():
     }
 
     #[test]
-    fn test_try_line_nop_is_preserved_before_setup_finally() {
+    fn try_line_nop_is_preserved_before_setup_finally() {
         let code = compile_exec(
             "\
 def f(msg):
@@ -20716,7 +20716,7 @@ def f(msg):
     }
 
     #[test]
-    fn test_nested_try_line_nops_after_for_cleanup_are_preserved() {
+    fn nested_try_line_nops_after_for_cleanup_are_preserved() {
         let code = compile_exec(
             "\
 def f(xs, env):
@@ -20761,7 +20761,7 @@ def f(xs, env):
     }
 
     #[test]
-    fn test_try_finally_assert_keeps_finalbody_entry_nop() {
+    fn try_finally_assert_keeps_finalbody_entry_nop() {
         let code = compile_exec(
             "\
 def f(x):
@@ -20812,7 +20812,7 @@ def f(x):
     }
 
     #[test]
-    fn test_try_finally_if_break_false_edge_keeps_finalbody_entry_nop() {
+    fn try_finally_if_break_false_edge_keeps_finalbody_entry_nop() {
         let code = compile_exec(
             "\
 def f(self, pid):
@@ -20854,7 +20854,7 @@ def f(self, pid):
     }
 
     #[test]
-    fn test_try_percent_format_preprocess_removes_redundant_try_nop() {
+    fn try_percent_format_preprocess_removes_redundant_try_nop() {
         let code = compile_exec(
             "\
 def f(self, signal):
@@ -20907,7 +20907,7 @@ def f(self, signal):
     }
 
     #[test]
-    fn test_nested_try_except_in_finally_exception_path_shares_continuation() {
+    fn nested_try_except_in_finally_exception_path_shares_continuation() {
         let code = compile_exec(
             "\
 def f(self, exc_type, KeyboardInterrupt, TimeoutExpired):
@@ -20965,7 +20965,7 @@ def f(self, exc_type, KeyboardInterrupt, TimeoutExpired):
     }
 
     #[test]
-    fn test_try_else_return_keeps_nop_before_final_call_return() {
+    fn try_else_return_keeps_nop_before_final_call_return() {
         let code = compile_exec(
             "\
 def f(msg):
@@ -21007,7 +21007,7 @@ def f(msg):
     }
 
     #[test]
-    fn test_try_else_conditional_scope_exit_keeps_pop_block_nop() {
+    fn try_else_conditional_scope_exit_keeps_pop_block_nop() {
         let code = compile_exec(
             "\
 def f(values, check):
@@ -21050,7 +21050,7 @@ def f(values, check):
     }
 
     #[test]
-    fn test_try_else_loop_fallthrough_keeps_end_jump_nop_before_finally() {
+    fn try_else_loop_fallthrough_keeps_end_jump_nop_before_finally() {
         let code = compile_exec(
             "\
 def f(locale, category, locales):
@@ -21105,7 +21105,7 @@ def f(locale, category, locales):
     }
 
     #[test]
-    fn test_conditional_compare_uses_bool_compare_oparg() {
+    fn conditional_compare_uses_bool_compare_oparg() {
         let code = compile_exec(
             "\
 def f(x, y):
@@ -21125,7 +21125,7 @@ def f(x, y):
     }
 
     #[test]
-    fn test_multiline_is_none_conditional_keeps_comparator_nop() {
+    fn multiline_is_none_conditional_keeps_comparator_nop() {
         let code = compile_exec(
             "\
 def f(x):
@@ -21159,7 +21159,7 @@ def f(x):
     }
 
     #[test]
-    fn test_chained_conditional_compares_use_bool_compare_oparg() {
+    fn chained_conditional_compares_use_bool_compare_oparg() {
         let code = compile_exec(
             "\
 def f(a, b, c):
@@ -21180,7 +21180,7 @@ def f(a, b, c):
     }
 
     #[test]
-    fn test_shared_final_return_is_cloned_for_jump_target() {
+    fn shared_final_return_is_cloned_for_jump_target() {
         let code = compile_exec(
             "\
 def f(node):
@@ -21215,7 +21215,7 @@ def f(node):
     }
 
     #[test]
-    fn test_for_break_uses_poptop_cleanup() {
+    fn for_break_uses_poptop_cleanup() {
         let code = compile_exec(
             "\
 def f(parts):
@@ -21265,7 +21265,7 @@ def f(parts):
     }
 
     #[test]
-    fn test_for_exit_before_elif_does_not_leave_line_anchor_nop() {
+    fn for_exit_before_elif_does_not_leave_line_anchor_nop() {
         let code = compile_exec(
             "\
 from sys import maxsize
@@ -21317,7 +21317,7 @@ elif maxsize == 9223372036854775807:
     }
 
     #[test]
-    fn test_for_tuple_target_does_not_leave_loop_header_nop() {
+    fn for_tuple_target_does_not_leave_loop_header_nop() {
         let code = compile_exec(
             "\
 def f(pairs):
@@ -21361,7 +21361,7 @@ def f(pairs):
     }
 
     #[test]
-    fn test_tstring_build_template_matches_cpython_stack_order() {
+    fn tstring_build_template_matches_cpython_stack_order() {
         let code = compile_exec("t = t\"{0}\"");
         let units: Vec<_> = code
             .instructions
@@ -21403,7 +21403,7 @@ def f(pairs):
     }
 
     #[test]
-    fn test_tstring_debug_specifier_uses_debug_literal_and_repr_default() {
+    fn tstring_debug_specifier_uses_debug_literal_and_repr_default() {
         let code = compile_exec(
             "\
 value = 42
@@ -21446,7 +21446,7 @@ t = t\"Value: {value=}\"
     }
 
     #[test]
-    fn test_tstring_literal_preserves_surrogate_wtf8() {
+    fn tstring_literal_preserves_surrogate_wtf8() {
         let code = compile_exec("t = t\"\\ud800\"");
 
         assert!(code.constants.iter().any(|constant| matches!(
@@ -21456,7 +21456,7 @@ t = t\"Value: {value=}\"
     }
 
     #[test]
-    fn test_break_in_finally_after_return_keeps_load_fast_check_for_loop_locals() {
+    fn break_in_finally_after_return_keeps_load_fast_check_for_loop_locals() {
         let code = compile_exec(
             "\
 def g2(x):
@@ -21495,7 +21495,7 @@ def g2(x):
     }
 
     #[test]
-    fn test_high_index_parameter_stays_initialized_in_fast_scan() {
+    fn high_index_parameter_stays_initialized_in_fast_scan() {
         let params = (0..65)
             .map(|idx| format!("p{idx}"))
             .collect::<Vec<_>>()
@@ -21535,7 +21535,7 @@ def f({params}):
     }
 
     #[test]
-    fn test_deleted_high_index_parameter_uses_load_fast_check() {
+    fn deleted_high_index_parameter_uses_load_fast_check() {
         let params = (0..65)
             .map(|idx| format!("p{idx}"))
             .collect::<Vec<_>>()
@@ -21566,7 +21566,7 @@ def f({params}):
     }
 
     #[test]
-    fn test_assert_without_message_raises_class_directly() {
+    fn assert_without_message_raises_class_directly() {
         let code = compile_exec(
             "\
 def f(x):
@@ -21590,7 +21590,7 @@ def f(x):
     }
 
     #[test]
-    fn test_assert_with_message_uses_common_constant_direct_call() {
+    fn assert_with_message_uses_common_constant_direct_call() {
         let code = compile_exec(
             "\
 def f(x, y):
@@ -21640,7 +21640,7 @@ def f(x, y):
     }
 
     #[test]
-    fn test_conditional_assert_message_target_uses_strong_load_fast() {
+    fn conditional_assert_message_target_uses_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(fname):
@@ -21678,7 +21678,7 @@ def f(fname):
     }
 
     #[test]
-    fn test_chained_compare_assert_message_keeps_borrowed_load_fast() {
+    fn chained_compare_assert_message_keeps_borrowed_load_fast() {
         let code = compile_exec(
             "\
 def f(month):
@@ -21718,7 +21718,7 @@ def f(month):
     }
 
     #[test]
-    fn test_assert_message_after_condition_in_same_block_keeps_borrowed_loads() {
+    fn assert_message_after_condition_in_same_block_keeps_borrowed_loads() {
         let code = compile_exec(
             "\
 def f(expected_ns, namespace):
@@ -21794,7 +21794,7 @@ def f(expected_ns, namespace):
     }
 
     #[test]
-    fn test_bare_function_annotations_check_attribute_and_subscript_expressions() {
+    fn bare_function_annotations_check_attribute_and_subscript_expressions() {
         let code = compile_exec(
             "\
 def f(one: int):
@@ -21828,7 +21828,7 @@ def f(one: int):
     }
 
     #[test]
-    fn test_function_local_annassign_annotation_does_not_capture_outer_local() {
+    fn function_local_annassign_annotation_does_not_capture_outer_local() {
         let code = compile_exec(
             "\
 def f():
@@ -21863,7 +21863,7 @@ def f():
     }
 
     #[test]
-    fn test_finally_exception_path_inlines_except_pass_reraise_tail() {
+    fn finally_exception_path_inlines_except_pass_reraise_tail() {
         let source = "\
 def f(self, file, backupfilename):
     try:
@@ -21911,7 +21911,7 @@ def f(self, file, backupfilename):
     }
 
     #[test]
-    fn test_nested_finally_exception_path_prunes_dead_normal_cleanup() {
+    fn nested_finally_exception_path_prunes_dead_normal_cleanup() {
         let code = compile_exec(
             "\
 def f():
@@ -21967,7 +21967,7 @@ def f():
     }
 
     #[test]
-    fn test_non_simple_bare_name_annotation_does_not_create_local_binding() {
+    fn non_simple_bare_name_annotation_does_not_create_local_binding() {
         let code = compile_exec(
             "\
 def f2bad():
@@ -21999,7 +21999,7 @@ def f2bad():
     }
 
     #[test]
-    fn test_negative_constant_binop_folds_after_unary_folding() {
+    fn negative_constant_binop_folds_after_unary_folding() {
         let code = compile_exec(
             "\
 def f():
@@ -22031,7 +22031,7 @@ def f():
     }
 
     #[test]
-    fn test_genexpr_filter_header_uses_store_fast_load_fast() {
+    fn genexpr_filter_header_uses_store_fast_load_fast() {
         let code = compile_exec(
             "\
 def f(it):
@@ -22063,7 +22063,7 @@ def f(it):
     }
 
     #[test]
-    fn test_generator_filter_keeps_cpython_style_forward_yield_body_entry() {
+    fn generator_filter_keeps_cpython_style_forward_yield_body_entry() {
         let code = compile_exec(
             "\
 def gen(it):
@@ -22101,7 +22101,7 @@ def gen(it):
     }
 
     #[test]
-    fn test_generator_negated_filter_keeps_cpython_style_false_edge_into_yield_body() {
+    fn generator_negated_filter_keeps_cpython_style_false_edge_into_yield_body() {
         let code = compile_exec(
             "\
 def gen(fields):
@@ -22139,7 +22139,7 @@ def gen(fields):
     }
 
     #[test]
-    fn test_loop_filter_with_nested_loop_body_uses_cpython_implicit_continue_layout() {
+    fn loop_filter_with_nested_loop_body_uses_cpython_implicit_continue_layout() {
         let code = compile_exec(
             "\
 def f(values):
@@ -22186,7 +22186,7 @@ def f(values):
     }
 
     #[test]
-    fn test_final_elif_with_inlined_comprehensions_threads_backedge_before_body() {
+    fn final_elif_with_inlined_comprehensions_threads_backedge_before_body() {
         let code = compile_exec(
             "\
 def f(checks, enumeration, named):
@@ -22257,7 +22257,7 @@ def f(checks, enumeration, named):
     }
 
     #[test]
-    fn test_multi_with_header_uses_store_fast_load_fast() {
+    fn multi_with_header_uses_store_fast_load_fast() {
         let code = compile_exec(
             "\
 def f(manager):
@@ -22279,7 +22279,7 @@ def f(manager):
     }
 
     #[test]
-    fn test_sequential_store_then_load_uses_store_fast_load_fast() {
+    fn sequential_store_then_load_uses_store_fast_load_fast() {
         let code = compile_exec(
             "\
 def f(self):
@@ -22300,7 +22300,7 @@ def f(self):
     }
 
     #[test]
-    fn test_match_guard_capture_uses_store_fast_load_fast() {
+    fn match_guard_capture_uses_store_fast_load_fast() {
         let code = compile_exec(
             "\
 def f():
@@ -22323,7 +22323,7 @@ def f():
     }
 
     #[test]
-    fn test_match_nested_capture_uses_store_fast_store_fast() {
+    fn match_nested_capture_uses_store_fast_store_fast() {
         let code = compile_exec(
             "\
 def f(x):
@@ -22346,7 +22346,7 @@ def f(x):
     }
 
     #[test]
-    fn test_match_value_real_zero_minus_zero_complex_folds_to_negative_zero_imag() {
+    fn match_value_real_zero_minus_zero_complex_folds_to_negative_zero_imag() {
         let code = compile_exec(
             "\
 def f(x):
@@ -22367,7 +22367,7 @@ def f(x):
     }
 
     #[test]
-    fn test_match_negative_value_const_precedes_implicit_none_like_cpython() {
+    fn match_negative_value_const_precedes_implicit_none_like_cpython() {
         let code = compile_exec(
             "\
 def f(x):
@@ -22399,7 +22399,7 @@ def f(x):
     }
 
     #[test]
-    fn test_match_or_uses_shared_success_block() {
+    fn match_or_uses_shared_success_block() {
         let code = compile_exec(
             "\
 def http_error(status):
@@ -22446,7 +22446,7 @@ def http_error(status):
     }
 
     #[test]
-    fn test_match_try_body_keeps_setup_nop_after_success_pop() {
+    fn match_try_body_keeps_setup_nop_after_success_pop() {
         let code = compile_exec(
             "\
 def f(x):
@@ -22482,7 +22482,7 @@ def f(x):
     }
 
     #[test]
-    fn test_match_mapping_attribute_key_keeps_plain_load_fast_without_block_disable() {
+    fn match_mapping_attribute_key_keeps_plain_load_fast_without_block_disable() {
         let code = compile_exec(
             "\
 def f(self):
@@ -22540,7 +22540,7 @@ def f(self):
     }
 
     #[test]
-    fn test_debug_trace_match_sequence_star_wildcard_layout() {
+    fn debug_trace_match_sequence_star_wildcard_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
 def f(w):
@@ -22557,7 +22557,7 @@ def f(w):
     }
 
     #[test]
-    fn test_debug_trace_loop_break_bool_chain_layout() {
+    fn debug_trace_loop_break_bool_chain_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
 def f(filters, text, category, module, lineno, defaultaction):
@@ -22580,7 +22580,7 @@ def f(filters, text, category, module, lineno, defaultaction):
     }
 
     #[test]
-    fn test_debug_trace_loop_conditional_body_layout() {
+    fn debug_trace_loop_conditional_body_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
 def f(new, old):
@@ -22597,7 +22597,7 @@ def f(new, old):
     }
 
     #[test]
-    fn test_if_false_body_blocks_following_load_fast_borrow() {
+    fn if_false_body_blocks_following_load_fast_borrow() {
         let code = compile_exec(
             "\
 def f(self, groupby):
@@ -22636,7 +22636,7 @@ def f(self, groupby):
     }
 
     #[test]
-    fn test_imap_append_untagged_assert_tail_keeps_load_fast() {
+    fn imap_append_untagged_assert_tail_keeps_load_fast() {
         let code = compile_exec(
             "\
 def f(self, typ, dat):
@@ -22695,7 +22695,7 @@ def f(self, typ, dat):
     }
 
     #[test]
-    fn test_assert_success_empty_boolop_block_keeps_load_fast() {
+    fn assert_success_empty_boolop_block_keeps_load_fast() {
         let code = compile_exec(
             "\
 def f(self):
@@ -22730,7 +22730,7 @@ def f(self):
     }
 
     #[test]
-    fn test_debug_trace_utf7_min_encode_layout() {
+    fn debug_trace_utf7_min_encode_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
 def f(s, size, encodeSetO, encodeWhiteSpace):
@@ -22758,7 +22758,7 @@ def f(s, size, encodeSetO, encodeWhiteSpace):
     }
 
     #[test]
-    fn test_debug_trace_with_loop_break_bool_chain_layout() {
+    fn debug_trace_with_loop_break_bool_chain_layout() {
         let trace = compile_single_function_late_cfg_trace(
             "\
 def f(filters, text, category, module, lineno, defaultaction, _wm):
@@ -22782,7 +22782,7 @@ def f(filters, text, category, module, lineno, defaultaction, _wm):
     }
 
     #[test]
-    fn test_try_except_else_with_finally_keeps_with_handler_before_outer_except() {
+    fn try_except_else_with_finally_keeps_with_handler_before_outer_except() {
         let code = compile_exec(
             "\
 def f(i):
@@ -22841,7 +22841,7 @@ def f(i):
     }
 
     #[test]
-    fn test_nested_try_finally_keeps_inner_finally_cleanup_nop() {
+    fn nested_try_finally_keeps_inner_finally_cleanup_nop() {
         let code = compile_exec(
             "\
 def f(a, b, d):
@@ -22883,7 +22883,7 @@ def f(a, b, d):
     }
 
     #[test]
-    fn test_nested_finally_open_conditional_falls_through_without_entry_nop() {
+    fn nested_finally_open_conditional_falls_through_without_entry_nop() {
         let code = compile_exec(
             "\
 def f(self, f, closed, new_key):
@@ -22937,7 +22937,7 @@ def f(self, f, closed, new_key):
     }
 
     #[test]
-    fn test_nested_finally_closed_conditional_falls_through_without_extra_entry_nop() {
+    fn nested_finally_closed_conditional_falls_through_without_extra_entry_nop() {
         let code = compile_exec(
             "\
 def f(was_enabled, faulthandler, sys, orig_stderr):
@@ -22994,7 +22994,7 @@ def f(was_enabled, faulthandler, sys, orig_stderr):
     }
 
     #[test]
-    fn test_with_try_finally_normal_cleanup_keeps_redundant_jump_nop() {
+    fn with_try_finally_normal_cleanup_keeps_redundant_jump_nop() {
         let code = compile_exec(
             "\
 def f(cm):
@@ -23035,7 +23035,7 @@ def f(cm):
     }
 
     #[test]
-    fn test_with_try_except_normal_cleanup_keeps_body_exit_nop() {
+    fn with_try_except_normal_cleanup_keeps_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(cm, names, modname):
@@ -23075,7 +23075,7 @@ def f(cm, names, modname):
     }
 
     #[test]
-    fn test_with_try_except_return_handler_keeps_body_exit_nop() {
+    fn with_try_except_return_handler_keeps_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(cm):
@@ -23114,7 +23114,7 @@ def f(cm):
     }
 
     #[test]
-    fn test_with_try_except_else_return_handler_keeps_body_exit_nop() {
+    fn with_try_except_else_return_handler_keeps_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(cm, func, check):
@@ -23156,7 +23156,7 @@ def f(cm, func, check):
     }
 
     #[test]
-    fn test_with_try_except_else_continue_handler_keeps_body_exit_nop() {
+    fn with_try_except_else_continue_handler_keeps_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(meta_path, cm):
@@ -23202,7 +23202,7 @@ def f(meta_path, cm):
     }
 
     #[test]
-    fn test_elif_boolop_skips_following_elif_with_forward_jumpback_block() {
+    fn elif_boolop_skips_following_elif_with_forward_jumpback_block() {
         let code = compile_exec(
             r#"
 def f(module, fromlist, import_, recursive=False):
@@ -23251,7 +23251,7 @@ def f(module, fromlist, import_, recursive=False):
     }
 
     #[test]
-    fn test_with_nonterminal_try_except_normal_cleanup_drops_body_exit_nop() {
+    fn with_nonterminal_try_except_normal_cleanup_drops_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(cm):
@@ -23305,7 +23305,7 @@ def f(cm):
     }
 
     #[test]
-    fn test_with_try_except_scope_exit_body_handler_fallthrough_keeps_body_exit_nop() {
+    fn with_try_except_scope_exit_body_handler_fallthrough_keeps_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(cm, ValueError):
@@ -23344,7 +23344,7 @@ def f(cm, ValueError):
     }
 
     #[test]
-    fn test_with_try_except_nested_with_normal_cleanup_drops_body_exit_nop() {
+    fn with_try_except_nested_with_normal_cleanup_drops_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(open, src, dst, copyfileobj):
@@ -23403,7 +23403,7 @@ def f(open, src, dst, copyfileobj):
     }
 
     #[test]
-    fn test_with_nested_if_try_except_normal_cleanup_drops_body_exit_nop() {
+    fn with_nested_if_try_except_normal_cleanup_drops_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(cm, root):
@@ -23443,7 +23443,7 @@ def f(cm, root):
     }
 
     #[test]
-    fn test_try_except_finally_normal_cleanup_keeps_body_exit_nop() {
+    fn try_except_finally_normal_cleanup_keeps_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(self, x):
@@ -23488,7 +23488,7 @@ def f(self, x):
     }
 
     #[test]
-    fn test_try_except_finally_open_conditional_fallthrough_drops_body_exit_nop() {
+    fn try_except_finally_open_conditional_fallthrough_drops_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(err, ov, self):
@@ -23521,7 +23521,7 @@ def f(err, ov, self):
     }
 
     #[test]
-    fn test_try_finally_loop_fallthrough_keeps_finalbody_entry_nop() {
+    fn try_finally_loop_fallthrough_keeps_finalbody_entry_nop() {
         let code = compile_exec(
             "\
 def f(close, dup, first, second):
@@ -23563,7 +23563,7 @@ def f(close, dup, first, second):
     }
 
     #[test]
-    fn test_try_finally_boolop_while_fallthrough_drops_finalbody_entry_nop() {
+    fn try_finally_boolop_while_fallthrough_drops_finalbody_entry_nop() {
         let code = compile_exec(
             "\
 def f(active, socket_map, asyncore):
@@ -23612,7 +23612,7 @@ def f(active, socket_map, asyncore):
     }
 
     #[test]
-    fn test_try_finally_with_infinite_loop_body_drops_finalbody_entry_nop() {
+    fn try_finally_with_infinite_loop_body_drops_finalbody_entry_nop() {
         let code = compile_exec(
             "\
 def f(self, func, args, kwargs):
@@ -23663,7 +23663,7 @@ def f(self, func, args, kwargs):
     }
 
     #[test]
-    fn test_try_finally_with_finalbody_blocks_following_with_borrow() {
+    fn try_finally_with_finalbody_blocks_following_with_borrow() {
         let code = compile_exec(
             "\
 def f(self, sock, socket, HOST, OSError, TypeError):
@@ -23690,7 +23690,7 @@ def f(self, sock, socket, HOST, OSError, TypeError):
     }
 
     #[test]
-    fn test_try_finally_loop_direct_break_drops_finalbody_entry_nop() {
+    fn try_finally_loop_direct_break_drops_finalbody_entry_nop() {
         let code = compile_exec(
             "\
 def f(lines, close):
@@ -23744,7 +23744,7 @@ def f(lines, close):
     }
 
     #[test]
-    fn test_try_except_finally_handler_normal_exit_keeps_nointerrupt_jump() {
+    fn try_except_finally_handler_normal_exit_keeps_nointerrupt_jump() {
         let code = compile_exec(
             "\
 def f():
@@ -23792,7 +23792,7 @@ def f():
     }
 
     #[test]
-    fn test_nested_while_break_keeps_cpython_unreachable_end_epilogue() {
+    fn nested_while_break_keeps_cpython_unreachable_end_epilogue() {
         let code = compile_exec(
             "\
 def f():
@@ -23822,7 +23822,7 @@ def f():
     }
 
     #[test]
-    fn test_while_else_break_keeps_separate_continue_backedges() {
+    fn while_else_break_keeps_separate_continue_backedges() {
         let code = compile_exec(
             "\
 def func():
@@ -23855,7 +23855,7 @@ def func():
     }
 
     #[test]
-    fn test_break_through_finally_assert_tail_keeps_borrow_loads() {
+    fn break_through_finally_assert_tail_keeps_borrow_loads() {
         let code = compile_exec(
             "\
 def func():
@@ -23887,7 +23887,7 @@ def func():
     }
 
     #[test]
-    fn test_try_except_finally_suppressing_handler_drops_body_exit_nop() {
+    fn try_except_finally_suppressing_handler_drops_body_exit_nop() {
         let code = compile_exec(
             "\
 def f(self):
@@ -23926,7 +23926,7 @@ def f(self):
     }
 
     #[test]
-    fn test_conditional_break_finally_does_not_keep_break_cleanup_nop() {
+    fn conditional_break_finally_does_not_keep_break_cleanup_nop() {
         let code = compile_exec(
             "\
 def f(tar1, x):
@@ -23990,7 +23990,7 @@ def f(tar1, x):
     }
 
     #[test]
-    fn test_tail_conditional_break_finally_uses_empty_end_label_barrier() {
+    fn tail_conditional_break_finally_uses_empty_end_label_barrier() {
         let code = compile_exec(
             "\
 def f(tar1, x):
@@ -24028,7 +24028,7 @@ def f(tar1, x):
     }
 
     #[test]
-    fn test_with_break_cleanup_makes_following_jump_artificial() {
+    fn with_break_cleanup_makes_following_jump_artificial() {
         let code = compile_exec(
             "\
 def f(self):
@@ -24068,7 +24068,7 @@ def f(self):
     }
 
     #[test]
-    fn test_while_exit_before_with_cleanup_materializes_anchor_nop() {
+    fn while_exit_before_with_cleanup_materializes_anchor_nop() {
         let code = compile_exec(
             "\
 def f(selector, self):
@@ -24110,7 +24110,7 @@ def f(selector, self):
     }
 
     #[test]
-    fn test_nested_boolop_same_or_prefixes_compile_without_extra_boolop_block() {
+    fn nested_boolop_same_or_prefixes_compile_without_extra_boolop_block() {
         let code = compile_exec(
             "\
 def f(c, encodeO, encodeWS):
@@ -24139,7 +24139,7 @@ def f(c, encodeO, encodeWS):
     }
 
     #[test]
-    fn test_nested_opposite_boolop_threads_to_fallthrough_like_cpython() {
+    fn nested_opposite_boolop_threads_to_fallthrough_like_cpython() {
         for source in [
             "\
 def f(a, b, c):
@@ -24178,7 +24178,7 @@ def f(a, b, c):
     }
 
     #[test]
-    fn test_loop_or_continue_keeps_boolop_true_edge_to_continue() {
+    fn loop_or_continue_keeps_boolop_true_edge_to_continue() {
         let code = compile_exec(
             "\
 def f(numpy_array, lshape, rshape, litems, fmt, tl):
@@ -24234,7 +24234,7 @@ def f(numpy_array, lshape, rshape, litems, fmt, tl):
     }
 
     #[test]
-    fn test_nested_and_or_expression_threads_same_false_short_circuit() {
+    fn nested_and_or_expression_threads_same_false_short_circuit() {
         let code = compile_exec(
             "\
 def f(fmt, MEMORYVIEW):
@@ -24265,7 +24265,7 @@ def f(fmt, MEMORYVIEW):
     }
 
     #[test]
-    fn test_broad_exception_import_keeps_borrow_in_common_tail() {
+    fn broad_exception_import_keeps_borrow_in_common_tail() {
         let code = compile_exec(
             "\
 def f(msg):
@@ -24303,7 +24303,7 @@ def f(msg):
     }
 
     #[test]
-    fn test_try_import_return_handler_deopts_common_tail_borrow() {
+    fn try_import_return_handler_deopts_common_tail_borrow() {
         let code = compile_exec(
             "\
 def f():
@@ -24334,7 +24334,7 @@ def f():
     }
 
     #[test]
-    fn test_try_import_return_handler_deopts_later_protected_tail_borrow() {
+    fn try_import_return_handler_deopts_later_protected_tail_borrow() {
         let code = compile_exec(
             "\
 def f(info_add):
@@ -24383,7 +24383,7 @@ def f(info_add):
     }
 
     #[test]
-    fn test_try_import_continue_handler_deopts_loop_tail_borrow() {
+    fn try_import_continue_handler_deopts_loop_tail_borrow() {
         let code = compile_exec(
             "\
 def f(size):
@@ -24434,7 +24434,7 @@ def f(size):
     }
 
     #[test]
-    fn test_try_import_continue_inside_loop_keeps_earlier_loop_body_borrows() {
+    fn try_import_continue_inside_loop_keeps_earlier_loop_body_borrows() {
         let code = compile_exec(
             r#"
 def f(s, size, errors):
@@ -24497,7 +24497,7 @@ def f(s, size, errors):
     }
 
     #[test]
-    fn test_try_import_pass_else_keeps_borrow() {
+    fn try_import_pass_else_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self):
@@ -24535,7 +24535,7 @@ def f(self):
     }
 
     #[test]
-    fn test_try_import_broad_handler_implicit_return_keeps_borrow() {
+    fn try_import_broad_handler_implicit_return_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, record):
@@ -24588,7 +24588,7 @@ def f(self, record):
     }
 
     #[test]
-    fn test_try_import_handler_assignment_resume_tail_keeps_borrow() {
+    fn try_import_handler_assignment_resume_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f():
@@ -24639,7 +24639,7 @@ def f():
     }
 
     #[test]
-    fn test_empty_fallthrough_handler_assignment_tail_keeps_borrows() {
+    fn empty_fallthrough_handler_assignment_tail_keeps_borrows() {
         let code = compile_exec(
             "\
 def f(value):
@@ -24689,7 +24689,7 @@ def f(value):
     }
 
     #[test]
-    fn test_protected_store_of_preinitialized_local_keeps_return_borrow() {
+    fn protected_store_of_preinitialized_local_keeps_return_borrow() {
         let code = compile_exec(
             "\
 def f(obj):
@@ -24741,7 +24741,7 @@ def f(obj):
     }
 
     #[test]
-    fn test_protected_attr_direct_return_keeps_borrow() {
+    fn protected_attr_direct_return_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(obj):
@@ -24782,7 +24782,7 @@ def f(obj):
     }
 
     #[test]
-    fn test_protected_store_normal_tail_uses_strong_loads() {
+    fn protected_store_normal_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(tarfile, tarinfo, self):
@@ -24822,7 +24822,7 @@ def f(tarfile, tarinfo, self):
     }
 
     #[test]
-    fn test_protected_subscript_store_normal_tail_uses_strong_loads() {
+    fn protected_subscript_store_normal_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(self, d, option, fallback):
@@ -24861,7 +24861,7 @@ def f(self, d, option, fallback):
     }
 
     #[test]
-    fn test_protected_call_arm_final_store_return_uses_strong_load() {
+    fn protected_call_arm_final_store_return_uses_strong_load() {
         let code = compile_exec(
             "\
 def f(self, action, default_metavar):
@@ -24936,7 +24936,7 @@ def f(self, action, default_metavar):
     }
 
     #[test]
-    fn test_protected_store_try_else_tail_keeps_borrowed_loads() {
+    fn protected_store_try_else_tail_keeps_borrowed_loads() {
         let code = compile_exec(
             "\
 def f(value):
@@ -25028,7 +25028,7 @@ def f(value):
     }
 
     #[test]
-    fn test_nested_try_except_common_tail_uses_strong_loads() {
+    fn nested_try_except_common_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(value):
@@ -25071,7 +25071,7 @@ def f(value):
     }
 
     #[test]
-    fn test_nested_try_except_branch_tail_with_following_try_uses_strong_loads() {
+    fn nested_try_except_branch_tail_with_following_try_uses_strong_loads() {
         let code = compile_exec(
             r#"
 def f(value):
@@ -25137,7 +25137,7 @@ def f(value):
     }
 
     #[test]
-    fn test_nested_try_store_subscr_following_try_tail_uses_strong_loads() {
+    fn nested_try_store_subscr_following_try_tail_uses_strong_loads() {
         let code = compile_exec(
             r#"
 def f(value):
@@ -25194,7 +25194,7 @@ def f(value):
     }
 
     #[test]
-    fn test_resuming_except_in_loop_keeps_post_try_store_tail_borrowed() {
+    fn resuming_except_in_loop_keeps_post_try_store_tail_borrowed() {
         let code = compile_exec(
             "\
 def f(part, lines, maxlen, encoding):
@@ -25254,7 +25254,7 @@ def f(part, lines, maxlen, encoding):
     }
 
     #[test]
-    fn test_handler_resume_loop_latch_method_call_uses_strong_loads() {
+    fn handler_resume_loop_latch_method_call_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(phrase, value):
@@ -25315,7 +25315,7 @@ def f(phrase, value):
     }
 
     #[test]
-    fn test_single_handler_multiple_resume_branches_keep_post_try_tail_borrowed() {
+    fn single_handler_multiple_resume_branches_keep_post_try_tail_borrowed() {
         let code = compile_exec(
             "\
 def f(part, lines, maxlen, encoding):
@@ -25379,7 +25379,7 @@ def f(part, lines, maxlen, encoding):
     }
 
     #[test]
-    fn test_nested_exception_handler_resume_update_tail_uses_strong_load() {
+    fn nested_exception_handler_resume_update_tail_uses_strong_load() {
         let code = compile_exec(
             "\
 def f(inpos, size, g, replacement):
@@ -25439,7 +25439,7 @@ def f(inpos, size, g, replacement):
     }
 
     #[test]
-    fn test_protected_store_finally_cleanup_keeps_borrow_tail() {
+    fn protected_store_finally_cleanup_keeps_borrow_tail() {
         let code = compile_exec(
             "\
 def f(re, f):
@@ -25482,7 +25482,7 @@ def f(re, f):
     }
 
     #[test]
-    fn test_try_else_finally_cleanup_keeps_borrow_tail() {
+    fn try_else_finally_cleanup_keeps_borrow_tail() {
         let code = compile_exec(
             "\
 def f(re, open):
@@ -25530,7 +25530,7 @@ def f(re, open):
     }
 
     #[test]
-    fn test_typed_terminal_attr_store_deopts_later_protected_store_subscr() {
+    fn typed_terminal_attr_store_deopts_later_protected_store_subscr() {
         let code = compile_exec(
             "\
 def f(instance, self, _NOT_FOUND):
@@ -25576,7 +25576,7 @@ def f(instance, self, _NOT_FOUND):
     }
 
     #[test]
-    fn test_generator_protected_store_subscr_tail_uses_strong_loads() {
+    fn generator_protected_store_subscr_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(names, modules):
@@ -25619,7 +25619,7 @@ def f(names, modules):
     }
 
     #[test]
-    fn test_protected_call_function_ex_store_tail_uses_strong_loads() {
+    fn protected_call_function_ex_store_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(func, *args):
@@ -25661,7 +25661,7 @@ def f(func, *args):
     }
 
     #[test]
-    fn test_protected_attr_subscript_tail_uses_strong_load_fast() {
+    fn protected_attr_subscript_tail_uses_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(obj, idx):
@@ -25698,7 +25698,7 @@ def f(obj, idx):
     }
 
     #[test]
-    fn test_protected_direct_subscript_tail_uses_strong_load_fast() {
+    fn protected_direct_subscript_tail_uses_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(seq):
@@ -25739,7 +25739,7 @@ def f(seq):
     }
 
     #[test]
-    fn test_protected_attr_iter_chain_uses_strong_load_fast() {
+    fn protected_attr_iter_chain_uses_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(fields):
@@ -25776,7 +25776,7 @@ def f(fields):
     }
 
     #[test]
-    fn test_generator_except_return_handler_deopts_normal_tail_borrows() {
+    fn generator_except_return_handler_deopts_normal_tail_borrows() {
         let code = compile_exec(
             "\
 def f(fields):
@@ -25820,7 +25820,7 @@ def f(fields):
     }
 
     #[test]
-    fn test_generator_except_yielding_handler_keeps_normal_tail_borrows() {
+    fn generator_except_yielding_handler_keeps_normal_tail_borrows() {
         let code = compile_exec(
             "\
 def f(tp, parent=None):
@@ -25859,7 +25859,7 @@ def f(tp, parent=None):
     }
 
     #[test]
-    fn test_generator_returning_except_keeps_yield_from_resume_tail_borrow() {
+    fn generator_returning_except_keeps_yield_from_resume_tail_borrow() {
         let code = compile_exec(
             "\
 def f(self, action):
@@ -25905,7 +25905,7 @@ def f(self, action):
     }
 
     #[test]
-    fn test_generator_except_pass_resume_tail_keeps_borrows() {
+    fn generator_except_pass_resume_tail_keeps_borrows() {
         let code = compile_exec(
             "\
 def f(self, msg):
@@ -25960,7 +25960,7 @@ def f(self, msg):
     }
 
     #[test]
-    fn test_async_for_cleanup_resume_tail_uses_strong_loads() {
+    fn async_for_cleanup_resume_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 async def f(g, self, x):
@@ -26014,7 +26014,7 @@ async def f(g, self, x):
     }
 
     #[test]
-    fn test_async_generator_async_with_yield_keeps_borrow() {
+    fn async_generator_async_with_yield_keeps_borrow() {
         let code = compile_exec(
             "\
 async def f(self, my_cm):
@@ -26051,7 +26051,7 @@ async def f(self, my_cm):
     }
 
     #[test]
-    fn test_deoptimized_async_with_enter_continuation_uses_strong_loads() {
+    fn deoptimized_async_with_enter_continuation_uses_strong_loads() {
         let code = compile_exec(
             "\
 async def f():
@@ -26097,7 +26097,7 @@ async def f():
     }
 
     #[test]
-    fn test_async_with_bare_raise_continuation_keeps_borrow() {
+    fn async_with_bare_raise_continuation_keeps_borrow() {
         let code = compile_exec(
             "\
 async def f(tg):
@@ -26132,7 +26132,7 @@ async def f(tg):
     }
 
     #[test]
-    fn test_except_star_tail_uses_strong_loads() {
+    fn except_star_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(self):
@@ -26193,7 +26193,7 @@ def f(self):
     }
 
     #[test]
-    fn test_protected_attr_subscript_store_tail_uses_strong_load_fast() {
+    fn protected_attr_subscript_store_tail_uses_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(f, oldcls, newcls):
@@ -26245,7 +26245,7 @@ def f(f, oldcls, newcls):
     }
 
     #[test]
-    fn test_plain_attr_subscript_tail_keeps_borrow() {
+    fn plain_attr_subscript_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, name):
@@ -26278,7 +26278,7 @@ def f(self, name):
     }
 
     #[test]
-    fn test_plain_attr_iter_chain_keeps_borrow() {
+    fn plain_attr_iter_chain_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(fields):
@@ -26310,7 +26310,7 @@ def f(fields):
     }
 
     #[test]
-    fn test_genexpr_true_filter_omits_bool_scaffolding() {
+    fn genexpr_true_filter_omits_bool_scaffolding() {
         let code = compile_exec(
             "\
 def f(it):
@@ -26348,7 +26348,7 @@ def f(it):
     }
 
     #[test]
-    fn test_classdictcell_uses_load_closure_path_and_borrows_after_optimize() {
+    fn classdictcell_uses_load_closure_path_and_borrows_after_optimize() {
         let code = compile_exec(
             "\
 class C:
@@ -26390,7 +26390,7 @@ class C:
     }
 
     #[test]
-    fn test_conditional_class_body_duplicates_no_location_exit_tail() {
+    fn conditional_class_body_duplicates_no_location_exit_tail() {
         let code = compile_exec(
             "\
 flag = False
@@ -26436,7 +26436,7 @@ class C:
     }
 
     #[test]
-    fn test_class_lambda_assignment_does_not_create_classdictcell() {
+    fn class_lambda_assignment_does_not_create_classdictcell() {
         let code = compile_exec(
             "\
 class C:
@@ -26466,7 +26466,7 @@ class C:
     }
 
     #[test]
-    fn test_nested_function_static_attributes_are_collected() {
+    fn nested_function_static_attributes_are_collected() {
         let code = compile_exec(
             "\
 class C:
@@ -26506,7 +26506,7 @@ class C:
     }
 
     #[test]
-    fn test_static_attributes_match_cpython_store_rule() {
+    fn static_attributes_match_cpython_store_rule() {
         let code = compile_exec(
             "\
 class C:
@@ -26547,7 +26547,7 @@ class C:
     }
 
     #[test]
-    fn test_decorated_class_uses_first_decorator_for_firstlineno() {
+    fn decorated_class_uses_first_decorator_for_firstlineno() {
         let code = compile_exec(
             "\
 @dec1
@@ -26597,7 +26597,7 @@ class C:
     }
 
     #[test]
-    fn test_class_firstlineno_store_uses_name_resolution() {
+    fn class_firstlineno_store_uses_name_resolution() {
         let code = compile_exec(
             "\
 def f():
@@ -26646,7 +26646,7 @@ def f():
     }
 
     #[test]
-    fn test_lambda_parent_qualname_includes_locals() {
+    fn lambda_parent_qualname_includes_locals() {
         let code = compile_exec(
             "\
 def f():
@@ -26681,7 +26681,7 @@ def f():
     }
 
     #[test]
-    fn test_future_annotations_class_uses_direct_annotation_store() {
+    fn future_annotations_class_uses_direct_annotation_store() {
         let code = compile_exec(
             "\
 from __future__ import annotations
@@ -26722,7 +26722,7 @@ class C:
     }
 
     #[test]
-    fn test_future_annotations_module_keeps_conditional_annotations_cell() {
+    fn future_annotations_module_keeps_conditional_annotations_cell() {
         let code = compile_exec(
             "\
 from __future__ import annotations
@@ -26740,7 +26740,7 @@ x: int = 1
     }
 
     #[test]
-    fn test_future_annotations_conditional_class_keeps_conditional_annotations_cell() {
+    fn future_annotations_conditional_class_keeps_conditional_annotations_cell() {
         let code = compile_exec(
             "\
 from __future__ import annotations
@@ -26762,7 +26762,7 @@ class C:
     }
 
     #[test]
-    fn test_future_annotations_setup_precedes_docstring() {
+    fn future_annotations_setup_precedes_docstring() {
         let code = compile_exec(
             "\
 \"module doc\"
@@ -26827,7 +26827,7 @@ class C:
     }
 
     #[test]
-    fn test_future_annotations_flag_is_inherited_like_cpython() {
+    fn future_annotations_flag_is_inherited_like_cpython() {
         let code = compile_exec(
             "\
 from __future__ import annotations
@@ -26850,7 +26850,7 @@ def f():
     }
 
     #[test]
-    fn test_annotation_scope_nested_flag_matches_cpython() {
+    fn annotation_scope_nested_flag_matches_cpython() {
         let code = compile_exec(
             "\
 class C:
@@ -26880,7 +26880,7 @@ def outer():
     }
 
     #[test]
-    fn test_function_like_parent_marks_child_nested_like_cpython() {
+    fn function_like_parent_marks_child_nested_like_cpython() {
         let code = compile_exec(
             "\
 x = lambda: (lambda: None)
@@ -26913,7 +26913,7 @@ type A[T] = T
     }
 
     #[test]
-    fn test_plain_super_call_keeps_class_freevar() {
+    fn plain_super_call_keeps_class_freevar() {
         let code = compile_exec(
             "\
 class A:
@@ -26945,7 +26945,7 @@ class B(A):
     }
 
     #[test]
-    fn test_nested_class_super_does_not_create_outer_class_closure() {
+    fn nested_class_super_does_not_create_outer_class_closure() {
         let code = compile_exec(
             "\
 class C:
@@ -26977,7 +26977,7 @@ class C:
     }
 
     #[test]
-    fn test_nested_closure_parameter_class_does_not_create_outer_class_closure() {
+    fn nested_closure_parameter_class_does_not_create_outer_class_closure() {
         let code = compile_exec(
             "\
 class C:
@@ -27012,7 +27012,7 @@ class C:
     }
 
     #[test]
-    fn test_chained_compare_jump_uses_single_cleanup_copy() {
+    fn chained_compare_jump_uses_single_cleanup_copy() {
         let code = compile_exec(
             "\
 def f(code):
@@ -27037,7 +27037,7 @@ def f(code):
     }
 
     #[test]
-    fn test_yield_from_cleanup_jumps_to_shared_end_send() {
+    fn yield_from_cleanup_jumps_to_shared_end_send() {
         let code = compile_exec(
             "\
 def outer():
@@ -27072,7 +27072,7 @@ def outer():
     }
 
     #[test]
-    fn test_try_except_falls_through_to_post_handler_code() {
+    fn try_except_falls_through_to_post_handler_code() {
         let code = compile_exec(
             "\
 def f():
@@ -27113,7 +27113,7 @@ def f():
     }
 
     #[test]
-    fn test_try_finally_loop_fallthrough_pop_block_bounds_exception_table() {
+    fn try_finally_loop_fallthrough_pop_block_bounds_exception_table() {
         let code = compile_exec(
             "\
 def f(os, E, data):
@@ -27149,7 +27149,7 @@ def f(os, E, data):
     }
 
     #[test]
-    fn test_except_as_alias_cleanup_exception_table_matches_cpython() {
+    fn except_as_alias_cleanup_exception_table_matches_cpython() {
         let code = compile_exec(
             "\
 def bug():
@@ -27198,7 +27198,7 @@ def bug():
     }
 
     #[test]
-    fn test_try_except_while_body_preserves_while_exit_line_nop() {
+    fn try_except_while_body_preserves_while_exit_line_nop() {
         let code = compile_exec(
             "\
 def f(x, E):
@@ -27241,7 +27241,7 @@ def f(x, E):
     }
 
     #[test]
-    fn test_constant_true_while_preserves_loop_line_nop() {
+    fn constant_true_while_preserves_loop_line_nop() {
         let code = compile_exec(
             "\
 def f(self, callback):
@@ -27273,7 +27273,7 @@ def f(self, callback):
     }
 
     #[test]
-    fn test_try_except_for_direct_break_preserves_normal_exhaustion_nop() {
+    fn try_except_for_direct_break_preserves_normal_exhaustion_nop() {
         let code = compile_exec(
             "\
 def f(xs, g, E):
@@ -27312,7 +27312,7 @@ def f(xs, g, E):
     }
 
     #[test]
-    fn test_try_except_for_without_direct_break_drops_normal_exhaustion_nop() {
+    fn try_except_for_without_direct_break_drops_normal_exhaustion_nop() {
         let code = compile_exec(
             "\
 def f(xs, g, E):
@@ -27349,7 +27349,7 @@ def f(xs, g, E):
     }
 
     #[test]
-    fn test_terminal_except_before_conditional_tail_uses_strong_load() {
+    fn terminal_except_before_conditional_tail_uses_strong_load() {
         let code = compile_exec(
             "\
 def f(self, Exception):
@@ -27390,7 +27390,7 @@ def f(self, Exception):
     }
 
     #[test]
-    fn test_try_except_continuation_folded_tuple_drops_operand_nop() {
+    fn try_except_continuation_folded_tuple_drops_operand_nop() {
         let code = compile_exec(
             "\
 def f():
@@ -27427,7 +27427,7 @@ def f():
     }
 
     #[test]
-    fn test_if_else_normal_fallthrough_end_label_drops_return_anchor_nop() {
+    fn if_else_normal_fallthrough_end_label_drops_return_anchor_nop() {
         let code = compile_exec(
             "\
 def f(s):
@@ -27472,7 +27472,7 @@ def f(s):
     }
 
     #[test]
-    fn test_explicit_final_return_none_is_not_duplicated() {
+    fn explicit_final_return_none_is_not_duplicated() {
         let code = compile_exec(
             "\
 def f(src, dst, length, exception, bufsize):
@@ -27516,7 +27516,7 @@ def f(src, dst, length, exception, bufsize):
     }
 
     #[test]
-    fn test_named_except_cleanup_keeps_jump_over_cleanup_and_next_try() {
+    fn named_except_cleanup_keeps_jump_over_cleanup_and_next_try() {
         let code = compile_exec(
             r#"
 def f(self):
@@ -27565,7 +27565,7 @@ def f(self):
     }
 
     #[test]
-    fn test_named_except_with_suppress_does_not_duplicate_following_with() {
+    fn named_except_with_suppress_does_not_duplicate_following_with() {
         let code = compile_exec(
             "\
 def f(StringIO, captured_output, print):
@@ -27605,7 +27605,7 @@ def f(StringIO, captured_output, print):
     }
 
     #[test]
-    fn test_bare_except_deopts_post_handler_load_fast_borrow() {
+    fn bare_except_deopts_post_handler_load_fast_borrow() {
         let code = compile_exec(
             "\
 def f(self):
@@ -27636,7 +27636,7 @@ def f(self):
     }
 
     #[test]
-    fn test_bare_except_before_if_deopts_successor_load_fast_borrow() {
+    fn bare_except_before_if_deopts_successor_load_fast_borrow() {
         let code = compile_exec(
             "\
 def f(self, x):
@@ -27680,7 +27680,7 @@ def f(self, x):
     }
 
     #[test]
-    fn test_typed_except_keeps_post_handler_load_fast_borrow() {
+    fn typed_except_keeps_post_handler_load_fast_borrow() {
         let code = compile_exec(
             "\
 def f(self):
@@ -27714,7 +27714,7 @@ def f(self):
     }
 
     #[test]
-    fn test_bare_except_terminal_handler_store_subscr_tail_uses_strong_loads() {
+    fn bare_except_terminal_handler_store_subscr_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(g, cache, filename, mtime, result):
@@ -27765,7 +27765,7 @@ def f(g, cache, filename, mtime, result):
     }
 
     #[test]
-    fn test_while_true_try_else_break_tail_uses_strong_loads() {
+    fn while_true_try_else_break_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(path, prefix, self, cache, read, E, stat):
@@ -27824,7 +27824,7 @@ def f(path, prefix, self, cache, read, E, stat):
     }
 
     #[test]
-    fn test_except_handler_resume_return_call_tail_keeps_borrow() {
+    fn except_handler_resume_return_call_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(class_cache, cls, KeyError, make, obj, lock, ctx):
@@ -27884,7 +27884,7 @@ def f(class_cache, cls, KeyError, make, obj, lock, ctx):
     }
 
     #[test]
-    fn test_typed_except_named_handler_closure_tail_keeps_borrows() {
+    fn typed_except_named_handler_closure_tail_keeps_borrows() {
         let code = compile_exec(
             "\
 def f(self):
@@ -27938,7 +27938,7 @@ def f(self):
     }
 
     #[test]
-    fn test_named_terminal_raise_handler_keeps_return_pair_borrowed() {
+    fn named_terminal_raise_handler_keeps_return_pair_borrowed() {
         let code = compile_exec(
             "\
 def f(factory, worker_json, test_name, stdout, E):
@@ -27971,7 +27971,7 @@ def f(factory, worker_json, test_name, stdout, E):
     }
 
     #[test]
-    fn test_conditional_typed_except_return_join_keeps_borrow() {
+    fn conditional_typed_except_return_join_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(cond, obj, xs, E):
@@ -28023,7 +28023,7 @@ def f(cond, obj, xs, E):
     }
 
     #[test]
-    fn test_typed_except_pass_resume_store_subscr_tail_keeps_borrows() {
+    fn typed_except_pass_resume_store_subscr_tail_keeps_borrows() {
         let code = compile_exec(
             "\
 def f(self, sys, KeyError):
@@ -28071,7 +28071,7 @@ def f(self, sys, KeyError):
     }
 
     #[test]
-    fn test_reraising_typed_except_deopts_post_handler_loads() {
+    fn reraising_typed_except_deopts_post_handler_loads() {
         let code = compile_exec(
             "\
 def f(x, os, self, pid, exitcode):
@@ -28125,7 +28125,7 @@ def f(x, os, self, pid, exitcode):
     }
 
     #[test]
-    fn test_reraising_outer_handler_keeps_explicit_raise_call_arg_borrow() {
+    fn reraising_outer_handler_keeps_explicit_raise_call_arg_borrow() {
         let code = compile_exec(
             "\
 def f(file, os, stat, errno, self, fd):
@@ -28173,7 +28173,7 @@ def f(file, os, stat, errno, self, fd):
     }
 
     #[test]
-    fn test_reraising_except_loop_backedge_keeps_loop_header_borrow() {
+    fn reraising_except_loop_backedge_keeps_loop_header_borrow() {
         let code = compile_exec(
             "\
 def f(self, tag, expect_bye):
@@ -28229,7 +28229,7 @@ def f(self, tag, expect_bye):
     }
 
     #[test]
-    fn test_protected_store_break_handler_deopts_bool_guard_tail() {
+    fn protected_store_break_handler_deopts_bool_guard_tail() {
         let code = compile_exec(
             "\
 def f(self, size):
@@ -28281,7 +28281,7 @@ def f(self, size):
     }
 
     #[test]
-    fn test_assertion_success_join_keeps_following_debug_tail_borrowed() {
+    fn assertion_success_join_keeps_following_debug_tail_borrowed() {
         let code = compile_exec(
             "\
 def f(self, typ, dat):
@@ -28343,7 +28343,7 @@ def f(self, typ, dat):
     }
 
     #[test]
-    fn test_multi_protected_method_call_terminal_handler_keeps_try_body_borrows() {
+    fn multi_protected_method_call_terminal_handler_keeps_try_body_borrows() {
         let code = compile_exec(
             "\
 def f(self, literal):
@@ -28407,7 +28407,7 @@ def f(self, literal):
     }
 
     #[test]
-    fn test_dunder_debug_constant_false_if_deopts_tail_borrow() {
+    fn dunder_debug_constant_false_if_deopts_tail_borrow() {
         let code = compile_exec(
             "\
 def f(self):
@@ -28441,7 +28441,7 @@ def f(self):
     }
 
     #[test]
-    fn test_constant_slice_folds_constant_bounds() {
+    fn constant_slice_folds_constant_bounds() {
         let code = compile_exec(
             "\
 def f(obj):
@@ -28490,7 +28490,7 @@ def f(obj):
     }
 
     #[test]
-    fn test_negative_step_slice_uses_build_slice() {
+    fn negative_step_slice_uses_build_slice() {
         let code = compile_exec(
             "\
 def f(obj):
@@ -28524,7 +28524,7 @@ def f(obj):
     }
 
     #[test]
-    fn test_slice_none_bounds_and_build_slice_use_slice_location_like_cpython() {
+    fn slice_none_bounds_and_build_slice_use_slice_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(obj, step):
@@ -28564,7 +28564,7 @@ def f(obj, step):
     }
 
     #[test]
-    fn test_bool_int_binop_constants_fold() {
+    fn bool_int_binop_constants_fold() {
         let code = compile_exec(
             "\
 def f():
@@ -28615,7 +28615,7 @@ def g():
     }
 
     #[test]
-    fn test_double_not_expression_folds_to_bool_conversion() {
+    fn double_not_expression_folds_to_bool_conversion() {
         let code = compile_exec(
             "\
 def f(x):
@@ -28645,7 +28645,7 @@ def f(x):
     }
 
     #[test]
-    fn test_tuple_bound_slice_uses_two_part_slice_path() {
+    fn tuple_bound_slice_uses_two_part_slice_path() {
         let code = compile_exec(
             "\
 def f(obj):
@@ -28677,7 +28677,7 @@ def f(obj):
     }
 
     #[test]
-    fn test_exception_cleanup_jump_to_return_is_inlined() {
+    fn exception_cleanup_jump_to_return_is_inlined() {
         let code = compile_exec(
             "\
 def f(names, cls):
@@ -28702,7 +28702,7 @@ def f(names, cls):
     }
 
     #[test]
-    fn test_except_break_preserves_plain_jump_when_inlining_no_lineno_tail() {
+    fn except_break_preserves_plain_jump_when_inlining_no_lineno_tail() {
         let code = compile_exec(
             "\
 def f(compiler_so, cc_args):
@@ -28752,7 +28752,7 @@ def f(compiler_so, cc_args):
     }
 
     #[test]
-    fn test_nested_with_bare_except_keeps_handler_cleanup_before_following_code() {
+    fn nested_with_bare_except_keeps_handler_cleanup_before_following_code() {
         let code = compile_exec(
             "\
 def f(cm, self):
@@ -28797,7 +28797,7 @@ def f(cm, self):
     }
 
     #[test]
-    fn test_try_else_for_cleanup_drops_redundant_jump_nop() {
+    fn try_else_for_cleanup_drops_redundant_jump_nop() {
         let code = compile_exec(
             "\
 def f(self, xs, ys, cm1, cm2):
@@ -28864,7 +28864,7 @@ def f(self, xs, ys, cm1, cm2):
     }
 
     #[test]
-    fn test_non_none_final_return_is_not_duplicated() {
+    fn non_none_final_return_is_not_duplicated() {
         let code = compile_exec(
             "\
 def f(p, s):
@@ -28906,7 +28906,7 @@ def f(p, s):
     }
 
     #[test]
-    fn test_for_return_unary_constant_preserves_value_over_iterator_cleanup() {
+    fn for_return_unary_constant_preserves_value_over_iterator_cleanup() {
         let code = compile_exec(
             "\
 def f(xs):
@@ -28938,7 +28938,7 @@ def f(xs):
     }
 
     #[test]
-    fn test_try_else_if_return_keeps_conditional_target_nop() {
+    fn try_else_if_return_keeps_conditional_target_nop() {
         let code = compile_exec(
             "\
 def f(cond):
@@ -28979,7 +28979,7 @@ def f(cond):
     }
 
     #[test]
-    fn test_try_else_nested_if_return_drops_inner_conditional_target_nop() {
+    fn try_else_nested_if_return_drops_inner_conditional_target_nop() {
         let code = compile_exec(
             "\
 def f(obj, Sig):
@@ -29034,7 +29034,7 @@ def f(obj, Sig):
     }
 
     #[test]
-    fn test_try_else_nested_final_if_return_drops_nested_conditional_target_nop() {
+    fn try_else_nested_final_if_return_drops_nested_conditional_target_nop() {
         let code = compile_exec(
             "\
 def f(cond, outer):
@@ -29074,7 +29074,7 @@ def f(cond, outer):
     }
 
     #[test]
-    fn test_named_except_conditional_branch_duplicates_cleanup_return() {
+    fn named_except_conditional_branch_duplicates_cleanup_return() {
         let code = compile_exec(
             "\
 def f(self):
@@ -29117,7 +29117,7 @@ def f(self):
     }
 
     #[test]
-    fn test_named_except_conditional_before_explicit_return_shares_cleanup_return() {
+    fn named_except_conditional_before_explicit_return_shares_cleanup_return() {
         let code = compile_exec(
             "\
 def f(onerror, err, OSError):
@@ -29161,7 +29161,7 @@ def f(onerror, err, OSError):
     }
 
     #[test]
-    fn test_named_except_boolop_condition_shares_cleanup_return() {
+    fn named_except_boolop_condition_shares_cleanup_return() {
         let code = compile_exec(
             "\
 def f(self, module_name, ModuleNotFoundError):
@@ -29205,7 +29205,7 @@ def f(self, module_name, ModuleNotFoundError):
     }
 
     #[test]
-    fn test_listcomp_cleanup_tail_keeps_split_store_fast_pair() {
+    fn listcomp_cleanup_tail_keeps_split_store_fast_pair() {
         let code = compile_exec(
             "\
 def f(escaped_string, quote_types):
@@ -29243,7 +29243,7 @@ def f(escaped_string, quote_types):
     }
 
     #[test]
-    fn test_dictcomp_cleanup_tail_keeps_split_store_fast_pair() {
+    fn dictcomp_cleanup_tail_keeps_split_store_fast_pair() {
         let code = compile_exec(
             "\
 def f(obj, g):
@@ -29280,7 +29280,7 @@ def f(obj, g):
     }
 
     #[test]
-    fn test_static_swap_triple_assign_keeps_store_fast_store_fast() {
+    fn static_swap_triple_assign_keeps_store_fast_store_fast() {
         let code = compile_exec(
             "\
 def f(x, y, z):
@@ -29312,7 +29312,7 @@ def f(x, y, z):
     }
 
     #[test]
-    fn test_static_swap_duplicate_pair_eliminates_swap() {
+    fn static_swap_duplicate_pair_eliminates_swap() {
         let code = compile_exec(
             "\
 def f(x, y):
@@ -29341,7 +29341,7 @@ def f(x, y):
     }
 
     #[test]
-    fn test_static_swap_duplicate_prefix_eliminates_swap() {
+    fn static_swap_duplicate_prefix_eliminates_swap() {
         let code = compile_exec(
             "\
 def f(x, y, z):
@@ -29373,7 +29373,7 @@ def f(x, y, z):
     }
 
     #[test]
-    fn test_constant_if_expression_stmt_in_loop_removes_empty_body() {
+    fn constant_if_expression_stmt_in_loop_removes_empty_body() {
         let code = compile_exec(
             "\
 def f(x):
@@ -29397,7 +29397,7 @@ def f(x):
     }
 
     #[test]
-    fn test_if_expression_in_jump_context_skips_constant_true_arm_load() {
+    fn if_expression_in_jump_context_skips_constant_true_arm_load() {
         let code = compile_exec(
             "\
 def f():
@@ -29420,7 +29420,7 @@ def f():
     }
 
     #[test]
-    fn test_with_suppress_tail_duplicates_final_return_none() {
+    fn with_suppress_tail_duplicates_final_return_none() {
         let code = compile_exec(
             "\
 def f(cm, cond):
@@ -29454,7 +29454,7 @@ def f(cm, cond):
     }
 
     #[test]
-    fn test_with_conditional_bare_return_keeps_return_line_nop_before_exit_cleanup() {
+    fn with_conditional_bare_return_keeps_return_line_nop_before_exit_cleanup() {
         let code = compile_exec(
             "\
 def f(cm, registry, altkey):
@@ -29493,7 +29493,7 @@ def f(cm, registry, altkey):
     }
 
     #[test]
-    fn test_multiline_nested_with_return_finally_keeps_inner_cleanup_anchor_nop() {
+    fn multiline_nested_with_return_finally_keeps_inner_cleanup_anchor_nop() {
         let code = compile_exec(
             "\
 def f(a, b, path):
@@ -29536,7 +29536,7 @@ def f(a, b, path):
     }
 
     #[test]
-    fn test_with_return_value_uses_context_expr_location_like_cpython() {
+    fn with_return_value_uses_context_expr_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(cm, func, args, kwds):
@@ -29567,7 +29567,7 @@ def f(cm, func, args, kwds):
     }
 
     #[test]
-    fn test_async_with_return_value_uses_context_expr_location_like_cpython() {
+    fn async_with_return_value_uses_context_expr_location_like_cpython() {
         let code = compile_exec(
             "\
 async def f(cm, func, args, kwds):
@@ -29598,7 +29598,7 @@ async def f(cm, func, args, kwds):
     }
 
     #[test]
-    fn test_try_finally_conditional_return_duplicates_finally_exit_return() {
+    fn try_finally_conditional_return_duplicates_finally_exit_return() {
         let code = compile_exec(
             "\
 def f(flag, data, callback):
@@ -29630,7 +29630,7 @@ def f(flag, data, callback):
     }
 
     #[test]
-    fn test_named_except_conditional_cleanup_is_inlined_per_branch() {
+    fn named_except_conditional_cleanup_is_inlined_per_branch() {
         let code = compile_exec(
             "\
 def f(self, logger):
@@ -29677,7 +29677,7 @@ def f(self, logger):
     }
 
     #[test]
-    fn test_try_finally_exception_path_duplicates_conditional_reraise() {
+    fn try_finally_exception_path_duplicates_conditional_reraise() {
         let code = compile_exec(
             "\
 def f(flag, callback):
@@ -29707,7 +29707,7 @@ def f(flag, callback):
     }
 
     #[test]
-    fn test_genexpr_compare_header_uses_store_fast_load_fast_like_cpython() {
+    fn genexpr_compare_header_uses_store_fast_load_fast_like_cpython() {
         let code = compile_exec(
             "\
 def f(it):
@@ -29738,7 +29738,7 @@ def f(it):
     }
 
     #[test]
-    fn test_fstring_adjacent_literals_are_merged() {
+    fn fstring_adjacent_literals_are_merged() {
         let code = compile_exec(
             "\
 def f(cls, proto):
@@ -29780,7 +29780,7 @@ def f(cls, proto):
     }
 
     #[test]
-    fn test_literal_only_fstring_statement_keeps_const_like_cpython() {
+    fn literal_only_fstring_statement_keeps_const_like_cpython() {
         let code = compile_exec(
             "\
 def f():
@@ -29799,7 +29799,7 @@ def f():
     }
 
     #[test]
-    fn test_empty_fstring_literals_are_elided_around_interpolation() {
+    fn empty_fstring_literals_are_elided_around_interpolation() {
         let code = compile_exec(
             "\
 def f(x):
@@ -29837,7 +29837,7 @@ def f(x):
     }
 
     #[test]
-    fn test_large_fstring_uses_join_list_like_cpython() {
+    fn large_fstring_uses_join_list_like_cpython() {
         let mut source = String::from("def f(x):\n    return f\"");
         for _ in 0..=STACK_USE_GUIDELINE {
             source.push_str("{x}");
@@ -29879,7 +29879,7 @@ def f(x):
     }
 
     #[test]
-    fn test_large_power_is_not_constant_folded() {
+    fn large_power_is_not_constant_folded() {
         let code = compile_exec("x = 2**100\n");
 
         assert!(code.instructions.iter().any(|unit| match unit.op {
@@ -29891,7 +29891,7 @@ def f(x):
     }
 
     #[test]
-    fn test_string_and_bytes_binops_constant_fold_like_cpython() {
+    fn string_and_bytes_binops_constant_fold_like_cpython() {
         let code = compile_exec(
             "\
 x = b'\\\\' + b'u1881'\n\
@@ -29919,7 +29919,7 @@ y = 103 * 'a' + 'x'\n",
     }
 
     #[test]
-    fn test_float_floor_division_constant_folds_like_cpython() {
+    fn float_floor_division_constant_folds_like_cpython() {
         let code = compile_exec(
             "\
 x = 1.0 // 0.1\n\
@@ -29951,7 +29951,7 @@ z = 1e300 * 1e300 * 0\n",
     }
 
     #[test]
-    fn test_float_power_overflow_constant_does_not_fold() {
+    fn float_power_overflow_constant_does_not_fold() {
         let code = compile_exec("x = 1e300 ** 2\n");
 
         assert!(
@@ -29967,7 +29967,7 @@ z = 1e300 * 1e300 * 0\n",
     }
 
     #[test]
-    fn test_large_string_and_bytes_binops_constant_fold_like_cpython() {
+    fn large_string_and_bytes_binops_constant_fold_like_cpython() {
         let code = compile_exec(
             r#"
 encoded = b'\xff\xfe\x00\x00' + b'\x00\x00\x01\x00' * 1024
@@ -29994,7 +29994,7 @@ text = '\U00010000' * 1024
     }
 
     #[test]
-    fn test_constant_string_subscript_folds_inside_collection() {
+    fn constant_string_subscript_folds_inside_collection() {
         let code = compile_exec(
             "\
 values = [item for item in [r\"\\\\'a\\\\'\", r\"\\t3\", r\"\\\\\"[0]]]\n",
@@ -30017,7 +30017,7 @@ values = [item for item in [r\"\\\\'a\\\\'\", r\"\\t3\", r\"\\\\\"[0]]]\n",
     }
 
     #[test]
-    fn test_constant_string_subscript_with_surrogate_skips_lossy_fold() {
+    fn constant_string_subscript_with_surrogate_skips_lossy_fold() {
         let code = compile_exec("value = \"\\ud800\"[0]\n");
 
         assert!(
@@ -30034,7 +30034,7 @@ values = [item for item in [r\"\\\\'a\\\\'\", r\"\\t3\", r\"\\\\\"[0]]]\n",
     }
 
     #[test]
-    fn test_constant_subscript_folds_in_load_context() {
+    fn constant_subscript_folds_in_load_context() {
         let cases = [
             ("value = (1, 2, 3)[0]\n", Some(BigInt::from(1)), None),
             ("value = b\"abc\"[0]\n", Some(BigInt::from(97)), None),
@@ -30085,7 +30085,7 @@ values = [item for item in [r\"\\\\'a\\\\'\", r\"\\t3\", r\"\\\\\"[0]]]\n",
     }
 
     #[test]
-    fn test_constant_subscript_registers_source_const_before_result_like_cpython() {
+    fn constant_subscript_registers_source_const_before_result_like_cpython() {
         let code = compile_exec("value = 'string'[3]\n");
         let source_index = code
             .constants
@@ -30108,7 +30108,7 @@ values = [item for item in [r\"\\\\'a\\\\'\", r\"\\t3\", r\"\\\\\"[0]]]\n",
     }
 
     #[test]
-    fn test_constant_slice_subscript_folds_in_load_context() {
+    fn constant_slice_subscript_folds_in_load_context() {
         let code = compile_exec(
             "\
 a = 'hello'[:4]\n\
@@ -30149,7 +30149,7 @@ c = (1, 2, 3)[:2]\n",
     }
 
     #[test]
-    fn test_list_of_constant_tuples_uses_list_extend() {
+    fn list_of_constant_tuples_uses_list_extend() {
         let code = compile_exec(
             "\
 deprecated_cases = [('a', 'b'), ('c', 'd'), ('e', 'f'), ('g', 'h'), ('i', 'j')]
@@ -30165,7 +30165,7 @@ deprecated_cases = [('a', 'b'), ('c', 'd'), ('e', 'f'), ('g', 'h'), ('i', 'j')]
     }
 
     #[test]
-    fn test_large_list_of_unary_constants_uses_list_extend() {
+    fn large_list_of_unary_constants_uses_list_extend() {
         let code = compile_exec(
             "\
 values = [-1, not True, ~0, +True, 5]
@@ -30192,7 +30192,7 @@ values = [-1, not True, ~0, +True, 5]
     }
 
     #[test]
-    fn test_outer_unary_after_binop_folds_before_list_folding() {
+    fn outer_unary_after_binop_folds_before_list_folding() {
         let code = compile_exec(
             "\
 values = [2.0**53, -0.5, -2.0**-54]
@@ -30225,7 +30225,7 @@ values = [2.0**53, -0.5, -2.0**-54]
     }
 
     #[test]
-    fn test_negative_integer_power_folds_to_float_constant() {
+    fn negative_integer_power_folds_to_float_constant() {
         let code = compile_exec("value = -3.0 * 2**(-333)\n");
 
         assert!(
@@ -30244,7 +30244,7 @@ values = [2.0**53, -0.5, -2.0**-54]
     }
 
     #[test]
-    fn test_complex_power_constants_fold_like_cpython() {
+    fn complex_power_constants_fold_like_cpython() {
         let code = compile_exec(
             "\
 one = 3j ** 0j
@@ -30271,7 +30271,7 @@ zero = 0j ** 2
     }
 
     #[test]
-    fn test_folded_nan_constants_are_not_deduplicated_like_cpython() {
+    fn folded_nan_constants_are_not_deduplicated_like_cpython() {
         let code = compile_exec(
             "\
 def f():
@@ -30294,7 +30294,7 @@ def f():
     }
 
     #[test]
-    fn test_zero_complex_power_exception_constants_do_not_fold() {
+    fn zero_complex_power_exception_constants_do_not_fold() {
         let code = compile_exec("value = 0j ** (3 - 2j)\n");
 
         assert!(
@@ -30307,7 +30307,7 @@ def f():
     }
 
     #[test]
-    fn test_large_constant_list_keeps_streaming_build() {
+    fn large_constant_list_keeps_streaming_build() {
         let source = format!(
             "values = [{}]\n",
             (0..31)
@@ -30335,7 +30335,7 @@ def f():
     }
 
     #[test]
-    fn test_large_constant_tuple_stream_folds_to_tuple_const() {
+    fn large_constant_tuple_stream_folds_to_tuple_const() {
         let source = format!(
             "values = ({},)\n",
             (0..31)
@@ -30362,7 +30362,7 @@ def f():
     }
 
     #[test]
-    fn test_annotation_closure_uses_format_varname() {
+    fn annotation_closure_uses_format_varname() {
         let code = compile_exec(
             "\
 class C:
@@ -30379,7 +30379,7 @@ class C:
     }
 
     #[test]
-    fn test_non_simple_class_annotation_is_not_deferred_like_cpython() {
+    fn non_simple_class_annotation_is_not_deferred_like_cpython() {
         let code = compile_exec(
             "\
 class C:
@@ -30397,7 +30397,7 @@ class C:
     }
 
     #[test]
-    fn test_non_simple_annotation_only_consumes_symbol_table_cursor() {
+    fn non_simple_annotation_only_consumes_symbol_table_cursor() {
         let code = compile_exec(
             "\
 class C:
@@ -30426,7 +30426,7 @@ class C:
     }
 
     #[test]
-    fn test_type_param_evaluator_uses_dot_format_varname() {
+    fn type_param_evaluator_uses_dot_format_varname() {
         let code = compile_exec(
             "\
 class C[T: int]:
@@ -30443,7 +30443,7 @@ class C[T: int]:
     }
 
     #[test]
-    fn test_generic_class_double_star_bases_use_tuple_ex_call_path() {
+    fn generic_class_double_star_bases_use_tuple_ex_call_path() {
         let code = compile_exec(
             "\
 def f(Base, kwargs):
@@ -30482,7 +30482,7 @@ def f(Base, kwargs):
     }
 
     #[test]
-    fn test_generic_function_defaults_call_type_params_like_cpython() {
+    fn generic_function_defaults_call_type_params_like_cpython() {
         let code = compile_exec(
             "\
 def func[T](a: T = 'a', *, b: T = 'b'):
@@ -30529,7 +30529,7 @@ def func[T](a: T = 'a', *, b: T = 'b'):
     }
 
     #[test]
-    fn test_generic_function_type_params_varnames_include_defaults_like_cpython() {
+    fn generic_function_type_params_varnames_include_defaults_like_cpython() {
         let code = compile_exec(
             "\
 def func[T]():
@@ -30550,7 +30550,7 @@ def func[T]():
     }
 
     #[test]
-    fn test_class_type_param_bound_prefers_classdict_over_outer_function_local() {
+    fn class_type_param_bound_prefers_classdict_over_outer_function_local() {
         let code = compile_exec(
             "\
 def f(self):
@@ -30610,7 +30610,7 @@ def f(self):
     }
 
     #[test]
-    fn test_class_type_param_bound_respects_class_global_over_outer_function_local() {
+    fn class_type_param_bound_respects_class_global_over_outer_function_local() {
         let code = compile_exec(
             "\
 def f(self):
@@ -30654,7 +30654,7 @@ def f(self):
     }
 
     #[test]
-    fn test_generic_type_alias_in_class_does_not_capture_module_name() {
+    fn generic_type_alias_in_class_does_not_capture_module_name() {
         let code = compile_exec(
             r#"
 T = U = "global"
@@ -30725,7 +30725,7 @@ class C:
     }
 
     #[test]
-    fn test_nested_generic_class_base_child_free_keeps_classdict_lookup() {
+    fn nested_generic_class_base_child_free_keeps_classdict_lookup() {
         for (child_name, base_expr) in [
             ("<genexpr>", "make_base(T for _ in (1,))"),
             ("<listcomp>", "make_base([T for _ in (1,)])"),
@@ -30775,7 +30775,7 @@ class C[T]:
     }
 
     #[test]
-    fn test_class_annotation_global_resolution_matches_cpython() {
+    fn class_annotation_global_resolution_matches_cpython() {
         let class_global = compile_exec(
             "\
 X = 'global'
@@ -30826,7 +30826,7 @@ def f():
     }
 
     #[test]
-    fn test_constant_tuple_binops_fold_like_cpython() {
+    fn constant_tuple_binops_fold_like_cpython() {
         let code = compile_exec("value = (1,) * 17 + ('spam',)\n");
 
         assert!(
@@ -30849,7 +30849,7 @@ def f():
     }
 
     #[test]
-    fn test_tuple_not_keeps_to_bool_unary_not_like_cpython() {
+    fn tuple_not_keeps_to_bool_unary_not_like_cpython() {
         let code = compile_exec(
             "\
 def f():
@@ -30878,7 +30878,7 @@ def f():
     }
 
     #[test]
-    fn test_tuple_if_test_keeps_to_bool_jump_like_cpython() {
+    fn tuple_if_test_keeps_to_bool_jump_like_cpython() {
         let code = compile_exec(
             "\
 def f():
@@ -30909,7 +30909,7 @@ def f():
     }
 
     #[test]
-    fn test_constant_list_iterable_uses_tuple() {
+    fn constant_list_iterable_uses_tuple() {
         let code = compile_exec(
             "\
 def f():
@@ -30942,7 +30942,7 @@ def f():
     }
 
     #[test]
-    fn test_constant_list_iterable_preserves_cpython_const_order() {
+    fn constant_list_iterable_preserves_cpython_const_order() {
         let code = compile_exec(
             "\
 def f():
@@ -30975,7 +30975,7 @@ def f():
     }
 
     #[test]
-    fn test_try_except_folded_tuple_consts_follow_cpython_block_order() {
+    fn try_except_folded_tuple_consts_follow_cpython_block_order() {
         let code = compile_exec(
             "\
 def f(macrelease):
@@ -31020,7 +31020,7 @@ def f(macrelease):
     }
 
     #[test]
-    fn test_small_set_membership_folds_before_later_unary_const_like_cpython() {
+    fn small_set_membership_folds_before_later_unary_const_like_cpython() {
         let code = compile_exec(
             r#"
 def f(method, n):
@@ -31053,7 +31053,7 @@ def f(method, n):
     }
 
     #[test]
-    fn test_boolop_const_order_keeps_cpython_codegen_constants() {
+    fn boolop_const_order_keeps_cpython_codegen_constants() {
         let code = compile_exec(
             "\
 def or_false(x):
@@ -31130,7 +31130,7 @@ def tuple_or_tuple():
     }
 
     #[test]
-    fn test_lambda_without_body_constants_keeps_none_like_cpython() {
+    fn lambda_without_body_constants_keeps_none_like_cpython() {
         let code = compile_exec("f = lambda x: x");
         let lambda = find_code(&code, "<lambda>").expect("missing lambda code");
         let constants = lambda.constants.iter().collect::<Vec<_>>();
@@ -31143,7 +31143,7 @@ def tuple_or_tuple():
     }
 
     #[test]
-    fn test_call_function_ex_empty_args_tuple_is_folded_late_like_cpython() {
+    fn call_function_ex_empty_args_tuple_is_folded_late_like_cpython() {
         let code = compile_exec(
             "\
 def f(g, kwargs, ns):
@@ -31164,7 +31164,7 @@ def f(g, kwargs, ns):
     }
 
     #[test]
-    fn test_large_constant_list_iterable_keeps_streaming_list_build() {
+    fn large_constant_list_iterable_keeps_streaming_list_build() {
         let source = format!(
             "def f():\n    for x in [{}]:\n        pass\n",
             (0..=STACK_USE_GUIDELINE)
@@ -31192,7 +31192,7 @@ def f(g, kwargs, ns):
     }
 
     #[test]
-    fn test_constant_set_iterable_uses_frozenset_const() {
+    fn constant_set_iterable_uses_frozenset_const() {
         let code = compile_exec(
             "\
 def f():
@@ -31222,7 +31222,7 @@ def f():
     }
 
     #[test]
-    fn test_constant_list_membership_uses_tuple_const() {
+    fn constant_list_membership_uses_tuple_const() {
         let code = compile_exec(
             "\
 f = lambda x: x in [1, 2, 3]
@@ -31252,7 +31252,7 @@ f = lambda x: x in [1, 2, 3]
     }
 
     #[test]
-    fn test_small_constant_set_membership_uses_frozenset_const() {
+    fn small_constant_set_membership_uses_frozenset_const() {
         let code = compile_exec(
             "\
 f = lambda x: x in {0}
@@ -31275,7 +31275,7 @@ f = lambda x: x in {0}
     }
 
     #[test]
-    fn test_nonconstant_list_membership_uses_tuple() {
+    fn nonconstant_list_membership_uses_tuple() {
         let code = compile_exec(
             "\
 def f(a, b, c, x):
@@ -31305,7 +31305,7 @@ def f(a, b, c, x):
     }
 
     #[test]
-    fn test_unary_not_membership_and_identity_invert_compare_op() {
+    fn unary_not_membership_and_identity_invert_compare_op() {
         let code = compile_exec(
             "\
 def f(a, b, d):
@@ -31335,7 +31335,7 @@ def f(a, b, d):
     }
 
     #[test]
-    fn test_starred_tuple_iterable_drops_list_to_tuple_before_get_iter() {
+    fn starred_tuple_iterable_drops_list_to_tuple_before_get_iter() {
         let code = compile_exec(
             "\
 def f(a, b, c):
@@ -31358,7 +31358,7 @@ def f(a, b, c):
     }
 
     #[test]
-    fn test_comprehension_single_list_iterable_uses_tuple() {
+    fn comprehension_single_list_iterable_uses_tuple() {
         let code = compile_exec(
             "\
 def g():
@@ -31385,7 +31385,7 @@ def g():
     }
 
     #[test]
-    fn test_comprehension_list_iterable_build_uses_iter_location_like_cpython() {
+    fn comprehension_list_iterable_build_uses_iter_location_like_cpython() {
         let code = compile_exec(
             "\
 async def f(i):
@@ -31409,7 +31409,7 @@ async def run_list():
     }
 
     #[test]
-    fn test_comprehension_boolop_iter_get_iter_uses_iter_location_like_cpython() {
+    fn comprehension_boolop_iter_get_iter_uses_iter_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(self):
@@ -31438,7 +31438,7 @@ def f(self):
     }
 
     #[test]
-    fn test_inlined_comprehension_backedges_use_element_location_like_cpython() {
+    fn inlined_comprehension_backedges_use_element_location_like_cpython() {
         let code = compile_exec(
             "\
 async def f(i):
@@ -31462,7 +31462,7 @@ async def run_list():
     }
 
     #[test]
-    fn test_nested_dict_comprehension_outer_backedge_uses_key_location_like_cpython() {
+    fn nested_dict_comprehension_outer_backedge_uses_key_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(items):
@@ -31495,7 +31495,7 @@ def f(items):
     }
 
     #[test]
-    fn test_inlined_comprehension_filter_jump_uses_element_location_like_cpython() {
+    fn inlined_comprehension_filter_jump_uses_element_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(self):
@@ -31524,7 +31524,7 @@ def f(self):
     }
 
     #[test]
-    fn test_inlined_comprehension_ifexp_guard_jump_uses_body_location_like_cpython() {
+    fn inlined_comprehension_ifexp_guard_jump_uses_body_location_like_cpython() {
         let code = compile_exec(
             "\
 def f(fields):
@@ -31553,7 +31553,7 @@ def f(fields):
     }
 
     #[test]
-    fn test_inlined_async_comprehension_end_async_for_uses_comprehension_location_like_cpython() {
+    fn inlined_async_comprehension_end_async_for_uses_comprehension_location_like_cpython() {
         let code = compile_exec(
             "\
 async def f(it):
@@ -31577,7 +31577,7 @@ async def run_list():
     }
 
     #[test]
-    fn test_async_for_anext_sequence_uses_statement_location_like_cpython() {
+    fn async_for_anext_sequence_uses_statement_location_like_cpython() {
         let code = compile_exec(
             "\
 async def f(source, buffer):
@@ -31599,7 +31599,7 @@ async def f(source, buffer):
     }
 
     #[test]
-    fn test_nested_comprehension_list_iterable_uses_tuple() {
+    fn nested_comprehension_list_iterable_uses_tuple() {
         let code = compile_exec(
             "\
 def f():
@@ -31626,7 +31626,7 @@ def f():
     }
 
     #[test]
-    fn test_comprehension_singleton_sub_iter_uses_assignment_idiom() {
+    fn comprehension_singleton_sub_iter_uses_assignment_idiom() {
         let code = compile_exec(
             "\
 def f():
@@ -31667,7 +31667,7 @@ def f():
     }
 
     #[test]
-    fn test_constant_comprehension_iterable_with_unary_int_uses_tuple_const() {
+    fn constant_comprehension_iterable_with_unary_int_uses_tuple_const() {
         let code = compile_exec(
             "\
 l = lambda : [2 < x for x in [-1, 3, 0]]
@@ -31693,7 +31693,7 @@ l = lambda : [2 < x for x in [-1, 3, 0]]
     }
 
     #[test]
-    fn test_module_scope_listcomp_is_inlined() {
+    fn module_scope_listcomp_is_inlined() {
         let code = compile_exec("values = [i for i in range(3)]\n");
 
         assert!(
@@ -31710,7 +31710,7 @@ l = lambda : [2 < x for x in [-1, 3, 0]]
     }
 
     #[test]
-    fn test_module_scope_dictcomp_is_inlined() {
+    fn module_scope_dictcomp_is_inlined() {
         let code = compile_exec("mapping = {i: i for i in range(3)}\n");
 
         assert!(
@@ -31727,7 +31727,7 @@ l = lambda : [2 < x for x in [-1, 3, 0]]
     }
 
     #[test]
-    fn test_async_dictcomp_in_async_function_is_inlined() {
+    fn async_dictcomp_in_async_function_is_inlined() {
         let code = compile_exec(
             "\
 async def f(items):
@@ -31762,7 +31762,7 @@ async def f(items):
     }
 
     #[test]
-    fn test_async_inlined_comprehension_inlines_restore_return_into_end_async_for() {
+    fn async_inlined_comprehension_inlines_restore_return_into_end_async_for() {
         let code = compile_exec(
             "\
 async def f():
@@ -31810,7 +31810,7 @@ async def f():
     }
 
     #[test]
-    fn test_await_cleanup_throw_falls_through_until_cold_reorder() {
+    fn await_cleanup_throw_falls_through_until_cold_reorder() {
         let code = compile_exec(
             "\
 async def f():
@@ -31847,7 +31847,7 @@ async def f():
     }
 
     #[test]
-    fn test_match_async_inlined_comprehension_success_jump_layout() {
+    fn match_async_inlined_comprehension_success_jump_layout() {
         let code = compile_exec(
             "\
 async def f(name_3, name_5):
@@ -31899,7 +31899,7 @@ async def f(name_3, name_5):
     }
 
     #[test]
-    fn test_for_loop_if_return_reorders_continue_backedge_before_exit_body() {
+    fn for_loop_if_return_reorders_continue_backedge_before_exit_body() {
         let code = compile_exec(
             "\
 def f(items, occurrence):
@@ -31948,7 +31948,7 @@ def f(items, occurrence):
     }
 
     #[test]
-    fn test_sync_with_after_async_for_keeps_end_async_for_line_marker() {
+    fn sync_with_after_async_for_keeps_end_async_for_line_marker() {
         let code = compile_exec(
             "\
 async def f(cm, source, tgt):
@@ -31984,7 +31984,7 @@ async def f(cm, source, tgt):
     }
 
     #[test]
-    fn test_genexpr_with_async_comprehension_element_is_async_generator() {
+    fn genexpr_with_async_comprehension_element_is_async_generator() {
         let code = compile_exec(
             "\
 async def f():
@@ -32018,7 +32018,7 @@ async def f():
     }
 
     #[test]
-    fn test_nested_module_scope_dictcomp_symbols_are_local() {
+    fn nested_module_scope_dictcomp_symbols_are_local() {
         let symbol_table = scan_program_symbol_table(
             "\
 deoptmap = {
@@ -32058,7 +32058,7 @@ deoptmap = {
     }
 
     #[test]
-    fn test_nested_module_scope_dictcomp_uses_fast_locals() {
+    fn nested_module_scope_dictcomp_uses_fast_locals() {
         let code = compile_exec(
             "\
 deoptmap = {
@@ -32105,7 +32105,7 @@ deoptmap = {
     }
 
     #[test]
-    fn test_module_scope_inlined_comprehension_keeps_outer_iter_as_name_lookup() {
+    fn module_scope_inlined_comprehension_keeps_outer_iter_as_name_lookup() {
         let code = compile_exec(
             "\
 path_separators = ['/']
@@ -32146,7 +32146,7 @@ _pathseps_with_colon = {f':{s}' for s in path_separators}
     }
 
     #[test]
-    fn test_function_scope_inlined_comprehension_restore_keeps_swap_before_duplicate_store() {
+    fn function_scope_inlined_comprehension_restore_keeps_swap_before_duplicate_store() {
         let code = compile_exec(
             "\
 def f():
@@ -32177,7 +32177,7 @@ def f():
     }
 
     #[test]
-    fn test_inlined_comprehension_namedexpr_target_stays_parent_fast_local() {
+    fn inlined_comprehension_namedexpr_target_stays_parent_fast_local() {
         let code = compile_exec(
             "\
 def f(seq, emit):
@@ -32197,7 +32197,7 @@ def f(seq, emit):
     }
 
     #[test]
-    fn test_inlined_comprehension_namedexpr_varnames_match_cpython_order() {
+    fn inlined_comprehension_namedexpr_varnames_match_cpython_order() {
         let code = compile_exec(
             "\
 def f():
@@ -32216,7 +32216,7 @@ def f():
     }
 
     #[test]
-    fn test_global_namedexpr_in_inlined_comprehension_saves_fast_slot() {
+    fn global_namedexpr_in_inlined_comprehension_saves_fast_slot() {
         let code = compile_exec(
             "\
 def f(seq, value):
@@ -32244,7 +32244,7 @@ def f(seq, value):
     }
 
     #[test]
-    fn test_namedexpr_copy_uses_namedexpr_location_like_cpython() {
+    fn namedexpr_copy_uses_namedexpr_location_like_cpython() {
         let code = compile_exec(
             "\
 def outer():
@@ -32265,7 +32265,7 @@ def outer():
     }
 
     #[test]
-    fn test_genexpr_namedexpr_target_is_cell_not_fast_local() {
+    fn genexpr_namedexpr_target_is_cell_not_fast_local() {
         let code = compile_exec(
             "\
 def f(seq):
@@ -32283,7 +32283,7 @@ def f(seq):
     }
 
     #[test]
-    fn test_public_cellvars_follow_cpython_localsplus_order() {
+    fn public_cellvars_follow_cpython_localsplus_order() {
         let code = compile_exec(
             "\
 def f():
@@ -32308,7 +32308,7 @@ def f():
     }
 
     #[test]
-    fn test_inlined_comprehension_restore_does_not_form_store_fast_load_fast() {
+    fn inlined_comprehension_restore_does_not_form_store_fast_load_fast() {
         let code = compile_exec(
             "\
 def f(e):
@@ -32398,7 +32398,7 @@ def g(datadir):
     }
 
     #[test]
-    fn test_single_mode_folded_multiline_constant_does_not_leave_nops() {
+    fn single_mode_folded_multiline_constant_does_not_leave_nops() {
         let code = compile_single(
             "\
 (-
@@ -32419,7 +32419,7 @@ def g(datadir):
     }
 
     #[test]
-    fn test_folded_multiline_tuple_constant_does_not_leave_operand_nops() {
+    fn folded_multiline_tuple_constant_does_not_leave_operand_nops() {
         let code = compile_exec(
             "\
 values = (
@@ -32441,7 +32441,7 @@ values = (
     }
 
     #[test]
-    fn test_folded_multiline_bytes_binop_does_not_leave_operand_nops() {
+    fn folded_multiline_bytes_binop_does_not_leave_operand_nops() {
         let code = compile_exec(
             "\
 def f(self, out):
@@ -32462,7 +32462,7 @@ def f(self, out):
     }
 
     #[test]
-    fn test_folded_binop_at_branch_body_start_does_not_leave_nop() {
+    fn folded_binop_at_branch_body_start_does_not_leave_nop() {
         let code = compile_exec(
             "\
 def f(sys):
@@ -32495,7 +32495,7 @@ def f(sys):
     }
 
     #[test]
-    fn test_folded_iterable_at_assert_target_does_not_leave_nop() {
+    fn folded_iterable_at_assert_target_does_not_leave_nop() {
         let code = compile_exec(
             r#"
 def f(caches, non_caches):
@@ -32521,7 +32521,7 @@ def f(caches, non_caches):
     }
 
     #[test]
-    fn test_multiline_unpack_target_uses_element_locations() {
+    fn multiline_unpack_target_uses_element_locations() {
         let code = compile_exec(
             "\
 def f(cm):
@@ -32546,7 +32546,7 @@ def f(cm):
     }
 
     #[test]
-    fn test_or_condition_in_jump_context_uses_shared_true_fallthrough() {
+    fn or_condition_in_jump_context_uses_shared_true_fallthrough() {
         let code = compile_exec(
             "\
 def f(lines):
@@ -32581,7 +32581,7 @@ def f(lines):
     }
 
     #[test]
-    fn test_loop_break_bool_chain_reorders_false_path_to_jump_back() {
+    fn loop_break_bool_chain_reorders_false_path_to_jump_back() {
         let code = compile_exec(
             "\
 def f(filters, text, category, module, lineno, defaultaction):
@@ -32624,7 +32624,7 @@ def f(filters, text, category, module, lineno, defaultaction):
     }
 
     #[test]
-    fn test_loop_conditional_body_keeps_duplicate_jump_back_paths() {
+    fn loop_conditional_body_keeps_duplicate_jump_back_paths() {
         let code = compile_exec(
             "\
 def f(new, old):
@@ -32674,7 +32674,7 @@ def f(new, old):
     }
 
     #[test]
-    fn test_try_loop_inner_if_keeps_duplicate_jump_back_paths() {
+    fn try_loop_inner_if_keeps_duplicate_jump_back_paths() {
         let code = compile_exec(
             "\
 def f(config, logging):
@@ -32723,7 +32723,7 @@ def f(config, logging):
     }
 
     #[test]
-    fn test_try_loop_nested_bool_tail_keeps_duplicate_jump_back_paths() {
+    fn try_loop_nested_bool_tail_keeps_duplicate_jump_back_paths() {
         let code = compile_exec(
             "\
 def f(obj, flags, writer, value, Error):
@@ -32773,7 +32773,7 @@ def f(obj, flags, writer, value, Error):
     }
 
     #[test]
-    fn test_nested_continue_shares_backedge_with_fallthrough_body() {
+    fn nested_continue_shares_backedge_with_fallthrough_body() {
         let code = compile_exec(
             "\
 def f(names, show_empty, keywords, args_buffer, args, cls, object, level):
@@ -32836,7 +32836,7 @@ def f(names, show_empty, keywords, args_buffer, args, cls, object, level):
     }
 
     #[test]
-    fn test_line_bearing_loop_if_false_backedge_keeps_body_before_jump_back() {
+    fn line_bearing_loop_if_false_backedge_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\
 def f(self, replacement_pairs):
@@ -32895,7 +32895,7 @@ def f(self, replacement_pairs):
     }
 
     #[test]
-    fn test_branch_local_implicit_continue_keeps_body_before_jump_back() {
+    fn branch_local_implicit_continue_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\
 def f(items, outer, cond, sub, out):
@@ -32954,7 +32954,7 @@ def f(items, outer, cond, sub, out):
     }
 
     #[test]
-    fn test_boolop_continue_deduplicates_marker_jump_back() {
+    fn boolop_continue_deduplicates_marker_jump_back() {
         let code = compile_exec(
             "\
 def f(ws, seen, more_than):
@@ -33006,7 +33006,7 @@ def f(ws, seen, more_than):
     }
 
     #[test]
-    fn test_loop_elif_nested_if_false_backedge_keeps_body_before_jump_back() {
+    fn loop_elif_nested_if_false_backedge_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\
 def f(keys, parse_int, d, ampm, AM, PM):
@@ -33096,7 +33096,7 @@ def f(keys, parse_int, d, ampm, AM, PM):
     }
 
     #[test]
-    fn test_loop_nested_if_before_elif_keeps_body_before_false_backedge() {
+    fn loop_nested_if_before_elif_keeps_body_before_false_backedge() {
         let code = compile_exec(
             "\
 def f(keys, parse_int, found_dict, locale_time):
@@ -33162,7 +33162,7 @@ def f(keys, parse_int, found_dict, locale_time):
     }
 
     #[test]
-    fn test_elif_pass_before_raise_keeps_line_bearing_forward_jump() {
+    fn elif_pass_before_raise_keeps_line_bearing_forward_jump() {
         let code = compile_exec(
             "\
 def f(entries, path, self):
@@ -33215,7 +33215,7 @@ def f(entries, path, self):
     }
 
     #[test]
-    fn test_loop_multiblock_conditional_body_keeps_body_before_jump_back() {
+    fn loop_multiblock_conditional_body_keeps_body_before_jump_back() {
         let code = compile_exec(
             "\
 def f(random, d, f):
@@ -33258,7 +33258,7 @@ def f(random, d, f):
     }
 
     #[test]
-    fn test_loop_not_conditional_body_threads_true_path_to_jump_back() {
+    fn loop_not_conditional_body_threads_true_path_to_jump_back() {
         let code = compile_exec(
             "\
 def f(xs):
@@ -33294,7 +33294,7 @@ def f(xs):
     }
 
     #[test]
-    fn test_loop_not_in_conditional_body_threads_true_path_to_jump_back() {
+    fn loop_not_in_conditional_body_threads_true_path_to_jump_back() {
         let code = compile_exec(
             "\
 def f(native, array):
@@ -33331,7 +33331,7 @@ def f(native, array):
     }
 
     #[test]
-    fn test_while_implicit_continue_body_after_jumpback_for_boolop_call_arg() {
+    fn while_implicit_continue_body_after_jumpback_for_boolop_call_arg() {
         let code = compile_exec(
             "\
 def f(source, state, verbose, nested):
@@ -33375,7 +33375,7 @@ def f(source, state, verbose, nested):
     }
 
     #[test]
-    fn test_multiblock_elif_continue_keeps_next_test_before_backedge() {
+    fn multiblock_elif_continue_keeps_next_test_before_backedge() {
         let code = compile_exec(
             "\
 def f(source, state, verbose, nested, subpatternappend, start, MAXGROUPS):
@@ -33467,7 +33467,7 @@ def f(source, state, verbose, nested, subpatternappend, start, MAXGROUPS):
     }
 
     #[test]
-    fn test_while_scope_exit_body_keeps_line_backedge_before_raise_body() {
+    fn while_scope_exit_body_keeps_line_backedge_before_raise_body() {
         let code = compile_exec(
             "\
 FLAGS = {}
@@ -33562,7 +33562,7 @@ def f(source, state, char):
     }
 
     #[test]
-    fn test_call_body_implicit_continue_keeps_cpython_normalized_forward_jump() {
+    fn call_body_implicit_continue_keeps_cpython_normalized_forward_jump() {
         let code = compile_exec(
             "\
 DIGITS = '0123456789'
@@ -33621,7 +33621,7 @@ def f(s, sget, lappend, addgroup, this, c):
     }
 
     #[test]
-    fn test_empty_if_end_label_preserves_cpython_return_anchor_nop() {
+    fn empty_if_end_label_preserves_cpython_return_anchor_nop() {
         let code = compile_exec(
             "\
 SRE_FLAG_LOCALE = 1
@@ -33669,7 +33669,7 @@ def f(src, flags):
     }
 
     #[test]
-    fn test_nested_except_normal_exit_return_uses_strong_loads() {
+    fn nested_except_normal_exit_return_uses_strong_loads() {
         let code = compile_exec(
             "\
 LITERAL = 1
@@ -33713,7 +33713,7 @@ def f(source, escape):
     }
 
     #[test]
-    fn test_targeted_nop_after_prefix_for_else_uses_strong_for_tail_loads() {
+    fn targeted_nop_after_prefix_for_else_uses_strong_for_tail_loads() {
         let code = compile_exec(
             "\
 LITERAL = 1
@@ -33782,7 +33782,7 @@ def f(items):
     }
 
     #[test]
-    fn test_plain_pass_before_for_tail_keeps_borrows() {
+    fn plain_pass_before_for_tail_keeps_borrows() {
         let code = compile_exec(
             "\
 def f(xs):
@@ -33811,7 +33811,7 @@ def f(xs):
     }
 
     #[test]
-    fn test_targeted_nop_after_return_uses_strong_pair_call_args() {
+    fn targeted_nop_after_return_uses_strong_pair_call_args() {
         let code = compile_exec(
             "\
 def f(x, d, count, inner, hi, w1, lo, w2):
@@ -33863,7 +33863,7 @@ def f(x, d, count, inner, hi, w1, lo, w2):
     }
 
     #[test]
-    fn test_loop_if_pass_uses_line_bearing_jump_back_instead_of_nop() {
+    fn loop_if_pass_uses_line_bearing_jump_back_instead_of_nop() {
         let code = compile_exec(
             "\
 def f(x, y):
@@ -33904,7 +33904,7 @@ def f(x, y):
     }
 
     #[test]
-    fn test_constant_true_while_pass_keeps_loop_header_nop() {
+    fn constant_true_while_pass_keeps_loop_header_nop() {
         let code = compile_exec(
             "\
 def f():
@@ -33936,7 +33936,7 @@ def f():
     }
 
     #[test]
-    fn test_nested_if_shared_jump_back_target_is_duplicated() {
+    fn nested_if_shared_jump_back_target_is_duplicated() {
         let code = compile_exec(
             "\
 def f(s, size, encodeSetO, encodeWhiteSpace):
@@ -33986,7 +33986,7 @@ def f(s, size, encodeSetO, encodeWhiteSpace):
     }
 
     #[test]
-    fn test_exception_cleanup_backedge_target_is_shared() {
+    fn exception_cleanup_backedge_target_is_shared() {
         let code = compile_exec(
             "\
 def f(enum_class, value, Flag, int_type, is_single_bit):
@@ -34050,7 +34050,7 @@ def f(enum_class, value, Flag, int_type, is_single_bit):
     }
 
     #[test]
-    fn test_protected_loop_conditional_keeps_forward_body_entry() {
+    fn protected_loop_conditional_keeps_forward_body_entry() {
         let code = compile_exec(
             "\
 def outer(it, C1):
@@ -34093,7 +34093,7 @@ def outer(it, C1):
     }
 
     #[test]
-    fn test_nested_except_false_path_duplicates_pop_except_jump_back_tail() {
+    fn nested_except_false_path_duplicates_pop_except_jump_back_tail() {
         let code = compile_exec(
             "\
 def f(it, C3):
@@ -34138,7 +34138,7 @@ def f(it, C3):
     }
 
     #[test]
-    fn test_more_nested_except_false_paths_duplicate_all_jump_back_tails() {
+    fn more_nested_except_false_paths_duplicate_all_jump_back_tails() {
         let code = compile_exec(
             "\
 def f(it, C3, C4):
@@ -34192,7 +34192,7 @@ def f(it, C3, C4):
     }
 
     #[test]
-    fn test_no_wraparound_jump_keeps_forward_hop_before_loop_backedge() {
+    fn no_wraparound_jump_keeps_forward_hop_before_loop_backedge() {
         let code = compile_exec(
             "\
 def while_not_chained(a, b, c):
@@ -34227,7 +34227,7 @@ def while_not_chained(a, b, c):
     }
 
     #[test]
-    fn test_nested_while_chained_compare_break_keeps_break_jump_block() {
+    fn nested_while_chained_compare_break_keeps_break_jump_block() {
         let code = compile_exec(
             "\
 def f(start, self, stop, size):
@@ -34271,7 +34271,7 @@ def f(start, self, stop, size):
     }
 
     #[test]
-    fn test_while_break_else_keeps_true_edge_into_forward_break_body() {
+    fn while_break_else_keeps_true_edge_into_forward_break_body() {
         let code = compile_exec(
             "\
 def f(i):
@@ -34310,7 +34310,7 @@ def f(i):
     }
 
     #[test]
-    fn test_nested_if_continue_reorders_false_path_to_loop_backedge() {
+    fn nested_if_continue_reorders_false_path_to_loop_backedge() {
         let code = compile_exec(
             "\
 def f(items, changes):
@@ -34351,7 +34351,7 @@ def f(items, changes):
     }
 
     #[test]
-    fn test_loop_assert_keeps_false_edge_into_raise_body() {
+    fn loop_assert_keeps_false_edge_into_raise_body() {
         let code = compile_exec(
             "\
 def f(bytecode):
@@ -34387,7 +34387,7 @@ def f(bytecode):
     }
 
     #[test]
-    fn test_and_is_not_none_loop_guard_uses_direct_jump_back_false_path() {
+    fn and_is_not_none_loop_guard_uses_direct_jump_back_false_path() {
         let code = compile_exec(
             "\
 def f(code):
@@ -34426,7 +34426,7 @@ def f(code):
     }
 
     #[test]
-    fn test_large_is_not_none_loop_guard_uses_direct_jump_back_false_path() {
+    fn large_is_not_none_loop_guard_uses_direct_jump_back_false_path() {
         let code = compile_exec(
             "\
 def f(cls, _FIELDS, _PARAMS):
@@ -34474,7 +34474,7 @@ def f(cls, _FIELDS, _PARAMS):
     }
 
     #[test]
-    fn test_continue_inside_with_keeps_line_marker_nop_before_exit_cleanup() {
+    fn continue_inside_with_keeps_line_marker_nop_before_exit_cleanup() {
         let code = compile_exec(
             "\
 def f(it):
@@ -34515,7 +34515,7 @@ def f(it):
     }
 
     #[test]
-    fn test_nested_async_with_normal_cleanup_drops_pop_block_nop() {
+    fn nested_async_with_normal_cleanup_drops_pop_block_nop() {
         let code = compile_exec(
             "\
 async def foo():
@@ -34566,7 +34566,7 @@ async def foo():
     }
 
     #[test]
-    fn test_async_with_try_finally_before_outer_sync_with_cleanup_keeps_anchor_nop() {
+    fn async_with_try_finally_before_outer_sync_with_cleanup_keeps_anchor_nop() {
         let code = compile_exec(
             "\
 async def foo(self):
@@ -34612,7 +34612,7 @@ async def foo(self):
     }
 
     #[test]
-    fn test_nested_terminal_with_keeps_outer_cleanup_target_nop() {
+    fn nested_terminal_with_keeps_outer_cleanup_target_nop() {
         let code = compile_exec(
             "\
 def f():
@@ -34648,7 +34648,7 @@ def f():
     }
 
     #[test]
-    fn test_nested_nonterminal_with_drops_outer_cleanup_target_nop() {
+    fn nested_nonterminal_with_drops_outer_cleanup_target_nop() {
         let code = compile_exec(
             "\
 def f():
@@ -34684,7 +34684,7 @@ def f():
     }
 
     #[test]
-    fn test_nested_terminal_with_before_successor_drops_after_block_nop() {
+    fn nested_terminal_with_before_successor_drops_after_block_nop() {
         let code = compile_exec(
             "\
 def f(a, b, c):
@@ -34734,7 +34734,7 @@ def f(a, b, c):
     }
 
     #[test]
-    fn test_try_loop_elif_places_return_before_orelse_tail() {
+    fn try_loop_elif_places_return_before_orelse_tail() {
         let code = compile_exec(
             "\
 def f(source, suggest, tb, s):
@@ -34798,7 +34798,7 @@ def f(source, suggest, tb, s):
     }
 
     #[test]
-    fn test_constant_false_while_else_deopts_post_else_borrows() {
+    fn constant_false_while_else_deopts_post_else_borrows() {
         let code = compile_exec(
             "\
 def f(self):
@@ -34837,7 +34837,7 @@ def f(self):
     }
 
     #[test]
-    fn test_single_unpack_assignment_disables_constant_collection_folding() {
+    fn single_unpack_assignment_disables_constant_collection_folding() {
         let code = compile_exec("a, b, c = 1, 2, 3\n");
 
         assert!(
@@ -34870,7 +34870,7 @@ def f(self):
     }
 
     #[test]
-    fn test_four_item_unpack_assignment_folds_tuple_constant_like_cpython() {
+    fn four_item_unpack_assignment_folds_tuple_constant_like_cpython() {
         let code = compile_exec("a, b, c, d = 1, 2, 3, 4\n");
 
         assert!(
@@ -34900,7 +34900,7 @@ def f(self):
     }
 
     #[test]
-    fn test_chained_unpack_assignment_keeps_constant_collection_folding() {
+    fn chained_unpack_assignment_keeps_constant_collection_folding() {
         let code = compile_exec("(a, b) = c = d = (1, 2)\n");
 
         assert!(
@@ -34926,7 +34926,7 @@ def f(self):
     }
 
     #[test]
-    fn test_constant_true_assert_skips_message_nested_scope() {
+    fn constant_true_assert_skips_message_nested_scope() {
         let code = compile_exec("assert 1, (lambda x: x + 1)\n");
 
         assert_eq!(
@@ -34951,7 +34951,7 @@ def f(self):
     }
 
     #[test]
-    fn test_constant_false_assert_uses_direct_raise_shape() {
+    fn constant_false_assert_uses_direct_raise_shape() {
         let code = compile_exec("assert 0, (lambda x: x + 1)\n");
 
         assert!(
@@ -34990,7 +34990,7 @@ def f(self):
     }
 
     #[test]
-    fn test_constant_unary_positive_and_invert_fold() {
+    fn constant_unary_positive_and_invert_fold() {
         let code = compile_exec("x = +1\nx = ~1\n");
 
         assert!(
@@ -35009,7 +35009,7 @@ def f(self):
     }
 
     #[test]
-    fn test_bool_invert_is_not_const_folded() {
+    fn bool_invert_is_not_const_folded() {
         let code = compile_exec("x = ~True\n");
 
         assert!(
@@ -35025,7 +35025,7 @@ def f(self):
     }
 
     #[test]
-    fn test_optimized_assert_preserves_nested_scope_order() {
+    fn optimized_assert_preserves_nested_scope_order() {
         compile_exec_optimized(
             "\
 class S:
@@ -35039,7 +35039,7 @@ class S:
     }
 
     #[test]
-    fn test_optimized_assert_with_nested_scope_in_first_iter() {
+    fn optimized_assert_with_nested_scope_in_first_iter() {
         // First iterator of a comprehension is evaluated in the enclosing
         // scope, so nested scopes inside it (the generator here) must also
         // be consumed when the assert is optimized away.
@@ -35053,7 +35053,7 @@ def f(items):
     }
 
     #[test]
-    fn test_optimized_assert_with_lambda_defaults() {
+    fn optimized_assert_with_lambda_defaults() {
         // Lambda default values are evaluated in the enclosing scope,
         // so nested scopes inside defaults must be consumed.
         compile_exec_optimized(
@@ -35066,7 +35066,7 @@ def f(items):
     }
 
     #[test]
-    fn test_try_else_nested_scopes_keep_subtable_cursor_aligned() {
+    fn try_else_nested_scopes_keep_subtable_cursor_aligned() {
         let code = compile_exec(
             "\
 try:
@@ -35102,7 +35102,7 @@ else:
     }
 
     #[test]
-    fn test_nested_try_else_multi_resume_join_keeps_strong_load_fast_tail() {
+    fn nested_try_else_multi_resume_join_keeps_strong_load_fast_tail() {
         let code = compile_exec(
             "\
 def f(msg):
@@ -35165,7 +35165,7 @@ def f(msg):
     }
 
     #[test]
-    fn test_protected_conditional_tail_keeps_strong_load_fast() {
+    fn protected_conditional_tail_keeps_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(m, class_name, category, warning_base):
@@ -35215,7 +35215,7 @@ def f(m, class_name, category, warning_base):
     }
 
     #[test]
-    fn test_nonresuming_protected_conditional_tail_keeps_strong_load_fast() {
+    fn nonresuming_protected_conditional_tail_keeps_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(href, parse='xml'):
@@ -35259,7 +35259,7 @@ def f(href, parse='xml'):
     }
 
     #[test]
-    fn test_optional_nonresuming_protected_tail_keeps_borrow() {
+    fn optional_nonresuming_protected_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(b):
@@ -35314,7 +35314,7 @@ def f(b):
     }
 
     #[test]
-    fn test_handled_except_conditional_tail_keeps_borrow() {
+    fn handled_except_conditional_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self):
@@ -35370,7 +35370,7 @@ def f(self):
     }
 
     #[test]
-    fn test_handled_except_else_tail_keeps_borrow() {
+    fn handled_except_else_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, fut=None):
@@ -35434,7 +35434,7 @@ def f(self, fut=None):
     }
 
     #[test]
-    fn test_reraising_handler_with_handled_returns_keeps_borrow() {
+    fn reraising_handler_with_handled_returns_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, fut=None):
@@ -35511,7 +35511,7 @@ def f(self, fut=None):
     }
 
     #[test]
-    fn test_with_protected_conditional_tail_without_exception_match_keeps_borrow() {
+    fn with_protected_conditional_tail_without_exception_match_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, cm, p, platform):
@@ -35561,7 +35561,7 @@ def f(self, cm, p, platform):
     }
 
     #[test]
-    fn test_listcomp_cleanup_predecessor_does_not_deopt_following_conditional_tail() {
+    fn listcomp_cleanup_predecessor_does_not_deopt_following_conditional_tail() {
         let code = compile_exec(
             "\
 def f(self, compile_snippet):
@@ -35611,7 +35611,7 @@ def f(self, compile_snippet):
     }
 
     #[test]
-    fn test_handler_resume_loop_conditional_tail_keeps_strong_load_fast() {
+    fn handler_resume_loop_conditional_tail_keeps_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(self):
@@ -35694,7 +35694,7 @@ def f(self):
     }
 
     #[test]
-    fn test_handler_resume_while_conditional_tail_keeps_borrow_load_fast() {
+    fn handler_resume_while_conditional_tail_keeps_borrow_load_fast() {
         let code = compile_exec(
             "\
 def f(value):
@@ -35750,7 +35750,7 @@ def f(value):
     }
 
     #[test]
-    fn test_multi_handler_resume_while_tail_keeps_borrow_load_fast() {
+    fn multi_handler_resume_while_tail_keeps_borrow_load_fast() {
         let code = compile_exec(
             "\
 def f(value):
@@ -35816,7 +35816,7 @@ def f(value):
     }
 
     #[test]
-    fn test_multi_handler_resume_before_with_keeps_with_body_borrows() {
+    fn multi_handler_resume_before_with_keeps_with_body_borrows() {
         let code = compile_exec(
             "\
 def f(self, input, cm):
@@ -35869,7 +35869,7 @@ def f(self, input, cm):
     }
 
     #[test]
-    fn test_suppressing_with_and_typed_except_resume_loop_method_tail_keeps_strong_load_fast() {
+    fn suppressing_with_and_typed_except_resume_loop_method_tail_keeps_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(proc, text):
@@ -35911,7 +35911,7 @@ def f(proc, text):
     }
 
     #[test]
-    fn test_handler_break_join_loop_body_and_tail_keep_strong_load_fast() {
+    fn handler_break_join_loop_body_and_tail_keep_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(function, stem):
@@ -35994,7 +35994,7 @@ def f(function, stem):
     }
 
     #[test]
-    fn test_handler_resume_to_loop_header_keeps_loop_header_borrows() {
+    fn handler_resume_to_loop_header_keeps_loop_header_borrows() {
         let code = compile_exec(
             "\
 def f(value, Phrase, get_word, errors, ENDS, DOT):
@@ -36056,7 +36056,7 @@ def f(value, Phrase, get_word, errors, ENDS, DOT):
     }
 
     #[test]
-    fn test_reraising_except_loop_break_tail_keeps_post_loop_borrows() {
+    fn reraising_except_loop_break_tail_keeps_post_loop_borrows() {
         let code = compile_exec(
             "\
 def f(flag=1, count=0):
@@ -36111,7 +36111,7 @@ def f(flag=1, count=0):
     }
 
     #[test]
-    fn test_try_except_continue_keeps_try_line_nop_before_continue_jump() {
+    fn try_except_continue_keeps_try_line_nop_before_continue_jump() {
         let code = compile_exec(
             "\
 def f(done=False):
@@ -36149,7 +36149,7 @@ def f(done=False):
     }
 
     #[test]
-    fn test_for_else_pass_keeps_line_marker_after_pop_iter() {
+    fn for_else_pass_keeps_line_marker_after_pop_iter() {
         let code = compile_exec(
             "\
 def f():
@@ -36187,7 +36187,7 @@ def f():
     }
 
     #[test]
-    fn test_folded_if_chain_after_previous_chain_keeps_final_elif_line_marker() {
+    fn folded_if_chain_after_previous_chain_keeps_final_elif_line_marker() {
         let code = compile_exec(
             "\
 def f():
@@ -36215,7 +36215,7 @@ def f():
     }
 
     #[test]
-    fn test_handler_resume_before_later_loop_keeps_borrowed_tail_loads() {
+    fn handler_resume_before_later_loop_keeps_borrowed_tail_loads() {
         let code = compile_exec(
             "\
 def f(msg, category):
@@ -36299,7 +36299,7 @@ def f(msg, category):
     }
 
     #[test]
-    fn test_async_early_return_send_tail_uses_strong_load_fast_after_entry() {
+    fn async_early_return_send_tail_uses_strong_load_fast_after_entry() {
         let code = compile_exec(
             "\
 class C:
@@ -36398,7 +36398,7 @@ class C:
     }
 
     #[test]
-    fn test_async_with_return_await_after_early_return_keeps_borrow_load_fast() {
+    fn async_with_return_await_after_early_return_keeps_borrow_load_fast() {
         let code = compile_exec(
             "\
 async def wait_for(fut, timeout):
@@ -36469,7 +36469,7 @@ async def wait_for(fut, timeout):
     }
 
     #[test]
-    fn test_async_nested_try_finally_except_after_await_return_uses_strong_loads() {
+    fn async_nested_try_finally_except_after_await_return_uses_strong_loads() {
         let code = compile_exec(
             "\
 async def f(a, b, c, h):
@@ -36518,7 +36518,7 @@ async def f(a, b, c, h):
     }
 
     #[test]
-    fn test_async_conditional_raise_finally_except_after_await_return_uses_strong_pair() {
+    fn async_conditional_raise_finally_except_after_await_return_uses_strong_pair() {
         let code = compile_exec(
             "\
 async def f(self, asyncio, sys, task, timeout_handle, sleep):
@@ -36569,7 +36569,7 @@ async def f(self, asyncio, sys, task, timeout_handle, sleep):
     }
 
     #[test]
-    fn test_try_else_attribute_probe_end_keeps_following_loads_strong() {
+    fn try_else_attribute_probe_end_keeps_following_loads_strong() {
         let code = compile_exec(
             "\
 def f(self):
@@ -36624,7 +36624,7 @@ def f(self):
     }
 
     #[test]
-    fn test_protected_import_tail_keeps_strong_load_fast() {
+    fn protected_import_tail_keeps_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(s, size, pos, errors):
@@ -36676,7 +36676,7 @@ def f(s, size, pos, errors):
     }
 
     #[test]
-    fn test_nested_protected_import_tail_keeps_strong_load_fast() {
+    fn nested_protected_import_tail_keeps_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(self, mode, compresslevel):
@@ -36734,7 +36734,7 @@ def f(self, mode, compresslevel):
     }
 
     #[test]
-    fn test_unprotected_import_before_with_keeps_borrow() {
+    fn unprotected_import_before_with_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, document):
@@ -36782,7 +36782,7 @@ def f(self, document):
     }
 
     #[test]
-    fn test_from_import_after_conditional_store_join_uses_strong_prefix_loads() {
+    fn from_import_after_conditional_store_join_uses_strong_prefix_loads() {
         let code = compile_exec(
             "\
 def f(x):
@@ -36821,7 +36821,7 @@ def f(x):
     }
 
     #[test]
-    fn test_plain_import_after_conditional_store_join_keeps_borrow_prefix_loads() {
+    fn plain_import_after_conditional_store_join_keeps_borrow_prefix_loads() {
         let code = compile_exec(
             "\
 def f(x):
@@ -36863,7 +36863,7 @@ def f(x):
     }
 
     #[test]
-    fn test_unprotected_prefix_before_try_keeps_attr_subscript_borrow() {
+    fn unprotected_prefix_before_try_keeps_attr_subscript_borrow() {
         let code = compile_exec(
             "\
 def f():
@@ -36905,7 +36905,7 @@ def f():
     }
 
     #[test]
-    fn test_terminal_except_inlined_comprehension_keeps_borrowed_warm_loads() {
+    fn terminal_except_inlined_comprehension_keeps_borrowed_warm_loads() {
         let code = compile_exec(
             r##"
 def f(output):
@@ -36966,7 +36966,7 @@ def f(output):
     }
 
     #[test]
-    fn test_outer_guarded_protected_import_keeps_borrow_tail() {
+    fn outer_guarded_protected_import_keeps_borrow_tail() {
         let code = compile_exec(
             "\
 def f(sys, os, file):
@@ -37009,7 +37009,7 @@ def f(sys, os, file):
     }
 
     #[test]
-    fn test_loop_or_break_continue_orders_break_before_backedge() {
+    fn loop_or_break_continue_orders_break_before_backedge() {
         let code = compile_exec(
             "\
 def f(self, quoted):
@@ -37072,7 +37072,7 @@ def f(self, quoted):
     }
 
     #[test]
-    fn test_for_continue_before_return_orders_backedge_before_return_body() {
+    fn for_continue_before_return_orders_backedge_before_return_body() {
         let code = compile_exec(
             "\
 def f(self):
@@ -37132,7 +37132,7 @@ def f(self):
     }
 
     #[test]
-    fn test_while_conditional_return_orders_backedge_before_return_body() {
+    fn while_conditional_return_orders_backedge_before_return_body() {
         let code = compile_exec(
             "\
 def f(self, tag):
@@ -37182,7 +37182,7 @@ def f(self, tag):
     }
 
     #[test]
-    fn test_while_boolop_conditional_return_splits_backedges_before_return_body() {
+    fn while_boolop_conditional_return_splits_backedges_before_return_body() {
         let code = compile_exec(
             "\
 def f(flags, A, B, stop):
@@ -37228,7 +37228,7 @@ def f(flags, A, B, stop):
     }
 
     #[test]
-    fn test_for_break_to_return_orders_backedge_before_return() {
+    fn for_break_to_return_orders_backedge_before_return() {
         let code = compile_exec(
             "\
 def f(it):
@@ -37287,7 +37287,7 @@ def f(it):
     }
 
     #[test]
-    fn test_for_conditional_raise_orders_backedge_before_raise() {
+    fn for_conditional_raise_orders_backedge_before_raise() {
         let code = compile_exec(
             "\
 def f(items, limit):
@@ -37343,7 +37343,7 @@ def f(items, limit):
     }
 
     #[test]
-    fn test_simple_for_conditional_raise_orders_backedge_before_raise() {
+    fn simple_for_conditional_raise_orders_backedge_before_raise() {
         let code = compile_exec(
             "\
 def f(kw):
@@ -37392,7 +37392,7 @@ def f(kw):
     }
 
     #[test]
-    fn test_loop_nested_boolop_exit_keeps_cpython_backedge_line_order() {
+    fn loop_nested_boolop_exit_keeps_cpython_backedge_line_order() {
         let code = compile_exec(
             "\
 def f(found, value, m, done, name, renamed_variables, keep_unresolved, variables):
@@ -37455,7 +37455,7 @@ def f(found, value, m, done, name, renamed_variables, keep_unresolved, variables
     }
 
     #[test]
-    fn test_loop_conditional_raise_before_elif_keeps_raise_before_backedge() {
+    fn loop_conditional_raise_before_elif_keeps_raise_before_backedge() {
         let code = compile_exec(
             "\
 def f(checks, missing, named):
@@ -37508,7 +37508,7 @@ def f(checks, missing, named):
     }
 
     #[test]
-    fn test_protected_for_is_none_raise_threads_backedge_before_raise() {
+    fn protected_for_is_none_raise_threads_backedge_before_raise() {
         let code = compile_exec(
             "\
 def f(stacklevel, frame, skip_file_prefixes):
@@ -37548,7 +37548,7 @@ def f(stacklevel, frame, skip_file_prefixes):
     }
 
     #[test]
-    fn test_exception_handler_loop_conditional_raise_orders_backedge_before_raise() {
+    fn exception_handler_loop_conditional_raise_orders_backedge_before_raise() {
         let code = compile_exec(
             "\
 def f(chunk, dec, i):
@@ -37603,7 +37603,7 @@ def f(chunk, dec, i):
     }
 
     #[test]
-    fn test_exception_handler_loop_conditional_return_orders_backedge_before_return() {
+    fn exception_handler_loop_conditional_return_orders_backedge_before_return() {
         let code = compile_exec(
             "\
 def f(cls, value):
@@ -37661,7 +37661,7 @@ def f(cls, value):
     }
 
     #[test]
-    fn test_loop_if_body_keeps_fallthrough_before_implicit_continue_backedge() {
+    fn loop_if_body_keeps_fallthrough_before_implicit_continue_backedge() {
         let code = compile_exec(
             "\
 def f(b, curr, curr_append, decoded_append, packI, curr_clear):
@@ -37721,7 +37721,7 @@ def f(b, curr, curr_append, decoded_append, packI, curr_clear):
     }
 
     #[test]
-    fn test_if_not_continue_before_conditional_listcomp_body_keeps_cpython_layout() {
+    fn if_not_continue_before_conditional_listcomp_body_keeps_cpython_layout() {
         let code = compile_exec(
             "\
 def f(data, use):
@@ -37763,7 +37763,7 @@ def f(data, use):
     }
 
     #[test]
-    fn test_chained_compare_continue_does_not_duplicate_cleanup_backedge() {
+    fn chained_compare_continue_does_not_duplicate_cleanup_backedge() {
         let code = compile_exec(
             "\
 def f(items):
@@ -37826,7 +37826,7 @@ def f(items):
     }
 
     #[test]
-    fn test_try_else_loop_if_body_keeps_cpython_fallthrough_before_backedge() {
+    fn try_else_loop_if_body_keeps_cpython_fallthrough_before_backedge() {
         let code = compile_exec(
             "\
 def f(self, ready, selector, key, input_view, os, BrokenPipeError):
@@ -37889,7 +37889,7 @@ def f(self, ready, selector, key, input_view, os, BrokenPipeError):
     }
 
     #[test]
-    fn test_try_else_after_conditional_raise_keeps_loop_if_body_before_backedge() {
+    fn try_else_after_conditional_raise_keeps_loop_if_body_before_backedge() {
         let code = compile_exec(
             "\
 def f(seq, flag, stat, OSError, pred, SpecialFileError):
@@ -37950,7 +37950,7 @@ def f(seq, flag, stat, OSError, pred, SpecialFileError):
     }
 
     #[test]
-    fn test_explicit_continue_after_return_orders_return_before_backedge() {
+    fn explicit_continue_after_return_orders_return_before_backedge() {
         let code = compile_exec(
             "\
 def f(j, n):
@@ -38005,7 +38005,7 @@ def f(j, n):
     }
 
     #[test]
-    fn test_while_break_tail_does_not_duplicate_loop_false_return_epilogue() {
+    fn while_break_tail_does_not_duplicate_loop_false_return_epilogue() {
         let code = compile_exec(
             "\
 def f(waiters):
@@ -38033,7 +38033,7 @@ def f(waiters):
     }
 
     #[test]
-    fn test_implicit_while_tail_return_orders_backedge_before_return() {
+    fn implicit_while_tail_return_orders_backedge_before_return() {
         let code = compile_exec(
             "\
 def f(self, j, n):
@@ -38088,7 +38088,7 @@ def f(self, j, n):
     }
 
     #[test]
-    fn test_branch_arm_implicit_continue_keeps_return_before_backedge() {
+    fn branch_arm_implicit_continue_keeps_return_before_backedge() {
         let code = compile_exec(
             "\
 def f(self, j, n, c):
@@ -38146,7 +38146,7 @@ def f(self, j, n, c):
     }
 
     #[test]
-    fn test_nested_implicit_while_tail_return_orders_backedge_before_return() {
+    fn nested_implicit_while_tail_return_orders_backedge_before_return() {
         let code = compile_exec(
             "\
 def f(self, rawdata, j, match):
@@ -38206,7 +38206,7 @@ def f(self, rawdata, j, match):
     }
 
     #[test]
-    fn test_join_store_global_before_import_keeps_strong_load_fast() {
+    fn join_store_global_before_import_keeps_strong_load_fast() {
         let code = compile_exec(
             "\
 def f(module=None):
@@ -38240,7 +38240,7 @@ def f(module=None):
     }
 
     #[test]
-    fn test_handler_resume_join_keeps_borrow_in_common_tail() {
+    fn handler_resume_join_keeps_borrow_in_common_tail() {
         let code = compile_exec(
             "\
 def f(p, errors, s, pos, look, final, escape_start, st):
@@ -38305,7 +38305,7 @@ def f(p, errors, s, pos, look, final, escape_start, st):
     }
 
     #[test]
-    fn test_multi_handler_guarded_resume_tail_keeps_borrow() {
+    fn multi_handler_guarded_resume_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(a):
@@ -38358,7 +38358,7 @@ def f(a):
     }
 
     #[test]
-    fn test_multi_handler_method_tail_keeps_borrow() {
+    fn multi_handler_method_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, xs):
@@ -38398,7 +38398,7 @@ def f(self, xs):
     }
 
     #[test]
-    fn test_named_except_cleanup_loop_header_keeps_borrow_in_for_loop() {
+    fn named_except_cleanup_loop_header_keeps_borrow_in_for_loop() {
         let code = compile_exec(
             "\
 def f(args):
@@ -38441,7 +38441,7 @@ def f(args):
     }
 
     #[test]
-    fn test_multi_named_except_loop_header_keeps_borrow_for_normal_path() {
+    fn multi_named_except_loop_header_keeps_borrow_for_normal_path() {
         let code = compile_exec(
             "\
 def f(self):
@@ -38498,7 +38498,7 @@ def f(self):
     }
 
     #[test]
-    fn test_named_except_cleanup_simple_resume_tail_keeps_borrow() {
+    fn named_except_cleanup_simple_resume_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self):
@@ -38544,7 +38544,7 @@ def f(self):
     }
 
     #[test]
-    fn test_named_except_cleanup_conditional_raise_tail_keeps_borrow() {
+    fn named_except_cleanup_conditional_raise_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self):
@@ -38592,7 +38592,7 @@ def f(self):
     }
 
     #[test]
-    fn test_with_suppress_named_except_resume_tail_uses_strong_loads() {
+    fn with_suppress_named_except_resume_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(self, cm, E):
@@ -38645,7 +38645,7 @@ def f(self, cm, E):
     }
 
     #[test]
-    fn test_with_named_except_return_value_keeps_borrow() {
+    fn with_named_except_return_value_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, b, BlockingIOError):
@@ -38706,7 +38706,7 @@ def f(self, b, BlockingIOError):
     }
 
     #[test]
-    fn test_with_final_conditional_return_preserves_fallthrough_cleanup_nop() {
+    fn with_final_conditional_return_preserves_fallthrough_cleanup_nop() {
         let code = compile_exec(
             "\
 def f(self):
@@ -38743,7 +38743,7 @@ def f(self):
     }
 
     #[test]
-    fn test_with_while_fallthrough_preserves_cleanup_nop() {
+    fn with_while_fallthrough_preserves_cleanup_nop() {
         let code = compile_exec(
             "\
 def f(cm, source):
@@ -38782,7 +38782,7 @@ def f(cm, source):
     }
 
     #[test]
-    fn test_with_for_fallthrough_drops_cleanup_nop() {
+    fn with_for_fallthrough_drops_cleanup_nop() {
         let code = compile_exec(
             "\
 def f(cm, xs, g):
@@ -38836,7 +38836,7 @@ def f(cm, xs, g):
     }
 
     #[test]
-    fn test_with_while_true_break_drops_cleanup_nop() {
+    fn with_while_true_break_drops_cleanup_nop() {
         let code = compile_exec(
             "\
 def f(cm, source):
@@ -38875,7 +38875,7 @@ def f(cm, source):
     }
 
     #[test]
-    fn test_multi_with_while_true_try_except_drops_outer_cleanup_nop() {
+    fn multi_with_while_true_try_except_drops_outer_cleanup_nop() {
         let code = compile_exec(
             "\
 def f(cm1, cm2, g, E):
@@ -38931,7 +38931,7 @@ def f(cm1, cm2, g, E):
     }
 
     #[test]
-    fn test_with_final_assert_preserves_cleanup_nop() {
+    fn with_final_assert_preserves_cleanup_nop() {
         let code = compile_exec(
             "\
 def f(cm, dst):
@@ -38966,7 +38966,7 @@ def f(cm, dst):
     }
 
     #[test]
-    fn test_named_except_conditional_reraise_final_store_attr_keeps_borrow() {
+    fn named_except_conditional_reraise_final_store_attr_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, fd, file, closefd, owned_fd, OSError, AttributeError, errno, os, stat, _setmode):
@@ -39052,7 +39052,7 @@ def f(self, fd, file, closefd, owned_fd, OSError, AttributeError, errno, os, sta
     }
 
     #[test]
-    fn test_with_except_else_with_resume_loop_tail_uses_strong_loads() {
+    fn with_except_else_with_resume_loop_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(self, cm, E):
@@ -39104,7 +39104,7 @@ def f(self, cm, E):
     }
 
     #[test]
-    fn test_final_with_try_except_resume_loop_tail_uses_strong_loads() {
+    fn final_with_try_except_resume_loop_tail_uses_strong_loads() {
         let code = compile_exec(
             r#"
 def f(resources, valid_zones, TZPATH, os):
@@ -39163,7 +39163,7 @@ def f(resources, valid_zones, TZPATH, os):
     }
 
     #[test]
-    fn test_finally_ending_try_except_resume_tail_uses_strong_loads() {
+    fn finally_ending_try_except_resume_tail_uses_strong_loads() {
         let code = compile_exec(
             r#"
 def f(self, fobj, unlink, TESTFN, C):
@@ -39233,7 +39233,7 @@ def f(self, fobj, unlink, TESTFN, C):
     }
 
     #[test]
-    fn test_try_finally_bare_reraise_handler_resume_tail_uses_strong_loads() {
+    fn try_finally_bare_reraise_handler_resume_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(self, os, alive_r, alive_w, address, pid):
@@ -39289,7 +39289,7 @@ def f(self, os, alive_r, alive_w, address, pid):
     }
 
     #[test]
-    fn test_typed_except_return_resume_tail_uses_strong_loads() {
+    fn typed_except_return_resume_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(resource, desired_fds, max_fds):
@@ -39343,7 +39343,7 @@ def f(resource, desired_fds, max_fds):
     }
 
     #[test]
-    fn test_resuming_except_before_try_preserves_next_try_entry_barrier() {
+    fn resuming_except_before_try_preserves_next_try_entry_barrier() {
         let code = compile_exec(
             "\
 def f(scan_once, s, end, _ws, _w):
@@ -39399,7 +39399,7 @@ def f(scan_once, s, end, _ws, _w):
     }
 
     #[test]
-    fn test_simple_except_before_try_keeps_next_try_entry_borrowed() {
+    fn simple_except_before_try_keeps_next_try_entry_borrowed() {
         let code = compile_exec(
             "\
 def f(scan_once, s, end):
@@ -39454,7 +39454,7 @@ def f(scan_once, s, end):
     }
 
     #[test]
-    fn test_loop_break_except_before_try_preserves_next_try_entry_barrier() {
+    fn loop_break_except_before_try_preserves_next_try_entry_barrier() {
         let code = compile_exec(
             "\
 def f(scan_once, seq1, seq2, n):
@@ -39523,7 +39523,7 @@ def f(scan_once, seq1, seq2, n):
     }
 
     #[test]
-    fn test_plain_with_then_global_loop_tail_keeps_borrow() {
+    fn plain_with_then_global_loop_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, cm):
@@ -39562,7 +39562,7 @@ def f(self, cm):
     }
 
     #[test]
-    fn test_context_manager_for_join_tail_keeps_borrow() {
+    fn context_manager_for_join_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, factory):
@@ -39602,7 +39602,7 @@ def f(self, factory):
     }
 
     #[test]
-    fn test_with_except_resume_normal_tail_uses_strong_loads() {
+    fn with_except_resume_normal_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(self, cm, E):
@@ -39644,7 +39644,7 @@ def f(self, cm, E):
     }
 
     #[test]
-    fn test_with_except_else_attr_subscript_tail_keeps_borrow() {
+    fn with_except_else_attr_subscript_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, cm, E, obj):
@@ -39698,7 +39698,7 @@ def f(self, cm, E, obj):
     }
 
     #[test]
-    fn test_with_suppress_attr_subscript_tail_keeps_borrow() {
+    fn with_suppress_attr_subscript_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, cm):
@@ -39739,7 +39739,7 @@ def f(self, cm):
     }
 
     #[test]
-    fn test_named_except_conditional_reraise_deopts_with_chain_tail() {
+    fn named_except_conditional_reraise_deopts_with_chain_tail() {
         let code = compile_exec(
             "\
 def f(self, arc, tmp_filename, new_mode):
@@ -39798,7 +39798,7 @@ def f(self, arc, tmp_filename, new_mode):
     }
 
     #[test]
-    fn test_terminal_bare_reraise_successor_join_keeps_final_store_borrow() {
+    fn terminal_bare_reraise_successor_join_keeps_final_store_borrow() {
         let code = compile_exec(
             "\
 def f(self, fd, appending, errno):
@@ -39842,7 +39842,7 @@ def f(self, fd, appending, errno):
     }
 
     #[test]
-    fn test_terminal_except_before_with_deopts_with_body_borrows() {
+    fn terminal_except_before_with_deopts_with_body_borrows() {
         let code = compile_exec(
             "\
 def f(self, cm):
@@ -39896,7 +39896,7 @@ def f(self, cm):
     }
 
     #[test]
-    fn test_terminal_except_resume_tail_uses_strong_loads() {
+    fn terminal_except_resume_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(re, proc, unittest):
@@ -39974,7 +39974,7 @@ def f(re, proc, unittest):
     }
 
     #[test]
-    fn test_terminal_except_conditional_return_tail_uses_strong_loads() {
+    fn terminal_except_conditional_return_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(param, value, quote):
@@ -40041,7 +40041,7 @@ def f(param, value, quote):
     }
 
     #[test]
-    fn test_terminal_except_successor_call_tail_uses_strong_load() {
+    fn terminal_except_successor_call_tail_uses_strong_load() {
         let code = compile_exec(
             "\
 def f(curr, decoded_append, packI, curr_clear, Error):
@@ -40085,7 +40085,7 @@ def f(curr, decoded_append, packI, curr_clear, Error):
     }
 
     #[test]
-    fn test_loop_terminal_except_continue_if_tail_keeps_borrowed_loads() {
+    fn loop_terminal_except_continue_if_tail_keeps_borrowed_loads() {
         let code = compile_exec(
             "\
 def f(self, parser, opt, accum, rest, section, map, path, depth):
@@ -40172,7 +40172,7 @@ def f(self, parser, opt, accum, rest, section, map, path, depth):
     }
 
     #[test]
-    fn test_method_call_try_return_handler_keeps_following_receiver_borrowed() {
+    fn method_call_try_return_handler_keeps_following_receiver_borrowed() {
         let code = compile_exec(
             "\
 def f(charset, failobj, E):
@@ -40208,7 +40208,7 @@ def f(charset, failobj, E):
     }
 
     #[test]
-    fn test_typed_terminal_method_call_try_deopts_successor_call_args() {
+    fn typed_terminal_method_call_try_deopts_successor_call_args() {
         let code = compile_exec(
             "\
 def f(events, callback, args, self, sig, signal):
@@ -40267,7 +40267,7 @@ def f(events, callback, args, self, sig, signal):
     }
 
     #[test]
-    fn test_typed_terminal_unpack_call_try_deopts_successor_call_args() {
+    fn typed_terminal_unpack_call_try_deopts_successor_call_args() {
         let code = compile_exec(
             "\
 def f(self, OSError):
@@ -40314,7 +40314,7 @@ def f(self, OSError):
     }
 
     #[test]
-    fn test_terminal_except_following_if_tail_uses_strong_loads() {
+    fn terminal_except_following_if_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(s):
@@ -40376,7 +40376,7 @@ def f(s):
     }
 
     #[test]
-    fn test_bare_except_internal_condition_keeps_try_body_borrows() {
+    fn bare_except_internal_condition_keeps_try_body_borrows() {
         let code = compile_exec(
             "\
 def f(buffering, raw, binary, result, BufferedReader):
@@ -40457,7 +40457,7 @@ def f(buffering, raw, binary, result, BufferedReader):
     }
 
     #[test]
-    fn test_try_except_else_terminal_handler_conditional_tail_uses_strong_loads() {
+    fn try_except_else_terminal_handler_conditional_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(self, pos, whence):
@@ -40544,7 +40544,7 @@ def f(self, pos, whence):
     }
 
     #[test]
-    fn test_try_except_else_outer_join_keeps_borrowed_loads() {
+    fn try_except_else_outer_join_keeps_borrowed_loads() {
         let code = compile_exec(
             "\
 def f(self, pos=None):
@@ -40626,7 +40626,7 @@ def f(self, pos=None):
     }
 
     #[test]
-    fn test_terminal_except_else_final_store_attr_tail_uses_strong_loads() {
+    fn terminal_except_else_final_store_attr_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(self, E, Event):
@@ -40686,7 +40686,7 @@ def f(self, E, Event):
     }
 
     #[test]
-    fn test_except_break_try_else_loop_tail_keeps_else_borrows() {
+    fn except_break_try_else_loop_tail_keeps_else_borrows() {
         let code = compile_exec(
             "\
 def f(self):
@@ -40744,7 +40744,7 @@ def f(self):
     }
 
     #[test]
-    fn test_protected_method_call_after_terminal_except_tail_uses_strong_loads() {
+    fn protected_method_call_after_terminal_except_tail_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(items, chunk, out, packI, Error):
@@ -40815,7 +40815,7 @@ def f(items, chunk, out, packI, Error):
     }
 
     #[test]
-    fn test_terminal_reraising_handler_keeps_try_body_method_borrows() {
+    fn terminal_reraising_handler_keeps_try_body_method_borrows() {
         let code = compile_exec(
             "\
 def f(self):
@@ -40863,7 +40863,7 @@ def f(self):
     }
 
     #[test]
-    fn test_terminal_except_loop_successor_augassign_uses_strong_load_pair() {
+    fn terminal_except_loop_successor_augassign_uses_strong_load_pair() {
         let code = compile_exec(
             "\
 def f(items, decoded, b32rev):
@@ -40904,7 +40904,7 @@ def f(items, decoded, b32rev):
     }
 
     #[test]
-    fn test_terminal_except_loop_backedge_keeps_header_borrows() {
+    fn terminal_except_loop_backedge_keeps_header_borrows() {
         let code = compile_exec(
             "\
 def f(self, value, start=0, stop=None):
@@ -40945,7 +40945,7 @@ def f(self, value, start=0, stop=None):
     }
 
     #[test]
-    fn test_one_line_protected_infinite_while_body_uses_strong_pair() {
+    fn one_line_protected_infinite_while_body_uses_strong_pair() {
         let code = compile_exec(
             "\
 def f():
@@ -40979,7 +40979,7 @@ def f():
     }
 
     #[test]
-    fn test_multiline_protected_infinite_while_body_keeps_borrow_pair() {
+    fn multiline_protected_infinite_while_body_keeps_borrow_pair() {
         let code = compile_exec(
             "\
 def f(items):
@@ -41007,7 +41007,7 @@ def f(items):
     }
 
     #[test]
-    fn test_one_line_protected_infinite_while_method_call_keeps_borrow_receiver() {
+    fn one_line_protected_infinite_while_method_call_keeps_borrow_receiver() {
         let code = compile_exec(
             "\
 def f(self):
@@ -41033,7 +41033,7 @@ def f(self):
     }
 
     #[test]
-    fn test_loop_if_implicit_continue_places_body_after_jumpback() {
+    fn loop_if_implicit_continue_places_body_after_jumpback() {
         let code = compile_exec(
             "\
 def f(_config_vars, _INITPRE):
@@ -41073,7 +41073,7 @@ def f(_config_vars, _INITPRE):
     }
 
     #[test]
-    fn test_loop_if_call_body_implicit_continue_places_body_after_jumpback() {
+    fn loop_if_call_body_implicit_continue_places_body_after_jumpback() {
         let code = compile_exec(
             "\
 def f(seq, db):
@@ -41117,7 +41117,7 @@ def f(seq, db):
     }
 
     #[test]
-    fn test_nested_loop_if_try_body_implicit_continue_places_body_after_jumpback() {
+    fn nested_loop_if_try_body_implicit_continue_places_body_after_jumpback() {
         let code = compile_exec(
             "\
 def f(seq, broken, codecs, LookupError, s, Queue, bytes):
@@ -41200,7 +41200,7 @@ def f(seq, broken, codecs, LookupError, s, Queue, bytes):
     }
 
     #[test]
-    fn test_loop_branch_raise_before_elif_keeps_body_before_backedge() {
+    fn loop_branch_raise_before_elif_keeps_body_before_backedge() {
         let code = compile_exec(
             "\
 def f(checks, UNIQUE, CONTINUOUS, ValueError):
@@ -41260,7 +41260,7 @@ def f(checks, UNIQUE, CONTINUOUS, ValueError):
     }
 
     #[test]
-    fn test_loop_nested_raise_then_append_places_body_after_false_backedge() {
+    fn loop_nested_raise_then_append_places_body_after_false_backedge() {
         let code = compile_exec(
             "\
 def f(args, parameters, enforce_default_ordering, type_var_tuple_encountered, default_encountered, TypeError):
@@ -41320,7 +41320,7 @@ def f(args, parameters, enforce_default_ordering, type_var_tuple_encountered, de
     }
 
     #[test]
-    fn test_loop_break_before_adjacent_break_keeps_body_before_backedge() {
+    fn loop_break_before_adjacent_break_keeps_body_before_backedge() {
         let code = compile_exec(
             "\
 def f(pattern, prefix, get_prefix):
@@ -41383,7 +41383,7 @@ def f(pattern, prefix, get_prefix):
     }
 
     #[test]
-    fn test_loop_elif_and_pass_keeps_shared_false_backedge_after_body() {
+    fn loop_elif_and_pass_keeps_shared_false_backedge_after_body() {
         let code = compile_exec(
             "\
 def f(methods, simple_keys, checked_keys, checked_enum, simple_enum, failed):
@@ -41449,7 +41449,7 @@ def f(methods, simple_keys, checked_keys, checked_enum, simple_enum, failed):
     }
 
     #[test]
-    fn test_loop_nested_if_delete_slice_places_body_after_jumpback() {
+    fn loop_nested_if_delete_slice_places_body_after_jumpback() {
         let code = compile_exec(
             "\
 def f(compiler_so):
@@ -41498,7 +41498,7 @@ def f(compiler_so):
     }
 
     #[test]
-    fn test_loop_if_subscr_store_delete_places_body_after_jumpback() {
+    fn loop_if_subscr_store_delete_places_body_after_jumpback() {
         let code = compile_exec(
             "\
 def f(chunks):
@@ -41538,7 +41538,7 @@ def f(chunks):
     }
 
     #[test]
-    fn test_final_elif_implicit_continue_places_jumpback_before_body() {
+    fn final_elif_implicit_continue_places_jumpback_before_body() {
         let code = compile_exec(
             "\
 def f(state, nextchar, whitespace, token, posix, quoted, debug):
@@ -41599,7 +41599,7 @@ def f(state, nextchar, whitespace, token, posix, quoted, debug):
     }
 
     #[test]
-    fn test_final_attribute_elif_implicit_continue_places_jumpback_before_body() {
+    fn final_attribute_elif_implicit_continue_places_jumpback_before_body() {
         let code = compile_exec(
             "\
 def f(self, nextchar, quoted):
@@ -41648,7 +41648,7 @@ def f(self, nextchar, quoted):
     }
 
     #[test]
-    fn test_inner_if_implicit_continue_keeps_line_bearing_body_before_backedge() {
+    fn inner_if_implicit_continue_keeps_line_bearing_body_before_backedge() {
         let code = compile_exec(
             "\
 def f(self, nextchar, quoted):
@@ -41707,7 +41707,7 @@ def f(self, nextchar, quoted):
     }
 
     #[test]
-    fn test_except_handler_with_conditional_raise_and_resume_keeps_borrow() {
+    fn except_handler_with_conditional_raise_and_resume_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(formatstr, args, output, overflowok):
@@ -41762,7 +41762,7 @@ def f(formatstr, args, output, overflowok):
     }
 
     #[test]
-    fn test_typed_except_resume_import_warning_tail_keeps_borrows() {
+    fn typed_except_resume_import_warning_tail_keeps_borrows() {
         let code = compile_exec(
             r#"
 def f(mod_name, error, sys, RuntimeWarning):
@@ -41845,7 +41845,7 @@ def f(mod_name, error, sys, RuntimeWarning):
     }
 
     #[test]
-    fn test_reraising_except_else_tail_keeps_borrow() {
+    fn reraising_except_else_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, data, length):
@@ -41903,7 +41903,7 @@ def f(self, data, length):
     }
 
     #[test]
-    fn test_try_else_finally_with_keeps_context_manager_borrow() {
+    fn try_else_finally_with_keeps_context_manager_borrow() {
         let code = compile_exec(
             "\
 def f(i):
@@ -41946,7 +41946,7 @@ def f(i):
     }
 
     #[test]
-    fn test_except_star_handler_pop_block_does_not_leave_nop_before_with_exit() {
+    fn except_star_handler_pop_block_does_not_leave_nop_before_with_exit() {
         let code = compile_exec(
             "\
 def f(self):
@@ -41983,7 +41983,7 @@ def f(self):
     }
 
     #[test]
-    fn test_except_star_body_to_else_jump_drops_without_line_nop() {
+    fn except_star_body_to_else_jump_drops_without_line_nop() {
         let code = compile_exec(
             "\
 async def f(self, cm):
@@ -42025,7 +42025,7 @@ async def f(self, cm):
     }
 
     #[test]
-    fn test_resuming_except_before_with_keeps_with_body_borrows() {
+    fn resuming_except_before_with_keeps_with_body_borrows() {
         let code = compile_exec(
             "\
 def f(self, cm):
@@ -42072,7 +42072,7 @@ def f(self, cm):
     }
 
     #[test]
-    fn test_nested_finally_except_resume_loop_uses_strong_loads() {
+    fn nested_finally_except_resume_loop_uses_strong_loads() {
         let code = compile_exec(
             "\
 def f(self, xs):
@@ -42122,7 +42122,7 @@ def f(self, xs):
     }
 
     #[test]
-    fn test_finally_protected_loop_without_except_resume_keeps_borrows() {
+    fn finally_protected_loop_without_except_resume_keeps_borrows() {
         let code = compile_exec(
             "\
 def f(self, obj, expected, buf):
@@ -42191,7 +42191,7 @@ def f(self, obj, expected, buf):
     }
 
     #[test]
-    fn test_plain_except_resume_loop_keeps_borrows() {
+    fn plain_except_resume_loop_keeps_borrows() {
         let code = compile_exec(
             "\
 def f(self, xs):
@@ -42232,7 +42232,7 @@ def f(self, xs):
     }
 
     #[test]
-    fn test_except_pass_resume_loop_branch_keeps_borrows() {
+    fn except_pass_resume_loop_branch_keeps_borrows() {
         let code = compile_exec(
             r#"
 def f(self, cls, fns):
@@ -42321,7 +42321,7 @@ def f(self, cls, fns):
     }
 
     #[test]
-    fn test_named_except_cleanup_deopts_same_guard_fallbacks_not_outer_tail() {
+    fn named_except_cleanup_deopts_same_guard_fallbacks_not_outer_tail() {
         let code = compile_exec(
             r#"
 def f(s, size, errors, final):
@@ -42435,7 +42435,7 @@ def f(s, size, errors, final):
     }
 
     #[test]
-    fn test_imap_idle_status_debug_tail_keeps_borrow() {
+    fn imap_idle_status_debug_tail_keeps_borrow() {
         let code = compile_exec(
             "\
 def f(self, exc_type, CRLF, OSError):
@@ -42477,7 +42477,7 @@ def f(self, exc_type, CRLF, OSError):
     }
 
     #[test]
-    fn test_match_async_comprehension_iter_keeps_capture_borrow() {
+    fn match_async_comprehension_iter_keeps_capture_borrow() {
         let code = compile_exec(
             r#"
 async def name_4():
@@ -42511,7 +42511,7 @@ async def name_4():
     }
 
     #[test]
-    fn test_match_fail_cleanup_label_reuse_keeps_post_match_borrow() {
+    fn match_fail_cleanup_label_reuse_keeps_post_match_borrow() {
         let code = compile_exec(
             r#"
 def f(self):
@@ -42549,7 +42549,7 @@ def f(self):
     }
 
     #[test]
-    fn test_match_or_preserves_explicit_success_jumps() {
+    fn match_or_preserves_explicit_success_jumps() {
         let code = compile_exec(
             r#"
 def f(w):
@@ -42596,7 +42596,7 @@ def f(w):
     }
 
     #[test]
-    fn test_with_protected_generator_tail_after_cleanup_uses_strong_loads() {
+    fn with_protected_generator_tail_after_cleanup_uses_strong_loads() {
         let code = compile_exec(
             r#"
 def f(scandir, fspath, path, reversed, top, OSError, topdown=True, followlinks=False):
@@ -42673,7 +42673,7 @@ def f(scandir, fspath, path, reversed, top, OSError, topdown=True, followlinks=F
     }
 
     #[test]
-    fn test_yield_from_finally_cleanup_keeps_normal_path_borrows() {
+    fn yield_from_finally_cleanup_keeps_normal_path_borrows() {
         let code = compile_exec(
             r#"
 def f(_fwalk, stack, isbytes, topdown, onerror, follow_symlinks, close):
