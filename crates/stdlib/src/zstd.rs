@@ -828,7 +828,13 @@ mod _zstd {
     /// Common path for attaching a dictionary to either context type. Returns
     /// the digested `CDict`/`DDict` (if the caller used digested mode) plus
     /// the `PyRef<ZstdDict>` we hold to keep the bytes alive for `ref_prefix`.
-    fn load_dict<L: DictLoader<'static>>(
+    /// # Safety
+    ///
+    /// The caller must ensure that the returned `PyRef<ZstdDict>` (if any)
+    /// outlives the context `ctx`. In `ref_prefix` mode, libzstd stores a
+    /// raw pointer into the dictionary bytes; the `PyRef` keeps those bytes
+    /// alive for the required lifetime.
+    unsafe fn load_dict<L: DictLoader<'static>>(
         ctx: &mut L,
         dict_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -883,7 +889,9 @@ mod _zstd {
         dict_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> DictLoadResult<zstd_safe::CDict<'static>> {
-        load_dict::<CCtx<'static>>(cctx, dict_obj, vm)
+        // SAFETY: The returned `PyRef<ZstdDict>` is stored alongside the
+        // `CCtx` in `CompressorState`, so it outlives the context.
+        unsafe { load_dict::<CCtx<'static>>(cctx, dict_obj, vm) }
     }
 
     fn load_decompressor_dict(
@@ -891,7 +899,9 @@ mod _zstd {
         dict_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> DictLoadResult<zstd_safe::DDict<'static>> {
-        load_dict::<DCtx<'static>>(dctx, dict_obj, vm)
+        // SAFETY: The returned `PyRef<ZstdDict>` is stored alongside the
+        // `DCtx` in `DecompressorState`, so it outlives the context.
+        unsafe { load_dict::<DCtx<'static>>(dctx, dict_obj, vm) }
     }
 
     /// Drive `compress_stream2` until the input is fully consumed and, for
