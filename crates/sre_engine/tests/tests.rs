@@ -4,7 +4,7 @@ mod tests {
     use rustpython_sre_engine::{Request, State, StrDrive};
 
     struct Pattern {
-        #[expect(unused, reason = "Nedded for automated script")]
+        #[expect(unused, reason = "Needed for automated script")]
         pattern: &'static str,
         code: &'static [u32],
     }
