@@ -914,6 +914,22 @@ impl AnyInstruction {
         pub const fn has_jump(&self) -> bool
     );
 
+    #[must_use]
+    pub const fn has_arg(&self) -> bool {
+        match self {
+            Self::Real(instr) => instr.as_opcode().has_arg(),
+            Self::Pseudo(instr) => instr.as_opcode().has_arg(),
+        }
+    }
+
+    #[must_use]
+    pub const fn has_const(&self) -> bool {
+        match self {
+            Self::Real(instr) => instr.as_opcode().has_const(),
+            Self::Pseudo(instr) => instr.as_opcode().has_const(),
+        }
+    }
+
     either_real_pseudo!(
         #[must_use]
         pub const fn has_eval_break(&self) -> bool
@@ -1348,12 +1364,15 @@ mod tests {
     fn terminator_flags_match_cpython_opcode_utils() {
         assert!(Opcode::JumpForward.is_terminator());
         assert!(Opcode::PopJumpIfFalse.is_terminator());
+        assert!(Opcode::ForIter.is_terminator());
         assert!(Opcode::ReturnValue.is_terminator());
         assert!(!Opcode::Nop.is_terminator());
 
         assert!(PseudoOpcode::JumpIfTrue.is_terminator());
         assert!(PseudoOpcode::JumpNoInterrupt.is_terminator());
+        assert!(!PseudoOpcode::SetupFinally.is_terminator());
         assert!(!PseudoOpcode::SetupWith.is_terminator());
+        assert!(!PseudoOpcode::SetupCleanup.is_terminator());
         assert!(!PseudoOpcode::PopBlock.is_terminator());
 
         assert!(AnyInstruction::from(PseudoOpcode::JumpIfFalse).is_terminator());
@@ -1380,6 +1399,7 @@ mod tests {
         assert!(!Opcode::Nop.has_target());
 
         assert!(PseudoOpcode::Jump.has_target());
+        assert!(PseudoOpcode::SetupFinally.has_target());
         assert!(PseudoOpcode::SetupWith.has_target());
         assert!(PseudoOpcode::SetupCleanup.has_target());
         assert!(!PseudoOpcode::PopBlock.has_target());
@@ -1388,15 +1408,51 @@ mod tests {
     }
 
     #[test]
+    fn arg_flags_match_cpython_opcode_metadata() {
+        assert!(Opcode::LoadConst.has_arg());
+        assert!(Opcode::YieldValue.has_arg());
+        assert!(!Opcode::Nop.has_arg());
+        assert!(!Opcode::ReturnValue.has_arg());
+
+        assert!(PseudoOpcode::Jump.has_arg());
+        assert!(PseudoOpcode::JumpIfFalse.has_arg());
+        assert!(PseudoOpcode::JumpIfTrue.has_arg());
+        assert!(PseudoOpcode::JumpNoInterrupt.has_arg());
+        assert!(PseudoOpcode::LoadClosure.has_arg());
+        assert!(PseudoOpcode::SetupCleanup.has_arg());
+        assert!(PseudoOpcode::SetupFinally.has_arg());
+        assert!(PseudoOpcode::SetupWith.has_arg());
+        assert!(PseudoOpcode::StoreFastMaybeNull.has_arg());
+        assert!(!PseudoOpcode::AnnotationsPlaceholder.has_arg());
+        assert!(!PseudoOpcode::PopBlock.has_arg());
+
+        assert!(AnyInstruction::from(PseudoOpcode::SetupFinally).has_arg());
+    }
+
+    #[test]
+    fn const_flags_match_cpython_opcode_metadata() {
+        assert!(Opcode::LoadConst.has_const());
+        assert!(Opcode::LoadConstImmortal.has_const());
+        assert!(Opcode::LoadConstMortal.has_const());
+        assert!(!Opcode::LoadSmallInt.has_const());
+        assert!(!Opcode::Nop.has_const());
+
+        assert!(!PseudoOpcode::LoadClosure.has_const());
+        assert!(!AnyInstruction::from(PseudoOpcode::Jump).has_const());
+    }
+
+    #[test]
     fn no_fallthrough_flags_match_cpython_basicblock_nofallthrough() {
         assert!(Opcode::JumpForward.is_no_fallthrough());
         assert!(Opcode::ReturnValue.is_no_fallthrough());
         assert!(!Opcode::PopJumpIfFalse.is_no_fallthrough());
+        assert!(!Opcode::ForIter.is_no_fallthrough());
         assert!(!Opcode::Nop.is_no_fallthrough());
 
         assert!(PseudoOpcode::Jump.is_no_fallthrough());
         assert!(PseudoOpcode::JumpNoInterrupt.is_no_fallthrough());
         assert!(!PseudoOpcode::JumpIfFalse.is_no_fallthrough());
+        assert!(!PseudoOpcode::SetupFinally.is_no_fallthrough());
         assert!(!PseudoOpcode::SetupWith.is_no_fallthrough());
 
         assert!(AnyInstruction::from(PseudoOpcode::Jump).is_no_fallthrough());

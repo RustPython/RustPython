@@ -169,9 +169,6 @@ struct Compiler {
     /// When > 0, the compiler walks AST (consuming sub_tables) but emits no bytecode.
     /// Mirrors CPython's `c_do_not_emit_bytecode`.
     do_not_emit_bytecode: u32,
-    /// Disable constant BoolOp folding in contexts where CPython preserves
-    /// short-circuit structure, such as starred unpack expressions.
-    disable_const_boolop_folding: bool,
     /// Disable constant tuple/list/set collection folding in contexts where
     /// CPython keeps the builder form for later assignment lowering.
     disable_const_collection_folding: bool,
@@ -237,7 +234,6 @@ enum ComprehensionLoopControl {
         loop_block: BlockIdx,
         if_cleanup_block: BlockIdx,
         after_block: BlockIdx,
-        iter_range: TextRange,
         backedge_range: TextRange,
         is_async: bool,
         end_async_for_target: BlockIdx,
@@ -478,33 +474,6 @@ impl Compiler {
         }
     }
 
-    fn boolop_fast_fold_literal(expr: &ast::Expr) -> bool {
-        matches!(
-            expr,
-            ast::Expr::NumberLiteral(_)
-                | ast::Expr::StringLiteral(_)
-                | ast::Expr::BytesLiteral(_)
-                | ast::Expr::BooleanLiteral(_)
-                | ast::Expr::NoneLiteral(_)
-                | ast::Expr::EllipsisLiteral(_)
-        )
-    }
-
-    /// Mark a direct-CFG block as carrying CPython's `basicblock.b_label`.
-    ///
-    /// In CPython, codegen records labels in the instruction sequence with
-    /// `USE_LABEL()`, then `_PyCfg_FromInstructionSequence()` emits
-    /// `_PyCfgBuilder_UseLabel()` only for instruction offsets reached by
-    /// `HAS_TARGET` operands. The direct-CFG backend uses this marker where the
-    /// CPython CFG builder would retain a materialized label boundary.
-    fn mark_cpython_cfg_label_block(&mut self, block: BlockIdx) {
-        let code = self.current_code_info();
-        let block = code.resolve_instr_sequence_label(block);
-        if block != BlockIdx::NULL {
-            code.mark_cpython_cfg_label(block);
-        }
-    }
-
     fn new(opts: CompileOpts, source_file: SourceFile, code_name: &str) -> Self {
         let module_code = ir::CodeInfo {
             // CPython convention: top-level module / interactive /
@@ -513,7 +482,7 @@ impl Compiler {
             // scope.)  This matches the per-scope mapping at
             // enter_scope::CompilerScope::Module below, which also returns
             // empty flags.  frame.rs:725-731 then binds locals to globals
-            // for module/REPL frames whose `scope.locals` is None — the
+            // for module/REPL frames whose `scope.locals` is None - the
             // correct semantics for `exec(code, globals)` and module init.
             flags: bytecode::CodeFlags::empty(),
             source_path: source_file.name().to_owned(),
@@ -562,20 +531,8 @@ impl Compiler {
             in_annotation: false,
             interactive: false,
             do_not_emit_bytecode: 0,
-            disable_const_boolop_folding: false,
             disable_const_collection_folding: false,
         }
-    }
-
-    fn compile_expression_without_const_boolop_folding(
-        &mut self,
-        expression: &ast::Expr,
-    ) -> CompileResult<()> {
-        let previous = self.disable_const_boolop_folding;
-        self.disable_const_boolop_folding = true;
-        let result = self.compile_expression(expression);
-        self.disable_const_boolop_folding = previous;
-        result.map(|_| ())
     }
 
     fn compile_expression_without_const_collection_folding(
@@ -823,7 +780,7 @@ impl Compiler {
                 }
 
                 // Compile the starred expression and extend
-                self.compile_expression_without_const_boolop_folding(value)?;
+                self.compile_expression(value)?;
                 self.set_source_range(collection_range);
                 match collection_type {
                     CollectionType::List => {
@@ -1229,7 +1186,7 @@ impl Compiler {
         &mut self,
         name: &str,
         scope_type: CompilerScope,
-        key: usize, // In RustPython, we use the index in symbol_table_stack as key
+        key: usize, // Symbol table stack index used like CPython's scope key.
         lineno: u32,
     ) -> CompileResult<()> {
         // Allocate a new compiler unit
@@ -2815,6 +2772,7 @@ impl Compiler {
                         }
                     );
                     emit!(self, Instruction::PopTop);
+                    self.set_no_location();
                 } else {
                     // from mod import a, b as c
 
@@ -3605,8 +3563,7 @@ impl Compiler {
             self.compile_statements(body)?;
             self.compile_statements(orelse)?;
         } else {
-            let try_except_end = self.new_block();
-            self.compile_try_except_no_finally_with_end(body, handlers, orelse, try_except_end)?;
+            self.compile_try_except_no_finally(body, handlers, orelse)?;
         }
 
         emit!(self, PseudoInstruction::PopBlock);
@@ -3668,19 +3625,9 @@ impl Compiler {
         handlers: &[ast::ExceptHandler],
         orelse: &[ast::Stmt],
     ) -> CompileResult<()> {
-        let end_block = self.new_block();
-        self.compile_try_except_no_finally_with_end(body, handlers, orelse, end_block)
-    }
-
-    fn compile_try_except_no_finally_with_end(
-        &mut self,
-        body: &[ast::Stmt],
-        handlers: &[ast::ExceptHandler],
-        orelse: &[ast::Stmt],
-        end_block: BlockIdx,
-    ) -> CompileResult<()> {
         let body_block = self.new_block();
         let handler_block = self.new_block();
+        let end_block = self.new_block();
         let cleanup_block = self.new_block();
         emit!(
             self,
@@ -3942,7 +3889,6 @@ impl Compiler {
         let end_block = self.new_block();
         let cleanup_block = self.new_block();
         let reraise_star_block = self.new_block();
-        let reraise_block = self.new_block();
 
         // SETUP_FINALLY for try body
         emit!(
@@ -4161,6 +4107,7 @@ impl Compiler {
 
         // Pop EXCEPTION_GROUP_HANDLER fblock
         self.pop_fblock_label(FBlockType::ExceptionGroupHandler, None);
+        let reraise_block = self.new_block();
 
         // Reraise star block
         self.use_cpython_label_block(reraise_star_block);
@@ -4339,6 +4286,21 @@ impl Compiler {
 
         // Set qualname
         self.set_qualname();
+
+        // Handle docstring - store in co_consts[0] if present
+        let (doc_info, body) = split_doc_with_range(body, &self.opts);
+        let doc_str = doc_info.as_ref().map(|(doc, _)| doc);
+        if let Some(doc) = &doc_str {
+            // Docstring present: store in co_consts[0] and set HAS_DOCSTRING flag
+            self.current_code_info()
+                .metadata
+                .consts
+                .insert_full(ConstantData::Str {
+                    value: (*doc).to_string().into(),
+                });
+            self.current_code_info().flags |= bytecode::CodeFlags::HAS_DOCSTRING;
+        }
+
         let start_label = self.use_cpython_function_start_label();
 
         // PEP 479: Wrap generator/coroutine body with StopIteration handler
@@ -4356,20 +4318,6 @@ impl Compiler {
         } else {
             None
         };
-
-        // Handle docstring - store in co_consts[0] if present
-        let (doc_info, body) = split_doc_with_range(body, &self.opts);
-        let doc_str = doc_info.as_ref().map(|(doc, _)| doc);
-        if let Some(doc) = &doc_str {
-            // Docstring present: store in co_consts[0] and set HAS_DOCSTRING flag
-            self.current_code_info()
-                .metadata
-                .consts
-                .insert_full(ConstantData::Str {
-                    value: (*doc).to_string().into(),
-                });
-            self.current_code_info().flags |= bytecode::CodeFlags::HAS_DOCSTRING;
-        }
         // Compile body statements
         self.compile_statements(body)?;
 
@@ -4571,41 +4519,7 @@ impl Compiler {
         &mut self,
         annotation: &ast::Expr,
     ) -> CompileResult<()> {
-        let code_stack_len = self.code_stack.len();
-        let code_info = self.current_code_info();
-        let saved_blocks = code_info.blocks.clone();
-        let saved_current_block = code_info.current_block;
-        let saved_instr_sequence = code_info.instr_sequence.clone();
-        let saved_instr_sequence_label_map = code_info.instr_sequence_label_map.clone();
-        let saved_annotations_instr_sequence = code_info.annotations_instr_sequence.clone();
-        let saved_metadata = code_info.metadata.clone();
-        let saved_static_attributes = code_info.static_attributes.clone();
-        let saved_in_inlined_comp = code_info.in_inlined_comp;
-        let saved_fblock = code_info.fblock.clone();
-        let saved_in_conditional_block = code_info.in_conditional_block;
-        let saved_next_conditional_annotation_index = code_info.next_conditional_annotation_index;
-        let saved_source_range = self.current_source_range;
-
-        self.do_not_emit_bytecode += 1;
-        let result = self.compile_annotation(annotation);
-        self.do_not_emit_bytecode -= 1;
-
-        debug_assert_eq!(self.code_stack.len(), code_stack_len);
-        let code_info = self.current_code_info();
-        code_info.blocks = saved_blocks;
-        code_info.current_block = saved_current_block;
-        code_info.instr_sequence = saved_instr_sequence;
-        code_info.instr_sequence_label_map = saved_instr_sequence_label_map;
-        code_info.annotations_instr_sequence = saved_annotations_instr_sequence;
-        code_info.metadata = saved_metadata;
-        code_info.static_attributes = saved_static_attributes;
-        code_info.in_inlined_comp = saved_in_inlined_comp;
-        code_info.fblock = saved_fblock;
-        code_info.in_conditional_block = saved_in_conditional_block;
-        code_info.next_conditional_annotation_index = saved_next_conditional_annotation_index;
-        self.current_source_range = saved_source_range;
-
-        result
+        self.consume_skipped_nested_scopes_in_expr(annotation)
     }
 
     /// Compile module-level __annotate__ function (PEP 649)
@@ -4693,6 +4607,8 @@ impl Compiler {
             }
 
             let not_set_block = has_conditional.then(|| self.new_block());
+            let not_set_label =
+                (!has_conditional).then(|| self.current_code_info().new_instr_sequence_label());
             let name = simple_name.expect("missing simple annotation name");
 
             if has_conditional {
@@ -4733,6 +4649,9 @@ impl Compiler {
 
             if let Some(not_set_block) = not_set_block {
                 self.use_cpython_label_block(not_set_block);
+            } else if let Some(not_set_label) = not_set_label {
+                self.current_code_info()
+                    .use_raw_instr_sequence_label(not_set_label);
             }
         }
 
@@ -5648,7 +5567,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.enter_conditional_block();
 
-        let loop_block = self.start_cpython_label_block();
+        let loop_block = self.new_block();
         let end_block = self.new_block();
         let anchor_block = self.new_block();
         let (loop_label, end_label) = {
@@ -5658,6 +5577,7 @@ impl Compiler {
                 code.instr_sequence_label_for_block(end_block),
             )
         };
+        self.use_cpython_label_block(loop_block);
         self.push_fblock_labels(
             FBlockType::WhileLoop,
             loop_label,
@@ -5893,10 +5813,11 @@ impl Compiler {
 
         // Start loop
         let for_block = self.new_block();
-        let send_block = if is_async {
-            self.new_block()
+        let (body_label, send_block) = if is_async {
+            (None, self.new_block())
         } else {
-            BlockIdx::NULL
+            let body_label = self.current_code_info().new_instr_sequence_label();
+            (Some(body_label), BlockIdx::NULL)
         };
         let else_block = self.new_block();
         let after_block = self.new_block();
@@ -5965,6 +5886,8 @@ impl Compiler {
             let saved_range = self.current_source_range;
             self.set_source_range(target.range());
             emit!(self, Instruction::Nop);
+            self.current_code_info()
+                .use_raw_instr_sequence_label(body_label.expect("sync for must have body label"));
             self.compile_store(target)?;
             self.set_source_range(saved_range);
         };
@@ -7212,9 +7135,8 @@ impl Compiler {
         let (last_op, mid_ops) = ops.split_last().unwrap();
         let (last_comparator, mid_comparators) = comparators.split_last().unwrap();
 
-        self.compile_expression(left)?;
-
         if mid_comparators.is_empty() {
+            self.compile_expression(left)?;
             self.compile_expression(last_comparator)?;
             self.set_source_range(compare_range);
             self.compile_addcompare(last_op);
@@ -7223,7 +7145,7 @@ impl Compiler {
         }
 
         let cleanup = self.new_block();
-        let end = self.new_block();
+        self.compile_expression(left)?;
 
         for (op, comparator) in mid_ops.iter().zip(mid_comparators) {
             self.compile_expression(comparator)?;
@@ -7240,6 +7162,7 @@ impl Compiler {
         self.compile_addcompare(last_op);
         emit!(self, Instruction::ToBool);
         self.emit_pop_jump_by_condition(condition, target_block);
+        let end = self.new_block();
         emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
         self.set_no_location();
 
@@ -7931,7 +7854,7 @@ impl Compiler {
     ///     SEND exit
     ///     SETUP_FINALLY fail (via exception table)
     ///     YIELD_VALUE 1
-    ///     POP_BLOCK (implicit)
+    ///     POP_BLOCK (NO_LOCATION)
     ///     RESUME
     ///     JUMP send
     ///   fail:
@@ -7956,6 +7879,7 @@ impl Compiler {
 
         // POP_BLOCK before RESUME
         emit!(self, PseudoInstruction::PopBlock);
+        self.set_no_location();
 
         // RESUME
         emit!(
@@ -8016,55 +7940,6 @@ impl Compiler {
         {
             self.emit_load_const(constant);
             return Ok(());
-        }
-
-        if !self.disable_const_boolop_folding
-            && let ast::Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) = expression
-        {
-            let mut simplified_prefix = 0usize;
-            let mut last_constant = None;
-            let mut last_constant_range = None;
-            for value in values {
-                let Some(constant) = self.try_fold_constant_expr(value)? else {
-                    break;
-                };
-                if !Self::boolop_fast_fold_literal(value) {
-                    break;
-                }
-                // CPython codegen_boolop() emits each literal with
-                // ADDOP_LOAD_CONST before flowgraph.c folds the constant
-                // branch away. Register it here so remove_unused_consts()
-                // preserves the same first-constant ordering.
-                self.arg_constant(constant.clone());
-                let is_truthy = Self::constant_truthiness(&constant);
-                last_constant = Some(constant);
-                last_constant_range = Some(value.range());
-                match op {
-                    ast::BoolOp::Or if is_truthy => {
-                        self.set_source_range(last_constant_range.expect("missing boolop range"));
-                        self.emit_load_const(last_constant.expect("missing boolop constant"));
-                        return Ok(());
-                    }
-                    ast::BoolOp::And if !is_truthy => {
-                        self.set_source_range(last_constant_range.expect("missing boolop range"));
-                        self.emit_load_const(last_constant.expect("missing boolop constant"));
-                        return Ok(());
-                    }
-                    ast::BoolOp::Or | ast::BoolOp::And => {
-                        simplified_prefix += 1;
-                    }
-                }
-            }
-
-            if simplified_prefix == values.len() {
-                self.set_source_range(last_constant_range.expect("missing boolop range"));
-                self.emit_load_const(last_constant.expect("missing folded boolop constant"));
-                return Ok(());
-            }
-            if simplified_prefix > 0 {
-                self.compile_bool_op(op, values)?;
-                return Ok(());
-            }
         }
 
         match &expression {
@@ -8169,13 +8044,16 @@ impl Compiler {
             // ast::Expr::Constant(ExprConstant { value, .. }) => {
             //     self.emit_load_const(compile_constant(value));
             // }
-            ast::Expr::List(ast::ExprList { elts, .. }) => {
+            ast::Expr::List(ast::ExprList { elts, range, .. }) => {
+                self.set_source_range(*range);
                 self.starunpack_helper(elts, 0, CollectionType::List)?;
             }
-            ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => {
+            ast::Expr::Tuple(ast::ExprTuple { elts, range, .. }) => {
+                self.set_source_range(*range);
                 self.starunpack_helper(elts, 0, CollectionType::Tuple)?;
             }
-            ast::Expr::Set(ast::ExprSet { elts, .. }) => {
+            ast::Expr::Set(ast::ExprSet { elts, range, .. }) => {
+                self.set_source_range(*range);
                 self.starunpack_helper(elts, 0, CollectionType::Set)?;
             }
             ast::Expr::Dict(ast::ExprDict { items, range, .. }) => {
@@ -8499,8 +8377,8 @@ impl Compiler {
             ast::Expr::If(ast::ExprIf {
                 test, body, orelse, ..
             }) => {
-                let else_block = self.new_block();
                 let after_block = self.new_block();
+                let else_block = self.new_block();
                 self.compile_jump_if(test, false, else_block)?;
 
                 // True case
@@ -8585,21 +8463,42 @@ impl Compiler {
         Ok(())
     }
 
+    fn cpython_sync_genexpr_call_name<'a>(
+        &self,
+        func: &'a ast::Expr,
+        args: &ast::Arguments,
+    ) -> Option<&'a str> {
+        let ast::Expr::Name(ast::ExprName { id, .. }) = func else {
+            return None;
+        };
+        let [
+            ast::Expr::Generator(ast::ExprGenerator {
+                elt: _,
+                generators: _,
+                ..
+            }),
+        ] = &args.args[..]
+        else {
+            return None;
+        };
+        if !args.keywords.is_empty() || {
+            let table = self.current_symbol_table();
+            table
+                .sub_tables
+                .get(table.next_sub_table)
+                .is_none_or(|generator_entry| generator_entry.is_coroutine)
+        } {
+            return None;
+        }
+        Some(id.as_str())
+    }
+
     fn detect_builtin_generator_call(
         &self,
         func: &ast::Expr,
         args: &ast::Arguments,
     ) -> Option<BuiltinGeneratorCallKind> {
-        let ast::Expr::Name(ast::ExprName { id, .. }) = func else {
-            return None;
-        };
-        if args.args.len() != 1
-            || !args.keywords.is_empty()
-            || !matches!(args.args[0], ast::Expr::Generator(_))
-        {
-            return None;
-        }
-        match id.as_str() {
+        match self.cpython_sync_genexpr_call_name(func, args)? {
             "tuple" => Some(BuiltinGeneratorCallKind::Tuple),
             "all" => Some(BuiltinGeneratorCallKind::All),
             "any" => Some(BuiltinGeneratorCallKind::Any),
@@ -8610,7 +8509,7 @@ impl Compiler {
     /// Emit the optimized inline loop for builtin(genexpr) calls.
     ///
     /// Stack on entry: `[func]` where `func` is the builtin candidate.
-    /// On return the compiler is positioned at the fallback block so the
+    /// On return the compiler is positioned at the skip-optimization block so the
     /// normal call path can compile the original generator argument again.
     fn optimize_builtin_generator_call(
         &mut self,
@@ -8625,11 +8524,9 @@ impl Compiler {
             BuiltinGeneratorCallKind::Any => bytecode::CommonConstant::BuiltinAny,
         };
 
-        let fallback = self.new_block();
-        let loop_block = self.new_block();
-        let cleanup = self.new_block();
+        let skip_optimization = self.new_block();
 
-        // Stack: [func] — copy function for identity check
+        // Stack: [func] - copy function for identity check
         self.set_source_range(loc);
         emit!(self, Instruction::Copy { i: 1 });
         emit!(
@@ -8639,7 +8536,12 @@ impl Compiler {
             }
         );
         emit!(self, Instruction::IsOp { invert: Invert::No });
-        emit!(self, Instruction::PopJumpIfFalse { delta: fallback });
+        emit!(
+            self,
+            Instruction::PopJumpIfFalse {
+                delta: skip_optimization
+            }
+        );
         emit!(self, Instruction::PopTop);
 
         if matches!(kind, BuiltinGeneratorCallKind::Tuple) {
@@ -8658,6 +8560,9 @@ impl Compiler {
         {
             current_table.next_sub_table = cursor;
         }
+
+        let loop_block = self.new_block();
+        let cleanup = self.new_block();
         self.use_cpython_label_block(loop_block);
         self.set_source_range(loc);
         emit!(self, Instruction::ForIter { delta: cleanup });
@@ -8675,7 +8580,7 @@ impl Compiler {
                 emit!(self, Instruction::PopJumpIfTrue { delta: loop_block });
                 self.set_source_range(loc);
                 emit!(self, Instruction::PopIter);
-                self.set_source_range(loc);
+                self.set_no_location();
                 self.emit_load_const(ConstantData::Boolean { value: false });
                 self.set_source_range(loc);
                 emit!(self, PseudoInstruction::Jump { delta: end });
@@ -8686,7 +8591,7 @@ impl Compiler {
                 emit!(self, Instruction::PopJumpIfFalse { delta: loop_block });
                 self.set_source_range(loc);
                 emit!(self, Instruction::PopIter);
-                self.set_source_range(loc);
+                self.set_no_location();
                 self.emit_load_const(ConstantData::Boolean { value: true });
                 self.set_source_range(loc);
                 emit!(self, PseudoInstruction::Jump { delta: end });
@@ -8696,8 +8601,10 @@ impl Compiler {
         self.use_cpython_label_block(cleanup);
         self.set_source_range(loc);
         emit!(self, Instruction::EndFor);
+        self.set_no_location();
         self.set_source_range(loc);
         emit!(self, Instruction::PopIter);
+        self.set_no_location();
         match kind {
             BuiltinGeneratorCallKind::Tuple => {
                 self.set_source_range(loc);
@@ -8720,7 +8627,7 @@ impl Compiler {
         self.set_source_range(loc);
         emit!(self, PseudoInstruction::Jump { delta: end });
 
-        self.use_cpython_label_block(fallback);
+        self.use_cpython_label_block(skip_optimization);
         Ok(())
     }
 
@@ -8825,19 +8732,42 @@ impl Compiler {
             .then(|| self.detect_builtin_generator_call(func, args))
             .flatten()
         {
-            let end = self.new_block();
+            let skip_normal_call = self.new_block();
             self.compile_expression(func)?;
-            self.optimize_builtin_generator_call(kind, &args.args[0], func.range(), end)?;
+            self.optimize_builtin_generator_call(
+                kind,
+                &args.args[0],
+                func.range(),
+                skip_normal_call,
+            )?;
             self.set_source_range(func.range());
             emit!(self, Instruction::PushNull);
             self.codegen_call_helper(0, args, call_range, None)?;
-            self.use_cpython_label_block(end);
+            self.use_cpython_label_block(skip_normal_call);
         } else {
             // Regular call: push func, then NULL for self_or_null slot
             // Stack layout: [func, NULL, args...] - same as method call [func, self, args...]
+            // CPython `codegen_call()` always creates and uses
+            // `skip_normal_call`, even when `maybe_optimize_function_call()`
+            // leaves it untargeted.
+            let skip_normal_call = self.current_code_info().new_instr_sequence_label();
+            let sync_genexpr_call_name = (!uses_ex_call)
+                .then(|| self.cpython_sync_genexpr_call_name(func, args))
+                .flatten()
+                .is_some();
             self.compile_expression(func)?;
+            if sync_genexpr_call_name {
+                // CPython `maybe_optimize_function_call()` creates and uses
+                // `skip_optimization` for every sync name(genexpr) shape after
+                // loading the function, even when the name is not all/any/tuple.
+                let skip_optimization = self.current_code_info().new_instr_sequence_label();
+                self.current_code_info()
+                    .use_raw_instr_sequence_label(skip_optimization);
+            }
             emit!(self, Instruction::PushNull);
             self.codegen_call_helper(0, args, call_range, None)?;
+            self.current_code_info()
+                .use_raw_instr_sequence_label(skip_normal_call);
         }
         Ok(())
     }
@@ -8970,35 +8900,20 @@ impl Compiler {
                 // Single starred arg: pass value directly to CallFunctionEx.
                 // Runtime will convert to tuple and validate with function name.
                 if let ast::Expr::Starred(ast::ExprStarred { value, .. }) = &arguments.args[0] {
-                    self.compile_expression_without_const_boolop_folding(value)?;
+                    self.compile_expression(value)?;
                 }
-            } else if !has_starred {
-                for arg in &arguments.args {
-                    self.compile_expression(arg)?;
-                }
-                self.set_source_range(call_range);
-                let positional_count = additional_positional + nelts.to_u32();
-                emit!(
-                    self,
-                    Instruction::BuildTuple {
-                        count: positional_count
-                    }
-                );
             } else {
-                // Use starunpack_helper to build a list, then convert to tuple
+                // CPython `codegen_call_helper_impl()` sends every other
+                // CALL_FUNCTION_EX positional shape through
+                // `starunpack_helper_impl(..., BUILD_LIST, LIST_APPEND,
+                // LIST_EXTEND, tuple=1)`, even when the only reason for the
+                // ex-call path is too many non-starred positional arguments.
                 self.set_source_range(call_range);
                 self.starunpack_helper(
                     &arguments.args,
                     additional_positional,
-                    CollectionType::List,
+                    CollectionType::Tuple,
                 )?;
-                self.set_source_range(call_range);
-                emit!(
-                    self,
-                    Instruction::CallIntrinsic1 {
-                        func: IntrinsicFunction1::ListToTuple
-                    }
-                );
             }
 
             self.compile_call_function_ex_keywords(&arguments.keywords, call_range)?;
@@ -9042,7 +8957,7 @@ impl Compiler {
                     have_dict = true;
                 }
 
-                self.compile_expression_without_const_boolop_folding(&keyword.value)?;
+                self.compile_expression(&keyword.value)?;
                 self.set_source_range(call_range);
                 emit!(self, Instruction::DictMerge { i: 1 });
             } else {
@@ -9507,16 +9422,20 @@ impl Compiler {
                 && let Some(singleton_iter) =
                     Self::singleton_comprehension_assignment_iter(&generator.iter)
             {
+                // CPython allocates start/if_cleanup/anchor labels before the
+                // singleton sub-iterator fast path sets start = NO_LABEL.
+                let _start_label = self.current_code_info().new_instr_sequence_label();
+                let if_cleanup_block = self.new_block();
+                let _anchor_label = self.current_code_info().new_instr_sequence_label();
                 self.compile_expression(singleton_iter)?;
                 self.compile_store(&generator.target)?;
 
                 if !generator.ifs.is_empty() {
-                    let if_cleanup_block = self.new_block();
                     for if_condition in &generator.ifs {
                         self.compile_jump_if(if_condition, false, if_cleanup_block)?;
                     }
-                    loop_labels.push(ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block });
                 }
+                loop_labels.push(ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block });
                 continue;
             }
 
@@ -9579,7 +9498,6 @@ impl Compiler {
                 loop_block,
                 if_cleanup_block,
                 after_block,
-                iter_range: generator.iter.range(),
                 backedge_range,
                 is_async: generator.is_async,
                 end_async_for_target,
@@ -9600,7 +9518,6 @@ impl Compiler {
                     loop_block,
                     if_cleanup_block,
                     after_block,
-                    iter_range,
                     backedge_range,
                     is_async,
                     end_async_for_target,
@@ -9626,10 +9543,7 @@ impl Compiler {
                         // (handler depth is before GetANext, so aiter is at handler depth)
                         self.emit_end_async_for(end_async_for_target);
                     } else {
-                        self.set_source_range(iter_range);
-                        // END_FOR + POP_ITER pattern (CPython 3.14)
-                        emit!(self, Instruction::EndFor);
-                        emit!(self, Instruction::PopIter);
+                        self.emit_sync_comprehension_end_for();
                     }
                 }
                 ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block } => {
@@ -9639,10 +9553,10 @@ impl Compiler {
         }
 
         if return_none {
-            self.emit_load_const(ConstantData::None)
+            self.emit_return_const_no_location(ConstantData::None);
+        } else {
+            self.emit_return_value();
         }
-
-        self.emit_return_value();
 
         // Close StopIteration handler and emit handler code
         if let Some(handler_block) = stop_iteration_block {
@@ -9862,16 +9776,15 @@ impl Compiler {
             // CPython's codegen_push_inlined_comprehension_locals()
             // installs the virtual cleanup before codegen_comprehension()
             // emits BUILD_LIST/BUILD_SET/BUILD_MAP for the result object.
-            let cleanup_blocks = if !pushed_locals.is_empty() {
+            let cleanup_block = if !pushed_locals.is_empty() {
                 let cleanup_block = self.new_block();
-                let end_block = self.new_block();
                 emit!(
                     self,
                     PseudoInstruction::SetupFinally {
                         delta: cleanup_block
                     }
                 );
-                Some((cleanup_block, end_block))
+                Some(cleanup_block)
             } else {
                 None
             };
@@ -9892,17 +9805,20 @@ impl Compiler {
                     && let Some(singleton_iter) =
                         Self::singleton_comprehension_assignment_iter(&generator.iter)
                 {
+                    // CPython allocates start/if_cleanup/anchor labels before
+                    // the singleton sub-iterator fast path sets start = NO_LABEL.
+                    let _start_label = self.current_code_info().new_instr_sequence_label();
+                    let if_cleanup_block = self.new_block();
+                    let _anchor_label = self.current_code_info().new_instr_sequence_label();
                     self.compile_expression(singleton_iter)?;
                     self.compile_store(&generator.target)?;
 
                     if !generator.ifs.is_empty() {
-                        let if_cleanup_block = self.new_block();
                         for if_condition in &generator.ifs {
                             self.compile_jump_if(if_condition, false, if_cleanup_block)?;
                         }
-                        loop_labels
-                            .push(ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block });
                     }
+                    loop_labels.push(ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block });
                     continue;
                 }
 
@@ -9961,7 +9877,6 @@ impl Compiler {
                     loop_block,
                     if_cleanup_block,
                     after_block,
-                    iter_range: generator.iter.range(),
                     backedge_range,
                     is_async: generator.is_async,
                     end_async_for_target,
@@ -9984,7 +9899,6 @@ impl Compiler {
                         loop_block,
                         if_cleanup_block,
                         after_block,
-                        iter_range,
                         backedge_range,
                         is_async,
                         end_async_for_target,
@@ -10008,9 +9922,7 @@ impl Compiler {
                             self.set_source_range(comprehension_range);
                             self.emit_end_async_for(end_async_for_target);
                         } else {
-                            self.set_source_range(iter_range);
-                            emit!(self, Instruction::EndFor);
-                            emit!(self, Instruction::PopIter);
+                            self.emit_sync_comprehension_end_for();
                         }
                     }
                     ComprehensionLoopControl::IfCleanupOnly { if_cleanup_block } => {
@@ -10021,7 +9933,7 @@ impl Compiler {
 
             // Step 8: Clean up - restore saved locals (and cell values)
             self.set_source_range(comprehension_range);
-            if let Some((cleanup_block, end_block)) = cleanup_blocks {
+            if let Some(cleanup_block) = cleanup_block {
                 emit!(self, PseudoInstruction::PopBlock);
                 self.set_no_location();
 
@@ -10029,6 +9941,7 @@ impl Compiler {
                 // the synthetic jump that skips the exception cleanup uses
                 // JUMP_NO_INTERRUPT, which becomes JUMP_BACKWARD_NO_INTERRUPT
                 // when the cleanup tail sits above the final restore block.
+                let end_block = self.new_block();
                 emit!(
                     self,
                     PseudoInstruction::JumpNoInterrupt { delta: end_block }
@@ -10239,6 +10152,16 @@ impl Compiler {
     /// Prevents it from triggering LINE events in sys.monitoring.
     fn set_no_location(&mut self) {
         self.set_last_emitted_lineno_override(-1);
+    }
+
+    /// CPython `codegen_sync_comprehension_generator()` emits END_FOR/POP_ITER
+    /// with NO_LOCATION and lets `flowgraph.c::propagate_line_numbers()` copy
+    /// the FOR_ITER location onto the cleanup block.
+    fn emit_sync_comprehension_end_for(&mut self) {
+        emit!(self, Instruction::EndFor);
+        self.set_no_location();
+        emit!(self, Instruction::PopIter);
+        self.set_no_location();
     }
 
     /// CPython `codegen_wrap_in_stopiteration_handler()` inserts
@@ -11056,33 +10979,8 @@ impl Compiler {
         }
 
         debug_assert_eq!(code.blocks[cur.idx()].next, BlockIdx::NULL);
-        let block = self.new_unlabeled_block();
-        let code = self.current_code_info();
-        code.blocks[cur.idx()].next = block;
-        code.current_block = block;
-    }
-
-    fn cpython_cfg_builder_current_block_is_terminated_for_label(block: &ir::Block) -> bool {
-        !block.instructions.is_empty() || block.has_cpython_cfg_label()
-    }
-
-    /// Start a label block using CPython's `cfg_builder_current_block_is_terminated()`
-    /// rule: if the current block is empty and unlabeled, `_PyCfgBuilder_UseLabel()`
-    /// attaches the pending label to that block instead of allocating a new one.
-    fn start_cpython_label_block(&mut self) -> BlockIdx {
-        let cur = self.current_code_info().current_block;
-        let block = &self.current_code_info().blocks[cur.idx()];
-        let block = if Self::cpython_cfg_builder_current_block_is_terminated_for_label(block) {
-            let b = self.new_block();
-            self.switch_to_block(b);
-            b
-        } else {
-            debug_assert_eq!(block.next, BlockIdx::NULL);
-            cur
-        };
-        self.mark_cpython_cfg_label_block(block);
-        self.current_code_info().use_instr_sequence_label(block);
-        block
+        let block = self.cpython_cfg_builder_new_block();
+        self.cpython_cfg_builder_use_next_block(block);
     }
 
     /// CPython `codegen_funcbody()` emits `NEW_JUMP_TARGET_LABEL(start)` and
@@ -11101,7 +10999,7 @@ impl Compiler {
     /// Consecutive `USE_LABEL()` calls can map multiple labels to the same
     /// instruction offset before `_PyCfg_FromInstructionSequence()` builds a
     /// CFG. Reuse an empty current block even if it already carries a label so
-    /// direct CFG codegen preserves that aliasing.
+    /// codegen CFG path preserves that aliasing.
     fn use_cpython_label_block(&mut self, block: BlockIdx) {
         let code = self.current_code_info();
         code.use_instr_sequence_label(block);
@@ -11146,6 +11044,19 @@ impl Compiler {
         code.blocks.push(ir::Block::default());
         code.instr_sequence_label_map.push_unlabeled_block();
         idx
+    }
+
+    /// flowgraph.c cfg_builder_new_block
+    fn cpython_cfg_builder_new_block(&mut self) -> BlockIdx {
+        self.new_unlabeled_block()
+    }
+
+    /// flowgraph.c cfg_builder_use_next_block
+    fn cpython_cfg_builder_use_next_block(&mut self, block: BlockIdx) {
+        let code = self.current_code_info();
+        let cur = code.current_block;
+        code.blocks[cur.idx()].next = block;
+        code.current_block = block;
     }
 
     fn switch_to_block(&mut self, block: BlockIdx) {
@@ -12410,6 +12321,16 @@ def f(x, y, z):
             .unwrap()
     }
 
+    fn find_symbol_table<'a>(table: &'a SymbolTable, name: &str) -> Option<&'a SymbolTable> {
+        if table.name == name {
+            return Some(table);
+        }
+        table
+            .sub_tables
+            .iter()
+            .find_map(|sub_table| find_symbol_table(sub_table, name))
+    }
+
     fn compile_exec_late_cfg_trace(source: &str) -> Vec<(String, String)> {
         let opts = CompileOpts::default();
         let source_file = SourceFileBuilder::new("source_path", source).finish();
@@ -12493,6 +12414,7 @@ def f(x, y, z):
             in_async_scope: is_async,
         };
         compiler.set_qualname();
+        let (_doc_str, body) = split_doc(body, &compiler.opts);
         let start_label = compiler.use_cpython_function_start_label();
         let is_gen = is_async || compiler.current_symbol_table().is_generator;
         let stop_iteration_block = if is_gen {
@@ -12510,7 +12432,6 @@ def f(x, y, z):
         } else {
             None
         };
-        let (_doc_str, body) = split_doc(body, &compiler.opts);
         compiler.compile_statements(body).unwrap();
         match body.last() {
             Some(ast::Stmt::Return(_)) => {}
@@ -12536,6 +12457,43 @@ def f(x, y, z):
         let _table = compiler.pop_symbol_table();
         let stack_top = compiler.code_stack.pop().unwrap();
         stack_top.debug_late_cfg_trace().unwrap()
+    }
+
+    #[test]
+    fn try_else_nested_try_const_list_keeps_setup_finally_nop() {
+        let trace = compile_single_function_late_cfg_trace(
+            r#"
+def f(arch):
+    try:
+        [arch, *_] = g()
+    except OSError:
+        pass
+    else:
+        try:
+            arch = ['x86', 'MIPS', 'Alpha', 'PowerPC', None,
+                    'ARM', 'ia64', None, None,
+                    'AMD64', None, None, 'ARM64',
+            ][int(arch)]
+        except (ValueError, IndexError):
+            pass
+        else:
+            if arch:
+                return arch
+"#,
+            "f",
+        );
+        let (_, dump) = trace
+            .iter()
+            .find(|(label, _)| label == "after_convert_pseudo_ops")
+            .expect("missing convert_pseudo_ops trace");
+        assert!(
+            dump.contains("[disp=8:9 raw=8:9-17:28 override=None] Real(Nop)"),
+            "SETUP_FINALLY should survive as a line-bearing NOP like CPython"
+        );
+        assert!(
+            dump.contains("[disp=9:20 raw=9:20-12:14 override=None] Real(BuildList"),
+            "CPython optimize_lists_and_sets() restores the literal location to BUILD_LIST"
+        );
     }
 
     #[test]
@@ -12612,7 +12570,7 @@ def f(proc, unittest):
             "f",
         );
         for (label, dump) in trace {
-            if label == "after_raw_optimize_load_fast_borrow"
+            if label == "after_optimize_load_fast"
                 || label.contains("deoptimize_borrow_in_protected_conditional_tail")
             {
                 eprintln!("=== {label} ===\n{dump}");
@@ -12641,9 +12599,8 @@ def f(sys, os, file):
             "f",
         );
         for (label, dump) in trace {
-            if label == "after_raw_optimize_load_fast_borrow"
+            if label == "after_optimize_load_fast"
                 || label == "after_deoptimize_borrow_after_protected_import"
-                || label == "after_optimize_load_fast_borrow"
                 || label == "after_borrow_deopts"
             {
                 eprintln!("=== {label} ===\n{dump}");
@@ -17153,6 +17110,48 @@ def f(g):
     }
 
     #[test]
+    fn too_large_plain_call_uses_cpython_tuple_ex_call_path() {
+        let args = (0..=STACK_USE_GUIDELINE)
+            .map(|i| format!("'v{i}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let code = compile_exec(&format!("def f(g):\n    return g({args})\n"));
+        let f = find_code(&code, "f").expect("missing function code");
+        let ops: Vec<_> = f
+            .instructions
+            .iter()
+            .map(|unit| unit.op)
+            .filter(|op| !matches!(op, Instruction::Cache))
+            .collect();
+
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Instruction::CallFunctionEx)),
+            "CPython routes calls over _PY_STACK_USE_GUIDELINE through CALL_FUNCTION_EX, got ops={ops:?}"
+        );
+        assert!(
+            !ops.iter().any(|op| matches!(
+                op,
+                Instruction::BuildTuple { .. }
+                    | Instruction::ListAppend { .. }
+                    | Instruction::CallIntrinsic1 { .. }
+            )),
+            "CPython flowgraph.c folds the starunpack tuple for constant too-large calls, got ops={ops:?}"
+        );
+        assert!(
+            f.constants.iter().any(|constant| {
+                matches!(
+                    constant,
+                    ConstantData::Tuple { elements }
+                        if elements.len() == usize::try_from(STACK_USE_GUIDELINE + 1).unwrap()
+                )
+            }),
+            "expected CPython folded tuple constant for too-large call args, got constants={:?}",
+            f.constants.iter().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn simple_attribute_call_keeps_method_load() {
         let code = compile_exec(
             "\
@@ -17261,6 +17260,44 @@ def f(xs):
                 0x33, 0x8c, 0x33, 0xd0, 0x04, 0x1d, 0x8a, 0x33, 0xd0, 0x04, 0x1d, 0x88, 0x33, 0x89,
                 0x6f, 0x99, 0x22, 0x8b, 0x6f, 0xd3, 0x0b, 0x1d, 0xd0, 0x04, 0x1d,
             ]
+        );
+    }
+
+    #[test]
+    fn builtin_any_async_genexpr_call_is_not_optimized() {
+        let code = compile_exec(
+            "\
+async def f(xs):
+    return any(x async for x in xs)
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        assert!(
+            !has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
+            "CPython maybe_optimize_function_call() skips coroutine generator expressions"
+        );
+        assert!(
+            f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::Call { .. })),
+            "async genexpr any() should stay on the normal call path"
+        );
+    }
+
+    #[test]
+    fn builtin_any_genexpr_outermost_await_is_optimized_like_cpython() {
+        let code = compile_exec(
+            "\
+async def f(get_xs):
+    return any(x for x in await get_xs())
+",
+        );
+        let f = find_code(&code, "f").expect("missing function code");
+
+        assert!(
+            has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
+            "CPython checks the generator expression symtable entry, so await in the outermost iterator does not make the genexpr coroutine"
         );
     }
 
@@ -17775,24 +17812,8 @@ def f(obj):
                 ]
             )
         });
-        let has_conservative_shape = ops.windows(9).any(|window| {
-            matches!(
-                window,
-                [
-                    Instruction::PopJumpIfNone { .. },
-                    Instruction::NotTaken,
-                    Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
-                    Instruction::Swap { .. },
-                    Instruction::PopTop,
-                    Instruction::ReturnValue,
-                    Instruction::Nop,
-                    Instruction::JumpBackward { .. },
-                    Instruction::EndFor,
-                ]
-            )
-        });
         assert!(
-            has_cpython_shape || has_conservative_shape,
+            has_cpython_shape,
             "expected loop return null-check to keep the backedge adjacent to the return cleanup, got ops={ops:?}"
         );
 
@@ -19727,7 +19748,7 @@ def f(self):
         let prev = f.instructions[key_load_idx - 1].op;
         assert!(
             matches!(prev, Instruction::LoadFast { .. }),
-            "CPython optimize_load_fast() leaves Keys plain here because MATCH_KEYS' no-input pseudo-ref uses the inner produced index; got ops={:?}",
+            "CPython optimize_load_fast() records MATCH_KEYS' no-input pseudo-ref with the produced-value loop index, so this consumed Keys load stays strong; got ops={:?}",
             f.instructions
                 .iter()
                 .map(|unit| unit.op)
@@ -25129,7 +25150,7 @@ def f(self):
             !tail
                 .iter()
                 .any(|op| matches!(op, Instruction::LoadFast { .. })),
-            "CPython codegen_try_except() uses USE_LABEL(end), so the empty RustPython label must be a passthrough and post-handler closure/tail loads should borrow; got tail={tail:?}",
+            "CPython codegen_try_except() uses USE_LABEL(end), so the handler continuation should be a shared passthrough and post-handler closure/tail loads should borrow; got tail={tail:?}",
         );
     }
 
@@ -27720,7 +27741,7 @@ def func[T](a: T = 'a', *, b: T = 'b'):
                     ]
                 )
             }),
-            "generic defaults call should not use RustPython-specific PUSH_NULL reshuffle, got ops={ops:?}"
+            "CPython generic defaults use SWAP/CALL after codegen_make_closure(), not a PUSH_NULL reshuffle, got ops={ops:?}"
         );
     }
 
@@ -29210,6 +29231,24 @@ async def f():
                     }
             }),
             "expected CPython-style ASYNC_GEN_WRAP before genexpr yield, got units={units:?}"
+        );
+    }
+
+    #[test]
+    fn async_comprehension_propagates_coroutine_to_enclosing_genexpr_like_cpython() {
+        let symbol_table = scan_program_symbol_table(
+            "\
+async def f():
+    gen = ([i async for i in asynciter([1, 2])] for j in [10, 20])
+    return [x async for x in gen]
+",
+        );
+        let genexpr =
+            find_symbol_table(&symbol_table, "<genexpr>").expect("missing genexpr symbol table");
+        assert!(genexpr.is_generator, "expected genexpr symbol table");
+        assert!(
+            genexpr.is_coroutine,
+            "CPython symtable_handle_comprehension() propagates non-generator async comprehension ste_coroutine to the enclosing genexpr"
         );
     }
 
@@ -34005,7 +34044,7 @@ def f(x):
 
         assert!(
             matches!(ops[rpartition_idx - 1].op, Instruction::LoadFast { .. }),
-            "CPython keeps the conditional-store join receiver strong before IMPORT_FROM, got ops={ops:?}"
+            "CPython optimize_load_fast() keeps the conditional-store join receiver strong before IMPORT_FROM, got ops={ops:?}"
         );
     }
 
@@ -34257,6 +34296,35 @@ def f(self, quoted):
         assert!(
             break_jump_idx < jump_back_idx,
             "expected break jump before continue backedge, got ops={ops:?}"
+        );
+    }
+
+    #[test]
+    fn backward_jump_extended_arg_accounts_for_jump_cache() {
+        let mut source = String::from("def f(x, items):\n    while x:\n");
+        for _ in 0..10 {
+            source.push_str("        x = len(items[-1])\n");
+        }
+        for _ in 0..6 {
+            source.push_str("        len(items)\n");
+        }
+        source.push_str("        continue\n");
+
+        let code = compile_exec(&source);
+        let f = find_code(&code, "f").expect("missing f code");
+        assert!(
+            f.instructions.windows(2).any(|window| {
+                matches!(
+                    (&window[0].op, &window[1].op),
+                    (
+                        Instruction::ExtendedArg,
+                        Instruction::JumpBackward { .. }
+                            | Instruction::JumpBackwardNoInterrupt { .. }
+                    )
+                )
+            }),
+            "CPython assemble.c resolves unconditional jumps before jump offsets, so the first offset pass must include JUMP_BACKWARD's inline cache and emit EXTENDED_ARG at this boundary; got instructions={:?}",
+            f.instructions
         );
     }
 
