@@ -291,7 +291,8 @@ rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
 rustls-platform-verifier = "0.7"
 rustyline = "18"
-serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
+serde = { version = "1.0.225", default-features = false, features = ["alloc", "derive"] }
+serde_bytes = { version = "0.11.19", default-features = false, features = ["std"] }
 schannel = "0.1.29"
 scopeguard = "1"
 serde-wasm-bindgen = "0.6.5"
