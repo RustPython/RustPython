@@ -2571,7 +2571,7 @@ mod _sqlite3 {
                 // Mirror CPython ass_subscript_index: use PyLong_AsLong, treat any
                 // overflow (e.g. 2**65) as -1, then validate the [0, 255] range.
                 let val = int_val.as_bigint().to_i64().unwrap_or(-1);
-                if val < 0 || val > 255 {
+                if !(0..=255).contains(&val) {
                     return Err(vm.new_value_error("byte must be in range(0, 256)"));
                 }
                 let ret = inner.blob.write_single(val as u8, index);
@@ -2612,25 +2612,25 @@ mod _sqlite3 {
                     self.check(ret, vm)
                 } else {
                     let span_len = range.end - range.start;
+                    let range_start = range.start;
                     let mut temp_buf = vec![0u8; span_len];
 
                     let ret = inner.blob.read(
                         temp_buf.as_mut_ptr().cast(),
                         span_len as c_int,
-                        range.start as c_int,
+                        range_start as c_int,
                     );
                     self.check(ret, vm)?;
 
-                    let mut i_in_temp: usize = 0;
-                    for i_in_src in 0..slice_len {
-                        temp_buf[i_in_temp] = buf[i_in_src];
-                        i_in_temp += step as usize;
+                    let iter = SaturatedSliceIter::from_adjust_indices(range, step, slice_len);
+                    for (i_in_src, abs_idx) in iter.enumerate() {
+                        temp_buf[abs_idx - range_start] = buf[i_in_src];
                     }
 
                     let ret = inner.blob.write(
                         temp_buf.as_ptr().cast(),
                         span_len as c_int,
-                        range.start as c_int,
+                        range_start as c_int,
                     );
                     self.check(ret, vm)
                 }
