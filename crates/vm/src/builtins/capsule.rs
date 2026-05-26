@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     types::{Destructor, Representable},
 };
-use core::ffi::c_void;
+use core::ffi::{CStr, c_void};
 use core::sync::atomic::AtomicPtr;
 
 /// PyCapsule - a container for C pointers.
@@ -13,6 +13,8 @@ use core::sync::atomic::AtomicPtr;
 #[derive(Debug)]
 pub struct PyCapsule {
     ptr: AtomicPtr<c_void>,
+    context: AtomicPtr<c_void>,
+    name: Option<&'static CStr>,
     destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>,
 }
 
@@ -27,16 +29,37 @@ impl PyPayload for PyCapsule {
 impl PyCapsule {
     pub fn new(
         ptr: *mut c_void,
+        name: Option<&'static CStr>,
         destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>,
     ) -> Self {
         Self {
             ptr: ptr.into(),
+            context: core::ptr::null_mut::<c_void>().into(),
+            name,
             destructor,
         }
     }
 
     pub fn pointer(&self) -> *mut c_void {
         self.ptr.load(core::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_pointer(&self, pointer: *mut c_void) {
+        self.ptr
+            .store(pointer, core::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn context(&self) -> *mut c_void {
+        self.context.load(core::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_context(&self, context: *mut c_void) {
+        self.context
+            .store(context, core::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn name(&self) -> Option<&CStr> {
+        self.name
     }
 
     fn destructor(&self) -> Option<unsafe extern "C" fn(_: *mut PyObject)> {

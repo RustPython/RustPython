@@ -19,6 +19,7 @@ pub mod import;
 pub mod listobject;
 pub mod longobject;
 pub mod object;
+pub mod pycapsule;
 pub mod pyerrors;
 pub mod pylifecycle;
 pub mod pystate;
