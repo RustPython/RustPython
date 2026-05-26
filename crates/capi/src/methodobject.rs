@@ -30,7 +30,7 @@ pub union PyMethodPointer {
     ) -> *mut PyObject,
     pub PyCFunctionFast: unsafe extern "C" fn(
         slf: *mut PyObject,
-        args: *mut *mut PyObject,
+        args: *const *mut PyObject,
         nargs: isize,
     ) -> *mut PyObject,
     pub PyCFunctionFastWithKeywords: unsafe extern "C" fn(
@@ -216,18 +216,18 @@ unsafe fn call_fast_function_with_keywords(
     } else {
         None
     };
-    let fastcall_arg_ptrs = fastcall_args
-        .iter()
-        .map(|obj| obj.as_object().as_raw().cast_mut())
-        .collect::<Vec<_>>();
     let kwnames_ptr = kwnames_tuple
         .as_ref()
         .map(|tuple| tuple.as_object().as_raw().cast_mut())
         .unwrap_or_default();
+    // SAFETY: PyObjectRef is repr(transparent) over a pointer to PyObject, so a
+    // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
+    // vector is kept alive for the duration of the call.
+    let fastcall_arg_ptrs = fastcall_args.as_ptr().cast::<*mut PyObject>();
     let ret_ptr = unsafe {
         f(
             slf_ptr,
-            fastcall_arg_ptrs.as_ptr(),
+            fastcall_arg_ptrs,
             nargs as isize,
             kwnames_ptr,
         )
@@ -248,17 +248,15 @@ unsafe fn call_fast_function(
         .as_ref()
         .map(|obj| obj.as_object().as_raw().cast_mut())
         .unwrap_or_default();
-    // TODO can we avoid creating a new vec here?
-    let mut fastcall_arg_ptrs = args
-        .args
-        .iter()
-        .map(|obj| obj.as_object().as_raw().cast_mut())
-        .collect::<Vec<_>>();
+    // SAFETY: PyObjectRef is repr(transparent) over a pointer to PyObject, so a
+    // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
+    // vector is kept alive for the duration of the call.
+    let fastcall_arg_ptrs = args.args.as_mut_ptr().cast::<*mut PyObject>();
     let ret_ptr = unsafe {
         f(
             slf_ptr,
-            fastcall_arg_ptrs.as_mut_ptr(),
-            fastcall_arg_ptrs.len() as isize,
+            fastcall_arg_ptrs,
+            args.args.len() as isize,
         )
     };
     ret_ptr_to_pyresult(vm, ret_ptr)
