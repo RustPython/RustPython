@@ -45,24 +45,26 @@ pub(crate) fn build_method_def(
     vm: &VirtualMachine,
     ml: &PyMethodDef,
     has_self: bool,
-) -> PyRef<HeapMethodDef> {
+) -> PyResult<PyRef<HeapMethodDef>> {
     let name = unsafe { CStr::from_ptr(ml.ml_name) }
         .to_str()
-        .expect("Method name was not valid UTF-8");
+        .map_err(|_| vm.new_system_error("Method name was not valid UTF-8"))?;
 
-    let doc = NonNull::new(ml.ml_doc.cast_mut()).map(|doc| {
-        unsafe { CStr::from_ptr(doc.as_ptr()) }
-            .to_str()
-            .expect("Method doc was not valid UTF-8")
-    });
+    let doc = NonNull::new(ml.ml_doc.cast_mut())
+        .map(|doc| {
+            unsafe { CStr::from_ptr(doc.as_ptr()) }
+                .to_str()
+                .map_err(|_| vm.new_system_error("Method doc was not valid UTF-8"))
+        })
+        .transpose()?;
 
-    let flags =
-        PyMethodFlags::from_bits(ml.ml_flags as u32).expect("PyMethodDef contains unknown flags");
+    let flags = PyMethodFlags::from_bits(ml.ml_flags as u32)
+        .ok_or_else(|| vm.new_system_error("PyMethodDef contains unknown flags"))?;
 
     let method = ml.ml_meth;
 
     if flags.contains(PyMethodFlags::METHOD) {
-        panic!("METH_METHOD is not supported on abi3")
+        return Err(vm.new_system_error("METH_METHOD is not supported on abi3"));
     }
 
     let call_flags = flags
@@ -78,37 +80,37 @@ pub(crate) fn build_method_def(
                 let callable = move |zelf: PyObjectRef, vm: &VirtualMachine| unsafe {
                     call_function(vm, method, flags, Some(vec![zelf]))
                 };
-                vm.ctx.new_method_def(name, callable, flags, doc)
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             } else {
                 let callable = move |vm: &VirtualMachine| unsafe {
                     call_function::<FuncArgs>(vm, method, flags, None)
                 };
-                vm.ctx.new_method_def(name, callable, flags, doc)
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             }
         },
         PyMethodFlags::VARARGS => {
             let callable = move |args: PosArgs, vm: &VirtualMachine| unsafe {
                 call_function(vm, method, flags, Some(args))
             };
-            vm.ctx.new_method_def(name, callable, flags, doc)
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::VARARGS | PyMethodFlags::KEYWORDS => {
             let callable = move | args: FuncArgs, vm: &VirtualMachine| unsafe {
                 call_function_with_keywords(vm, method, flags, args)
             };
-            vm.ctx.new_method_def(name, callable, flags, doc)
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS => {
             let callable = move |args: FuncArgs, vm: &VirtualMachine| unsafe {
                 call_fast_function_with_keywords(vm, method, flags, args)
             };
-            vm.ctx.new_method_def(name, callable, flags, doc)
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::FASTCALL => {
-            let callable = move |_args: PosArgs, _vm: &VirtualMachine| -> PyResult {
-                todo!("METH_FASTCALL without METH_KEYWORDS is not supported yet")
+            let callable = move |args: PosArgs, vm: &VirtualMachine| unsafe {
+                call_fast_function(vm, method, flags, args)
             };
-            vm.ctx.new_method_def(name, callable, flags, doc)
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::O => {
             let f = unsafe { method.PyCFunction };
@@ -117,17 +119,19 @@ pub(crate) fn build_method_def(
                     let ret_ptr = unsafe { f(zelf.as_raw().cast_mut(), arg.as_raw().cast_mut()) };
                     ret_ptr_to_pyresult(vm, ret_ptr)
                 };
-                vm.ctx.new_method_def(name, callable, flags, doc)
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             } else {
                 let callable = move |arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
                     let ret_ptr = unsafe { f(core::ptr::null_mut(), arg.as_raw().cast_mut()) };
                     ret_ptr_to_pyresult(vm, ret_ptr)
                 };
-                vm.ctx.new_method_def(name, callable, flags, doc)
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             }
         },
         _ => {
-            todo!("function {name} has unsupported or invalid calling-convention flags: {flags:?}")
+            Err(vm.new_system_error(format!(
+                "function {name} has unsupported or invalid calling-convention flags: {flags:?}"
+            )))
         },
     })
 }
@@ -231,6 +235,35 @@ unsafe fn call_fast_function_with_keywords(
     ret_ptr_to_pyresult(vm, ret_ptr)
 }
 
+unsafe fn call_fast_function(
+    vm: &VirtualMachine,
+    method: PyMethodPointer,
+    flags: PyMethodFlags,
+    args: PosArgs,
+) -> PyResult {
+    let f = unsafe { method.PyCFunctionFast };
+    let mut args: FuncArgs = args.into();
+    let slf = take_self_arg(&mut args, flags);
+    let slf_ptr = slf
+        .as_ref()
+        .map(|obj| obj.as_object().as_raw().cast_mut())
+        .unwrap_or_default();
+    // TODO can we avoid creating a new vec here?
+    let mut fastcall_arg_ptrs = args
+        .args
+        .iter()
+        .map(|obj| obj.as_object().as_raw().cast_mut())
+        .collect::<Vec<_>>();
+    let ret_ptr = unsafe {
+        f(
+            slf_ptr,
+            fastcall_arg_ptrs.as_mut_ptr(),
+            fastcall_arg_ptrs.len() as isize,
+        )
+    };
+    ret_ptr_to_pyresult(vm, ret_ptr)
+}
+
 fn ret_ptr_to_pyresult(vm: &VirtualMachine, ret_ptr: *mut PyObject) -> PyResult {
     let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
         vm.take_raised_exception()
@@ -261,7 +294,7 @@ pub unsafe extern "C" fn PyCMethod_New(
         );
         let ml = unsafe { &*ml };
         let zelf = unsafe { slf.as_ref().map(|obj| obj.to_owned()) };
-        Ok(build_method_def(vm, ml, zelf.is_some())
+        Ok(build_method_def(vm, ml, zelf.is_some())?
             .build_function(vm, zelf)
             .into())
     })
