@@ -189,6 +189,7 @@ posonlyargcount
 prepending
 profilefunc
 pycache
+pycapsule
 pycodecs
 pycs
 pydatetime
