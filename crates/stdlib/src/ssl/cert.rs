@@ -23,7 +23,7 @@ use std::collections::HashSet;
 use x509_parser::prelude::*;
 
 use super::{
-    compat::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT},
+    _ssl::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT},
     providers::CryptoExt,
 };
 

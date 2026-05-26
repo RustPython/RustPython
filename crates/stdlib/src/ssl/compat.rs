@@ -20,12 +20,10 @@ use crate::vm::VirtualMachine;
 use alloc::sync::Arc;
 use parking_lot::RwLock as ParkingRwLock;
 use rustls::Connection;
-use rustls::client::{ClientConfig, ClientConnection};
+use rustls::client::ClientConfig;
 use rustls::crypto::{CryptoProvider, SupportedKxGroup};
 use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
-use rustls::server::{
-    ProducesTickets, ResolvesServerCert, ServerConfig, ServerConnection, WebPkiClientVerifier,
-};
+use rustls::server::{ProducesTickets, ResolvesServerCert, ServerConfig, WebPkiClientVerifier};
 use rustls::sign::CertifiedKey;
 use rustls::{RootCertStore, SupportedCipherSuite};
 use rustpython_vm::builtins::{PyBaseException, PyBaseExceptionRef};
@@ -37,23 +35,15 @@ use std::io::Read;
 use super::providers::CryptoExt;
 
 // Import PySSLSocket from parent module
-use super::_ssl::{PySSLSocket, SSL3_RT_MAX_PACKET_SIZE, VERIFY_X509_STRICT};
+use super::_ssl::{
+    PySSLSocket, SSL3_RT_MAX_PACKET_SIZE, VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT,
+};
 
 // Import error types and helper functions from error module
 use super::error::{
     PySSLCertVerificationError, PySSLError, create_ssl_eof_error, create_ssl_syscall_error,
     create_ssl_want_read_error, create_ssl_want_write_error, create_ssl_zero_return_error,
 };
-
-// SSL Verification Flags
-/// VERIFY_X509_STRICT flag for RFC 5280 strict compliance
-/// When set, performs additional validation including AKI extension checks
-pub(super) const VERIFY_X509_STRICT: i32 = 0x20;
-
-/// VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
-/// When set, accept certificates if any certificate in the chain is in the trust store
-/// (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
-pub(super) const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
 
 // OpenSSL Constants:
 
@@ -2134,14 +2124,12 @@ pub(super) fn curve_name_to_kx_group(
             .map(|g| vec![*g])
             .ok_or_else(|| "X25519 not supported by crypto provider".to_owned()),
         // P-521 (also known as secp521r1 or prime521v1)
-        // Now supported with aws-lc-rs crypto provider
         "prime521v1" | "secp521r1" => all_groups
             .iter()
             .find(|g| g.name() == rustls::NamedGroup::secp521r1)
             .map(|g| vec![*g])
             .ok_or_else(|| "secp521r1 not supported by crypto provider".to_owned()),
         // X448
-        // Now supported with aws-lc-rs crypto provider
         "X448" | "x448" => all_groups
             .iter()
             .find(|g| g.name() == rustls::NamedGroup::X448)
