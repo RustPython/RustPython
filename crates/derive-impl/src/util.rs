@@ -80,7 +80,7 @@ impl ToTokens for ValidatedItemNursery {
             let cfgs = &item.cfgs;
             let tokens = &item.tokens;
             quote! {
-                #( #cfgs )*
+                #(#cfgs)*
                 {
                     #tokens
                 }
@@ -99,12 +99,15 @@ pub(crate) trait ContentItem {
     type AttrName: core::str::FromStr + core::fmt::Display;
 
     fn inner(&self) -> &ContentItemInner<Self::AttrName>;
+
     fn index(&self) -> usize {
         self.inner().index
     }
+
     fn attr_name(&self) -> &Self::AttrName {
         &self.inner().attr_name
     }
+
     fn new_syn_error(&self, span: Span, message: &str) -> syn::Error {
         syn::Error::new(span, format!("#[{}] {}", self.attr_name(), message))
     }
@@ -142,6 +145,7 @@ impl ItemMetaInner {
                 Ok(None)
             }
         })?;
+
         if !lits.is_empty() {
             bail_span!(meta_ident, "#[{meta_ident}(..)] cannot contain literal")
         }
@@ -151,6 +155,10 @@ impl ItemMetaInner {
             meta_ident,
             meta_map,
         })
+    }
+
+    pub(crate) fn contains_key(&self, key: &str) -> bool {
+        self.meta_map.contains_key(key)
     }
 
     pub(crate) fn item_name(&self) -> String {
@@ -213,10 +221,6 @@ impl ItemMetaInner {
             None
         };
         Ok(value)
-    }
-
-    pub(crate) fn _has_key(&self, key: &str) -> bool {
-        matches!(self.meta_map.get(key), Some((_, _)))
     }
 
     pub(crate) fn _bool(&self, key: &str) -> Result<bool> {
@@ -517,6 +521,7 @@ impl ExceptionItemMeta {
 
 impl core::ops::Deref for ExceptionItemMeta {
     type Target = ClassItemMeta;
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -524,8 +529,11 @@ impl core::ops::Deref for ExceptionItemMeta {
 
 pub(crate) trait AttributeExt: SynAttributeExt {
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta>;
+
     fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)>;
+
     fn try_remove_name(&mut self, name: &str) -> Result<Option<NestedMeta>>;
+
     fn fill_nested_meta<F>(&mut self, name: &str, new_item: F) -> Result<()>
     where
         F: Fn() -> NestedMeta;
@@ -544,6 +552,7 @@ impl AttributeExt for Attribute {
         })?;
         Ok(list.nested)
     }
+
     fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)> {
         Ok((self.get_ident().unwrap(), self.promoted_nested()?))
     }
@@ -564,14 +573,10 @@ impl AttributeExt for Attribute {
 
             let mut found = None;
             for (i, item) in nested.iter().enumerate() {
-                let ident = if let Some(ident) = item.get_ident() {
-                    ident
-                } else {
-                    continue;
-                };
-                if *ident != item_name {
+                if item.get_ident().is_none_or(|ident| ident != item_name) {
                     continue;
                 }
+
                 if found.is_some() {
                     return Err(syn::Error::new(
                         item.span(),

@@ -1215,7 +1215,6 @@ class DisTests(DisTestBase):
     def test_disassemble_with(self):
         self.do_disassembly_test(_with, dis_with)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_asyncwith(self):
         self.do_disassembly_test(_asyncwith, dis_asyncwith)
 
@@ -1991,26 +1990,22 @@ class InstructionTests(InstructionTestCase):
         actual = dis.get_instructions(simple, first_line=None)
         self.assertInstructionsEqual(list(actual), expected_opinfo_simple)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_outer(self):
         actual = dis.get_instructions(outer, first_line=expected_outer_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_outer)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_nested(self):
         with captured_stdout():
             f = outer()
         actual = dis.get_instructions(f, first_line=expected_f_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_doubly_nested(self):
         with captured_stdout():
             inner = outer()()
         actual = dis.get_instructions(inner, first_line=expected_inner_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_inner)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_jumpy(self):
         actual = dis.get_instructions(jumpy, first_line=expected_jumpy_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_jumpy)
@@ -2314,7 +2309,6 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
                 via_generator = list(dis.get_instructions(obj))
                 self.assertInstructionsEqual(via_object, via_generator)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_explicit_first_line(self):
         actual = dis.Bytecode(outer, first_line=expected_outer_line)
         self.assertInstructionsEqual(list(actual), expected_opinfo_outer)

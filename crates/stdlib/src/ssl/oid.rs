@@ -394,7 +394,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_find_by_nid() {
+    fn find_by_nid_ok() {
         let entry = find_by_nid(13).unwrap();
         assert_eq!(entry.short_name, "CN");
         assert_eq!(entry.long_name, "commonName");
@@ -402,48 +402,48 @@ mod tests {
     }
 
     #[test]
-    fn test_find_by_oid_string() {
+    fn find_by_oid_string_ok() {
         let entry = find_by_oid_string("2.5.4.3").unwrap();
         assert_eq!(entry.nid, 13);
         assert_eq!(entry.short_name, "CN");
     }
 
     #[test]
-    fn test_find_by_name_short() {
+    fn find_by_name_short() {
         let entry = find_by_name("CN").unwrap();
         assert_eq!(entry.nid, 13);
         assert_eq!(entry.oid_string(), "2.5.4.3");
     }
 
     #[test]
-    fn test_find_by_name_long() {
+    fn find_by_name_long() {
         let entry = find_by_name("commonName").unwrap();
         assert_eq!(entry.nid, 13);
         assert_eq!(entry.short_name, "CN");
     }
 
     #[test]
-    fn test_find_by_name_case_insensitive() {
+    fn find_by_name_case_insensitive() {
         let entry = find_by_name("COMMONNAME").unwrap();
         assert_eq!(entry.nid, 13);
     }
 
     #[test]
-    fn test_subject_alt_name() {
+    fn subject_alt_name() {
         let entry = find_by_nid(85).unwrap();
         assert_eq!(entry.short_name, "subjectAltName");
         assert_eq!(entry.oid_string(), "2.5.29.17");
     }
 
     #[test]
-    fn test_server_auth_eku() {
+    fn server_auth_eku() {
         let entry = find_by_nid(129).unwrap();
         assert_eq!(entry.short_name, "serverAuth");
         assert_eq!(entry.oid_string(), "1.3.6.1.5.5.7.3.1");
     }
 
     #[test]
-    fn test_no_duplicate_nids() {
+    fn no_duplicate_nids() {
         let table = &*OID_TABLE;
         assert_eq!(
             table.entries.len(),
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn test_oid_count() {
+    fn oid_count() {
         let table = &*OID_TABLE;
         // We should have 50+ OIDs defined
         assert!(

@@ -237,7 +237,6 @@ class TestPredicates(IsTestBase):
 
         self.assertFalse(inspect.ispackage(FakePackage()))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_iscoroutine(self):
         async_gen_coro = async_generator_function_example(1)
         gen_coro = gen_coroutine_function_example(1)

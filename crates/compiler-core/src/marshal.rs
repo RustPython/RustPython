@@ -194,6 +194,22 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     rdr: &mut R,
     bag: Bag,
 ) -> Result<CodeObject<Bag::Constant>> {
+    let mut refs: Vec<Option<Bag::Constant>> = Vec::new();
+    deserialize_code_inner(rdr, bag, MAX_MARSHAL_STACK_DEPTH, &mut refs)
+}
+
+/// Inner code-object deserializer that shares a ref table with caller.
+/// Used when decoding a code object embedded in another marshal stream so
+/// that TYPE_REF entries inside the code can resolve across nested values.
+fn deserialize_code_inner<R: Read, Bag: ConstantBag>(
+    rdr: &mut R,
+    bag: Bag,
+    depth: usize,
+    refs: &mut Vec<Option<Bag::Constant>>,
+) -> Result<CodeObject<Bag::Constant>> {
+    if depth == 0 {
+        return Err(MarshalError::InvalidBytecode);
+    }
     // 1–5: scalar fields
     let arg_count = rdr.read_u32()?;
     let posonlyarg_count = rdr.read_u32()?;
@@ -202,24 +218,24 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let flags = CodeFlags::from_bits_truncate(rdr.read_u32()?);
 
     // 6: co_code
-    let code_bytes = read_marshal_bytes(rdr)?;
+    let code_bytes = read_marshal_bytes(rdr, &bag, refs)?;
 
     // 7: co_consts
-    let constants = read_marshal_const_tuple(rdr, bag)?;
+    let constants = read_marshal_const_tuple(rdr, bag, depth, refs)?;
 
     // 8: co_names
-    let names = read_marshal_name_tuple(rdr, &bag)?;
+    let names = read_marshal_name_tuple(rdr, &bag, refs)?;
 
     // 9: co_localsplusnames
-    let localsplusnames = read_marshal_str_vec(rdr)?;
+    let localsplusnames = read_marshal_str_vec(rdr, &bag, refs)?;
 
     // 10: co_localspluskinds
-    let localspluskinds = read_marshal_bytes(rdr)?;
+    let localspluskinds = read_marshal_bytes(rdr, &bag, refs)?;
 
     // 11–13: filename, name, qualname
-    let source_path = bag.make_name(&read_marshal_str(rdr)?);
-    let obj_name = bag.make_name(&read_marshal_str(rdr)?);
-    let qualname = bag.make_name(&read_marshal_str(rdr)?);
+    let source_path = bag.make_name(&read_marshal_str(rdr, &bag, refs)?);
+    let obj_name = bag.make_name(&read_marshal_str(rdr, &bag, refs)?);
+    let qualname = bag.make_name(&read_marshal_str(rdr, &bag, refs)?);
 
     // 14: co_firstlineno
     let first_line_raw = rdr.read_u32()? as i32;
@@ -230,8 +246,8 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     };
 
     // 15–16: linetable, exceptiontable
-    let linetable = read_marshal_bytes(rdr)?.to_vec().into_boxed_slice();
-    let exceptiontable = read_marshal_bytes(rdr)?.to_vec().into_boxed_slice();
+    let linetable = read_marshal_bytes(rdr, &bag, refs)?.into_boxed_slice();
+    let exceptiontable = read_marshal_bytes(rdr, &bag, refs)?.into_boxed_slice();
 
     // Split localsplusnames/kinds → varnames/cellvars/freevars
     let lp = split_localplus(
@@ -275,72 +291,238 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     })
 }
 
-/// Read a marshal bytes object (TYPE_STRING = b's').
-fn read_marshal_bytes<R: Read>(rdr: &mut R) -> Result<Vec<u8>> {
-    let type_byte = rdr.read_u8()? & !FLAG_REF;
+/// Reserve a ref slot if `FLAG_REF` was present, returning its index.
+fn reserve_ref_slot<T>(has_flag: bool, refs: &mut Vec<Option<T>>) -> Option<usize> {
+    if has_flag {
+        let idx = refs.len();
+        refs.push(None);
+        Some(idx)
+    } else {
+        None
+    }
+}
+
+/// Resolve a TYPE_REF index, returning the previously stored value.
+fn resolve_ref<T: Clone>(idx: usize, refs: &[Option<T>]) -> Result<T> {
+    refs.get(idx)
+        .and_then(|v| v.clone())
+        .ok_or(MarshalError::InvalidBytecode)
+}
+
+/// Read a marshal bytes object (TYPE_STRING = b's'), resolving TYPE_REF
+/// and registering this read in the ref table when `FLAG_REF` is set.
+fn read_marshal_bytes<R: Read, Bag: ConstantBag>(
+    rdr: &mut R,
+    bag: &Bag,
+    refs: &mut Vec<Option<Bag::Constant>>,
+) -> Result<Vec<u8>> {
+    let raw = rdr.read_u8()?;
+    let type_byte = raw & !FLAG_REF;
+    let has_flag = raw & FLAG_REF != 0;
+
+    if type_byte == Type::Ref as u8 {
+        let idx = rdr.read_u32()? as usize;
+        let stored = resolve_ref(idx, refs)?;
+        return match stored.borrow_constant() {
+            BorrowedConstant::Bytes { value } => Ok(value.to_vec()),
+            _ => Err(MarshalError::BadType),
+        };
+    }
+
     if type_byte != Type::Bytes as u8 {
         return Err(MarshalError::BadType);
     }
+
+    let slot = reserve_ref_slot(has_flag, refs);
     let len = rdr.read_u32()?;
-    Ok(rdr.read_slice(len)?.to_vec())
+    let bytes = rdr.read_slice(len)?.to_vec();
+    if let Some(idx) = slot {
+        refs[idx] =
+            Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Bytes { value: &bytes }));
+    }
+    Ok(bytes)
 }
 
-/// Read a marshal string object.
-fn read_marshal_str<R: Read>(rdr: &mut R) -> Result<alloc::string::String> {
-    let type_byte = rdr.read_u8()? & !FLAG_REF;
-    let s = match type_byte {
+/// Read a marshal string object, resolving TYPE_REF and registering
+/// this read in the ref table when `FLAG_REF` is set.
+fn read_marshal_str<R: Read, Bag: ConstantBag>(
+    rdr: &mut R,
+    bag: &Bag,
+    refs: &mut Vec<Option<Bag::Constant>>,
+) -> Result<alloc::string::String> {
+    let raw = rdr.read_u8()?;
+    let type_byte = raw & !FLAG_REF;
+    let has_flag = raw & FLAG_REF != 0;
+
+    if type_byte == Type::Ref as u8 {
+        let idx = rdr.read_u32()? as usize;
+        let stored = resolve_ref(idx, refs)?;
+        return match stored.borrow_constant() {
+            BorrowedConstant::Str { value } => Ok(value.to_string_lossy().into_owned()),
+            _ => Err(MarshalError::BadType),
+        };
+    }
+
+    let slot = reserve_ref_slot(has_flag, refs);
+    let owned = match type_byte {
         b'u' | b't' | b'a' | b'A' => {
             let len = rdr.read_u32()?;
-            rdr.read_str(len)?
+            alloc::string::String::from(rdr.read_str(len)?)
         }
         b'z' | b'Z' => {
             let len = rdr.read_u8()? as u32;
-            rdr.read_str(len)?
+            alloc::string::String::from(rdr.read_str(len)?)
         }
         _ => return Err(MarshalError::BadType),
     };
-    Ok(alloc::string::String::from(s))
+    if let Some(idx) = slot {
+        refs[idx] = Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Str {
+            value: Wtf8::new(owned.as_str()),
+        }));
+    }
+    Ok(owned)
 }
 
 /// Read a marshal tuple of strings, returning owned Strings.
-fn read_marshal_str_vec<R: Read>(rdr: &mut R) -> Result<Vec<alloc::string::String>> {
-    let type_byte = rdr.read_u8()? & !FLAG_REF;
+fn read_marshal_str_vec<R: Read, Bag: ConstantBag>(
+    rdr: &mut R,
+    bag: &Bag,
+    refs: &mut Vec<Option<Bag::Constant>>,
+) -> Result<Vec<alloc::string::String>> {
+    let raw = rdr.read_u8()?;
+    let type_byte = raw & !FLAG_REF;
+    let has_flag = raw & FLAG_REF != 0;
+
+    if type_byte == Type::Ref as u8 {
+        let idx = rdr.read_u32()? as usize;
+        let stored = resolve_ref(idx, refs)?;
+        return match stored.borrow_constant() {
+            BorrowedConstant::Tuple { elements } => elements
+                .iter()
+                .map(|c| match c.borrow_constant() {
+                    BorrowedConstant::Str { value } => Ok(value.to_string_lossy().into_owned()),
+                    _ => Err(MarshalError::BadType),
+                })
+                .collect(),
+            _ => Err(MarshalError::BadType),
+        };
+    }
+
     let n = match type_byte {
         b'(' => rdr.read_u32()? as usize,
         b')' => rdr.read_u8()? as usize,
         _ => return Err(MarshalError::BadType),
     };
-    (0..n).map(|_| read_marshal_str(rdr)).collect()
+    let slot = reserve_ref_slot(has_flag, refs);
+    let items: Vec<alloc::string::String> = (0..n)
+        .map(|_| read_marshal_str(rdr, bag, refs))
+        .collect::<Result<_>>()?;
+    if let Some(idx) = slot {
+        let elements: Vec<Bag::Constant> = items
+            .iter()
+            .map(|s| {
+                bag.make_constant::<Bag::Constant>(BorrowedConstant::Str {
+                    value: Wtf8::new(s.as_str()),
+                })
+            })
+            .collect();
+        refs[idx] = Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Tuple {
+            elements: &elements,
+        }));
+    }
+    Ok(items)
 }
 
 fn read_marshal_name_tuple<R: Read, Bag: ConstantBag>(
     rdr: &mut R,
     bag: &Bag,
+    refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<Box<[<Bag::Constant as Constant>::Name]>> {
-    let type_byte = rdr.read_u8()? & !FLAG_REF;
-    let n = match type_byte {
-        b'(' => rdr.read_u32()? as usize,
-        b')' => rdr.read_u8()? as usize,
-        _ => return Err(MarshalError::BadType),
-    };
-    (0..n)
-        .map(|_| Ok(bag.make_name(&read_marshal_str(rdr)?)))
-        .collect::<Result<Vec<_>>>()
-        .map(Vec::into_boxed_slice)
+    let names = read_marshal_str_vec(rdr, bag, refs)?;
+    Ok(names
+        .iter()
+        .map(|s| bag.make_name(s))
+        .collect::<Vec<_>>()
+        .into_boxed_slice())
 }
 
-/// Read a marshal tuple of constants.
+/// Read a marshal tuple of constants. Shares the ref table with the
+/// surrounding code-object decode so that nested TYPE_REF entries (for
+/// strings, bytes, code objects, etc.) resolve correctly.
 fn read_marshal_const_tuple<R: Read, Bag: ConstantBag>(
     rdr: &mut R,
     bag: Bag,
+    depth: usize,
+    refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<Constants<Bag::Constant>> {
-    let type_byte = rdr.read_u8()? & !FLAG_REF;
+    if depth == 0 {
+        return Err(MarshalError::InvalidBytecode);
+    }
+    let raw = rdr.read_u8()?;
+    let type_byte = raw & !FLAG_REF;
+    let has_flag = raw & FLAG_REF != 0;
+
+    if type_byte == Type::Ref as u8 {
+        let idx = rdr.read_u32()? as usize;
+        let stored = resolve_ref(idx, refs)?;
+        return match stored.borrow_constant() {
+            BorrowedConstant::Tuple { elements } => Ok(elements.iter().cloned().collect()),
+            _ => Err(MarshalError::BadType),
+        };
+    }
+
     let n = match type_byte {
         b'(' => rdr.read_u32()? as usize,
         b')' => rdr.read_u8()? as usize,
         _ => return Err(MarshalError::BadType),
     };
-    (0..n).map(|_| deserialize_value(rdr, bag)).collect()
+    let slot = reserve_ref_slot(has_flag, refs);
+    let child_depth = depth - 1;
+    let items: Vec<Bag::Constant> = (0..n)
+        .map(|_| read_const_value(rdr, bag, child_depth, refs))
+        .collect::<Result<_>>()?;
+    if let Some(idx) = slot {
+        refs[idx] =
+            Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Tuple { elements: &items }));
+    }
+    Ok(items.into_iter().collect())
+}
+
+/// Read a single value while staying inside an existing code-object ref
+/// space. Unlike `deserialize_value_depth`, encountering `Type::Code`
+/// here reuses the caller's ref table instead of opening a fresh one —
+/// this matches CPython's single global ref space for objects nested
+/// inside a code object's const tuple.
+fn read_const_value<R: Read, Bag: ConstantBag>(
+    rdr: &mut R,
+    bag: Bag,
+    depth: usize,
+    refs: &mut Vec<Option<Bag::Constant>>,
+) -> Result<Bag::Constant> {
+    if depth == 0 {
+        return Err(MarshalError::InvalidBytecode);
+    }
+    let raw = rdr.read_u8()?;
+    let flag = raw & FLAG_REF != 0;
+    let type_code = raw & !FLAG_REF;
+
+    if type_code == Type::Ref as u8 {
+        let idx = rdr.read_u32()? as usize;
+        return resolve_ref(idx, refs);
+    }
+
+    let slot = reserve_ref_slot(flag, refs);
+    let typ = Type::try_from(type_code)?;
+    let value = if matches!(typ, Type::Code) {
+        let code = deserialize_code_inner(rdr, bag, depth - 1, refs)?;
+        bag.make_code(code)
+    } else {
+        deserialize_value_typed(rdr, bag, depth, refs, typ)?
+    };
+    if let Some(idx) = slot {
+        refs[idx] = Some(value.clone());
+    }
+    Ok(value)
 }
 
 pub trait MarshalBag: Copy {
@@ -506,6 +688,23 @@ fn deserialize_value_depth<R: Read, Bag: MarshalBag>(
         return Err(MarshalError::InvalidBytecode);
     }
     let raw = rdr.read_u8()?;
+    deserialize_value_after_header(rdr, bag, depth, refs, raw)
+}
+
+/// Continue deserializing a value after the header byte has already been
+/// consumed. Shared by `deserialize_value_depth` and the dict-key branch,
+/// where the header byte is read up front to detect the TYPE_NULL
+/// terminator.
+fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
+    rdr: &mut R,
+    bag: Bag,
+    depth: usize,
+    refs: &mut Vec<Option<Bag::Value>>,
+    raw: u8,
+) -> Result<Bag::Value> {
+    if depth == 0 {
+        return Err(MarshalError::InvalidBytecode);
+    }
     let flag = raw & FLAG_REF != 0;
     let type_code = raw & !FLAG_REF;
 
@@ -528,7 +727,21 @@ fn deserialize_value_depth<R: Read, Bag: MarshalBag>(
     };
 
     let typ = Type::try_from(type_code)?;
-    let value = deserialize_value_typed(rdr, bag, depth, refs, typ)?;
+    // Code-objects keep their own inner ref table because Bag::Value (the
+    // outer marshal value) and the constant-bag's Constant type are not
+    // in general the same. When the outer header carried FLAG_REF, the
+    // code object occupies slot 0 of the single global ref space, so we
+    // mirror that by reserving slot 0 of the inner table.
+    let value = if matches!(typ, Type::Code) {
+        let mut inner_refs: Vec<Option<<Bag::ConstantBag as ConstantBag>::Constant>> = Vec::new();
+        if flag {
+            inner_refs.push(None);
+        }
+        let code = deserialize_code_inner(rdr, bag.constant_bag(), depth - 1, &mut inner_refs)?;
+        bag.make_code(code)
+    } else {
+        deserialize_value_typed(rdr, bag, depth, refs, typ)?
+    };
 
     if let Some(idx) = slot {
         refs[idx] = Some(value.clone());
@@ -630,32 +843,10 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             let mut pairs = Vec::new();
             loop {
                 let raw = rdr.read_u8()?;
-                let type_code = raw & !FLAG_REF;
-                if type_code == b'0' {
+                if raw & !FLAG_REF == b'0' {
                     break;
                 }
-                // TYPE_REF for key
-                let k = if type_code == Type::Ref as u8 {
-                    let idx = rdr.read_u32()? as usize;
-                    refs.get(idx)
-                        .and_then(|v| v.clone())
-                        .ok_or(MarshalError::InvalidBytecode)?
-                } else {
-                    let flag = raw & FLAG_REF != 0;
-                    let key_slot = if flag {
-                        let idx = refs.len();
-                        refs.push(None);
-                        Some(idx)
-                    } else {
-                        None
-                    };
-                    let key_type = Type::try_from(type_code)?;
-                    let k = deserialize_value_typed(rdr, bag, d, refs, key_type)?;
-                    if let Some(idx) = key_slot {
-                        refs[idx] = Some(k.clone());
-                    }
-                    k
-                };
+                let k = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
                 let v = deserialize_value_depth(rdr, bag, d, refs)?;
                 pairs.push((k, v));
             }
@@ -667,7 +858,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             let value = rdr.read_slice(len)?;
             bag.make_bytes(value)
         }
-        Type::Code => bag.make_code(deserialize_code(rdr, bag.constant_bag())?),
+        Type::Code => return Err(MarshalError::BadType),
         Type::Slice => {
             let d = depth - 1;
             let start = deserialize_value_depth(rdr, bag, d, refs)?;
@@ -1286,5 +1477,89 @@ fn lt_read_signed_varint(data: &[u8], pos: &mut usize) -> i32 {
         -((val >> 1) as i32)
     } else {
         (val >> 1) as i32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytecode::{BasicBag, ConstantData};
+
+    fn hex_to_bytes(hex: &str) -> Vec<u8> {
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    fn decode_code(hex: &str) -> CodeObject<ConstantData> {
+        let bytes = hex_to_bytes(hex);
+        let value = deserialize_value(&mut &bytes[..], BasicBag).expect("decode failed");
+        match value {
+            ConstantData::Code { code } => *code,
+            other => panic!("expected Code, got {other:?}"),
+        }
+    }
+
+    /// CPython 3.14 marshal output for: `compile("x = 1", "<t>", "exec")`.
+    /// Exercises FLAG_REF on the code object and TYPE_REF for qualname
+    /// pointing back at the obj_name slot.
+    #[test]
+    fn cpython_314_trivial_assignment() {
+        let hex = "e30000000000000000000000000100000000000000f30a00000080005e017400520123002902\
+                   e9010000004e2901da0178a900f300000000da033c743eda083c6d6f64756c653e72070000000100\
+                   0000730a000000f003010101d8040582017205000000";
+        let code = decode_code(hex);
+        assert_eq!(code.obj_name.as_str(), "<module>");
+        assert_eq!(code.qualname.as_str(), "<module>");
+        assert_eq!(code.source_path.as_str(), "<t>");
+        assert_eq!(code.arg_count, 0);
+        assert_eq!(code.max_stackdepth, 1);
+        assert_eq!(code.names.len(), 1);
+        assert_eq!(code.names[0].as_str(), "x");
+        assert_eq!(code.constants.len(), 2);
+        // (1, None)
+        let consts: &[ConstantData] = &code.constants;
+        assert!(matches!(
+            consts[0],
+            ConstantData::Integer { ref value } if *value == 1.into(),
+        ));
+        assert!(matches!(consts[1], ConstantData::None));
+    }
+
+    /// CPython 3.14 marshal output for a module with a nested function
+    /// and a string constant. Verifies that nested code objects inside
+    /// a const tuple share the surrounding code's ref space.
+    #[test]
+    fn cpython_314_nested_code_and_string_const() {
+        let hex = "e30000000000000000000000000100000000000000f310000000800052001700740052017401\
+                   520223002903630200000000000000000000000200000003000000f3120000008000570\
+                   12c0000000000000000000000230029014ea9002902da0161da016273020000002626da033c743e\
+                   da0361646472070000000200000073090000008000d80b0c8d35804cf300000000da0568656c6c\
+                   6f4e29027207000000da084752454554494e47720300000072080000007206000000da083c6d6f\
+                   64756c653e720b000000010000007311000000f003010101f204010111f006000c1382087208000000";
+        let code = decode_code(hex);
+        assert_eq!(code.obj_name.as_str(), "<module>");
+        assert_eq!(code.names.len(), 2);
+        assert_eq!(code.names[0].as_str(), "add");
+        assert_eq!(code.names[1].as_str(), "GREETING");
+        assert_eq!(code.constants.len(), 3);
+        // Inner code, "hello", None
+        let consts: &[ConstantData] = &code.constants;
+        let inner = match &consts[0] {
+            ConstantData::Code { code } => code,
+            other => panic!("expected nested Code, got {other:?}"),
+        };
+        assert_eq!(inner.obj_name.as_str(), "add");
+        assert_eq!(inner.qualname.as_str(), "add");
+        assert_eq!(inner.arg_count, 2);
+        assert_eq!(inner.varnames.len(), 2);
+        assert_eq!(inner.varnames[0].as_str(), "a");
+        assert_eq!(inner.varnames[1].as_str(), "b");
+        assert!(matches!(
+            consts[1],
+            ConstantData::Str { ref value } if value.as_str().ok() == Some("hello"),
+        ));
+        assert!(matches!(consts[2], ConstantData::None));
     }
 }

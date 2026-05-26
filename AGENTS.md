@@ -38,6 +38,12 @@ RustPython is a Python 3 interpreter written in Rust, implementing Python 3.14.0
 - Always ask the user before performing any git operations that affect the remote repository
 - Commits can be created locally when requested, but pushing and PR creation require explicit approval
 
+**CRITICAL: Pre-commit Checks**
+- Before creating ANY commit, you MUST run `prek run --all-files` (or `pre-commit run --all-files`) AND the full test suite. Both must pass — do not commit if either fails.
+- Test commands are documented in the [Testing](#testing) section below. At minimum run `cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher`; if the change touches `extra_tests/snippets/` run `pytest -v` there too, and if it touches `Lib/` or interpreter behavior, run the relevant `cargo run --release -- -m test <module>` modules.
+- If a hook auto-fixes files (e.g. `ruff-format`, `rustfmt`), re-stage the fixes, re-run `prek` until it reports a clean pass, then re-run the tests, then commit.
+- NEVER bypass these checks with `--no-verify`, `--no-gpg-sign`, or by skipping tests "because the change is small". If a hook or test fails, fix the underlying issue and create a new commit — do not amend or force the failing commit through.
+
 ## Important Development Notes
 
 ### Running Python Code
@@ -80,6 +86,35 @@ The `Lib/` directory contains Python standard library files copied from the CPyt
   - Add a `# TODO: RUSTPYTHON` comment when modifications are made
   - `unittest.skip("TODO: RustPython <reason>")`
   - `unittest.expectedFailure` with `# TODO: RUSTPYTHON <reason>` comment
+
+#### Choosing the right marker
+
+When marking a test that fails on RustPython, prefer one of the following forms:
+
+```python
+@unittest.expectedFailure  # TODO: RUSTPYTHON; <reason>
+# or
+@unittest.expectedFailureIf(<condition>, "TODO: RUSTPYTHON; <reason>")
+```
+
+If the test would crash the interpreter (segfault, Rust panic, abort, infinite loop), use `skip` instead so the rest of the suite can still run:
+
+```python
+@unittest.skip("TODO: RUSTPYTHON; <reason>")
+# or
+@unittest.skipIf(<condition>, "TODO: RUSTPYTHON; <reason>")
+```
+
+**When to use which:**
+
+- **Prefer `expectedFailure` / `expectedFailureIf`** by default. The test body still runs, so if RustPython is later fixed, the unexpected pass surfaces immediately and the decorator can be removed. Use the conditional `*If` form when the failure is environment-specific (e.g., a platform or build flag).
+- **Use `skip` / `skipIf` only when running the test would take down the test process** — segfaults, Rust panics, aborts, or hangs that block subsequent tests. Skipping keeps the suite usable; `expectedFailure` cannot help here, because the test body still executes.
+
+To find WIP entries that are partly modified and may need follow-up:
+
+```bash
+grep -d recurse 'TODO: RUSTPYTHON' Lib/test/
+```
 
 ### Clean Build
 
@@ -129,6 +164,7 @@ Run `./scripts/whats_left.py` to get a list of unimplemented methods, which is h
 
 - Do not delete or rewrite existing comments unless they are factually wrong or directly contradict the new code.
 - Do not add decorative section separators (e.g. `// -----------`, `// ===`, `/* *** */`). Use `///` doc-comments or short `//` comments only when they add value.
+- Do not put `///` doc comments on items annotated with `#[pyattr]`, `#[pyclass]`, or `#[pyfunction]`. The derive macros pull authoritative docstrings from CPython via the `rustpython-doc` crate; a Rust doc comment overrides that source, and on `#[pyattr]` it is silently dropped.
 
 #### Avoid Duplicate Code in Branches
 
@@ -258,9 +294,14 @@ See DEVELOPMENT.md "CPython Version Upgrade Checklist" section.
 - Document that it requires PEP 695 support
 - Focus on tests that can be fixed through Rust code changes only
 
+## CI Workflows
+
+If you modify any file under `.github/workflows/`, the change must pass a [zizmor](https://docs.zizmor.sh/) scan in CI.
+
 ## Documentation
 
 - Check the [architecture document](/architecture/architecture.md) for a high-level overview
 - Read the [development guide](/DEVELOPMENT.md) for detailed setup instructions
 - Generate documentation with `cargo doc --no-deps --all`
 - Online documentation is available at [docs.rs/rustpython](https://docs.rs/rustpython/)
+- [How to update test files](https://github.com/RustPython/RustPython/wiki/How-to-update-test-files#checkout-cpython-source-code-initial-setup) — guide for syncing test cases from upstream CPython into the `Lib/` directory

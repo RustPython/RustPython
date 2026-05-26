@@ -2245,7 +2245,6 @@ class AssertionErrorTests(unittest.TestCase):
                 result = run_script(source)
                 self.assertEqual(result[-3:], expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @force_not_colorized
     def test_multiline_not_highlighted(self):
         cases = [

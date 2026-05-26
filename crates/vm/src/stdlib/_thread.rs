@@ -530,10 +530,16 @@ pub(crate) mod _thread {
         // Increment thread count when thread actually starts executing
         vm.state.thread_count.fetch_add(1);
 
-        match func.invoke(args, vm) {
-            Ok(_obj) => {}
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
-            Err(exc) => {
+        // Inner scope: drop `func` (and its Python refs) before the thread
+        // slot is torn down below. Otherwise the parameter `func` would drop
+        // at end-of-function, after cleanup_current_thread_frames has cleared
+        // CURRENT_THREAD_SLOT, and a weakref callback fired during that drop
+        // would panic in push_thread_frame.
+        {
+            let func = func;
+            if let Err(exc) = func.invoke(args, vm)
+                && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
+            {
                 vm.run_unraisable(
                     exc,
                     Some("Exception ignored in thread started by".to_owned()),
@@ -1663,11 +1669,18 @@ pub(crate) mod _thread {
                 // Increment thread count when thread actually starts executing
                 vm_state.thread_count.fetch_add(1);
 
-                // Run the function
-                match func.invoke((), vm) {
-                    Ok(_) => {}
-                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
-                    Err(exc) => {
+                // Inner scope: drop `func` (and its Python refs) before the
+                // outer scopeguard::defer tears down the thread slot. As a
+                // `move` closure capture, `func` would otherwise drop after
+                // all locals (including the scopeguard `_guard`), and a
+                // weakref callback fired during that drop would panic in
+                // push_thread_frame.
+                {
+                    let func = func;
+                    // Run the function
+                    if let Err(exc) = func.invoke((), vm)
+                        && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
+                    {
                         vm.run_unraisable(
                             exc,
                             Some("Exception ignored in thread started by".to_owned()),

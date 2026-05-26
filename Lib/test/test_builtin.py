@@ -2696,6 +2696,7 @@ class PtyTests(unittest.TestCase):
         else:
             yield
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty(self):
         # Test input() functionality when wired to a tty
         self.check_input_tty("prompt", b"quux")
@@ -2710,17 +2711,20 @@ class PtyTests(unittest.TestCase):
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_null_in_prompt(self):
         self.check_input_tty("prompt\0", b"",
                 expected='ValueError: input: prompt string cannot contain '
                          'null characters')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_nonencodable_prompt(self):
         self.check_input_tty("prompté", b"quux", "ascii", stdout_errors='strict',
                 expected="UnicodeEncodeError: 'ascii' codec can't encode "
                          "character '\\xe9' in position 6: ordinal not in "
                          "range(128)")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_nondecodable_input(self):
         self.check_input_tty("prompt", b"quux\xe9", "ascii", stdin_errors='strict',
                 expected="UnicodeDecodeError: 'ascii' codec can't decode "

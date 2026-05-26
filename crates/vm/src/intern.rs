@@ -11,7 +11,7 @@ use core::{borrow::Borrow, ops::Deref};
 
 #[derive(Debug)]
 pub(crate) struct StringPool {
-    inner: PyRwLock<std::collections::HashSet<CachedPyStrRef, ahash::RandomState>>,
+    inner: PyRwLock<std::collections::HashSet<CachedPyStrRef, rapidhash::quality::RandomState>>,
 }
 
 impl Default for StringPool {

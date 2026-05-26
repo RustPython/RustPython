@@ -775,7 +775,6 @@ class CompatPickleTests(unittest.TestCase):
                 module, name = mapping(module, name)
                 self.assertEqual((module, name), (module3, name3))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exceptions(self):
         self.assertEqual(mapping('exceptions', 'StandardError'),
                          ('builtins', 'Exception'))
