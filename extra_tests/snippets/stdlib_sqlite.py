@@ -58,6 +58,7 @@ assert cur.fetchone()[0] == "341011"
 # Guard: CPython 3.11 has a SystemError bug with negative-step Blob slicing;
 # this test only runs on RustPython where the fix is being validated.
 import sys
+
 if sys.implementation.name == "rustpython":
     cx.execute("CREATE TABLE blobtest(b BLOB)")
     data = b"this blob data string is exactly fifty bytes long!"
