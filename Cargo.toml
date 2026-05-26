@@ -194,7 +194,6 @@ phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
 approx = "0.5.1"
 ascii = "1.1"
-aws-lc-rs = "1.16.3"
 base64 = "0.22"
 blake2 = "0.10.4"
 bitflags = "2.11.0"
@@ -218,7 +217,7 @@ exitcode = "1.1.2"
 flame = "0.2.2"
 flamer = "0.5"
 flate2 = { version = "1.1.9", default-features = false }
-foreign-types-shared = "0.3.1"
+foreign-types-shared = "0.1"
 gethostname = "1.0.2"
 getrandom = { version = "0.3", features = ["std"] }
 glob = "0.3"
