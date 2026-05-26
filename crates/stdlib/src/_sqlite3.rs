@@ -44,6 +44,7 @@ mod _sqlite3 {
         sqlite3_value_text, sqlite3_value_type,
     };
     use malachite_bigint::Sign;
+    use num_traits::ToPrimitive;
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
         hash::PyHash,
@@ -2551,28 +2552,35 @@ mod _sqlite3 {
             value: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let Some(value) = value else {
-                return Err(vm.new_type_error("Blob doesn't support slice deletion"));
-            };
             self.ensure_connection_open(vm)?;
             let inner = self.inner(vm)?;
 
             if let Some(index) = needle.try_index_opt(vm) {
                 // Handle single item assignment: blob[i] = b
-                let Some(value) = value.downcast_ref::<PyInt>() else {
+                let Some(value) = value else {
+                    return Err(vm.new_type_error("Blob doesn't support item deletion"));
+                };
+                let Some(int_val) = value.downcast_ref::<PyInt>() else {
                     return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
                         value.class()
                     )));
                 };
-                let value = value.try_to_primitive::<u8>(vm)?;
                 let blob_len = inner.blob.bytes();
                 let index = Self::wrapped_index(index?, blob_len, vm)?;
-                Self::expect_write(blob_len, 1, index, vm)?;
-                let ret = inner.blob.write_single(value, index);
+                // Mirror CPython ass_subscript_index: use PyLong_AsLong, treat any
+                // overflow (e.g. 2**65) as -1, then validate the [0, 255] range.
+                let val = int_val.as_bigint().to_i64().unwrap_or(-1);
+                if val < 0 || val > 255 {
+                    return Err(vm.new_value_error("byte must be in range(0, 256)"));
+                }
+                let ret = inner.blob.write_single(val as u8, index);
                 self.check(ret, vm)
             } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
                 // Handle slice assignment: blob[a:b:c] = b"..."
+                let Some(value) = value else {
+                    return Err(vm.new_type_error("Blob doesn't support slice deletion"));
+                };
                 let value_buf = PyBuffer::try_from_borrowed_object(vm, &value)?;
 
                 let buf = value_buf
