@@ -22,9 +22,10 @@ freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/fre
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 sqlite = ["rustpython-stdlib/sqlite"]
-ssl = []
-ssl-rustls-aws-lc = ["ssl", "rustpython-stdlib/ssl-rustls-aws-lc"]
-ssl-rustls-no-provider = ["ssl", "rustpython-stdlib/ssl-rustls-no-provider"]
+ssl = ["host_env"]
+ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
+ssl-rustls-aws-lc = ["ssl-rustls", "dep:rustls", "rustls/aws_lc_rs"]
+ssl-rustls-aws-lc-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
@@ -81,7 +82,7 @@ required-features = [
     "rustls-graviola",
     "rustls/ring",
     "rustpython-pylib/freeze-stdlib",
-    "rustpython-stdlib/ssl-rustls-no-provider",
+    "rustpython-stdlib/ssl-rustls",
     "rustpython-vm/freeze-stdlib",
 ]
 

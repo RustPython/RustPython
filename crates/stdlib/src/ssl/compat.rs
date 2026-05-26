@@ -730,7 +730,6 @@ pub(super) fn create_client_config(options: ClientConfigOptions) -> Result<Clien
                 };
 
                 // Wrap with PartialChainVerifier if VERIFY_X509_PARTIAL_CHAIN is set
-                const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
                 let verifier = if options.verify_flags & VERIFY_X509_PARTIAL_CHAIN != 0 {
                     use crate::ssl::cert::PartialChainVerifier;
                     Arc::new(PartialChainVerifier::new(

@@ -133,7 +133,7 @@ mod openssl;
 pub mod ssl;
 
 #[cfg(all(feature = "ssl-openssl", feature = "__ssl-rustls", not(clippy)))]
-compile_error!(r#"features "ssl-openssl" and "ssl-rustls-*" are mutually exclusive"#);
+compile_error!(r#"features "ssl-openssl" and "ssl-rustls" are mutually exclusive"#);
 
 #[cfg(all(
     feature = "host_env",

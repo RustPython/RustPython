@@ -7,8 +7,8 @@
 //! as a fallback.
 //!
 //! Both the [`CryptoProvider`] and [`CryptoExt`] are process-level structs that need to be
-//! set before any TLS operations. [`CryptoExt::set_provider`] is thread-safe and runs once. It
-//! sets both once per process.
+//! set before any TLS operations. [`CryptoExt::set_provider`] is thread-safe and runs once.
+//! It sets both once per process.
 
 use alloc::sync::Arc;
 use std::sync::OnceLock;
@@ -36,8 +36,6 @@ impl CryptoExt {
     #[inline]
     #[must_use]
     pub fn get_ext() -> &'static Self {
-        #[cfg(feature = "ssl-rustls-aws-lc")]
-        let _ = Self::set_aws_lc_provider();
         CRYPTO_EXT
             .get()
             .expect("A CryptoProvider must be set before TLS")
@@ -46,8 +44,6 @@ impl CryptoExt {
     #[inline]
     #[must_use]
     pub fn get_provider() -> &'static CryptoProvider {
-        #[cfg(feature = "ssl-rustls-aws-lc")]
-        let _ = Self::set_aws_lc_provider();
         CryptoProvider::get_default().expect("A CryptoProvider must be set before TLS")
     }
 
@@ -124,27 +120,13 @@ impl CryptoExt {
     /// Set a process-level [`CryptoProvider`] and [`CryptoExt`].
     ///
     /// A provider must be set before any cryptographic operations. All crypto ops panic if a provider
-    /// is unset. See [`Self::set_aws_lc_provider`] for the default provider.
-    pub fn set_provider(provider: CryptoProvider, extension: CryptoExt) -> Result<(), Error> {
+    /// is unset.
+    pub fn set_provider(provider: CryptoProvider, extension: Self) -> Result<(), Error> {
         provider
             .install_default()
             .map_err(|_| Error::General("A default CryptoProvider is already set".into()))?;
         CRYPTO_EXT
             .set(extension)
             .map_err(|_| Error::General("A CryptoExt is already set".into()))
-    }
-
-    /// Use AWS-LC as the default cryptography provider.
-    #[cfg(feature = "ssl-rustls-aws-lc")]
-    pub fn set_aws_lc_provider() -> Result<(), Error> {
-        use rustls::crypto::aws_lc_rs;
-        let provider = aws_lc_rs::default_provider();
-        let ext = CryptoExt {
-            all_cipher_suites: Some(aws_lc_rs::ALL_CIPHER_SUITES),
-            all_kx_groups: Some(aws_lc_rs::ALL_KX_GROUPS),
-            any_supported_key: Some(aws_lc_rs::sign::any_supported_type),
-            ticketer: aws_lc_rs::Ticketer::new,
-        };
-        Self::set_provider(provider, ext)
     }
 }

@@ -40,7 +40,6 @@ mod _ssl {
             lock::{PyMutex, PyRwLock},
         },
         socket::{PySocket, SockWaitKind, sock_wait, timeout_error_msg},
-        ssl::compat,
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
@@ -80,7 +79,7 @@ mod _ssl {
     use rustls::{
         ClientConnection, Connection, HandshakeKind, RootCertStore, ServerConfig, ServerConnection,
         client::{ClientSessionMemoryCache, ClientSessionStore},
-        crypto::{CryptoProvider, SupportedKxGroup},
+        crypto::SupportedKxGroup,
         pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName},
         server::{ClientHello, ResolvesServerCert},
         sign::CertifiedKey,
@@ -4873,12 +4872,12 @@ mod _ssl {
 
     #[pyfunction]
     fn RAND_status() -> i32 {
-        1 // Always have good randomness with aws-lc-rs
+        1 // The configured rustls provider supplies cryptographic randomness.
     }
 
     #[pyfunction]
     fn RAND_add(_string: PyObjectRef, _entropy: f64) {
-        // No-op: aws-lc-rs handles its own entropy
+        // No-op: the configured rustls provider handles its own entropy.
         // Accept any type (str, bytes, bytearray)
     }
 
@@ -4900,7 +4899,7 @@ mod _ssl {
 
     #[pyfunction]
     fn RAND_pseudo_bytes(n: i64, vm: &VirtualMachine) -> PyResult<(PyBytesRef, bool)> {
-        // In rustls/aws-lc-rs, all random bytes are cryptographically strong
+        // Rustls providers expose cryptographically strong random bytes.
         let bytes = RAND_bytes(n, vm)?;
         Ok((bytes, true))
     }
