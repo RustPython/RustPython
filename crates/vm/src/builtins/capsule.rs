@@ -58,7 +58,7 @@ impl PyCapsule {
             .store(context, core::sync::atomic::Ordering::Relaxed);
     }
 
-    pub fn name(&self) -> Option<&'static CStr> {
+    pub fn name(&self) -> Option<&CStr> {
         self.name
     }
 

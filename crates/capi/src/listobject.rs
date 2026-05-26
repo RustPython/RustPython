@@ -11,11 +11,16 @@ define_py_check!(exact fn PyList_CheckExact, types.list_type);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyList_New(size: isize) -> *mut PyObject {
-    with_vm(|vm| vm.ctx.new_list(Vec::with_capacity(size as usize)))
+    with_vm(|vm| {
+        let capacity = size
+            .try_into()
+            .map_err(|_| vm.new_system_error("Negative size passed to PyList_New"))?;
+        Ok(vm.ctx.new_list(Vec::with_capacity(capacity)))
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
+pub unsafe extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
         let list = unsafe { &*obj }.try_downcast_ref::<PyList>(vm)?;
         Ok(list.__len__())
@@ -23,22 +28,31 @@ pub extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> *mut PyObject {
+pub unsafe extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> *mut PyObject {
     with_vm(|vm| {
         let list = unsafe { &*obj }.try_downcast_ref::<PyList>(vm)?;
-
-        list.borrow_vec()
-            .get(index as usize)
+        index
+            .try_into()
+            .ok()
+            .and_then(|index: usize| list.borrow_vec().get(index).map(ToOwned::to_owned))
             .ok_or_else(|| vm.new_index_error(format!("list index out of range: {index}")))
-            .map(ToOwned::to_owned)
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyList_SetItem(list: *mut PyObject, index: isize, item: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyList_SetItem(
+    list: *mut PyObject,
+    index: isize,
+    item: *mut PyObject,
+) -> c_int {
     with_vm(|vm| {
         let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
         let item = unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(item)) };
+        let index_error =
+            || vm.new_index_error(format!("list assignment index out of range: {index}"));
+        if index < 0 {
+            return Err(index_error());
+        }
 
         let mut list_mut = list.borrow_vec_mut();
         match index - list_mut.len() as isize {
@@ -51,39 +65,48 @@ pub extern "C" fn PyList_SetItem(list: *mut PyObject, index: isize, item: *mut P
                 list_mut.push(item);
                 Ok(())
             }
-            0.. => Err(vm.new_index_error(format!("list assignment index out of range: {index}"))),
+            0.. => Err(index_error()),
         }
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyList_Append(list: *mut PyObject, item: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyList_Append(list: *mut PyObject, item: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
         let item = unsafe { &*item }.to_owned();
-        Ok(list.borrow_vec_mut().push(item))
+        list.borrow_vec_mut().push(item);
+        Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyList_Insert(list: *mut PyObject, index: isize, item: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyList_Insert(
+    list: *mut PyObject,
+    index: isize,
+    item: *mut PyObject,
+) -> c_int {
     with_vm(|vm| {
         let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
         let item = unsafe { &*item }.to_owned();
         let mut vec = list.borrow_vec_mut();
-        if index as usize > vec.len() {
-            Err(vm.new_index_error(format!("list index out of range: {index}")))
+        let index = if index < 0 {
+            index + vec.len() as isize
         } else {
-            Ok(vec.insert(index as _, item))
+            index
         }
+        .clamp(0, vec.len() as isize) as usize;
+        vec.insert(index, item);
+        Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyList_Reverse(list: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyList_Reverse(list: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
-        Ok(list.borrow_vec_mut().reverse())
+        list.borrow_vec_mut().reverse();
+        Ok(())
     })
 }
 
@@ -146,7 +169,8 @@ mod tests {
             assert_eq!(list.len(), 0);
             list.insert(0, 1).unwrap();
             assert_eq!(list.len(), 1);
-            assert!(list.insert(2, 3).is_err());
+            list.insert(2, 3).unwrap();
+            assert_eq!(list.get_item(1).unwrap().extract::<u32>().unwrap(), 3);
         })
     }
 
