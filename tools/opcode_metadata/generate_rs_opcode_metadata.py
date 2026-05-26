@@ -140,7 +140,7 @@ class OpcodeGen:
     @property
     def fn_deopt(self) -> str:
         arms = ""
-        for target, specialized in self.deopts.items():
+        for target, specialized in self.info.deopts.items():
             ops = "|".join(f"Self::{op}" for op in specialized)
             arms += f"{ops} => Self::{target},\n"
 
@@ -317,26 +317,6 @@ class OpcodeGen:
         return res
 
     @property
-    def deopts(self) -> dict[str, list[str]]:
-        analysis = get_analysis()
-        names = {opcode.rust_name for opcode in self}
-
-        res = collections.defaultdict(list)
-        for family in analysis.families.values():
-            family_name = to_pascal_case(family.name)
-            if family_name not in names:
-                continue
-
-            for member in family.members:
-                member_name = to_pascal_case(member.name)
-                if member.name == family_name:
-                    continue
-
-                res[family_name].append(member_name)
-
-        return dict(res)
-
-    @property
     def size(self) -> str:
         return self.info.size
 
@@ -351,7 +331,7 @@ def rustfmt(code: str) -> str:
 def main():
     override_conf = get_conf()
     inp = DEFAULT_INPUT.read_text()
-    opcode_infos = tuple(OpcodeInfo.iter_infos(inp, override_conf))
+    opcode_infos = OpcodeInfo.iter_infos(inp, override_conf)
 
     outfile = io.StringIO()
 

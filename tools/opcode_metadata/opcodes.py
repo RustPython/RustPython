@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import dataclasses
 import re
 import typing
@@ -7,7 +8,7 @@ import warnings
 
 import utils
 from cpython import SKIP_PROPERTIES, Family, Properties, get_analysis, get_stack_effect
-from utils import SKIP_OVERRIDE, Override, OverrideConfs, StackEffect
+from utils import SKIP_OVERRIDE, Override, OverrideConfs, StackEffect, to_pascal_case
 
 if typing.TYPE_CHECKING:
     from collections.abc import Iterable
@@ -18,6 +19,29 @@ class OpcodeInfo:
     enum_name: str
     size: str
     opcodes: tuple[Opcode, ...]
+
+    @property
+    def deopts(self) -> dict[str, list[str]]:
+        analysis = get_analysis()
+        names = {opcode.rust_name for opcode in self}
+
+        res = collections.defaultdict(list)
+        for family in analysis.families.values():
+            family_name = to_pascal_case(family.name)
+            if family_name not in names:
+                continue
+
+            for member in family.members:
+                member_name = to_pascal_case(member.name)
+                if member.name == family_name:
+                    continue
+
+                res[family_name].append(member_name)
+
+        return dict(res)
+
+    def __iter__(self):
+        yield from self.opcodes
 
     @classmethod
     def iter_infos(
@@ -80,6 +104,7 @@ def iter_opcodes(text: str, override_confs: OverrideConfs) -> Iterable[Opcode]:
 class Opcode:
     rust_name: str
     id: int
+    have_argument: bool = False
     cache_entry: int = 0
     stack_effect: StackEffect | None = None
     properties: Properties = dataclasses.field(default_factory=lambda: SKIP_PROPERTIES)
@@ -127,7 +152,8 @@ class Opcode:
     def from_str(cls, entry: str) -> typing.Self:
         rust_name = re.match(r"(\w+)", entry).group(1)
         id_num = re.findall(r"= (\d+)", entry)[0]
-        return cls(rust_name, int(id_num))
+        have_argument = "Arg<" in entry
+        return cls(rust_name, int(id_num), have_argument=have_argument)
 
     def __lt__(self, other: typing.Self) -> bool:
         return self.id < other.id
