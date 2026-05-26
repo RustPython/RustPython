@@ -16,6 +16,7 @@ pub mod complexobject;
 pub mod dictobject;
 pub mod floatobject;
 pub mod import;
+pub mod listobject;
 pub mod longobject;
 pub mod object;
 pub mod pyerrors;
