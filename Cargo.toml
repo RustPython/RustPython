@@ -217,6 +217,7 @@ exitcode = "1.1.2"
 flame = "0.2.2"
 flamer = "0.5"
 flate2 = { version = "1.1.9", default-features = false }
+# Bump only when the openssl crate bumps it
 foreign-types-shared = "0.1"
 gethostname = "1.0.2"
 getrandom = { version = "0.3", features = ["std"] }
