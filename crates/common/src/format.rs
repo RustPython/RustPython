@@ -1447,7 +1447,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fill_and_align() {
+    fn fill_and_align() {
         let parse_fill_and_align = |text| {
             let (fill, align, rest) = parse_fill_and_align(str::as_ref(text));
             (
@@ -1479,7 +1479,7 @@ mod tests {
     }
 
     #[test]
-    fn test_width_only() {
+    fn width_only() {
         let expected = Ok(FormatSpec {
             conversion: None,
             fill: None,
@@ -1495,7 +1495,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fill_and_width() {
+    fn fill_and_width() {
         let expected = Ok(FormatSpec {
             conversion: None,
             fill: Some('<'.into()),
@@ -1511,7 +1511,7 @@ mod tests {
     }
 
     #[test]
-    fn test_all() {
+    fn all() {
         let expected = Ok(FormatSpec {
             conversion: None,
             fill: Some('<'.into()),
@@ -1531,7 +1531,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_bool() {
+    fn format_bool_basic() {
         assert_eq!(format_bool("b", true), Ok("1".to_owned()));
         assert_eq!(format_bool("b", false), Ok("0".to_owned()));
         assert_eq!(format_bool("d", true), Ok("1".to_owned()));
@@ -1563,7 +1563,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_int() {
+    fn format_int() {
         assert_eq!(
             FormatSpec::parse("d")
                 .unwrap()
@@ -1609,7 +1609,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_int_sep() {
+    fn format_int_sep() {
         let spec = FormatSpec::parse(",").expect("");
         assert_eq!(spec.grouping_option, Some(FormatGrouping::Comma));
         assert_eq!(
@@ -1619,7 +1619,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_int_width_and_grouping() {
+    fn format_int_width_and_grouping() {
         // issue #5922: width + comma grouping should pad left, not inside the number
         let spec = FormatSpec::parse("10,").unwrap();
         let result = spec.format_int(&BigInt::from(1234)).unwrap();
@@ -1627,7 +1627,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_int_padding_with_grouping() {
+    fn format_int_padding_with_grouping() {
         // CPython behavior: f'{1234:010,}' results in "00,001,234"
         let spec1 = FormatSpec::parse("010,").unwrap();
         let result1 = spec1.format_int(&BigInt::from(1234)).unwrap();
@@ -1650,7 +1650,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_int_non_aftersign_zero_padding() {
+    fn format_int_non_aftersign_zero_padding() {
         // CPython behavior: f'{1234:0>10,}' results in "000001,234"
         let spec = FormatSpec::parse("0>10,").unwrap();
         let result = spec.format_int(&BigInt::from(1234)).unwrap();
@@ -1658,7 +1658,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_parse() {
+    fn format_parse() {
         let expected = Ok(FormatString {
             format_parts: vec![
                 FormatPart::Literal("abcd".into()),
@@ -1680,12 +1680,12 @@ mod tests {
     }
 
     #[test]
-    fn test_format_parse_multi_byte_char() {
+    fn format_parse_multi_byte_char() {
         assert!(FormatString::from_str("{a:%ЫйЯЧ}".as_ref()).is_ok());
     }
 
     #[test]
-    fn test_format_parse_fail() {
+    fn format_parse_fail() {
         assert_eq!(
             FormatString::from_str("{s".as_ref()),
             Err(FormatParseError::UnmatchedBracket)
@@ -1693,7 +1693,7 @@ mod tests {
     }
 
     #[test]
-    fn test_square_brackets_inside_format() {
+    fn square_brackets_inside_format() {
         assert_eq!(
             FormatString::from_str("{[:123]}".as_ref()),
             Ok(FormatString {
@@ -1721,7 +1721,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_parse_escape() {
+    fn format_parse_escape() {
         let expected = Ok(FormatString {
             format_parts: vec![
                 FormatPart::Literal("{".into()),
@@ -1738,7 +1738,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_invalid_specification() {
+    fn format_invalid_specification() {
         assert_eq!(
             FormatSpec::parse("%3"),
             Err(FormatSpecError::InvalidFormatSpecifier)
@@ -1770,7 +1770,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_field_name() {
+    fn parse_field_name() {
         let parse = |s: &str| FieldName::parse(s.as_ref());
         assert_eq!(
             parse(""),

@@ -160,7 +160,11 @@ mod builtins {
                 .map(|&b| b as char)
                 .collect();
 
-            if name.is_empty() { None } else { Some(name) }
+            if name.is_empty() {
+                None
+            } else {
+                Some(normalize_source_encoding(&name))
+            }
         }
 
         // Split into lines (first two only)
@@ -186,15 +190,39 @@ mod builtins {
         lines.next().and_then(find_encoding_in_line)
     }
 
+    /// Match CPython's Parser/tokenizer/helpers.c:get_normal_name().
+    #[cfg(feature = "parser")]
+    fn normalize_source_encoding(name: &str) -> String {
+        let mut normalized = String::with_capacity(name.len().min(12));
+        for ch in name.chars().take(12) {
+            if ch == '_' {
+                normalized.push('-');
+            } else {
+                normalized.push(ch.to_ascii_lowercase());
+            }
+        }
+
+        if normalized == "utf-8" || normalized.starts_with("utf-8-") {
+            "utf-8".to_owned()
+        } else if normalized == "latin-1"
+            || normalized == "iso-8859-1"
+            || normalized == "iso-latin-1"
+            || normalized.starts_with("latin-1-")
+            || normalized.starts_with("iso-8859-1-")
+            || normalized.starts_with("iso-latin-1-")
+        {
+            "iso-8859-1".to_owned()
+        } else {
+            name.to_owned()
+        }
+    }
+
     /// Decode source bytes to a string, handling PEP 263 encoding declarations
     /// and BOM. Raises SyntaxError for invalid UTF-8 without an encoding
     /// declaration.
-    /// Check if an encoding name is a UTF-8 variant after normalization.
-    /// Matches: utf-8, utf_8, utf8, UTF-8, etc.
     #[cfg(feature = "parser")]
     fn is_utf8_encoding(name: &str) -> bool {
-        let normalized: String = name.chars().filter(|&c| c != '-' && c != '_').collect();
-        normalized.eq_ignore_ascii_case("utf8")
+        name == "utf-8"
     }
 
     #[cfg(feature = "parser")]
@@ -206,9 +234,10 @@ mod builtins {
 
         // Validate BOM + encoding combination
         if has_bom && !is_utf8 {
+            let enc = encoding.as_deref().unwrap_or("utf-8");
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.syntax_error.to_owned(),
-                format!("encoding problem for '{filename}': utf-8").into(),
+                format!("encoding problem: {enc} with BOM").into(),
             ));
         }
 
@@ -1445,6 +1474,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "TimeoutError" => ctx.exceptions.timeout_error.to_owned(),
         "ReferenceError" => ctx.exceptions.reference_error.to_owned(),
         "RuntimeError" => ctx.exceptions.runtime_error.to_owned(),
+        "PythonFinalizationError" => ctx.exceptions.python_finalization_error.to_owned(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.to_owned(),
         "RecursionError" => ctx.exceptions.recursion_error.to_owned(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.to_owned(),

@@ -69,8 +69,8 @@ pub const RUSTPYTHON_VERSION: &str = const {
 };
 
 // Must be aligned to Lib/importlib/_bootstrap_external.py
-// Bumped to 2994 for new CommonConstant discriminants (BuiltinList, BuiltinSet)
-pub const PYC_MAGIC_NUMBER: u16 = 2994;
+// Matches CPython 3.14 (Include/internal/pycore_magic_number.h).
+pub const PYC_MAGIC_NUMBER: u16 = 3627;
 
 // CPython format: magic_number | ('\r' << 16) | ('\n' << 24)
 // This protects against text-mode file reads

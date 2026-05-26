@@ -644,8 +644,8 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     // 1. no `clear`: HAS_CLEAR = HAS_TRAVERSE (default: same as traverse)
     // 2. `clear` or `clear = true`: HAS_CLEAR = true, try_clear calls Traverse::clear
     // 3. `clear = false`: HAS_CLEAR = false (rare: traverse without clear)
-    let has_traverse = class_meta.inner()._has_key("traverse");
-    let has_clear = if class_meta.inner()._has_key("clear") {
+    let has_traverse = class_meta.inner().contains_key("traverse");
+    let has_clear = if class_meta.inner().contains_key("clear") {
         // If clear attribute is present, use its value
         class_meta.inner()._bool("clear")?
     } else {
@@ -872,14 +872,10 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> T
     // their own __init__ in __dict__.
     let slot_init = quote!();
 
-    let extra_attrs_tokens = if extra_attrs.is_empty() {
-        quote!()
-    } else {
-        quote!(, #(#extra_attrs),*)
-    };
+    let extra_attrs_tokens = quote!(#(#extra_attrs),*);
 
     quote! {
-        #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*) #extra_attrs_tokens)]
+        #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*), #extra_attrs_tokens)]
         impl #generics #self_ty {
             #(#items)*
         }

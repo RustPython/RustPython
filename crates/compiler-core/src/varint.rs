@@ -106,7 +106,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_le_varint_roundtrip() {
+    fn le_varint_roundtrip() {
         // Little-endian is only used internally in linetable,
         // no read function needed outside of linetable parsing.
         let mut buf = Vec::new();
@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn test_be_varint_roundtrip() {
+    fn be_varint_roundtrip() {
         for &val in &[0u32, 1, 63, 64, 127, 128, 4095, 4096, 1_000_000] {
             let mut buf = Vec::new();
             write_varint_be(&mut buf, val);
@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn test_be_varint_with_start() {
+    fn be_varint_with_start() {
         let mut buf = Vec::new();
         write_varint_with_start(&mut buf, 42);
         write_varint_with_start(&mut buf, 100);

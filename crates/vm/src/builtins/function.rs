@@ -564,7 +564,8 @@ impl Py<PyFunction> {
 
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
-        let use_datastack = !(is_gen || is_coro);
+        let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
+        let use_datastack = !(is_gen || is_coro || is_async_gen);
 
         // Construct frame:
         let frame = Frame::new(
@@ -579,35 +580,30 @@ impl Py<PyFunction> {
         .into_ref(&vm.ctx);
 
         self.fill_locals_from_args(&frame, func_args, vm)?;
-        match (is_gen, is_coro) {
-            (true, false) => {
-                let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm);
-                frame.set_generator(&obj);
-                Ok(obj)
-            }
-            (false, true) => {
-                let obj = PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm);
-                frame.set_generator(&obj);
-                Ok(obj)
-            }
-            (true, true) => {
-                let obj = PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm);
-                frame.set_generator(&obj);
-                Ok(obj)
-            }
-            (false, false) => {
-                let result = vm.run_frame(frame.clone());
-                // Release data stack memory after frame execution completes.
-                unsafe {
-                    if let Some(base) = frame.materialize_localsplus() {
-                        vm.datastack_pop(base);
-                    }
+        if is_async_gen {
+            let obj = PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
+                .into_pyobject(vm);
+            frame.set_generator(&obj);
+            Ok(obj)
+        } else if is_gen {
+            let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
+                .into_pyobject(vm);
+            frame.set_generator(&obj);
+            Ok(obj)
+        } else if is_coro {
+            let obj = PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
+                .into_pyobject(vm);
+            frame.set_generator(&obj);
+            Ok(obj)
+        } else {
+            let result = vm.run_frame(frame.clone());
+            // Release data stack memory after frame execution completes.
+            unsafe {
+                if let Some(base) = frame.materialize_localsplus() {
+                    vm.datastack_pop(base);
                 }
-                result
             }
+            result
         }
     }
 
@@ -689,11 +685,11 @@ impl Py<PyFunction> {
                 .intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
         );
         debug_assert_eq!(code.kwonlyarg_count, 0);
-        debug_assert!(
-            !code
-                .flags
-                .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
-        );
+        debug_assert!(!code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        ));
 
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             None
@@ -741,10 +737,11 @@ impl Py<PyFunction> {
         // Generator/coroutine code objects are SIMPLE_FUNCTION in call
         // specialization classification, but their call path must still
         // go through invoke() to produce generator/coroutine objects.
-        if code
-            .flags
-            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
-        {
+        if code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        ) {
             return self.invoke(FuncArgs::from(args), vm);
         }
         let frame = self.prepare_exact_args_frame(args, vm);
@@ -760,10 +757,11 @@ impl Py<PyFunction> {
 }
 
 pub(crate) fn datastack_frame_size_bytes_for_code(code: &Py<PyCode>) -> Option<usize> {
-    if code
-        .flags
-        .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE)
-    {
+    if code.flags.intersects(
+        bytecode::CodeFlags::GENERATOR
+            | bytecode::CodeFlags::COROUTINE
+            | bytecode::CodeFlags::ASYNC_GENERATOR,
+    ) {
         return None;
     }
     let nlocalsplus = code.localspluskinds.len();
@@ -1468,9 +1466,11 @@ pub(crate) fn vectorcall_function(
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
         && !code.flags.contains(bytecode::CodeFlags::VARKEYWORDS)
         && code.kwonlyarg_count == 0
-        && !code
-            .flags
-            .intersects(bytecode::CodeFlags::GENERATOR | bytecode::CodeFlags::COROUTINE);
+        && !code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        );
 
     if is_simple && nargs == code.arg_count as usize {
         // FAST PATH: simple positional-only call, exact arg count.

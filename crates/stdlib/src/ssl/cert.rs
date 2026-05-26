@@ -1151,7 +1151,7 @@ pub(super) fn load_cert_chain_from_file(
     let private_key = if let Some(pwd) = password {
         // Try to parse as encrypted PKCS#8
         use der::SecretDocument;
-        use pkcs8::EncryptedPrivateKeyInfo;
+        use pkcs8::EncryptedPrivateKeyInfoRef;
         use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 
         let pem_str = String::from_utf8_lossy(&key_contents);
@@ -1177,7 +1177,7 @@ pub(super) fn load_cert_chain_from_file(
                 Ok((label, doc)) => {
                     if label == "ENCRYPTED PRIVATE KEY" {
                         // Parse encrypted key info from DER
-                        match EncryptedPrivateKeyInfo::try_from(doc.as_bytes()) {
+                        match EncryptedPrivateKeyInfoRef::try_from(doc.as_bytes()) {
                             Ok(encrypted_key) => {
                                 // Decrypt with password
                                 match encrypted_key.decrypt(pwd.as_bytes()) {

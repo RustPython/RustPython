@@ -107,6 +107,14 @@ mod decl {
             _version,
         } = args;
         let version = _version.unwrap_or(marshal::FORMAT_VERSION as i32);
+
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call(
+                (vm.ctx.new_str("marshal.dumps"), value.clone(), version),
+                vm,
+            )?;
+        }
+
         if !allow_code {
             check_no_code(&value, vm)?;
         }
