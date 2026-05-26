@@ -224,14 +224,7 @@ unsafe fn call_fast_function_with_keywords(
     // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
     // vector is kept alive for the duration of the call.
     let fastcall_arg_ptrs = fastcall_args.as_ptr().cast::<*mut PyObject>();
-    let ret_ptr = unsafe {
-        f(
-            slf_ptr,
-            fastcall_arg_ptrs,
-            nargs as isize,
-            kwnames_ptr,
-        )
-    };
+    let ret_ptr = unsafe { f(slf_ptr, fastcall_arg_ptrs, nargs as isize, kwnames_ptr) };
     ret_ptr_to_pyresult(vm, ret_ptr)
 }
 
@@ -252,13 +245,7 @@ unsafe fn call_fast_function(
     // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
     // vector is kept alive for the duration of the call.
     let fastcall_arg_ptrs = args.args.as_mut_ptr().cast::<*mut PyObject>();
-    let ret_ptr = unsafe {
-        f(
-            slf_ptr,
-            fastcall_arg_ptrs,
-            args.args.len() as isize,
-        )
-    };
+    let ret_ptr = unsafe { f(slf_ptr, fastcall_arg_ptrs, args.args.len() as isize) };
     ret_ptr_to_pyresult(vm, ret_ptr)
 }
 
