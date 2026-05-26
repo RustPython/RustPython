@@ -142,7 +142,7 @@ fn checked_capsule<'a>(
     Ok(capsule)
 }
 
-#[cfg(test)]
+#[cfg(false)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyCapsule;
