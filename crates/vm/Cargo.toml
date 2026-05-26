@@ -96,6 +96,9 @@ widestring = { workspace = true }
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { workspace = true, optional = true }
 
+[dev-dependencies]
+serde_bytes = { workspace = true }
+
 [build-dependencies]
 chrono = { workspace = true }
 glob = { workspace = true }

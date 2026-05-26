@@ -16,6 +16,8 @@ mod vm_new;
 mod vm_object;
 mod vm_ops;
 
+#[cfg(feature = "serde")]
+use crate::convert::{RustPySerDe, RustPySerDeConf, RustPySerDeError};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
@@ -2240,6 +2242,26 @@ impl VirtualMachine {
         //      OsStr encoding will always be compatible with WTF-8.
         let s = unsafe { OsString::from_encoded_bytes_unchecked(bytes) };
         Ok(Cow::Owned(s))
+    }
+
+    #[cfg(feature = "serde")]
+    pub fn with_serde<'a, T, F>(&'a self, f: F) -> PyResult<T>
+    where
+        F: FnOnce(&RustPySerDe<'a>) -> Result<T, RustPySerDeError>,
+    {
+        self.with_serde_conf(RustPySerDeConf::default(), f)
+    }
+
+    #[cfg(feature = "serde")]
+    pub fn with_serde_conf<'a, T, F>(&'a self, conf: RustPySerDeConf, f: F) -> PyResult<T>
+    where
+        F: FnOnce(&RustPySerDe<'a>) -> Result<T, RustPySerDeError>,
+    {
+        let serde = RustPySerDe::new(self, conf);
+        f(&serde).map_err(|e| match e {
+            RustPySerDeError::Py(err) => err,
+            RustPySerDeError::SerDe(err) => self.new_value_error(err),
+        })
     }
 }
 

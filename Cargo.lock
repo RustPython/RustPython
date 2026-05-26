@@ -3881,7 +3881,8 @@ dependencies = [
  "rustpython-sre_engine",
  "rustyline",
  "scopeguard",
- "serde_core",
+ "serde",
+ "serde_bytes",
  "static_assertions",
  "strum",
  "strum_macros",
@@ -3913,8 +3914,8 @@ dependencies = [
  "rustpython-pylib",
  "rustpython-stdlib",
  "rustpython-vm",
+ "serde",
  "serde-wasm-bindgen",
- "serde_core",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -4056,6 +4057,16 @@ dependencies = [
  "js-sys",
  "serde",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
