@@ -78,12 +78,16 @@ pub(crate) fn build_method_def(
         PyMethodFlags::NOARGS => {
             if has_self {
                 let callable = move |zelf: PyObjectRef, vm: &VirtualMachine| unsafe {
-                    call_function(vm, method, flags, Some(vec![zelf]))
+                    let f = method.PyCFunction;
+                    let ret_ptr = f(zelf.as_raw().cast_mut(), core::ptr::null_mut());
+                    ret_ptr_to_pyresult(vm, ret_ptr)
                 };
                 Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             } else {
                 let callable = move |vm: &VirtualMachine| unsafe {
-                    call_function::<FuncArgs>(vm, method, flags, None)
+                    let f = method.PyCFunction;
+                    let ret_ptr = f(core::ptr::null_mut(), core::ptr::null_mut());
+                    ret_ptr_to_pyresult(vm, ret_ptr)
                 };
                 Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             }
