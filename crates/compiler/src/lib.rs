@@ -128,7 +128,7 @@ impl CompileError {
                     end_loc.character_offset = end_loc.character_offset.saturating_add(1);
                 }
 
-                let expr_str = source_file.source_text().slice(&error.location);
+                let expr_str = source_file.source_text().slice(error.location);
 
                 let msg = parser::parse_expression(expr_str).map_or_else(
                     |_| match expr_str {
@@ -171,7 +171,7 @@ impl CompileError {
                     end_loc.character_offset = end_loc.character_offset.saturating_add(1);
                 }
 
-                let target = source_file.source_text().slice(&error.location);
+                let target = source_file.source_text().slice(error.location);
                 let msg = format!("cannot use assignment expressions with {target}");
                 (ParseErrorType::OtherError(msg), loc, end_loc)
             }
