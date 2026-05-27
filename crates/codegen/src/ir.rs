@@ -3894,7 +3894,11 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
         max_instrs = max_instrs.max(blocks[current.idx()].instructions.len());
         current = blocks[current.idx()].next;
     }
-    let mut instr_flags = vec![0u8; max_instrs];
+    let mut instr_flags = Vec::new();
+    instr_flags
+        .try_reserve_exact(max_instrs)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    instr_flags.resize(max_instrs, 0u8);
     let mut refs = Vec::new();
     let mut worklist = make_cfg_traversal_stack(blocks)?;
     worklist.push(BlockIdx(0));
@@ -3909,9 +3913,10 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
         let start_depth = usize::try_from(blocks[block_i].start_depth)
             .expect("visited block has non-negative start depth");
         ref_stack_clear(&mut refs);
-        refs.reserve(instr_count + start_depth + 2);
+        refs.try_reserve(instr_count + start_depth + 2)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         for _ in 0..start_depth {
-            push_ref(&mut refs, DUMMY_INSTR, NOT_LOCAL);
+            push_ref(&mut refs, DUMMY_INSTR, NOT_LOCAL)?;
         }
 
         for i in 0..instr_count {
@@ -3932,17 +3937,17 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                         &mut refs,
                         i as isize,
                         local_as_ref_local(usize::from(var_num.get(info.arg))),
-                    );
+                    )?;
                 }
                 AnyInstruction::Real(Instruction::LoadFastAndClear { var_num }) => {
                     let local = local_as_ref_local(usize::from(var_num.get(info.arg)));
                     kill_local(&mut instr_flags, &refs, local);
-                    push_ref(&mut refs, i as isize, local);
+                    push_ref(&mut refs, i as isize, local)?;
                 }
                 AnyInstruction::Real(Instruction::LoadFastLoadFast { .. }) => {
                     let (local1, local2) = decode_packed_fast_locals(info.arg);
-                    push_ref(&mut refs, i as isize, local1);
-                    push_ref(&mut refs, i as isize, local2);
+                    push_ref(&mut refs, i as isize, local1)?;
+                    push_ref(&mut refs, i as isize, local2)?;
                 }
                 AnyInstruction::Real(Instruction::StoreFast { var_num }) => {
                     let r = ref_stack_pop(&mut refs);
@@ -3957,7 +3962,7 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                     let (store_local_idx, load_local_idx) = decode_packed_fast_locals(info.arg);
                     let r = ref_stack_pop(&mut refs);
                     store_local(&mut instr_flags, &refs, store_local_idx, r);
-                    push_ref(&mut refs, i as isize, load_local_idx);
+                    push_ref(&mut refs, i as isize, load_local_idx)?;
                 }
                 AnyInstruction::Real(Instruction::StoreFastStoreFast { .. }) => {
                     let (local1, local2) = decode_packed_fast_locals(info.arg);
@@ -3971,7 +3976,7 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                     assert!(depth > 0);
                     assert!(refs.len() >= depth);
                     let r = ref_stack_at(&refs, refs.len() - depth);
-                    push_ref(&mut refs, r.instr, r.local);
+                    push_ref(&mut refs, r.instr, r.local)?;
                 }
                 AnyInstruction::Real(Instruction::Swap { i: _ }) => {
                     let depth = arg_u32 as usize;
@@ -3996,7 +4001,7 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                     // CPython optimize_load_fast() shadows the outer
                     // instruction index in this produced-value loop.
                     for produced in 0..net_pushed {
-                        push_ref(&mut refs, produced, NOT_LOCAL);
+                        push_ref(&mut refs, produced, NOT_LOCAL)?;
                     }
                 }
                 AnyInstruction::Real(
@@ -4024,47 +4029,47 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                     debug_assert_eq!(effect.pushed(), 1);
                     let tos = ref_stack_pop(&mut refs);
                     let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, tos.instr, tos.local);
+                    push_ref(&mut refs, tos.instr, tos.local)?;
                 }
                 AnyInstruction::Real(Instruction::CheckExcMatch) => {
                     let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL);
+                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
                 }
                 AnyInstruction::Real(Instruction::ForIter { .. }) => {
                     let target = info.target;
                     debug_assert!(target != BlockIdx::NULL);
                     load_fast_push_block(&mut worklist, blocks, target, refs.len() + 1);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL);
+                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
                 }
                 AnyInstruction::Real(Instruction::LoadAttr { namei }) => {
                     let self_ref = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL);
+                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
                     if namei.get(info.arg).is_method() {
-                        push_ref(&mut refs, self_ref.instr, self_ref.local);
+                        push_ref(&mut refs, self_ref.instr, self_ref.local)?;
                     }
                 }
                 AnyInstruction::Real(Instruction::LoadSuperAttr { namei }) => {
                     let self_ref = ref_stack_pop(&mut refs);
                     let _ = ref_stack_pop(&mut refs);
                     let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL);
+                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
                     if namei.get(info.arg).is_load_method() {
-                        push_ref(&mut refs, self_ref.instr, self_ref.local);
+                        push_ref(&mut refs, self_ref.instr, self_ref.local)?;
                     }
                 }
                 AnyInstruction::Real(
                     Instruction::LoadSpecial { .. } | Instruction::PushExcInfo,
                 ) => {
                     let tos = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL);
-                    push_ref(&mut refs, tos.instr, tos.local);
+                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                    push_ref(&mut refs, tos.instr, tos.local)?;
                 }
                 AnyInstruction::Real(Instruction::Send { .. }) => {
                     let target = info.target;
                     debug_assert!(target != BlockIdx::NULL);
                     load_fast_push_block(&mut worklist, blocks, target, refs.len());
                     let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL);
+                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
                 }
                 _ => {
                     let effect = instr.stack_effect_info(arg_u32);
@@ -4082,7 +4087,7 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                             let _ = ref_stack_pop(&mut refs);
                         }
                         for _ in 0..num_pushed {
-                            push_ref(&mut refs, i as isize, NOT_LOCAL);
+                            push_ref(&mut refs, i as isize, NOT_LOCAL)?;
                         }
                     }
                 }
@@ -4484,8 +4489,12 @@ struct Ref {
 type RefStack = Vec<Ref>;
 
 /// flowgraph.c ref_stack_push
-fn ref_stack_push(stack: &mut RefStack, r: Ref) {
+fn ref_stack_push(stack: &mut RefStack, r: Ref) -> crate::InternalResult<()> {
+    stack
+        .try_reserve(1)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     stack.push(r);
+    Ok(())
 }
 
 /// flowgraph.c ref_stack_pop
@@ -4512,8 +4521,8 @@ fn ref_stack_clear(stack: &mut RefStack) {
 }
 
 /// flowgraph.c optimize_load_fast PUSH_REF
-fn push_ref(stack: &mut RefStack, instr: isize, local: isize) {
-    ref_stack_push(stack, Ref { instr, local });
+fn push_ref(stack: &mut RefStack, instr: isize, local: isize) -> crate::InternalResult<()> {
+    ref_stack_push(stack, Ref { instr, local })
 }
 
 /// flowgraph.c kill_local
