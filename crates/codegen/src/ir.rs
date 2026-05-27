@@ -4503,10 +4503,7 @@ fn insert_superinstructions(blocks: &mut [Block]) -> usize {
     }
     let res = remove_redundant_nops(blocks);
     #[cfg(debug_assertions)]
-    {
-        let no_redundant = no_redundant_nops(blocks);
-        debug_assert!(no_redundant);
-    }
+    assert!(no_redundant_nops(blocks));
     res
 }
 
