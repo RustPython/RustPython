@@ -3331,19 +3331,19 @@ fn next_swappable_instruction(block: &Block, mut i: usize, lineno: i32) -> Optio
 }
 
 /// flowgraph.c swaptimize
-fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) -> crate::InternalResult<()> {
+fn swaptimize(block: &mut Block, ix: &mut usize) -> crate::InternalResult<()> {
     debug_assert!(matches!(
-        instructions[*ix].instr.real(),
+        block.instructions[*ix].instr.real(),
         Some(Instruction::Swap { .. })
     ));
-    let mut depth = u32::from(instructions[*ix].arg) as usize;
+    let mut depth = u32::from(block.instructions[*ix].arg) as usize;
     let mut len = 1usize;
     let mut more = false;
-    let limit = instructions.len() - *ix;
+    let limit = block.instruction_used - *ix;
     while len < limit {
-        match instructions[*ix + len].instr.real() {
+        match block.instructions[*ix + len].instr.real() {
             Some(Instruction::Swap { .. }) => {
-                depth = depth.max(u32::from(instructions[*ix + len].arg) as usize);
+                depth = depth.max(u32::from(block.instructions[*ix + len].arg) as usize);
                 more = true;
                 len += 1;
             }
@@ -3371,7 +3371,7 @@ fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) -> crate::In
 
     i = 0;
     while i < len {
-        let info = &instructions[*ix + i];
+        let info = &block.instructions[*ix + i];
         if matches!(info.instr.real(), Some(Instruction::Swap { .. })) {
             let oparg = u32::from(info.arg) as usize;
             stack.swap(0, oparg - 1);
@@ -3388,7 +3388,7 @@ fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) -> crate::In
         loop {
             if j != 0 {
                 debug_assert!(current >= 0);
-                let out = &mut instructions[*ix + current as usize];
+                let out = &mut block.instructions[*ix + current as usize];
                 out.instr = Opcode::Swap.into();
                 out.arg = OpArg::new((j + 1) as u32);
                 current -= 1;
@@ -3404,7 +3404,7 @@ fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) -> crate::In
     }
 
     while current >= 0 {
-        set_to_nop(&mut instructions[*ix + current as usize]);
+        set_to_nop(&mut block.instructions[*ix + current as usize]);
         current -= 1;
     }
     *ix += len - 1;
@@ -3475,7 +3475,7 @@ fn apply_static_swaps_block(block: &mut Block) -> crate::InternalResult<()> {
             block.instructions[i].instr.real(),
             Some(Instruction::Swap { .. })
         ) {
-            swaptimize(&mut block.instructions[..block.instruction_used], &mut i)?;
+            swaptimize(block, &mut i)?;
             apply_static_swaps(block, i as isize);
         }
         i += 1;
