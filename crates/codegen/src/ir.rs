@@ -1780,7 +1780,7 @@ fn optimize_code_unit(
     // CPython inserts superinstructions in _PyCfg_OptimizeCodeUnit, before
     // later jump normalization / block reordering can create adjacencies
     // that never exist at this stage in flowgraph.c.
-    insert_superinstructions(blocks);
+    insert_superinstructions(blocks)?;
     push_cold_blocks_to_end(blocks)?;
     // CPython resolves line numbers again after cold-block extraction.
     resolve_line_numbers(blocks, metadata.firstlineno)?;
@@ -3931,7 +3931,7 @@ fn remove_redundant_nops_and_pairs(blocks: &mut [Block]) -> crate::InternalResul
         let mut block_idx = BlockIdx::new(0);
 
         while block_idx != BlockIdx::NULL {
-            basicblock_remove_redundant_nops(blocks, block_idx);
+            basicblock_remove_redundant_nops(blocks, block_idx)?;
             if is_label(blocks[block_idx.idx()].cpython_label) {
                 instr = None;
             }
@@ -4500,7 +4500,7 @@ impl CodeInfo {
         let nlocals = self.metadata.varnames.len();
         let nparams = self.nparams;
         add_checks_for_loads_of_uninitialized_variables(&mut self.blocks, nlocals, nparams)?;
-        insert_superinstructions(&mut self.blocks);
+        insert_superinstructions(&mut self.blocks)?;
         push_cold_blocks_to_end(&mut self.blocks)?;
         trace.push((
             "after_push_cold_before_chain_reorder".to_owned(),
@@ -4600,7 +4600,7 @@ fn make_super_instruction(
 }
 
 /// flowgraph.c insert_superinstructions
-fn insert_superinstructions(blocks: &mut [Block]) -> usize {
+fn insert_superinstructions(blocks: &mut [Block]) -> crate::InternalResult<usize> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let next_block = blocks[block_idx.idx()].next;
@@ -4653,10 +4653,10 @@ fn insert_superinstructions(blocks: &mut [Block]) -> usize {
         }
         block_idx = next_block;
     }
-    let res = remove_redundant_nops(blocks);
+    let res = remove_redundant_nops(blocks)?;
     #[cfg(debug_assertions)]
     assert!(no_redundant_nops(blocks));
-    res
+    Ok(res)
 }
 
 /// flowgraph.c LoadFastInstrFlag
@@ -5674,7 +5674,11 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) -> crate::InternalResu
 }
 
 /// flowgraph.c basicblock_remove_redundant_nops
-fn basicblock_remove_redundant_nops(blocks: &mut [Block], block_idx: BlockIdx) -> usize {
+#[allow(clippy::unnecessary_wraps)]
+fn basicblock_remove_redundant_nops(
+    blocks: &mut [Block],
+    block_idx: BlockIdx,
+) -> crate::InternalResult<usize> {
     let bi = block_idx.idx();
     let mut dest = 0;
     let mut prev_lineno = -1i32;
@@ -5738,25 +5742,30 @@ fn basicblock_remove_redundant_nops(blocks: &mut [Block], block_idx: BlockIdx) -
     debug_assert!(dest <= instr_count);
     let num_removed = instr_count - dest;
     blocks[bi].instruction_used = dest;
-    num_removed
+    Ok(num_removed)
 }
 
 /// flowgraph.c remove_redundant_nops
-fn remove_redundant_nops(blocks: &mut [Block]) -> usize {
+#[allow(clippy::unnecessary_wraps)]
+fn remove_redundant_nops(blocks: &mut [Block]) -> crate::InternalResult<usize> {
     let mut changes = 0;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let next = blocks[current.idx()].next;
-        changes += basicblock_remove_redundant_nops(blocks, current);
+        let change = basicblock_remove_redundant_nops(blocks, current)?;
+        changes += change;
         current = next;
     }
-    changes
+    Ok(changes)
 }
 
 /// flowgraph.c no_redundant_nops
 #[cfg(debug_assertions)]
 fn no_redundant_nops(blocks: &mut [Block]) -> bool {
-    remove_redundant_nops(blocks) == 0
+    match remove_redundant_nops(blocks) {
+        Ok(0) => true,
+        Ok(_) | Err(_) => false,
+    }
 }
 
 /// flowgraph.c remove_redundant_jumps
@@ -5821,7 +5830,7 @@ fn remove_redundant_nops_and_jumps(blocks: &mut [Block]) -> crate::InternalResul
     loop {
         // Convergence is guaranteed because the number of redundant jumps and
         // nops only decreases.
-        let removed_nops = remove_redundant_nops(blocks);
+        let removed_nops = remove_redundant_nops(blocks)?;
         let removed_jumps = remove_redundant_jumps(blocks)?;
         if removed_nops + removed_jumps == 0 {
             break;
