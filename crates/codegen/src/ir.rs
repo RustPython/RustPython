@@ -683,7 +683,7 @@ fn instruction_sequence_insert_instruction(
     seq.instrs[pos].info = info;
     if let Some(label_map) = &mut seq.label_map {
         let pos = pos as i32;
-        for lbl in 0..label_map.len() {
+        for lbl in 0..seq.label_map_allocation {
             if label_map[lbl] >= pos {
                 label_map[lbl] += 1;
             }
@@ -705,7 +705,7 @@ fn instruction_sequence_apply_label_map(
             let entry = &mut instrs.instrs[i];
             if entry.info.instr.has_target() {
                 let label = u32::from(entry.info.arg) as usize;
-                debug_assert!(label < label_map.len());
+                debug_assert!(label < instrs.label_map_allocation);
                 let target = label_map[label];
                 debug_assert!(target >= 0);
                 entry.info.arg = OpArg::new(target as u32);
@@ -713,7 +713,7 @@ fn instruction_sequence_apply_label_map(
             let handler = &mut entry.except_handler;
             if handler.h_label >= 0 {
                 let label = handler.h_label as usize;
-                debug_assert!(label < label_map.len());
+                debug_assert!(label < instrs.label_map_allocation);
                 handler.h_label = label_map[label];
             }
         }
