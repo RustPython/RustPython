@@ -57,6 +57,7 @@ assert cur.fetchone()[0] == "341011"
 # Blob extended-slice assignment with negative step
 # Guard: CPython 3.11 has a SystemError bug with negative-step Blob slicing;
 # this test only runs on RustPython where the fix is being validated.
+# TODO: remove this once https://github.com/python/cpython/pull/150450 is released and RustPython CI uses it.
 import sys
 
 if sys.implementation.name == "rustpython":
