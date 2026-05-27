@@ -3287,7 +3287,8 @@ fn optimize_lists_and_sets(
     Ok(true)
 }
 
-const SWAP_OPTIMIZE_VISITED: i32 = -1;
+/// flowgraph.c VISITED
+const VISITED: i32 = -1;
 
 /// flowgraph.c SWAPPABLE
 fn is_swappable(instr: &AnyInstruction) -> bool {
@@ -3365,9 +3366,10 @@ fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) -> crate::In
     stack
         .try_reserve_exact(depth)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    stack.resize(depth, 0);
     let mut i = 0;
     while i < depth {
-        stack.push(i as i32);
+        stack[i] = i as i32;
         i += 1;
     }
 
@@ -3383,7 +3385,7 @@ fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) -> crate::In
 
     let mut current = len as isize - 1;
     for i in 0..depth {
-        if stack[i] == SWAP_OPTIMIZE_VISITED || stack[i] == i as i32 {
+        if stack[i] == VISITED || stack[i] == i as i32 {
             continue;
         }
         let mut j = i;
@@ -3395,12 +3397,12 @@ fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) -> crate::In
                 out.arg = OpArg::new((j + 1) as u32);
                 current -= 1;
             }
-            if stack[j] == SWAP_OPTIMIZE_VISITED {
+            if stack[j] == VISITED {
                 debug_assert_eq!(j, i);
                 break;
             }
             let next_j = stack[j] as usize;
-            stack[j] = SWAP_OPTIMIZE_VISITED;
+            stack[j] = VISITED;
             j = next_j;
         }
     }
