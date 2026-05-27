@@ -1268,7 +1268,7 @@ pub struct Block {
     /// CPython `basicblock.b_ialloc`, the allocated size of `b_instr`.
     instruction_allocation: usize,
     /// Exception stack at start of block, used by label_exception_targets (b_exceptstack)
-    except_stack: Option<Vec<BlockIdx>>,
+    except_stack: Option<CfgExceptStack>,
     /// CPython `basicblock.b_instr`, including allocated slots beyond `b_iused`.
     pub instructions: Vec<InstructionInfo>,
     pub next: BlockIdx,
@@ -1326,6 +1326,13 @@ impl Block {
 
 pub(crate) const START_DEPTH_UNSET: i32 = i32::MIN;
 const CO_MAXBLOCKS: usize = 20;
+
+/// flowgraph.c struct _PyCfgExceptStack
+#[derive(Clone, Debug)]
+struct CfgExceptStack {
+    handlers: Vec<BlockIdx>,
+    depth: usize,
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct InstructionSequenceLabelMap {
@@ -6476,29 +6483,37 @@ fn resolve_line_numbers(
 }
 
 /// flowgraph.c make_except_stack
-fn make_except_stack() -> crate::InternalResult<Vec<BlockIdx>> {
-    let mut stack = Vec::new();
-    stack
+fn make_except_stack() -> crate::InternalResult<CfgExceptStack> {
+    let mut handlers = Vec::new();
+    handlers
         .try_reserve_exact(CO_MAXBLOCKS + 2)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    debug_assert!(stack.is_empty());
-    Ok(stack)
+    handlers.resize(CO_MAXBLOCKS + 2, BlockIdx::NULL);
+    debug_assert_eq!(handlers[0], BlockIdx::NULL);
+    Ok(CfgExceptStack { handlers, depth: 0 })
 }
 
 /// flowgraph.c copy_except_stack
-fn copy_except_stack(stack: &[BlockIdx]) -> crate::InternalResult<Vec<BlockIdx>> {
-    debug_assert!(stack.len() <= CO_MAXBLOCKS + 1);
-    let mut copy = Vec::new();
-    copy.try_reserve_exact(CO_MAXBLOCKS + 2)
+fn copy_except_stack(stack: &CfgExceptStack) -> crate::InternalResult<CfgExceptStack> {
+    debug_assert!(stack.depth <= CO_MAXBLOCKS + 1);
+    let mut handlers = Vec::new();
+    handlers
+        .try_reserve_exact(CO_MAXBLOCKS + 2)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    copy.extend_from_slice(stack);
-    Ok(copy)
+    handlers.extend_from_slice(&stack.handlers);
+    Ok(CfgExceptStack {
+        handlers,
+        depth: stack.depth,
+    })
 }
 
 /// flowgraph.c except_stack_top
-fn except_stack_top(stack: &[BlockIdx], blocks: &[Block]) -> Option<ExceptHandlerInfo> {
-    debug_assert!(stack.len() <= CO_MAXBLOCKS + 1);
-    let handler_block = stack.last().copied()?;
+fn except_stack_top(stack: &CfgExceptStack, blocks: &[Block]) -> Option<ExceptHandlerInfo> {
+    debug_assert!(stack.depth <= CO_MAXBLOCKS + 1);
+    let handler_block = stack.handlers[stack.depth];
+    if handler_block == BlockIdx::NULL {
+        return None;
+    }
     Some(ExceptHandlerInfo {
         handler_block,
         preserve_lasti: blocks[handler_block.idx()].preserve_lasti,
@@ -6507,7 +6522,7 @@ fn except_stack_top(stack: &[BlockIdx], blocks: &[Block]) -> Option<ExceptHandle
 
 /// flowgraph.c push_except_block
 fn push_except_block(
-    stack: &mut Vec<BlockIdx>,
+    stack: &mut CfgExceptStack,
     setup: InstructionInfo,
     blocks: &mut [Block],
 ) -> Option<ExceptHandlerInfo> {
@@ -6521,17 +6536,18 @@ fn push_except_block(
     ) {
         blocks[target.idx()].preserve_lasti = true;
     }
-    debug_assert!(stack.len() <= CO_MAXBLOCKS);
-    stack.push(target);
-    debug_assert!(stack.len() <= CO_MAXBLOCKS + 1);
+    debug_assert!(stack.depth <= CO_MAXBLOCKS);
+    stack.depth += 1;
+    stack.handlers[stack.depth] = target;
+    debug_assert!(stack.depth <= CO_MAXBLOCKS + 1);
     except_stack_top(stack, blocks)
 }
 
 /// flowgraph.c pop_except_block
-fn pop_except_block(stack: &mut Vec<BlockIdx>, blocks: &[Block]) -> Option<ExceptHandlerInfo> {
-    debug_assert!(!stack.is_empty());
-    stack.pop().expect("non-empty exception stack");
-    debug_assert!(stack.len() <= CO_MAXBLOCKS);
+fn pop_except_block(stack: &mut CfgExceptStack, blocks: &[Block]) -> Option<ExceptHandlerInfo> {
+    debug_assert!(stack.depth > 0);
+    stack.depth -= 1;
+    debug_assert!(stack.depth <= CO_MAXBLOCKS);
     except_stack_top(stack, blocks)
 }
 
@@ -6545,12 +6561,15 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalRe
     while let Some(block_idx) = todo.pop() {
         let bi = block_idx.idx();
         debug_assert!(blocks[bi].visited);
-        let mut stack = blocks[bi]
-            .except_stack
-            .take()
-            .expect("visited exception block has an except stack");
-        let mut handler = except_stack_top(&stack, blocks);
+        let mut stack = Some(
+            blocks[bi]
+                .except_stack
+                .take()
+                .expect("visited exception block has an except stack"),
+        );
+        let mut handler = except_stack_top(stack.as_ref().expect("active exception stack"), blocks);
         let mut last_yield_except_depth: i32 = -1;
+        let mut stack_transferred = false;
 
         let instr_count = blocks[bi].instruction_used;
         for i in 0..instr_count {
@@ -6562,13 +6581,19 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalRe
             if is_block_push(&info) {
                 debug_assert!(target != BlockIdx::NULL);
                 if !blocks[target.idx()].visited {
-                    blocks[target.idx()].except_stack = Some(copy_except_stack(&stack)?);
+                    blocks[target.idx()].except_stack = Some(copy_except_stack(
+                        stack.as_ref().expect("active exception stack"),
+                    )?);
                     todo.push(target);
                     blocks[target.idx()].visited = true;
                 }
-                handler = push_except_block(&mut stack, info, blocks);
+                handler = push_except_block(
+                    stack.as_mut().expect("active exception stack"),
+                    info,
+                    blocks,
+                );
             } else if instr.is_pop_block() {
-                handler = pop_except_block(&mut stack, blocks);
+                handler = pop_except_block(stack.as_mut().expect("active exception stack"), blocks);
                 set_to_nop(&mut blocks[bi].instructions[i]);
             } else if is_jump(&blocks[bi].instructions[i]) {
                 blocks[bi].instructions[i].except_handler = handler;
@@ -6580,16 +6605,23 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalRe
                 debug_assert!(target != BlockIdx::NULL);
                 if !blocks[target.idx()].visited {
                     if bb_has_fallthrough(&blocks[bi]) {
-                        blocks[target.idx()].except_stack = Some(copy_except_stack(&stack)?);
+                        blocks[target.idx()].except_stack = Some(copy_except_stack(
+                            stack.as_ref().expect("active exception stack"),
+                        )?);
                     } else {
-                        blocks[target.idx()].except_stack = Some(core::mem::take(&mut stack));
+                        blocks[target.idx()].except_stack = stack.take();
+                        stack_transferred = true;
+                        todo.push(target);
+                        blocks[target.idx()].visited = true;
+                        break;
                     }
                     todo.push(target);
                     blocks[target.idx()].visited = true;
                 }
             } else if matches!(instr.real(), Some(Instruction::YieldValue { .. })) {
                 blocks[bi].instructions[i].except_handler = handler;
-                last_yield_except_depth = stack.len() as i32;
+                last_yield_except_depth =
+                    stack.as_ref().expect("active exception stack").depth as i32;
             } else if let Some(Instruction::Resume { context: _ }) = instr.real() {
                 blocks[bi].instructions[i].except_handler = handler;
                 let resume_arg = u32::from(arg);
@@ -6607,10 +6639,10 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalRe
         }
 
         let next = blocks[bi].next;
-        if bb_has_fallthrough(&blocks[bi]) {
+        if !stack_transferred && bb_has_fallthrough(&blocks[bi]) {
             debug_assert!(next != BlockIdx::NULL);
             if next != BlockIdx::NULL && !blocks[next.idx()].visited {
-                blocks[next.idx()].except_stack = Some(stack);
+                blocks[next.idx()].except_stack = stack.take();
                 todo.push(next);
                 blocks[next.idx()].visited = true;
             }
@@ -6870,6 +6902,43 @@ mod tests {
             instruction_sequence_label_map_resolve_label(&labels, second),
             first
         );
+    }
+
+    #[test]
+    fn except_stack_tracks_cpython_depth_and_handler_slots() {
+        let mut stack = make_except_stack().unwrap();
+        assert_eq!(stack.depth, 0);
+        assert_eq!(stack.handlers.len(), CO_MAXBLOCKS + 2);
+        assert_eq!(stack.handlers[0], BlockIdx::NULL);
+
+        let mut blocks = vec![Block::default(), Block::default()];
+        assert!(except_stack_top(&stack, &blocks).is_none());
+
+        let setup = InstructionInfo {
+            instr: PseudoInstruction::SetupWith {
+                delta: Arg::marker(),
+            }
+            .into(),
+            arg: OpArg::new(0),
+            target: BlockIdx::new(1),
+            location: SourceLocation::default(),
+            end_location: SourceLocation::default(),
+            except_handler: None,
+            lineno_override: None,
+        };
+        let handler = push_except_block(&mut stack, setup, &mut blocks).unwrap();
+        assert_eq!(stack.depth, 1);
+        assert_eq!(stack.handlers[1], BlockIdx::new(1));
+        assert_eq!(handler.handler_block, BlockIdx::new(1));
+        assert!(handler.preserve_lasti);
+        assert!(blocks[1].preserve_lasti);
+
+        let copy = copy_except_stack(&stack).unwrap();
+        assert_eq!(copy.depth, stack.depth);
+        assert_eq!(copy.handlers, stack.handlers);
+
+        assert!(pop_except_block(&mut stack, &blocks).is_none());
+        assert_eq!(stack.depth, 0);
     }
 
     #[test]
