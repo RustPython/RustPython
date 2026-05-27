@@ -10037,7 +10037,9 @@ impl Compiler {
         self.current_code_info()
             .addop_to_instr_sequence(info)
             .expect("malformed instruction sequence emission");
-        self.current_block().instructions.push(info);
+        self.current_code_info()
+            .addop_to_current_block(info)
+            .expect("malformed CFG emission");
     }
 
     fn push_emitted_instruction_with_target_label(
@@ -10048,11 +10050,13 @@ impl Compiler {
         self.current_code_info()
             .addop_to_instr_sequence_with_target_label(info, target_label)
             .expect("malformed instruction sequence emission");
-        self.current_block().instructions.push(info);
+        self.current_code_info()
+            .addop_to_current_block(info)
+            .expect("malformed CFG emission");
     }
 
     fn last_emitted_instruction_mut(&mut self) -> Option<&mut ir::InstructionInfo> {
-        self.current_block().instructions.last_mut()
+        self.current_code_info().last_current_block_instr_mut()
     }
 
     fn set_last_emitted_lineno_override(&mut self, lineno_override: i32) {
@@ -10166,7 +10170,7 @@ impl Compiler {
             .expect("code unit must have an entry block");
         debug_assert!(
             entry
-                .instructions
+                .used_instructions()
                 .first()
                 .is_some_and(|info| match info.instr.real() {
                     Some(Instruction::Resume { context }) => matches!(
@@ -10178,7 +10182,7 @@ impl Compiler {
             "scope entry must start with a function-start RESUME"
         );
         debug_assert!(
-            !entry.instructions.iter().any(|info| matches!(
+            !entry.used_instructions().iter().any(|info| matches!(
                 info.instr.real(),
                 Some(
                     Instruction::ReturnGenerator
@@ -10947,11 +10951,6 @@ impl Compiler {
         Ok(())
     }
 
-    fn current_block(&mut self) -> &mut ir::Block {
-        let info = self.current_code_info();
-        &mut info.blocks[info.current_block]
-    }
-
     /// CPython `_PyCfgBuilder_Addop()` calls
     /// `cfg_builder_maybe_start_new_block()` before appending each instruction.
     /// That keeps any `IS_TERMINATOR_OPCODE` as the final instruction in its
@@ -11007,9 +11006,9 @@ impl Compiler {
         let block = code.resolve_instr_sequence_label(block);
         let cur = code.current_block;
         let can_reuse_current = cur != block
-            && code.blocks[cur.idx()].instructions.is_empty()
+            && code.blocks[cur.idx()].is_empty()
             && code.blocks[cur.idx()].next == BlockIdx::NULL
-            && code.blocks[block.idx()].instructions.is_empty()
+            && code.blocks[block.idx()].is_empty()
             && code.blocks[block.idx()].next == BlockIdx::NULL;
 
         if !can_reuse_current {
