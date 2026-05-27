@@ -1137,8 +1137,7 @@ fn compute_localsplus_info(
         max = if count == usize::MAX {
             usize::MAX
         } else {
-            max.checked_add(count)
-                .expect("localsplus argument count fits in usize")
+            max + count
         };
         while pos < max && pos < nlocals {
             let name = umd
@@ -1177,15 +1176,13 @@ fn compute_localsplus_info(
         debug_assert!(offset < nlocalsplus);
         cellvars.push(name.to_owned());
         localspluskinds[offset] = CO_FAST_CELL;
-        cellvar_offset = offset.to_i32().expect("localsplus cell offset fits in int");
+        cellvar_offset = offset as i32;
     }
 
     for i in 0..nfrees {
         let offset = ncells + i + nlocals - numdropped;
         debug_assert!(offset < nlocalsplus);
-        debug_assert!(
-            offset.to_i32().expect("localsplus free offset fits in int") > cellvar_offset
-        );
+        debug_assert!((offset as i32) > cellvar_offset);
         localspluskinds[offset] = CO_FAST_FREE;
     }
 
@@ -6650,9 +6647,7 @@ pub(crate) fn build_cellfixedoffsets(
     vec_try_reserve_exact(&mut fixed, noffsets)?;
     fixed.resize(noffsets, 0);
     for i in 0..noffsets {
-        fixed[i] = (nlocals + i)
-            .to_i32()
-            .expect("localsplus offset fits in int");
+        fixed[i] = (nlocals + i) as i32;
     }
     for oldindex in 0..ncellvars {
         let varname = metadata
@@ -6660,7 +6655,7 @@ pub(crate) fn build_cellfixedoffsets(
             .get_index(oldindex)
             .expect("cellvar index is in range");
         if let Some(varindex) = metadata.varnames.get_index_of(varname) {
-            let argoffset = varindex.to_i32().expect("localsplus offset fits in int");
+            let argoffset = varindex as i32;
             fixed[oldindex] = argoffset;
         }
     }
@@ -6682,12 +6677,8 @@ pub(crate) fn fix_cell_offsets(
 
     let mut numdropped = 0usize;
     for i in 0..noffsets {
-        if cellfixedoffsets[i]
-            == (i + nlocals)
-                .to_i32()
-                .expect("localsplus index fits in int")
-        {
-            cellfixedoffsets[i] -= numdropped.to_i32().expect("too many dropped cell vars");
+        if cellfixedoffsets[i] == (i + nlocals) as i32 {
+            cellfixedoffsets[i] -= numdropped as i32;
         } else {
             numdropped += 1;
         }
@@ -6715,15 +6706,9 @@ pub(crate) fn fix_cell_offsets(
                 | AnyInstruction::Pseudo(PseudoInstruction::LoadClosure { .. }) => {
                     debug_assert!(oldoffset >= 0);
                     debug_assert!(oldoffset < noffsets as i32);
-                    let oldoffset =
-                        usize::try_from(oldoffset).expect("localsplus offset is non-negative");
-                    let fixed_offset = cellfixedoffsets[oldoffset];
+                    let fixed_offset = cellfixedoffsets[oldoffset as usize];
                     debug_assert!(fixed_offset >= 0);
-                    inst.arg = OpArg::new(
-                        fixed_offset
-                            .to_u32()
-                            .expect("localsplus offset is non-negative"),
-                    );
+                    inst.arg = OpArg::new(fixed_offset as u32);
                 }
                 _ => {}
             }
