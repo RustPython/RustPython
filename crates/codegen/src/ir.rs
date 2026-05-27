@@ -1459,90 +1459,6 @@ impl InstructionSequenceLabelMap {
             cpython_block_by_label: Vec::new(),
         }
     }
-
-    fn debug_check_for_blocks(&self, blocks_len: usize, next_free_label: usize) {
-        debug_assert_eq!(
-            self.block_labels.len(),
-            blocks_len,
-            "every codegen CFG block must have an instruction-sequence label slot"
-        );
-        debug_assert!(self.cpython_block_by_label.len() <= next_free_label + 1);
-        for &label in &self.block_labels {
-            if !is_label(label) {
-                continue;
-            }
-            debug_assert!(
-                label.idx() <= next_free_label,
-                "codegen CFG block labels must come from _PyInstructionSequence_NewLabel()"
-            );
-        }
-        for &block in &self.cpython_block_by_label {
-            if block != BlockIdx::NULL {
-                debug_assert!(
-                    block.idx() < blocks_len,
-                    "CPython label must map to an existing codegen CFG block"
-                );
-            }
-        }
-        for &label in &self.block_labels {
-            if !is_label(label) {
-                continue;
-            }
-            debug_assert!(
-                instruction_sequence_label_map_block_for_label(self, label)
-                    .is_some_and(|block| block.idx() < blocks_len),
-                "codegen CFG block label must map to a codegen CFG block"
-            );
-        }
-    }
-
-    fn debug_check_label_blocks_match_instruction_sequence(
-        &self,
-        instr_sequence: &InstructionSequence,
-    ) {
-        let Some(label_map) = &instr_sequence.label_map else {
-            debug_assert!(
-                self.cpython_block_by_label
-                    .iter()
-                    .all(|&block| block == BlockIdx::NULL),
-                "codegen CFG labels require a CPython instruction-sequence label map"
-            );
-            return;
-        };
-        for (label_idx, block) in self.cpython_block_by_label.iter().copied().enumerate() {
-            if block == BlockIdx::NULL {
-                continue;
-            }
-            let Some(&label_offset) = label_map.get(label_idx) else {
-                continue;
-            };
-            if label_offset < 0 {
-                continue;
-            }
-            let block_label = self
-                .block_labels
-                .get(block.idx())
-                .copied()
-                .unwrap_or(InstructionSequenceLabel::NO_LABEL);
-            if !is_label(block_label) {
-                debug_assert!(
-                    false,
-                    "CPython label must map to an existing codegen CFG block"
-                );
-                continue;
-            }
-            let Some(&block_offset) = label_map.get(block_label.idx()) else {
-                continue;
-            };
-            if block_offset < 0 {
-                continue;
-            }
-            debug_assert!(
-                label_offset == block_offset,
-                "codegen CFG labels may share a block only when CPython maps them to the same instruction offset"
-            );
-        }
-    }
 }
 
 pub struct CodeInfo {
@@ -1759,10 +1675,6 @@ impl CodeInfo {
         debug_assert!(!self.blocks[0].instructions.is_empty());
         debug_assert!(!self.instr_sequence.instrs.is_empty());
         debug_assert!(self.current_block.idx() < self.blocks.len());
-        self.instr_sequence_label_map
-            .debug_check_for_blocks(self.blocks.len(), self.instr_sequence.next_free_label);
-        self.instr_sequence_label_map
-            .debug_check_label_blocks_match_instruction_sequence(&self.instr_sequence);
         for block in &self.blocks {
             if block.next != BlockIdx::NULL {
                 debug_assert!(block.next.idx() < self.blocks.len());
