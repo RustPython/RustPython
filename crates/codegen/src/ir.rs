@@ -6040,6 +6040,7 @@ fn cfg_from_instruction_sequence(
         let mut oparg = entry.info.arg;
         if opcode.has_target() {
             let target_offset = u32::from(oparg) as i32 + offset;
+            debug_assert!(target_offset >= 0);
             oparg = OpArg::new(target_offset as u32);
         }
         entry.info.instr = opcode;
