@@ -1111,12 +1111,15 @@ fn compute_localsplus_info(
     umd: &CodeUnitMetadata,
     nlocalsplus: usize,
     flags: CodeFlags,
-) -> LocalsPlusInfo {
+) -> crate::InternalResult<LocalsPlusInfo> {
     let nlocals = umd.varnames.len();
     let ncells = umd.cellvars.len();
     let nfrees = umd.freevars.len();
-    let mut localspluskinds = vec![0u8; nlocalsplus];
-    let mut cellvars = Vec::with_capacity(ncells);
+    let mut localspluskinds = Vec::new();
+    vec_try_reserve_exact(&mut localspluskinds, nlocalsplus)?;
+    localspluskinds.resize(nlocalsplus, 0);
+    let mut cellvars = Vec::new();
+    vec_try_reserve_exact(&mut cellvars, ncells)?;
 
     let argvarkinds = [
         (umd.posonlyargcount as usize, CO_FAST_ARG_POS),
@@ -1196,10 +1199,10 @@ fn compute_localsplus_info(
         "CPython prepare_localsplus() result must match assemble.c localsplus sizing"
     );
     debug_assert_eq!(cellvars.len(), ncells);
-    LocalsPlusInfo {
+    Ok(LocalsPlusInfo {
         cellvars: cellvars.into_boxed_slice(),
         kinds: localspluskinds.into_boxed_slice(),
-    }
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -1829,7 +1832,7 @@ impl CodeInfo {
         )?;
         let (max_stackdepth, nlocalsplus, mut instr_sequence) =
             optimized_cfg_to_instruction_sequence(&self.metadata, self.flags, &mut self.blocks)?;
-        let localsplusinfo = compute_localsplus_info(&self.metadata, nlocalsplus, self.flags);
+        let localsplusinfo = compute_localsplus_info(&self.metadata, nlocalsplus, self.flags)?;
 
         let Self {
             flags,
