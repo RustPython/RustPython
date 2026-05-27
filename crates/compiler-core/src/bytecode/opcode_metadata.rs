@@ -720,6 +720,9 @@ impl super::PseudoOpcode {
                 | Self::JumpIfTrue
                 | Self::JumpNoInterrupt
                 | Self::LoadClosure
+                | Self::SetupCleanup
+                | Self::SetupFinally
+                | Self::SetupWith
                 | Self::StoreFastMaybeNull
         )
     }

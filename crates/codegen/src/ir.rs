@@ -4801,7 +4801,10 @@ fn get_stack_effects(
     oparg: OpArg,
     jump: i32,
 ) -> crate::InternalResult<StackEffects> {
-    if instr.real().is_some_and(|op| op.deopt().is_some()) {
+    if instr
+        .real()
+        .is_some_and(|op| op.as_opcode().deopt().is_some())
+    {
         return Err(InternalError::InvalidStackEffect);
     }
     let oparg = u32::from(oparg);
