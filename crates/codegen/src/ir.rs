@@ -438,11 +438,14 @@ fn basicblock_append_block_instructions(
 
 /// flowgraph.c direct `b_iused = 0`
 fn basicblock_clear(block: &mut Block) {
-    let instructions = core::mem::take(&mut block.instructions);
+    let mut instructions = core::mem::take(&mut block.instructions);
     if !instructions.is_empty() {
-        block
-            .cpython_spare_instr_slots
-            .extend(instructions.into_iter().rev());
+        instructions.reverse();
+        if block.cpython_spare_instr_slots.is_empty() {
+            block.cpython_spare_instr_slots = instructions;
+        } else {
+            block.cpython_spare_instr_slots.extend(instructions);
+        }
     }
 }
 
