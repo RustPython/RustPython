@@ -1366,16 +1366,9 @@ fn instruction_sequence_label_map_resolve_label_to_block(
     })
 }
 
-fn instruction_sequence_label_oparg(
-    label: InstructionSequenceLabel,
-) -> crate::InternalResult<OpArg> {
+fn instruction_sequence_label_oparg(label: InstructionSequenceLabel) -> OpArg {
     debug_assert!(is_label(label));
-    Ok(OpArg::new(
-        label
-            .idx()
-            .to_u32()
-            .ok_or(InternalError::MalformedControlFlowGraph)?,
-    ))
+    OpArg::new(label.idx() as u32)
 }
 
 fn instruction_sequence_label_map_use_label_at_block(
@@ -1487,12 +1480,7 @@ impl CodeInfo {
                 &mut self.instr_sequence,
                 info.target,
             )?;
-            info.arg = OpArg::new(
-                label
-                    .idx()
-                    .to_u32()
-                    .ok_or(InternalError::MalformedControlFlowGraph)?,
-            );
+            info.arg = instruction_sequence_label_oparg(label);
             info.target = BlockIdx::NULL;
         }
         instruction_sequence_addop(&mut self.instr_sequence, info)?;
@@ -1507,12 +1495,7 @@ impl CodeInfo {
         if !info.instr.has_target() {
             return Err(InternalError::MalformedControlFlowGraph);
         }
-        info.arg = OpArg::new(
-            target_label
-                .idx()
-                .to_u32()
-                .ok_or(InternalError::MalformedControlFlowGraph)?,
-        );
+        info.arg = instruction_sequence_label_oparg(target_label);
         info.target = BlockIdx::NULL;
         instruction_sequence_addop(&mut self.instr_sequence, info)?;
         Ok(())
@@ -1624,7 +1607,7 @@ impl CodeInfo {
                     delta: Arg::marker(),
                 }
                 .into(),
-                arg: instruction_sequence_label_oparg(handler_label)?,
+                arg: instruction_sequence_label_oparg(handler_label),
                 target: BlockIdx::NULL,
                 location: SourceLocation::default(),
                 end_location: SourceLocation::default(),
@@ -5151,7 +5134,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) -> crate::InternalResult<()>
                 &mut blocks[explicit_jump.idx()],
                 InstructionInfo {
                     instr: PseudoOpcode::JumpNoInterrupt.into(),
-                    arg: instruction_sequence_label_oparg(jump_label)?,
+                    arg: instruction_sequence_label_oparg(jump_label),
                     target: BlockIdx::NULL,
                     location: SourceLocation::default(),
                     end_location: SourceLocation::default(),
@@ -5279,7 +5262,7 @@ fn basicblock_add_jump(
     debug_assert!(target != BlockIdx::NULL);
     let label = blocks[target.idx()].cpython_label;
     debug_assert!(is_label(label));
-    let arg = instruction_sequence_label_oparg(label)?;
+    let arg = instruction_sequence_label_oparg(label);
     let block = &mut blocks[bi];
     basicblock_addop(
         block,
