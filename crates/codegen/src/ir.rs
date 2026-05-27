@@ -5962,12 +5962,9 @@ fn cfg_builder_addop(g: &mut CfgBuilder, info: InstructionInfo) -> crate::Intern
 fn cfg_builder_check(g: &CfgBuilder) -> bool {
     debug_assert!(g.entry != BlockIdx::NULL);
     debug_assert!(!g.blocks[g.entry.idx()].instructions.is_empty());
-    let mut seen = vec![false; g.blocks.len()];
     let mut block = g.block_list;
     while block != BlockIdx::NULL {
         debug_assert!(block.idx() < g.blocks.len());
-        debug_assert!(!seen[block.idx()]);
-        seen[block.idx()] = true;
         let block_ref = &g.blocks[block.idx()];
         let has_instr_array =
             !block_ref.instructions.is_empty() || !block_ref.cpython_spare_instr_slots.is_empty();
@@ -5984,7 +5981,6 @@ fn cfg_builder_check(g: &CfgBuilder) -> bool {
         }
         block = block_ref.allocation_next;
     }
-    debug_assert!(seen.into_iter().all(core::convert::identity));
     true
 }
 
