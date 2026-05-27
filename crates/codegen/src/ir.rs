@@ -1392,15 +1392,26 @@ fn instruction_sequence_label_map_use_label_at_block(
     map.cpython_block_by_label[from_label.idx()] = to_block;
 }
 
-fn instruction_sequence_label_map_push_unlabeled_block(map: &mut InstructionSequenceLabelMap) {
+fn instruction_sequence_label_map_push_unlabeled_block(
+    map: &mut InstructionSequenceLabelMap,
+) -> crate::InternalResult<()> {
+    map.block_labels
+        .try_reserve(1)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     map.block_labels.push(InstructionSequenceLabel::NO_LABEL);
+    Ok(())
 }
 
 fn instruction_sequence_label_map_push_unmapped_label(
     map: &mut InstructionSequenceLabelMap,
     seq: &mut InstructionSequence,
-) {
+) -> crate::InternalResult<()> {
     let label = instruction_sequence_new_label(seq);
+    if map.cpython_block_by_label.len() <= label.idx() {
+        map.cpython_block_by_label
+            .try_reserve(label.idx() + 1 - map.cpython_block_by_label.len())
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    }
     instruction_sequence_label_map_register_label(map, label);
     let block = BlockIdx(
         map.block_labels
@@ -1409,7 +1420,11 @@ fn instruction_sequence_label_map_push_unmapped_label(
             .expect("too many codegen CFG blocks"),
     );
     map.cpython_block_by_label[label.idx()] = block;
+    map.block_labels
+        .try_reserve(1)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     map.block_labels.push(label);
+    Ok(())
 }
 
 impl InstructionSequenceLabelMap {
@@ -1690,15 +1705,15 @@ impl CodeInfo {
         )
     }
 
-    pub(crate) fn push_unmapped_instr_sequence_label(&mut self) {
+    pub(crate) fn push_unmapped_instr_sequence_label(&mut self) -> crate::InternalResult<()> {
         instruction_sequence_label_map_push_unmapped_label(
             &mut self.instr_sequence_label_map,
             &mut self.instr_sequence,
-        );
+        )
     }
 
-    pub(crate) fn push_unlabeled_instr_sequence_block(&mut self) {
-        instruction_sequence_label_map_push_unlabeled_block(&mut self.instr_sequence_label_map);
+    pub(crate) fn push_unlabeled_instr_sequence_block(&mut self) -> crate::InternalResult<()> {
+        instruction_sequence_label_map_push_unlabeled_block(&mut self.instr_sequence_label_map)
     }
 
     fn take_recorded_instr_sequence(&mut self) -> crate::InternalResult<InstructionSequence> {
@@ -6936,8 +6951,8 @@ mod tests {
     fn instruction_sequence_label_shadow_preserves_cpython_offset_aliases() {
         let mut seq = instruction_sequence_new();
         let mut labels = InstructionSequenceLabelMap::new();
-        instruction_sequence_label_map_push_unmapped_label(&mut labels, &mut seq);
-        instruction_sequence_label_map_push_unmapped_label(&mut labels, &mut seq);
+        instruction_sequence_label_map_push_unmapped_label(&mut labels, &mut seq).unwrap();
+        instruction_sequence_label_map_push_unmapped_label(&mut labels, &mut seq).unwrap();
 
         let first = BlockIdx::new(1);
         let second = BlockIdx::new(2);

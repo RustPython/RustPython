@@ -11077,7 +11077,8 @@ impl Compiler {
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
-        code.push_unmapped_instr_sequence_label();
+        let result = code.push_unmapped_instr_sequence_label();
+        unwrap_internal(self, result);
         idx
     }
 
@@ -11091,7 +11092,8 @@ impl Compiler {
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
-        code.push_unlabeled_instr_sequence_block();
+        let result = code.push_unlabeled_instr_sequence_block();
+        unwrap_internal(self, result);
         idx
     }
 
