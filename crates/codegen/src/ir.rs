@@ -6135,6 +6135,7 @@ fn fast_scan_many_locals(blocks: &mut [Block], nlocals: usize) -> crate::Interna
             if arg < LOCAL_UNSAFE_MASK_BITS {
                 continue;
             }
+            debug_assert!(arg >= LOCAL_UNSAFE_MASK_BITS);
             match info.instr {
                 AnyInstruction::Real(
                     Instruction::DeleteFast { .. } | Instruction::LoadFastAndClear { .. },
