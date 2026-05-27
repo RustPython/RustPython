@@ -4105,6 +4105,7 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
     let mut refs = RefStack {
         refs: Vec::new(),
         size: 0,
+        capacity: 0,
     };
     let mut worklist = make_cfg_traversal_stack(blocks)?;
     worklist.push(BlockIdx(0));
@@ -4677,18 +4678,21 @@ struct Ref {
 struct RefStack {
     refs: Vec<Ref>,
     size: usize,
+    capacity: usize,
 }
 
 /// flowgraph.c ref_stack_push
 fn ref_stack_push(stack: &mut RefStack, r: Ref) -> crate::InternalResult<()> {
-    if stack.size == stack.refs.len() {
-        let doubled = stack.refs.len() * 2;
+    debug_assert_eq!(stack.refs.len(), stack.capacity);
+    if stack.size == stack.capacity {
+        let doubled = stack.capacity * 2;
         let new_cap = 32.max(doubled);
         stack
             .refs
-            .try_reserve_exact(new_cap - stack.refs.len())
+            .try_reserve_exact(new_cap - stack.capacity)
             .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         stack.refs.resize(new_cap, Ref { instr: 0, local: 0 });
+        stack.capacity = new_cap;
     }
     stack.refs[stack.size] = r;
     stack.size += 1;
@@ -6984,15 +6988,18 @@ mod tests {
         let mut stack = RefStack {
             refs: Vec::new(),
             size: 0,
+            capacity: 0,
         };
         ref_stack_push(&mut stack, Ref { instr: 7, local: 3 }).unwrap();
         assert_eq!(stack.size, 1);
+        assert_eq!(stack.capacity, 32);
         assert_eq!(stack.refs.len(), 32);
         assert_eq!(ref_stack_at(&stack, 0).instr, 7);
         assert_eq!(ref_stack_at(&stack, 0).local, 3);
 
         ref_stack_clear(&mut stack);
         assert_eq!(stack.size, 0);
+        assert_eq!(stack.capacity, 32);
         assert_eq!(stack.refs.len(), 32);
 
         ref_stack_push(
