@@ -1036,7 +1036,7 @@ fn assemble_location_info(
     instr_sequence: &mut InstructionSequence,
     first_line: i32,
     debug_ranges: bool,
-) -> Box<[u8]> {
+) -> crate::InternalResult<Box<[u8]>> {
     for i in (0..instr_sequence.instrs.len()).rev() {
         let loc = instruction_linetable_location(&instr_sequence.instrs[i].info);
         if same_location(loc, next_linetable_location()) {
@@ -1068,14 +1068,14 @@ fn assemble_location_info(
         let entry = &instr_sequence.instrs[i];
         let instr_loc = instruction_linetable_location(&entry.info);
         if !same_location(loc, instr_loc) {
-            assemble_emit_location(&mut linetable, loc, size, &mut prev_line, debug_ranges);
+            assemble_emit_location(&mut linetable, loc, size, &mut prev_line, debug_ranges)?;
             loc = instr_loc;
             size = 0;
         }
         size += instr_size(&entry.info);
     }
-    assemble_emit_location(&mut linetable, loc, size, &mut prev_line, debug_ranges);
-    linetable.into_boxed_slice()
+    assemble_emit_location(&mut linetable, loc, size, &mut prev_line, debug_ranges)?;
+    Ok(linetable.into_boxed_slice())
 }
 
 /// assemble.c assemble_emit
@@ -1088,16 +1088,16 @@ fn assemble_emit(
     let num_instructions =
         usize::try_from(end_offset).map_err(|_| InternalError::MalformedControlFlowGraph)?;
     let mut instructions = Vec::new();
-    instructions.reserve_exact(num_instructions);
+    vec_try_reserve_exact(&mut instructions, num_instructions)?;
 
     for i in 0..instr_sequence.instrs.len() {
         let instr = &mut instr_sequence.instrs[i].info;
         assemble_emit_instr(&mut instructions, instr);
     }
 
-    let linetable = assemble_location_info(instr_sequence, first_line, debug_ranges);
+    let linetable = assemble_location_info(instr_sequence, first_line, debug_ranges)?;
 
-    let exceptiontable = assemble_exception_table(&instr_sequence.instrs);
+    let exceptiontable = assemble_exception_table(&instr_sequence.instrs)?;
 
     Ok(AssembledCode {
         instructions,
@@ -4758,6 +4758,11 @@ fn get_stack_effects(
     Ok(StackEffects { net })
 }
 
+fn vec_try_reserve_exact<T>(vec: &mut Vec<T>, additional: usize) -> crate::InternalResult<()> {
+    vec.try_reserve_exact(additional)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)
+}
+
 /// assemble.c write_location_first_byte
 fn write_location_first_byte(linetable: &mut Vec<u8>, code: u8, length: usize) {
     linetable.extend(write_location_entry_start(code, length));
@@ -4791,11 +4796,12 @@ fn write_location_info_short_form(
     length: usize,
     column: i32,
     end_column: i32,
-) {
+) -> crate::InternalResult<()> {
     debug_assert!(length > 0 && length <= 8);
     debug_assert!(column < 80);
     debug_assert!(end_column >= column);
     debug_assert!(end_column - column < 16);
+    vec_try_reserve_exact(linetable, 2)?;
     let column_low_bits = column & 7;
     let column_group = column >> 3;
     let code = PyCodeLocationInfoKind::Short0 as u8 + column_group as u8;
@@ -4804,6 +4810,7 @@ fn write_location_info_short_form(
         linetable,
         ((column_low_bits as u8) << 4) | ((end_column - column) as u8),
     );
+    Ok(())
 }
 
 /// assemble.c write_location_info_oneline_form
@@ -4813,15 +4820,17 @@ fn write_location_info_oneline_form(
     line_delta: i32,
     column: i32,
     end_column: i32,
-) {
+) -> crate::InternalResult<()> {
     debug_assert!(length > 0 && length <= 8);
     debug_assert!((0..3).contains(&line_delta));
     debug_assert!(column < 128);
     debug_assert!(end_column < 128);
+    vec_try_reserve_exact(linetable, 3)?;
     let code = PyCodeLocationInfoKind::OneLine0 as u8 + line_delta as u8;
     write_location_first_byte(linetable, code, length);
     write_location_byte(linetable, column as u8);
     write_location_byte(linetable, end_column as u8);
+    Ok(())
 }
 
 /// assemble.c write_location_info_long_form
@@ -4830,8 +4839,9 @@ fn write_location_info_long_form(
     loc: LineTableLocation,
     length: usize,
     line_delta: i32,
-) {
+) -> crate::InternalResult<()> {
     debug_assert!(length > 0 && length <= 8);
+    vec_try_reserve_exact(linetable, 25)?;
     write_location_first_byte(linetable, PyCodeLocationInfoKind::Long as u8, length);
     write_location_signed_varint(linetable, line_delta);
     debug_assert!(loc.end_line >= loc.line);
@@ -4848,17 +4858,26 @@ fn write_location_info_long_form(
             (loc.end_col as u32) + 1
         },
     );
+    Ok(())
 }
 
 /// assemble.c write_location_info_none
-fn write_location_info_none(linetable: &mut Vec<u8>, length: usize) {
+fn write_location_info_none(linetable: &mut Vec<u8>, length: usize) -> crate::InternalResult<()> {
+    vec_try_reserve_exact(linetable, 1)?;
     write_location_first_byte(linetable, PyCodeLocationInfoKind::None as u8, length);
+    Ok(())
 }
 
 /// assemble.c write_location_info_no_column
-fn write_location_info_no_column(linetable: &mut Vec<u8>, length: usize, line_delta: i32) {
+fn write_location_info_no_column(
+    linetable: &mut Vec<u8>,
+    length: usize,
+    line_delta: i32,
+) -> crate::InternalResult<()> {
+    vec_try_reserve_exact(linetable, 7)?;
     write_location_first_byte(linetable, PyCodeLocationInfoKind::NoColumns as u8, length);
     write_location_signed_varint(linetable, line_delta);
+    Ok(())
 }
 
 /// assemble.c write_location_info_entry
@@ -4868,10 +4887,9 @@ fn write_location_info_entry(
     length: usize,
     prev_line: &mut i32,
     debug_ranges: bool,
-) {
+) -> crate::InternalResult<()> {
     if loc.line == NO_LOCATION_OVERRIDE {
-        write_location_info_none(linetable, length);
-        return;
+        return write_location_info_none(linetable, length);
     }
 
     let line_delta = loc.line - *prev_line;
@@ -4880,25 +4898,25 @@ fn write_location_info_entry(
     if !debug_ranges
         || ((column < 0 || end_column < 0) && (loc.end_line == loc.line || loc.end_line < 0))
     {
-        write_location_info_no_column(linetable, length, line_delta);
+        write_location_info_no_column(linetable, length, line_delta)?;
         *prev_line = loc.line;
-        return;
+        return Ok(());
     }
 
     if loc.end_line == loc.line {
         if line_delta == 0 && column < 80 && end_column - column < 16 && end_column >= column {
-            write_location_info_short_form(linetable, length, column, end_column);
-            return;
+            return write_location_info_short_form(linetable, length, column, end_column);
         }
         if (0..3).contains(&line_delta) && column < 128 && end_column < 128 {
-            write_location_info_oneline_form(linetable, length, line_delta, column, end_column);
+            write_location_info_oneline_form(linetable, length, line_delta, column, end_column)?;
             *prev_line = loc.line;
-            return;
+            return Ok(());
         }
     }
 
-    write_location_info_long_form(linetable, loc, length, line_delta);
+    write_location_info_long_form(linetable, loc, length, line_delta)?;
     *prev_line = loc.line;
+    Ok(())
 }
 
 /// assemble.c assemble_emit_location
@@ -4908,15 +4926,15 @@ fn assemble_emit_location(
     mut size: usize,
     prev_line: &mut i32,
     debug_ranges: bool,
-) {
+) -> crate::InternalResult<()> {
     if size == 0 {
-        return;
+        return Ok(());
     }
     while size > 8 {
-        write_location_info_entry(linetable, loc, 8, prev_line, debug_ranges);
+        write_location_info_entry(linetable, loc, 8, prev_line, debug_ranges)?;
         size -= 8;
     }
-    write_location_info_entry(linetable, loc, size, prev_line, debug_ranges);
+    write_location_info_entry(linetable, loc, size, prev_line, debug_ranges)
 }
 
 fn no_linetable_location() -> LineTableLocation {
@@ -4969,7 +4987,9 @@ fn assemble_emit_exception_table_entry(
     end: i32,
     handler_offset: i32,
     handler: InstructionSequenceExceptHandlerInfo,
-) {
+) -> crate::InternalResult<()> {
+    const MAX_SIZE_OF_ENTRY: usize = 20;
+    vec_try_reserve_exact(table, MAX_SIZE_OF_ENTRY)?;
     let size = end - start;
     debug_assert!(end > start);
     let target = handler_offset;
@@ -4988,10 +5008,13 @@ fn assemble_emit_exception_table_entry(
     assemble_emit_exception_table_item(table, size, 0);
     assemble_emit_exception_table_item(table, target, 0);
     assemble_emit_exception_table_item(table, depth_lasti, 0);
+    Ok(())
 }
 
 /// assemble.c assemble_exception_table
-fn assemble_exception_table(instrs: &[InstructionSequenceEntry]) -> Box<[u8]> {
+fn assemble_exception_table(
+    instrs: &[InstructionSequenceEntry],
+) -> crate::InternalResult<Box<[u8]>> {
     let mut table = Vec::new();
     let mut handler = InstructionSequenceExceptHandlerInfo {
         h_label: NO_EXCEPTION_HANDLER_LABEL,
@@ -5014,7 +5037,7 @@ fn assemble_exception_table(instrs: &[InstructionSequenceEntry]) -> Box<[u8]> {
                     ioffset,
                     handler_offset,
                     handler,
-                );
+                )?;
             }
             start = ioffset;
             handler = instr.except_handler;
@@ -5028,10 +5051,10 @@ fn assemble_exception_table(instrs: &[InstructionSequenceEntry]) -> Box<[u8]> {
         let handler_label =
             usize::try_from(handler.h_label).expect("handler label is non-negative");
         let handler_offset = instrs[handler_label].i_offset;
-        assemble_emit_exception_table_entry(&mut table, start, ioffset, handler_offset, handler);
+        assemble_emit_exception_table_entry(&mut table, start, ioffset, handler_offset, handler)?;
     }
 
-    table.into_boxed_slice()
+    Ok(table.into_boxed_slice())
 }
 
 /// Mark exception handler target blocks.
