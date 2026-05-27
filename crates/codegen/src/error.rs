@@ -38,7 +38,6 @@ impl fmt::Display for CodegenError {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum InternalError {
-    StackOverflow,
     StackUnderflow,
     InconsistentStackDepth,
     MalformedControlFlowGraph,
@@ -48,7 +47,6 @@ pub enum InternalError {
 impl Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::StackOverflow => write!(f, "stack overflow"),
             Self::StackUnderflow => write!(f, "stack underflow"),
             Self::InconsistentStackDepth => write!(f, "inconsistent stack depth"),
             Self::MalformedControlFlowGraph => write!(f, "malformed control flow graph."),
