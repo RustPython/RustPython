@@ -189,30 +189,51 @@ mod _json {
 
         fn parse_number(&self, bytes: &[u8], vm: &VirtualMachine) -> Option<(PyResult, usize)> {
             flame_guard!("JsonScanner::parse_number");
-            let mut has_neg = false;
-            let mut has_decimal = false;
-            let mut has_exponent = false;
-            let mut has_e_sign = false;
+            // RFC 8259 defines JSON numbers in ASCII syntax, including digits,
+            // '-', '.', 'e'/'E', and an optional exponent sign, so byte iteration
+            // is equivalent to char iteration here.
             let mut i = 0;
-            // JSON numbers are ASCII per RFC 8259 (digits, '-', '+', '.', 'e', 'E'),
-            // so byte iteration is equivalent to char iteration here.
-            for &b in bytes {
-                match b {
-                    b'-' if i == 0 => has_neg = true,
-                    b'0'..=b'9' => {}
-                    b'.' if !has_decimal => has_decimal = true,
-                    b'e' | b'E' if !has_exponent => has_exponent = true,
-                    b'+' | b'-' if !has_e_sign => has_e_sign = true,
-                    _ => break,
-                }
+            if bytes.get(i) == Some(&b'-') {
                 i += 1;
             }
-            if i == 0 || (i == 1 && has_neg) {
-                return None;
+            match bytes.get(i) {
+                Some(b'0') => i += 1,
+                Some(b'1'..=b'9') => {
+                    i += 1;
+                    while matches!(bytes.get(i), Some(b'0'..=b'9')) {
+                        i += 1;
+                    }
+                }
+                _ => return None,
             }
+
+            let mut is_float = false;
+            if bytes.get(i) == Some(&b'.') && matches!(bytes.get(i + 1), Some(b'0'..=b'9')) {
+                is_float = true;
+                i += 2;
+                while matches!(bytes.get(i), Some(b'0'..=b'9')) {
+                    i += 1;
+                }
+            }
+
+            if matches!(bytes.get(i), Some(b'e' | b'E')) {
+                let mut exponent_end = i + 1;
+                if matches!(bytes.get(exponent_end), Some(b'+' | b'-')) {
+                    exponent_end += 1;
+                }
+                if matches!(bytes.get(exponent_end), Some(b'0'..=b'9')) {
+                    is_float = true;
+                    exponent_end += 1;
+                    while matches!(bytes.get(exponent_end), Some(b'0'..=b'9')) {
+                        exponent_end += 1;
+                    }
+                    i = exponent_end;
+                }
+            }
+
             // SAFETY: the loop above accepts only ASCII bytes, so bytes[..i] is valid UTF-8.
             let buf = unsafe { core::str::from_utf8_unchecked(&bytes[..i]) };
-            let ret = if has_decimal || has_exponent {
+            let ret = if is_float {
                 // float
                 if let Some(ref parse_float) = self.parse_float {
                     parse_float.call((buf,), vm)

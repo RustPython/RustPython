@@ -40,14 +40,27 @@ repos:
         types: [rust]
         priority: 0
 
-      - id: generate-opcode-metadata
-        name: generate opcode metadata
-        entry: python scripts/generate_opcode_metadata.py
-        files: '^(crates/compiler-core/src/bytecode/instruction\.rs|scripts/generate_opcode_metadata\.py)$'
+      - id: generate-rs-opcode-metadata
+        name: generate rust opcode metadata
+        entry: python tools/opcode_metadata/generate_rs_opcode_metadata.py
+        files: '^(crates/compiler-core/src/bytecode/instruction\.rs|tools/opcode_metadata/*)$'
         pass_filenames: false
         language: system
         require_serial: true
         priority: 1 # so rustfmt runs first
+        stages:
+          - manual
+
+      - id: generate-py-opcode-metadata
+        name: generate python opcode metadata
+        entry: python tools/opcode_metadata/generate_py_opcode_metadata.py
+        files: '^(crates/compiler-core/src/bytecode/instruction\.rs|tools/opcode_metadata/*)$'
+        pass_filenames: false
+        language: system
+        require_serial: true
+        priority: 1 # so rustfmt runs first
+        stages:
+          - manual
 
   - repo: https://github.com/streetsidesoftware/cspell-cli
     rev: v10.0.0

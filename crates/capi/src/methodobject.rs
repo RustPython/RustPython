@@ -30,7 +30,7 @@ pub union PyMethodPointer {
     ) -> *mut PyObject,
     pub PyCFunctionFast: unsafe extern "C" fn(
         slf: *mut PyObject,
-        args: *mut *mut PyObject,
+        args: *const *mut PyObject,
         nargs: isize,
     ) -> *mut PyObject,
     pub PyCFunctionFastWithKeywords: unsafe extern "C" fn(
@@ -45,24 +45,26 @@ pub(crate) fn build_method_def(
     vm: &VirtualMachine,
     ml: &PyMethodDef,
     has_self: bool,
-) -> PyRef<HeapMethodDef> {
+) -> PyResult<PyRef<HeapMethodDef>> {
     let name = unsafe { CStr::from_ptr(ml.ml_name) }
         .to_str()
-        .expect("Method name was not valid UTF-8");
+        .map_err(|_| vm.new_system_error("Method name was not valid UTF-8"))?;
 
-    let doc = NonNull::new(ml.ml_doc.cast_mut()).map(|doc| {
-        unsafe { CStr::from_ptr(doc.as_ptr()) }
-            .to_str()
-            .expect("Method doc was not valid UTF-8")
-    });
+    let doc = NonNull::new(ml.ml_doc.cast_mut())
+        .map(|doc| {
+            unsafe { CStr::from_ptr(doc.as_ptr()) }
+                .to_str()
+                .map_err(|_| vm.new_system_error("Method doc was not valid UTF-8"))
+        })
+        .transpose()?;
 
-    let flags =
-        PyMethodFlags::from_bits(ml.ml_flags as u32).expect("PyMethodDef contains unknown flags");
+    let flags = PyMethodFlags::from_bits(ml.ml_flags as u32)
+        .ok_or_else(|| vm.new_system_error("PyMethodDef contains unknown flags"))?;
 
     let method = ml.ml_meth;
 
     if flags.contains(PyMethodFlags::METHOD) {
-        panic!("METH_METHOD is not supported on abi3")
+        return Err(vm.new_system_error("METH_METHOD is not supported on abi3"));
     }
 
     let call_flags = flags
@@ -76,39 +78,43 @@ pub(crate) fn build_method_def(
         PyMethodFlags::NOARGS => {
             if has_self {
                 let callable = move |zelf: PyObjectRef, vm: &VirtualMachine| unsafe {
-                    call_function(vm, method, flags, Some(vec![zelf]))
+                    let f = method.PyCFunction;
+                    let ret_ptr = f(zelf.as_raw().cast_mut(), core::ptr::null_mut());
+                    ret_ptr_to_pyresult(vm, ret_ptr)
                 };
-                vm.ctx.new_method_def(name, callable, flags, doc)
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             } else {
                 let callable = move |vm: &VirtualMachine| unsafe {
-                    call_function::<FuncArgs>(vm, method, flags, None)
+                    let f = method.PyCFunction;
+                    let ret_ptr = f(core::ptr::null_mut(), core::ptr::null_mut());
+                    ret_ptr_to_pyresult(vm, ret_ptr)
                 };
-                vm.ctx.new_method_def(name, callable, flags, doc)
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             }
         },
         PyMethodFlags::VARARGS => {
             let callable = move |args: PosArgs, vm: &VirtualMachine| unsafe {
                 call_function(vm, method, flags, Some(args))
             };
-            vm.ctx.new_method_def(name, callable, flags, doc)
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::VARARGS | PyMethodFlags::KEYWORDS => {
             let callable = move | args: FuncArgs, vm: &VirtualMachine| unsafe {
                 call_function_with_keywords(vm, method, flags, args)
             };
-            vm.ctx.new_method_def(name, callable, flags, doc)
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS => {
             let callable = move |args: FuncArgs, vm: &VirtualMachine| unsafe {
                 call_fast_function_with_keywords(vm, method, flags, args)
             };
-            vm.ctx.new_method_def(name, callable, flags, doc)
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::FASTCALL => {
-            let callable = move |_args: PosArgs, _vm: &VirtualMachine| -> PyResult {
-                todo!("METH_FASTCALL without METH_KEYWORDS is not supported yet")
+            let callable = move |args: PosArgs, vm: &VirtualMachine| unsafe {
+                call_fast_function(vm, method, flags, args)
             };
-            vm.ctx.new_method_def(name, callable, flags, doc)
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::O => {
             let f = unsafe { method.PyCFunction };
@@ -117,17 +123,19 @@ pub(crate) fn build_method_def(
                     let ret_ptr = unsafe { f(zelf.as_raw().cast_mut(), arg.as_raw().cast_mut()) };
                     ret_ptr_to_pyresult(vm, ret_ptr)
                 };
-                vm.ctx.new_method_def(name, callable, flags, doc)
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             } else {
                 let callable = move |arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
-                    let ret_ptr = unsafe { f(std::ptr::null_mut(), arg.as_raw().cast_mut()) };
+                    let ret_ptr = unsafe { f(core::ptr::null_mut(), arg.as_raw().cast_mut()) };
                     ret_ptr_to_pyresult(vm, ret_ptr)
                 };
-                vm.ctx.new_method_def(name, callable, flags, doc)
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             }
         },
         _ => {
-            todo!("function {name} has unsupported or invalid calling-convention flags: {flags:?}")
+            Err(vm.new_system_error(format!(
+                "function {name} has unsupported or invalid calling-convention flags: {flags:?}"
+            )))
         },
     })
 }
@@ -202,31 +210,46 @@ unsafe fn call_fast_function_with_keywords(
         .unwrap_or_default();
     let nargs = args.args.len();
     let mut fastcall_args = args.args;
-    let mut kwnames_tuple = None;
-    if !args.kwargs.is_empty() {
+    let kwnames_tuple = if !args.kwargs.is_empty() {
         let mut kwnames = Vec::with_capacity(args.kwargs.len());
         for (k, v) in args.kwargs {
             kwnames.push(vm.ctx.new_str(k).into());
             fastcall_args.push(v);
         }
-        kwnames_tuple = Some(vm.ctx.new_tuple(kwnames));
-    }
-    let fastcall_arg_ptrs = fastcall_args
-        .iter()
-        .map(|obj| obj.as_object().as_raw().cast_mut())
-        .collect::<Vec<_>>();
+        Some(vm.ctx.new_tuple(kwnames))
+    } else {
+        None
+    };
     let kwnames_ptr = kwnames_tuple
         .as_ref()
         .map(|tuple| tuple.as_object().as_raw().cast_mut())
-        .unwrap_or(core::ptr::null_mut());
-    let ret_ptr = unsafe {
-        f(
-            slf_ptr,
-            fastcall_arg_ptrs.as_ptr(),
-            nargs as isize,
-            kwnames_ptr,
-        )
-    };
+        .unwrap_or_default();
+    // SAFETY: PyObjectRef is repr(transparent) over a pointer to PyObject, so a
+    // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
+    // vector is kept alive for the duration of the call.
+    let fastcall_arg_ptrs = fastcall_args.as_ptr().cast::<*mut PyObject>();
+    let ret_ptr = unsafe { f(slf_ptr, fastcall_arg_ptrs, nargs as isize, kwnames_ptr) };
+    ret_ptr_to_pyresult(vm, ret_ptr)
+}
+
+unsafe fn call_fast_function(
+    vm: &VirtualMachine,
+    method: PyMethodPointer,
+    flags: PyMethodFlags,
+    args: PosArgs,
+) -> PyResult {
+    let f = unsafe { method.PyCFunctionFast };
+    let mut args: FuncArgs = args.into();
+    let slf = take_self_arg(&mut args, flags);
+    let slf_ptr = slf
+        .as_ref()
+        .map(|obj| obj.as_object().as_raw().cast_mut())
+        .unwrap_or_default();
+    // SAFETY: PyObjectRef is repr(transparent) over a pointer to PyObject, so a
+    // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
+    // vector is kept alive for the duration of the call.
+    let fastcall_arg_ptrs = args.args.as_mut_ptr().cast::<*mut PyObject>();
+    let ret_ptr = unsafe { f(slf_ptr, fastcall_arg_ptrs, args.args.len() as isize) };
     ret_ptr_to_pyresult(vm, ret_ptr)
 }
 
@@ -247,7 +270,7 @@ fn take_self_arg(args: &mut FuncArgs, flags: PyMethodFlags) -> Option<PyObjectRe
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyCMethod_New(
+pub unsafe extern "C" fn PyCMethod_New(
     ml: *mut PyMethodDef,
     slf: *mut PyObject,
     _module: *mut PyObject,
@@ -260,24 +283,27 @@ pub extern "C" fn PyCMethod_New(
         );
         let ml = unsafe { &*ml };
         let zelf = unsafe { slf.as_ref().map(|obj| obj.to_owned()) };
-        Ok(build_method_def(vm, ml, zelf.is_some())
+        Ok(build_method_def(vm, ml, zelf.is_some())?
             .build_function(vm, zelf)
             .into())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyCFunction_New(ml: *mut PyMethodDef, slf: *mut PyObject) -> *mut PyObject {
-    PyCMethod_New(ml, slf, core::ptr::null_mut(), core::ptr::null_mut())
+pub unsafe extern "C" fn PyCFunction_New(
+    ml: *mut PyMethodDef,
+    slf: *mut PyObject,
+) -> *mut PyObject {
+    unsafe { PyCMethod_New(ml, slf, core::ptr::null_mut(), core::ptr::null_mut()) }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyCFunction_NewEx(
+pub unsafe extern "C" fn PyCFunction_NewEx(
     ml: *mut PyMethodDef,
     slf: *mut PyObject,
     module: *mut PyObject,
 ) -> *mut PyObject {
-    PyCMethod_New(ml, slf, module, core::ptr::null_mut())
+    unsafe { PyCMethod_New(ml, slf, module, core::ptr::null_mut()) }
 }
 
 #[cfg(test)]

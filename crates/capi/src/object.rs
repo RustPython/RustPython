@@ -332,7 +332,7 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
             };
             let is_static = PyMethodFlags::from_bits_retain(method.ml_flags as _)
                 .contains(PyMethodFlags::STATIC);
-            let method = build_method_def(vm, method, !is_static).build_method(class_static, vm);
+            let method = build_method_def(vm, method, !is_static)?.build_method(class_static, vm);
             class
                 .attributes
                 .write()
