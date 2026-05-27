@@ -11068,6 +11068,12 @@ impl Compiler {
     }
 
     fn new_block(&mut self) -> BlockIdx {
+        let result = self
+            .current_code_info()
+            .blocks
+            .try_reserve(1)
+            .map_err(|_| InternalError::MalformedControlFlowGraph);
+        unwrap_internal(self, result);
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
@@ -11076,6 +11082,12 @@ impl Compiler {
     }
 
     fn new_unlabeled_block(&mut self) -> BlockIdx {
+        let result = self
+            .current_code_info()
+            .blocks
+            .try_reserve(1)
+            .map_err(|_| InternalError::MalformedControlFlowGraph);
+        unwrap_internal(self, result);
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
