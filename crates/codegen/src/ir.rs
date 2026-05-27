@@ -5820,7 +5820,7 @@ fn cfg_from_instruction_sequence(
     debug_assert!(label_map.is_none());
 
     let mut builder = cfg_builder_new();
-    let mut offset = 0isize;
+    let mut offset = 0i32;
 
     let mut i = 0;
     while i < instrs.len() {
@@ -5839,7 +5839,12 @@ fn cfg_from_instruction_sequence(
                     info.target = BlockIdx::NULL;
                     cfg_builder_addop(&mut builder, info);
                 }
-                offset += annotations_code.instrs.len() as isize - 1;
+                offset += annotations_code
+                    .instrs
+                    .len()
+                    .to_i32()
+                    .ok_or(InternalError::MalformedControlFlowGraph)?
+                    - 1;
             } else {
                 offset -= 1;
             }
@@ -5848,19 +5853,21 @@ fn cfg_from_instruction_sequence(
         }
 
         if entry.i_target != 0 {
-            let label = InstructionSequenceLabel::from_index(
-                i.checked_add_signed(offset)
-                    .ok_or(InternalError::MalformedControlFlowGraph)?,
-            );
+            let label_id = i
+                .to_i32()
+                .ok_or(InternalError::MalformedControlFlowGraph)?
+                .checked_add(offset)
+                .ok_or(InternalError::MalformedControlFlowGraph)?;
+            let label = InstructionSequenceLabel(label_id);
             cfg_builder_use_label(&mut builder, label);
         }
 
         let opcode = entry.info.instr;
         let mut oparg = entry.info.arg;
         if opcode.has_target() {
-            let target_offset = usize::try_from(u32::from(oparg))
+            let target_offset = i32::try_from(u32::from(oparg))
                 .map_err(|_| InternalError::MalformedControlFlowGraph)?
-                .checked_add_signed(offset)
+                .checked_add(offset)
                 .ok_or(InternalError::MalformedControlFlowGraph)?;
             oparg = OpArg::new(
                 target_offset
