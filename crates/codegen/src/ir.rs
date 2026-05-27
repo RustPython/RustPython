@@ -1287,28 +1287,32 @@ pub(crate) struct InstructionSequenceLabelMap {
 fn instruction_sequence_label_map_register_label(
     map: &mut InstructionSequenceLabelMap,
     label: InstructionSequenceLabel,
-) {
+) -> crate::InternalResult<()> {
     if map.cpython_block_by_label.len() <= label.idx() {
+        map.cpython_block_by_label
+            .try_reserve(label.idx() + 1 - map.cpython_block_by_label.len())
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         map.cpython_block_by_label
             .resize(label.idx() + 1, BlockIdx::NULL);
     }
+    Ok(())
 }
 
 fn instruction_sequence_label_map_ensure_label_for_block(
     map: &mut InstructionSequenceLabelMap,
     seq: &mut InstructionSequence,
     block: BlockIdx,
-) -> InstructionSequenceLabel {
+) -> crate::InternalResult<InstructionSequenceLabel> {
     debug_assert_ne!(block, BlockIdx::NULL);
     let block_label = map.block_labels[block.idx()];
     if is_label(block_label) {
-        return block_label;
+        return Ok(block_label);
     }
     let label = instruction_sequence_new_label(seq);
-    instruction_sequence_label_map_register_label(map, label);
+    instruction_sequence_label_map_register_label(map, label)?;
     map.cpython_block_by_label[label.idx()] = block;
     map.block_labels[block.idx()] = label;
-    label
+    Ok(label)
 }
 
 fn instruction_sequence_label_map_label_for_block(
@@ -1376,20 +1380,21 @@ fn instruction_sequence_label_map_use_label_at_block(
     seq: &mut InstructionSequence,
     from: BlockIdx,
     to: BlockIdx,
-) {
+) -> crate::InternalResult<()> {
     if from == BlockIdx::NULL || from == to {
-        return;
+        return Ok(());
     }
-    let from_label = instruction_sequence_label_map_ensure_label_for_block(map, seq, from);
+    let from_label = instruction_sequence_label_map_ensure_label_for_block(map, seq, from)?;
     let to_block = instruction_sequence_label_map_resolve_label(map, to);
     if to_block == BlockIdx::NULL {
         debug_assert!(
             false,
             "CPython label target must map to a codegen CFG block"
         );
-        return;
+        return Ok(());
     }
     map.cpython_block_by_label[from_label.idx()] = to_block;
+    Ok(())
 }
 
 fn instruction_sequence_label_map_push_unlabeled_block(
@@ -1407,12 +1412,7 @@ fn instruction_sequence_label_map_push_unmapped_label(
     seq: &mut InstructionSequence,
 ) -> crate::InternalResult<()> {
     let label = instruction_sequence_new_label(seq);
-    if map.cpython_block_by_label.len() <= label.idx() {
-        map.cpython_block_by_label
-            .try_reserve(label.idx() + 1 - map.cpython_block_by_label.len())
-            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    }
-    instruction_sequence_label_map_register_label(map, label);
+    instruction_sequence_label_map_register_label(map, label)?;
     let block = BlockIdx(
         map.block_labels
             .len()
@@ -1573,7 +1573,7 @@ impl CodeInfo {
                 &mut self.instr_sequence_label_map,
                 &mut self.instr_sequence,
                 info.target,
-            );
+            )?;
             info.arg = OpArg::new(
                 label
                     .idx()
@@ -1619,7 +1619,7 @@ impl CodeInfo {
             &mut self.instr_sequence_label_map,
             &mut self.instr_sequence,
             block,
-        );
+        )?;
         instruction_sequence_use_label(&mut self.instr_sequence, label)
     }
 
@@ -1634,13 +1634,14 @@ impl CodeInfo {
         instruction_sequence_use_label(&mut self.instr_sequence, label)
     }
 
-    pub(crate) fn mark_cpython_cfg_label(&mut self, block: BlockIdx) {
+    pub(crate) fn mark_cpython_cfg_label(&mut self, block: BlockIdx) -> crate::InternalResult<()> {
         let label = instruction_sequence_label_map_ensure_label_for_block(
             &mut self.instr_sequence_label_map,
             &mut self.instr_sequence,
             block,
-        );
+        )?;
         self.blocks[block.idx()].cpython_label = label;
+        Ok(())
     }
 
     pub(crate) fn resolve_instr_sequence_label(&self, block: BlockIdx) -> BlockIdx {
@@ -1654,21 +1655,25 @@ impl CodeInfo {
         instruction_sequence_label_map_resolve_label_to_block(&self.instr_sequence_label_map, label)
     }
 
-    pub(crate) fn use_instr_sequence_label_at_block(&mut self, from: BlockIdx, to: BlockIdx) {
+    pub(crate) fn use_instr_sequence_label_at_block(
+        &mut self,
+        from: BlockIdx,
+        to: BlockIdx,
+    ) -> crate::InternalResult<()> {
         instruction_sequence_label_map_use_label_at_block(
             &mut self.instr_sequence_label_map,
             &mut self.instr_sequence,
             from,
             to,
-        );
+        )
     }
 
     pub(crate) fn instr_sequence_label_for_block(
         &mut self,
         block: BlockIdx,
-    ) -> InstructionSequenceLabel {
+    ) -> crate::InternalResult<InstructionSequenceLabel> {
         if block == BlockIdx::NULL {
-            InstructionSequenceLabel::NO_LABEL
+            Ok(InstructionSequenceLabel::NO_LABEL)
         } else {
             instruction_sequence_label_map_ensure_label_for_block(
                 &mut self.instr_sequence_label_map,
@@ -1686,7 +1691,7 @@ impl CodeInfo {
             &mut self.instr_sequence_label_map,
             &mut self.instr_sequence,
             handler_block,
-        );
+        )?;
         instruction_sequence_insert_instruction(
             &mut self.instr_sequence,
             0,
@@ -6964,7 +6969,8 @@ mod tests {
         // CPython `_PyInstructionSequence_UseLabel()` can map consecutive
         // labels to the same instruction offset. The codegen CFG shadow must
         // resolve the later block label to the block owning that shared offset.
-        instruction_sequence_label_map_use_label_at_block(&mut labels, &mut seq, second, first);
+        instruction_sequence_label_map_use_label_at_block(&mut labels, &mut seq, second, first)
+            .unwrap();
         assert_eq!(
             instruction_sequence_label_map_resolve_label(&labels, first),
             first

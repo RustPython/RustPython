@@ -3550,13 +3550,8 @@ impl Compiler {
             }
         );
         self.use_cpython_label_block(body_block);
-        let (body_label, finally_except_label) = {
-            let code = self.current_code_info();
-            (
-                code.instr_sequence_label_for_block(body_block),
-                code.instr_sequence_label_for_block(finally_except_block),
-            )
-        };
+        let body_label = self.instr_sequence_label_for_block(body_block);
+        let finally_except_label = self.instr_sequence_label_for_block(finally_except_block);
         self.push_fblock_labels(
             FBlockType::FinallyTry,
             body_label,
@@ -3641,9 +3636,7 @@ impl Compiler {
             }
         );
         self.use_cpython_label_block(body_block);
-        let body_label = self
-            .current_code_info()
-            .instr_sequence_label_for_block(body_block);
+        let body_label = self.instr_sequence_label_for_block(body_block);
         self.push_fblock_labels(
             FBlockType::TryExcept,
             body_label,
@@ -3714,9 +3707,7 @@ impl Compiler {
 
                 emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup_end });
                 self.use_cpython_label_block(cleanup_body);
-                let cleanup_body_label = self
-                    .current_code_info()
-                    .instr_sequence_label_for_block(cleanup_body);
+                let cleanup_body_label = self.instr_sequence_label_for_block(cleanup_body);
                 self.push_fblock_labels(
                     FBlockType::HandlerCleanup,
                     cleanup_body_label,
@@ -3751,9 +3742,7 @@ impl Compiler {
 
                 emit!(self, Instruction::PopTop);
                 self.use_cpython_label_block(cleanup_body);
-                let cleanup_body_label = self
-                    .current_code_info()
-                    .instr_sequence_label_for_block(cleanup_body);
+                let cleanup_body_label = self.instr_sequence_label_for_block(cleanup_body);
                 self.push_fblock_labels(
                     FBlockType::HandlerCleanup,
                     cleanup_body_label,
@@ -3820,13 +3809,8 @@ impl Compiler {
             }
         );
         self.use_cpython_label_block(body_block);
-        let (body_label, finally_except_label) = {
-            let code = self.current_code_info();
-            (
-                code.instr_sequence_label_for_block(body_block),
-                code.instr_sequence_label_for_block(finally_except_block),
-            )
-        };
+        let body_label = self.instr_sequence_label_for_block(body_block);
+        let finally_except_label = self.instr_sequence_label_for_block(finally_except_block);
         self.push_fblock_labels(
             FBlockType::FinallyTry,
             body_label,
@@ -3916,9 +3900,7 @@ impl Compiler {
             }
         );
         self.use_cpython_label_block(body_block);
-        let body_label = self
-            .current_code_info()
-            .instr_sequence_label_for_block(body_block);
+        let body_label = self.instr_sequence_label_for_block(body_block);
         self.push_fblock_labels(
             FBlockType::TryExcept,
             body_label,
@@ -4030,9 +4012,7 @@ impl Compiler {
                 }
             );
             self.use_cpython_label_block(cleanup_body_block);
-            let cleanup_body_label = self
-                .current_code_info()
-                .instr_sequence_label_for_block(cleanup_body_block);
+            let cleanup_body_label = self.instr_sequence_label_for_block(cleanup_body_block);
             self.push_fblock_labels(
                 FBlockType::HandlerCleanup,
                 cleanup_body_label,
@@ -5599,13 +5579,8 @@ impl Compiler {
         let loop_block = self.new_block();
         let end_block = self.new_block();
         let anchor_block = self.new_block();
-        let (loop_label, end_label) = {
-            let code = self.current_code_info();
-            (
-                code.instr_sequence_label_for_block(loop_block),
-                code.instr_sequence_label_for_block(end_block),
-            )
-        };
+        let loop_label = self.instr_sequence_label_for_block(loop_block);
+        let end_label = self.instr_sequence_label_for_block(end_block);
         self.use_cpython_label_block(loop_block);
         self.push_fblock_labels(
             FBlockType::WhileLoop,
@@ -5737,13 +5712,8 @@ impl Compiler {
         } else {
             FBlockType::With
         };
-        let (body_label, exc_handler_label) = {
-            let code = self.current_code_info();
-            (
-                code.instr_sequence_label_for_block(body_block),
-                code.instr_sequence_label_for_block(exc_handler_block),
-            )
-        };
+        let body_label = self.instr_sequence_label_for_block(body_block);
+        let exc_handler_label = self.instr_sequence_label_for_block(exc_handler_block);
         self.push_fblock_labels(
             fblock_type,
             body_label,
@@ -5850,13 +5820,8 @@ impl Compiler {
         };
         let else_block = self.new_block();
         let after_block = self.new_block();
-        let (for_label, after_label) = {
-            let code = self.current_code_info();
-            (
-                code.instr_sequence_label_for_block(for_block),
-                code.instr_sequence_label_for_block(after_block),
-            )
-        };
+        let for_label = self.instr_sequence_label_for_block(for_block);
+        let after_label = self.instr_sequence_label_for_block(after_block);
         let mut end_async_for_target = BlockIdx::NULL;
 
         if !is_async {
@@ -9497,9 +9462,7 @@ impl Compiler {
             self.use_cpython_label_block(loop_block);
             let mut end_async_for_target = BlockIdx::NULL;
             if generator.is_async {
-                let loop_label = self
-                    .current_code_info()
-                    .instr_sequence_label_for_block(loop_block);
+                let loop_label = self.instr_sequence_label_for_block(loop_block);
                 self.push_fblock_labels(
                     FBlockType::AsyncComprehensionGenerator,
                     loop_label,
@@ -9565,9 +9528,7 @@ impl Compiler {
                     emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
                     if is_async {
-                        let loop_label = self
-                            .current_code_info()
-                            .instr_sequence_label_for_block(loop_block);
+                        let loop_label = self.instr_sequence_label_for_block(loop_block);
                         self.pop_fblock_label(FBlockType::AsyncComprehensionGenerator, loop_label);
                     }
 
@@ -9877,9 +9838,7 @@ impl Compiler {
 
                 let mut end_async_for_target = BlockIdx::NULL;
                 if generator.is_async {
-                    let loop_label = self
-                        .current_code_info()
-                        .instr_sequence_label_for_block(loop_block);
+                    let loop_label = self.instr_sequence_label_for_block(loop_block);
                     self.push_fblock_labels(
                         FBlockType::AsyncComprehensionGenerator,
                         loop_label,
@@ -9943,9 +9902,7 @@ impl Compiler {
                         emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
                         if is_async {
-                            let loop_label = self
-                                .current_code_info()
-                                .instr_sequence_label_for_block(loop_block);
+                            let loop_label = self.instr_sequence_label_for_block(loop_block);
                             self.pop_fblock_label(
                                 FBlockType::AsyncComprehensionGenerator,
                                 loop_label,
@@ -11030,6 +10987,13 @@ impl Compiler {
         label
     }
 
+    fn instr_sequence_label_for_block(&mut self, block: BlockIdx) -> ir::InstructionSequenceLabel {
+        let result = self
+            .current_code_info()
+            .instr_sequence_label_for_block(block);
+        unwrap_internal(self, result)
+    }
+
     /// Switch to a block as CPython instruction-sequence labels would resolve.
     ///
     /// Consecutive `USE_LABEL()` calls can map multiple labels to the same
@@ -11049,7 +11013,8 @@ impl Compiler {
             && code.blocks[block.idx()].next == BlockIdx::NULL;
 
         if !can_reuse_current {
-            code.mark_cpython_cfg_label(block);
+            let result = code.mark_cpython_cfg_label(block);
+            unwrap_internal(self, result);
             self.switch_to_block(block);
             return;
         }
@@ -11061,10 +11026,13 @@ impl Compiler {
             debug_assert_eq!(target.start_depth, ir::START_DEPTH_UNSET);
             debug_assert!(!target.cold);
         }
-        code.mark_cpython_cfg_label(cur);
+        let result = code.mark_cpython_cfg_label(cur);
+        unwrap_internal(self, result);
 
-        self.current_code_info()
+        let result = self
+            .current_code_info()
             .use_instr_sequence_label_at_block(block, cur);
+        unwrap_internal(self, result);
     }
 
     fn new_block(&mut self) -> BlockIdx {
