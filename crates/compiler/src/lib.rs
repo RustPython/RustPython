@@ -1,6 +1,7 @@
 use ruff_python_parser::{LexicalErrorType, ParseErrorType};
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
 use ruff_text_size::TextSlice;
+use thiserror::Error;
 
 use rustpython_codegen::{compile, symboltable};
 
@@ -12,7 +13,6 @@ pub use ruff_python_ast as ast;
 pub use ruff_python_parser as parser;
 pub use rustpython_codegen as codegen;
 pub use rustpython_compiler_core as core;
-use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum CompileErrorType {
@@ -51,7 +51,7 @@ pub enum CompileError {
 impl CompileError {
     #[must_use]
     pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
-        //dbg!(&error);
+        dbg!(&error);
 
         let source_code = source_file.to_source_code();
         let source_text = source_file.source_text();
@@ -111,8 +111,16 @@ impl CompileError {
                     end_loc.character_offset = end_loc.character_offset.saturating_add(1);
                 }
 
-                let target = source_file.source_text().slice(&error.location);
-                let msg = format!("cannot assign to {target}");
+                let expr_str = source_file.source_text().slice(&error.location);
+
+                let msg = parser::parse_expression(expr_str)
+                    .ok()
+                    .map(|parsed| match dbg!(&*parsed.syntax().body) {
+                        ast::Expr::Call(_) => "cannot assign to function call".into(),
+                        ast::Expr::BinOp(_) => "cannot assign to expression".into(),
+                        _ => format!("cannot assign to {expr_str}"),
+                    })
+                    .unwrap_or_else(|| format!("cannot assign to {expr_str}"));
                 (ParseErrorType::OtherError(msg), loc, end_loc)
             }
 

@@ -140,15 +140,15 @@ SyntaxError: cannot assign to True
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
 
->>> [a, b, c + 1] = [1, 2, 3]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [a, b, c + 1] = [1, 2, 3]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> [a, b[1], c + 1] = [1, 2, 3]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [a, b[1], c + 1] = [1, 2, 3]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> [a, b.c.d, c + 1] = [1, 2, 3]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [a, b.c.d, c + 1] = [1, 2, 3]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
@@ -215,31 +215,31 @@ SyntaxError: 'list' is an illegal expression for augmented assignment
 Invalid targets in `for` loops and `with` statements should also
 produce a specialized error message
 
->>> for a() in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for a() in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for (a, b()) in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for (a, b()) in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for [a, b()] in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for [a, b()] in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for (*a, b, c+1) in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for (*a, b, c+1) in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> for (x, *(y, z.d())) in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for (x, *(y, z.d())) in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for a, b() in c: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for a, b() in c: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for a, b, (c + 1, d()): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for a, b, (c + 1, d()): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
@@ -251,27 +251,27 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> with a as b(): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as b(): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> with a as (b, c()): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as (b, c()): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> with a as [b, c()]: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as [b, c()]: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> with a as (*b, c, d+1): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as (*b, c, d+1): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> with a as (x, *(y, z.d())): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as (x, *(y, z.d())): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> with a as b, c as d(): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as b, c as d(): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
@@ -293,11 +293,11 @@ SyntaxError: 'in' expected after for-loop variables
 Traceback (most recent call last):
 SyntaxError: 'in' expected after for-loop variables
 
->>> [x for x() in a]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [x for x() in a]
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> [x for a, b, (c + 1, d()) in y]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [x for a, b, (c + 1, d()) in y]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
@@ -305,11 +305,11 @@ SyntaxError: cannot assign to expression
 Traceback (most recent call last):
 SyntaxError: 'in' expected after for-loop variables
 
->>> [x for x+1 in y]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [x for x+1 in y]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> [x for x+1, x() in y]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [x for x+1, x() in y]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
