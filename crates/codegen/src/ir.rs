@@ -4602,14 +4602,11 @@ fn store_local(instr_flags: &mut [u8], refs: &RefStack, local: isize, r: Ref) {
 
 fn decode_packed_fast_locals(arg: OpArg) -> (isize, isize) {
     let packed = u32::from(arg);
-    (
-        isize::try_from((packed >> 4) & 0xF).expect("local index fits in isize"),
-        isize::try_from(packed & 0xF).expect("local index fits in isize"),
-    )
+    (((packed >> 4) & 0xF) as isize, (packed & 0xF) as isize)
 }
 
 fn local_as_ref_local(local: usize) -> isize {
-    isize::try_from(local).expect("local index fits in isize")
+    local as isize
 }
 
 /// flowgraph.c load_fast_push_block
