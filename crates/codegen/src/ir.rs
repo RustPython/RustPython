@@ -81,6 +81,25 @@ impl ConstantPool {
         (idx, true)
     }
 
+    fn try_insert_full(&mut self, constant: ConstantData) -> crate::InternalResult<(usize, bool)> {
+        // CPython's _PyCode_ConstantKey() keeps NaN-bearing constants distinct
+        // because Python-level NaN keys do not compare equal.
+        if !Self::constant_contains_nan(&constant)
+            && let Some(idx) = self
+                .constants
+                .iter()
+                .position(|existing| existing == &constant)
+        {
+            return Ok((idx, false));
+        }
+        self.constants
+            .try_reserve_exact(1)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        let idx = self.constants.len();
+        self.constants.push(constant);
+        Ok((idx, true))
+    }
+
     pub fn insert(&mut self, constant: ConstantData) -> bool {
         self.insert_full(constant).1
     }
@@ -1750,7 +1769,7 @@ fn optimize_cfg(
     resolve_line_numbers(blocks, firstlineno)?;
     // CPython optimize_cfg() runs optimize_load_const() and then
     // optimize_basic_block() after line numbers are resolved.
-    optimize_load_const(metadata, blocks);
+    optimize_load_const(metadata, blocks)?;
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let next_block = blocks[block_idx.idx()].next;
@@ -2130,20 +2149,23 @@ fn load_const_truthiness(
 }
 
 /// flowgraph.c add_const
-fn add_const(metadata: &mut CodeUnitMetadata, constant: ConstantData) -> usize {
-    metadata.consts.insert_full(constant).0
+fn add_const(
+    metadata: &mut CodeUnitMetadata,
+    constant: ConstantData,
+) -> crate::InternalResult<usize> {
+    Ok(metadata.consts.try_insert_full(constant)?.0)
 }
 
 fn instr_make_load_const(
     metadata: &mut CodeUnitMetadata,
     instr: &mut InstructionInfo,
     constant: ConstantData,
-) {
+) -> crate::InternalResult<()> {
     if maybe_instr_make_load_smallint(instr, &constant) {
-        return;
+        return Ok(());
     }
 
-    let const_idx = add_const(metadata, constant);
+    let const_idx = add_const(metadata, constant)?;
     instr_set_op1(
         instr,
         Instruction::LoadConst {
@@ -2152,10 +2174,15 @@ fn instr_make_load_const(
         .into(),
         OpArg::new(const_idx as u32),
     );
+    Ok(())
 }
 
 /// flowgraph.c fold_const_unaryop
-fn fold_const_unaryop(metadata: &mut CodeUnitMetadata, block: &mut Block, i: usize) -> bool {
+fn fold_const_unaryop(
+    metadata: &mut CodeUnitMetadata,
+    block: &mut Block,
+    i: usize,
+) -> crate::InternalResult<bool> {
     let instr = &block.instructions[i];
     let (op, intrinsic) = match instr.instr.real() {
         Some(Instruction::UnaryNegative) => (Instruction::UnaryNegative, None),
@@ -2174,45 +2201,58 @@ fn fold_const_unaryop(metadata: &mut CodeUnitMetadata, block: &mut Block, i: usi
                 Some(func.get(instr.arg)),
             )
         }
-        _ => return false,
+        _ => return Ok(false),
     };
-    let Some(operand_index) = i
-        .checked_sub(1)
-        .and_then(|start| get_const_loading_instrs(block, start, 1))
-        .and_then(|indices| indices.into_iter().next())
-    else {
-        return false;
+    let Some(operand_index) = (if let Some(start) = i.checked_sub(1) {
+        get_const_loading_instrs(block, start, 1)?
+    } else {
+        None
+    })
+    .and_then(|indices| indices.into_iter().next()) else {
+        return Ok(false);
     };
     let operand = get_const_value(metadata, &block.instructions[operand_index]);
     let Some(operand) = operand else {
-        return false;
+        return Ok(false);
     };
     let Some(folded_const) = eval_const_unaryop(&operand, op, intrinsic) else {
-        return false;
+        return Ok(false);
     };
     nop_out(block, &[operand_index]);
-    instr_make_load_const(metadata, &mut block.instructions[i], folded_const);
-    true
+    instr_make_load_const(metadata, &mut block.instructions[i], folded_const)?;
+    Ok(true)
 }
 
 /// flowgraph.c get_const_loading_instrs
-fn get_const_loading_instrs(block: &Block, mut start: usize, size: usize) -> Option<Vec<usize>> {
-    let mut indices = Vec::with_capacity(size);
+fn get_const_loading_instrs(
+    block: &Block,
+    mut start: usize,
+    size: usize,
+) -> crate::InternalResult<Option<Vec<usize>>> {
+    let mut indices = Vec::new();
+    indices
+        .try_reserve_exact(size)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     loop {
-        let instr = block.instructions.get(start)?;
+        let Some(instr) = block.instructions.get(start) else {
+            return Ok(None);
+        };
         if !matches!(instr.instr.real(), Some(Instruction::Nop)) {
             if !loads_const(instr) {
-                return None;
+                return Ok(None);
             }
             indices.push(start);
             if indices.len() == size {
                 break;
             }
         }
-        start = start.checked_sub(1)?;
+        let Some(prev) = start.checked_sub(1) else {
+            return Ok(None);
+        };
+        start = prev;
     }
     indices.reverse();
-    Some(indices)
+    Ok(Some(indices))
 }
 
 /// flowgraph.c nop_out
@@ -2223,33 +2263,38 @@ fn nop_out(block: &mut Block, instrs: &[usize]) {
 }
 
 /// flowgraph.c fold_const_binop
-fn fold_const_binop(metadata: &mut CodeUnitMetadata, block: &mut Block, i: usize) -> bool {
+fn fold_const_binop(
+    metadata: &mut CodeUnitMetadata,
+    block: &mut Block,
+    i: usize,
+) -> crate::InternalResult<bool> {
     use oparg::BinaryOperator as BinOp;
 
     let Some(Instruction::BinaryOp { .. }) = block.instructions[i].instr.real() else {
-        return false;
+        return Ok(false);
     };
-    let Some(operand_indices) = i
-        .checked_sub(1)
-        .and_then(|start| get_const_loading_instrs(block, start, 2))
-    else {
-        return false;
+    let Some(operand_indices) = (if let Some(start) = i.checked_sub(1) {
+        get_const_loading_instrs(block, start, 2)?
+    } else {
+        None
+    }) else {
+        return Ok(false);
     };
     let op_raw = u32::from(block.instructions[i].arg);
     let Ok(op) = BinOp::try_from(op_raw) else {
-        return false;
+        return Ok(false);
     };
     let left = get_const_value(metadata, &block.instructions[operand_indices[0]]);
     let right = get_const_value(metadata, &block.instructions[operand_indices[1]]);
     let (Some(left_val), Some(right_val)) = (left, right) else {
-        return false;
+        return Ok(false);
     };
     let Some(result_const) = eval_const_binop(&left_val, &right_val, op) else {
-        return false;
+        return Ok(false);
     };
     nop_out(block, &operand_indices);
-    instr_make_load_const(metadata, &mut block.instructions[i], result_const);
-    true
+    instr_make_load_const(metadata, &mut block.instructions[i], result_const)?;
+    Ok(true)
 }
 
 /// flowgraph.c loads_const
@@ -2896,29 +2941,37 @@ fn eval_const_binop(
 }
 
 /// flowgraph.c fold_tuple_of_constants
-fn fold_tuple_of_constants(metadata: &mut CodeUnitMetadata, block: &mut Block, i: usize) -> bool {
+fn fold_tuple_of_constants(
+    metadata: &mut CodeUnitMetadata,
+    block: &mut Block,
+    i: usize,
+) -> crate::InternalResult<bool> {
     let Some(Instruction::BuildTuple { .. }) = block.instructions[i].instr.real() else {
-        return false;
+        return Ok(false);
     };
 
     let tuple_size = u32::from(block.instructions[i].arg) as usize;
     if tuple_size > STACK_USE_GUIDELINE {
-        return false;
+        return Ok(false);
     }
 
     let Some(operand_indices) = (if tuple_size == 0 {
         Some(Vec::new())
+    } else if let Some(start) = i.checked_sub(1) {
+        get_const_loading_instrs(block, start, tuple_size)?
     } else {
-        i.checked_sub(1)
-            .and_then(|start| get_const_loading_instrs(block, start, tuple_size))
+        None
     }) else {
-        return false;
+        return Ok(false);
     };
 
-    let mut elements = Vec::with_capacity(tuple_size);
+    let mut elements = Vec::new();
+    elements
+        .try_reserve_exact(tuple_size)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     for &j in &operand_indices {
         let Some(element) = get_const_value(metadata, &block.instructions[j]) else {
-            return false;
+            return Ok(false);
         };
         elements.push(element);
     }
@@ -2928,20 +2981,20 @@ fn fold_tuple_of_constants(metadata: &mut CodeUnitMetadata, block: &mut Block, i
         metadata,
         &mut block.instructions[i],
         ConstantData::Tuple { elements },
-    );
-    true
+    )?;
+    Ok(true)
 }
 
 fn fold_constant_intrinsic_list_to_tuple(
     metadata: &mut CodeUnitMetadata,
     block: &mut Block,
     i: usize,
-) -> bool {
+) -> crate::InternalResult<bool> {
     let Some(Instruction::CallIntrinsic1 { func }) = block.instructions[i].instr.real() else {
-        return false;
+        return Ok(false);
     };
     if func.get(block.instructions[i].arg) != IntrinsicFunction1::ListToTuple {
-        return false;
+        return Ok(false);
     }
 
     let mut consts_found = 0usize;
@@ -2958,10 +3011,14 @@ fn fold_constant_intrinsic_list_to_tuple(
             && u32::from(instr.arg) == 0
         {
             if !expect_append {
-                return false;
+                return Ok(false);
             }
 
-            let mut elements = vec![None; consts_found];
+            let mut elements = Vec::new();
+            elements
+                .try_reserve_exact(consts_found)
+                .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+            elements.resize_with(consts_found, || None);
             let mut remaining = consts_found;
             for idx in (pos..i).rev() {
                 if matches!(block.instructions[idx].instr.real(), Some(Instruction::Nop)) {
@@ -2969,7 +3026,7 @@ fn fold_constant_intrinsic_list_to_tuple(
                 }
                 if loads_const(&block.instructions[idx]) {
                     let Some(value) = get_const_value(metadata, &block.instructions[idx]) else {
-                        return false;
+                        return Ok(false);
                     };
                     debug_assert!(remaining > 0);
                     remaining -= 1;
@@ -2986,26 +3043,26 @@ fn fold_constant_intrinsic_list_to_tuple(
                 metadata,
                 &mut block.instructions[i],
                 ConstantData::Tuple { elements },
-            );
-            return true;
+            )?;
+            return Ok(true);
         }
 
         if expect_append {
             if !matches!(instr.instr.real(), Some(Instruction::ListAppend { .. }))
                 || u32::from(instr.arg) != 1
             {
-                return false;
+                return Ok(false);
             }
         } else {
             if !loads_const(instr) {
-                return false;
+                return Ok(false);
             }
             consts_found += 1;
         }
         expect_append = !expect_append;
     }
 
-    false
+    Ok(false)
 }
 
 /// Port of CPython's flowgraph.c optimize_lists_and_sets().
@@ -3014,14 +3071,14 @@ fn optimize_lists_and_sets(
     block: &mut Block,
     i: usize,
     nextop: Option<Instruction>,
-) -> bool {
+) -> crate::InternalResult<bool> {
     let Some(instr) = block.instructions[i].instr.real() else {
-        return false;
+        return Ok(false);
     };
     let is_list = matches!(instr, Instruction::BuildList { .. });
     let is_set = matches!(instr, Instruction::BuildSet { .. });
     if !is_list && !is_set {
-        return false;
+        return Ok(false);
     }
 
     let contains_or_iter = matches!(
@@ -3030,27 +3087,31 @@ fn optimize_lists_and_sets(
     );
     let seq_size = u32::from(block.instructions[i].arg) as usize;
     if seq_size > STACK_USE_GUIDELINE || (seq_size < MIN_CONST_SEQUENCE_SIZE && !contains_or_iter) {
-        return false;
+        return Ok(false);
     }
 
     let Some(operand_indices) = (if seq_size == 0 {
         Some(Vec::new())
+    } else if let Some(start) = i.checked_sub(1) {
+        get_const_loading_instrs(block, start, seq_size)?
     } else {
-        i.checked_sub(1)
-            .and_then(|start| get_const_loading_instrs(block, start, seq_size))
+        None
     }) else {
         if contains_or_iter && is_list {
             let arg = block.instructions[i].arg;
             instr_set_op1(&mut block.instructions[i], Opcode::BuildTuple.into(), arg);
-            return true;
+            return Ok(true);
         }
-        return false;
+        return Ok(false);
     };
 
-    let mut elements = Vec::with_capacity(seq_size);
+    let mut elements = Vec::new();
+    elements
+        .try_reserve_exact(seq_size)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     for &j in &operand_indices {
         let Some(element) = get_const_value(metadata, &block.instructions[j]) else {
-            return false;
+            return Ok(false);
         };
         elements.push(element);
     }
@@ -3060,7 +3121,7 @@ fn optimize_lists_and_sets(
     } else {
         ConstantData::Frozenset { elements }
     };
-    let const_idx = add_const(metadata, const_data);
+    let const_idx = add_const(metadata, const_data)?;
 
     if !contains_or_iter {
         debug_assert!(i >= 2);
@@ -3104,7 +3165,7 @@ fn optimize_lists_and_sets(
             extend_instr.into(),
             OpArg::new(1),
         );
-        return true;
+        return Ok(true);
     }
 
     nop_out(block, &operand_indices);
@@ -3117,7 +3178,7 @@ fn optimize_lists_and_sets(
         .into(),
         OpArg::new(const_idx as u32),
     );
-    true
+    Ok(true)
 }
 
 const SWAP_OPTIMIZE_VISITED: i32 = -1;
@@ -3330,7 +3391,10 @@ fn maybe_instr_make_load_smallint(instr: &mut InstructionInfo, constant: &Consta
 }
 
 /// flowgraph.c basicblock_optimize_load_const
-fn basicblock_optimize_load_const(metadata: &mut CodeUnitMetadata, block: &mut Block) {
+fn basicblock_optimize_load_const(
+    metadata: &mut CodeUnitMetadata,
+    block: &mut Block,
+) -> crate::InternalResult<()> {
     let mut i = 0;
     let mut effective_opcode = None;
     let mut effective_oparg = OpArg::new(0);
@@ -3471,7 +3535,7 @@ fn basicblock_optimize_load_const(metadata: &mut CodeUnitMetadata, block: &mut B
         ) && matches!(next_instr, Instruction::ToBool)
             && let Some(value) = load_const_truthiness(const_instr, const_arg, metadata)
         {
-            let const_idx = add_const(metadata, ConstantData::Boolean { value });
+            let const_idx = add_const(metadata, ConstantData::Boolean { value })?;
             set_to_nop(&mut block.instructions[i]);
             instr_set_op1(
                 &mut block.instructions[i + 1],
@@ -3487,17 +3551,22 @@ fn basicblock_optimize_load_const(metadata: &mut CodeUnitMetadata, block: &mut B
 
         i += 1;
     }
+    Ok(())
 }
 
 /// flowgraph.c optimize_load_const
-fn optimize_load_const(metadata: &mut CodeUnitMetadata, blocks: &mut [Block]) {
+fn optimize_load_const(
+    metadata: &mut CodeUnitMetadata,
+    blocks: &mut [Block],
+) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let next_block = blocks[block_idx.idx()].next;
         let block = &mut blocks[block_idx];
-        basicblock_optimize_load_const(metadata, block);
+        basicblock_optimize_load_const(metadata, block)?;
         block_idx = next_block;
     }
+    Ok(())
 }
 
 /// flowgraph.c optimize_basic_block
@@ -3559,10 +3628,10 @@ fn optimize_basic_block(
                         _ => {}
                     }
                 }
-                fold_tuple_of_constants(metadata, &mut blocks[bi], i);
+                fold_tuple_of_constants(metadata, &mut blocks[bi], i)?;
             }
             AnyInstruction::Real(Instruction::BuildList { .. } | Instruction::BuildSet { .. }) => {
-                optimize_lists_and_sets(metadata, &mut blocks[bi], i, nextop);
+                optimize_lists_and_sets(metadata, &mut blocks[bi], i, nextop)?;
             }
             AnyInstruction::Real(
                 Instruction::PopJumpIfNotNone { .. } | Instruction::PopJumpIfNone { .. },
@@ -3712,10 +3781,10 @@ fn optimize_basic_block(
                     i += 1;
                     continue;
                 }
-                fold_const_unaryop(metadata, &mut blocks[bi], i);
+                fold_const_unaryop(metadata, &mut blocks[bi], i)?;
             }
             AnyInstruction::Real(Instruction::UnaryInvert | Instruction::UnaryNegative) => {
-                fold_const_unaryop(metadata, &mut blocks[bi], i);
+                fold_const_unaryop(metadata, &mut blocks[bi], i)?;
             }
             AnyInstruction::Real(Instruction::CallIntrinsic1 { func }) => {
                 match func.get(inst.arg) {
@@ -3723,17 +3792,17 @@ fn optimize_basic_block(
                         if matches!(nextop, Some(Instruction::GetIter)) {
                             set_to_nop(&mut blocks[bi].instructions[i]);
                         } else {
-                            fold_constant_intrinsic_list_to_tuple(metadata, &mut blocks[bi], i);
+                            fold_constant_intrinsic_list_to_tuple(metadata, &mut blocks[bi], i)?;
                         }
                     }
                     IntrinsicFunction1::UnaryPositive => {
-                        fold_const_unaryop(metadata, &mut blocks[bi], i);
+                        fold_const_unaryop(metadata, &mut blocks[bi], i)?;
                     }
                     _ => {}
                 }
             }
             AnyInstruction::Real(Instruction::BinaryOp { .. }) => {
-                fold_const_binop(metadata, &mut blocks[bi], i);
+                fold_const_binop(metadata, &mut blocks[bi], i)?;
             }
             _ => {}
         }
@@ -4308,7 +4377,7 @@ impl CodeInfo {
         ));
         remove_unreachable(&mut self.blocks)?;
         resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno)?;
-        optimize_load_const(&mut self.metadata, &mut self.blocks);
+        optimize_load_const(&mut self.metadata, &mut self.blocks)?;
         trace.push((
             "after_optimize_load_const".to_owned(),
             self.debug_block_dump(),
@@ -7122,7 +7191,8 @@ mod tests {
         });
         code.blocks[0].instructions[0].arg = OpArg::new(const_idx as u32);
 
-        optimize_load_const(&mut code.metadata, &mut code.blocks);
+        optimize_load_const(&mut code.metadata, &mut code.blocks)
+            .expect("optimize_load_const succeeds");
 
         // CPython `basicblock_optimize_load_const()` keeps the previous
         // LOAD_CONST as the effective opcode for a following `COPY 1`, so the
@@ -7214,7 +7284,10 @@ mod tests {
         let mut block = Block::default();
         block.instructions.extend([immortal, mortal, build]);
 
-        assert!(fold_tuple_of_constants(&mut metadata, &mut block, 2));
+        assert!(
+            fold_tuple_of_constants(&mut metadata, &mut block, 2)
+                .expect("fold_tuple_of_constants succeeds")
+        );
 
         // CPython `loads_const()` accepts every `OPCODE_HAS_CONST` opcode, not
         // just canonical LOAD_CONST, so LOAD_CONST_IMMORTAL/MORTAL participate
