@@ -3184,9 +3184,7 @@ fn is_swappable(instr: &AnyInstruction) -> bool {
 fn stores_to(info: &InstructionInfo) -> i32 {
     match info.instr.into() {
         AnyOpcode::Real(Opcode::StoreFast)
-        | AnyOpcode::Pseudo(PseudoOpcode::StoreFastMaybeNull) => {
-            i32::try_from(u32::from(info.arg)).expect("STORE_FAST oparg fits in int")
-        }
+        | AnyOpcode::Pseudo(PseudoOpcode::StoreFastMaybeNull) => u32::from(info.arg) as i32,
         _ => -1,
     }
 }
@@ -6705,7 +6703,7 @@ pub(crate) fn fix_cell_offsets(
                 !matches!(inst.instr.real(), Some(Instruction::ExtendedArg)),
                 "fix_cell_offsets is called before extended args are generated"
             );
-            let oldoffset = i32::try_from(u32::from(inst.arg)).expect("oparg fits in int");
+            let oldoffset = u32::from(inst.arg) as i32;
             match inst.instr {
                 AnyInstruction::Real(
                     Instruction::MakeCell { .. }
@@ -6716,9 +6714,7 @@ pub(crate) fn fix_cell_offsets(
                 )
                 | AnyInstruction::Pseudo(PseudoInstruction::LoadClosure { .. }) => {
                     debug_assert!(oldoffset >= 0);
-                    debug_assert!(
-                        oldoffset < noffsets.to_i32().expect("localsplus offset fits in int")
-                    );
+                    debug_assert!(oldoffset < noffsets as i32);
                     let oldoffset =
                         usize::try_from(oldoffset).expect("localsplus offset is non-negative");
                     let fixed_offset = cellfixedoffsets[oldoffset];
