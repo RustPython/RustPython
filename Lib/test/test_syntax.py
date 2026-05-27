@@ -31,7 +31,7 @@ Errors from set_context():
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
@@ -39,7 +39,7 @@ SyntaxError: cannot assign to None
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> True = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> True = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
@@ -124,7 +124,7 @@ them.
 Traceback (most recent call last):
 SyntaxError: cannot assign to literal
 
->>> (a, True, c) = (1, 2, 3)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (a, True, c) = (1, 2, 3)
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
@@ -132,7 +132,7 @@ SyntaxError: cannot assign to True
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
 
->>> (a, *True, c) = (1, 2, 3)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (a, *True, c) = (1, 2, 3)
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
@@ -188,11 +188,11 @@ SyntaxError: expected expression before 'if', but statement is given
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> True = True = 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> True = True = 3
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
->>> x = y = True = z = 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> x = y = True = z = 3
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
@@ -2114,19 +2114,19 @@ SyntaxError: cannot use subscript as import target
 # Check that we don't raise a "cannot use name as import target" error
 # if there is an error in an unrelated statement after ';'
 
->>> import a as b; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> import a as b; None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
->>> import a, b as c; d = 1; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> import a, b as c; d = 1; None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
->>> from a import b as c; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import b as c; None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
->>> from a import b, c as d; e = 1; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import b, c as d; e = 1; None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 

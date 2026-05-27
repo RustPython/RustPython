@@ -1,4 +1,7 @@
+use ruff_python_parser::{LexicalErrorType, ParseErrorType};
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
+use ruff_text_size::TextSlice;
+
 use rustpython_codegen::{compile, symboltable};
 
 pub use rustpython_codegen::compile::CompileOpts;
@@ -16,13 +19,13 @@ pub enum CompileErrorType {
     #[error(transparent)]
     Codegen(#[from] codegen::error::CodegenErrorType),
     #[error(transparent)]
-    Parse(#[from] parser::ParseErrorType),
+    Parse(#[from] ParseErrorType),
 }
 
 #[derive(Error, Debug)]
 pub struct ParseError {
     #[source]
-    pub error: parser::ParseErrorType,
+    pub error: ParseErrorType,
     pub raw_location: ruff_text_size::TextRange,
     pub location: SourceLocation,
     pub end_location: SourceLocation,
@@ -48,63 +51,87 @@ pub enum CompileError {
 impl CompileError {
     #[must_use]
     pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
+        //dbg!(&error);
+
         let source_code = source_file.to_source_code();
         let source_text = source_file.source_text();
 
         // For EOF errors (unclosed brackets), find the unclosed bracket position
         // and adjust both the error location and message
         let mut is_unclosed_bracket = false;
-        let (error_type, location, end_location) = if matches!(
-            &error.error,
-            parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
-        ) {
-            if let Some((bracket_char, bracket_offset)) = find_unclosed_bracket(source_text) {
-                let bracket_text_size = ruff_text_size::TextSize::new(bracket_offset as u32);
-                let loc = source_code.source_location(bracket_text_size, PositionEncoding::Utf8);
-                let end_loc = SourceLocation {
-                    line: loc.line,
-                    character_offset: loc.character_offset.saturating_add(1),
-                };
-                let msg = format!("'{bracket_char}' was never closed");
-                is_unclosed_bracket = true;
-                (parser::ParseErrorType::OtherError(msg), loc, end_loc)
-            } else {
+        let (error_type, location, end_location) = match &error.error {
+            ParseErrorType::Lexical(LexicalErrorType::Eof) => {
+                if let Some((bracket_char, bracket_offset)) = find_unclosed_bracket(source_text) {
+                    let bracket_text_size = ruff_text_size::TextSize::new(bracket_offset as u32);
+                    let loc =
+                        source_code.source_location(bracket_text_size, PositionEncoding::Utf8);
+                    let end_loc = SourceLocation {
+                        line: loc.line,
+                        character_offset: loc.character_offset.saturating_add(1),
+                    };
+                    let msg = format!("'{bracket_char}' was never closed");
+                    is_unclosed_bracket = true;
+                    (ParseErrorType::OtherError(msg), loc, end_loc)
+                } else {
+                    let loc =
+                        source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                    let end_loc =
+                        source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+                    (error.error, loc, end_loc)
+                }
+            }
+
+            ParseErrorType::Lexical(LexicalErrorType::IndentationError) => {
+                // For IndentationError, point the offset to the end of the line content
+                // instead of the beginning
                 let loc =
                     source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-                let end_loc =
+                let line_idx = loc.line.to_zero_indexed();
+                let line = source_text.split('\n').nth(line_idx).unwrap_or("");
+                let line_end_col = line.chars().count() + 1; // 1-indexed, past last char
+                let end_loc = SourceLocation {
+                    line: loc.line,
+                    character_offset: ruff_source_file::OneIndexed::new(line_end_col)
+                        .unwrap_or(loc.character_offset),
+                };
+                (error.error, end_loc, end_loc)
+            }
+
+            ParseErrorType::InvalidAssignmentTarget => {
+                let loc =
+                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                let mut end_loc =
                     source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+                // If the error range ends at the start of a new line (column 1),
+                // adjust it to the end of the previous line
+                if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
+                    let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+                    end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+                    end_loc.character_offset = end_loc.character_offset.saturating_add(1);
+                }
+
+                let target = source_file.source_text().slice(&error.location);
+                let msg = format!("cannot assign to {target}");
+                (ParseErrorType::OtherError(msg), loc, end_loc)
+            }
+
+            _ => {
+                let loc =
+                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                let mut end_loc =
+                    source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+                // If the error range ends at the start of a new line (column 1),
+                // adjust it to the end of the previous line
+                if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
+                    let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+                    end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+                    end_loc.character_offset = end_loc.character_offset.saturating_add(1);
+                }
+
                 (error.error, loc, end_loc)
             }
-        } else if matches!(
-            &error.error,
-            parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
-        ) {
-            // For IndentationError, point the offset to the end of the line content
-            // instead of the beginning
-            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-            let line_idx = loc.line.to_zero_indexed();
-            let line = source_text.split('\n').nth(line_idx).unwrap_or("");
-            let line_end_col = line.chars().count() + 1; // 1-indexed, past last char
-            let end_loc = SourceLocation {
-                line: loc.line,
-                character_offset: ruff_source_file::OneIndexed::new(line_end_col)
-                    .unwrap_or(loc.character_offset),
-            };
-            (error.error, end_loc, end_loc)
-        } else {
-            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-            let mut end_loc =
-                source_code.source_location(error.location.end(), PositionEncoding::Utf8);
-
-            // If the error range ends at the start of a new line (column 1),
-            // adjust it to the end of the previous line
-            if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
-                let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
-                end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
-                end_loc.character_offset = end_loc.character_offset.saturating_add(1);
-            }
-
-            (error.error, loc, end_loc)
         };
 
         Self::Parse(ParseError {
