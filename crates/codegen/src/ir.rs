@@ -4673,7 +4673,10 @@ fn vec_try_reserve_exact<T>(vec: &mut Vec<T>, additional: usize) -> crate::Inter
 fn vec_try_resize_to_double_capacity<T>(vec: &mut Vec<T>) -> crate::InternalResult<()> {
     let capacity = vec.capacity();
     debug_assert!(capacity > 0);
-    if capacity == 0 || capacity > usize::MAX / 2 {
+    let len = capacity
+        .checked_mul(core::mem::size_of::<T>())
+        .ok_or(InternalError::MalformedControlFlowGraph)?;
+    if capacity == 0 || len > usize::MAX / 2 {
         return Err(InternalError::MalformedControlFlowGraph);
     }
     let new_capacity = capacity * 2;
