@@ -1343,13 +1343,23 @@ fn instruction_sequence_label_map_register_label(
     map: &mut InstructionSequenceLabelMap,
     label: InstructionSequenceLabel,
 ) -> crate::InternalResult<()> {
-    if map.cpython_block_by_label.len() <= label.idx() {
+    debug_assert!(is_label(label));
+    let old_size = map.cpython_block_by_label.len();
+    let new_allocation = c_array_ensure_capacity::<i32>(
+        old_size,
+        label.idx(),
+        INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE,
+    )?;
+    if new_allocation > old_size {
+        if new_allocation > map.cpython_block_by_label.capacity() {
+            map.cpython_block_by_label
+                .try_reserve_exact(new_allocation - map.cpython_block_by_label.capacity())
+                .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        }
         map.cpython_block_by_label
-            .try_reserve(label.idx() + 1 - map.cpython_block_by_label.len())
-            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-        map.cpython_block_by_label
-            .resize(label.idx() + 1, BlockIdx::NULL);
+            .resize(new_allocation, BlockIdx::NULL);
     }
+    debug_assert!(map.cpython_block_by_label.len() > label.idx());
     Ok(())
 }
 
@@ -1364,6 +1374,7 @@ fn instruction_sequence_label_map_ensure_label_for_block(
         return Ok(block_label);
     }
     let label = instruction_sequence_new_label(seq);
+    debug_assert_eq!(label.0, seq.next_free_label);
     instruction_sequence_label_map_register_label(map, label)?;
     map.cpython_block_by_label[label.idx()] = block;
     map.block_labels[block.idx()] = label;
@@ -1445,6 +1456,7 @@ fn instruction_sequence_label_map_use_label_at_block(
         return Ok(());
     }
     let from_label = instruction_sequence_label_map_ensure_label_for_block(map, seq, from)?;
+    debug_assert!(map.cpython_block_by_label.len() > from_label.idx());
     let to_block = instruction_sequence_label_map_resolve_label(map, to);
     if to_block == BlockIdx::NULL {
         debug_assert!(
@@ -1472,6 +1484,7 @@ fn instruction_sequence_label_map_push_unmapped_label(
     seq: &mut InstructionSequence,
 ) -> crate::InternalResult<()> {
     let label = instruction_sequence_new_label(seq);
+    debug_assert_eq!(label.0, seq.next_free_label);
     instruction_sequence_label_map_register_label(map, label)?;
     let block = BlockIdx(
         map.block_labels
@@ -6827,6 +6840,10 @@ mod tests {
         let mut labels = InstructionSequenceLabelMap::new();
         instruction_sequence_label_map_push_unmapped_label(&mut labels, &mut seq).unwrap();
         instruction_sequence_label_map_push_unmapped_label(&mut labels, &mut seq).unwrap();
+        assert_eq!(
+            labels.cpython_block_by_label.len(),
+            INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE
+        );
 
         let first = BlockIdx::new(1);
         let second = BlockIdx::new(2);
